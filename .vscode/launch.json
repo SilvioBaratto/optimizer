@@ -1,0 +1,50 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/optimizer",
+      "python": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
+      "jinja": true,
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONPATH": "${workspaceFolder}/optimizer"
+      }
+    },
+    {
+      "name": "Black-Litterman: Portfolio Optimizer",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/optimizer/src/black_litterman/portfolio_optimizer.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/optimizer",
+      "python": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
+      "jinja": true,
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONPATH": "${workspaceFolder}/optimizer"
+      }
+    },
+    {
+      "name": "Momentum Benchmark Comparison",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/optimizer/src/data_visualization/momentum_benchmark.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/optimizer",
+      "python": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
+      "jinja": true,
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONPATH": "${workspaceFolder}/optimizer"
+      }
+    }
+  ]
+}

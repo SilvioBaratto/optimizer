@@ -1,0 +1,59 @@
+services:
+  optimizer-scheduler:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: portfolio-optimizer-scheduler
+    restart: unless-stopped
+
+    # Environment variables (load from .env file in parent directory)
+    env_file:
+      - ../.env
+
+    # Additional environment variables
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Europe/Rome  # Set timezone to Italy for 22:00 local time scheduling
+      # Optional: Set to true to run analysis on container startup (useful for testing)
+      - RUN_ON_STARTUP=false
+
+    # Volumes (optional: mount logs directory for persistence)
+    volumes:
+      # Persist logs outside container
+      - ./logs:/var/log/optimizer
+      # Optional: Mount data directory if needed
+      # - ../data:/app/data
+
+    # Network mode - Use host network to share Mac's WiFi and DNS
+    # This fixes Docker Desktop macOS DNS issues by using your laptop's network directly
+    network_mode: host
+
+    # Resource limits (optional: prevent container from consuming too many resources)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+    # Health check (check if crontab is configured)
+    healthcheck:
+      test: ["CMD-SHELL", "crontab -l > /dev/null 2>&1"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Optional: Define volumes
+volumes:
+  optimizer-logs:
+    driver: local

@@ -1,0 +1,18 @@
+{
+    "python.analysis.typeCheckingMode": "standard",
+    "editor.formatOnSave": true,
+    "[typescript]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[html]": {
+        "editor.defaultFormatter": "vscode.html-language-features"
+    },
+    // Python execution settings - always run from optimizer directory
+    "python.terminal.executeInFileDir": false,
+    "python.defaultInterpreterPath": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
+    "python.envFile": "${workspaceFolder}/.env",
+    "terminal.integrated.env.osx": {
+        "PYTHONPATH": "${workspaceFolder}/optimizer"
+    },
+    "terminal.integrated.cwd": "${workspaceFolder}/optimizer"
+}

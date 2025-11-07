@@ -1,0 +1,130 @@
+# Portfolio Optimizer - Root .gitignore
+# ============================================================
+
+# ═══════════════════════════════════════════════════════════
+# ENVIRONMENT FILES (NEVER COMMIT SECRETS)
+# ═══════════════════════════════════════════════════════════
+
+# All environment files at root
+.env
+.env.*
+!.env.example
+
+# ═══════════════════════════════════════════════════════════
+# PYTHON
+# ═══════════════════════════════════════════════════════════
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# ═══════════════════════════════════════════════════════════
+# IDE & EDITOR
+# ═══════════════════════════════════════════════════════════
+
+# VS Code (keep launch.json and other configs)
+.vscode/*
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+
+# PyCharm
+.idea/
+
+# ═══════════════════════════════════════════════════════════
+# OPERATING SYSTEM
+# ═══════════════════════════════════════════════════════════
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Icon
+
+# Windows
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# ═══════════════════════════════════════════════════════════
+# LOGS & TEMPORARY FILES
+# ═══════════════════════════════════════════════════════════
+
+*.log
+logs/
+*.tmp
+*.temp
+temp/
+tmp/
+
+# ═══════════════════════════════════════════════════════════
+# DOCKER
+# ═══════════════════════════════════════════════════════════
+
+# Docker compose overrides
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Docker volumes
+docker-volumes/
+volumes/
+
+# ═══════════════════════════════════════════════════════════
+# PROJECT SPECIFIC
+# ═══════════════════════════════════════════════════════════
+
+# Cache directories
+.cache/
+cache/
+
+# Output files (keep structure, ignore generated files)
+optimizer/outputs/*.csv
+optimizer/outputs/*.png
+optimizer/outputs/*.pdf
+optimizer/outputs/*.json
+optimizer/outputs/*.txt
+!optimizer/outputs/.gitkeep
+
+# Database files (local SQLite, if any)
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.backup
+*.bak
+*.old
+
+# SSL certificates and keys
+*.pem
+*.key
+*.cert
+*.crt
+
+# Node modules (for frontend)
+node_modules/
+
+# Frontend build artifacts
+frontend/dist/
+frontend/.angular/

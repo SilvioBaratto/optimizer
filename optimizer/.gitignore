@@ -1,0 +1,397 @@
+# FantaCreator Scuolazoo API - Git Ignore Configuration
+# ============================================================
+
+# ═══════════════════════════════════════════════════════════
+# PYTHON SPECIFIC
+# ═══════════════════════════════════════════════════════════
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff (if ever added):
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff (not used but included for completeness):
+instance/
+.webassets-cache
+
+# Scrapy stuff (not used but included):
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff (if ever used)
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# ═══════════════════════════════════════════════════════════
+# ENVIRONMENT & CONFIGURATION
+# ═══════════════════════════════════════════════════════════
+
+# Environment files (NEVER commit these)
+.env*
+!.env.example
+environments/.env.*
+!environments/.env.example
+
+# Local configuration overrides
+local_config.py
+config_local.py
+
+# ═══════════════════════════════════════════════════════════
+# DATABASE & MIGRATIONS
+# ═══════════════════════════════════════════════════════════
+
+# SQLite databases (if used for local development)
+*.db
+*.sqlite
+*.sqlite3
+
+# Database dumps
+*.sql
+*.dump
+
+# ═══════════════════════════════════════════════════════════
+# DOCKER & CONTAINERIZATION
+# ═══════════════════════════════════════════════════════════
+
+# Docker volumes data
+docker-volumes/
+volumes/
+
+# Docker Compose override files (local development customizations)
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Container logs
+containers/
+*.container.log
+
+# ═══════════════════════════════════════════════════════════
+# DEVELOPMENT & DEBUGGING
+# ═══════════════════════════════════════════════════════════
+
+# Debugging files
+*.debug
+debug.py
+debug_*.py
+
+# Profiling output
+*.prof
+*.profile
+
+# Memory dumps
+*.dump
+*.heap
+
+# Error logs
+error.log
+errors.log
+*.error.log
+
+# ═══════════════════════════════════════════════════════════
+# TESTING & SECURITY
+# ═══════════════════════════════════════════════════════════
+
+# Test output files
+test-results/
+test_output/
+*.test.log
+
+# Security scan reports
+bandit-report.json
+safety-report.txt
+security-report.*
+
+# Load testing results
+locust-report.html
+load-test-results/
+
+# ═══════════════════════════════════════════════════════════
+# DEPLOYMENT & PRODUCTION
+# ═══════════════════════════════════════════════════════════
+
+# Fly.io deployment artifacts
+.fly/
+
+# SSL certificates and keys (NEVER commit these)
+*.pem
+*.key
+*.cert
+*.crt
+*.p12
+*.pfx
+ssl/
+certs/
+
+# Backup files
+*.backup
+*.bak
+*.old
+*~
+
+# Temporary deployment files
+deploy.tmp
+deployment.log
+
+# ═══════════════════════════════════════════════════════════
+# IDE & EDITOR SPECIFIC
+# ═══════════════════════════════════════════════════════════
+
+# PyCharm
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json.example
+!.vscode/launch.json.example
+!.vscode/extensions.json
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# VS Code
+.history/
+
+# ═══════════════════════════════════════════════════════════
+# OPERATING SYSTEM SPECIFIC
+# ═══════════════════════════════════════════════════════════
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ═══════════════════════════════════════════════════════════
+# LOGS & MONITORING
+# ═══════════════════════════════════════════════════════════
+
+# Application logs
+logs/
+*.log
+log/
+app.log
+api.log
+access.log
+error.log
+
+# Monitoring and metrics
+metrics/
+monitoring/
+
+# ═══════════════════════════════════════════════════════════
+# CACHE & TEMPORARY FILES
+# ═══════════════════════════════════════════════════════════
+
+# General cache
+cache/
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Redis dumps (if using local Redis)
+dump.rdb
+
+# ═══════════════════════════════════════════════════════════
+# DOCUMENTATION & REPORTS
+# ═══════════════════════════════════════════════════════════
+
+# Generated documentation (keep source, ignore builds)
+docs/build/
+docs/_build/
+
+# Coverage reports
+htmlcov/
+.coverage
+coverage/
+
+# API documentation builds (regenerated)
+api-docs/build/
+
+# ═══════════════════════════════════════════════════════════
+# PROJECT SPECIFIC
+# ═══════════════════════════════════════════════════════════
+
+# Local development files
+local/
+dev-data/
+test-data/
+sample-data/
+
+# User uploads (if any)
+uploads/
+media/
+static/user-content/
+
+# Local scripts for development
+local-scripts/
+personal/
