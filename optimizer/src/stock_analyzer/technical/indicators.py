@@ -1,37 +1,9 @@
-"""
-Technical Indicators
-===================
-
-Provides calculation of standard technical indicators used in quantitative analysis.
-
-Indicators:
-- RSI (Relative Strength Index): 14-day momentum oscillator
-- EWMA Volatility: Exponentially weighted moving average volatility with 84-day half-life
-"""
-
 import numpy as np
 import pandas as pd
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 def calculate_rsi(prices: np.ndarray, period: int = 14) -> np.ndarray:
-    """
-    Calculate RSI (Relative Strength Index) indicator.
-
-    RSI measures momentum by comparing recent gains to recent losses.
-    Values range from 0-100:
-    - Above 70: Overbought
-    - Below 30: Oversold
-
-    Args:
-        prices: Array of historical prices
-        period: Lookback period for RSI calculation (default: 14)
-
-    Returns:
-        Array of RSI values (same length as prices, with NaN for insufficient data)
-    """
+    """Calculate RSI (Relative Strength Index) indicator."""
     deltas = np.diff(prices)
     gains = np.where(deltas > 0, deltas, 0)
     losses = np.where(deltas < 0, -deltas, 0)
@@ -59,29 +31,12 @@ def calculate_rsi(prices: np.ndarray, period: int = 14) -> np.ndarray:
 
 
 def calculate_ewma_volatility(
-    returns: np.ndarray,
-    halflife: int = 84,
-    annualize: bool = True
+    returns: np.ndarray, halflife: int = 84, annualize: bool = True
 ) -> float:
-    """
-    Calculate EWMA (Exponentially Weighted Moving Average) volatility.
-
-    Implements Section 5.3.3 of institutional framework:
-    - Uses 84-day half-life (MSCI standard for volatility estimation)
-    - Exponential weighting gives more importance to recent data
-    - More responsive to regime changes than simple historical volatility
-
-    Args:
-        returns: Array of daily returns
-        halflife: Half-life in days (default: 84, per MSCI standard)
-        annualize: Whether to annualize the result (default: True)
-
-    Returns:
-        EWMA volatility (annualized if annualize=True)
-    """
+    """Calculate EWMA (Exponentially Weighted Moving Average) volatility."""
     if len(returns) < halflife:
         # Fallback to simple volatility if insufficient data
-        std = np.std(returns, ddof=1)
+        std = float(np.std(returns, ddof=1))
         return std * np.sqrt(252) if annualize else std
 
     # Decay factor: lambda = 2^(-1/halflife)
@@ -102,20 +57,9 @@ def calculate_ewma_volatility(
 
 
 def calculate_moving_averages(
-    prices: np.ndarray,
-    windows: list[int] = [50, 200]
+    prices: np.ndarray, windows: list[int] = [50, 200]
 ) -> dict[int, float]:
-    """
-    Calculate simple moving averages for multiple windows.
-
-    Args:
-        prices: Array of historical prices
-        windows: List of window sizes (default: [50, 200])
-
-    Returns:
-        Dictionary mapping window size to moving average value
-        Returns NaN for windows larger than available data
-    """
+    """Calculate simple moving averages for multiple windows."""
     result = {}
     prices_series = pd.Series(prices)
 
@@ -129,27 +73,8 @@ def calculate_moving_averages(
     return result
 
 
-def calculate_momentum(
-    prices: np.ndarray,
-    lookback_days: int,
-    skip_days: int = 0
-) -> float:
-    """
-    Calculate price momentum with optional skip period.
-
-    Institutional standard (Section 5.2.5):
-    - 12-1 month momentum: Skip most recent 21 days to avoid reversal
-    - Measures intermediate-term trend
-
-    Args:
-        prices: Array of historical prices (most recent last)
-        lookback_days: Number of days to look back
-        skip_days: Number of most recent days to skip (default: 0)
-
-    Returns:
-        Momentum as percentage return (e.g., 0.15 = 15% return)
-        Returns 0.0 if insufficient data
-    """
+def calculate_momentum(prices: np.ndarray, lookback_days: int, skip_days: int = 0) -> float:
+    """Calculate price momentum with optional skip period."""
     required_days = lookback_days + skip_days
 
     if len(prices) < required_days:

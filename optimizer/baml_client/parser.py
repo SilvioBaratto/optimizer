@@ -27,38 +27,38 @@ class LlmResponseParser:
     def ClassifyBusinessCycleWithLLM(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.BusinessCycleClassification:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="ClassifyBusinessCycleWithLLM", llm_response=llm_response, mode="request")
-        return typing.cast(types.BusinessCycleClassification, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ClassifyBusinessCycleWithLLM", llm_response=llm_response, mode="request")
+        return typing.cast(types.BusinessCycleClassification, __result__)
 
     def GenerateBlackLittermanView(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.BlackLittermanView:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="GenerateBlackLittermanView", llm_response=llm_response, mode="request")
-        return typing.cast(types.BlackLittermanView, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateBlackLittermanView", llm_response=llm_response, mode="request")
+        return typing.cast(types.BlackLittermanView, __result__)
 
     def GenerateStockSignal(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.StockSignalOutput:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="GenerateStockSignal", llm_response=llm_response, mode="request")
-        return typing.cast(types.StockSignalOutput, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateStockSignal", llm_response=llm_response, mode="request")
+        return typing.cast(types.StockSignalOutput, __result__)
 
     def RecommendBlackLittermanParameters(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.BlackLittermanParameters:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="RecommendBlackLittermanParameters", llm_response=llm_response, mode="request")
-        return typing.cast(types.BlackLittermanParameters, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="RecommendBlackLittermanParameters", llm_response=llm_response, mode="request")
+        return typing.cast(types.BlackLittermanParameters, __result__)
 
     def SummarizeNewsArticles(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.MacroNewsSignals:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeNewsArticles", llm_response=llm_response, mode="request")
-        return typing.cast(types.MacroNewsSignals, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeNewsArticles", llm_response=llm_response, mode="request")
+        return typing.cast(types.MacroNewsSignals, __result__)
 
     def SummarizeStockNews(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.StockNewsSignals:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeStockNews", llm_response=llm_response, mode="request")
-        return typing.cast(types.StockNewsSignals, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeStockNews", llm_response=llm_response, mode="request")
+        return typing.cast(types.StockNewsSignals, __result__)
 
     
 
@@ -71,37 +71,37 @@ class LlmStreamParser:
     def ClassifyBusinessCycleWithLLM(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> stream_types.BusinessCycleClassification:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="ClassifyBusinessCycleWithLLM", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.BusinessCycleClassification, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ClassifyBusinessCycleWithLLM", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.BusinessCycleClassification, __result__)
 
     def GenerateBlackLittermanView(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> stream_types.BlackLittermanView:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="GenerateBlackLittermanView", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.BlackLittermanView, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateBlackLittermanView", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.BlackLittermanView, __result__)
 
     def GenerateStockSignal(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> stream_types.StockSignalOutput:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="GenerateStockSignal", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.StockSignalOutput, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateStockSignal", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.StockSignalOutput, __result__)
 
     def RecommendBlackLittermanParameters(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> stream_types.BlackLittermanParameters:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="RecommendBlackLittermanParameters", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.BlackLittermanParameters, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="RecommendBlackLittermanParameters", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.BlackLittermanParameters, __result__)
 
     def SummarizeNewsArticles(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> stream_types.MacroNewsSignals:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeNewsArticles", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.MacroNewsSignals, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeNewsArticles", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.MacroNewsSignals, __result__)
 
     def SummarizeStockNews(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> stream_types.StockNewsSignals:
-        result = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeStockNews", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.StockNewsSignals, result)
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeStockNews", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.StockNewsSignals, __result__)
 
     

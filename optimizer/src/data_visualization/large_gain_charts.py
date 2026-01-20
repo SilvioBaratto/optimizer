@@ -25,19 +25,19 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from src.yfinance import YFinanceClient
+from optimizer.src.yfinance import YFinanceClient
 
 # Import database and models
-from app.database import database_manager, init_db
-from app.models.stock_signals import StockSignal, SignalEnum
-from app.models.universe import Instrument
+from optimizer.database.database import database_manager, init_db
+from optimizer.database.models.stock_signals import StockSignal, SignalEnum
+from optimizer.database.models.universe import Instrument
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -81,10 +81,12 @@ def plot_ascii_graph(ticker: str, prices, dates, width=70, height=15, writer=Non
     sampled_dates = dates[::step][:width]
 
     # Normalize to height
-    normalized = [int((p - min_price) / price_range * (height - 1)) for p in sampled_prices]
+    normalized = [
+        int((p - min_price) / price_range * (height - 1)) for p in sampled_prices
+    ]
 
     # Create canvas
-    canvas = [[' ' for _ in range(width)] for _ in range(height)]
+    canvas = [[" " for _ in range(width)] for _ in range(height)]
 
     # Draw the line with arrows
     for i in range(len(normalized) - 1):
@@ -94,16 +96,16 @@ def plot_ascii_graph(ticker: str, prices, dates, width=70, height=15, writer=Non
         # Draw vertical connection
         if y1 < y2:  # Going down
             for y in range(y1, y2 + 1):
-                canvas[y][i] = '↓' if y == y2 else '|'
+                canvas[y][i] = "↓" if y == y2 else "|"
         elif y1 > y2:  # Going up
             for y in range(y2, y1 + 1):
-                canvas[y][i] = '↑' if y == y2 else '|'
+                canvas[y][i] = "↑" if y == y2 else "|"
         else:  # Horizontal
-            canvas[y1][i] = '→'
+            canvas[y1][i] = "→"
 
     # Print the graph
-    start_date = dates[0].strftime('%Y-%m-%d')
-    end_date = dates[-1].strftime('%Y-%m-%d')
+    start_date = dates[0].strftime("%Y-%m-%d")
+    end_date = dates[-1].strftime("%Y-%m-%d")
 
     writer(f"\n{'='*width}")
     writer(f"{ticker}: {start_date} to {end_date}")
@@ -119,8 +121,10 @@ def plot_ascii_graph(ticker: str, prices, dates, width=70, height=15, writer=Non
 
     # Print date markers along x-axis (only 3 labels for compactness)
     num_labels = 3
-    label_positions = [i * (len(sampled_dates) - 1) // (num_labels - 1) for i in range(num_labels)]
-    date_labels = [sampled_dates[pos].strftime('%Y-%m') for pos in label_positions]
+    label_positions = [
+        i * (len(sampled_dates) - 1) // (num_labels - 1) for i in range(num_labels)
+    ]
+    date_labels = [sampled_dates[pos].strftime("%Y-%m") for pos in label_positions]
 
     # Build x-axis dates string
     spacing = width // (num_labels - 1)
@@ -129,16 +133,20 @@ def plot_ascii_graph(ticker: str, prices, dates, width=70, height=15, writer=Non
         if i == 0:
             date_line += f"{label}"
         else:
-            padding = spacing - len(date_labels[i-1]) // 2 - len(label) // 2
+            padding = spacing - len(date_labels[i - 1]) // 2 - len(label) // 2
             date_line += f"{' ' * padding}{label}"
     writer(date_line)
 
     # Print compact summary
     total_return = ((prices[-1] / prices[0]) - 1) * 100
-    writer(f"\nPeak: ${max_price:.2f} ({peak_date.strftime('%Y-%m-%d')})  |  " +
-           f"Trough: ${min_price:.2f} ({trough_date.strftime('%Y-%m-%d')})")
-    writer(f"Start: ${prices[0]:.2f}  →  End: ${prices[-1]:.2f}  |  " +
-           f"Return: {total_return:+.2f}%")
+    writer(
+        f"\nPeak: ${max_price:.2f} ({peak_date.strftime('%Y-%m-%d')})  |  "
+        + f"Trough: ${min_price:.2f} ({trough_date.strftime('%Y-%m-%d')})"
+    )
+    writer(
+        f"Start: ${prices[0]:.2f}  →  End: ${prices[-1]:.2f}  |  "
+        + f"Return: {total_return:+.2f}%"
+    )
 
 
 def calculate_risk_metrics(prices, risk_free_rate=0.045):
@@ -158,7 +166,7 @@ def calculate_risk_metrics(prices, risk_free_rate=0.045):
     returns = np.diff(prices) / prices[:-1]
 
     # Annualized metrics (assuming 252 trading days)
-    total_return = (prices[-1] / prices[0] - 1)
+    total_return = prices[-1] / prices[0] - 1
     years = len(prices) / 252
     annualized_return = (1 + total_return) ** (1 / years) - 1 if years > 0 else 0
 
@@ -175,16 +183,22 @@ def calculate_risk_metrics(prices, risk_free_rate=0.045):
 
     # Downside deviation (for Sortino ratio)
     downside_returns = returns[returns < 0]
-    downside_std = np.std(downside_returns, ddof=1) * np.sqrt(252) if len(downside_returns) > 1 else 0
-    sortino = (annualized_return - risk_free_rate) / downside_std if downside_std > 0 else 0
+    downside_std = (
+        np.std(downside_returns, ddof=1) * np.sqrt(252)
+        if len(downside_returns) > 1
+        else 0
+    )
+    sortino = (
+        (annualized_return - risk_free_rate) / downside_std if downside_std > 0 else 0
+    )
 
     return {
-        'total_return': total_return,
-        'annualized_return': annualized_return,
-        'volatility': volatility,
-        'sharpe_ratio': sharpe,
-        'sortino_ratio': sortino,
-        'max_drawdown': max_drawdown,
+        "total_return": total_return,
+        "annualized_return": annualized_return,
+        "volatility": volatility,
+        "sharpe_ratio": sharpe,
+        "sortino_ratio": sortino,
+        "max_drawdown": max_drawdown,
     }
 
 
@@ -198,12 +212,18 @@ def print_compact_metrics(metrics, width=70, writer=None):
         return
 
     writer(f"{'─'*width}")
-    writer(f"Return: {metrics['total_return']*100:>6.2f}% (Total)  |  " +
-           f"{metrics['annualized_return']*100:>6.2f}% (Annualized)")
-    writer(f"Risk:   {metrics['volatility']*100:>6.2f}% (Volatility)  |  " +
-           f"{metrics['max_drawdown']*100:>6.2f}% (Max Drawdown)")
-    writer(f"Ratios: {metrics['sharpe_ratio']:>6.2f} (Sharpe)  |  " +
-           f"{metrics['sortino_ratio']:>6.2f} (Sortino)")
+    writer(
+        f"Return: {metrics['total_return']*100:>6.2f}% (Total)  |  "
+        + f"{metrics['annualized_return']*100:>6.2f}% (Annualized)"
+    )
+    writer(
+        f"Risk:   {metrics['volatility']*100:>6.2f}% (Volatility)  |  "
+        + f"{metrics['max_drawdown']*100:>6.2f}% (Max Drawdown)"
+    )
+    writer(
+        f"Ratios: {metrics['sharpe_ratio']:>6.2f} (Sharpe)  |  "
+        + f"{metrics['sortino_ratio']:>6.2f} (Sortino)"
+    )
     writer(f"{'─'*width}")
 
 
@@ -234,7 +254,7 @@ class LargeGainChartsGenerator:
         """
         print(text)
         if self.output_file:
-            self.output_file.write(text + '\n')
+            self.output_file.write(text + "\n")
 
     def fetch_large_gain_signals(self) -> List[Tuple[StockSignal, Instrument]]:
         """
@@ -246,13 +266,16 @@ class LargeGainChartsGenerator:
         logger.info(f"Fetching LARGE_GAIN signals for {self.signal_date}")
 
         with database_manager.get_session() as session:
-            query = select(StockSignal).where(
-                StockSignal.signal_date == self.signal_date,
-                StockSignal.signal_type == SignalEnum.LARGE_GAIN
-            ).options(
-                joinedload(StockSignal.instrument).joinedload(Instrument.exchange)
-            ).order_by(
-                StockSignal.close_price.desc()
+            query = (
+                select(StockSignal)
+                .where(
+                    StockSignal.signal_date == self.signal_date,
+                    StockSignal.signal_type == SignalEnum.LARGE_GAIN,
+                )
+                .options(
+                    joinedload(StockSignal.instrument).joinedload(Instrument.exchange)
+                )
+                .order_by(StockSignal.close_price.desc())
             )
 
             if self.max_stocks:
@@ -278,6 +301,7 @@ class LargeGainChartsGenerator:
         """
         # Create output directory if it doesn't exist
         from pathlib import Path
+
         output_dir = Path(__file__).parent / "output"
         output_dir.mkdir(exist_ok=True)
 
@@ -287,7 +311,7 @@ class LargeGainChartsGenerator:
         logger.info(f"Opening output file: {filename}")
 
         # Open file for writing
-        with open(filename, 'w', encoding='utf-8') as f:
+        with open(filename, "w", encoding="utf-8") as f:
             self.output_file = f
             result = self._generate_charts_internal()
             self.output_file = None
@@ -318,14 +342,18 @@ class LargeGainChartsGenerator:
                 continue
 
             seen_instruments.add(instrument_id)
-            stocks_to_chart.append({
-                'ticker': instrument.yfinance_ticker,
-                'name': instrument.short_name or instrument.ticker,
-                'sector': signal.sector or 'Unknown',
-                'exchange': signal.exchange_name or 'Unknown',
-            })
+            stocks_to_chart.append(
+                {
+                    "ticker": instrument.yfinance_ticker,
+                    "name": instrument.short_name or instrument.ticker,
+                    "sector": signal.sector or "Unknown",
+                    "exchange": signal.exchange_name or "Unknown",
+                }
+            )
 
-        logger.info(f"Generating charts for {len(stocks_to_chart)} unique LARGE_GAIN stocks")
+        logger.info(
+            f"Generating charts for {len(stocks_to_chart)} unique LARGE_GAIN stocks"
+        )
 
         # Calculate date range: 1 year before signal date
         end_date = self.signal_date
@@ -345,36 +373,46 @@ class LargeGainChartsGenerator:
 
         for i, stock in enumerate(stocks_to_chart, 1):
             try:
-                logger.info(f"[{i}/{len(stocks_to_chart)}] Fetching data for {stock['ticker']}")
+                logger.info(
+                    f"[{i}/{len(stocks_to_chart)}] Fetching data for {stock['ticker']}"
+                )
 
                 # Fetch historical data (convert dates to strings)
                 hist = client.fetch_history(
-                    stock['ticker'],
-                    start=start_date.strftime('%Y-%m-%d'),
-                    end=end_date.strftime('%Y-%m-%d')
+                    stock["ticker"],
+                    start=start_date.strftime("%Y-%m-%d"),
+                    end=end_date.strftime("%Y-%m-%d"),
                 )
 
                 if hist is None or hist.empty or len(hist) < 10:
                     logger.warning(f"Insufficient data for {stock['ticker']}")
                     self._write(f"\n{'='*70}")
-                    self._write(f"[{i}/{len(stocks_to_chart)}] {stock['ticker']} - {stock['name']}")
-                    self._write(f"Sector: {stock['sector']} | Exchange: {stock['exchange']}")
+                    self._write(
+                        f"[{i}/{len(stocks_to_chart)}] {stock['ticker']} - {stock['name']}"
+                    )
+                    self._write(
+                        f"Sector: {stock['sector']} | Exchange: {stock['exchange']}"
+                    )
                     self._write(f"{'='*70}")
                     self._write("  ⚠️  Insufficient historical data")
                     failed += 1
                     continue
 
-                prices = hist['Close'].tolist()
+                prices = hist["Close"].tolist()
                 dates = hist.index.tolist()
 
                 # Print stock header
                 self._write(f"\n{'='*70}")
-                self._write(f"[{i}/{len(stocks_to_chart)}] {stock['ticker']} - {stock['name']}")
-                self._write(f"Sector: {stock['sector']} | Exchange: {stock['exchange']}")
+                self._write(
+                    f"[{i}/{len(stocks_to_chart)}] {stock['ticker']} - {stock['name']}"
+                )
+                self._write(
+                    f"Sector: {stock['sector']} | Exchange: {stock['exchange']}"
+                )
                 self._write(f"{'='*70}")
 
                 # Plot chart
-                plot_ascii_graph(stock['ticker'], prices, dates, writer=self._write)
+                plot_ascii_graph(stock["ticker"], prices, dates, writer=self._write)
 
                 # Calculate and print metrics
                 metrics = calculate_risk_metrics(prices)
@@ -388,7 +426,9 @@ class LargeGainChartsGenerator:
             except Exception as e:
                 logger.error(f"Error generating chart for {stock['ticker']}: {e}")
                 self._write(f"\n{'='*70}")
-                self._write(f"[{i}/{len(stocks_to_chart)}] {stock['ticker']} - {stock['name']}")
+                self._write(
+                    f"[{i}/{len(stocks_to_chart)}] {stock['ticker']} - {stock['name']}"
+                )
                 self._write(f"{'='*70}")
                 self._write(f"  ❌ Error: {str(e)}")
                 failed += 1
@@ -459,8 +499,7 @@ def main():
 
         # Create generator
         generator = LargeGainChartsGenerator(
-            signal_date=signal_date,
-            max_stocks=max_stocks
+            signal_date=signal_date, max_stocks=max_stocks
         )
 
         # Generate charts and save to file
@@ -482,6 +521,7 @@ def main():
     except Exception as e:
         logger.error(f"Chart generation failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

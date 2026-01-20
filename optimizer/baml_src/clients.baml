@@ -1,19 +1,26 @@
 // Learn more about clients at https://docs.boundaryml.com/docs/snippets/clients/overview
 
-client<llm> Model {
-  provider openai
-  retry_policy Exponential
+client<llm> AzureOpenAIGpt4o {
+  provider azure-openai
   options {
-    api_key env.OPENAI_API_KEY
-    model "gpt-5-mini"
-    http {
-      connect_timeout_ms 60000       // 1 minute to establish connection
-      request_timeout_ms 300000      // 5 minutes for total request (large prompts)
-      time_to_first_token_timeout_ms 120000  // 2 minutes to start streaming
-    }
+    resource_name env.OPENAI_RESOURCE_NAME
+    deployment_id env.OPENAI_GPT4O_DEPLOYMENT_ID
+    api_version env.OPENAI_API_VERSION
+    api_key env.OPENAI_KEY
+    temperature 0.0
   }
 }
 
+client<llm> AzureOpenAIGpt5 {
+  provider azure-openai
+  options {
+    resource_name env.OPENAI_RESOURCE_NAME
+    deployment_id env.OPENAI_GPT5_DEPLOYMENT_ID
+    api_version env.OPENAI_API_VERSION
+    api_key env.OPENAI_KEY
+    max_tokens null
+    }
+}
 // https://docs.boundaryml.com/docs/snippets/clients/retry
 retry_policy Constant {
   max_retries 3

@@ -12,7 +12,7 @@
 
 import typing
 import typing_extensions
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 import baml_py
 
@@ -52,30 +52,30 @@ class BlackLittermanParameters(BaseModel):
 
 class BlackLittermanView(BaseModel):
     ticker: typing.Optional[str] = None
-    expected_return: typing.Optional[float] = None
-    confidence: typing.Optional[float] = None
-    view_uncertainty: typing.Optional[float] = None
-    rationale: typing.Optional[str] = None
-    factor_contributions: typing.Optional[str] = None
-    risk_adjustments: typing.Optional[str] = None
-    regime_adjustment: typing.Optional[str] = None
+    expected_return: typing.Optional[float] = Field(default=None, description='Expected annual return for this asset. Range: -0.30 to +0.30 (-30% to +30%).\nTypical values: Strong Buy: 0.08-0.15, Buy: 0.04-0.10, Sell: -0.05 to -0.15')
+    confidence: typing.Optional[float] = Field(default=None, description='Confidence level in this view (0 = no confidence, 1 = absolute certainty).\nHIGH: 0.75-0.95, MEDIUM: 0.50-0.75, LOW: 0.20-0.50')
+    view_uncertainty: typing.Optional[float] = Field(default=None, description='Uncertainty (standard deviation) of the expected return forecast.\nDerived from confidence: higher confidence → lower uncertainty.\nTypical range: 0.01 (1%) to 0.08 (8%)')
+    rationale: typing.Optional[str] = Field(default=None, description='2-3 sentence explanation of why this expected return is justified.\nReference specific factors: valuation, momentum, quality, growth.\nMention regime considerations and risk adjustments.')
+    factor_contributions: typing.Optional[str] = Field(default=None, description='Breakdown of which factors support the view (e.g., "Momentum +3%, Valuation +2%, Quality +1%")')
+    risk_adjustments: typing.Optional[str] = Field(default=None, description='Any penalties applied due to risk factors (e.g., "High debt: -2%, Low liquidity: -1%")')
+    regime_adjustment: typing.Optional[str] = Field(default=None, description='How the macro regime influenced the view (e.g., "Late cycle: reduced return by 2%")')
 
 class BusinessCycleClassification(BaseModel):
     regime: typing.Optional[types.BusinessCycleRegime] = None
-    confidence: typing.Optional[float] = None
-    rationale: typing.Optional[str] = None
+    confidence: typing.Optional[float] = Field(default=None, description='0.0 to 1.0')
+    rationale: typing.Optional[str] = Field(default=None, description='Concise explanation (2-3 sentences maximum)')
     ism_signal: typing.Optional[types.ISMSignal] = None
     yield_curve_signal: typing.Optional[types.YieldCurveSignal] = None
     credit_spread_signal: typing.Optional[types.CreditSpreadSignal] = None
-    recession_risk_6m: typing.Optional[float] = None
-    recession_risk_12m: typing.Optional[float] = None
-    recession_drivers: typing.List[str]
-    sector_tilts: typing.Dict[str, float]
-    recommended_overweights: typing.List[str]
-    recommended_underweights: typing.List[str]
+    recession_risk_6m: typing.Optional[float] = Field(default=None, description='0.0 to 1.0')
+    recession_risk_12m: typing.Optional[float] = Field(default=None, description='0.0 to 1.0')
+    recession_drivers: typing.List[str] = Field(description='2-4 key recession risk factors')
+    sector_tilts: typing.Dict[str, float] = Field(description='Sector -> weight adjustment between -0.10 and +0.10')
+    recommended_overweights: typing.List[str] = Field(description='3-5 sectors to overweight with brief rationale')
+    recommended_underweights: typing.List[str] = Field(description='3-5 sectors to underweight with brief rationale')
     factor_exposure: typing.Optional[types.FactorExposure] = None
-    primary_risks: typing.List[str]
-    conflicting_signals: typing.List[str]
+    primary_risks: typing.List[str] = Field(description='2-3 main risks to watch')
+    conflicting_signals: typing.List[str] = Field(description='Any major contradictions (empty if none)')
 
 class ComprehensiveYFinanceData(BaseModel):
     ticker: typing.Optional[str] = None
@@ -187,18 +187,18 @@ class HistoricalPriceData(BaseModel):
     data_quality_score: typing.Optional[float] = None
 
 class MacroNewsSignals(BaseModel):
-    dominant_themes: typing.List[str]
+    dominant_themes: typing.List[str] = Field(description='Top 3-5 themes (e.g., "Fed hawkish tone", "recession fears rising")')
     growth_sentiment: typing.Optional[types.GrowthSentiment] = None
-    growth_summary: typing.Optional[str] = None
+    growth_summary: typing.Optional[str] = Field(default=None, description='2-3 sentences on GDP, earnings, business activity trends')
     inflation_sentiment: typing.Optional[types.InflationSentiment] = None
-    inflation_summary: typing.Optional[str] = None
+    inflation_summary: typing.Optional[str] = Field(default=None, description='2-3 sentences on inflation trends and central bank response')
     labor_market_sentiment: typing.Optional[types.LaborMarketSentiment] = None
-    labor_market_summary: typing.Optional[str] = None
+    labor_market_summary: typing.Optional[str] = Field(default=None, description='2-3 sentences on unemployment, hiring, layoffs')
     policy_stance: typing.Optional[types.PolicyStance] = None
-    policy_summary: typing.Optional[str] = None
+    policy_summary: typing.Optional[str] = Field(default=None, description='2-3 sentences on monetary policy tone and expectations')
     risk_appetite: typing.Optional[types.RiskAppetite] = None
     regime_narrative: typing.Optional[types.RegimeNarrative] = None
-    regime_rationale: typing.Optional[str] = None
+    regime_rationale: typing.Optional[str] = Field(default=None, description='2-3 sentences explaining why news suggests this regime')
 
 class MacroRegimeContext(BaseModel):
     current_regime: typing.Optional[str] = None
@@ -212,27 +212,27 @@ class MacroRegimeContext(BaseModel):
     recommended_underweights: typing.Optional[typing.List[str]] = None
 
 class MacroRegimeData(BaseModel):
-    country: typing.Optional[str] = None
-    assessment_date: typing.Optional[str] = None
-    regime: typing.Optional[str] = None
-    confidence: typing.Optional[float] = None
-    rationale: typing.Optional[str] = None
-    ism_pmi: typing.Optional[float] = None
-    ism_signal: typing.Optional[str] = None
-    yield_curve_2s10s: typing.Optional[float] = None
-    yield_curve_signal: typing.Optional[str] = None
-    hy_spread: typing.Optional[float] = None
-    credit_spread_signal: typing.Optional[str] = None
-    vix: typing.Optional[float] = None
-    recession_risk_6m: typing.Optional[float] = None
-    recession_risk_12m: typing.Optional[float] = None
-    gdp_growth_yy: typing.Optional[float] = None
-    unemployment: typing.Optional[float] = None
-    inflation: typing.Optional[float] = None
-    recommended_overweights: typing.List[str]
-    recommended_underweights: typing.List[str]
-    factor_exposure: typing.Optional[str] = None
-    primary_risks: typing.List[str]
+    country: typing.Optional[str] = Field(default=None, description='Country code (USA, Germany, etc.)')
+    assessment_date: typing.Optional[str] = Field(default=None, description='Date of macro assessment (YYYY-MM-DD)')
+    regime: typing.Optional[str] = Field(default=None, description='Current regime: EARLY_CYCLE, MID_CYCLE, LATE_CYCLE, RECESSION, UNCERTAIN')
+    confidence: typing.Optional[float] = Field(default=None, description='Regime classification confidence (0.0-1.0)')
+    rationale: typing.Optional[str] = Field(default=None, description='Brief rationale for regime classification')
+    ism_pmi: typing.Optional[float] = Field(default=None, description='ISM Manufacturing PMI (if available)')
+    ism_signal: typing.Optional[str] = Field(default=None, description='ISM signal: STRONG_EXPANSION, MILD_EXPANSION, MILD_CONTRACTION, DEEP_CONTRACTION')
+    yield_curve_2s10s: typing.Optional[float] = Field(default=None, description='2s10s yield spread in bps (if available)')
+    yield_curve_signal: typing.Optional[str] = Field(default=None, description='Yield curve signal: STEEP, NORMAL, FLAT, INVERTED')
+    hy_spread: typing.Optional[float] = Field(default=None, description='High-yield credit spread in bps (if available)')
+    credit_spread_signal: typing.Optional[str] = Field(default=None, description='Credit spread signal: TIGHT, NEUTRAL, WIDENING, STRESS')
+    vix: typing.Optional[float] = Field(default=None, description='VIX volatility index (if available)')
+    recession_risk_6m: typing.Optional[float] = Field(default=None, description='6-month recession probability (0.0-1.0)')
+    recession_risk_12m: typing.Optional[float] = Field(default=None, description='12-month recession probability (0.0-1.0)')
+    gdp_growth_yy: typing.Optional[float] = Field(default=None, description='GDP growth year-over-year %')
+    unemployment: typing.Optional[float] = Field(default=None, description='Unemployment rate %')
+    inflation: typing.Optional[float] = Field(default=None, description='Inflation rate %')
+    recommended_overweights: typing.List[str] = Field(description='Sectors currently recommended for overweight')
+    recommended_underweights: typing.List[str] = Field(description='Sectors currently recommended for underweight')
+    factor_exposure: typing.Optional[str] = Field(default=None, description='Recommended factor exposure: GROWTH_MOMENTUM, QUALITY_DEFENSIVE, BALANCED')
+    primary_risks: typing.List[str] = Field(description='2-3 main macro risks to monitor')
 
 class MacroRegimeInput(BaseModel):
     current_regime: typing.Optional[str] = None
@@ -303,12 +303,12 @@ class RegimeNewsAnalysis(BaseModel):
     leading_indicators: typing.List[str]
 
 class RiskFactors(BaseModel):
-    volatility_level: typing.Optional[str] = None
-    beta_risk: typing.Optional[str] = None
-    debt_risk: typing.Optional[str] = None
-    liquidity_risk: typing.Optional[str] = None
-    data_gaps: typing.List[str]
-    primary_risks: typing.List[str]
+    volatility_level: typing.Optional[str] = Field(default=None, description='Low/Medium/High - historical volatility assessment')
+    beta_risk: typing.Optional[str] = Field(default=None, description='Market sensitivity assessment if beta available')
+    debt_risk: typing.Optional[str] = Field(default=None, description='Assessment of debt levels and financial leverage')
+    liquidity_risk: typing.Optional[str] = Field(default=None, description='Assessment of trading liquidity and market depth')
+    data_gaps: typing.List[str] = Field(description='List of missing or unreliable data points that affected analysis')
+    primary_risks: typing.List[str] = Field(description='Top 3-5 key risks to the signal thesis')
 
 class SectorContext(BaseModel):
     sector_name: typing.Optional[str] = None
@@ -326,33 +326,33 @@ class SignalCharacteristics(BaseModel):
     signal_concentration: typing.Optional[float] = None
 
 class SignalDrivers(BaseModel):
-    valuation_score: typing.Optional[float] = None
-    valuation_summary: typing.Optional[str] = None
-    momentum_score: typing.Optional[float] = None
-    momentum_summary: typing.Optional[str] = None
-    quality_score: typing.Optional[float] = None
-    quality_summary: typing.Optional[str] = None
-    growth_score: typing.Optional[float] = None
-    growth_summary: typing.Optional[str] = None
-    technical_score: typing.Optional[float] = None
-    technical_summary: typing.Optional[str] = None
-    analyst_score: typing.Optional[float] = None
-    analyst_summary: typing.Optional[str] = None
+    valuation_score: typing.Optional[float] = Field(default=None, description='Composite valuation score based on P/E, P/B, price vs targets')
+    valuation_summary: typing.Optional[str] = Field(default=None, description='Brief valuation assessment (1-2 sentences)')
+    momentum_score: typing.Optional[float] = Field(default=None, description='Price momentum based on 52-week performance, moving averages')
+    momentum_summary: typing.Optional[str] = Field(default=None, description='Brief momentum assessment (1-2 sentences)')
+    quality_score: typing.Optional[float] = Field(default=None, description='Business quality based on margins, ROE, debt levels')
+    quality_summary: typing.Optional[str] = Field(default=None, description='Brief quality assessment (1-2 sentences)')
+    growth_score: typing.Optional[float] = Field(default=None, description='Growth prospects based on revenue/earnings growth')
+    growth_summary: typing.Optional[str] = Field(default=None, description='Brief growth assessment (1-2 sentences)')
+    technical_score: typing.Optional[float] = Field(default=None, description='Technical indicators: RSI, moving averages, volume trends')
+    technical_summary: typing.Optional[str] = Field(default=None, description='Brief technical assessment if data available')
+    analyst_score: typing.Optional[float] = Field(default=None, description='Analyst consensus and ratings')
+    analyst_summary: typing.Optional[str] = Field(default=None, description='Brief analyst sentiment summary')
 
 class StockNewsSignals(BaseModel):
-    dominant_themes: typing.List[str]
+    dominant_themes: typing.List[str] = Field(description='Top 3-5 themes from company news (e.g., "Strong earnings beat", "Product launch success", "Regulatory concerns")')
     company_momentum: typing.Optional[types.CompanyMomentum] = None
-    momentum_summary: typing.Optional[str] = None
+    momentum_summary: typing.Optional[str] = Field(default=None, description='2-3 sentences on business growth, revenue trends, market share changes')
     earnings_outlook: typing.Optional[types.EarningsOutlook] = None
-    earnings_summary: typing.Optional[str] = None
+    earnings_summary: typing.Optional[str] = Field(default=None, description='2-3 sentences on recent/expected earnings, guidance, profitability')
     management_sentiment: typing.Optional[types.ManagementSentiment] = None
-    management_summary: typing.Optional[str] = None
+    management_summary: typing.Optional[str] = Field(default=None, description='2-3 sentences on management commentary, strategic initiatives, capital allocation')
     competitive_position: typing.Optional[types.CompetitivePosition] = None
-    competitive_summary: typing.Optional[str] = None
-    key_catalysts: typing.List[str]
-    key_risks: typing.List[str]
-    news_bias: typing.Optional[str] = None
-    confidence_assessment: typing.Optional[str] = None
+    competitive_summary: typing.Optional[str] = Field(default=None, description='2-3 sentences on competitive positioning, industry trends, market dynamics')
+    key_catalysts: typing.List[str] = Field(description='List of specific positive catalysts mentioned (e.g., "New product launch", "Partnership announced")')
+    key_risks: typing.List[str] = Field(description='List of specific risks or concerns (e.g., "Regulatory investigation", "Supply chain issues")')
+    news_bias: typing.Optional[str] = Field(default=None, description='Overall tone: "BULLISH", "NEUTRAL", or "BEARISH"')
+    confidence_assessment: typing.Optional[str] = Field(default=None, description='How clear/actionable the news signal is: "HIGH", "MEDIUM", "LOW"')
 
 class StockSignalData(BaseModel):
     ticker: typing.Optional[str] = None
@@ -381,21 +381,21 @@ class StockSignalData(BaseModel):
     daily_return: typing.Optional[float] = None
 
 class StockSignalOutput(BaseModel):
-    signal_type: typing.Optional[types.SignalType] = None
-    signal_date: typing.Optional[str] = None
-    close_price: typing.Optional[float] = None
-    open_price: typing.Optional[float] = None
-    daily_return: typing.Optional[float] = None
-    volume: typing.Optional[float] = None
-    volatility: typing.Optional[float] = None
-    rsi: typing.Optional[float] = None
-    data_quality_score: typing.Optional[float] = None
-    confidence_level: typing.Optional[types.ConfidenceLevel] = None
-    analysis_notes: typing.Optional[str] = None
-    signal_drivers: typing.Optional["SignalDrivers"] = None
-    risk_factors: typing.Optional["RiskFactors"] = None
-    upside_potential_pct: typing.Optional[float] = None
-    downside_risk_pct: typing.Optional[float] = None
+    signal_type: typing.Optional[types.SignalType] = Field(default=None, description='Primary trading signal classification')
+    signal_date: typing.Optional[str] = Field(default=None, description='Date for the signal (YYYY-MM-DD format)')
+    close_price: typing.Optional[float] = Field(default=None, description='Current/most recent closing price')
+    open_price: typing.Optional[float] = Field(default=None, description='Most recent opening price')
+    daily_return: typing.Optional[float] = Field(default=None, description='Most recent daily return percentage')
+    volume: typing.Optional[float] = Field(default=None, description='Recent trading volume')
+    volatility: typing.Optional[float] = Field(default=None, description='Historical volatility (annualized standard deviation)')
+    rsi: typing.Optional[float] = Field(default=None, description='Relative Strength Index if available from yfinance')
+    data_quality_score: typing.Optional[float] = Field(default=None, description='Data quality score 0-1 based on completeness of input data.\n1.0 = all key fields present, 0.5 = moderate data, 0.0 = minimal data')
+    confidence_level: typing.Optional[types.ConfidenceLevel] = Field(default=None, description='Confidence in signal classification')
+    analysis_notes: typing.Optional[str] = Field(default=None, description='Concise analysis explaining the signal classification.\nMaximum 2-3 sentences covering:\n1. Primary signal driver and rationale\n2. Key supporting factors or risks\n3. Overall conviction level\nProfessional, institutional tone. Be concise and actionable.')
+    signal_drivers: typing.Optional["SignalDrivers"] = Field(default=None, description='Quantified assessment across key factors')
+    risk_factors: typing.Optional["RiskFactors"] = Field(default=None, description='Identified risks and data quality concerns')
+    upside_potential_pct: typing.Optional[float] = Field(default=None, description='Estimated upside % to fair value or target')
+    downside_risk_pct: typing.Optional[float] = Field(default=None, description='Estimated downside % risk to support levels')
 
 class YFinanceAnalystData(BaseModel):
     recommendationKey: typing.Optional[str] = None

@@ -1,19 +1,4 @@
-"""
-Technical Metrics Calculator
-============================
-
-Calculates institutional-grade technical and risk metrics (100% document-aligned).
-
-Implements framework from Sections 5.2.5, 5.3.1, 5.3.3, 4.4.5:
-- EWMA volatility (84-day half-life per MSCI standard)
-- Momentum with 1-month skip (12-1 month returns)
-- Systematic vs specific risk decomposition
-- Statistical significance (alpha confidence intervals)
-- ADV liquidity metrics
-"""
-
 from typing import Dict, Optional, Any
-import logging
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -25,37 +10,16 @@ from .indicators import (
     calculate_momentum,
 )
 
-logger = logging.getLogger(__name__)
-
 
 def calculate_technical_metrics(
-    stock_data: pd.DataFrame,
-    benchmark_data: Optional[pd.DataFrame],
-    risk_free_rate: float
+    stock_data: pd.DataFrame, benchmark_data: Optional[pd.DataFrame], risk_free_rate: float
 ) -> Dict[str, float]:
-    """
-    Calculate institutional-grade technical/risk metrics.
-
-    Implements framework from Sections 5.2.5, 5.3.1, 5.3.3, 4.4.5:
-    - EWMA volatility (84-day half-life per MSCI standard)
-    - Momentum with 1-month skip (12-1 month returns)
-    - Systematic vs specific risk decomposition
-    - Statistical significance (alpha confidence intervals)
-    - ADV liquidity metrics
-
-    Args:
-        stock_data: DataFrame with OHLCV data
-        benchmark_data: Optional DataFrame with benchmark (SPY) data
-        risk_free_rate: Annual risk-free rate (e.g., 0.045 for 4.5%)
-
-    Returns:
-        Dictionary of technical metrics with Python native types
-    """
-    prices = np.array(stock_data['Close'].values, dtype=np.float64)
+    """Calculate institutional-grade technical/risk metrics."""
+    prices = np.array(stock_data["Close"].values, dtype=np.float64)
     returns = np.diff(prices) / prices[:-1]
 
     # Annualized metrics
-    total_return = (prices[-1] / prices[0] - 1)
+    total_return = prices[-1] / prices[0] - 1
     years = len(prices) / 252
     annualized_return = (1 + total_return) ** (1 / years) - 1
 
@@ -82,13 +46,13 @@ def calculate_technical_metrics(
     sortino = (annualized_return - risk_free_rate) / downside_std if downside_std > 0 else 0
 
     metrics: Dict[str, Any] = {
-        'annualized_return': annualized_return,
-        'volatility': volatility,
-        'sharpe_ratio': sharpe,
-        'sortino_ratio': sortino,
-        'max_drawdown': max_drawdown,
-        'calmar_ratio': calmar,
-        'risk_free_rate': risk_free_rate,
+        "annualized_return": annualized_return,
+        "volatility": volatility,
+        "sharpe_ratio": sharpe,
+        "sortino_ratio": sortino,
+        "max_drawdown": max_drawdown,
+        "calmar_ratio": calmar,
+        "risk_free_rate": risk_free_rate,
     }
 
     # Benchmark comparison with date alignment (Section 5.3.1)
@@ -101,40 +65,40 @@ def calculate_technical_metrics(
     # RSI (14-day)
     if len(prices) >= 14:
         rsi_values = calculate_rsi(prices, period=14)
-        metrics['rsi'] = rsi_values[-1] if not np.isnan(rsi_values[-1]) else 50.0
+        metrics["rsi"] = rsi_values[-1] if not np.isnan(rsi_values[-1]) else 50.0
     else:
-        metrics['rsi'] = 50.0  # Neutral if insufficient data
+        metrics["rsi"] = 50.0  # Neutral if insufficient data
 
     # Moving Averages
     ma_dict = calculate_moving_averages(prices, windows=[50, 200])
     if 50 in ma_dict and not np.isnan(ma_dict[50]):
-        metrics['ma_50'] = ma_dict[50]
-        metrics['price_vs_ma50'] = (prices[-1] / ma_dict[50] - 1)
+        metrics["ma_50"] = ma_dict[50]
+        metrics["price_vs_ma50"] = prices[-1] / ma_dict[50] - 1
 
     if 200 in ma_dict and not np.isnan(ma_dict[200]):
-        metrics['ma_200'] = ma_dict[200]
-        metrics['price_vs_ma200'] = (prices[-1] / ma_dict[200] - 1)
+        metrics["ma_200"] = ma_dict[200]
+        metrics["price_vs_ma200"] = prices[-1] / ma_dict[200] - 1
 
     # Momentum with 1-month skip (Section 5.2.5: 12-1 month returns)
     if len(prices) >= 42:  # Need 2 months of data
-        metrics['momentum_1m'] = calculate_momentum(prices, lookback_days=21, skip_days=0)
+        metrics["momentum_1m"] = calculate_momentum(prices, lookback_days=21, skip_days=0)
 
     if len(prices) >= 63:  # Need 3 months
-        metrics['momentum_3m'] = calculate_momentum(prices, lookback_days=42, skip_days=21)
+        metrics["momentum_3m"] = calculate_momentum(prices, lookback_days=42, skip_days=21)
 
     if len(prices) >= 252:  # Need 1 year
         # 12-month return excluding most recent month (industry standard)
-        metrics['momentum_12m_minus_1m'] = calculate_momentum(
+        metrics["momentum_12m_minus_1m"] = calculate_momentum(
             prices, lookback_days=231, skip_days=21
         )
 
     # ADV liquidity metrics (Section 4.4.5)
-    if 'Volume' in stock_data.columns and len(stock_data) >= 20:
-        adv_20 = stock_data['Volume'].tail(20).mean()
+    if "Volume" in stock_data.columns and len(stock_data) >= 20:
+        adv_20 = stock_data["Volume"].tail(20).mean()
         adv_dollars = adv_20 * prices[-1]
 
-        metrics['adv_shares'] = adv_20
-        metrics['adv_dollars'] = adv_dollars
+        metrics["adv_shares"] = adv_20
+        metrics["adv_dollars"] = adv_dollars
 
     # Convert all numpy types to Python native types for database compatibility
     for key, value in metrics.items():
@@ -152,23 +116,12 @@ def _calculate_benchmark_metrics(
     risk_free_rate: float,
     stock_annualized_return: float,
 ) -> Dict[str, float]:
-    """
-    Calculate benchmark comparison metrics (beta, alpha, R², etc.).
-
-    Args:
-        stock_data: DataFrame with stock price data
-        benchmark_data: DataFrame with benchmark price data
-        risk_free_rate: Annual risk-free rate
-        stock_annualized_return: Pre-calculated annualized return for stock
-
-    Returns:
-        Dictionary with benchmark comparison metrics
-    """
+    """Calculate benchmark comparison metrics (beta, alpha, R², etc.)."""
     metrics: Dict[str, Any] = {}
 
     # Prepare dataframes
-    stock_df = stock_data[['Close']].copy()
-    bench_df = benchmark_data[['Close']].copy()
+    stock_df = stock_data[["Close"]].copy()
+    bench_df = benchmark_data[["Close"]].copy()
 
     # Remove timezone information for matching
     stock_df.index = pd.DatetimeIndex(stock_df.index).tz_localize(None)
@@ -180,26 +133,24 @@ def _calculate_benchmark_metrics(
         bench_df,
         left_index=True,
         right_index=True,
-        how='inner',
-        suffixes=('_stock', '_bench'),
+        how="inner",
+        suffixes=("_stock", "_bench"),
     )
 
     if len(aligned_data) > 30:  # Need sufficient data for regression
-        logger.debug(f"Calculating regression metrics with {len(aligned_data)} days of aligned data")
-
-        aligned_stock_prices = aligned_data['Close_stock'].values
-        aligned_bench_prices = aligned_data['Close_bench'].values
+        aligned_stock_prices = aligned_data["Close_stock"].values
+        aligned_bench_prices = aligned_data["Close_bench"].values
 
         # Calculate returns on aligned data
-        stock_returns_aligned = (
-            np.diff(np.array(aligned_stock_prices, dtype=np.float64)) / aligned_stock_prices[:-1]
-        )
-        bench_returns_aligned = (
-            np.diff(np.array(aligned_bench_prices, dtype=np.float64)) / aligned_bench_prices[:-1]
-        )
+        stock_returns_aligned = np.diff(
+            np.array(aligned_stock_prices, dtype=np.float64)
+        ) / np.array(aligned_stock_prices[:-1], dtype=np.float64)
+        bench_returns_aligned = np.diff(
+            np.array(aligned_bench_prices, dtype=np.float64)
+        ) / np.array(aligned_bench_prices[:-1], dtype=np.float64)
 
         # Annualized benchmark return
-        bench_total_return = (aligned_bench_prices[-1] / aligned_bench_prices[0] - 1)
+        bench_total_return = aligned_bench_prices[-1] / aligned_bench_prices[0] - 1
         bench_years = len(aligned_bench_prices) / 252
         bench_annualized = (1 + bench_total_return) ** (1 / bench_years) - 1
 
@@ -251,32 +202,20 @@ def _calculate_benchmark_metrics(
 
             metrics.update(
                 {
-                    'beta': beta,
-                    'alpha': alpha,
-                    'r_squared': r_squared,
-                    'information_ratio': information_ratio,
-                    'benchmark_return': bench_annualized,
+                    "beta": beta,
+                    "alpha": alpha,
+                    "r_squared": r_squared,
+                    "information_ratio": information_ratio,
+                    "benchmark_return": bench_annualized,
                     # Statistical significance
-                    'alpha_t_stat': alpha_t_stat,
-                    'alpha_lower_95': alpha_lower_95,
-                    'alpha_upper_95': alpha_upper_95,
+                    "alpha_t_stat": alpha_t_stat,
+                    "alpha_lower_95": alpha_lower_95,
+                    "alpha_upper_95": alpha_upper_95,
                     # Risk decomposition
-                    'systematic_volatility': systematic_volatility,
-                    'specific_volatility': specific_volatility,
+                    "systematic_volatility": systematic_volatility,
+                    "specific_volatility": specific_volatility,
                 }
             )
-
-            logger.debug(
-                f"Regression metrics calculated: beta={beta:.3f}, alpha={alpha:.3f}, "
-                f"r²={r_squared:.3f}, IR={information_ratio:.3f}, "
-                f"bench_return={bench_annualized:.3f}"
-            )
-    else:
-        logger.warning(
-            f"Insufficient aligned data for regression metrics "
-            f"({len(aligned_data) if 'aligned_data' in locals() else 0} days ≤ 30). "
-            f"Beta, alpha, r_squared, information_ratio, and benchmark_return will be None."
-        )
 
     # Convert numpy types to native Python types
     for key, value in metrics.items():

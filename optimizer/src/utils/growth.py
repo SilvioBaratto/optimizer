@@ -9,7 +9,7 @@ Usage:
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from src.yfinance import YFinanceClient
+from optimizer.src.yfinance import YFinanceClient
 
 
 def plot_ascii_graph(prices, dates, width=80, height=30):

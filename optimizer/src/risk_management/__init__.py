@@ -2,81 +2,49 @@
 Risk Management Module - Stock Selection for Portfolio Optimization
 ====================================================================
 
-This module provides institutional-grade stock selection tools for concentrated
-momentum strategies. Portfolio weighting is handled separately by Black-Litterman
-optimizer.
+This is the refactored version following SOLID principles:
+- Filter Pipeline: Composite pattern for filter chaining
+- Single Responsibility: Separate filters for quality, affordability, sector, etc.
+- Open/Closed: Easy to add new filters without modifying existing code
+- Dependency Injection: Filters injected via configuration
 
-Key Components:
---------------
+Components:
+- filters: Filter protocol and implementations (Quality, Affordability, Sector, etc.)
+- ConcentratedPortfolioBuilder: Stock selector orchestrator
+- CorrelationAnalyzer: Correlation analysis and diversification
+- SectorAllocator: Sector constraints
 
-1. **ConcentratedPortfolioBuilder**: Stock selector for portfolio optimization
-   - Fetches LARGE_GAIN momentum signals
-   - Applies quality filters (Sharpe, volatility, drawdown)
-   - Enforces correlation constraints (max 0.7 pairwise)
-   - Applies sector diversification (max 15% per sector)
-   - Applies country allocation (max 60% per country)
-   - Returns 20 selected stocks (NO WEIGHTS - that's Black-Litterman's job)
+Usage:
+    from src.risk_management import ConcentratedPortfolioBuilder
+    from src.risk_management.filters import FilterPipelineImpl, QualityFilterImpl
+    from config import QualityFilterConfig
 
-2. **QualityFilter**: Quality screens for momentum signals
-   - Sharpe ratio filter (≥0.5)
-   - Volatility filter (≤40%)
-   - Drawdown filter (≥-30%)
-   - Price filter (≥$5)
+    # Using filter pipeline
+    pipeline = FilterPipelineImpl()
+    pipeline.add_filter(QualityFilterImpl(config=QualityFilterConfig()))
+    filtered = pipeline.filter(signals)
 
-3. **CorrelationAnalyzer**: Correlation clustering and diversification
-   - Builds correlation matrices
-   - Identifies correlation clusters
-   - Enforces maximum pairwise correlation (0.7)
-   - Limits positions per cluster (2 stocks max)
-
-4. **SectorAllocator**: Sector diversification constraints
-   - Maximum 15% per sector
-   - Minimum 8 sectors required
-   - Minimum 10% in defensive sectors
-   - Maximum 2 stocks per industry
-
-5. **PortfolioAnalytics**: Stock ranking utilities
-   - Composite scoring for stock ranking
-   - Country mapping from exchange names
-
-Usage Example:
--------------
-
-```python
-from src.risk_management import ConcentratedPortfolioBuilder
-
-# Select 20 stocks for Black-Litterman optimization
-builder = ConcentratedPortfolioBuilder(
-    target_positions=20,
-    max_sector_weight=0.15,
-    max_country_weight=0.60,
-    max_correlation=0.7,
-    capital=1500.0  # Trading212 constraint
-)
-
-# Execute selection pipeline (returns stocks WITHOUT weights)
-selected_stocks = builder.build_portfolio()
-
-# Pass to Black-Litterman optimizer for weight calculation
-# (Black-Litterman handles ALL portfolio optimization)
-```
-
-Expected Output:
----------------
-
-From ~500 LARGE_GAIN signals → 20 selected stocks with:
-- Quality filtering (Sharpe≥0.5, Vol≤40%, Drawdown≥-30%)
-- Sector diversification (8+ sectors, max 3 stocks per sector)
-- Geographic diversity (max 60% per country, 40% non-US target)
-- Correlation constraints (max 0.7 pairwise, max 2 per cluster)
-- Affordability (Trading212: €1-€75 per stock for €1500 capital)
-
-Note: Stock weighting is handled by Black-Litterman optimizer, not here!
-
-Author: Portfolio Optimization System
-Version: 2.0.0 (Simplified - Stock Selection Only)
+    # Or using builder (includes filters internally)
+    builder = ConcentratedPortfolioBuilder(target_positions=20)
+    selected_stocks = builder.build_portfolio()
 """
 
+# New SOLID-compliant filter imports
+from optimizer.src.risk_management.filters import (
+    StockFilter,
+    StockFilterImpl,
+    FilterPipelineImpl,
+    CompositeFilter,
+    QualityFilterImpl,
+    AffordabilityFilter,
+    SectorFilter,
+    SectorBalancer,
+    CountryFilter,
+    RegionalFilter,
+    CorrelationFilterImpl,
+)
+
+# Legacy imports for backward compatibility
 from .concentrated_portfolio_builder import (
     ConcentratedPortfolioBuilder
 )
@@ -105,7 +73,22 @@ __all__ = [
     # Main stock selector
     "ConcentratedPortfolioBuilder",
 
-    # Quality filtering
+    # New filter pipeline
+    "StockFilter",
+    "StockFilterImpl",
+    "FilterPipelineImpl",
+    "CompositeFilter",
+
+    # Individual filters (new)
+    "QualityFilterImpl",
+    "AffordabilityFilter",
+    "SectorFilter",
+    "SectorBalancer",
+    "CountryFilter",
+    "RegionalFilter",
+    "CorrelationFilterImpl",
+
+    # Legacy quality filtering
     "QualityFilter",
     "QualityMetrics",
 
@@ -122,4 +105,4 @@ __all__ = [
     "PortfolioAnalytics",
 ]
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"

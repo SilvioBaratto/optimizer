@@ -39,6 +39,7 @@ class BamlAsyncClient:
     def with_options(self,
         tb: typing.Optional[type_builder.TypeBuilder] = None,
         client_registry: typing.Optional[baml_py.baml_py.ClientRegistry] = None,
+        client: typing.Optional[str] = None,
         collector: typing.Optional[typing.Union[baml_py.baml_py.Collector, typing.List[baml_py.baml_py.Collector]]] = None,
         env: typing.Optional[typing.Dict[str, typing.Optional[str]]] = None,
         tags: typing.Optional[typing.Dict[str, str]] = None,
@@ -49,6 +50,8 @@ class BamlAsyncClient:
             options["tb"] = tb
         if client_registry is not None:
             options["client_registry"] = client_registry
+        if client is not None:
+            options["client"] = client
         if collector is not None:
             options["collector"] = collector
         if env is not None:
@@ -78,97 +81,97 @@ class BamlAsyncClient:
     @property
     def parse_stream(self):
       return self.__llm_stream_parser
-    
+
     async def ClassifyBusinessCycleWithLLM(self, today: str,economic_indicators: types.EconomicIndicators,market_indicators: types.MarketIndicators,news_signals: types.MacroNewsSignals,country: str,
         baml_options: BamlCallOptions = {},
     ) -> types.BusinessCycleClassification:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
             # Use streaming internally when on_tick is provided
-            stream = self.stream.ClassifyBusinessCycleWithLLM(today=today,economic_indicators=economic_indicators,market_indicators=market_indicators,news_signals=news_signals,country=country,
+            __stream__ = self.stream.ClassifyBusinessCycleWithLLM(today=today,economic_indicators=economic_indicators,market_indicators=market_indicators,news_signals=news_signals,country=country,
                 baml_options=baml_options)
-            return await stream.get_final_response()
+            return await __stream__.get_final_response()
         else:
             # Original non-streaming code
-            result = await self.__options.merge_options(baml_options).call_function_async(function_name="ClassifyBusinessCycleWithLLM", args={
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="ClassifyBusinessCycleWithLLM", args={
                 "today": today,"economic_indicators": economic_indicators,"market_indicators": market_indicators,"news_signals": news_signals,"country": country,
             })
-            return typing.cast(types.BusinessCycleClassification, result.cast_to(types, types, stream_types, False, __runtime__))
+            return typing.cast(types.BusinessCycleClassification, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def GenerateBlackLittermanView(self, signal: types.StockSignalData,macro_regime: types.MacroRegimeContext,sector_context: types.SectorContext,news_signals: typing.Optional["types.StockNewsSignals"] = None,
         baml_options: BamlCallOptions = {},
     ) -> types.BlackLittermanView:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
             # Use streaming internally when on_tick is provided
-            stream = self.stream.GenerateBlackLittermanView(signal=signal,macro_regime=macro_regime,sector_context=sector_context,news_signals=news_signals,
+            __stream__ = self.stream.GenerateBlackLittermanView(signal=signal,macro_regime=macro_regime,sector_context=sector_context,news_signals=news_signals,
                 baml_options=baml_options)
-            return await stream.get_final_response()
+            return await __stream__.get_final_response()
         else:
             # Original non-streaming code
-            result = await self.__options.merge_options(baml_options).call_function_async(function_name="GenerateBlackLittermanView", args={
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="GenerateBlackLittermanView", args={
                 "signal": signal,"macro_regime": macro_regime,"sector_context": sector_context,"news_signals": news_signals,
             })
-            return typing.cast(types.BlackLittermanView, result.cast_to(types, types, stream_types, False, __runtime__))
+            return typing.cast(types.BlackLittermanView, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def GenerateStockSignal(self, stock_data: types.ComprehensiveYFinanceData,target_date: str,macro_regime: typing.Optional["types.MacroRegimeData"] = None,recent_news: typing.Optional[typing.List["types.NewsArticle"]] = None,calculated_open_price: typing.Optional[float] = None,calculated_volatility: typing.Optional[float] = None,calculated_rsi: typing.Optional[float] = None,
         baml_options: BamlCallOptions = {},
     ) -> types.StockSignalOutput:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
             # Use streaming internally when on_tick is provided
-            stream = self.stream.GenerateStockSignal(stock_data=stock_data,target_date=target_date,macro_regime=macro_regime,recent_news=recent_news,calculated_open_price=calculated_open_price,calculated_volatility=calculated_volatility,calculated_rsi=calculated_rsi,
+            __stream__ = self.stream.GenerateStockSignal(stock_data=stock_data,target_date=target_date,macro_regime=macro_regime,recent_news=recent_news,calculated_open_price=calculated_open_price,calculated_volatility=calculated_volatility,calculated_rsi=calculated_rsi,
                 baml_options=baml_options)
-            return await stream.get_final_response()
+            return await __stream__.get_final_response()
         else:
             # Original non-streaming code
-            result = await self.__options.merge_options(baml_options).call_function_async(function_name="GenerateStockSignal", args={
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="GenerateStockSignal", args={
                 "stock_data": stock_data,"target_date": target_date,"macro_regime": macro_regime,"recent_news": recent_news,"calculated_open_price": calculated_open_price,"calculated_volatility": calculated_volatility,"calculated_rsi": calculated_rsi,
             })
-            return typing.cast(types.StockSignalOutput, result.cast_to(types, types, stream_types, False, __runtime__))
+            return typing.cast(types.StockSignalOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def RecommendBlackLittermanParameters(self, market_volatility: types.MarketVolatilityMetrics,signal_chars: types.SignalCharacteristics,macro_regime: types.MacroRegimeInput,historical_performance: types.HistoricalPerformance,
         baml_options: BamlCallOptions = {},
     ) -> types.BlackLittermanParameters:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
             # Use streaming internally when on_tick is provided
-            stream = self.stream.RecommendBlackLittermanParameters(market_volatility=market_volatility,signal_chars=signal_chars,macro_regime=macro_regime,historical_performance=historical_performance,
+            __stream__ = self.stream.RecommendBlackLittermanParameters(market_volatility=market_volatility,signal_chars=signal_chars,macro_regime=macro_regime,historical_performance=historical_performance,
                 baml_options=baml_options)
-            return await stream.get_final_response()
+            return await __stream__.get_final_response()
         else:
             # Original non-streaming code
-            result = await self.__options.merge_options(baml_options).call_function_async(function_name="RecommendBlackLittermanParameters", args={
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="RecommendBlackLittermanParameters", args={
                 "market_volatility": market_volatility,"signal_chars": signal_chars,"macro_regime": macro_regime,"historical_performance": historical_performance,
             })
-            return typing.cast(types.BlackLittermanParameters, result.cast_to(types, types, stream_types, False, __runtime__))
+            return typing.cast(types.BlackLittermanParameters, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def SummarizeNewsArticles(self, news: typing.List["types.NewsArticle"],country: str,
         baml_options: BamlCallOptions = {},
     ) -> types.MacroNewsSignals:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
             # Use streaming internally when on_tick is provided
-            stream = self.stream.SummarizeNewsArticles(news=news,country=country,
+            __stream__ = self.stream.SummarizeNewsArticles(news=news,country=country,
                 baml_options=baml_options)
-            return await stream.get_final_response()
+            return await __stream__.get_final_response()
         else:
             # Original non-streaming code
-            result = await self.__options.merge_options(baml_options).call_function_async(function_name="SummarizeNewsArticles", args={
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="SummarizeNewsArticles", args={
                 "news": news,"country": country,
             })
-            return typing.cast(types.MacroNewsSignals, result.cast_to(types, types, stream_types, False, __runtime__))
+            return typing.cast(types.MacroNewsSignals, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def SummarizeStockNews(self, ticker: str,news: typing.List["types.NewsArticle"],
         baml_options: BamlCallOptions = {},
     ) -> types.StockNewsSignals:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
             # Use streaming internally when on_tick is provided
-            stream = self.stream.SummarizeStockNews(ticker=ticker,news=news,
+            __stream__ = self.stream.SummarizeStockNews(ticker=ticker,news=news,
                 baml_options=baml_options)
-            return await stream.get_final_response()
+            return await __stream__.get_final_response()
         else:
             # Original non-streaming code
-            result = await self.__options.merge_options(baml_options).call_function_async(function_name="SummarizeStockNews", args={
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="SummarizeStockNews", args={
                 "ticker": ticker,"news": news,
             })
-            return typing.cast(types.StockNewsSignals, result.cast_to(types, types, stream_types, False, __runtime__))
+            return typing.cast(types.StockNewsSignals, __result__.cast_to(types, types, stream_types, False, __runtime__))
     
 
 
@@ -181,74 +184,74 @@ class BamlStreamClient:
     def ClassifyBusinessCycleWithLLM(self, today: str,economic_indicators: types.EconomicIndicators,market_indicators: types.MarketIndicators,news_signals: types.MacroNewsSignals,country: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[stream_types.BusinessCycleClassification, types.BusinessCycleClassification]:
-        ctx, result = self.__options.merge_options(baml_options).create_async_stream(function_name="ClassifyBusinessCycleWithLLM", args={
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="ClassifyBusinessCycleWithLLM", args={
             "today": today,"economic_indicators": economic_indicators,"market_indicators": market_indicators,"news_signals": news_signals,"country": country,
         })
         return baml_py.BamlStream[stream_types.BusinessCycleClassification, types.BusinessCycleClassification](
-          result,
+          __result__,
           lambda x: typing.cast(stream_types.BusinessCycleClassification, x.cast_to(types, types, stream_types, True, __runtime__)),
           lambda x: typing.cast(types.BusinessCycleClassification, x.cast_to(types, types, stream_types, False, __runtime__)),
-          ctx,
+          __ctx__,
         )
     def GenerateBlackLittermanView(self, signal: types.StockSignalData,macro_regime: types.MacroRegimeContext,sector_context: types.SectorContext,news_signals: typing.Optional["types.StockNewsSignals"] = None,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[stream_types.BlackLittermanView, types.BlackLittermanView]:
-        ctx, result = self.__options.merge_options(baml_options).create_async_stream(function_name="GenerateBlackLittermanView", args={
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="GenerateBlackLittermanView", args={
             "signal": signal,"macro_regime": macro_regime,"sector_context": sector_context,"news_signals": news_signals,
         })
         return baml_py.BamlStream[stream_types.BlackLittermanView, types.BlackLittermanView](
-          result,
+          __result__,
           lambda x: typing.cast(stream_types.BlackLittermanView, x.cast_to(types, types, stream_types, True, __runtime__)),
           lambda x: typing.cast(types.BlackLittermanView, x.cast_to(types, types, stream_types, False, __runtime__)),
-          ctx,
+          __ctx__,
         )
     def GenerateStockSignal(self, stock_data: types.ComprehensiveYFinanceData,target_date: str,macro_regime: typing.Optional["types.MacroRegimeData"] = None,recent_news: typing.Optional[typing.List["types.NewsArticle"]] = None,calculated_open_price: typing.Optional[float] = None,calculated_volatility: typing.Optional[float] = None,calculated_rsi: typing.Optional[float] = None,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[stream_types.StockSignalOutput, types.StockSignalOutput]:
-        ctx, result = self.__options.merge_options(baml_options).create_async_stream(function_name="GenerateStockSignal", args={
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="GenerateStockSignal", args={
             "stock_data": stock_data,"target_date": target_date,"macro_regime": macro_regime,"recent_news": recent_news,"calculated_open_price": calculated_open_price,"calculated_volatility": calculated_volatility,"calculated_rsi": calculated_rsi,
         })
         return baml_py.BamlStream[stream_types.StockSignalOutput, types.StockSignalOutput](
-          result,
+          __result__,
           lambda x: typing.cast(stream_types.StockSignalOutput, x.cast_to(types, types, stream_types, True, __runtime__)),
           lambda x: typing.cast(types.StockSignalOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
-          ctx,
+          __ctx__,
         )
     def RecommendBlackLittermanParameters(self, market_volatility: types.MarketVolatilityMetrics,signal_chars: types.SignalCharacteristics,macro_regime: types.MacroRegimeInput,historical_performance: types.HistoricalPerformance,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[stream_types.BlackLittermanParameters, types.BlackLittermanParameters]:
-        ctx, result = self.__options.merge_options(baml_options).create_async_stream(function_name="RecommendBlackLittermanParameters", args={
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="RecommendBlackLittermanParameters", args={
             "market_volatility": market_volatility,"signal_chars": signal_chars,"macro_regime": macro_regime,"historical_performance": historical_performance,
         })
         return baml_py.BamlStream[stream_types.BlackLittermanParameters, types.BlackLittermanParameters](
-          result,
+          __result__,
           lambda x: typing.cast(stream_types.BlackLittermanParameters, x.cast_to(types, types, stream_types, True, __runtime__)),
           lambda x: typing.cast(types.BlackLittermanParameters, x.cast_to(types, types, stream_types, False, __runtime__)),
-          ctx,
+          __ctx__,
         )
     def SummarizeNewsArticles(self, news: typing.List["types.NewsArticle"],country: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[stream_types.MacroNewsSignals, types.MacroNewsSignals]:
-        ctx, result = self.__options.merge_options(baml_options).create_async_stream(function_name="SummarizeNewsArticles", args={
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="SummarizeNewsArticles", args={
             "news": news,"country": country,
         })
         return baml_py.BamlStream[stream_types.MacroNewsSignals, types.MacroNewsSignals](
-          result,
+          __result__,
           lambda x: typing.cast(stream_types.MacroNewsSignals, x.cast_to(types, types, stream_types, True, __runtime__)),
           lambda x: typing.cast(types.MacroNewsSignals, x.cast_to(types, types, stream_types, False, __runtime__)),
-          ctx,
+          __ctx__,
         )
     def SummarizeStockNews(self, ticker: str,news: typing.List["types.NewsArticle"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[stream_types.StockNewsSignals, types.StockNewsSignals]:
-        ctx, result = self.__options.merge_options(baml_options).create_async_stream(function_name="SummarizeStockNews", args={
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="SummarizeStockNews", args={
             "ticker": ticker,"news": news,
         })
         return baml_py.BamlStream[stream_types.StockNewsSignals, types.StockNewsSignals](
-          result,
+          __result__,
           lambda x: typing.cast(stream_types.StockNewsSignals, x.cast_to(types, types, stream_types, True, __runtime__)),
           lambda x: typing.cast(types.StockNewsSignals, x.cast_to(types, types, stream_types, False, __runtime__)),
-          ctx,
+          __ctx__,
         )
     
 
@@ -261,45 +264,45 @@ class BamlHttpRequestClient:
     async def ClassifyBusinessCycleWithLLM(self, today: str,economic_indicators: types.EconomicIndicators,market_indicators: types.MarketIndicators,news_signals: types.MacroNewsSignals,country: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ClassifyBusinessCycleWithLLM", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ClassifyBusinessCycleWithLLM", args={
             "today": today,"economic_indicators": economic_indicators,"market_indicators": market_indicators,"news_signals": news_signals,"country": country,
         }, mode="request")
-        return result
+        return __result__
     async def GenerateBlackLittermanView(self, signal: types.StockSignalData,macro_regime: types.MacroRegimeContext,sector_context: types.SectorContext,news_signals: typing.Optional["types.StockNewsSignals"] = None,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateBlackLittermanView", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateBlackLittermanView", args={
             "signal": signal,"macro_regime": macro_regime,"sector_context": sector_context,"news_signals": news_signals,
         }, mode="request")
-        return result
+        return __result__
     async def GenerateStockSignal(self, stock_data: types.ComprehensiveYFinanceData,target_date: str,macro_regime: typing.Optional["types.MacroRegimeData"] = None,recent_news: typing.Optional[typing.List["types.NewsArticle"]] = None,calculated_open_price: typing.Optional[float] = None,calculated_volatility: typing.Optional[float] = None,calculated_rsi: typing.Optional[float] = None,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateStockSignal", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateStockSignal", args={
             "stock_data": stock_data,"target_date": target_date,"macro_regime": macro_regime,"recent_news": recent_news,"calculated_open_price": calculated_open_price,"calculated_volatility": calculated_volatility,"calculated_rsi": calculated_rsi,
         }, mode="request")
-        return result
+        return __result__
     async def RecommendBlackLittermanParameters(self, market_volatility: types.MarketVolatilityMetrics,signal_chars: types.SignalCharacteristics,macro_regime: types.MacroRegimeInput,historical_performance: types.HistoricalPerformance,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="RecommendBlackLittermanParameters", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="RecommendBlackLittermanParameters", args={
             "market_volatility": market_volatility,"signal_chars": signal_chars,"macro_regime": macro_regime,"historical_performance": historical_performance,
         }, mode="request")
-        return result
+        return __result__
     async def SummarizeNewsArticles(self, news: typing.List["types.NewsArticle"],country: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeNewsArticles", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeNewsArticles", args={
             "news": news,"country": country,
         }, mode="request")
-        return result
+        return __result__
     async def SummarizeStockNews(self, ticker: str,news: typing.List["types.NewsArticle"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeStockNews", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeStockNews", args={
             "ticker": ticker,"news": news,
         }, mode="request")
-        return result
+        return __result__
     
 
 class BamlHttpStreamRequestClient:
@@ -311,45 +314,45 @@ class BamlHttpStreamRequestClient:
     async def ClassifyBusinessCycleWithLLM(self, today: str,economic_indicators: types.EconomicIndicators,market_indicators: types.MarketIndicators,news_signals: types.MacroNewsSignals,country: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ClassifyBusinessCycleWithLLM", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ClassifyBusinessCycleWithLLM", args={
             "today": today,"economic_indicators": economic_indicators,"market_indicators": market_indicators,"news_signals": news_signals,"country": country,
         }, mode="stream")
-        return result
+        return __result__
     async def GenerateBlackLittermanView(self, signal: types.StockSignalData,macro_regime: types.MacroRegimeContext,sector_context: types.SectorContext,news_signals: typing.Optional["types.StockNewsSignals"] = None,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateBlackLittermanView", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateBlackLittermanView", args={
             "signal": signal,"macro_regime": macro_regime,"sector_context": sector_context,"news_signals": news_signals,
         }, mode="stream")
-        return result
+        return __result__
     async def GenerateStockSignal(self, stock_data: types.ComprehensiveYFinanceData,target_date: str,macro_regime: typing.Optional["types.MacroRegimeData"] = None,recent_news: typing.Optional[typing.List["types.NewsArticle"]] = None,calculated_open_price: typing.Optional[float] = None,calculated_volatility: typing.Optional[float] = None,calculated_rsi: typing.Optional[float] = None,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateStockSignal", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateStockSignal", args={
             "stock_data": stock_data,"target_date": target_date,"macro_regime": macro_regime,"recent_news": recent_news,"calculated_open_price": calculated_open_price,"calculated_volatility": calculated_volatility,"calculated_rsi": calculated_rsi,
         }, mode="stream")
-        return result
+        return __result__
     async def RecommendBlackLittermanParameters(self, market_volatility: types.MarketVolatilityMetrics,signal_chars: types.SignalCharacteristics,macro_regime: types.MacroRegimeInput,historical_performance: types.HistoricalPerformance,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="RecommendBlackLittermanParameters", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="RecommendBlackLittermanParameters", args={
             "market_volatility": market_volatility,"signal_chars": signal_chars,"macro_regime": macro_regime,"historical_performance": historical_performance,
         }, mode="stream")
-        return result
+        return __result__
     async def SummarizeNewsArticles(self, news: typing.List["types.NewsArticle"],country: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeNewsArticles", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeNewsArticles", args={
             "news": news,"country": country,
         }, mode="stream")
-        return result
+        return __result__
     async def SummarizeStockNews(self, ticker: str,news: typing.List["types.NewsArticle"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
-        result = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeStockNews", args={
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeStockNews", args={
             "ticker": ticker,"news": news,
         }, mode="stream")
-        return result
+        return __result__
     
 
 b = BamlAsyncClient(DoNotUseDirectlyCallManager({}))

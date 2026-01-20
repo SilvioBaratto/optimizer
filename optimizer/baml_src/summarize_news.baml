@@ -102,7 +102,7 @@ function SummarizeNewsArticles(
   news: NewsArticle[],
   country: string
 ) -> MacroNewsSignals {
-  client Model
+  client AzureOpenAIGpt5
 
   prompt #"
     {{ _.role("system") }}

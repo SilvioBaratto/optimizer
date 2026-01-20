@@ -1,30 +1,32 @@
-import logging
-import threading
-from typing import Optional, Any
-from collections import OrderedDict
+"""
+LRU Cache implementation for yfinance module.
 
-logger = logging.getLogger(__name__)
+Thread-safe LRU cache that complies with CacheProtocol
+for dependency injection support.
+"""
+
+import threading
+from collections import OrderedDict
+from typing import Any
+
 
 class LRUCache:
     """
-    Simple thread-safe LRU cache for Ticker objects.
-
-    Uses OrderedDict to maintain insertion order and implements
-    least-recently-used eviction policy.
+    Thread-safe LRU cache for Ticker objects.
     """
 
-    def __init__(self, capacity: int = 3000):
+    def __init__(self, capacity: int = 3000) -> None:
         """
         Initialize LRU cache.
 
         Args:
             capacity: Maximum number of items to cache
         """
-        self._cache = OrderedDict()
+        self._cache: OrderedDict[str, Any] = OrderedDict()
         self._capacity = capacity
         self._lock = threading.Lock()
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """
         Get item from cache, moving it to end (most recent).
 
@@ -57,7 +59,7 @@ class LRUCache:
 
             # Evict oldest if over capacity
             if len(self._cache) > self._capacity:
-                self._cache.popitem(last=False)  # Remove oldest (first item)
+                self._cache.popitem(last=False)
 
     def clear(self) -> None:
         """Clear all cached items."""
@@ -73,3 +75,26 @@ class LRUCache:
     def capacity(self) -> int:
         """Get cache capacity."""
         return self._capacity
+
+    def contains(self, key: str) -> bool:
+        """
+        Check if key exists in cache without updating recency.
+
+        Args:
+            key: Cache key
+
+        Returns:
+            True if key exists in cache
+        """
+        with self._lock:
+            return key in self._cache
+
+    def keys(self) -> list[str]:
+        """
+        Get all keys in cache (most recent last).
+
+        Returns:
+            List of cache keys in LRU order
+        """
+        with self._lock:
+            return list(self._cache.keys())

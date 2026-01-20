@@ -26,17 +26,17 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # Import database and models
-from app.database import database_manager, init_db
-from app.models.stock_signals import StockSignal, SignalEnum
-from app.models.universe import Instrument
+from optimizer.database.database import database_manager, init_db
+from optimizer.database.models.stock_signals import StockSignal, SignalEnum
+from optimizer.database.models.universe import Instrument
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -68,17 +68,18 @@ class SignalDistributionViewer:
 
         with database_manager.get_session() as session:
             # Count signals by type
-            query = select(
-                StockSignal.signal_type,
-                func.count(StockSignal.id).label('count')
-            ).where(
-                StockSignal.signal_date == self.signal_date
-            ).group_by(
-                StockSignal.signal_type
+            query = (
+                select(
+                    StockSignal.signal_type, func.count(StockSignal.id).label("count")
+                )
+                .where(StockSignal.signal_date == self.signal_date)
+                .group_by(StockSignal.signal_type)
             )
 
             results = session.execute(query).all()
-            self.signal_type_counts = {signal_type.value: count for signal_type, count in results}
+            self.signal_type_counts = {
+                signal_type.value: count for signal_type, count in results
+            }
 
             logger.info(f"Found {sum(self.signal_type_counts.values())} total signals")
 
@@ -92,10 +93,12 @@ class SignalDistributionViewer:
         logger.info(f"Fetching all signals with details for {self.signal_date}")
 
         with database_manager.get_session() as session:
-            query = select(StockSignal).where(
-                StockSignal.signal_date == self.signal_date
-            ).options(
-                joinedload(StockSignal.instrument).joinedload(Instrument.exchange)
+            query = (
+                select(StockSignal)
+                .where(StockSignal.signal_date == self.signal_date)
+                .options(
+                    joinedload(StockSignal.instrument).joinedload(Instrument.exchange)
+                )
             )
 
             signals = session.execute(query).scalars().all()
@@ -175,8 +178,14 @@ class SignalDistributionViewer:
             f"{len(self.exchange_counts)} exchanges"
         )
 
-    def print_histogram(self, title: str, data: Dict[str, int], max_bars: int = 50,
-                       top_n: int | None = None, show_percentages: bool = True) -> None:
+    def print_histogram(
+        self,
+        title: str,
+        data: Dict[str, int],
+        max_bars: int = 50,
+        top_n: int | None = None,
+        show_percentages: bool = True,
+    ) -> None:
         """
         Print a histogram in the terminal.
 
@@ -234,23 +243,40 @@ class SignalDistributionViewer:
         print("=" * 100)
 
         # 1. Signal Type Distribution
-        signal_order = ['large_gain', 'small_gain', 'neutral', 'small_decline', 'large_decline']
-        ordered_signal_counts = {sig: self.signal_type_counts.get(sig, 0) for sig in signal_order}
+        signal_order = [
+            "large_gain",
+            "small_gain",
+            "neutral",
+            "small_decline",
+            "large_decline",
+        ]
+        ordered_signal_counts = {
+            sig: self.signal_type_counts.get(sig, 0) for sig in signal_order
+        }
         self.print_histogram("1. SIGNAL TYPE DISTRIBUTION", ordered_signal_counts)
 
         # 2. Sector Distribution
-        self.print_histogram("2. SECTOR DISTRIBUTION (All Unique Stocks)", self.sector_counts)
+        self.print_histogram(
+            "2. SECTOR DISTRIBUTION (All Unique Stocks)", self.sector_counts
+        )
 
         # 3. Exchange Distribution
-        self.print_histogram("3. EXCHANGE DISTRIBUTION (All Unique Stocks)", self.exchange_counts)
+        self.print_histogram(
+            "3. EXCHANGE DISTRIBUTION (All Unique Stocks)", self.exchange_counts
+        )
 
         # 4. Industry Distribution (Top 20)
-        self.print_histogram("4. INDUSTRY DISTRIBUTION (Top 20, All Unique Stocks)",
-                           self.industry_counts, top_n=20)
+        self.print_histogram(
+            "4. INDUSTRY DISTRIBUTION (Top 20, All Unique Stocks)",
+            self.industry_counts,
+            top_n=20,
+        )
 
         # 5. Confidence Level Distribution
-        confidence_order = ['high', 'medium', 'low']
-        ordered_confidence = {conf: self.confidence_counts.get(conf, 0) for conf in confidence_order}
+        confidence_order = ["high", "medium", "low"]
+        ordered_confidence = {
+            conf: self.confidence_counts.get(conf, 0) for conf in confidence_order
+        }
         self.print_histogram("5. CONFIDENCE LEVEL DISTRIBUTION", ordered_confidence)
 
         # Summary
@@ -345,6 +371,7 @@ def main():
     except Exception as e:
         logger.error(f"Analysis failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

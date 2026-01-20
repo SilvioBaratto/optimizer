@@ -1,21 +1,6 @@
 #!/usr/bin/env python3
-"""
-Portfolio Analytics - Stock Selection Utilities
-================================================
-Provides utility functions for stock ranking and selection.
-
-Note: Portfolio weighting/metrics moved to Black-Litterman optimizer.
-This module now focuses on stock selection utilities only.
-
-Author: Portfolio Optimization System
-"""
-
-import logging
-
-from app.models.stock_signals import StockSignal
-from app.models.universe import Instrument
-
-logger = logging.getLogger(__name__)
+from optimizer.database.models.stock_signals import StockSignal
+from optimizer.database.models.universe import Instrument
 
 
 class PortfolioAnalytics:
@@ -25,18 +10,6 @@ class PortfolioAnalytics:
     def calculate_composite_score(signal: StockSignal) -> float:
         """
         Calculate composite score for ranking using available quantitative metrics.
-
-        Score = 0.35 * Momentum (confidence) +
-                0.25 * Sharpe Ratio +
-                0.20 * (1/Volatility) +
-                0.15 * Alpha +
-                0.05 * Data Quality
-
-        Args:
-            signal: Stock signal
-
-        Returns:
-            Composite score (0-100)
         """
         score = 0.0
 
@@ -59,7 +32,9 @@ class PortfolioAnalytics:
 
         # Alpha (15%) - excess return vs benchmark
         if signal.alpha is not None:
-            alpha_score = min(100, max(0, ((signal.alpha + 0.05) / 0.15) * 100))  # -5% to +10% mapped to 0-100
+            alpha_score = min(
+                100, max(0, ((signal.alpha + 0.05) / 0.15) * 100)
+            )  # -5% to +10% mapped to 0-100
             score += 0.15 * alpha_score
         else:
             score += 0.15 * 50  # Neutral if missing

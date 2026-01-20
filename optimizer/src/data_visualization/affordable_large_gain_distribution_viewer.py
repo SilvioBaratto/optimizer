@@ -34,17 +34,17 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # Import database and models
-from app.database import database_manager, init_db
-from app.models.stock_signals import StockSignal, SignalEnum
-from app.models.universe import Instrument
+from optimizer.database.database import database_manager, init_db
+from optimizer.database.models.stock_signals import StockSignal, SignalEnum
+from optimizer.database.models.universe import Instrument
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -83,25 +83,30 @@ class AffordableLargeGainDistributionViewer:
             List of (signal, instrument) tuples
         """
         logger.info(f"Fetching LARGE_GAIN signals for {self.signal_date}")
-        logger.info(f"Capital: €{self.capital:,.2f} → Max price per stock: €{self.max_price:.2f}")
+        logger.info(
+            f"Capital: €{self.capital:,.2f} → Max price per stock: €{self.max_price:.2f}"
+        )
 
         with database_manager.get_session() as session:
             # First, get total LARGE_GAIN count (before filtering)
             total_query = select(func.count(StockSignal.id)).where(
                 StockSignal.signal_date == self.signal_date,
-                StockSignal.signal_type == SignalEnum.LARGE_GAIN
+                StockSignal.signal_type == SignalEnum.LARGE_GAIN,
             )
             total_count = session.execute(total_query).scalar_one()
 
             # Now get affordable signals only
-            query = select(StockSignal).where(
-                StockSignal.signal_date == self.signal_date,
-                StockSignal.signal_type == SignalEnum.LARGE_GAIN,
-                StockSignal.close_price <= self.max_price
-            ).options(
-                joinedload(StockSignal.instrument).joinedload(Instrument.exchange)
-            ).order_by(
-                StockSignal.close_price.desc()
+            query = (
+                select(StockSignal)
+                .where(
+                    StockSignal.signal_date == self.signal_date,
+                    StockSignal.signal_type == SignalEnum.LARGE_GAIN,
+                    StockSignal.close_price <= self.max_price,
+                )
+                .options(
+                    joinedload(StockSignal.instrument).joinedload(Instrument.exchange)
+                )
+                .order_by(StockSignal.close_price.desc())
             )
 
             signals = session.execute(query).scalars().all()
@@ -135,18 +140,18 @@ class AffordableLargeGainDistributionViewer:
             Price range category
         """
         if price is None:
-            return 'Unknown'
+            return "Unknown"
 
         if price < 10:
-            return '< €10'
+            return "< €10"
         elif price < 50:
-            return '€10-€50'
+            return "€10-€50"
         elif price < 100:
-            return '€50-€100'
+            return "€50-€100"
         elif price < 500:
-            return '€100-€500'
+            return "€100-€500"
         else:
-            return '> €500'
+            return "> €500"
 
     def get_country_from_exchange(self, exchange_name: str | None) -> str:
         """
@@ -159,7 +164,7 @@ class AffordableLargeGainDistributionViewer:
             Country name
         """
         if not exchange_name:
-            return 'Unknown'
+            return "Unknown"
 
         exchange_to_country = {
             "NYSE": "USA",
@@ -254,8 +259,14 @@ class AffordableLargeGainDistributionViewer:
             f"{len(self.country_counts)} countries"
         )
 
-    def print_histogram(self, title: str, data: Dict[str, int], max_bars: int = 50,
-                       top_n: int | None = None, show_percentages: bool = True) -> None:
+    def print_histogram(
+        self,
+        title: str,
+        data: Dict[str, int],
+        max_bars: int = 50,
+        top_n: int | None = None,
+        show_percentages: bool = True,
+    ) -> None:
         """
         Print a histogram in the terminal.
 
@@ -320,30 +331,37 @@ class AffordableLargeGainDistributionViewer:
         # 1. Sector Distribution
         self.print_histogram(
             f"1. SECTOR DISTRIBUTION (Affordable LARGE_GAIN: ≤€{self.max_price:.2f})",
-            self.sector_counts
+            self.sector_counts,
         )
 
         # 2. Country Distribution
         self.print_histogram(
             f"2. COUNTRY DISTRIBUTION (Affordable LARGE_GAIN: ≤€{self.max_price:.2f})",
-            self.country_counts
+            self.country_counts,
         )
 
         # 3. Exchange Distribution
         self.print_histogram(
             f"3. EXCHANGE DISTRIBUTION (Affordable LARGE_GAIN: ≤€{self.max_price:.2f})",
-            self.exchange_counts
+            self.exchange_counts,
         )
 
         # 4. Industry Distribution (Top 20)
         self.print_histogram(
             f"4. INDUSTRY DISTRIBUTION (Top 20, Affordable LARGE_GAIN: ≤€{self.max_price:.2f})",
             self.industry_counts,
-            top_n=20
+            top_n=20,
         )
 
         # 5. Price Range Distribution
-        price_range_order = ['< €10', '€10-€50', '€50-€100', '€100-€500', '> €500', 'Unknown']
+        price_range_order = [
+            "< €10",
+            "€10-€50",
+            "€50-€100",
+            "€100-€500",
+            "> €500",
+            "Unknown",
+        ]
         ordered_price_ranges = {
             pr: self.price_range_counts.get(pr, 0)
             for pr in price_range_order
@@ -351,15 +369,17 @@ class AffordableLargeGainDistributionViewer:
         }
         self.print_histogram(
             f"5. PRICE RANGE DISTRIBUTION (Affordable LARGE_GAIN: ≤€{self.max_price:.2f})",
-            ordered_price_ranges
+            ordered_price_ranges,
         )
 
         # 6. Confidence Level Distribution
-        confidence_order = ['high', 'medium', 'low']
-        ordered_confidence = {conf: self.confidence_counts.get(conf, 0) for conf in confidence_order}
+        confidence_order = ["high", "medium", "low"]
+        ordered_confidence = {
+            conf: self.confidence_counts.get(conf, 0) for conf in confidence_order
+        }
         self.print_histogram(
             f"6. CONFIDENCE LEVEL DISTRIBUTION (Affordable LARGE_GAIN: ≤€{self.max_price:.2f})",
-            ordered_confidence
+            ordered_confidence,
         )
 
         # Summary
@@ -380,17 +400,29 @@ class AffordableLargeGainDistributionViewer:
         # Top performers by sector
         if self.sector_counts:
             print("\nTOP 3 SECTORS (Most affordable LARGE_GAIN stocks):")
-            top_sectors = sorted(self.sector_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+            top_sectors = sorted(
+                self.sector_counts.items(), key=lambda x: x[1], reverse=True
+            )[:3]
             for i, (sector, count) in enumerate(top_sectors, 1):
-                percentage = (count / self.total_large_gain) * 100 if self.total_large_gain > 0 else 0
+                percentage = (
+                    (count / self.total_large_gain) * 100
+                    if self.total_large_gain > 0
+                    else 0
+                )
                 print(f"  {i}. {sector:30} {count:3d} stocks ({percentage:5.1f}%)")
 
         # Top performers by country
         if self.country_counts:
             print("\nTOP 3 COUNTRIES (Most affordable LARGE_GAIN stocks):")
-            top_countries = sorted(self.country_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+            top_countries = sorted(
+                self.country_counts.items(), key=lambda x: x[1], reverse=True
+            )[:3]
             for i, (country, count) in enumerate(top_countries, 1):
-                percentage = (count / self.total_large_gain) * 100 if self.total_large_gain > 0 else 0
+                percentage = (
+                    (count / self.total_large_gain) * 100
+                    if self.total_large_gain > 0
+                    else 0
+                )
                 print(f"  {i}. {country:30} {count:3d} stocks ({percentage:5.1f}%)")
 
         print("=" * 100)
@@ -451,10 +483,10 @@ def main():
         description="Analyze LARGE_GAIN signals filtered by affordability"
     )
     parser.add_argument(
-        '--capital',
+        "--capital",
         type=float,
         default=1000.0,
-        help='Total capital available in EUR (default: 1000). Max price = capital/20'
+        help="Total capital available in EUR (default: 1000). Max price = capital/20",
     )
 
     args = parser.parse_args()
@@ -489,8 +521,7 @@ def main():
 
         # Create viewer
         viewer = AffordableLargeGainDistributionViewer(
-            signal_date=signal_date,
-            capital=args.capital
+            signal_date=signal_date, capital=args.capital
         )
 
         # Run analysis and display
@@ -503,6 +534,7 @@ def main():
     except Exception as e:
         logger.error(f"Analysis failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

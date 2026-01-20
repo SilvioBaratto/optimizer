@@ -25,20 +25,25 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from src.yfinance import YFinanceClient
+from optimizer.src.yfinance import YFinanceClient
 
 # Import database and models
-from app.database import database_manager, init_db
-from app.models.stock_signals import StockSignal, SignalEnum
-from app.models.universe import Instrument
-from app.models.macro_regime import CountryRegimeAssessment, MacroAnalysisRun, MarketIndicators, EconomicIndicators
+from optimizer.database.database import database_manager, init_db
+from optimizer.database.models.stock_signals import StockSignal, SignalEnum
+from optimizer.database.models.universe import Instrument
+from optimizer.database.models.macro_regime import (
+    CountryRegimeAssessment,
+    MacroAnalysisRun,
+    MarketIndicators,
+    EconomicIndicators,
+)
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -85,13 +90,16 @@ class SignalAnalysisReporter:
 
         with database_manager.get_session() as session:
             # Fetch ONLY LARGE_GAIN signals (filter at database level)
-            query = select(StockSignal).where(
-                StockSignal.signal_date == self.signal_date,
-                StockSignal.signal_type == SignalEnum.LARGE_GAIN
-            ).options(
-                joinedload(StockSignal.instrument).joinedload(Instrument.exchange)
-            ).order_by(
-                StockSignal.close_price.desc()
+            query = (
+                select(StockSignal)
+                .where(
+                    StockSignal.signal_date == self.signal_date,
+                    StockSignal.signal_type == SignalEnum.LARGE_GAIN,
+                )
+                .options(
+                    joinedload(StockSignal.instrument).joinedload(Instrument.exchange)
+                )
+                .order_by(StockSignal.close_price.desc())
             )
 
             signals = session.execute(query).scalars().all()
@@ -118,13 +126,12 @@ class SignalAnalysisReporter:
             # Count signals by type
             from sqlalchemy import func
 
-            query = select(
-                StockSignal.signal_type,
-                func.count(StockSignal.id).label('count')
-            ).where(
-                StockSignal.signal_date == self.signal_date
-            ).group_by(
-                StockSignal.signal_type
+            query = (
+                select(
+                    StockSignal.signal_type, func.count(StockSignal.id).label("count")
+                )
+                .where(StockSignal.signal_date == self.signal_date)
+                .group_by(StockSignal.signal_type)
             )
 
             results = session.execute(query).all()
@@ -151,28 +158,30 @@ class SignalAnalysisReporter:
 
             if info is None:
                 return {
-                    'name': 'Unknown',
-                    'sector': 'Unknown',
-                    'industry': 'Unknown',
-                    'description': 'No description available',
-                    'country': 'Unknown'
+                    "name": "Unknown",
+                    "sector": "Unknown",
+                    "industry": "Unknown",
+                    "description": "No description available",
+                    "country": "Unknown",
                 }
 
             return {
-                'name': info.get('longName', info.get('shortName', 'Unknown')),
-                'sector': info.get('sector', 'Unknown'),
-                'industry': info.get('industry', 'Unknown'),
-                'description': info.get('longBusinessSummary', 'No description available'),
-                'country': info.get('country', 'Unknown')
+                "name": info.get("longName", info.get("shortName", "Unknown")),
+                "sector": info.get("sector", "Unknown"),
+                "industry": info.get("industry", "Unknown"),
+                "description": info.get(
+                    "longBusinessSummary", "No description available"
+                ),
+                "country": info.get("country", "Unknown"),
             }
         except Exception as e:
             logger.warning(f"Could not fetch company info for {yf_ticker}: {e}")
             return {
-                'name': 'Unknown',
-                'sector': 'Unknown',
-                'industry': 'Unknown',
-                'description': 'No description available',
-                'country': 'Unknown'
+                "name": "Unknown",
+                "sector": "Unknown",
+                "industry": "Unknown",
+                "description": "No description available",
+                "country": "Unknown",
             }
 
     def fetch_macro_regime_data(self, countries: List[str]) -> Dict[str, Dict]:
@@ -192,52 +201,108 @@ class SignalAnalysisReporter:
         with database_manager.get_session() as session:
             for country in countries:
                 # Get latest assessment for this country
-                query = select(CountryRegimeAssessment).where(
-                    CountryRegimeAssessment.country == country
-                ).options(
-                    joinedload(CountryRegimeAssessment.analysis_run).joinedload(MacroAnalysisRun.market_indicators),
-                    joinedload(CountryRegimeAssessment.economic_indicators)
-                ).order_by(
-                    CountryRegimeAssessment.assessment_timestamp.desc()
-                ).limit(1)
+                query = (
+                    select(CountryRegimeAssessment)
+                    .where(CountryRegimeAssessment.country == country)
+                    .options(
+                        joinedload(CountryRegimeAssessment.analysis_run).joinedload(
+                            MacroAnalysisRun.market_indicators
+                        ),
+                        joinedload(CountryRegimeAssessment.economic_indicators),
+                    )
+                    .order_by(CountryRegimeAssessment.assessment_timestamp.desc())
+                    .limit(1)
+                )
 
                 result = session.execute(query)
                 assessment = result.scalar_one_or_none()
 
                 if assessment:
                     # Get market and economic indicators
-                    market_indicators = assessment.analysis_run.market_indicators if assessment.analysis_run else None
+                    market_indicators = (
+                        assessment.analysis_run.market_indicators
+                        if assessment.analysis_run
+                        else None
+                    )
                     econ_indicators = assessment.economic_indicators
 
                     macro_data[country] = {
-                        'regime': assessment.regime if isinstance(assessment.regime, str) else assessment.regime.value,
-                        'confidence': float(assessment.confidence),
-                        'rationale': assessment.rationale,
-                        'assessment_date': assessment.assessment_timestamp.date().isoformat(),
+                        "regime": (
+                            assessment.regime
+                            if isinstance(assessment.regime, str)
+                            else assessment.regime.value
+                        ),
+                        "confidence": float(assessment.confidence),
+                        "rationale": assessment.rationale,
+                        "assessment_date": assessment.assessment_timestamp.date().isoformat(),
                         # Recession risk
-                        'recession_risk_6m': float(assessment.recession_risk_6m),
-                        'recession_risk_12m': float(assessment.recession_risk_12m),
-                        'recession_drivers': assessment.recession_drivers or [],
+                        "recession_risk_6m": float(assessment.recession_risk_6m),
+                        "recession_risk_12m": float(assessment.recession_risk_12m),
+                        "recession_drivers": assessment.recession_drivers or [],
                         # Economic indicators
-                        'gdp_growth_yy': float(econ_indicators.gdp_growth_yy) if econ_indicators and econ_indicators.gdp_growth_yy else None,
-                        'unemployment': float(econ_indicators.unemployment) if econ_indicators and econ_indicators.unemployment else None,
-                        'inflation': float(econ_indicators.inflation) if econ_indicators and econ_indicators.inflation else None,
+                        "gdp_growth_yy": (
+                            float(econ_indicators.gdp_growth_yy)
+                            if econ_indicators and econ_indicators.gdp_growth_yy
+                            else None
+                        ),
+                        "unemployment": (
+                            float(econ_indicators.unemployment)
+                            if econ_indicators and econ_indicators.unemployment
+                            else None
+                        ),
+                        "inflation": (
+                            float(econ_indicators.inflation)
+                            if econ_indicators and econ_indicators.inflation
+                            else None
+                        ),
                         # Market indicators
-                        'ism_pmi': float(market_indicators.ism_pmi) if market_indicators and market_indicators.ism_pmi else None,
-                        'ism_signal': assessment.ism_signal if isinstance(assessment.ism_signal, str) else assessment.ism_signal.value,
-                        'yield_curve_2s10s': float(market_indicators.yield_curve_2s10s) if market_indicators and market_indicators.yield_curve_2s10s else None,
-                        'yield_curve_signal': assessment.yield_curve_signal if isinstance(assessment.yield_curve_signal, str) else assessment.yield_curve_signal.value,
-                        'credit_spread_signal': assessment.credit_spread_signal if isinstance(assessment.credit_spread_signal, str) else assessment.credit_spread_signal.value,
+                        "ism_pmi": (
+                            float(market_indicators.ism_pmi)
+                            if market_indicators and market_indicators.ism_pmi
+                            else None
+                        ),
+                        "ism_signal": (
+                            assessment.ism_signal
+                            if isinstance(assessment.ism_signal, str)
+                            else assessment.ism_signal.value
+                        ),
+                        "yield_curve_2s10s": (
+                            float(market_indicators.yield_curve_2s10s)
+                            if market_indicators and market_indicators.yield_curve_2s10s
+                            else None
+                        ),
+                        "yield_curve_signal": (
+                            assessment.yield_curve_signal
+                            if isinstance(assessment.yield_curve_signal, str)
+                            else assessment.yield_curve_signal.value
+                        ),
+                        "credit_spread_signal": (
+                            assessment.credit_spread_signal
+                            if isinstance(assessment.credit_spread_signal, str)
+                            else assessment.credit_spread_signal.value
+                        ),
                         # Portfolio positioning
-                        'sector_tilts': assessment.sector_tilts or {},
-                        'recommended_overweights': assessment.recommended_overweights or [],
-                        'recommended_underweights': assessment.recommended_underweights or [],
-                        'factor_exposure': assessment.factor_exposure if isinstance(assessment.factor_exposure, str) else (assessment.factor_exposure.value if assessment.factor_exposure else None),
+                        "sector_tilts": assessment.sector_tilts or {},
+                        "recommended_overweights": assessment.recommended_overweights
+                        or [],
+                        "recommended_underweights": assessment.recommended_underweights
+                        or [],
+                        "factor_exposure": (
+                            assessment.factor_exposure
+                            if isinstance(assessment.factor_exposure, str)
+                            else (
+                                assessment.factor_exposure.value
+                                if assessment.factor_exposure
+                                else None
+                            )
+                        ),
                         # Risks
-                        'primary_risks': assessment.primary_risks or []
+                        "primary_risks": assessment.primary_risks or [],
                     }
 
-                    logger.info(f"Loaded macro data for {country}: {macro_data[country]['regime']}")
+                    logger.info(
+                        f"Loaded macro data for {country}: {macro_data[country]['regime']}"
+                    )
                 else:
                     logger.warning(f"No macro regime data found for {country}")
 
@@ -278,7 +343,9 @@ class SignalAnalysisReporter:
             # Check if we've already processed this instrument
             if instrument_id in large_gain_by_instrument:
                 # Skip duplicate - same instrument, already processed
-                logger.debug(f"Skipping duplicate instrument: {instrument.yfinance_ticker}")
+                logger.debug(
+                    f"Skipping duplicate instrument: {instrument.yfinance_ticker}"
+                )
                 continue
 
             # Fetch company info (only once per unique instrument)
@@ -287,36 +354,47 @@ class SignalAnalysisReporter:
 
             # Store signal data (use denormalized fields from signal, fallback to instrument)
             signal_data = {
-                'instrument_id': instrument_id,
-                'ticker': signal.ticker or instrument.short_name or instrument.yfinance_ticker,
-                'yf_ticker': signal.yfinance_ticker or instrument.yfinance_ticker,
-                'company_name': company_info['name'],
+                "instrument_id": instrument_id,
+                "ticker": signal.ticker
+                or instrument.short_name
+                or instrument.yfinance_ticker,
+                "yf_ticker": signal.yfinance_ticker or instrument.yfinance_ticker,
+                "company_name": company_info["name"],
                 # Use denormalized sector/industry from signal if available, otherwise from yfinance
-                'sector': signal.sector or company_info['sector'],
-                'industry': signal.industry or company_info['industry'],
-                'description': company_info['description'],
-                'country': company_info['country'],
-                'exchange': signal.exchange_name or (instrument.exchange.exchange_name if instrument.exchange else 'Unknown'),
-                'signal_type': signal.signal_type.value,
-                'confidence': signal.confidence_level.value if signal.confidence_level else 'N/A',
-                'close_price': signal.close_price,
-                'upside_pct': signal.upside_potential_pct,
-                'data_quality': signal.data_quality_score,
-                'analysis_notes': getattr(signal, 'analysis_notes', None),  # Optional field
+                "sector": signal.sector or company_info["sector"],
+                "industry": signal.industry or company_info["industry"],
+                "description": company_info["description"],
+                "country": company_info["country"],
+                "exchange": signal.exchange_name
+                or (
+                    instrument.exchange.exchange_name
+                    if instrument.exchange
+                    else "Unknown"
+                ),
+                "signal_type": signal.signal_type.value,
+                "confidence": (
+                    signal.confidence_level.value if signal.confidence_level else "N/A"
+                ),
+                "close_price": signal.close_price,
+                "upside_pct": signal.upside_potential_pct,
+                "data_quality": signal.data_quality_score,
+                "analysis_notes": getattr(
+                    signal, "analysis_notes", None
+                ),  # Optional field
             }
 
             # Add to unique LARGE_GAIN stocks
             large_gain_by_instrument[instrument_id] = signal_data
 
             # Track distributions for this unique stock
-            if company_info['sector'] != 'Unknown':
-                sectors.append(company_info['sector'])
+            if company_info["sector"] != "Unknown":
+                sectors.append(company_info["sector"])
 
-            if company_info['country'] != 'Unknown':
-                countries.append(company_info['country'])
+            if company_info["country"] != "Unknown":
+                countries.append(company_info["country"])
 
-            if company_info['industry'] != 'Unknown':
-                industries.append(company_info['industry'])
+            if company_info["industry"] != "Unknown":
+                industries.append(company_info["industry"])
 
             if signal.confidence_level:
                 confidences.append(signal.confidence_level.value)
@@ -344,7 +422,9 @@ class SignalAnalysisReporter:
         if countries:
             unique_countries = list(set(countries))
             self.macro_data_by_country = self.fetch_macro_regime_data(unique_countries)
-            logger.info(f"Fetched macro data for {len(self.macro_data_by_country)} countries")
+            logger.info(
+                f"Fetched macro data for {len(self.macro_data_by_country)} countries"
+            )
 
     def generate_report(self) -> str:
         """
@@ -384,21 +464,33 @@ class SignalAnalysisReporter:
         lines.append("-" * 80)
 
         # Define signal order for display
-        signal_order = ['large_gain', 'small_gain', 'neutral', 'small_decline', 'large_decline']
+        signal_order = [
+            "large_gain",
+            "small_gain",
+            "neutral",
+            "small_decline",
+            "large_decline",
+        ]
 
         for signal_type in signal_order:
             count = self.signal_distribution.get(signal_type, 0)
             percentage = (count / total_signals) * 100 if total_signals > 0 else 0
             bar = "█" * int(percentage / 2)  # Visual bar (50 chars = 100%)
-            lines.append(f"  {signal_type.upper():15} {count:4d} ({percentage:5.1f}%) {bar}")
+            lines.append(
+                f"  {signal_type.upper():15} {count:4d} ({percentage:5.1f}%) {bar}"
+            )
 
         lines.append("")
 
         # LARGE_GAIN proportion highlight
-        large_gain_count = self.signal_distribution.get('large_gain', 0)
-        large_gain_pct = (large_gain_count / total_signals) * 100 if total_signals > 0 else 0
+        large_gain_count = self.signal_distribution.get("large_gain", 0)
+        large_gain_pct = (
+            (large_gain_count / total_signals) * 100 if total_signals > 0 else 0
+        )
 
-        lines.append(f"⭐ LARGE_GAIN Proportion: {large_gain_count}/{total_signals} ({large_gain_pct:.1f}%)")
+        lines.append(
+            f"⭐ LARGE_GAIN Proportion: {large_gain_count}/{total_signals} ({large_gain_pct:.1f}%)"
+        )
         lines.append("")
 
         # LARGE_GAIN Sector Distribution (DISTINCT stocks only)
@@ -408,11 +500,15 @@ class SignalAnalysisReporter:
             lines.append("=" * 100)
             lines.append("")
 
-            lines.append(f"Total DISTINCT LARGE_GAIN Stocks: {len(self.distinct_large_gain_stocks)}")
+            lines.append(
+                f"Total DISTINCT LARGE_GAIN Stocks: {len(self.distinct_large_gain_stocks)}"
+            )
             lines.append(f"Sectors Represented: {len(self.sector_distribution)}")
             lines.append("")
 
-            sorted_lg_sectors = sorted(self.sector_distribution.items(), key=lambda x: x[1], reverse=True)
+            sorted_lg_sectors = sorted(
+                self.sector_distribution.items(), key=lambda x: x[1], reverse=True
+            )
 
             lines.append("Sector Distribution (DISTINCT LARGE_GAIN stocks only):")
             lines.append("-" * 80)
@@ -425,7 +521,9 @@ class SignalAnalysisReporter:
         # Country/Exchange Distribution
         if self.distinct_large_gain_stocks:
             lines.append("=" * 100)
-            lines.append("3. LARGE_GAIN STOCKS - GEOGRAPHIC DISTRIBUTION (DISTINCT STOCKS)")
+            lines.append(
+                "3. LARGE_GAIN STOCKS - GEOGRAPHIC DISTRIBUTION (DISTINCT STOCKS)"
+            )
             lines.append("=" * 100)
             lines.append("")
 
@@ -434,7 +532,9 @@ class SignalAnalysisReporter:
             lines.append("")
 
             # Country distribution
-            sorted_countries = sorted(self.country_distribution.items(), key=lambda x: x[1], reverse=True)
+            sorted_countries = sorted(
+                self.country_distribution.items(), key=lambda x: x[1], reverse=True
+            )
 
             lines.append("Country Distribution:")
             lines.append("-" * 80)
@@ -445,7 +545,9 @@ class SignalAnalysisReporter:
             lines.append("")
 
             # Exchange distribution
-            sorted_exchanges = sorted(self.exchange_distribution.items(), key=lambda x: x[1], reverse=True)
+            sorted_exchanges = sorted(
+                self.exchange_distribution.items(), key=lambda x: x[1], reverse=True
+            )
 
             lines.append("Exchange Distribution:")
             lines.append("-" * 80)
@@ -458,14 +560,20 @@ class SignalAnalysisReporter:
         # Industry Distribution (Top 15)
         if self.distinct_large_gain_stocks and self.industry_distribution:
             lines.append("=" * 100)
-            lines.append("4. LARGE_GAIN STOCKS - INDUSTRY DISTRIBUTION (TOP 15, DISTINCT STOCKS)")
+            lines.append(
+                "4. LARGE_GAIN STOCKS - INDUSTRY DISTRIBUTION (TOP 15, DISTINCT STOCKS)"
+            )
             lines.append("=" * 100)
             lines.append("")
 
-            lines.append(f"Total Industries Represented: {len(self.industry_distribution)}")
+            lines.append(
+                f"Total Industries Represented: {len(self.industry_distribution)}"
+            )
             lines.append("")
 
-            sorted_industries = sorted(self.industry_distribution.items(), key=lambda x: x[1], reverse=True)[:15]
+            sorted_industries = sorted(
+                self.industry_distribution.items(), key=lambda x: x[1], reverse=True
+            )[:15]
 
             lines.append("Top 15 Industries:")
             lines.append("-" * 80)
@@ -473,8 +581,12 @@ class SignalAnalysisReporter:
                 percentage = (count / len(self.distinct_large_gain_stocks)) * 100
                 bar = "█" * int(percentage / 2)
                 # Truncate long industry names
-                industry_display = industry[:40] if len(industry) <= 40 else industry[:37] + "..."
-                lines.append(f"  {industry_display:40} {count:3d} ({percentage:5.1f}%) {bar}")
+                industry_display = (
+                    industry[:40] if len(industry) <= 40 else industry[:37] + "..."
+                )
+                lines.append(
+                    f"  {industry_display:40} {count:3d} ({percentage:5.1f}%) {bar}"
+                )
             lines.append("")
 
         # Confidence and Data Quality Distribution
@@ -488,16 +600,26 @@ class SignalAnalysisReporter:
             if self.confidence_distribution:
                 lines.append("Confidence Level Distribution:")
                 lines.append("-" * 80)
-                confidence_order = ['high', 'medium', 'low']
+                confidence_order = ["high", "medium", "low"]
                 for conf_level in confidence_order:
                     count = self.confidence_distribution.get(conf_level, 0)
-                    percentage = (count / len(self.distinct_large_gain_stocks)) * 100 if len(self.distinct_large_gain_stocks) > 0 else 0
+                    percentage = (
+                        (count / len(self.distinct_large_gain_stocks)) * 100
+                        if len(self.distinct_large_gain_stocks) > 0
+                        else 0
+                    )
                     bar = "█" * int(percentage / 2)
-                    lines.append(f"  {conf_level.upper():15} {count:4d} ({percentage:5.1f}%) {bar}")
+                    lines.append(
+                        f"  {conf_level.upper():15} {count:4d} ({percentage:5.1f}%) {bar}"
+                    )
                 lines.append("")
 
             # Data quality statistics
-            data_quality_scores = [s['data_quality'] for s in self.distinct_large_gain_stocks if s['data_quality'] is not None]
+            data_quality_scores = [
+                s["data_quality"]
+                for s in self.distinct_large_gain_stocks
+                if s["data_quality"] is not None
+            ]
             if data_quality_scores:
                 avg_quality = sum(data_quality_scores) / len(data_quality_scores)
                 min_quality = min(data_quality_scores)
@@ -508,11 +630,17 @@ class SignalAnalysisReporter:
                 lines.append(f"  Average:  {avg_quality:.3f}")
                 lines.append(f"  Minimum:  {min_quality:.3f}")
                 lines.append(f"  Maximum:  {max_quality:.3f}")
-                lines.append(f"  Stocks with data: {len(data_quality_scores)}/{len(self.distinct_large_gain_stocks)}")
+                lines.append(
+                    f"  Stocks with data: {len(data_quality_scores)}/{len(self.distinct_large_gain_stocks)}"
+                )
                 lines.append("")
 
             # Upside potential statistics
-            upside_values = [s['upside_pct'] for s in self.distinct_large_gain_stocks if s['upside_pct'] is not None]
+            upside_values = [
+                s["upside_pct"]
+                for s in self.distinct_large_gain_stocks
+                if s["upside_pct"] is not None
+            ]
             if upside_values:
                 upside_values_sorted = sorted(upside_values)
                 avg_upside = sum(upside_values) / len(upside_values)
@@ -526,11 +654,17 @@ class SignalAnalysisReporter:
                 lines.append(f"  Median:   {median_upside:+.1f}%")
                 lines.append(f"  Minimum:  {min_upside:+.1f}%")
                 lines.append(f"  Maximum:  {max_upside:+.1f}%")
-                lines.append(f"  Stocks with target: {len(upside_values)}/{len(self.distinct_large_gain_stocks)}")
+                lines.append(
+                    f"  Stocks with target: {len(upside_values)}/{len(self.distinct_large_gain_stocks)}"
+                )
                 lines.append("")
 
             # Price statistics
-            prices = [s['close_price'] for s in self.distinct_large_gain_stocks if s['close_price'] is not None]
+            prices = [
+                s["close_price"]
+                for s in self.distinct_large_gain_stocks
+                if s["close_price"] is not None
+            ]
             if prices:
                 prices_sorted = sorted(prices)
                 avg_price = sum(prices) / len(prices)
@@ -549,18 +683,20 @@ class SignalAnalysisReporter:
         # Macroeconomic Context by Country
         if self.macro_data_by_country:
             lines.append("=" * 100)
-            lines.append("6. MACROECONOMIC CONTEXT BY COUNTRY (RISK BUDGETING & DIVERSIFICATION)")
+            lines.append(
+                "6. MACROECONOMIC CONTEXT BY COUNTRY (RISK BUDGETING & DIVERSIFICATION)"
+            )
             lines.append("=" * 100)
             lines.append("")
 
-            lines.append(f"Countries with Macro Data: {len(self.macro_data_by_country)}")
+            lines.append(
+                f"Countries with Macro Data: {len(self.macro_data_by_country)}"
+            )
             lines.append("")
 
             # Sort countries by number of stocks
             countries_sorted = sorted(
-                self.country_distribution.items(),
-                key=lambda x: x[1],
-                reverse=True
+                self.country_distribution.items(), key=lambda x: x[1], reverse=True
             )
 
             for country, stock_count in countries_sorted:
@@ -570,59 +706,83 @@ class SignalAnalysisReporter:
                     continue
 
                 lines.append("-" * 100)
-                lines.append(f"{country.upper()} - {stock_count} Stocks ({(stock_count / len(self.distinct_large_gain_stocks)) * 100:.1f}% of portfolio)")
+                lines.append(
+                    f"{country.upper()} - {stock_count} Stocks ({(stock_count / len(self.distinct_large_gain_stocks)) * 100:.1f}% of portfolio)"
+                )
                 lines.append("-" * 100)
                 lines.append(f"  Assessment Date:        {macro['assessment_date']}")
-                lines.append(f"  Business Cycle Regime:  {macro['regime']} (Confidence: {macro['confidence']:.1%})")
+                lines.append(
+                    f"  Business Cycle Regime:  {macro['regime']} (Confidence: {macro['confidence']:.1%})"
+                )
                 lines.append("")
 
                 # Economic Indicators
                 lines.append("  Economic Indicators:")
-                if macro['gdp_growth_yy'] is not None:
-                    lines.append(f"    GDP Growth (YoY):     {macro['gdp_growth_yy']:+.1f}%")
-                if macro['unemployment'] is not None:
-                    lines.append(f"    Unemployment:         {macro['unemployment']:.1f}%")
-                if macro['inflation'] is not None:
+                if macro["gdp_growth_yy"] is not None:
+                    lines.append(
+                        f"    GDP Growth (YoY):     {macro['gdp_growth_yy']:+.1f}%"
+                    )
+                if macro["unemployment"] is not None:
+                    lines.append(
+                        f"    Unemployment:         {macro['unemployment']:.1f}%"
+                    )
+                if macro["inflation"] is not None:
                     lines.append(f"    Inflation:            {macro['inflation']:.1f}%")
                 lines.append("")
 
                 # Recession Risk
                 lines.append("  Recession Risk:")
-                lines.append(f"    6-Month:              {macro['recession_risk_6m']:.1%}")
-                lines.append(f"    12-Month:             {macro['recession_risk_12m']:.1%}")
+                lines.append(
+                    f"    6-Month:              {macro['recession_risk_6m']:.1%}"
+                )
+                lines.append(
+                    f"    12-Month:             {macro['recession_risk_12m']:.1%}"
+                )
 
-                if macro['recession_drivers']:
-                    lines.append(f"    Key Drivers:          {', '.join(macro['recession_drivers'][:3])}")
+                if macro["recession_drivers"]:
+                    lines.append(
+                        f"    Key Drivers:          {', '.join(macro['recession_drivers'][:3])}"
+                    )
                 lines.append("")
 
                 # Market Indicators
                 lines.append("  Market Indicators:")
-                if macro['ism_pmi'] is not None:
-                    lines.append(f"    ISM PMI:              {macro['ism_pmi']:.1f} ({macro['ism_signal']})")
-                if macro['yield_curve_2s10s'] is not None:
-                    lines.append(f"    Yield Curve (2s10s):  {macro['yield_curve_2s10s']:+.0f}bps ({macro['yield_curve_signal']})")
-                lines.append(f"    Credit Spreads:       {macro['credit_spread_signal']}")
+                if macro["ism_pmi"] is not None:
+                    lines.append(
+                        f"    ISM PMI:              {macro['ism_pmi']:.1f} ({macro['ism_signal']})"
+                    )
+                if macro["yield_curve_2s10s"] is not None:
+                    lines.append(
+                        f"    Yield Curve (2s10s):  {macro['yield_curve_2s10s']:+.0f}bps ({macro['yield_curve_signal']})"
+                    )
+                lines.append(
+                    f"    Credit Spreads:       {macro['credit_spread_signal']}"
+                )
                 lines.append("")
 
                 # Portfolio Positioning
                 lines.append("  Recommended Positioning:")
                 lines.append(f"    Factor Exposure:      {macro['factor_exposure']}")
 
-                if macro['recommended_overweights']:
-                    lines.append(f"    Overweight Sectors:   {', '.join(macro['recommended_overweights'][:5])}")
+                if macro["recommended_overweights"]:
+                    lines.append(
+                        f"    Overweight Sectors:   {', '.join(macro['recommended_overweights'][:5])}"
+                    )
 
-                if macro['recommended_underweights']:
-                    lines.append(f"    Underweight Sectors:  {', '.join(macro['recommended_underweights'][:5])}")
+                if macro["recommended_underweights"]:
+                    lines.append(
+                        f"    Underweight Sectors:  {', '.join(macro['recommended_underweights'][:5])}"
+                    )
                 lines.append("")
 
                 # Sector Tilts (weight adjustments)
-                if macro['sector_tilts']:
+                if macro["sector_tilts"]:
                     lines.append("  Sector Weight Tilts (Recommended Adjustments):")
                     # Sort by absolute value to show most significant tilts first
                     sorted_tilts = sorted(
-                        macro['sector_tilts'].items(),
+                        macro["sector_tilts"].items(),
                         key=lambda x: abs(x[1]),
-                        reverse=True
+                        reverse=True,
                     )
                     for sector, tilt in sorted_tilts[:10]:  # Show top 10 tilts
                         sign = "+" if tilt >= 0 else ""
@@ -630,16 +790,16 @@ class SignalAnalysisReporter:
                     lines.append("")
 
                 # Key Risks
-                if macro['primary_risks']:
+                if macro["primary_risks"]:
                     lines.append("  Primary Risks:")
-                    for risk in macro['primary_risks'][:3]:
+                    for risk in macro["primary_risks"][:3]:
                         lines.append(f"    • {risk}")
                     lines.append("")
 
                 # Rationale
                 lines.append("  Regime Rationale:")
                 # Wrap rationale at 90 characters
-                rationale_words = macro['rationale'].split()
+                rationale_words = macro["rationale"].split()
                 current_line = "    "
                 for word in rationale_words:
                     if len(current_line) + len(word) + 1 > 90:
@@ -654,15 +814,21 @@ class SignalAnalysisReporter:
         # Detailed LARGE_GAIN Company Profiles (DISTINCT stocks only)
         if self.distinct_large_gain_stocks:
             lines.append("=" * 100)
-            lines.append("7. LARGE_GAIN STOCKS - DETAILED COMPANY PROFILES (DISTINCT STOCKS)")
+            lines.append(
+                "7. LARGE_GAIN STOCKS - DETAILED COMPANY PROFILES (DISTINCT STOCKS)"
+            )
             lines.append("=" * 100)
             lines.append("")
-            lines.append(f"Total DISTINCT Companies: {len(self.distinct_large_gain_stocks)}")
+            lines.append(
+                f"Total DISTINCT Companies: {len(self.distinct_large_gain_stocks)}"
+            )
             lines.append("")
 
             for i, stock in enumerate(self.distinct_large_gain_stocks, 1):
                 lines.append("-" * 100)
-                lines.append(f"[{i}/{len(self.distinct_large_gain_stocks)}] {stock['company_name']} ({stock['ticker']})")
+                lines.append(
+                    f"[{i}/{len(self.distinct_large_gain_stocks)}] {stock['company_name']} ({stock['ticker']})"
+                )
                 lines.append("-" * 100)
                 lines.append(f"  Instrument ID:  {stock['instrument_id']}")
                 lines.append(f"  Ticker:         {stock['yf_ticker']}")
@@ -670,18 +836,26 @@ class SignalAnalysisReporter:
                 lines.append(f"  Exchange:       {stock['exchange']}")
                 lines.append(f"  Sector:         {stock['sector']}")
                 lines.append(f"  Industry:       {stock['industry']}")
-                lines.append(f"  Close Price:    ${stock['close_price']:.2f}" if stock['close_price'] else "  Close Price:    N/A")
+                lines.append(
+                    f"  Close Price:    ${stock['close_price']:.2f}"
+                    if stock["close_price"]
+                    else "  Close Price:    N/A"
+                )
                 lines.append(f"  Confidence:     {stock['confidence']}")
-                lines.append(f"  Data Quality:   {stock['data_quality']:.2f}" if stock['data_quality'] else "  Data Quality:   N/A")
+                lines.append(
+                    f"  Data Quality:   {stock['data_quality']:.2f}"
+                    if stock["data_quality"]
+                    else "  Data Quality:   N/A"
+                )
 
-                if stock['upside_pct']:
+                if stock["upside_pct"]:
                     lines.append(f"  Upside Target:  {stock['upside_pct']:+.1f}%")
 
                 lines.append("")
                 lines.append("  Business Description:")
                 # Wrap description text at 90 characters
-                desc = stock['description']
-                if desc and desc != 'No description available':
+                desc = stock["description"]
+                if desc and desc != "No description available":
                     words = desc.split()
                     current_line = "    "
                     for word in words:
@@ -689,7 +863,9 @@ class SignalAnalysisReporter:
                             lines.append(current_line)
                             current_line = "    " + word
                         else:
-                            current_line += " " + word if current_line != "    " else word
+                            current_line += (
+                                " " + word if current_line != "    " else word
+                            )
                     if current_line.strip():
                         lines.append(current_line)
                 else:
@@ -698,10 +874,10 @@ class SignalAnalysisReporter:
                 lines.append("")
 
                 # Only show analysis notes if they exist and are not None
-                if stock.get('analysis_notes'):
+                if stock.get("analysis_notes"):
                     lines.append("  Signal Analysis:")
                     # Wrap analysis notes
-                    notes = stock['analysis_notes']
+                    notes = stock["analysis_notes"]
                     words = notes.split()
                     current_line = "    "
                     for word in words:
@@ -709,7 +885,9 @@ class SignalAnalysisReporter:
                             lines.append(current_line)
                             current_line = "    " + word
                         else:
-                            current_line += " " + word if current_line != "    " else word
+                            current_line += (
+                                " " + word if current_line != "    " else word
+                            )
                     if current_line.strip():
                         lines.append(current_line)
                     lines.append("")
@@ -721,21 +899,41 @@ class SignalAnalysisReporter:
         lines.append("")
 
         lines.append(f"Total Signals Analyzed:              {total_signals}")
-        lines.append(f"LARGE_GAIN Signals:                  {large_gain_count} ({large_gain_pct:.1f}%)")
-        lines.append(f"DISTINCT LARGE_GAIN Stocks:          {len(self.distinct_large_gain_stocks)}")
+        lines.append(
+            f"LARGE_GAIN Signals:                  {large_gain_count} ({large_gain_pct:.1f}%)"
+        )
+        lines.append(
+            f"DISTINCT LARGE_GAIN Stocks:          {len(self.distinct_large_gain_stocks)}"
+        )
         lines.append("")
 
         lines.append("Diversification Metrics:")
-        lines.append(f"  Unique Sectors:                    {len(self.sector_distribution)}")
-        lines.append(f"  Unique Industries:                 {len(self.industry_distribution)}")
-        lines.append(f"  Unique Countries:                  {len(self.country_distribution)}")
-        lines.append(f"  Unique Exchanges:                  {len(self.exchange_distribution)}")
+        lines.append(
+            f"  Unique Sectors:                    {len(self.sector_distribution)}"
+        )
+        lines.append(
+            f"  Unique Industries:                 {len(self.industry_distribution)}"
+        )
+        lines.append(
+            f"  Unique Countries:                  {len(self.country_distribution)}"
+        )
+        lines.append(
+            f"  Unique Exchanges:                  {len(self.exchange_distribution)}"
+        )
         lines.append("")
 
         # Average metrics for LARGE_GAIN (using distinct stocks)
         if self.distinct_large_gain_stocks:
-            prices = [s['close_price'] for s in self.distinct_large_gain_stocks if s['close_price']]
-            qualities = [s['data_quality'] for s in self.distinct_large_gain_stocks if s['data_quality']]
+            prices = [
+                s["close_price"]
+                for s in self.distinct_large_gain_stocks
+                if s["close_price"]
+            ]
+            qualities = [
+                s["data_quality"]
+                for s in self.distinct_large_gain_stocks
+                if s["data_quality"]
+            ]
 
             if prices:
                 avg_price = sum(prices) / len(prices)
@@ -746,7 +944,11 @@ class SignalAnalysisReporter:
                 avg_quality = sum(qualities) / len(qualities)
                 lines.append(f"  Average Data Quality Score:        {avg_quality:.2f}")
 
-            upside_values = [s['upside_pct'] for s in self.distinct_large_gain_stocks if s['upside_pct']]
+            upside_values = [
+                s["upside_pct"]
+                for s in self.distinct_large_gain_stocks
+                if s["upside_pct"]
+            ]
             if upside_values:
                 avg_upside = sum(upside_values) / len(upside_values)
                 lines.append(f"  Average Upside Potential:          {avg_upside:+.1f}%")
@@ -770,7 +972,7 @@ class SignalAnalysisReporter:
         """
         filename = f"signal_analysis_report_{self.signal_date}.txt"
 
-        with open(filename, 'w', encoding='utf-8') as f:
+        with open(filename, "w", encoding="utf-8") as f:
             f.write(report_text)
 
         logger.info(f"Report saved to: {filename}")
@@ -868,6 +1070,7 @@ def main():
     except Exception as e:
         logger.error(f"Report generation failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

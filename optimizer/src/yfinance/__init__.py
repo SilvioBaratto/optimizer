@@ -1,21 +1,30 @@
 """
-YFinance Module - Centralized yfinance Client
-==============================================
+YFinance Module - SOLID-Compliant yfinance Client
+=================================================
 
-Provides a singleton YFinanceClient for all yfinance API calls across the codebase.
+Provides modular, dependency-injected components for yfinance API access.
+
+Architecture:
+- protocols.py: Protocol definitions (CacheProtocol, RateLimiterProtocol, etc.)
+- cache.py: LRU cache implementation
+- rate_limiter.py: Thread-safe rate limiter
+- circuit_breaker.py: Exponential backoff circuit breaker
+- client.py: Core YFinanceClient (info, history, bulk download)
+- news_client.py: NewsClient (news fetching with optional content)
+- article_scraper.py: Web scraping for full article content
 
 Key Features:
-- Ticker object caching (LRU with configurable size)
-- Rate limiting to avoid API throttling
-- Retry logic for transient failures
-- Thread-safe operations
-- Common methods: fetch_info, fetch_history, fetch_news, bulk_download
+- Dependency injection through protocols
+- Single Responsibility Principle - focused classes
+- Open/Closed Principle - extend via new implementations
+- Interface Segregation - separate NewsClient for news operations
+- Testable - easy to mock dependencies
 
 Usage:
-    from src.yfinance import YFinanceClient
+    from optimizer.src.yfinance import YFinanceClient, get_yfinance_client
 
     # Get singleton instance
-    client = YFinanceClient.get_instance()
+    client = get_yfinance_client()
 
     # Fetch data
     info = client.fetch_info("AAPL")
@@ -25,17 +34,40 @@ Usage:
     # Get cached Ticker object (for advanced usage)
     ticker = client.get_ticker("AAPL")
 
-Or use convenience function:
-    from src.yfinance import get_yfinance_client
+For news fetching:
+    from optimizer.src.yfinance import get_yfinance_client
+    from optimizer.src.yfinance.news_client import NewsClient
 
     client = get_yfinance_client()
-
-Author: Portfolio Optimization System
+    news_client = NewsClient(yf_client=client)
+    news = news_client.fetch("AAPL", fetch_full_content=True, max_articles=5)
 """
 
-from src.yfinance.client import YFinanceClient, get_yfinance_client
+from optimizer.src.yfinance.article_scraper import ArticleScraper
+from optimizer.src.yfinance.cache import LRUCache
+from optimizer.src.yfinance.circuit_breaker import CircuitBreaker
+from optimizer.src.yfinance.client import YFinanceClient, get_yfinance_client
+from optimizer.src.yfinance.news_client import NewsClient
+from optimizer.src.yfinance.protocols import (
+    CacheProtocol,
+    CircuitBreakerProtocol,
+    RateLimiterProtocol,
+)
+from optimizer.src.yfinance.rate_limiter import RateLimiter
 
 __all__ = [
-    'YFinanceClient',
-    'get_yfinance_client',
+    # Core client
+    "YFinanceClient",
+    "get_yfinance_client",
+    # Protocols
+    "CacheProtocol",
+    "RateLimiterProtocol",
+    "CircuitBreakerProtocol",
+    # Implementations
+    "LRUCache",
+    "RateLimiter",
+    "CircuitBreaker",
+    # News/Articles
+    "NewsClient",
+    "ArticleScraper",
 ]

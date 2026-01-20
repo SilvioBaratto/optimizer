@@ -167,7 +167,7 @@ function RecommendBlackLittermanParameters(
   macro_regime: MacroRegimeInput,
   historical_performance: HistoricalPerformance
 ) -> BlackLittermanParameters {
-  client Model
+  client AzureOpenAIGpt5
 
   prompt #"
     You are a senior quantitative portfolio manager with 15+ years of experience in

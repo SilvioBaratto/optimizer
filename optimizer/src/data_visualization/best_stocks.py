@@ -27,25 +27,25 @@ from sqlalchemy.orm import joinedload
 from datetime import timedelta
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from src.yfinance import YFinanceClient
+from optimizer.src.yfinance import YFinanceClient
 
 # Import database and models
-from app.database import database_manager, init_db
-from app.models.stock_signals import StockSignal, SignalEnum
-from app.models.universe import Instrument
+from optimizer.database.database import database_manager, init_db
+from optimizer.database.models.stock_signals import StockSignal, SignalEnum
+from optimizer.database.models.universe import Instrument
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 # Set visualization style
 sns.set_style("whitegrid")
-plt.rcParams['figure.figsize'] = (14, 6)
+plt.rcParams["figure.figsize"] = (14, 6)
 
 
 class LargeGainVisualizer:
@@ -82,13 +82,16 @@ class LargeGainVisualizer:
         logger.info(f"Fetching LARGE_GAIN signals for {self.signal_date}")
 
         with database_manager.get_session() as session:
-            query = select(StockSignal).where(
-                StockSignal.signal_date == self.signal_date,
-                StockSignal.signal_type == SignalEnum.LARGE_GAIN
-            ).options(
-                joinedload(StockSignal.instrument).joinedload(Instrument.exchange)
-            ).order_by(
-                StockSignal.close_price.desc()
+            query = (
+                select(StockSignal)
+                .where(
+                    StockSignal.signal_date == self.signal_date,
+                    StockSignal.signal_type == SignalEnum.LARGE_GAIN,
+                )
+                .options(
+                    joinedload(StockSignal.instrument).joinedload(Instrument.exchange)
+                )
+                .order_by(StockSignal.close_price.desc())
             )
 
             signals = session.execute(query).scalars().all()
@@ -116,12 +119,12 @@ class LargeGainVisualizer:
             client = YFinanceClient.get_instance()
             info = client.fetch_info(yf_ticker)
             if info is None:
-                return 'Unknown'
-            sector = info.get('sector', 'Unknown')
+                return "Unknown"
+            sector = info.get("sector", "Unknown")
             return sector
         except Exception as e:
             logger.warning(f"Could not fetch sector for {yf_ticker}: {e}")
-            return 'Unknown'
+            return "Unknown"
 
     def prepare_data(self) -> None:
         """
@@ -148,25 +151,31 @@ class LargeGainVisualizer:
             # Check if we've already processed this instrument
             if instrument_id in self.distinct_stocks_by_instrument:
                 # Skip duplicate - same instrument already processed
-                logger.debug(f"Skipping duplicate instrument: {instrument.yfinance_ticker}")
+                logger.debug(
+                    f"Skipping duplicate instrument: {instrument.yfinance_ticker}"
+                )
                 continue
 
             # Get sector info (only once per unique instrument)
             sector = self.fetch_sector_info(instrument.yfinance_ticker)
 
             # Get exchange info
-            exchange_name = instrument.exchange.exchange_name if instrument.exchange else 'Unknown'
+            exchange_name = (
+                instrument.exchange.exchange_name if instrument.exchange else "Unknown"
+            )
 
             # Store stock data
             stock_data = {
-                'instrument_id': instrument_id,
-                'ticker': instrument.short_name or instrument.yfinance_ticker,
-                'yf_ticker': instrument.yfinance_ticker,
-                'close_price': signal.close_price,
-                'sector': sector,
-                'exchange': exchange_name,
-                'confidence': signal.confidence_level.value if signal.confidence_level else 'N/A',
-                'upside_pct': signal.upside_potential_pct,
+                "instrument_id": instrument_id,
+                "ticker": instrument.short_name or instrument.yfinance_ticker,
+                "yf_ticker": instrument.yfinance_ticker,
+                "close_price": signal.close_price,
+                "sector": sector,
+                "exchange": exchange_name,
+                "confidence": (
+                    signal.confidence_level.value if signal.confidence_level else "N/A"
+                ),
+                "upside_pct": signal.upside_potential_pct,
             }
 
             # Add to unique stocks
@@ -198,65 +207,71 @@ class LargeGainVisualizer:
 
         fig, ax = plt.subplots(figsize=(14, 8))
 
-        tickers = [stock['ticker'] for stock in self.large_gain_stocks]
-        prices = [stock['close_price'] for stock in self.large_gain_stocks]
-        sectors = [stock['sector'] for stock in self.large_gain_stocks]
+        tickers = [stock["ticker"] for stock in self.large_gain_stocks]
+        prices = [stock["close_price"] for stock in self.large_gain_stocks]
+        sectors = [stock["sector"] for stock in self.large_gain_stocks]
 
         # Create color map based on sectors
         unique_sectors = list(set(sectors))
         colors = sns.color_palette("husl", len(unique_sectors))
-        sector_color_map = {sector: colors[i] for i, sector in enumerate(unique_sectors)}
+        sector_color_map = {
+            sector: colors[i] for i, sector in enumerate(unique_sectors)
+        }
         bar_colors = [sector_color_map[sector] for sector in sectors]
 
         # Create bar chart
-        bars = ax.bar(range(len(tickers)), prices, color=bar_colors, alpha=0.8, edgecolor='black')
+        bars = ax.bar(
+            range(len(tickers)), prices, color=bar_colors, alpha=0.8, edgecolor="black"
+        )
 
         # Customize plot
-        ax.set_xlabel('Stock Ticker', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Close Price ($)', fontsize=12, fontweight='bold')
+        ax.set_xlabel("Stock Ticker", fontsize=12, fontweight="bold")
+        ax.set_ylabel("Close Price ($)", fontsize=12, fontweight="bold")
         ax.set_title(
-            f'LARGE_GAIN Stocks - Close Prices ({self.signal_date})\n'
-            f'Total: {len(self.large_gain_stocks)} stocks',
+            f"LARGE_GAIN Stocks - Close Prices ({self.signal_date})\n"
+            f"Total: {len(self.large_gain_stocks)} stocks",
             fontsize=14,
-            fontweight='bold',
-            pad=20
+            fontweight="bold",
+            pad=20,
         )
 
         ax.set_xticks(range(len(tickers)))
-        ax.set_xticklabels(tickers, rotation=45, ha='right')
+        ax.set_xticklabels(tickers, rotation=45, ha="right")
 
         # Add price labels on bars
         for i, (bar, price) in enumerate(zip(bars, prices)):
             height = bar.get_height()
             ax.text(
-                bar.get_x() + bar.get_width() / 2.,
+                bar.get_x() + bar.get_width() / 2.0,
                 height,
-                f'${price:.2f}',
-                ha='center',
-                va='bottom',
+                f"${price:.2f}",
+                ha="center",
+                va="bottom",
                 fontsize=9,
-                fontweight='bold'
+                fontweight="bold",
             )
 
         # Add legend for sectors
         legend_elements = [
-            mpatches.Rectangle((0, 0), 1, 1, fc=sector_color_map[sector], edgecolor='black', alpha=0.8)
+            mpatches.Rectangle(
+                (0, 0), 1, 1, fc=sector_color_map[sector], edgecolor="black", alpha=0.8
+            )
             for sector in unique_sectors
         ]
         ax.legend(
             legend_elements,
             unique_sectors,
-            loc='upper right',
-            title='Sectors',
-            fontsize=9
+            loc="upper right",
+            title="Sectors",
+            fontsize=9,
         )
 
         plt.tight_layout()
-        plt.grid(axis='y', alpha=0.3)
+        plt.grid(axis="y", alpha=0.3)
 
         # Save figure
-        filename = f'large_gain_close_prices_{self.signal_date}.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        filename = f"large_gain_close_prices_{self.signal_date}.png"
+        plt.savefig(filename, dpi=300, bbox_inches="tight")
         logger.info(f"Saved close price chart: {filename}")
 
         plt.show()
@@ -281,45 +296,44 @@ class LargeGainVisualizer:
         pie_result = ax.pie(
             counts,
             labels=sectors,
-            autopct='%1.1f%%',
+            autopct="%1.1f%%",
             startangle=90,
             colors=colors,
             explode=[0.05] * len(sectors),  # Slightly separate all slices
             shadow=True,
-            textprops={'fontsize': 11, 'fontweight': 'bold'}
+            textprops={"fontsize": 11, "fontweight": "bold"},
         )
 
         # Enhance text (pie_result contains wedges, texts, and optionally autotexts)
         if len(pie_result) == 3:
             autotexts = pie_result[2]
             for autotext in autotexts:
-                autotext.set_color('white')
+                autotext.set_color("white")
                 autotext.set_fontsize(12)
-                autotext.set_fontweight('bold')
+                autotext.set_fontweight("bold")
 
         ax.set_title(
-            f'LARGE_GAIN Stocks - Sector Distribution ({self.signal_date})\n'
-            f'Total: {sum(counts)} stocks across {len(sectors)} sectors',
+            f"LARGE_GAIN Stocks - Sector Distribution ({self.signal_date})\n"
+            f"Total: {sum(counts)} stocks across {len(sectors)} sectors",
             fontsize=14,
-            fontweight='bold',
-            pad=20
+            fontweight="bold",
+            pad=20,
         )
 
         # Add legend with counts
-        legend_labels = [f'{sector}: {count} ({count/sum(counts)*100:.1f}%)'
-                        for sector, count in zip(sectors, counts)]
+        legend_labels = [
+            f"{sector}: {count} ({count/sum(counts)*100:.1f}%)"
+            for sector, count in zip(sectors, counts)
+        ]
         ax.legend(
-            legend_labels,
-            loc='center left',
-            bbox_to_anchor=(1, 0, 0.5, 1),
-            fontsize=10
+            legend_labels, loc="center left", bbox_to_anchor=(1, 0, 0.5, 1), fontsize=10
         )
 
         plt.tight_layout()
 
         # Save figure
-        filename = f'large_gain_sector_distribution_{self.signal_date}.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        filename = f"large_gain_sector_distribution_{self.signal_date}.png"
+        plt.savefig(filename, dpi=300, bbox_inches="tight")
         logger.info(f"Saved sector distribution chart: {filename}")
 
         plt.show()
@@ -348,10 +362,14 @@ class LargeGainVisualizer:
         }
 
         # Display names with country mapping
-        display_names = [exchange_to_country.get(ex, ex) or 'Unknown' for ex in exchanges]
+        display_names = [
+            exchange_to_country.get(ex, ex) or "Unknown" for ex in exchanges
+        ]
 
         # Ensure all display names are strings (replace None with 'Unknown')
-        display_names = [name if isinstance(name, str) else 'Unknown' for name in display_names]
+        display_names = [
+            name if isinstance(name, str) else "Unknown" for name in display_names
+        ]
 
         # Create color palette
         colors = sns.color_palette("Set2", len(exchanges))
@@ -360,45 +378,44 @@ class LargeGainVisualizer:
         pie_result = ax.pie(
             counts,
             labels=display_names,
-            autopct='%1.1f%%',
+            autopct="%1.1f%%",
             startangle=90,
             colors=colors,
             explode=[0.05] * len(exchanges),  # Slightly separate all slices
             shadow=True,
-            textprops={'fontsize': 11, 'fontweight': 'bold'}
+            textprops={"fontsize": 11, "fontweight": "bold"},
         )
 
         # Enhance text (pie_result contains wedges, texts, and optionally autotexts)
         if len(pie_result) == 3:
             autotexts = pie_result[2]
             for autotext in autotexts:
-                autotext.set_color('white')
+                autotext.set_color("white")
                 autotext.set_fontsize(12)
-                autotext.set_fontweight('bold')
+                autotext.set_fontweight("bold")
 
         ax.set_title(
-            f'LARGE_GAIN Stocks - Exchange Distribution ({self.signal_date})\n'
-            f'Total: {sum(counts)} stocks across {len(exchanges)} exchanges',
+            f"LARGE_GAIN Stocks - Exchange Distribution ({self.signal_date})\n"
+            f"Total: {sum(counts)} stocks across {len(exchanges)} exchanges",
             fontsize=14,
-            fontweight='bold',
-            pad=20
+            fontweight="bold",
+            pad=20,
         )
 
         # Add legend with counts
-        legend_labels = [f'{display_names[i]}: {count} ({count/sum(counts)*100:.1f}%)'
-                        for i, (_, count) in enumerate(zip(exchanges, counts))]
+        legend_labels = [
+            f"{display_names[i]}: {count} ({count/sum(counts)*100:.1f}%)"
+            for i, (_, count) in enumerate(zip(exchanges, counts))
+        ]
         ax.legend(
-            legend_labels,
-            loc='center left',
-            bbox_to_anchor=(1, 0, 0.5, 1),
-            fontsize=10
+            legend_labels, loc="center left", bbox_to_anchor=(1, 0, 0.5, 1), fontsize=10
         )
 
         plt.tight_layout()
 
         # Save figure
-        filename = f'large_gain_exchange_distribution_{self.signal_date}.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        filename = f"large_gain_exchange_distribution_{self.signal_date}.png"
+        plt.savefig(filename, dpi=300, bbox_inches="tight")
         logger.info(f"Saved exchange distribution chart: {filename}")
 
         plt.show()
@@ -415,7 +432,7 @@ class LargeGainVisualizer:
 
         # Calculate date range: 5 years before signal date
         end_date = self.signal_date
-        start_date = end_date - timedelta(days=5*365)
+        start_date = end_date - timedelta(days=5 * 365)
 
         logger.info(f"Fetching 5-year historical data from {start_date} to {end_date}")
 
@@ -428,9 +445,9 @@ class LargeGainVisualizer:
             try:
                 # Fetch historical data (convert dates to strings)
                 hist = client.fetch_history(
-                    stock['yf_ticker'],
-                    start=start_date.strftime('%Y-%m-%d'),
-                    end=end_date.strftime('%Y-%m-%d')
+                    stock["yf_ticker"],
+                    start=start_date.strftime("%Y-%m-%d"),
+                    end=end_date.strftime("%Y-%m-%d"),
                 )
 
                 if hist is None or hist.empty:
@@ -438,7 +455,7 @@ class LargeGainVisualizer:
                     continue
 
                 # Normalize prices to show percentage growth from start
-                normalized_prices = (hist['Close'] / hist['Close'].iloc[0]) * 100
+                normalized_prices = (hist["Close"] / hist["Close"].iloc[0]) * 100
 
                 # Plot line
                 ax.plot(
@@ -447,7 +464,7 @@ class LargeGainVisualizer:
                     label=f"{stock['ticker']} ({stock['sector']})",
                     color=colors[i],
                     linewidth=2,
-                    alpha=0.8
+                    alpha=0.8,
                 )
 
                 successful_plots += 1
@@ -463,39 +480,46 @@ class LargeGainVisualizer:
             return
 
         # Customize plot
-        ax.set_xlabel('Date', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Price Growth (Indexed to 100)', fontsize=12, fontweight='bold')
+        ax.set_xlabel("Date", fontsize=12, fontweight="bold")
+        ax.set_ylabel("Price Growth (Indexed to 100)", fontsize=12, fontweight="bold")
         ax.set_title(
             f'LARGE_GAIN Stocks - 5-Year Price Growth ({start_date.strftime("%Y-%m-%d")} to {end_date})\n'
-            f'Successfully plotted: {successful_plots}/{len(self.large_gain_stocks)} stocks\n'
-            f'Prices normalized to 100 at start date',
+            f"Successfully plotted: {successful_plots}/{len(self.large_gain_stocks)} stocks\n"
+            f"Prices normalized to 100 at start date",
             fontsize=14,
-            fontweight='bold',
-            pad=20
+            fontweight="bold",
+            pad=20,
         )
 
         # Add horizontal line at 100 (starting point)
-        ax.axhline(y=100, color='black', linestyle='--', linewidth=1, alpha=0.5, label='Starting Point (100)')
+        ax.axhline(
+            y=100,
+            color="black",
+            linestyle="--",
+            linewidth=1,
+            alpha=0.5,
+            label="Starting Point (100)",
+        )
 
         # Add grid
-        ax.grid(True, alpha=0.3, linestyle='--')
+        ax.grid(True, alpha=0.3, linestyle="--")
 
         # Rotate x-axis labels for better readability
-        plt.xticks(rotation=45, ha='right')
+        plt.xticks(rotation=45, ha="right")
 
         # Legend
         ax.legend(
-            loc='upper left',
+            loc="upper left",
             bbox_to_anchor=(1.01, 1),
             fontsize=9,
-            ncol=1 if len(self.large_gain_stocks) <= 15 else 2
+            ncol=1 if len(self.large_gain_stocks) <= 15 else 2,
         )
 
         plt.tight_layout()
 
         # Save figure
-        filename = f'large_gain_5y_growth_{self.signal_date}.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        filename = f"large_gain_5y_growth_{self.signal_date}.png"
+        plt.savefig(filename, dpi=300, bbox_inches="tight")
         logger.info(f"Saved 5-year growth chart: {filename}")
 
         plt.show()
@@ -518,20 +542,26 @@ class LargeGainVisualizer:
 
         print("Top 5 stocks by close price:")
         for i, stock in enumerate(self.large_gain_stocks[:5], 1):
-            print(f"  {i}. {stock['ticker']:10} ${stock['close_price']:8.2f}  "
-                  f"Sector: {stock['sector']:20}  "
-                  f"Exchange: {stock['exchange']:25}  "
-                  f"Confidence: {stock['confidence']}")
+            print(
+                f"  {i}. {stock['ticker']:10} ${stock['close_price']:8.2f}  "
+                f"Sector: {stock['sector']:20}  "
+                f"Exchange: {stock['exchange']:25}  "
+                f"Confidence: {stock['confidence']}"
+            )
 
         print()
         print("Sector distribution:")
-        for sector, count in sorted(self.sector_data.items(), key=lambda x: x[1], reverse=True):
+        for sector, count in sorted(
+            self.sector_data.items(), key=lambda x: x[1], reverse=True
+        ):
             percentage = (count / len(self.large_gain_stocks)) * 100
             print(f"  {sector:30} {count:3d} stocks ({percentage:5.1f}%)")
 
         print()
         print("Exchange distribution:")
-        for exchange, count in sorted(self.exchange_data.items(), key=lambda x: x[1], reverse=True):
+        for exchange, count in sorted(
+            self.exchange_data.items(), key=lambda x: x[1], reverse=True
+        ):
             percentage = (count / len(self.large_gain_stocks)) * 100
             print(f"  {exchange:30} {count:3d} stocks ({percentage:5.1f}%)")
 
@@ -626,6 +656,7 @@ def main():
     except Exception as e:
         logger.error(f"Visualization failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

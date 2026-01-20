@@ -1,31 +1,7 @@
-"""
-Risk Calculations
-=================
-
-Provides institutional-grade risk assessment and confidence scoring.
-
-Risk Factors (Section 3.3.3, 5.3.1, 4.4.5, 5.5):
-- Volatility classification with MINIMAL and EXTREME categories
-- Systematic vs specific risk decomposition via R²
-- Liquidity risk via absolute dollar volume thresholds
-- Drawdown risk classification
-- Sharpe ratio risk assessment
-- Comprehensive debt/leverage with current ratio
-
-Confidence Level (Sections 4.3, 5.3.6):
-- Statistical significance of alpha (t-stat > 2)
-- Model explanatory power (R² > 0.3)
-- Information ratio quality (IR > 0.5)
-- Data sufficiency for reliable estimates
-"""
-
 from typing import Dict, Optional
-import logging
 import pandas as pd
 
 from baml_client.types import RiskFactors, ConfidenceLevel
-
-logger = logging.getLogger(__name__)
 
 
 def calculate_risk_factors(
@@ -35,17 +11,9 @@ def calculate_risk_factors(
 ) -> RiskFactors:
     """
     Calculate institutional-grade risk factors.
-
-    Args:
-        metrics: Technical metrics dict
-        info: Stock info dict from yfinance
-        stock_data: Optional historical price data for liquidity analysis
-
-    Returns:
-        RiskFactors object with comprehensive risk assessment
     """
     # 1. Volatility Risk
-    volatility = metrics.get('volatility', 0.20)
+    volatility = metrics.get("volatility", 0.20)
     if volatility < 0.10:
         volatility_level = "MINIMAL"
     elif volatility <= 0.15:
@@ -58,8 +26,8 @@ def calculate_risk_factors(
         volatility_level = "EXTREME"
 
     # 2. Beta Risk
-    beta = metrics.get('beta', 1.0)
-    r_squared = metrics.get('r_squared', 0.5)
+    beta = metrics.get("beta", 1.0)
+    r_squared = metrics.get("r_squared", 0.5)
 
     systematic_risk_pct = r_squared * 100
     specific_risk_pct = (1 - r_squared) * 100
@@ -75,7 +43,7 @@ def calculate_risk_factors(
     liquidity_risk = _calculate_liquidity_risk(stock_data, info)
 
     # 4. Drawdown Risk
-    max_dd = abs(metrics.get('max_drawdown', -0.15))
+    max_dd = abs(metrics.get("max_drawdown", -0.15))
     if max_dd <= 0.10:
         drawdown_risk = "LOW"
     elif max_dd <= 0.15:
@@ -86,7 +54,7 @@ def calculate_risk_factors(
         drawdown_risk = "EXTREME"
 
     # 5. Sharpe Ratio Quality
-    sharpe = metrics.get('sharpe_ratio', 0)
+    sharpe = metrics.get("sharpe_ratio", 0)
     if sharpe >= 1.0:
         risk_adjusted_quality = "EXCELLENT"
     elif sharpe >= 0.5:
@@ -97,8 +65,8 @@ def calculate_risk_factors(
         risk_adjusted_quality = "POOR"
 
     # 6. Debt/Leverage Risk
-    debt_to_equity = info.get('debtToEquity') if info else None
-    current_ratio = info.get('currentRatio', 1.0) if info else 1.0
+    debt_to_equity = info.get("debtToEquity") if info else None
+    current_ratio = info.get("currentRatio", 1.0) if info else 1.0
 
     if debt_to_equity is not None:
         if debt_to_equity > 300 or current_ratio < 0.5:
@@ -127,9 +95,7 @@ def calculate_risk_factors(
     ]
 
     if sharpe < 0.3:
-        primary_risks.append(
-            f"Risk-adjusted return: Sharpe={sharpe:.2f} ({risk_adjusted_quality})"
-        )
+        primary_risks.append(f"Risk-adjusted return: Sharpe={sharpe:.2f} ({risk_adjusted_quality})")
 
     return RiskFactors(
         volatility_level=volatility_level,
@@ -141,18 +107,16 @@ def calculate_risk_factors(
     )
 
 
-def _calculate_liquidity_risk(
-    stock_data: Optional[pd.DataFrame], info: Optional[Dict]
-) -> str:
+def _calculate_liquidity_risk(stock_data: Optional[pd.DataFrame], info: Optional[Dict]) -> str:
     """Calculate liquidity risk based on ADV and market cap."""
     if stock_data is None or len(stock_data) < 20 or not info:
         return "MEDIUM"
 
     try:
-        recent_volume = stock_data['Volume'].tail(20).mean()
-        current_price = stock_data['Close'].iloc[-1]
+        recent_volume = stock_data["Volume"].tail(20).mean()
+        current_price = stock_data["Close"].iloc[-1]
         adv_dollars = recent_volume * current_price
-        market_cap = info.get('marketCap', 0)
+        market_cap = info.get("marketCap", 0)
 
         # Liquidity classification by market cap tier
         if market_cap > 10_000_000_000:  # Large-cap
@@ -176,8 +140,7 @@ def _calculate_liquidity_risk(
                 return "MEDIUM"
             else:
                 return "HIGH"
-    except Exception as e:
-        logger.debug(f"Error calculating liquidity risk: {e}")
+    except Exception:
         return "MEDIUM"
 
 
@@ -187,13 +150,13 @@ def _identify_data_gaps(
     """Identify missing critical data."""
     gaps = []
 
-    if 'beta' not in metrics:
+    if "beta" not in metrics:
         gaps.append("No benchmark comparison available")
-    if 'r_squared' not in metrics:
+    if "r_squared" not in metrics:
         gaps.append("Cannot decompose systematic vs specific risk")
-    if 'ma_200' not in metrics:
+    if "ma_200" not in metrics:
         gaps.append("Insufficient data for 200-day moving average")
-    if not info or info.get('debtToEquity') is None:
+    if not info or info.get("debtToEquity") is None:
         gaps.append("Debt/leverage data unavailable")
     if stock_data is None or len(stock_data) < 20:
         gaps.append("Insufficient data for liquidity analysis")
@@ -206,25 +169,11 @@ def calculate_confidence(
 ) -> ConfidenceLevel:
     """
     Calculate confidence level using institutional framework.
-
-    Components:
-    1. Statistical significance (40%): Alpha t-stat, R², IR, Sharpe
-    2. Data sufficiency (30%): Days of data, metric completeness
-    3. Metric completeness (20%): Presence of critical metrics
-    4. Signal strength (10%): Score extremity in z-score terms
-
-    Args:
-        metrics: Technical metrics dict
-        composite_score: Composite score (0-100 scale)
-        stock_data: Historical price data
-
-    Returns:
-        ConfidenceLevel (LOW < 40%, MEDIUM 40-70%, HIGH >= 70%)
     """
     # 1. Statistical Significance (40%)
     statistical_confidence = 0.0
 
-    alpha_t = abs(metrics.get('alpha_t_stat', 0))
+    alpha_t = abs(metrics.get("alpha_t_stat", 0))
     if alpha_t >= 2.0:
         statistical_confidence += 0.35
     elif alpha_t >= 1.65:
@@ -232,7 +181,7 @@ def calculate_confidence(
     elif alpha_t >= 1.0:
         statistical_confidence += 0.15
 
-    r_squared = metrics.get('r_squared', 0)
+    r_squared = metrics.get("r_squared", 0)
     if r_squared >= 0.5:
         statistical_confidence += 0.25
     elif r_squared >= 0.3:
@@ -240,13 +189,13 @@ def calculate_confidence(
     elif r_squared >= 0.1:
         statistical_confidence += 0.05
 
-    info_ratio = abs(metrics.get('information_ratio', 0))
+    info_ratio = abs(metrics.get("information_ratio", 0))
     if info_ratio >= 0.5:
         statistical_confidence += 0.20
     elif info_ratio >= 0.25:
         statistical_confidence += 0.10
 
-    sharpe = metrics.get('sharpe_ratio', 0)
+    sharpe = metrics.get("sharpe_ratio", 0)
     if abs(sharpe) >= 1.0:
         statistical_confidence += 0.20
     elif abs(sharpe) >= 0.5:
@@ -266,10 +215,8 @@ def calculate_confidence(
         data_confidence = 0.2
 
     # 3. Metrics Completeness (20%)
-    critical_metrics = ['beta', 'alpha', 'sharpe_ratio', 'volatility', 'max_drawdown']
-    metrics_present = sum(
-        1 for m in critical_metrics if m in metrics and metrics[m] is not None
-    )
+    critical_metrics = ["beta", "alpha", "sharpe_ratio", "volatility", "max_drawdown"]
+    metrics_present = sum(1 for m in critical_metrics if m in metrics and metrics[m] is not None)
     metrics_completeness = metrics_present / len(critical_metrics)
 
     # 4. Score Extremity (10%)
@@ -294,12 +241,12 @@ def calculate_confidence(
     )
 
     # 6. Penalties for Concerning Patterns
-    volatility = metrics.get('volatility', 0)
+    volatility = metrics.get("volatility", 0)
     if volatility > 0.35 and sharpe < 0.3:
         total_confidence *= 0.8
 
-    if 'alpha_lower_95' in metrics and 'alpha_upper_95' in metrics:
-        alpha_range = metrics['alpha_upper_95'] - metrics['alpha_lower_95']
+    if "alpha_lower_95" in metrics and "alpha_upper_95" in metrics:
+        alpha_range = metrics["alpha_upper_95"] - metrics["alpha_lower_95"]
         if alpha_range > 0.20:
             total_confidence *= 0.9
 

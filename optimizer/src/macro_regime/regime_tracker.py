@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Regime Transition Tracker
-==========================
-Tracks business cycle regime over time and detects transitions.
-
-Now uses database for historical regime tracking instead of CSV files.
-Maintains backward compatibility with CSV-based tracking.
-"""
-
 import pandas as pd
 import sys
 from datetime import datetime
@@ -19,8 +10,8 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from app.database import DatabaseManager
-from app.models.macro_regime import CountryRegimeAssessment
+from optimizer.database.database import DatabaseManager
+from optimizer.database.models.macro_regime import CountryRegimeAssessment
 from sqlalchemy import select, desc
 
 
@@ -32,7 +23,7 @@ class RegimeTracker:
     instead of maintaining a local CSV file.
     """
 
-    def __init__(self, country: str = 'USA', use_database: bool = True):
+    def __init__(self, country: str = "USA", use_database: bool = True):
         """
         Initialize regime tracker.
 
@@ -51,30 +42,36 @@ class RegimeTracker:
             self.db_manager = DatabaseManager()
             try:
                 self.db_manager.initialize()
-            except Exception as e:
-                print(f"Warning: Database initialization failed: {e}")
-                print("Falling back to CSV-based tracking")
+            except Exception:
                 self.use_database = False
 
         if not self.use_database:
             # Legacy CSV mode
             script_dir = Path(__file__).parent
-            output_dir = script_dir.parent / 'outputs' / 'regime_tracking'
+            output_dir = script_dir.parent / "outputs" / "regime_tracking"
             output_dir.mkdir(parents=True, exist_ok=True)
-            self.history_file = output_dir / f'regime_history_{country}.csv'
+            self.history_file = output_dir / f"regime_history_{country}.csv"
             self.history_df = self._load_history_csv()
 
     def _load_history_csv(self) -> pd.DataFrame:
         """Load historical regime data from CSV (legacy mode)."""
         if self.history_file.exists():
-            return pd.read_csv(self.history_file, parse_dates=['timestamp'])
+            return pd.read_csv(self.history_file, parse_dates=["timestamp"])
         else:
-            return pd.DataFrame(columns=[
-                'timestamp', 'regime', 'confidence',
-                'recession_risk_6m', 'recession_risk_12m',
-                'ism_pmi', 'yield_curve', 'hy_spread',
-                'gdp_forecast', 'inflation_forecast'
-            ])
+            return pd.DataFrame(
+                columns=[
+                    "timestamp",
+                    "regime",
+                    "confidence",
+                    "recession_risk_6m",
+                    "recession_risk_12m",
+                    "ism_pmi",
+                    "yield_curve",
+                    "hy_spread",
+                    "gdp_forecast",
+                    "inflation_forecast",
+                ]
+            )
 
     def _load_history_from_db(self) -> pd.DataFrame:
         """Load historical regime data from database."""
@@ -87,20 +84,27 @@ class RegimeTracker:
             results = session.execute(stmt).scalars().all()
 
             if not results:
-                return pd.DataFrame(columns=[
-                    'timestamp', 'regime', 'confidence',
-                    'recession_risk_6m', 'recession_risk_12m'
-                ])
+                return pd.DataFrame(
+                    columns=[
+                        "timestamp",
+                        "regime",
+                        "confidence",
+                        "recession_risk_6m",
+                        "recession_risk_12m",
+                    ]
+                )
 
             records = []
             for assessment in results:
-                records.append({
-                    'timestamp': assessment.assessment_timestamp,
-                    'regime': assessment.regime,
-                    'confidence': assessment.confidence,
-                    'recession_risk_6m': assessment.recession_risk_6m,
-                    'recession_risk_12m': assessment.recession_risk_12m
-                })
+                records.append(
+                    {
+                        "timestamp": assessment.assessment_timestamp,
+                        "regime": assessment.regime,
+                        "confidence": assessment.confidence,
+                        "recession_risk_6m": assessment.recession_risk_6m,
+                        "recession_risk_12m": assessment.recession_risk_12m,
+                    }
+                )
 
             return pd.DataFrame(records)
 
@@ -127,22 +131,19 @@ class RegimeTracker:
 
         # Legacy CSV mode
         new_row = {
-            'timestamp': pd.Timestamp(assessment.timestamp),
-            'regime': assessment.regime,
-            'confidence': assessment.confidence,
-            'recession_risk_6m': assessment.recession_risk_6m,
-            'recession_risk_12m': assessment.recession_risk_12m,
-            'ism_pmi': fred_data.get('ism_pmi'),
-            'yield_curve': fred_data.get('yield_curve_2s10s'),
-            'hy_spread': fred_data.get('hy_spread'),
-            'gdp_forecast': ilsole_data.get('forecast', {}).get('gdp_growth_6m'),
-            'inflation_forecast': ilsole_data.get('forecast', {}).get('inflation_6m')
+            "timestamp": pd.Timestamp(assessment.timestamp),
+            "regime": assessment.regime,
+            "confidence": assessment.confidence,
+            "recession_risk_6m": assessment.recession_risk_6m,
+            "recession_risk_12m": assessment.recession_risk_12m,
+            "ism_pmi": fred_data.get("ism_pmi"),
+            "yield_curve": fred_data.get("yield_curve_2s10s"),
+            "hy_spread": fred_data.get("hy_spread"),
+            "gdp_forecast": ilsole_data.get("forecast", {}).get("gdp_growth_6m"),
+            "inflation_forecast": ilsole_data.get("forecast", {}).get("inflation_6m"),
         }
 
-        self.history_df = pd.concat([
-            self.history_df,
-            pd.DataFrame([new_row])
-        ], ignore_index=True)
+        self.history_df = pd.concat([self.history_df, pd.DataFrame([new_row])], ignore_index=True)
 
         self._save_history_csv()
 
@@ -170,17 +171,17 @@ class RegimeTracker:
         current = history_df.iloc[-1]
         previous = history_df.iloc[-2]
 
-        if current['regime'] != previous['regime']:
-            days_since_last = (current['timestamp'] - previous['timestamp']).days
+        if current["regime"] != previous["regime"]:
+            days_since_last = (current["timestamp"] - previous["timestamp"]).days
 
             return {
-                'transition_detected': True,
-                'from_regime': previous['regime'],
-                'to_regime': current['regime'],
-                'transition_date': current['timestamp'].strftime('%Y-%m-%d'),
-                'days_since_last_transition': days_since_last,
-                'confidence': current['confidence'],
-                'alert_level': 'HIGH' if current['confidence'] > 0.8 else 'MEDIUM'
+                "transition_detected": True,
+                "from_regime": previous["regime"],
+                "to_regime": current["regime"],
+                "transition_date": current["timestamp"].strftime("%Y-%m-%d"),
+                "days_since_last_transition": days_since_last,
+                "confidence": current["confidence"],
+                "alert_level": "HIGH" if current["confidence"] > 0.8 else "MEDIUM",
             }
 
         return None
@@ -195,19 +196,19 @@ class RegimeTracker:
         if len(history_df) < 2:
             return None
 
-        current_regime = history_df.iloc[-1]['regime']
+        current_regime = history_df.iloc[-1]["regime"]
 
         # Find when current regime started
         for i in range(len(history_df) - 2, -1, -1):
-            if history_df.iloc[i]['regime'] != current_regime:
-                start_date = history_df.iloc[i + 1]['timestamp']
-                current_date = history_df.iloc[-1]['timestamp']
+            if history_df.iloc[i]["regime"] != current_regime:
+                start_date = history_df.iloc[i + 1]["timestamp"]
+                current_date = history_df.iloc[-1]["timestamp"]
                 return (current_date - start_date).days
 
         # Regime has been constant throughout history
         if len(history_df) > 0:
-            start_date = history_df.iloc[0]['timestamp']
-            current_date = history_df.iloc[-1]['timestamp']
+            start_date = history_df.iloc[0]["timestamp"]
+            current_date = history_df.iloc[-1]["timestamp"]
             return (current_date - start_date).days
 
         return None
@@ -220,31 +221,31 @@ class RegimeTracker:
             history_df = self.history_df
 
         if len(history_df) == 0:
-            return {'status': 'no_data'}
+            return {"status": "no_data"}
 
         current = history_df.iloc[-1]
         transition = self.detect_transition()
         duration = self.get_regime_duration()
 
         # Calculate regime statistics
-        regime_counts = history_df['regime'].value_counts().to_dict()
-        avg_confidence = history_df['confidence'].mean()
+        regime_counts = history_df["regime"].value_counts().to_dict()
+        avg_confidence = history_df["confidence"].mean()
 
         return {
-            'current_regime': current['regime'],
-            'current_confidence': current['confidence'],
-            'regime_duration_days': duration,
-            'total_observations': len(history_df),
-            'first_observation': history_df.iloc[0]['timestamp'].strftime('%Y-%m-%d'),
-            'latest_observation': current['timestamp'].strftime('%Y-%m-%d'),
-            'transition_detected': transition is not None,
-            'transition_details': transition,
-            'regime_distribution': regime_counts,
-            'average_confidence': avg_confidence,
-            'recession_risk': {
-                '6month': current['recession_risk_6m'],
-                '12month': current['recession_risk_12m']
-            }
+            "current_regime": current["regime"],
+            "current_confidence": current["confidence"],
+            "regime_duration_days": duration,
+            "total_observations": len(history_df),
+            "first_observation": history_df.iloc[0]["timestamp"].strftime("%Y-%m-%d"),
+            "latest_observation": current["timestamp"].strftime("%Y-%m-%d"),
+            "transition_detected": transition is not None,
+            "transition_details": transition,
+            "regime_distribution": regime_counts,
+            "average_confidence": avg_confidence,
+            "recession_risk": {
+                "6month": current["recession_risk_6m"],
+                "12month": current["recession_risk_12m"],
+            },
         }
 
     def get_recent_history(self, n: int = 10) -> pd.DataFrame:
@@ -258,11 +259,5 @@ class RegimeTracker:
 
 if __name__ == "__main__":
     # Test tracker
-    print("\n" + "="*80)
-    print("REGIME TRACKER - TEST MODE")
-    print("="*80)
-    print("\nTo test the regime tracker, use run_regime_analysis.py:")
-    print("  python run_regime_analysis.py --country USA")
-    print("\nThe tracker stores regime history in:")
-    print("  ../outputs/regime_tracking/regime_history.csv")
-    print("="*80)
+    tracker = RegimeTracker(country="USA", use_database=True)
+    summary = tracker.get_summary()

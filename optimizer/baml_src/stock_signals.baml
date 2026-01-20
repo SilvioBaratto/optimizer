@@ -207,7 +207,7 @@ function GenerateStockSignal(
   calculated_volatility: float?,
   calculated_rsi: float?
 ) -> StockSignalOutput {
-  client Model
+  client AzureOpenAIGpt5
 
   prompt #"
     You are an institutional quantitative analyst generating a trading signal for {{ stock_data.ticker }} ({{ stock_data.company_name }}) as of {{ target_date }}.

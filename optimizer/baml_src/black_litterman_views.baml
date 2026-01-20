@@ -129,7 +129,7 @@ function GenerateBlackLittermanView(
   sector_context: SectorContext,
   news_signals: StockNewsSignals?
 ) -> BlackLittermanView {
-  client Model
+  client AzureOpenAIGpt5
 
   prompt #"
     You are a senior quantitative analyst generating Black-Litterman investment views

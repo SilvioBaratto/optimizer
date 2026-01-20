@@ -28,18 +28,18 @@ import time
 import numpy as np
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from src.yfinance import YFinanceClient
+from optimizer.src.yfinance import YFinanceClient
 
 # Import database and models
-from app.database import database_manager, init_db
-from app.models.universe import Instrument
+from optimizer.database.database import database_manager, init_db
+from optimizer.database.models.universe import Instrument
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -83,10 +83,12 @@ def plot_ascii_graph(ticker: str, prices, dates, width=70, height=15, writer=Non
     sampled_dates = dates[::step][:width]
 
     # Normalize to height
-    normalized = [int((p - min_price) / price_range * (height - 1)) for p in sampled_prices]
+    normalized = [
+        int((p - min_price) / price_range * (height - 1)) for p in sampled_prices
+    ]
 
     # Create canvas
-    canvas = [[' ' for _ in range(width)] for _ in range(height)]
+    canvas = [[" " for _ in range(width)] for _ in range(height)]
 
     # Draw the line with arrows
     for i in range(len(normalized) - 1):
@@ -96,16 +98,16 @@ def plot_ascii_graph(ticker: str, prices, dates, width=70, height=15, writer=Non
         # Draw vertical connection
         if y1 < y2:  # Going down
             for y in range(y1, y2 + 1):
-                canvas[y][i] = '↓' if y == y2 else '|'
+                canvas[y][i] = "↓" if y == y2 else "|"
         elif y1 > y2:  # Going up
             for y in range(y2, y1 + 1):
-                canvas[y][i] = '↑' if y == y2 else '|'
+                canvas[y][i] = "↑" if y == y2 else "|"
         else:  # Horizontal
-            canvas[y1][i] = '→'
+            canvas[y1][i] = "→"
 
     # Print the graph
-    start_date = dates[0].strftime('%Y-%m-%d')
-    end_date = dates[-1].strftime('%Y-%m-%d')
+    start_date = dates[0].strftime("%Y-%m-%d")
+    end_date = dates[-1].strftime("%Y-%m-%d")
 
     writer(f"\n{'='*width}")
     writer(f"{ticker}: {start_date} to {end_date}")
@@ -121,8 +123,10 @@ def plot_ascii_graph(ticker: str, prices, dates, width=70, height=15, writer=Non
 
     # Print date markers along x-axis
     num_labels = 3
-    label_positions = [i * (len(sampled_dates) - 1) // (num_labels - 1) for i in range(num_labels)]
-    date_labels = [sampled_dates[pos].strftime('%Y-%m') for pos in label_positions]
+    label_positions = [
+        i * (len(sampled_dates) - 1) // (num_labels - 1) for i in range(num_labels)
+    ]
+    date_labels = [sampled_dates[pos].strftime("%Y-%m") for pos in label_positions]
 
     spacing = width // (num_labels - 1)
     date_line = f"{'':>8} "
@@ -130,16 +134,20 @@ def plot_ascii_graph(ticker: str, prices, dates, width=70, height=15, writer=Non
         if i == 0:
             date_line += f"{label}"
         else:
-            padding = spacing - len(date_labels[i-1]) // 2 - len(label) // 2
+            padding = spacing - len(date_labels[i - 1]) // 2 - len(label) // 2
             date_line += f"{' ' * padding}{label}"
     writer(date_line)
 
     # Print summary
     total_return = ((prices[-1] / prices[0]) - 1) * 100
-    writer(f"\nPeak: ${max_price:.2f} ({peak_date.strftime('%Y-%m-%d')})  |  " +
-           f"Trough: ${min_price:.2f} ({trough_date.strftime('%Y-%m-%d')})")
-    writer(f"Start: ${prices[0]:.2f}  →  End: ${prices[-1]:.2f}  |  " +
-           f"Return: {total_return:+.2f}%")
+    writer(
+        f"\nPeak: ${max_price:.2f} ({peak_date.strftime('%Y-%m-%d')})  |  "
+        + f"Trough: ${min_price:.2f} ({trough_date.strftime('%Y-%m-%d')})"
+    )
+    writer(
+        f"Start: ${prices[0]:.2f}  →  End: ${prices[-1]:.2f}  |  "
+        + f"Return: {total_return:+.2f}%"
+    )
 
 
 def calculate_risk_metrics(prices, risk_free_rate=0.045):
@@ -159,7 +167,7 @@ def calculate_risk_metrics(prices, risk_free_rate=0.045):
     returns = np.diff(prices) / prices[:-1]
 
     # Annualized metrics (assuming 252 trading days)
-    total_return = (prices[-1] / prices[0] - 1)
+    total_return = prices[-1] / prices[0] - 1
     years = len(prices) / 252
     annualized_return = (1 + total_return) ** (1 / years) - 1 if years > 0 else 0
 
@@ -176,16 +184,22 @@ def calculate_risk_metrics(prices, risk_free_rate=0.045):
 
     # Sortino
     downside_returns = returns[returns < 0]
-    downside_std = np.std(downside_returns, ddof=1) * np.sqrt(252) if len(downside_returns) > 1 else 0
-    sortino = (annualized_return - risk_free_rate) / downside_std if downside_std > 0 else 0
+    downside_std = (
+        np.std(downside_returns, ddof=1) * np.sqrt(252)
+        if len(downside_returns) > 1
+        else 0
+    )
+    sortino = (
+        (annualized_return - risk_free_rate) / downside_std if downside_std > 0 else 0
+    )
 
     return {
-        'total_return': total_return,
-        'annualized_return': annualized_return,
-        'volatility': volatility,
-        'sharpe_ratio': sharpe,
-        'sortino_ratio': sortino,
-        'max_drawdown': max_drawdown,
+        "total_return": total_return,
+        "annualized_return": annualized_return,
+        "volatility": volatility,
+        "sharpe_ratio": sharpe,
+        "sortino_ratio": sortino,
+        "max_drawdown": max_drawdown,
     }
 
 
@@ -199,12 +213,18 @@ def print_compact_metrics(metrics, width=70, writer=None):
         return
 
     writer(f"{'─'*width}")
-    writer(f"Return: {metrics['total_return']*100:>6.2f}% (Total)  |  " +
-           f"{metrics['annualized_return']*100:>6.2f}% (Annualized)")
-    writer(f"Risk:   {metrics['volatility']*100:>6.2f}% (Volatility)  |  " +
-           f"{metrics['max_drawdown']*100:>6.2f}% (Max Drawdown)")
-    writer(f"Ratios: {metrics['sharpe_ratio']:>6.2f} (Sharpe)  |  " +
-           f"{metrics['sortino_ratio']:>6.2f} (Sortino)")
+    writer(
+        f"Return: {metrics['total_return']*100:>6.2f}% (Total)  |  "
+        + f"{metrics['annualized_return']*100:>6.2f}% (Annualized)"
+    )
+    writer(
+        f"Risk:   {metrics['volatility']*100:>6.2f}% (Volatility)  |  "
+        + f"{metrics['max_drawdown']*100:>6.2f}% (Max Drawdown)"
+    )
+    writer(
+        f"Ratios: {metrics['sharpe_ratio']:>6.2f} (Sharpe)  |  "
+        + f"{metrics['sortino_ratio']:>6.2f} (Sortino)"
+    )
     writer(f"{'─'*width}")
 
 
@@ -234,7 +254,7 @@ class PortfolioGrowthCharts:
         """
         print(text)
         if self.output_file:
-            self.output_file.write(text + '\n')
+            self.output_file.write(text + "\n")
 
     def load_portfolio(self) -> bool:
         """
@@ -246,10 +266,10 @@ class PortfolioGrowthCharts:
         try:
             logger.info(f"Loading portfolio from: {self.portfolio_file}")
 
-            with open(self.portfolio_file, 'r') as f:
+            with open(self.portfolio_file, "r") as f:
                 self.portfolio_data = json.load(f)
 
-            self.positions = self.portfolio_data.get('positions', [])
+            self.positions = self.portfolio_data.get("positions", [])
 
             logger.info(f"Loaded {len(self.positions)} positions from portfolio")
             return True
@@ -287,7 +307,9 @@ class PortfolioGrowthCharts:
             logger.error(f"Error fetching yfinance ticker for {ticker}: {e}")
             return None
 
-    def fetch_historical_data(self, yf_ticker: str, start_date: date_type, end_date: date_type) -> Optional[Tuple[List[float], List[datetime]]]:
+    def fetch_historical_data(
+        self, yf_ticker: str, start_date: date_type, end_date: date_type
+    ) -> Optional[Tuple[List[float], List[datetime]]]:
         """
         Fetch historical price data from yfinance.
 
@@ -307,7 +329,7 @@ class PortfolioGrowthCharts:
                 logger.warning(f"Insufficient data for {yf_ticker}")
                 return None
 
-            prices = hist['Close'].tolist()
+            prices = hist["Close"].tolist()
             dates = hist.index.tolist()
 
             return prices, dates
@@ -320,7 +342,7 @@ class PortfolioGrowthCharts:
         self,
         position_returns: Dict[str, Dict[str, Any]],
         start_date: date_type,
-        end_date: date_type
+        end_date: date_type,
     ) -> Optional[Tuple[List[float], List[datetime]]]:
         """
         Calculate weighted portfolio aggregate performance.
@@ -337,7 +359,9 @@ class PortfolioGrowthCharts:
             # Get all unique dates (intersection of all stocks)
             all_dates = None
             for _ticker, data in position_returns.items():
-                dates_set = set([d.date() if hasattr(d, 'date') else d for d in data['dates']])
+                dates_set = set(
+                    [d.date() if hasattr(d, "date") else d for d in data["dates"]]
+                )
                 if all_dates is None:
                     all_dates = dates_set
                 else:
@@ -357,23 +381,28 @@ class PortfolioGrowthCharts:
 
                 for _ticker, data in position_returns.items():
                     # Find price on this date
-                    date_prices = {d.date() if hasattr(d, 'date') else d: p for d, p in zip(data['dates'], data['prices'])}
+                    date_prices = {
+                        d.date() if hasattr(d, "date") else d: p
+                        for d, p in zip(data["dates"], data["prices"])
+                    }
 
                     if date in date_prices:
                         # Calculate return from start
-                        start_price = data['prices'][0]
+                        start_price = data["prices"][0]
                         current_price = date_prices[date]
-                        stock_return = (current_price / start_price - 1)
+                        stock_return = current_price / start_price - 1
 
                         # Weight by position weight
-                        weighted_return += stock_return * data['weight']
+                        weighted_return += stock_return * data["weight"]
 
                 # Portfolio value (starting at 100)
                 portfolio_value = 100 * (1 + weighted_return)
                 portfolio_values.append(portfolio_value)
 
             # Convert dates back to datetime
-            portfolio_dates = [datetime.combine(d, datetime.min.time()) for d in common_dates]
+            portfolio_dates = [
+                datetime.combine(d, datetime.min.time()) for d in common_dates
+            ]
 
             return portfolio_values, portfolio_dates
 
@@ -403,7 +432,7 @@ class PortfolioGrowthCharts:
         logger.info(f"Opening output file: {filename}")
 
         # Open file for writing
-        with open(filename, 'w', encoding='utf-8') as f:
+        with open(filename, "w", encoding="utf-8") as f:
             self.output_file = f
             self._generate_charts_internal()
             self.output_file = None
@@ -423,14 +452,16 @@ class PortfolioGrowthCharts:
         init_db()
 
         # Extract metadata
-        metadata = self.portfolio_data.get('metadata') or {}
-        portfolio_date = metadata.get('creation_date', 'Unknown')
+        metadata = self.portfolio_data.get("metadata") or {}
+        portfolio_date = metadata.get("creation_date", "Unknown")
         total_positions = len(self.positions)
 
         # Calculate date range: 1 year before portfolio creation
         try:
             if isinstance(portfolio_date, str):
-                portfolio_date_obj = datetime.fromisoformat(portfolio_date.replace('Z', '+00:00')).date()
+                portfolio_date_obj = datetime.fromisoformat(
+                    portfolio_date.replace("Z", "+00:00")
+                ).date()
             else:
                 portfolio_date_obj = date_type.today()
         except:
@@ -457,13 +488,13 @@ class PortfolioGrowthCharts:
         failed = 0
 
         for i, position in enumerate(self.positions, 1):
-            ticker = position.get('ticker', 'Unknown')
-            company_name = position.get('company_name', ticker)
-            weight = position.get('weight', 0.0)
-            conviction = position.get('conviction_tier', 'Unknown')
-            sector = position.get('sector', 'Unknown')
-            industry = position.get('industry', 'Unknown')
-            instrument_id = position.get('instrument_id')
+            ticker = position.get("ticker", "Unknown")
+            company_name = position.get("company_name", ticker)
+            weight = position.get("weight", 0.0)
+            conviction = position.get("conviction_tier", "Unknown")
+            sector = position.get("sector", "Unknown")
+            industry = position.get("industry", "Unknown")
+            instrument_id = position.get("instrument_id")
 
             logger.info(f"[{i}/{total_positions}] Processing {ticker}")
 
@@ -495,15 +526,17 @@ class PortfolioGrowthCharts:
 
             # Store for portfolio aggregate
             position_returns[ticker] = {
-                'prices': prices,
-                'dates': dates,
-                'weight': weight
+                "prices": prices,
+                "dates": dates,
+                "weight": weight,
             }
 
             # Print position header
             self._write(f"\n{'='*70}")
             self._write(f"[{i}/{total_positions}] {ticker} - {company_name}")
-            self._write(f"Weight: {weight:.1%} | Conviction: {conviction} | Sector: {sector}")
+            self._write(
+                f"Weight: {weight:.1%} | Conviction: {conviction} | Sector: {sector}"
+            )
             self._write(f"Industry: {industry}")
             self._write(f"{'='*70}")
 
@@ -526,15 +559,15 @@ class PortfolioGrowthCharts:
 
         if position_returns:
             portfolio_result = self.calculate_portfolio_performance(
-                position_returns,
-                start_date,
-                end_date
+                position_returns, start_date, end_date
             )
 
             if portfolio_result:
                 portfolio_values, portfolio_dates = portfolio_result
 
-                plot_ascii_graph("PORTFOLIO", portfolio_values, portfolio_dates, writer=self._write)
+                plot_ascii_graph(
+                    "PORTFOLIO", portfolio_values, portfolio_dates, writer=self._write
+                )
 
                 # Calculate portfolio metrics
                 portfolio_metrics = calculate_risk_metrics(portfolio_values)
@@ -558,7 +591,7 @@ class PortfolioGrowthCharts:
 
     def _print_portfolio_summary(self) -> None:
         """Print portfolio composition summary."""
-        metrics = self.portfolio_data.get('metrics') or {}
+        metrics = self.portfolio_data.get("metrics") or {}
 
         self._write(f"\n{'─'*80}")
         self._write("PORTFOLIO COMPOSITION")
@@ -566,9 +599,15 @@ class PortfolioGrowthCharts:
 
         # Conviction breakdown
         self._write("\nConviction Tiers:")
-        self._write(f"  HIGH:   {metrics.get('high_conviction_count', 0)} positions ({metrics.get('high_conviction_weight', 0):.1%})")
-        self._write(f"  MEDIUM: {metrics.get('medium_conviction_count', 0)} positions ({metrics.get('medium_conviction_weight', 0):.1%})")
-        self._write(f"  LOW:    {metrics.get('low_conviction_count', 0)} positions ({metrics.get('low_conviction_weight', 0):.1%})")
+        self._write(
+            f"  HIGH:   {metrics.get('high_conviction_count', 0)} positions ({metrics.get('high_conviction_weight', 0):.1%})"
+        )
+        self._write(
+            f"  MEDIUM: {metrics.get('medium_conviction_count', 0)} positions ({metrics.get('medium_conviction_weight', 0):.1%})"
+        )
+        self._write(
+            f"  LOW:    {metrics.get('low_conviction_count', 0)} positions ({metrics.get('low_conviction_weight', 0):.1%})"
+        )
 
         # Diversification
         self._write(f"\nDiversification:")
@@ -577,12 +616,12 @@ class PortfolioGrowthCharts:
         self._write(f"  Countries:  {metrics.get('country_count', 0)}")
 
         # Risk metrics
-        if metrics.get('avg_sharpe_ratio'):
+        if metrics.get("avg_sharpe_ratio"):
             self._write(f"\nQuality Metrics:")
             self._write(f"  Avg Sharpe:     {metrics.get('avg_sharpe_ratio', 0):.2f}")
-            if metrics.get('avg_volatility'):
+            if metrics.get("avg_volatility"):
                 self._write(f"  Avg Volatility: {metrics.get('avg_volatility', 0):.1%}")
-            if metrics.get('avg_alpha'):
+            if metrics.get("avg_alpha"):
                 self._write(f"  Avg Alpha:      {metrics.get('avg_alpha', 0):+.1%}")
 
         self._write(f"{'─'*80}")
@@ -603,10 +642,10 @@ class PortfolioGrowthCharts:
 
         # Collect statistics from positions
         for position in self.positions:
-            country = position.get('country', 'Unknown')
-            sector = position.get('sector', 'Unknown')
-            industry = position.get('industry', 'Unknown')
-            weight = position.get('weight', 0.0)
+            country = position.get("country", "Unknown")
+            sector = position.get("sector", "Unknown")
+            industry = position.get("industry", "Unknown")
+            weight = position.get("weight", 0.0)
 
             country_counts[country] += 1
             country_weights[country] += weight
@@ -631,9 +670,7 @@ class PortfolioGrowthCharts:
 
         # Sort by weight (descending)
         sorted_countries = sorted(
-            country_counts.items(),
-            key=lambda x: country_weights[x[0]],
-            reverse=True
+            country_counts.items(), key=lambda x: country_weights[x[0]], reverse=True
         )
 
         self._write(f"\n{'Country':<25} {'Stocks':>8} {'Weight':>12}")
@@ -652,9 +689,7 @@ class PortfolioGrowthCharts:
 
         # Sort by weight (descending)
         sorted_sectors = sorted(
-            sector_counts.items(),
-            key=lambda x: sector_weights[x[0]],
-            reverse=True
+            sector_counts.items(), key=lambda x: sector_weights[x[0]], reverse=True
         )
 
         self._write(f"\n{'Sector':<30} {'Stocks':>8} {'Weight':>12} {'Type':>12}")
@@ -677,8 +712,7 @@ class PortfolioGrowthCharts:
 
         # Sort by weight (descending), then alphabetically
         sorted_industries = sorted(
-            industry_counts.items(),
-            key=lambda x: (-industry_weights[x[0]], x[0])
+            industry_counts.items(), key=lambda x: (-industry_weights[x[0]], x[0])
         )
 
         self._write(f"\n{'Industry':<45} {'Stocks':>8} {'Weight':>12}")
@@ -700,31 +734,61 @@ class PortfolioGrowthCharts:
         top_sector = max(sector_counts.items(), key=lambda x: sector_weights[x[0]])
 
         # Count defensive vs cyclical
-        defensive_count = sum(count for sector, count in sector_counts.items() if sector in DEFENSIVE_SECTORS)
-        cyclical_count = sum(count for sector, count in sector_counts.items() if sector not in DEFENSIVE_SECTORS and sector != 'Unknown')
+        defensive_count = sum(
+            count
+            for sector, count in sector_counts.items()
+            if sector in DEFENSIVE_SECTORS
+        )
+        cyclical_count = sum(
+            count
+            for sector, count in sector_counts.items()
+            if sector not in DEFENSIVE_SECTORS and sector != "Unknown"
+        )
 
-        defensive_weight = sum(sector_weights[sector] for sector in sector_weights if sector in DEFENSIVE_SECTORS)
-        cyclical_weight = sum(sector_weights[sector] for sector in sector_weights if sector not in DEFENSIVE_SECTORS and sector != 'Unknown')
+        defensive_weight = sum(
+            sector_weights[sector]
+            for sector in sector_weights
+            if sector in DEFENSIVE_SECTORS
+        )
+        cyclical_weight = sum(
+            sector_weights[sector]
+            for sector in sector_weights
+            if sector not in DEFENSIVE_SECTORS and sector != "Unknown"
+        )
 
         self._write(f"\nGeographic Concentration:")
-        self._write(f"  Largest country:      {top_country[0]} ({top_country[1]} stocks, {country_weights[top_country[0]]:.1%})")
+        self._write(
+            f"  Largest country:      {top_country[0]} ({top_country[1]} stocks, {country_weights[top_country[0]]:.1%})"
+        )
         self._write(f"  Total countries:      {len(country_counts)}")
 
         self._write(f"\nSector Balance:")
-        self._write(f"  Defensive:            {defensive_count} stocks ({defensive_weight:.1%})")
-        self._write(f"  Cyclical:             {cyclical_count} stocks ({cyclical_weight:.1%})")
-        self._write(f"  Largest sector:       {top_sector[0]} ({top_sector[1]} stocks, {sector_weights[top_sector[0]]:.1%})")
+        self._write(
+            f"  Defensive:            {defensive_count} stocks ({defensive_weight:.1%})"
+        )
+        self._write(
+            f"  Cyclical:             {cyclical_count} stocks ({cyclical_weight:.1%})"
+        )
+        self._write(
+            f"  Largest sector:       {top_sector[0]} ({top_sector[1]} stocks, {sector_weights[top_sector[0]]:.1%})"
+        )
 
         self._write(f"\nIndustry Concentration:")
         self._write(f"  Total industries:     {len(industry_counts)}")
-        self._write(f"  Avg stocks/industry:  {len(self.positions) / len(industry_counts):.1f}")
+        self._write(
+            f"  Avg stocks/industry:  {len(self.positions) / len(industry_counts):.1f}"
+        )
 
         # Check if any industry has more than 2 stocks (violation)
-        over_concentrated = [(ind, cnt) for ind, cnt in industry_counts.items() if cnt > 2]
+        over_concentrated = [
+            (ind, cnt) for ind, cnt in industry_counts.items() if cnt > 2
+        ]
         if over_concentrated:
             self._write(f"\n  ⚠️  Industries with >2 stocks:")
             for ind, cnt in over_concentrated:
-                self._write(f"      - {ind}: {cnt} stocks ({industry_weights[ind]:.1%})")
+                self._write(
+                    f"      - {ind}: {cnt} stocks ({industry_weights[ind]:.1%})"
+                )
         else:
             self._write(f"  ✅ No industry has more than 2 stocks (well diversified)")
 
@@ -756,7 +820,9 @@ def find_latest_portfolio() -> Optional[Path]:
 
     if not portfolio_files:
         logger.warning(f"No portfolio files found in: {portfolio_dir}")
-        logger.info("Please run concentrated_portfolio_builder.py first to generate a portfolio.")
+        logger.info(
+            "Please run concentrated_portfolio_builder.py first to generate a portfolio."
+        )
         return None
 
     # Sort by modification time (most recent first)
@@ -774,9 +840,9 @@ def main():
         description="Generate growth charts for concentrated portfolio"
     )
     parser.add_argument(
-        '--portfolio-file',
+        "--portfolio-file",
         type=Path,
-        help='Path to portfolio JSON file (default: latest in portfolios/)'
+        help="Path to portfolio JSON file (default: latest in portfolios/)",
     )
 
     args = parser.parse_args()
@@ -793,7 +859,9 @@ def main():
             portfolio_file = find_latest_portfolio()
 
         if not portfolio_file or not portfolio_file.exists():
-            logger.error("No portfolio file found. Run concentrated_portfolio_builder.py first.")
+            logger.error(
+                "No portfolio file found. Run concentrated_portfolio_builder.py first."
+            )
             sys.exit(1)
 
         logger.info(f"Using portfolio file: {portfolio_file}")
@@ -823,6 +891,7 @@ def main():
     except Exception as e:
         logger.error(f"Chart generation failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

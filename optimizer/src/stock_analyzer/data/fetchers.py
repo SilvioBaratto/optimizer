@@ -1,52 +1,25 @@
-"""
-Data Fetchers
-============
-
-Provides functions to fetch data from various sources:
-- Price data from yfinance
-- Macro regime data from database
-- Economic indicators from database
-- PMI and unemployment data from Trading Economics
-"""
-
 from typing import Optional, Tuple, Dict
-import logging
 import pandas as pd
 from sqlalchemy import select, desc
 from sqlalchemy.orm import joinedload
 
-from app.database import database_manager
-from src.yfinance import YFinanceClient
-from app.models.macro_regime import (
+from optimizer.database.database import database_manager
+from optimizer.src.yfinance import YFinanceClient
+from optimizer.database.models.macro_regime import (
     CountryRegimeAssessment,
     MacroAnalysisRun,
     EconomicIndicators,
 )
-from app.models.trading_economics import TradingEconomicsIndicator, TradingEconomicsSnapshot
-
-logger = logging.getLogger(__name__)
+from optimizer.database.models.trading_economics import (
+    TradingEconomicsIndicator,
+    TradingEconomicsSnapshot,
+)
 
 
 async def fetch_price_data(
-    yf_ticker: str,
-    period: str = "2y",
-    max_retries: int = 3
+    yf_ticker: str, period: str = "2y", max_retries: int = 3
 ) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[Dict]]:
-    """
-    Fetch historical price data for stock and benchmark with retry logic.
-
-    Now uses centralized YFinanceClient for caching and rate limiting.
-    Runs blocking yfinance calls in thread pool for true async parallelism.
-
-    Args:
-        yf_ticker: Yahoo Finance ticker symbol
-        period: Historical period to fetch (default: "2y" for 2 years)
-        max_retries: Maximum number of retry attempts (default: 3)
-
-    Returns:
-        Tuple of (stock_data, benchmark_data, stock_info)
-        Returns (None, None, None) if fetch fails
-    """
+    """Fetch historical price data for stock and benchmark with retry logic."""
     import asyncio
     from functools import partial
 
@@ -61,7 +34,7 @@ async def fetch_price_data(
         symbol=yf_ticker,
         benchmark="SPY",
         period=period,
-        max_retries=max_retries
+        max_retries=max_retries,
     )
 
     stock_hist, spy_hist, stock_info = await loop.run_in_executor(None, fetch_func)
@@ -70,23 +43,11 @@ async def fetch_price_data(
 
 
 def get_country_from_ticker(yf_ticker: str, info: Optional[Dict]) -> Optional[str]:
-    """
-    Determine country from ticker and info dict.
-
-    Tries database first (exchange → country mapping), then falls back to
-    yfinance info['country'] field.
-
-    Args:
-        yf_ticker: Yahoo Finance ticker symbol
-        info: Stock info dict from yfinance (optional)
-
-    Returns:
-        Country name (USA, Germany, France, UK, Japan) or None if unknown
-    """
+    """Determine country from ticker and info dict."""
     # Try database first
     try:
         with database_manager.get_session() as session:
-            from app.models.universe import Instrument
+            from optimizer.database.models.universe import Instrument
 
             # Handle multiple instruments with same ticker (prefer active)
             query = (
@@ -112,33 +73,24 @@ def get_country_from_ticker(yf_ticker: str, info: Optional[Dict]) -> Optional[st
                 country = exchange_to_country.get(instrument.exchange.exchange_name)
                 if country:
                     return country
-    except Exception as e:
-        logger.debug(f"Error looking up country in database: {e}")
+    except Exception:
+        pass
 
     # Fallback to info dict
-    if info and 'country' in info:
+    if info and "country" in info:
         country_map = {
             "United States": "USA",
             "Germany": "Germany",
             "France": "France",
             "United Kingdom": "UK",
         }
-        return country_map.get(info['country'], info['country'])
+        return country_map.get(info["country"], info["country"])
 
     return None
 
 
 async def fetch_macro_regime(country: str) -> Optional[Dict]:
-    """
-    Fetch latest macro regime assessment from database.
-
-    Args:
-        country: Country name (USA, Germany, France, UK, Japan)
-
-    Returns:
-        Dict with regime, confidence, recession risks, sector tilts, etc.
-        None if no assessment available
-    """
+    """Fetch latest macro regime assessment from database."""
     try:
         with database_manager.get_session() as session:
             query = (
@@ -160,43 +112,29 @@ async def fetch_macro_regime(country: str) -> Optional[Dict]:
                 return None
 
             return {
-                'regime': (
+                "regime": (
                     assessment.regime
                     if isinstance(assessment.regime, str)
                     else assessment.regime.value
                 ),
-                'confidence': float(assessment.confidence),
-                'recession_risk_6m': float(assessment.recession_risk_6m),
-                'recession_risk_12m': float(assessment.recession_risk_12m),
-                'sector_tilts': assessment.sector_tilts or {},
-                'factor_exposure': (
+                "confidence": float(assessment.confidence),
+                "recession_risk_6m": float(assessment.recession_risk_6m),
+                "recession_risk_12m": float(assessment.recession_risk_12m),
+                "sector_tilts": assessment.sector_tilts or {},
+                "factor_exposure": (
                     assessment.factor_exposure
                     if isinstance(assessment.factor_exposure, str)
                     else (assessment.factor_exposure.value if assessment.factor_exposure else None)
                 ),
-                'recommended_overweights': assessment.recommended_overweights or [],
-                'recommended_underweights': assessment.recommended_underweights or [],
+                "recommended_overweights": assessment.recommended_overweights or [],
+                "recommended_underweights": assessment.recommended_underweights or [],
             }
-    except Exception as e:
-        logger.debug(f"Error fetching macro regime: {e}")
+    except Exception:
         return None
 
 
-def fetch_economic_forecasts(
-    country: str,
-    max_age_days: int = 30
-) -> Optional[Dict]:
-    """
-    Query forward-looking economic forecasts from database.
-
-    Args:
-        country: Country name (USA, Germany, France, UK, Japan)
-        max_age_days: Maximum age of data to consider (default: 30 days)
-
-    Returns:
-        Dict with gdp_forecast_6m, inflation_forecast_6m, earnings_forecast_12m
-        or None if not available
-    """
+def fetch_economic_forecasts(country: str, max_age_days: int = 30) -> Optional[Dict]:
+    """Query forward-looking economic forecasts from database."""
     try:
         with database_manager.get_session() as session:
             query = (
@@ -222,69 +160,37 @@ def fetch_economic_forecasts(
                 age_days = (datetime.now() - data_timestamp.replace(tzinfo=None)).days
 
                 if age_days > max_age_days:
-                    logger.debug(
-                        f"Economic forecasts for {country} are {age_days} days old "
-                        f"(> {max_age_days} days)"
-                    )
                     return None
 
-                logger.debug(
-                    f"Using economic forecasts for {country}: "
-                    f"GDP={gdp_forecast}%, Inflation={inflation_forecast}%, "
-                    f"Earnings={earnings_forecast}% (age: {age_days} days)"
-                )
-
                 return {
-                    'gdp_forecast_6m': (
-                        float(gdp_forecast) if gdp_forecast is not None else None
-                    ),
-                    'inflation_forecast_6m': (
+                    "gdp_forecast_6m": (float(gdp_forecast) if gdp_forecast is not None else None),
+                    "inflation_forecast_6m": (
                         float(inflation_forecast) if inflation_forecast is not None else None
                     ),
-                    'earnings_forecast_12m': (
+                    "earnings_forecast_12m": (
                         float(earnings_forecast) if earnings_forecast is not None else None
                     ),
                 }
             else:
-                logger.debug(f"No economic forecasts found for {country}")
                 return None
 
-    except Exception as e:
-        logger.debug(f"Error fetching economic forecasts for {country}: {e}")
+    except Exception:
         return None
 
 
 def fetch_pmi_data(
-    country: str,
-    pmi_type: str = 'composite',
-    max_age_days: int = 30
+    country: str, pmi_type: str = "composite", max_age_days: int = 30
 ) -> Optional[float]:
-    """
-    Query actual PMI values from Trading Economics database.
-
-    Args:
-        country: Country name (USA, Germany, France, UK, Japan)
-        pmi_type: Type of PMI - 'composite', 'manufacturing', or 'services'
-        max_age_days: Maximum age of data to consider (default: 30 days)
-
-    Returns:
-        PMI value (float) or None if not available
-
-    PMI Interpretation:
-        > 52: Strong expansion (EARLY_CYCLE)
-        50-52: Mild expansion (MID_CYCLE)
-        48-50: Mild contraction (LATE_CYCLE)
-        < 48: Strong contraction (RECESSION)
-    """
+    """Query actual PMI values from Trading Economics database."""
     try:
         with database_manager.get_session() as session:
             # Map pmi_type to indicator_name
             indicator_map = {
-                'composite': 'composite_pmi',
-                'manufacturing': 'manufacturing_pmi',
-                'services': 'services_pmi',
+                "composite": "composite_pmi",
+                "manufacturing": "manufacturing_pmi",
+                "services": "services_pmi",
             }
-            indicator_name = indicator_map.get(pmi_type, 'composite_pmi')
+            indicator_name = indicator_map.get(pmi_type, "composite_pmi")
 
             # Query most recent PMI value for country
             query = (
@@ -315,40 +221,18 @@ def fetch_pmi_data(
                 age_days = (datetime.now() - fetch_timestamp.replace(tzinfo=None)).days
 
                 if age_days > max_age_days:
-                    logger.debug(
-                        f"PMI data for {country} is {age_days} days old "
-                        f"(> {max_age_days} days), falling back to regime-based estimate"
-                    )
                     return None
 
-                logger.debug(
-                    f"Using actual {pmi_type} PMI for {country}: {pmi_value:.1f} "
-                    f"(age: {age_days} days)"
-                )
                 return float(pmi_value)
             else:
-                logger.debug(
-                    f"No {pmi_type} PMI data found for {country}, "
-                    f"using regime-based estimate"
-                )
                 return None
 
-    except Exception as e:
-        logger.debug(f"Error fetching {pmi_type} PMI for {country}: {e}")
+    except Exception:
         return None
 
 
 def fetch_unemployment_rate(country: str, max_age_days: int = 30) -> Optional[float]:
-    """
-    Query unemployment rate from Trading Economics database.
-
-    Args:
-        country: Country name (USA, Germany, France, UK, Japan)
-        max_age_days: Maximum age of data to consider (default: 30 days)
-
-    Returns:
-        Unemployment rate (%) or None if not available
-    """
+    """Query unemployment rate from Trading Economics database."""
     try:
         with database_manager.get_session() as session:
             query = (
@@ -362,7 +246,7 @@ def fetch_unemployment_rate(country: str, max_age_days: int = 30) -> Optional[fl
                 )
                 .where(
                     TradingEconomicsSnapshot.country == country,
-                    TradingEconomicsIndicator.indicator_name == 'unemployment_rate',
+                    TradingEconomicsIndicator.indicator_name == "unemployment_rate",
                 )
                 .order_by(desc(TradingEconomicsSnapshot.fetch_timestamp))
                 .limit(1)
@@ -379,21 +263,11 @@ def fetch_unemployment_rate(country: str, max_age_days: int = 30) -> Optional[fl
                 age_days = (datetime.now() - fetch_timestamp.replace(tzinfo=None)).days
 
                 if age_days > max_age_days:
-                    logger.debug(
-                        f"Unemployment data for {country} is {age_days} days old "
-                        f"(> {max_age_days} days)"
-                    )
                     return None
 
-                logger.debug(
-                    f"Using unemployment rate for {country}: {unemployment_rate:.1f}% "
-                    f"(age: {age_days} days)"
-                )
                 return float(unemployment_rate)
             else:
-                logger.debug(f"No unemployment data found for {country}")
                 return None
 
-    except Exception as e:
-        logger.debug(f"Error fetching unemployment rate for {country}: {e}")
+    except Exception:
         return None

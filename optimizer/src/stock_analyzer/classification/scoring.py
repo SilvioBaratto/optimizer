@@ -1,22 +1,8 @@
-"""
-Scoring Utilities
-=================
-
-Provides utility functions for signal scoring:
-- Upside potential calculation
-- Downside risk calculation
-- Data quality scoring
-- Analysis notes generation
-"""
-
 from typing import Dict, Optional
-import logging
 import numpy as np
 import pandas as pd
 
 from baml_client.types import SignalType
-
-logger = logging.getLogger(__name__)
 
 
 def calculate_upside_potential(
@@ -24,21 +10,6 @@ def calculate_upside_potential(
 ) -> float:
     """
     Calculate upside potential based on institutional factor framework.
-
-    Expected returns derived from:
-    - Factor premiums (2-6% annually)
-    - Market return expectation (~10% historical equity return)
-    - Risk-adjusted by Sharpe ratio
-    - James-Stein shrinkage toward mean
-    - Business cycle positioning
-
-    Args:
-        composite_score: Composite score (0-100 scale)
-        metrics: Technical metrics dict
-        macro_data: Optional macro regime data
-
-    Returns:
-        Upside potential as percentage (0-20%)
     """
     # Convert score to z-score
     z_score = (composite_score - 50) / 15
@@ -60,12 +31,14 @@ def calculate_upside_potential(
     raw_expected_return = market_return + base_premium
 
     # Sharpe ratio adjustment
-    sharpe = metrics.get('sharpe_ratio', 0.5)
+    sharpe = metrics.get("sharpe_ratio", 0.5)
     sharpe_multiplier = np.clip(np.exp(0.15 * sharpe), 0.6, 1.5)
 
     # James-Stein shrinkage
     shrinkage_factor = 0.7
-    shrunken_return = shrinkage_factor * raw_expected_return + (1 - shrinkage_factor) * market_return
+    shrunken_return = (
+        shrinkage_factor * raw_expected_return + (1 - shrinkage_factor) * market_return
+    )
 
     # Risk-adjust
     risk_adjusted_return = shrunken_return * sharpe_multiplier
@@ -73,14 +46,14 @@ def calculate_upside_potential(
     # Regime adjustment
     regime_multiplier = 1.0
     if macro_data:
-        regime_raw = macro_data.get('regime', 'UNCERTAIN')
-        regime = regime_raw.value if hasattr(regime_raw, 'value') else regime_raw
+        regime_raw = macro_data.get("regime", "UNCERTAIN")
+        regime = regime_raw.value if hasattr(regime_raw, "value") else regime_raw
 
-        if regime == 'EARLY_CYCLE':
+        if regime == "EARLY_CYCLE":
             regime_multiplier = 1.15
-        elif regime == 'RECESSION':
+        elif regime == "RECESSION":
             regime_multiplier = 0.85
-        elif regime == 'LATE_CYCLE':
+        elif regime == "LATE_CYCLE":
             regime_multiplier = 0.95
 
     final_upside = risk_adjusted_return * regime_multiplier
@@ -94,31 +67,16 @@ def calculate_downside_risk(
 ) -> float:
     """
     Calculate downside risk based on institutional risk framework.
-
-    Approach:
-    1. Calculate downside deviation (Sortino-based)
-    2. Blend historical (max DD) and forward-looking (downside dev) risk
-    3. Apply quality adjustment via z-score
-    4. Apply regime multiplier
-    5. Clip to institutional bounds (5-35%)
-
-    Args:
-        composite_score: Composite score (0-100 scale)
-        metrics: Technical metrics dict
-        macro_data: Optional macro regime data
-
-    Returns:
-        Downside risk as percentage (5-35%)
     """
     # Base risk from historical metrics
-    max_dd = abs(metrics.get('max_drawdown', -0.15))
-    volatility = metrics.get('volatility', 0.20)
+    max_dd = abs(metrics.get("max_drawdown", -0.15))
+    volatility = metrics.get("volatility", 0.20)
 
     # Calculate downside deviation
-    sortino = metrics.get('sortino_ratio', 0.5)
-    if sortino > 0 and metrics.get('annualized_return') is not None:
-        risk_free_rate = metrics.get('risk_free_rate', 0.045)
-        excess_return = metrics.get('annualized_return', 0.07) - risk_free_rate
+    sortino = metrics.get("sortino_ratio", 0.5)
+    if sortino > 0 and metrics.get("annualized_return") is not None:
+        risk_free_rate = metrics.get("risk_free_rate", 0.045)
+        excess_return = metrics.get("annualized_return", 0.07) - risk_free_rate
         downside_deviation = abs(excess_return / sortino) if sortino != 0 else volatility
     else:
         downside_deviation = volatility * 0.7
@@ -133,13 +91,13 @@ def calculate_downside_risk(
     # Regime adjustment
     regime_multiplier = 1.0
     if macro_data:
-        regime_raw = macro_data.get('regime', 'UNCERTAIN')
-        regime = regime_raw.value if hasattr(regime_raw, 'value') else regime_raw
-        recession_risk_12m = macro_data.get('recession_risk_12m', 0)
+        regime_raw = macro_data.get("regime", "UNCERTAIN")
+        regime = regime_raw.value if hasattr(regime_raw, "value") else regime_raw
+        recession_risk_12m = macro_data.get("recession_risk_12m", 0)
 
-        if regime == 'RECESSION':
+        if regime == "RECESSION":
             regime_multiplier = 1.20
-        elif regime == 'LATE_CYCLE':
+        elif regime == "LATE_CYCLE":
             regime_multiplier = 1.10
         elif recession_risk_12m > 0.5:
             regime_multiplier = 1.15
@@ -153,18 +111,6 @@ def calculate_downside_risk(
 def calculate_data_quality(stock_data: pd.DataFrame, info: Dict) -> float:
     """
     Calculate data quality score (0-1).
-
-    Components:
-    - Price data completeness (0.3)
-    - Volume data availability (0.2)
-    - Fundamental data availability (0.5)
-
-    Args:
-        stock_data: Historical price data
-        info: Stock info dict
-
-    Returns:
-        Data quality score (0.0 to 1.0)
     """
     quality = 0.0
 
@@ -177,16 +123,16 @@ def calculate_data_quality(stock_data: pd.DataFrame, info: Dict) -> float:
         quality += 0.1
 
     # Has volume data
-    if 'Volume' in stock_data.columns and stock_data['Volume'].sum() > 0:
+    if "Volume" in stock_data.columns and stock_data["Volume"].sum() > 0:
         quality += 0.2
 
     # Has fundamental info fields
     if info:
-        if info.get('trailingPE') or info.get('forwardPE'):
+        if info.get("trailingPE") or info.get("forwardPE"):
             quality += 0.2
-        if info.get('priceToBook'):
+        if info.get("priceToBook"):
             quality += 0.15
-        if info.get('sector'):
+        if info.get("sector"):
             quality += 0.15
 
     return min(quality, 1.0)
@@ -205,20 +151,6 @@ def generate_analysis_notes(
 ) -> str:
     """
     Generate concise analysis notes based on four-factor framework.
-
-    Args:
-        ticker: Stock ticker symbol
-        signal_type: Classified signal type
-        composite_z: Composite z-score
-        value_z: Value factor z-score
-        momentum_z: Momentum factor z-score
-        quality_z: Quality factor z-score
-        growth_z: Growth factor z-score
-        metrics: Technical metrics dict
-        macro_data: Optional macro regime data
-
-    Returns:
-        Concise analysis notes (2-3 sentences)
     """
     # Sentence 1: Signal and composite z-score
     signal_desc = {
@@ -233,10 +165,10 @@ def generate_analysis_notes(
 
     # Sentence 2: Leading factor
     factors = [
-        ('Value', value_z),
-        ('Momentum', momentum_z),
-        ('Quality', quality_z),
-        ('Growth', growth_z),
+        ("Value", value_z),
+        ("Momentum", momentum_z),
+        ("Quality", quality_z),
+        ("Growth", growth_z),
     ]
     factors.sort(key=lambda x: abs(x[1]), reverse=True)
     top_factor = factors[0]
@@ -244,8 +176,8 @@ def generate_analysis_notes(
     notes += f"Leading factor is {top_factor[0]} (z={top_factor[1]:+.2f}), "
 
     # Add specific metric highlights
-    sharpe = metrics.get('sharpe_ratio', 0)
-    mom_12m = metrics.get('momentum_12m_minus_1m', 0) * 100
+    sharpe = metrics.get("sharpe_ratio", 0)
+    mom_12m = metrics.get("momentum_12m_minus_1m", 0) * 100
 
     if abs(sharpe) > 1.0:
         notes += f"with Sharpe ratio of {sharpe:.2f} "
@@ -254,8 +186,8 @@ def generate_analysis_notes(
 
     # Sentence 3: Macro context
     if macro_data:
-        regime_raw = macro_data.get('regime', 'UNCERTAIN')
-        regime = regime_raw.value if hasattr(regime_raw, 'value') else regime_raw
+        regime_raw = macro_data.get("regime", "UNCERTAIN")
+        regime = regime_raw.value if hasattr(regime_raw, "value") else regime_raw
         notes += f"in a {regime} regime. "
     else:
         notes += "with limited macro context. "

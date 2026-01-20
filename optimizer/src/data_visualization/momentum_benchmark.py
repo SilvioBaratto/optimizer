@@ -47,18 +47,19 @@ from sqlalchemy import select
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from app.database import init_db, database_manager
-from app.models.portfolio import Portfolio, PortfolioPosition
-from src.yfinance.client import YFinanceClient
+from optimizer.database.database import init_db, database_manager
+from optimizer.database.models.portfolio import Portfolio, PortfolioPosition
+from optimizer.src.yfinance.client import YFinanceClient
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 
-def fetch_portfolio(portfolio_id: str | None = None) -> Tuple[Portfolio, List[PortfolioPosition]]:
+def fetch_portfolio(
+    portfolio_id: str | None = None,
+) -> Tuple[Portfolio, List[PortfolioPosition]]:
     """Fetch portfolio and positions from database."""
     with database_manager.get_session() as session:
         if portfolio_id:
@@ -73,9 +74,11 @@ def fetch_portfolio(portfolio_id: str | None = None) -> Tuple[Portfolio, List[Po
                 raise ValueError("No portfolios found in database")
 
         # Fetch positions
-        positions_stmt = select(PortfolioPosition).where(
-            PortfolioPosition.portfolio_id == portfolio.id
-        ).order_by(PortfolioPosition.weight.desc())
+        positions_stmt = (
+            select(PortfolioPosition)
+            .where(PortfolioPosition.portfolio_id == portfolio.id)
+            .order_by(PortfolioPosition.weight.desc())
+        )
 
         positions = session.execute(positions_stmt).scalars().all()
 
@@ -86,7 +89,7 @@ def calculate_momentum_scores(
     tickers: List[str],
     calculation_date: datetime,
     lookback_days: int = 365,
-    exclude_recent_days: int = 21
+    exclude_recent_days: int = 21,
 ) -> pd.DataFrame:
     """
     Calculate momentum scores for a universe of stocks.
@@ -104,7 +107,9 @@ def calculate_momentum_scores(
         DataFrame with columns: ticker, momentum, price_data_quality
     """
     logger.info(f"Calculating momentum scores for {len(tickers)} stocks...")
-    logger.info(f"  Lookback: {lookback_days} days, excluding last {exclude_recent_days} days")
+    logger.info(
+        f"  Lookback: {lookback_days} days, excluding last {exclude_recent_days} days"
+    )
 
     yf_client = YFinanceClient.get_instance()
 
@@ -122,7 +127,7 @@ def calculate_momentum_scores(
             data = yf_client.fetch_history(
                 ticker,
                 period=f"{total_days}d",
-                min_rows=int((lookback_days + exclude_recent_days) * 0.6)
+                min_rows=int((lookback_days + exclude_recent_days) * 0.6),
             )
 
             if data is None or data.empty:
@@ -130,12 +135,15 @@ def calculate_momentum_scores(
                 continue
 
             # Use adjusted close
-            prices = data['Adj Close'] if 'Adj Close' in data.columns else data['Close']
+            prices = data["Adj Close"] if "Adj Close" in data.columns else data["Close"]
 
             # CRITICAL FIX: Normalize timezone for cross-market portfolios
             # US stocks use America/New_York, European stocks use Europe/Paris, etc.
             # Remove timezone to enable proper date alignment by calendar date
-            if isinstance(prices.index, pd.DatetimeIndex) and prices.index.tz is not None:
+            if (
+                isinstance(prices.index, pd.DatetimeIndex)
+                and prices.index.tz is not None
+            ):
                 prices = prices.copy()
                 prices.index = prices.index.tz_localize(None)
 
@@ -158,7 +166,9 @@ def calculate_momentum_scores(
                 end_idx = -1
 
             price_start = prices.iloc[start_idx]
-            price_end = prices.iloc[end_idx] if isinstance(end_idx, int) else prices.iloc[-1]
+            price_end = (
+                prices.iloc[end_idx] if isinstance(end_idx, int) else prices.iloc[-1]
+            )
 
             momentum = (price_end / price_start) - 1
 
@@ -166,13 +176,15 @@ def calculate_momentum_scores(
             expected_days = lookback_days + exclude_recent_days
             quality = min(1.0, len(prices) / expected_days)
 
-            momentum_data.append({
-                'ticker': ticker,
-                'momentum': momentum,
-                'price_data_quality': quality,
-                'price_start': price_start,
-                'price_end': price_end
-            })
+            momentum_data.append(
+                {
+                    "ticker": ticker,
+                    "momentum": momentum,
+                    "price_data_quality": quality,
+                    "price_start": price_start,
+                    "price_end": price_end,
+                }
+            )
 
         except Exception as e:
             logger.warning(f"Failed to calculate momentum for {ticker}: {e}")
@@ -185,14 +197,15 @@ def calculate_momentum_scores(
 
     logger.info(f"✓ Calculated momentum: {len(df)} stocks")
     logger.info(f"  Failed: {len(failed_tickers)} stocks")
-    logger.info(f"  Top momentum: {df.nlargest(5, 'momentum')[['ticker', 'momentum']].to_dict('records')}")
+    logger.info(
+        f"  Top momentum: {df.nlargest(5, 'momentum')[['ticker', 'momentum']].to_dict('records')}"
+    )
 
     return df
 
 
 def create_momentum_portfolio(
-    momentum_scores: pd.DataFrame,
-    n_stocks: int = 20
+    momentum_scores: pd.DataFrame, n_stocks: int = 20
 ) -> Dict[str, float]:
     """
     Create equal-weighted momentum portfolio.
@@ -205,25 +218,23 @@ def create_momentum_portfolio(
         Dictionary mapping ticker -> weight
     """
     # Select top N by momentum
-    top_stocks = momentum_scores.nlargest(n_stocks, 'momentum')
+    top_stocks = momentum_scores.nlargest(n_stocks, "momentum")
 
     # Equal weight
     weight = 1.0 / n_stocks
-    weights = {row['ticker']: weight for _, row in top_stocks.iterrows()}
+    weights = {row["ticker"]: weight for _, row in top_stocks.iterrows()}
 
     logger.info(f"✓ Created momentum portfolio: {n_stocks} stocks, equal-weighted")
     logger.info(f"  Top 5 holdings:")
     for ticker in list(weights.keys())[:5]:
-        mom = momentum_scores[momentum_scores['ticker'] == ticker]['momentum'].iloc[0]
+        mom = momentum_scores[momentum_scores["ticker"] == ticker]["momentum"].iloc[0]
         logger.info(f"    {ticker}: {weight:.2%} (momentum: {mom:+.2%})")
 
     return weights
 
 
 def fetch_historical_prices_bulk(
-    tickers: List[str],
-    start_date: datetime,
-    end_date: datetime
+    tickers: List[str], start_date: datetime, end_date: datetime
 ) -> pd.DataFrame:
     """
     Fetch historical prices for multiple tickers.
@@ -252,9 +263,7 @@ def fetch_historical_prices_bulk(
             days = (end_date - start_date).days + 100
 
             data = yf_client.fetch_history(
-                ticker,
-                period=f"{days}d",
-                min_rows=int(days * 0.5)
+                ticker, period=f"{days}d", min_rows=int(days * 0.5)
             )
 
             if data is None or data.empty:
@@ -262,15 +271,18 @@ def fetch_historical_prices_bulk(
                 continue
 
             # Use adjusted close
-            if 'Adj Close' in data.columns:
-                price_series = data['Adj Close']
+            if "Adj Close" in data.columns:
+                price_series = data["Adj Close"]
             else:
-                price_series = data['Close']
+                price_series = data["Close"]
 
             # CRITICAL FIX: Normalize timezone for cross-market portfolios
             # US stocks use America/New_York, European stocks use Europe/Paris, etc.
             # Remove timezone to enable proper date alignment by calendar date
-            if isinstance(price_series.index, pd.DatetimeIndex) and price_series.index.tz is not None:
+            if (
+                isinstance(price_series.index, pd.DatetimeIndex)
+                and price_series.index.tz is not None
+            ):
                 price_series = price_series.copy()
                 price_series.index = price_series.index.tz_localize(None)
 
@@ -291,7 +303,9 @@ def fetch_historical_prices_bulk(
     end_date_naive = end_date.replace(tzinfo=None)
 
     # Filter to date range (now all using same timezone-naive format)
-    price_df = price_df[(price_df.index >= start_date_naive) & (price_df.index <= end_date_naive)]
+    price_df = price_df[
+        (price_df.index >= start_date_naive) & (price_df.index <= end_date_naive)
+    ]
 
     # Forward fill missing data (max 5 days)
     price_df = price_df.ffill(limit=5)
@@ -299,7 +313,9 @@ def fetch_historical_prices_bulk(
     # Drop rows with any NaN
     price_df = price_df.dropna()
 
-    logger.info(f"✓ Fetched prices: {len(price_df)} days × {len(price_df.columns)} stocks")
+    logger.info(
+        f"✓ Fetched prices: {len(price_df)} days × {len(price_df.columns)} stocks"
+    )
 
     if failed:
         logger.warning(f"  Failed tickers ({len(failed)}): {failed[:10]}...")
@@ -308,8 +324,7 @@ def fetch_historical_prices_bulk(
 
 
 def calculate_portfolio_returns(
-    prices: pd.DataFrame,
-    weights: Dict[str, float]
+    prices: pd.DataFrame, weights: Dict[str, float]
 ) -> pd.Series:
     """
     Calculate portfolio returns using position weights.
@@ -344,7 +359,9 @@ def calculate_portfolio_returns(
     # Drop first row (NaN from pct_change)
     portfolio_returns = portfolio_returns.dropna()
 
-    logger.info(f"✓ Calculated returns: {len(portfolio_returns)} days, {len(common_tickers)} stocks")
+    logger.info(
+        f"✓ Calculated returns: {len(portfolio_returns)} days, {len(common_tickers)} stocks"
+    )
 
     return portfolio_returns
 
@@ -363,7 +380,9 @@ def calculate_metrics(returns: pd.Series, name: str = "Portfolio") -> Dict:
 
     # Sharpe ratio (4% risk-free rate)
     risk_free_rate = 0.04
-    sharpe_ratio = (annualized_return - risk_free_rate) / volatility if volatility > 0 else 0
+    sharpe_ratio = (
+        (annualized_return - risk_free_rate) / volatility if volatility > 0 else 0
+    )
 
     # Max drawdown
     cumulative = (1 + returns).cumprod()
@@ -374,27 +393,28 @@ def calculate_metrics(returns: pd.Series, name: str = "Portfolio") -> Dict:
     # Sortino ratio
     downside_returns = returns[returns < 0]
     downside_std = downside_returns.std() * np.sqrt(252)
-    sortino_ratio = (annualized_return - risk_free_rate) / downside_std if downside_std > 0 else 0
+    sortino_ratio = (
+        (annualized_return - risk_free_rate) / downside_std if downside_std > 0 else 0
+    )
 
     # Win rate
     win_rate = (returns > 0).sum() / len(returns)
 
     return {
-        'name': name,
-        'cumulative_return': cumulative_return,
-        'annualized_return': annualized_return,
-        'volatility': volatility,
-        'sharpe_ratio': sharpe_ratio,
-        'sortino_ratio': sortino_ratio,
-        'max_drawdown': max_drawdown,
-        'win_rate': win_rate,
-        'n_days': len(returns)
+        "name": name,
+        "cumulative_return": cumulative_return,
+        "annualized_return": annualized_return,
+        "volatility": volatility,
+        "sharpe_ratio": sharpe_ratio,
+        "sortino_ratio": sortino_ratio,
+        "max_drawdown": max_drawdown,
+        "win_rate": win_rate,
+        "n_days": len(returns),
     }
 
 
 def regression_analysis(
-    your_returns: pd.Series,
-    momentum_returns: pd.Series
+    your_returns: pd.Series, momentum_returns: pd.Series
 ) -> Tuple[float, float, float, float, float]:
     """
     Run regression: Your_Returns = alpha + beta * Momentum_Returns + epsilon
@@ -412,6 +432,7 @@ def regression_analysis(
 
     # OLS regression
     from numpy.linalg import inv
+
     beta_hat = inv(X.T @ X) @ X.T @ y
 
     alpha = float(beta_hat[0])
@@ -448,65 +469,89 @@ def print_comparison(
     beta: float,
     correlation: float,
     t_stat: float,
-    p_value: float
+    p_value: float,
 ):
     """Print detailed comparison and verdict."""
     print("\n" + "=" * 90)
     print("MOMENTUM BENCHMARK COMPARISON")
     print("=" * 90)
 
-    print(f"\n{'Metric':<30} {'Your Portfolio':>18} {'Momentum':>18} {'Difference':>18}")
+    print(
+        f"\n{'Metric':<30} {'Your Portfolio':>18} {'Momentum':>18} {'Difference':>18}"
+    )
     print("-" * 90)
 
     # Returns
-    print(f"{'Total Return':<30} "
-          f"{your_metrics['cumulative_return']:>17.2%} "
-          f"{momentum_metrics['cumulative_return']:>17.2%} "
-          f"{your_metrics['cumulative_return'] - momentum_metrics['cumulative_return']:>+17.2%}")
+    print(
+        f"{'Total Return':<30} "
+        f"{your_metrics['cumulative_return']:>17.2%} "
+        f"{momentum_metrics['cumulative_return']:>17.2%} "
+        f"{your_metrics['cumulative_return'] - momentum_metrics['cumulative_return']:>+17.2%}"
+    )
 
-    print(f"{'Annualized Return':<30} "
-          f"{your_metrics['annualized_return']:>17.2%} "
-          f"{momentum_metrics['annualized_return']:>17.2%} "
-          f"{your_metrics['annualized_return'] - momentum_metrics['annualized_return']:>+17.2%}")
+    print(
+        f"{'Annualized Return':<30} "
+        f"{your_metrics['annualized_return']:>17.2%} "
+        f"{momentum_metrics['annualized_return']:>17.2%} "
+        f"{your_metrics['annualized_return'] - momentum_metrics['annualized_return']:>+17.2%}"
+    )
 
     # Risk
-    print(f"{'Volatility (Annual)':<30} "
-          f"{your_metrics['volatility']:>17.2%} "
-          f"{momentum_metrics['volatility']:>17.2%} "
-          f"{your_metrics['volatility'] - momentum_metrics['volatility']:>+17.2%}")
+    print(
+        f"{'Volatility (Annual)':<30} "
+        f"{your_metrics['volatility']:>17.2%} "
+        f"{momentum_metrics['volatility']:>17.2%} "
+        f"{your_metrics['volatility'] - momentum_metrics['volatility']:>+17.2%}"
+    )
 
     # Risk-adjusted
-    print(f"{'Sharpe Ratio':<30} "
-          f"{your_metrics['sharpe_ratio']:>17.2f} "
-          f"{momentum_metrics['sharpe_ratio']:>17.2f} "
-          f"{your_metrics['sharpe_ratio'] - momentum_metrics['sharpe_ratio']:>+17.2f}")
+    print(
+        f"{'Sharpe Ratio':<30} "
+        f"{your_metrics['sharpe_ratio']:>17.2f} "
+        f"{momentum_metrics['sharpe_ratio']:>17.2f} "
+        f"{your_metrics['sharpe_ratio'] - momentum_metrics['sharpe_ratio']:>+17.2f}"
+    )
 
-    print(f"{'Sortino Ratio':<30} "
-          f"{your_metrics['sortino_ratio']:>17.2f} "
-          f"{momentum_metrics['sortino_ratio']:>17.2f} "
-          f"{your_metrics['sortino_ratio'] - momentum_metrics['sortino_ratio']:>+17.2f}")
+    print(
+        f"{'Sortino Ratio':<30} "
+        f"{your_metrics['sortino_ratio']:>17.2f} "
+        f"{momentum_metrics['sortino_ratio']:>17.2f} "
+        f"{your_metrics['sortino_ratio'] - momentum_metrics['sortino_ratio']:>+17.2f}"
+    )
 
     # Drawdown
-    print(f"{'Max Drawdown':<30} "
-          f"{your_metrics['max_drawdown']:>17.2%} "
-          f"{momentum_metrics['max_drawdown']:>17.2%} "
-          f"{your_metrics['max_drawdown'] - momentum_metrics['max_drawdown']:>+17.2%}")
+    print(
+        f"{'Max Drawdown':<30} "
+        f"{your_metrics['max_drawdown']:>17.2%} "
+        f"{momentum_metrics['max_drawdown']:>17.2%} "
+        f"{your_metrics['max_drawdown'] - momentum_metrics['max_drawdown']:>+17.2%}"
+    )
 
     # Win rate
-    print(f"{'Win Rate (Daily)':<30} "
-          f"{your_metrics['win_rate']:>17.2%} "
-          f"{momentum_metrics['win_rate']:>17.2%} "
-          f"{your_metrics['win_rate'] - momentum_metrics['win_rate']:>+17.2%}")
+    print(
+        f"{'Win Rate (Daily)':<30} "
+        f"{your_metrics['win_rate']:>17.2%} "
+        f"{momentum_metrics['win_rate']:>17.2%} "
+        f"{your_metrics['win_rate'] - momentum_metrics['win_rate']:>+17.2%}"
+    )
 
     print("\n" + "=" * 90)
     print("STATISTICAL ANALYSIS")
     print("=" * 90)
 
     print(f"\nRegression: Your_Returns = alpha + beta × Momentum_Returns + error")
-    print(f"  Alpha (annualized):     {alpha:>8.2%}  (excess return unexplained by momentum)")
-    print(f"  Beta:                   {beta:>8.2f}  (momentum exposure: 1.0 = pure replication)")
-    print(f"  Correlation:            {correlation:>8.2f}  (similarity: 1.0 = identical)")
-    print(f"  T-statistic (alpha):    {t_stat:>8.2f}  (significance: >2.0 = likely real)")
+    print(
+        f"  Alpha (annualized):     {alpha:>8.2%}  (excess return unexplained by momentum)"
+    )
+    print(
+        f"  Beta:                   {beta:>8.2f}  (momentum exposure: 1.0 = pure replication)"
+    )
+    print(
+        f"  Correlation:            {correlation:>8.2f}  (similarity: 1.0 = identical)"
+    )
+    print(
+        f"  T-statistic (alpha):    {t_stat:>8.2f}  (significance: >2.0 = likely real)"
+    )
     print(f"  P-value (alpha):        {p_value:>8.4f}  (probability alpha = 0)")
 
     # Interpretation
@@ -517,18 +562,26 @@ def print_comparison(
     is_significant = p_value < 0.05
     is_high_correlation = correlation > 0.7
     is_high_beta = beta > 0.8
-    beats_sharpe = your_metrics['sharpe_ratio'] > momentum_metrics['sharpe_ratio']
+    beats_sharpe = your_metrics["sharpe_ratio"] > momentum_metrics["sharpe_ratio"]
 
     if alpha > 0 and is_significant and beats_sharpe:
         print("\n✓ YOUR SYSTEM ADDS VALUE BEYOND MOMENTUM")
         print(f"  - Alpha: {alpha:+.2%} per year (statistically significant)")
-        print(f"  - Sharpe ratio: {your_metrics['sharpe_ratio']:.2f} vs {momentum_metrics['sharpe_ratio']:.2f}")
+        print(
+            f"  - Sharpe ratio: {your_metrics['sharpe_ratio']:.2f} vs {momentum_metrics['sharpe_ratio']:.2f}"
+        )
 
         if is_high_correlation:
-            print(f"  - WARNING: High correlation ({correlation:.2f}) suggests you're still momentum-heavy")
-            print(f"  - Consider: Are your other signals (quality, value, macro) contributing?")
+            print(
+                f"  - WARNING: High correlation ({correlation:.2f}) suggests you're still momentum-heavy"
+            )
+            print(
+                f"  - Consider: Are your other signals (quality, value, macro) contributing?"
+            )
         else:
-            print(f"  - Low correlation ({correlation:.2f}) confirms orthogonal strategy")
+            print(
+                f"  - Low correlation ({correlation:.2f}) confirms orthogonal strategy"
+            )
 
         print("\n  RECOMMENDATION: Your complexity is justified. Keep the system.")
 
@@ -547,19 +600,27 @@ def print_comparison(
         print("\n  RECOMMENDATION: Simplify dramatically.")
         print("    Option 1: Use pure momentum (cheaper, simpler)")
         print("    Option 2: Add truly orthogonal signals (value, low-vol, quality)")
-        print("    Option 3: Focus on areas you clearly add value (tail risk, regime timing)")
+        print(
+            "    Option 3: Focus on areas you clearly add value (tail risk, regime timing)"
+        )
 
     else:
         print("\n⚠ MIXED RESULTS")
         print(f"  - Alpha: {alpha:+.2%}")
         print(f"  - Correlation: {correlation:.2f}")
-        print(f"  - Sharpe: {your_metrics['sharpe_ratio']:.2f} vs {momentum_metrics['sharpe_ratio']:.2f}")
+        print(
+            f"  - Sharpe: {your_metrics['sharpe_ratio']:.2f} vs {momentum_metrics['sharpe_ratio']:.2f}"
+        )
 
         if not beats_sharpe:
             print("\n  You're NOT beating momentum on risk-adjusted basis.")
-            print("  RECOMMENDATION: Investigate why Sharpe is lower despite different strategy.")
+            print(
+                "  RECOMMENDATION: Investigate why Sharpe is lower despite different strategy."
+            )
         else:
-            print("\n  RECOMMENDATION: Analyze which components add value vs. which are noise.")
+            print(
+                "\n  RECOMMENDATION: Analyze which components add value vs. which are noise."
+            )
 
     print("\n" + "=" * 90)
 
@@ -569,11 +630,13 @@ def plot_comparison(
     momentum_returns: pd.Series,
     sp500_returns: pd.Series,
     your_name: str,
-    output_path: str
+    output_path: str,
 ):
     """Create comparison charts."""
     # Align to common dates
-    common_dates = your_returns.index.intersection(momentum_returns.index).intersection(sp500_returns.index)
+    common_dates = your_returns.index.intersection(momentum_returns.index).intersection(
+        sp500_returns.index
+    )
     your_returns = your_returns[common_dates]
     momentum_returns = momentum_returns[common_dates]
     sp500_returns = sp500_returns[common_dates]
@@ -585,65 +648,135 @@ def plot_comparison(
 
     # Create figure
     fig, axes = plt.subplots(4, 1, figsize=(14, 16))
-    fig.suptitle(f'Momentum Benchmark Comparison: {your_name}', fontsize=16, fontweight='bold')
+    fig.suptitle(
+        f"Momentum Benchmark Comparison: {your_name}", fontsize=16, fontweight="bold"
+    )
 
     # 1. Cumulative returns
     ax1 = axes[0]
-    ax1.plot(your_cum.index, your_cum.values, label='Your Portfolio (BL)', linewidth=2, color='#2E86AB')
-    ax1.plot(momentum_cum.index, momentum_cum.values, label='Momentum Benchmark', linewidth=2, color='#E63946', linestyle='--')
-    ax1.plot(sp500_cum.index, sp500_cum.values, label='S&P 500', linewidth=1.5, color='#A8A8A8', alpha=0.7)
-    ax1.set_ylabel('Cumulative Return (1 = 0%)', fontsize=11)
-    ax1.set_title('Cumulative Returns Comparison', fontsize=12, fontweight='bold')
-    ax1.legend(loc='upper left', fontsize=10)
+    ax1.plot(
+        your_cum.index,
+        your_cum.values,
+        label="Your Portfolio (BL)",
+        linewidth=2,
+        color="#2E86AB",
+    )
+    ax1.plot(
+        momentum_cum.index,
+        momentum_cum.values,
+        label="Momentum Benchmark",
+        linewidth=2,
+        color="#E63946",
+        linestyle="--",
+    )
+    ax1.plot(
+        sp500_cum.index,
+        sp500_cum.values,
+        label="S&P 500",
+        linewidth=1.5,
+        color="#A8A8A8",
+        alpha=0.7,
+    )
+    ax1.set_ylabel("Cumulative Return (1 = 0%)", fontsize=11)
+    ax1.set_title("Cumulative Returns Comparison", fontsize=12, fontweight="bold")
+    ax1.legend(loc="upper left", fontsize=10)
     ax1.grid(True, alpha=0.3)
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
 
     # 2. Rolling correlation (252-day)
     ax2 = axes[1]
     rolling_corr = your_returns.rolling(252).corr(momentum_returns)
-    ax2.plot(rolling_corr.index, rolling_corr.values, linewidth=2, color='#F77F00')
-    ax2.axhline(y=0.7, color='red', linestyle='--', alpha=0.5, label='High correlation threshold (0.7)')
-    ax2.axhline(y=0.5, color='orange', linestyle='--', alpha=0.5, label='Medium correlation threshold (0.5)')
-    ax2.set_ylabel('Correlation', fontsize=11)
-    ax2.set_title('Rolling 1-Year Correlation with Momentum', fontsize=12, fontweight='bold')
+    ax2.plot(rolling_corr.index, rolling_corr.values, linewidth=2, color="#F77F00")
+    ax2.axhline(
+        y=0.7,
+        color="red",
+        linestyle="--",
+        alpha=0.5,
+        label="High correlation threshold (0.7)",
+    )
+    ax2.axhline(
+        y=0.5,
+        color="orange",
+        linestyle="--",
+        alpha=0.5,
+        label="Medium correlation threshold (0.5)",
+    )
+    ax2.set_ylabel("Correlation", fontsize=11)
+    ax2.set_title(
+        "Rolling 1-Year Correlation with Momentum", fontsize=12, fontweight="bold"
+    )
     ax2.set_ylim(-0.2, 1.0)
-    ax2.legend(loc='upper left', fontsize=9)
+    ax2.legend(loc="upper left", fontsize=9)
     ax2.grid(True, alpha=0.3)
-    ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
 
     # 3. Excess returns (Your portfolio - Momentum)
     ax3 = axes[2]
     excess_returns = your_returns - momentum_returns
     excess_cum = (1 + excess_returns).cumprod()
-    ax3.plot(excess_cum.index, excess_cum.values, linewidth=2, color='#06A77D')
-    ax3.axhline(y=1.0, color='black', linestyle='-', alpha=0.3)
-    ax3.fill_between(excess_cum.index, 1.0, excess_cum.values,
-                      where=(excess_cum.values >= 1.0), alpha=0.3, color='green', label='Outperformance')
-    ax3.fill_between(excess_cum.index, 1.0, excess_cum.values,
-                      where=(excess_cum.values < 1.0), alpha=0.3, color='red', label='Underperformance')
-    ax3.set_ylabel('Cumulative Excess Return', fontsize=11)
-    ax3.set_title('Your Portfolio vs Momentum (Cumulative Difference)', fontsize=12, fontweight='bold')
-    ax3.legend(loc='upper left', fontsize=10)
+    ax3.plot(excess_cum.index, excess_cum.values, linewidth=2, color="#06A77D")
+    ax3.axhline(y=1.0, color="black", linestyle="-", alpha=0.3)
+    ax3.fill_between(
+        excess_cum.index,
+        1.0,
+        excess_cum.values,
+        where=(excess_cum.values >= 1.0),
+        alpha=0.3,
+        color="green",
+        label="Outperformance",
+    )
+    ax3.fill_between(
+        excess_cum.index,
+        1.0,
+        excess_cum.values,
+        where=(excess_cum.values < 1.0),
+        alpha=0.3,
+        color="red",
+        label="Underperformance",
+    )
+    ax3.set_ylabel("Cumulative Excess Return", fontsize=11)
+    ax3.set_title(
+        "Your Portfolio vs Momentum (Cumulative Difference)",
+        fontsize=12,
+        fontweight="bold",
+    )
+    ax3.legend(loc="upper left", fontsize=10)
     ax3.grid(True, alpha=0.3)
-    ax3.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax3.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
 
     # 4. Drawdown comparison
     ax4 = axes[3]
     your_dd = (your_cum - your_cum.expanding().max()) / your_cum.expanding().max()
-    momentum_dd = (momentum_cum - momentum_cum.expanding().max()) / momentum_cum.expanding().max()
+    momentum_dd = (
+        momentum_cum - momentum_cum.expanding().max()
+    ) / momentum_cum.expanding().max()
 
-    ax4.fill_between(your_dd.index, 0, your_dd.values, alpha=0.5, color='#2E86AB', label='Your Portfolio')
-    ax4.fill_between(momentum_dd.index, 0, momentum_dd.values, alpha=0.3, color='#E63946', label='Momentum')
-    ax4.set_ylabel('Drawdown', fontsize=11)
-    ax4.set_xlabel('Date', fontsize=11)
-    ax4.set_title('Drawdown Comparison', fontsize=12, fontweight='bold')
-    ax4.legend(loc='lower left', fontsize=10)
+    ax4.fill_between(
+        your_dd.index,
+        0,
+        your_dd.values,
+        alpha=0.5,
+        color="#2E86AB",
+        label="Your Portfolio",
+    )
+    ax4.fill_between(
+        momentum_dd.index,
+        0,
+        momentum_dd.values,
+        alpha=0.3,
+        color="#E63946",
+        label="Momentum",
+    )
+    ax4.set_ylabel("Drawdown", fontsize=11)
+    ax4.set_xlabel("Date", fontsize=11)
+    ax4.set_title("Drawdown Comparison", fontsize=12, fontweight="bold")
+    ax4.legend(loc="lower left", fontsize=10)
     ax4.grid(True, alpha=0.3)
-    ax4.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-    ax4.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.0%}'))
+    ax4.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax4.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y:.0%}"))
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     logger.info(f"✓ Saved chart: {output_path}")
 
     plt.close()
@@ -680,17 +813,19 @@ def main(portfolio_id: str | None = None):
 
     # Define backtest period (5 years)
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=5*365 + 50)
+    start_date = end_date - timedelta(days=5 * 365 + 50)
 
     print(f"\nBacktest Period: {start_date.date()} to {end_date.date()}")
 
     # Calculate momentum scores using same universe
-    print(f"\nStep 1: Calculate momentum scores for your universe ({len(yf_tickers)} stocks)")
+    print(
+        f"\nStep 1: Calculate momentum scores for your universe ({len(yf_tickers)} stocks)"
+    )
     momentum_scores = calculate_momentum_scores(
         tickers=yf_tickers,
         calculation_date=end_date,
         lookback_days=365,
-        exclude_recent_days=21
+        exclude_recent_days=21,
     )
 
     # Create momentum benchmark portfolio
@@ -714,17 +849,27 @@ def main(portfolio_id: str | None = None):
     sp500_data = yf_client.fetch_history("^GSPC", period=f"{days}d")
 
     if sp500_data is not None and not sp500_data.empty:
-        sp500_prices = sp500_data['Adj Close'] if 'Adj Close' in sp500_data.columns else sp500_data['Close']
+        sp500_prices = (
+            sp500_data["Adj Close"]
+            if "Adj Close" in sp500_data.columns
+            else sp500_data["Close"]
+        )
 
         # CRITICAL FIX: Normalize timezone for S&P 500
-        if isinstance(sp500_prices.index, pd.DatetimeIndex) and sp500_prices.index.tz is not None:
+        if (
+            isinstance(sp500_prices.index, pd.DatetimeIndex)
+            and sp500_prices.index.tz is not None
+        ):
             sp500_prices = sp500_prices.copy()
             sp500_prices.index = sp500_prices.index.tz_localize(None)
 
         # Filter to date range (all timezone-naive now)
         start_date_naive = start_date.replace(tzinfo=None)
         end_date_naive = end_date.replace(tzinfo=None)
-        sp500_prices = sp500_prices[(sp500_prices.index >= start_date_naive) & (sp500_prices.index <= end_date_naive)]
+        sp500_prices = sp500_prices[
+            (sp500_prices.index >= start_date_naive)
+            & (sp500_prices.index <= end_date_naive)
+        ]
         sp500_returns = sp500_prices.pct_change().dropna()
     else:
         logger.warning("Failed to fetch S&P 500 data, will skip in visualization")
@@ -737,19 +882,25 @@ def main(portfolio_id: str | None = None):
 
     # Regression analysis
     print(f"\nStep 7: Run regression analysis")
-    alpha, beta, r_squared, t_stat, p_value = regression_analysis(your_returns, momentum_returns)
+    alpha, beta, r_squared, t_stat, p_value = regression_analysis(
+        your_returns, momentum_returns
+    )
 
     # Correlation
     common_dates = your_returns.index.intersection(momentum_returns.index)
     correlation = your_returns[common_dates].corr(momentum_returns[common_dates])
 
     # Print comparison and verdict
-    print_comparison(your_metrics, momentum_metrics, alpha, beta, correlation, t_stat, p_value)
+    print_comparison(
+        your_metrics, momentum_metrics, alpha, beta, correlation, t_stat, p_value
+    )
 
     # Create charts
     output_path = f"outputs/momentum_benchmark_{portfolio.id}.png"
     print(f"\nStep 8: Generate comparison charts")
-    plot_comparison(your_returns, momentum_returns, sp500_returns, portfolio.name, output_path)
+    plot_comparison(
+        your_returns, momentum_returns, sp500_returns, portfolio.name, output_path
+    )
 
     print(f"\n✓ Analysis complete!")
     print(f"  Chart saved: {output_path}")
@@ -764,5 +915,6 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Benchmark comparison failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

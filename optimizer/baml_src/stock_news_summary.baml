@@ -96,7 +96,7 @@ function SummarizeStockNews(
   ticker: string,
   news: NewsArticle[]
 ) -> StockNewsSignals {
-  client Model
+  client AzureOpenAIGpt5
 
   prompt #"
     {{ _.role("system") }}

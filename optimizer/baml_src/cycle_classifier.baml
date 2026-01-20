@@ -169,7 +169,7 @@ function ClassifyBusinessCycleWithLLM(
   news_signals: MacroNewsSignals,
   country: string
 ) -> BusinessCycleClassification {
-  client Model
+  client AzureOpenAIGpt5
 
   prompt #"
     {{ _.role("system") }}
