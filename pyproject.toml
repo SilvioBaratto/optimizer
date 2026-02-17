@@ -58,11 +58,29 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+"optimizer/**" = ["N803", "N806"]  # sklearn convention: X, y parameter names
+"tests/**" = ["N803", "N806"]
+
 [tool.mypy]
 python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+ignore_missing_imports = true
+
+# sklearn/skfolio lack type stubs — suppress errors from untyped bases
+[[tool.mypy.overrides]]
+module = "optimizer.preprocessing.*"
+disallow_subclassing_any = false
+
+[[tool.mypy.overrides]]
+module = [
+    "optimizer.scoring._factory",
+    "optimizer.validation._factory",
+    "optimizer.rebalancing._rebalancer",
+]
+warn_return_any = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from skfolio.optimization import MeanRisk
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
 from optimizer.tuning import (
     GridSearchConfig,

@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 
-from skfolio.measures import RatioMeasure
 from skfolio.metrics import make_scorer as _skfolio_make_scorer
 
-from optimizer.optimization._config import RatioMeasureType
 from optimizer.optimization._factory import _RATIO_MEASURE_MAP
 from optimizer.scoring._config import ScorerConfig
 

@@ -56,7 +56,7 @@ class WalkForwardConfig:
 
 @dataclass(frozen=True)
 class CPCVConfig:
-    """Immutable configuration for :class:`skfolio.model_selection.CombinatorialPurgedCV`.
+    """Configuration for :class:`skfolio.model_selection.CombinatorialPurgedCV`.
 
     Generates a population of backtest paths from all combinatorial
     selections of test folds, with purging and embargoing to prevent
@@ -94,7 +94,7 @@ class CPCVConfig:
 
 @dataclass(frozen=True)
 class MultipleRandomizedCVConfig:
-    """Immutable configuration for :class:`skfolio.model_selection.MultipleRandomizedCV`.
+    """Configuration for :class:`skfolio.model_selection.MultipleRandomizedCV`.
 
     Dual randomisation across temporal windows and asset subsets
     to test robustness of the strategy to both dimensions.

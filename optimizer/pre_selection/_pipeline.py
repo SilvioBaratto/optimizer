@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from sklearn.pipeline import Pipeline
 from skfolio.pre_selection import (
     DropCorrelated,
     DropZeroVariance,
@@ -11,6 +10,7 @@ from skfolio.pre_selection import (
     SelectNonDominated,
     SelectNonExpiring,
 )
+from sklearn.pipeline import Pipeline
 
 from optimizer.pre_selection._config import PreSelectionConfig
 from optimizer.preprocessing._imputation import SectorImputer
