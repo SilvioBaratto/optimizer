@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "optimizer-api"
+version = "0.1.0"
+description = "Optimizer Platform API and CLI"
+requires-python = ">=3.10"
+
+dependencies = [
+    "fastapi",
+    "httpx>=0.28",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]

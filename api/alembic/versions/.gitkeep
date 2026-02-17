@@ -1,0 +1,3 @@
+# This file keeps the empty versions directory in git.
+# Migration files will be generated here by running:
+# alembic revision --autogenerate -m "description"
