@@ -106,6 +106,20 @@ Copy `.env.example` to `.env` and fill in your API keys. Database defaults match
 | `TRADING_ECONOMICS_API_KEY` | Trading Economics macro data |
 | `OPENAI_KEY` | Azure OpenAI (for BAML chatbot) |
 
+## Disclaimer
+
+This software is provided for **educational and research purposes only**. It is not intended as, and shall not be understood or construed as, financial, investment, tax, or legal advice.
+
+**No investment advice.** The authors and contributors are not registered investment advisors, broker-dealers, or financial planners. Nothing in this software or its documentation constitutes a recommendation to buy, sell, or hold any financial instrument.
+
+**No liability for losses.** The authors and contributors accept no responsibility or liability whatsoever for any loss or damage arising from the use of this software. You may lose some or all of your invested capital. Use this software entirely at your own risk.
+
+**Past performance is not indicative of future results.** Backtesting and historical analysis produced by this software do not guarantee future performance. Simulated results may not reflect the impact of real market conditions including liquidity, slippage, fees, and taxes.
+
+**Seek professional advice.** Before making any investment decision, consult with a qualified, licensed financial advisor, accountant, or attorney.
+
+By using this software, you acknowledge that you have read and understood this disclaimer and agree to be bound by its terms.
+
 ## License
 
 [BSD-3-Clause](LICENSE)
