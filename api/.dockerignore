@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+VENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Environment and configs
+.env
+.env.*
+!.env.example
+docker-compose.yml
+docker-compose.*.yml
+!docker-compose.prod.yml
+Dockerfile
+!Dockerfile.fly
+
+# Development
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+README.md
+README.*.md
+docs/
+*.md
+
+# Scripts and CI
+scripts/
+.github/
+.gitlab-ci.yml
+
+# Fly.io specific
+fly.toml
+!fly.toml.example
+
+# Redis data
+redis_data/
+*.rdb
+*.aof
+
+# Logs
+logs/
+*.log

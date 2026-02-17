@@ -2,49 +2,47 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Python: Current File",
+      "name": "API",
       "type": "debugpy",
       "request": "launch",
-      "program": "${file}",
-      "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}/optimizer",
+      "module": "uvicorn",
+      "cwd": "${workspaceFolder}/api",
+      "args": [
+        "app.main:app",
+        "--reload",
+        "--port",
+        "8000",
+        "--host",
+        "0.0.0.0",
+        "--log-level",
+        "debug"
+      ],
       "python": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
       "jinja": true,
       "envFile": "${workspaceFolder}/.env",
-      "env": {
-        "PYTHONUNBUFFERED": "1",
-        "PYTHONPATH": "${workspaceFolder}/optimizer"
-      }
+      "console": "integratedTerminal"
     },
     {
-      "name": "Black-Litterman: Portfolio Optimizer",
+      "name": "CLI: yfinance fetch",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/optimizer/src/black_litterman/portfolio_optimizer.py",
-      "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}/optimizer",
+      "module": "cli",
+      "cwd": "${workspaceFolder}",
+      "args": ["yfinance", "fetch"],
       "python": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
-      "jinja": true,
       "envFile": "${workspaceFolder}/.env",
-      "env": {
-        "PYTHONUNBUFFERED": "1",
-        "PYTHONPATH": "${workspaceFolder}/optimizer"
-      }
+      "console": "integratedTerminal"
     },
     {
-      "name": "Momentum Benchmark Comparison",
+      "name": "CLI: macro fetch",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/optimizer/src/data_visualization/momentum_benchmark.py",
-      "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}/optimizer",
+      "module": "cli",
+      "cwd": "${workspaceFolder}",
+      "args": ["macro", "fetch"],
       "python": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
-      "jinja": true,
       "envFile": "${workspaceFolder}/.env",
-      "env": {
-        "PYTHONUNBUFFERED": "1",
-        "PYTHONPATH": "${workspaceFolder}/optimizer"
-      }
-    }
+      "console": "integratedTerminal"
+    },
   ]
 }

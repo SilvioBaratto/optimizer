@@ -1,17 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python:*)",
-      "Bash(docker-compose build:*)",
-      "Bash(tee:*)",
-      "Bash(docker-compose up:*)",
-      "Bash(docker-compose logs:*)",
-      "Bash(docker logs:*)",
-      "Bash(python3:*)",
-      "Bash(docker-compose down:*)",
-      "Bash(DOCKER_BUILDKIT=1 docker build:*)"
-    ],
-    "deny": [],
-    "ask": []
+      "Bash(python3:*)"
+    ]
   }
 }

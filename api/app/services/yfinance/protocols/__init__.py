@@ -1,0 +1,41 @@
+"""All abstract interfaces (ISP)."""
+
+from .interfaces import (
+    AnalysisClientProtocol,
+    ArticleScraperProtocol,
+    CacheProtocol,
+    CalendarsClientProtocol,
+    CircuitBreakerProtocol,
+    CorporateActionsClientProtocol,
+    FinancialsClientProtocol,
+    FundsClientProtocol,
+    HoldersClientProtocol,
+    MarketClientProtocol,
+    MetadataClientProtocol,
+    RateLimiterProtocol,
+    ScreenerClientProtocol,
+    SearchClientProtocol,
+    SectorIndustryClientProtocol,
+    StreamingClientProtocol,
+    YFinanceClientProtocol,
+)
+
+__all__ = [
+    "AnalysisClientProtocol",
+    "ArticleScraperProtocol",
+    "CacheProtocol",
+    "CalendarsClientProtocol",
+    "CircuitBreakerProtocol",
+    "CorporateActionsClientProtocol",
+    "FinancialsClientProtocol",
+    "FundsClientProtocol",
+    "HoldersClientProtocol",
+    "MarketClientProtocol",
+    "MetadataClientProtocol",
+    "RateLimiterProtocol",
+    "ScreenerClientProtocol",
+    "SearchClientProtocol",
+    "SectorIndustryClientProtocol",
+    "StreamingClientProtocol",
+    "YFinanceClientProtocol",
+]
