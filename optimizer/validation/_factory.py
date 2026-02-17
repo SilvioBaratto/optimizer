@@ -8,8 +8,10 @@ from skfolio.model_selection import (
     CombinatorialPurgedCV,
     MultipleRandomizedCV,
     WalkForward,
-    cross_val_predict as _skfolio_cross_val_predict,
     optimal_folds_number,
+)
+from skfolio.model_selection import (
+    cross_val_predict as _skfolio_cross_val_predict,
 )
 
 from optimizer.validation._config import (

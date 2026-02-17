@@ -7,7 +7,6 @@ import pytest
 
 from optimizer.rebalancing import (
     ThresholdRebalancingConfig,
-    ThresholdType,
     compute_drifted_weights,
     compute_rebalancing_cost,
     compute_turnover,

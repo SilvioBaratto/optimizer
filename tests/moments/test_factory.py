@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from skfolio.moments import (
+    OAS,
     DenoiseCovariance,
     DetoneCovariance,
     EmpiricalCovariance,
@@ -17,7 +18,6 @@ from skfolio.moments import (
     GraphicalLassoCV,
     ImpliedCovariance,
     LedoitWolf,
-    OAS,
     ShrunkCovariance,
     ShrunkMu,
 )
