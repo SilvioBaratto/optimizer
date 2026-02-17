@@ -1,6 +1,6 @@
 # Portfolio Optimizer
 
-[![CI](https://github.com/SilvioBaratto/roldan_hedge_fund/actions/workflows/ci.yml/badge.svg)](https://github.com/SilvioBaratto/roldan_hedge_fund/actions/workflows/ci.yml)
+[![CI](https://github.com/SilvioBaratto/optimizer/actions/workflows/ci.yml/badge.svg)](https://github.com/SilvioBaratto/optimizer/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-green)
 
