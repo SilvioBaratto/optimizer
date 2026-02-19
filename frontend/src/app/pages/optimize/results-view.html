@@ -1,0 +1,114 @@
+<div class="space-y-6">
+  <!-- Metrics -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <app-stat-card label="Ann. Return" [value]="formatPct(result().metrics.annualized_return)" />
+    <app-stat-card label="Sharpe Ratio" [value]="result().metrics.sharpe_ratio.toFixed(3)" />
+    <app-stat-card label="Max Drawdown" [value]="formatPct(result().metrics.max_drawdown)" />
+    <app-stat-card label="CVaR 95%" [value]="formatPct(result().metrics.cvar_95)" />
+  </div>
+
+  <!-- Weights Table -->
+  <div>
+    <h3 class="text-sm font-medium text-text mb-3">Asset Weights ({{ result().weights.length }} assets)</h3>
+    <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
+      <app-data-table
+        [columns]="weightColumns"
+        [rows]="$any(result().weights)"
+        [total]="result().weights.length"
+        [pageSize]="10" />
+    </div>
+  </div>
+
+  <!-- Sector Allocation -->
+  <div>
+    <h3 class="text-sm font-medium text-text mb-3">Sector Allocation</h3>
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <app-echarts-donut [segments]="sectorSegments()" [height]="280" />
+    </div>
+  </div>
+
+  <!-- Monthly Returns -->
+  <div>
+    <h3 class="text-sm font-medium text-text mb-3">Monthly Returns</h3>
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <app-echarts-bar [data]="monthlyBarData()" [height]="180" />
+    </div>
+  </div>
+
+  <!-- Efficient Frontier -->
+  <div>
+    <h3 class="text-sm font-medium text-text mb-3">Efficient Frontier</h3>
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <app-echarts-scatter
+        [frontierPoints]="frontierPoints"
+        [optimalPoint]="optimalPoint"
+        [height]="280" />
+    </div>
+  </div>
+
+  <!-- Correlation Matrix -->
+  <div>
+    <h3 class="text-sm font-medium text-text mb-3">Correlation Matrix</h3>
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <app-echarts-heatmap
+        [assets]="correlationAssets"
+        [matrix]="correlationMatrix"
+        [height]="340" />
+    </div>
+  </div>
+
+  <!-- Backtest Cumulative -->
+  @if (result().backtest_cumulative) {
+    <div>
+      <h3 class="text-sm font-medium text-text mb-3">Backtest Cumulative Return</h3>
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <app-line-chart [data]="backtestChartData()" [height]="250" />
+      </div>
+    </div>
+
+    <!-- In-sample vs Backtest comparison -->
+    @if (result().backtest_metrics) {
+      <div>
+        <h3 class="text-sm font-medium text-text mb-3">In-Sample vs Backtest</h3>
+        <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="px-3 py-2 text-xs font-medium text-text-secondary uppercase text-left">Metric</th>
+                <th class="px-3 py-2 text-xs font-medium text-text-secondary uppercase text-right">In-Sample</th>
+                <th class="px-3 py-2 text-xs font-medium text-text-secondary uppercase text-right">Backtest</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b border-border-muted">
+                <td class="px-3 py-2 text-text">Ann. Return</td>
+                <td class="px-3 py-2 text-text text-right">{{ result().metrics.annualized_return | percent:'1.2-2' }}</td>
+                <td class="px-3 py-2 text-text text-right">{{ result().backtest_metrics!.annualized_return | percent:'1.2-2' }}</td>
+              </tr>
+              <tr class="border-b border-border-muted">
+                <td class="px-3 py-2 text-text">Volatility</td>
+                <td class="px-3 py-2 text-text text-right">{{ result().metrics.annualized_volatility | percent:'1.2-2' }}</td>
+                <td class="px-3 py-2 text-text text-right">{{ result().backtest_metrics!.annualized_volatility | percent:'1.2-2' }}</td>
+              </tr>
+              <tr class="border-b border-border-muted">
+                <td class="px-3 py-2 text-text">Sharpe</td>
+                <td class="px-3 py-2 text-text text-right">{{ result().metrics.sharpe_ratio.toFixed(3) }}</td>
+                <td class="px-3 py-2 text-text text-right">{{ result().backtest_metrics!.sharpe_ratio.toFixed(3) }}</td>
+              </tr>
+              <tr class="border-b border-border-muted">
+                <td class="px-3 py-2 text-text">Max Drawdown</td>
+                <td class="px-3 py-2 text-text text-right">{{ result().metrics.max_drawdown | percent:'1.2-2' }}</td>
+                <td class="px-3 py-2 text-text text-right">{{ result().backtest_metrics!.max_drawdown | percent:'1.2-2' }}</td>
+              </tr>
+              <tr>
+                <td class="px-3 py-2 text-text">CVaR 95%</td>
+                <td class="px-3 py-2 text-text text-right">{{ result().metrics.cvar_95 | percent:'1.2-2' }}</td>
+                <td class="px-3 py-2 text-text text-right">{{ result().backtest_metrics!.cvar_95 | percent:'1.2-2' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  }
+</div>

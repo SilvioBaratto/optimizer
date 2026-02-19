@@ -10,6 +10,22 @@ import pandas as pd
 from skfolio.preprocessing import prices_to_returns
 from sklearn.pipeline import Pipeline
 
+from optimizer.factors._config import (
+    GROUP_WEIGHT_TIER,
+    CompositeScoringConfig,
+    FactorConstructionConfig,
+    FactorGroupType,
+    FactorIntegrationConfig,
+    GroupWeight,
+    RegimeTiltConfig,
+    SelectionConfig,
+    StandardizationConfig,
+)
+from optimizer.factors._construction import compute_all_factors
+from optimizer.factors._regime import apply_regime_tilts, classify_regime
+from optimizer.factors._scoring import compute_composite_score
+from optimizer.factors._selection import select_stocks
+from optimizer.factors._standardization import standardize_all_factors
 from optimizer.pipeline._builder import build_portfolio_pipeline
 from optimizer.pipeline._config import PortfolioResult
 from optimizer.pre_selection._config import PreSelectionConfig
@@ -20,6 +36,8 @@ from optimizer.rebalancing._rebalancer import (
 )
 from optimizer.tuning._config import GridSearchConfig
 from optimizer.tuning._factory import build_grid_search_cv
+from optimizer.universe._config import InvestabilityScreenConfig
+from optimizer.universe._factory import screen_universe
 from optimizer.validation._config import WalkForwardConfig
 from optimizer.validation._factory import build_walk_forward, run_cross_val
 
@@ -270,6 +288,204 @@ def run_full_pipeline(
         )
 
     return result
+
+
+def run_full_pipeline_with_selection(
+    prices: pd.DataFrame,
+    optimizer: Any,
+    *,
+    fundamentals: pd.DataFrame | None = None,
+    volume_history: pd.DataFrame | None = None,
+    financial_statements: pd.DataFrame | None = None,
+    analyst_data: pd.DataFrame | None = None,
+    insider_data: pd.DataFrame | None = None,
+    macro_data: pd.DataFrame | None = None,
+    investability_config: InvestabilityScreenConfig | None = None,
+    factor_config: FactorConstructionConfig | None = None,
+    standardization_config: StandardizationConfig | None = None,
+    scoring_config: CompositeScoringConfig | None = None,
+    selection_config: SelectionConfig | None = None,
+    regime_config: RegimeTiltConfig | None = None,
+    integration_config: FactorIntegrationConfig | None = None,
+    sector_mapping: dict[str, str] | None = None,
+    pre_selection_config: PreSelectionConfig | None = None,
+    cv_config: WalkForwardConfig | None = None,
+    previous_weights: npt.NDArray[np.float64] | None = None,
+    rebalancing_config: ThresholdRebalancingConfig | None = None,
+    y_prices: pd.DataFrame | None = None,
+    current_members: pd.Index | None = None,
+    ic_history: pd.DataFrame | None = None,
+    n_jobs: int | None = None,
+) -> PortfolioResult:
+    """End-to-end: fundamentals + prices → stock selection → optimization.
+
+    Extends :func:`run_full_pipeline` with upstream stock pre-selection:
+
+    1. Screen universe for investability (if ``fundamentals`` provided).
+    2. Compute and standardize factor scores.
+    3. Apply macro regime tilts (if ``macro_data`` + ``regime_config``).
+    4. Compute composite score and select stocks.
+    5. Run existing ``run_full_pipeline`` on selected tickers.
+
+    Parameters
+    ----------
+    prices : pd.DataFrame
+        Price matrix (dates x tickers).
+    optimizer : BaseOptimization
+        A skfolio optimiser instance.
+    fundamentals : pd.DataFrame or None
+        Cross-sectional data indexed by ticker (market_cap, ratios).
+        If ``None``, skips screening and factor selection.
+    volume_history : pd.DataFrame or None
+        Volume matrix (dates x tickers).
+    financial_statements : pd.DataFrame or None
+        Statement-level data for screening.
+    analyst_data : pd.DataFrame or None
+        Analyst recommendation data for factor construction.
+    insider_data : pd.DataFrame or None
+        Insider transaction data for factor construction.
+    macro_data : pd.DataFrame or None
+        Macro indicators for regime classification.
+    investability_config : InvestabilityScreenConfig or None
+        Universe screening configuration.
+    factor_config : FactorConstructionConfig or None
+        Factor construction parameters.
+    standardization_config : StandardizationConfig or None
+        Factor standardization parameters.
+    scoring_config : CompositeScoringConfig or None
+        Composite scoring parameters.
+    selection_config : SelectionConfig or None
+        Stock selection parameters.
+    regime_config : RegimeTiltConfig or None
+        Regime tilt parameters.
+    integration_config : FactorIntegrationConfig or None
+        Factor-to-optimization bridge parameters.
+    sector_mapping : dict[str, str] or None
+        Ticker -> sector mapping.
+    pre_selection_config : PreSelectionConfig or None
+        Return-data pre-selection configuration.
+    cv_config : WalkForwardConfig or None
+        Walk-forward backtest configuration.
+    previous_weights : ndarray or None
+        Current portfolio weights for rebalancing.
+    rebalancing_config : ThresholdRebalancingConfig or None
+        Rebalancing threshold configuration.
+    y_prices : pd.DataFrame or None
+        Benchmark or factor price series.
+    current_members : pd.Index or None
+        Currently selected tickers for hysteresis.
+    ic_history : pd.DataFrame or None
+        IC history for IC-weighted scoring.
+    n_jobs : int or None
+        Number of parallel jobs.
+
+    Returns
+    -------
+    PortfolioResult
+        Complete result with weights, metrics, backtest, and
+        rebalancing signals.
+    """
+    selected_prices = prices
+
+    if fundamentals is not None:
+        vol = volume_history if volume_history is not None else pd.DataFrame()
+
+        # 1. Screen universe for investability
+        investable = screen_universe(
+            fundamentals=fundamentals,
+            price_history=prices,
+            volume_history=vol,
+            financial_statements=financial_statements,
+            config=investability_config,
+            current_members=current_members,
+        )
+
+        investable_fundamentals = fundamentals.loc[
+            fundamentals.index.intersection(investable)
+        ]
+        investable_prices = prices[
+            prices.columns.intersection(investable)
+        ]
+
+        # 2. Compute factors
+        investable_vol = (
+            vol[vol.columns.intersection(investable)]
+            if len(vol) > 0
+            else None
+        )
+        raw_factors = compute_all_factors(
+            fundamentals=investable_fundamentals,
+            price_history=investable_prices,
+            volume_history=investable_vol,
+            analyst_data=analyst_data,
+            insider_data=insider_data,
+            config=factor_config,
+        )
+
+        # 3. Standardize
+        sector_labels = (
+            pd.Series(sector_mapping).reindex(investable_fundamentals.index)
+            if sector_mapping
+            else None
+        )
+        standardized, coverage = standardize_all_factors(
+            raw_factors,
+            config=standardization_config,
+            sector_labels=sector_labels,
+        )
+
+        # 4. Regime tilts (optional)
+        has_regime = (
+            macro_data is not None
+            and regime_config is not None
+            and regime_config.enable
+        )
+        if has_regime:
+            regime = classify_regime(macro_data)
+
+            # Build base group weights from config
+            _scoring = scoring_config or CompositeScoringConfig()
+            base_weights: dict[FactorGroupType, float] = {}
+            for group in FactorGroupType:
+                tier = GROUP_WEIGHT_TIER[group]
+                base_weights[group] = (
+                    _scoring.core_weight
+                    if tier == GroupWeight.CORE
+                    else _scoring.supplementary_weight
+                )
+
+            apply_regime_tilts(base_weights, regime, regime_config)
+
+        # 5. Composite score
+        composite = compute_composite_score(
+            standardized, coverage,
+            config=scoring_config,
+            ic_history=ic_history,
+        )
+
+        # 6. Select stocks
+        selected = select_stocks(
+            composite,
+            config=selection_config,
+            current_members=current_members,
+            sector_labels=sector_labels,
+            parent_universe=investable,
+        )
+
+        selected_prices = prices[prices.columns.intersection(selected)]
+
+    # 7. Delegate to existing pipeline
+    return run_full_pipeline(
+        prices=selected_prices,
+        optimizer=optimizer,
+        pre_selection_config=pre_selection_config,
+        sector_mapping=sector_mapping,
+        cv_config=cv_config,
+        previous_weights=previous_weights,
+        rebalancing_config=rebalancing_config,
+        y_prices=y_prices,
+        n_jobs=n_jobs,
+    )
 
 
 # ---------------------------------------------------------------------------

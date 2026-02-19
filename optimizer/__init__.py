@@ -2,6 +2,14 @@
 
 Modules
 -------
+universe
+    Investability screening with hysteresis-based entry/exit
+    thresholds for market cap, liquidity, price, and data availability.
+factors
+    Factor construction, cross-sectional standardization, composite
+    scoring, stock selection with buffer zones, macro regime tilts,
+    statistical validation (IC, VIF, FDR), and bridge to optimization
+    inputs (expected returns, Black-Litterman views, constraints).
 preprocessing
     Custom sklearn-compatible transformers for return data cleaning.
 pre_selection

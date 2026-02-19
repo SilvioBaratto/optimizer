@@ -1,0 +1,63 @@
+<div class="flex-1 overflow-y-auto p-6">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-lg font-semibold text-text">Macro Overview</h1>
+    <select (change)="onCountryChange($event)"
+            class="px-2.5 py-1.5 text-sm bg-surface-raised border border-border rounded-md text-text">
+      @for (c of countries(); track c) {
+        <option [value]="c" [selected]="c === selectedCountry()">{{ c }}</option>
+      }
+    </select>
+  </div>
+
+  @if (loading()) {
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+      @for (_ of [1, 2, 3, 4, 5]; track $index) {
+        <app-loading-skeleton height="5rem" />
+      }
+    </div>
+    <app-loading-skeleton height="15rem" />
+  } @else {
+    <!-- Country Summary -->
+    @if (selectedSummary()) {
+      <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+        <app-stat-card label="GDP Growth" [value]="selectedSummary()!.gdp_growth + '%'" />
+        <app-stat-card label="Inflation" [value]="selectedSummary()!.inflation + '%'" />
+        <app-stat-card label="Unemployment" [value]="selectedSummary()!.unemployment + '%'" />
+        <app-stat-card label="Interest Rate" [value]="selectedSummary()!.interest_rate + '%'" />
+        <app-stat-card label="Debt/GDP" [value]="selectedSummary()!.debt_to_gdp + '%'" />
+      </div>
+    }
+
+    <!-- Economic Indicators -->
+    <h2 class="text-sm font-medium text-text-secondary mb-3">Economic Indicators</h2>
+    <div class="bg-surface-raised border border-border rounded-lg overflow-hidden mb-8">
+      <app-data-table
+        [columns]="indicatorColumns"
+        [rows]="$any(filteredIndicators())"
+        [total]="filteredIndicators().length"
+        [pageSize]="15" />
+    </div>
+
+    <!-- Bond Yield Curve -->
+    @if (selectedCountry() === 'US') {
+      <h2 class="text-sm font-medium text-text-secondary mb-3">US Treasury Yield Curve</h2>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div class="bg-surface-raised border border-border rounded-lg p-4">
+          <app-echarts-line
+            [labels]="yieldCurveLabels()"
+            [values]="yieldCurveValues()"
+            [height]="220"
+            yAxisLabel=""
+            [areaFill]="true" />
+        </div>
+        <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
+          <app-data-table
+            [columns]="yieldColumns"
+            [rows]="$any(bondYields())"
+            [total]="bondYields().length"
+            [pageSize]="15" />
+        </div>
+      </div>
+    }
+  }
+</div>

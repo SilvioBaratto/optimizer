@@ -12,7 +12,7 @@ pydantic-settings>=2.0.3
 python-jose[cryptography]
 
 # AI/ML & Document Processing
-baml-py>=0.218.1
+baml-py>=0.219.0
 markitdown[all]
 
 # File Handling

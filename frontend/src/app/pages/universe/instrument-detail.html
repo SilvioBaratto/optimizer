@@ -1,0 +1,75 @@
+@if (!instrumentId()) {
+  <app-empty-state title="No instrument selected" description="Click an instrument in the list to view details.">
+    <svg icon class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" />
+    </svg>
+  </app-empty-state>
+} @else if (loading()) {
+  <div class="space-y-4">
+    <app-loading-skeleton height="3rem" />
+    <app-loading-skeleton height="15rem" />
+    <app-loading-skeleton height="8rem" />
+  </div>
+} @else if (profile()) {
+  <div class="space-y-6 overflow-y-auto">
+    <!-- Profile Header -->
+    <div>
+      <div class="flex items-baseline gap-3 mb-1">
+        <h2 class="text-lg font-semibold text-text">{{ profile()!.ticker }}</h2>
+        <span class="text-xs text-text-tertiary">{{ profile()!.sector }}</span>
+      </div>
+      <p class="text-sm text-text-secondary">{{ profile()!.name }}</p>
+    </div>
+
+    <!-- Key Ratios -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <app-stat-card label="Market Cap" [value]="formatMarketCap(profile()!.market_cap)" />
+      <app-stat-card label="P/E Ratio" [value]="profile()!.pe_ratio ?? '—'" />
+      <app-stat-card label="Beta" [value]="profile()!.beta ?? '—'" />
+      <app-stat-card label="Dividend Yield" [value]="profile()!.dividend_yield ? (profile()!.dividend_yield! * 100).toFixed(2) + '%' : '—'" />
+    </div>
+
+    <!-- Price Chart -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-sm font-medium text-text mb-3">Price History</h3>
+      <app-line-chart [data]="priceChartData()" [height]="250" />
+    </div>
+
+    <!-- Analyst Recommendations -->
+    @if (recommendations().length > 0) {
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h3 class="text-sm font-medium text-text mb-3">Analyst Sentiment</h3>
+        <app-bar-chart [data]="recChartData()" [height]="100" />
+      </div>
+    }
+
+    <!-- News -->
+    @if (news().length > 0) {
+      <div>
+        <h3 class="text-sm font-medium text-text mb-3">Recent News</h3>
+        <div class="space-y-2">
+          @for (item of news(); track item.title) {
+            <div class="bg-surface-raised border border-border rounded-lg p-3">
+              <p class="text-sm font-medium text-text">{{ item.title }}</p>
+              <p class="text-xs text-text-tertiary mt-1">{{ item.publisher }} &middot; {{ item.published | date:'mediumDate' }}</p>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Insider Transactions -->
+    @if (insiders().length > 0) {
+      <div>
+        <h3 class="text-sm font-medium text-text mb-3">Insider Transactions</h3>
+        <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
+          <app-data-table
+            [columns]="insiderColumns"
+            [rows]="$any(insiders())"
+            [total]="insiders().length"
+            [pageSize]="10" />
+        </div>
+      </div>
+    }
+  </div>
+}

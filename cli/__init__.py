@@ -9,6 +9,7 @@ import typer
 from cli.client import ApiClient
 from cli.db import db_app
 from cli.macro import macro_app
+from cli.portfolio import portfolio_app
 from cli.universe import universe_app
 from cli.yfinance import yfinance_app
 
@@ -51,6 +52,7 @@ def main(
 # Register command groups
 app.add_typer(db_app)
 app.add_typer(macro_app)
+app.add_typer(portfolio_app)
 app.add_typer(universe_app)
 app.add_typer(yfinance_app)
 

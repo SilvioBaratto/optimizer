@@ -516,7 +516,7 @@ class YFinanceRepository:
                 "date_reported": _safe_date(row_data.get("Date Reported")),
                 "shares": _safe_int(row_data.get("Shares")),
                 "value": _safe_int(row_data.get("Value")),
-                "pct_held": _safe_float(row_data.get("% Out")),
+                "pct_held": _safe_float(row_data.get("pctHeld")),
             })
 
         return self._upsert(
@@ -554,7 +554,7 @@ class YFinanceRepository:
                 "date_reported": _safe_date(row_data.get("Date Reported")),
                 "shares": _safe_int(row_data.get("Shares")),
                 "value": _safe_int(row_data.get("Value")),
-                "pct_held": _safe_float(row_data.get("% Out")),
+                "pct_held": _safe_float(row_data.get("pctHeld")),
             })
 
         return self._upsert(

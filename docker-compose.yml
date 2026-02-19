@@ -33,6 +33,53 @@ services:
     networks:
       - optimizer_network
 
+  # FastAPI Application
+  api:
+    build:
+      context: ./api
+    container_name: optimizer_api
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/optimizer_db
+      TRADING_212_API_KEY: ${TRADING_212_API_KEY:-}
+      FRED_API_KEY: ${FRED_API_KEY:-}
+      TRADING_ECONOMICS_API_KEY: ${TRADING_ECONOMICS_API_KEY:-}
+      OPENAI_KEY: ${OPENAI_KEY:-}
+      OPENAI_ENDPOINT: ${OPENAI_ENDPOINT:-}
+      OPENAI_RESOURCE_NAME: ${OPENAI_RESOURCE_NAME:-}
+      OPENAI_API_VERSION: ${OPENAI_API_VERSION:-}
+      OPENAI_GPT4O_DEPLOYMENT_ID: ${OPENAI_GPT4O_DEPLOYMENT_ID:-}
+      OPENAI_GPT5_DEPLOYMENT_ID: ${OPENAI_GPT5_DEPLOYMENT_ID:-}
+    ports:
+      - "8005:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    networks:
+      - optimizer_network
+
+  # Scheduler - Daily data fetches via supercronic
+  scheduler:
+    build:
+      context: .
+      dockerfile: scheduler/Dockerfile
+    container_name: optimizer_scheduler
+    init: true
+    environment:
+      OPTIMIZER_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - optimizer_network
+
 volumes:
   postgres_data:
 

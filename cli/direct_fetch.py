@@ -13,6 +13,7 @@ if str(api_path) not in sys.path:
     sys.path.insert(0, str(api_path))
 
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 from app.database import DatabaseManager
 from app.models.universe import Instrument
@@ -94,10 +95,12 @@ class DirectFetcher:
             instruments = (
                 session.execute(
                     select(Instrument)
+                    .options(joinedload(Instrument.exchange))
                     .where(Instrument.yfinance_ticker.isnot(None))
                     .where(Instrument.yfinance_ticker != "")
                 )
                 .scalars()
+                .unique()
                 .all()
             )
 
@@ -116,6 +119,7 @@ class DirectFetcher:
                         yfinance_ticker=ticker,
                         period=period,
                         mode=mode,
+                        exchange_name=instrument.exchange_name,
                     )
                     session.commit()
 
@@ -162,9 +166,11 @@ class DirectFetcher:
         self._ensure_initialized()
 
         with self._db_manager.get_session() as session:
-            # Find instrument by yfinance_ticker
+            # Find instrument by yfinance_ticker (eager-load exchange)
             instrument = session.execute(
-                select(Instrument).where(Instrument.yfinance_ticker == yfinance_ticker)
+                select(Instrument)
+                .options(joinedload(Instrument.exchange))
+                .where(Instrument.yfinance_ticker == yfinance_ticker)
             ).scalar_one_or_none()
 
             if not instrument:
@@ -183,6 +189,7 @@ class DirectFetcher:
                     yfinance_ticker=yfinance_ticker,
                     period=period,
                     mode=mode,
+                    exchange_name=instrument.exchange_name,
                 )
                 session.commit()
 

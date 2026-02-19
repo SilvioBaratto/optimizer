@@ -1,0 +1,27 @@
+<div class="flex-1 overflow-y-auto p-6">
+  <h1 class="text-lg font-semibold text-text mb-4">Universe Explorer</h1>
+
+  <!-- Stats -->
+  @if (stats()) {
+    <div class="grid grid-cols-3 gap-4 mb-6">
+      <app-stat-card label="Exchanges" [value]="stats()!.total_exchanges" />
+      <app-stat-card label="Instruments" [value]="stats()!.total_instruments.toLocaleString()" />
+      <app-stat-card label="Last Updated" [value]="(stats()!.last_updated | date:'mediumDate') ?? '—'" />
+    </div>
+  }
+
+  <!-- Split Layout -->
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+    <!-- List (60%) -->
+    <div class="lg:col-span-3">
+      <app-universe-list
+        [exchanges]="exchanges()"
+        (instrumentSelect)="onInstrumentSelect($event)" />
+    </div>
+
+    <!-- Detail (40%) -->
+    <div class="lg:col-span-2">
+      <app-instrument-detail [instrumentId]="selectedInstrumentId()" />
+    </div>
+  </div>
+</div>

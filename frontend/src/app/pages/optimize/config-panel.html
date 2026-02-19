@@ -1,0 +1,56 @@
+<form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-4">
+  <!-- Backtest -->
+  <label class="flex items-center gap-2.5 cursor-pointer">
+    <input type="checkbox" formControlName="backtest"
+           class="w-4 h-4 rounded border-border text-accent" />
+    <span class="text-sm text-text">Run backtest</span>
+  </label>
+
+  <!-- Pre-selection -->
+  <label class="flex items-center gap-2.5 cursor-pointer">
+    <input type="checkbox" formControlName="pre_selection"
+           class="w-4 h-4 rounded border-border text-accent" />
+    <span class="text-sm text-text">Pre-selection pipeline</span>
+  </label>
+
+  <!-- Sector Tolerance -->
+  <div>
+    <label class="text-xs font-medium text-text-secondary block mb-1">
+      Sector tolerance: {{ form.controls.sector_tolerance.value | percent }}
+    </label>
+    <input type="range" formControlName="sector_tolerance"
+           min="0.05" max="0.50" step="0.05"
+           class="w-full h-1.5 bg-surface-inset rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:cursor-pointer" />
+  </div>
+
+  <!-- Conditional: Risk Aversion -->
+  @if (showRiskAversion()) {
+    <div>
+      <label class="text-xs font-medium text-text-secondary block mb-1">
+        Risk aversion: {{ form.controls.risk_aversion.value }}
+      </label>
+      <input type="range" formControlName="risk_aversion"
+             min="0.1" max="10" step="0.1"
+             class="w-full h-1.5 bg-surface-inset rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:cursor-pointer" />
+    </div>
+  }
+
+  <!-- Conditional: CVaR Beta -->
+  @if (showCvarBeta()) {
+    <div>
+      <label class="text-xs font-medium text-text-secondary block mb-1">
+        CVaR beta: {{ form.controls.cvar_beta.value }}
+      </label>
+      <input type="range" formControlName="cvar_beta"
+             min="0.90" max="0.99" step="0.01"
+             class="w-full h-1.5 bg-surface-inset rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:cursor-pointer" />
+    </div>
+  }
+
+  <!-- Submit -->
+  <button type="submit"
+          [disabled]="!strategy() || disabled()"
+          class="w-full px-4 py-2 text-sm font-medium bg-accent text-white rounded-md hover:bg-accent-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+    Run Optimization
+  </button>
+</form>
