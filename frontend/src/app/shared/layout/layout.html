@@ -1,0 +1,25 @@
+<div class="min-h-screen bg-surface">
+  <!-- Mobile header -->
+  <header class="md:hidden flex items-center justify-between h-14 px-4 border-b border-border bg-surface-raised sticky top-0 z-30">
+    <button (click)="toggleSidebar()" class="p-1.5 rounded-md text-text-secondary hover:text-text hover:bg-surface-inset transition-colors" aria-label="Open menu">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+      </svg>
+    </button>
+    <span class="text-sm font-semibold tracking-tight text-text">Portfolio Optimizer</span>
+    <div class="w-8"></div>
+  </header>
+
+  <!-- Overlay -->
+  @if (showOverlay()) {
+    <div class="fixed inset-0 bg-black/20 z-40 md:hidden" (click)="closeSidebar()"></div>
+  }
+
+  <!-- Sidebar -->
+  <app-sidebar [isOpen]="isSidebarOpen()" [isMobile]="isMobile()" (closeSidebar)="closeSidebar()"></app-sidebar>
+
+  <!-- Main content -->
+  <main class="md:pl-64 h-[calc(100vh-3.5rem)] md:h-screen flex flex-col">
+    <router-outlet></router-outlet>
+  </main>
+</div>

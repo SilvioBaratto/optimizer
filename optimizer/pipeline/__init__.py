@@ -10,6 +10,7 @@ from optimizer.pipeline._orchestrator import (
     backtest,
     optimize,
     run_full_pipeline,
+    run_full_pipeline_with_selection,
     tune_and_optimize,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "build_portfolio_pipeline",
     "optimize",
     "run_full_pipeline",
+    "run_full_pipeline_with_selection",
     "tune_and_optimize",
 ]

@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import database_manager, get_db
 from app.models.universe import Instrument
@@ -78,14 +78,16 @@ def _run_bulk_fetch(
 
     try:
         with database_manager.get_session() as session:
-            # Get all instruments with a yfinance_ticker
+            # Get all instruments with a yfinance_ticker (eager-load exchange)
             instruments = (
                 session.execute(
                     select(Instrument)
+                    .options(joinedload(Instrument.exchange))
                     .where(Instrument.yfinance_ticker.isnot(None))
                     .where(Instrument.yfinance_ticker != "")
                 )
                 .scalars()
+                .unique()
                 .all()
             )
 
@@ -107,6 +109,7 @@ def _run_bulk_fetch(
                         yfinance_ticker=ticker,
                         period=request.period,
                         mode=request.mode,
+                        exchange_name=instrument.exchange_name,
                     )
 
                     # Accumulate counts
@@ -251,9 +254,11 @@ def fetch_single_ticker(
     yf_client: YFinanceClient = Depends(_get_yf_client),
 ):
     """Synchronously fetch all yfinance data for a single ticker."""
-    # Find instrument by yfinance_ticker
+    # Find instrument by yfinance_ticker (eager-load exchange)
     instrument = db.execute(
-        select(Instrument).where(Instrument.yfinance_ticker == yfinance_ticker)
+        select(Instrument)
+        .options(joinedload(Instrument.exchange))
+        .where(Instrument.yfinance_ticker == yfinance_ticker)
     ).scalar_one_or_none()
 
     if not instrument:
@@ -268,6 +273,7 @@ def fetch_single_ticker(
         yfinance_ticker=yfinance_ticker,
         period=request.period,
         mode=request.mode,
+        exchange_name=instrument.exchange_name,
     )
     db.commit()
 

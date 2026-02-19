@@ -1,0 +1,28 @@
+<div class="flex flex-col h-full">
+  <!-- Filters -->
+  <div class="flex items-center gap-3 mb-4">
+    <div class="flex-1">
+      <app-search-input (searchChange)="onSearch($event)" />
+    </div>
+    <select (change)="onExchangeFilter($event)"
+            class="px-2.5 py-1.5 text-sm bg-surface-raised border border-border rounded-md text-text">
+      <option value="">All exchanges</option>
+      @for (ex of exchanges(); track ex.id) {
+        <option [value]="ex.name">{{ ex.mic }} ({{ ex.instrument_count }})</option>
+      }
+    </select>
+  </div>
+
+  <!-- Table -->
+  <div class="bg-surface-raised border border-border rounded-lg overflow-hidden flex-1">
+    <app-data-table
+      [columns]="columns"
+      [rows]="$any(instruments())"
+      [total]="total()"
+      [pageSize]="15"
+      [loading]="loading()"
+      [clickable]="true"
+      (pageChange)="onPageChange($event)"
+      (rowClick)="onRowClick($event)" />
+  </div>
+</div>

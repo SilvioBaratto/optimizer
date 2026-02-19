@@ -1,0 +1,89 @@
+<div class="flex-1 overflow-y-auto p-6">
+  <h1 class="text-lg font-semibold text-text mb-6">Dashboard</h1>
+
+  <!-- Stat Cards -->
+  @if (loading()) {
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      @for (_ of [1, 2, 3, 4]; track $index) {
+        <app-loading-skeleton height="5rem" />
+      }
+    </div>
+  } @else {
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <app-stat-card
+        label="Database"
+        [value]="health()?.status === 'healthy' ? 'Healthy' : 'Unhealthy'"
+        [subtitle]="health()?.latency_ms + 'ms latency'" />
+      <app-stat-card
+        label="Exchanges"
+        [value]="stats()?.total_exchanges ?? 0"
+        subtitle="Markets tracked" />
+      <app-stat-card
+        label="Instruments"
+        [value]="(stats()?.total_instruments ?? 0).toLocaleString()"
+        subtitle="Securities in universe" />
+      <app-stat-card
+        label="Database Size"
+        value="843 MB"
+        [subtitle]="tables().length + ' tables'" />
+    </div>
+  }
+
+  <!-- Quick Actions -->
+  <h2 class="text-sm font-medium text-text-secondary mb-3">Quick Actions</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+    <a routerLink="/optimize" class="block bg-surface-raised border border-border rounded-lg p-4 hover:border-accent transition-colors group">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-md bg-surface-inset flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" />
+          </svg>
+        </div>
+        <div>
+          <p class="text-sm font-medium text-text">Run Optimization</p>
+          <p class="text-xs text-text-tertiary">Build and backtest portfolios</p>
+        </div>
+      </div>
+    </a>
+
+    <a routerLink="/data" class="block bg-surface-raised border border-border rounded-lg p-4 hover:border-accent transition-colors group">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-md bg-surface-inset flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" />
+          </svg>
+        </div>
+        <div>
+          <p class="text-sm font-medium text-text">Manage Data</p>
+          <p class="text-xs text-text-tertiary">Fetch and update market data</p>
+        </div>
+      </div>
+    </a>
+
+    <a routerLink="/universe" class="block bg-surface-raised border border-border rounded-lg p-4 hover:border-accent transition-colors group">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-md bg-surface-inset flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3" />
+          </svg>
+        </div>
+        <div>
+          <p class="text-sm font-medium text-text">Explore Universe</p>
+          <p class="text-xs text-text-tertiary">Browse instruments and profiles</p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <!-- Database Tables -->
+  <h2 class="text-sm font-medium text-text-secondary mb-3">Database Tables</h2>
+  <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
+    <app-data-table
+      [columns]="tableColumns"
+      [rows]="$any(tables())"
+      [total]="tables().length"
+      [pageSize]="15"
+      [loading]="loading()" />
+  </div>
+</div>

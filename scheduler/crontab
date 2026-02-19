@@ -1,0 +1,1 @@
+0 7 * * * /app/fetch.sh

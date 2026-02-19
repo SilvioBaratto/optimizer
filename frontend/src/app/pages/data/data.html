@@ -1,0 +1,60 @@
+<div class="flex-1 overflow-y-auto p-6">
+  <h1 class="text-lg font-semibold text-text mb-6">Data Management</h1>
+
+  <!-- Fetch Jobs -->
+  <h2 class="text-sm font-medium text-text-secondary mb-3">Data Pipelines</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+    @for (jobRef of [universeJob, yfinanceJob, macroJob]; track $index) {
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-medium text-text">{{ jobRef().label }}</h3>
+          @if (!jobRef().active && jobRef().progress < 100) {
+            <button (click)="startFetch(jobRef)"
+                    class="px-2.5 py-1 text-xs font-medium bg-accent text-white rounded-md hover:bg-accent-hover transition-colors">
+              Fetch
+            </button>
+          }
+          @if (jobRef().progress === 100) {
+            <span class="text-xs text-success font-medium">Done</span>
+          }
+        </div>
+        <p class="text-xs text-text-tertiary mb-3">{{ jobRef().description }}</p>
+        @if (jobRef().active || jobRef().progress > 0) {
+          <app-progress-bar
+            [label]="jobRef().label"
+            [current]="jobRef().progress"
+            [total]="100"
+            [detail]="jobRef().detail" />
+        }
+      </div>
+    }
+  </div>
+
+  <!-- Overview Stats -->
+  <h2 class="text-sm font-medium text-text-secondary mb-3">Storage Overview</h2>
+  @if (tablesLoading()) {
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      @for (_ of [1, 2, 3, 4]; track $index) {
+        <app-loading-skeleton height="5rem" />
+      }
+    </div>
+  } @else {
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <app-stat-card label="Tables" [value]="tables().length" subtitle="Active tables" />
+      <app-stat-card label="Total Rows" [value]="totalRows()" subtitle="Across all tables" />
+      <app-stat-card label="Total Size" value="843 MB" subtitle="Database storage" />
+      <app-stat-card label="Largest Table" value="price_history" subtitle="500 MB" />
+    </div>
+  }
+
+  <!-- Tables -->
+  <h2 class="text-sm font-medium text-text-secondary mb-3">Tables</h2>
+  <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
+    <app-data-table
+      [columns]="tableColumns"
+      [rows]="$any(tables())"
+      [total]="tables().length"
+      [pageSize]="15"
+      [loading]="tablesLoading()" />
+  </div>
+</div>

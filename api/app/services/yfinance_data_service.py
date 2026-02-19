@@ -10,6 +10,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.repositories.yfinance_repository import YFinanceRepository
+from app.services.trading_calendar import has_sufficient_history
 from app.services.yfinance import YFinanceClient
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class StalenessThresholds:
     # news: always fetched (no threshold)
     # prices: always fetched (date-ranged)
     price_overlap_days: int = 5
+    min_history_tolerance: float = 0.95
 
 
 DEFAULT_THRESHOLDS = StalenessThresholds()
@@ -67,6 +69,7 @@ class YFinanceDataService:
         period: str = "5y",
         mode: str = "incremental",
         thresholds: Optional[StalenessThresholds] = None,
+        exchange_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Fetch all data categories for a single ticker and store.
 
@@ -77,6 +80,7 @@ class YFinanceDataService:
             mode: "full" preserves original behaviour; "incremental" skips
                   fresh categories and date-ranges the price fetch.
             thresholds: Override default staleness thresholds.
+            exchange_name: Exchange name for calendar-based history validation.
 
         Returns dict with counts per category, list of errors, and skipped categories.
         """
@@ -144,11 +148,36 @@ class YFinanceDataService:
                 )
 
             if history is not None and not history.empty:
+                # Validate history length for full-period fetches only
+                is_full_period = not (
+                    mode == "incremental"
+                    and staleness is not None
+                    and staleness.get("price_max_date") is not None
+                )
+                if is_full_period:
+                    sufficient, expected, minimum = has_sufficient_history(
+                        len(history),
+                        exchange_name,
+                        period,
+                        thresholds.min_history_tolerance,
+                    )
+                    if not sufficient:
+                        logger.info(
+                            "Skipping price storage for %s: got %d rows, "
+                            "expected ~%d (min %d) for %s on %s",
+                            yfinance_ticker, len(history),
+                            expected, minimum, period, exchange_name,
+                        )
+                        counts["prices"] = 0
+                        skipped.append("prices:insufficient_history")
+                        history = None
+
+            if history is not None and not history.empty:
                 counts["prices"] = self.repo.upsert_price_history(
                     instrument_id, history
                 )
             else:
-                counts["prices"] = 0
+                counts["prices"] = counts.get("prices", 0)
         except Exception as e:
             errors.append(f"prices: {e}")
             logger.warning("Failed to fetch prices for %s: %s", yfinance_ticker, e)

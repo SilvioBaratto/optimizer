@@ -51,6 +51,30 @@ def _parse_reference_date(value: Any) -> Optional[date]:
             except (ValueError, TypeError):
                 pass
 
+    # Try "MM/ YY" or "MM/YY" format (e.g. "12/ 25", "01/26") — IlSole style
+    # Normalize by removing internal spaces: "12/ 25" → "12/25"
+    normalized = text.replace(" ", "")
+    if "/" in normalized:
+        slash_parts = normalized.split("/")
+        if len(slash_parts) == 2:
+            left, right = slash_parts[0].strip(), slash_parts[1].strip()
+            # MM/YY — both sides are numeric, right side is 2-digit year
+            if left.isdigit() and right.isdigit() and len(right) == 2:
+                try:
+                    month = int(left)
+                    year = 2000 + int(right)
+                    return date(year, month, 1)
+                except (ValueError, TypeError):
+                    pass
+            # Mon/DD — left is month abbreviation, right is day
+            month = _MONTH_ABBR.get(left[:3].lower())
+            if month is not None:
+                try:
+                    day = int(right)
+                    return date(date.today().year, month, day)
+                except (ValueError, TypeError):
+                    pass
+
     # Try ISO format (e.g. "2024-12-01")
     try:
         return date.fromisoformat(text)

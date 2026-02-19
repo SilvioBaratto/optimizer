@@ -1,0 +1,57 @@
+<div class="flex-1 overflow-y-auto p-6">
+  <h1 class="text-lg font-semibold text-text mb-6">Portfolio Optimizer</h1>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Left: Strategy + Config -->
+    <div class="space-y-6">
+      <div>
+        <h2 class="text-sm font-medium text-text-secondary mb-3">Strategy</h2>
+        <app-strategy-selector
+          [strategies]="strategies()"
+          [selected]="selectedStrategy()"
+          (strategyChange)="onStrategyChange($event)" />
+      </div>
+
+      @if (selectedStrategy()) {
+        <div>
+          <h2 class="text-sm font-medium text-text-secondary mb-3">Configuration</h2>
+          <div class="bg-surface-raised border border-border rounded-lg p-4">
+            <app-config-panel
+              [strategy]="selectedStrategy()"
+              [disabled]="jobActive()"
+              (runOptimization)="onRunOptimization($event)" />
+          </div>
+        </div>
+      }
+    </div>
+
+    <!-- Right: Results (2 cols) -->
+    <div class="lg:col-span-2">
+      @if (jobActive()) {
+        <div class="bg-surface-raised border border-border rounded-lg p-6">
+          <h3 class="text-sm font-medium text-text mb-4">Running Optimization...</h3>
+          <app-progress-bar
+            [label]="jobProgress().phase"
+            [current]="jobProgress().pct"
+            [total]="100"
+            [detail]="jobProgress().detail" />
+          <div class="mt-4 flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-accent animate-pulse"></div>
+            <span class="text-xs text-text-tertiary">{{ jobProgress().detail }}</span>
+          </div>
+        </div>
+      } @else if (result()) {
+        <app-results-view [result]="result()!" />
+      } @else {
+        <app-empty-state
+          title="No optimization results"
+          description="Select a strategy and configure parameters, then click Run Optimization to generate portfolio weights.">
+          <svg icon class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" />
+          </svg>
+        </app-empty-state>
+      }
+    </div>
+  </div>
+</div>

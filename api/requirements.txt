@@ -25,6 +25,7 @@ markitdown[all]
 python-multipart>=0.0.20
 
 # Financial Data & Analysis
+exchange_calendars>=4.5.0
 yfinance>=0.2.63
 fredapi>=0.5.2
 numpy>=1.24.0
