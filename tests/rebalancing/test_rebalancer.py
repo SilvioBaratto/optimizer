@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from optimizer.rebalancing import (
+    CalendarRebalancingConfig,
+    HybridRebalancingConfig,
     ThresholdRebalancingConfig,
     compute_drifted_weights,
     compute_rebalancing_cost,
     compute_turnover,
     should_rebalance,
+    should_rebalance_hybrid,
 )
 
 
@@ -119,3 +123,92 @@ class TestShouldRebalance:
         target = np.array([0.50, 0.30, 0.20])
         # default is absolute 5pp
         assert should_rebalance(current, target) is True
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for hybrid tests
+# ---------------------------------------------------------------------------
+
+_BREACH = np.array([0.56, 0.24, 0.20])   # drifted by 6pp → breaches 5pp threshold
+_TARGET = np.array([0.50, 0.30, 0.20])
+_NO_BREACH = np.array([0.53, 0.27, 0.20])  # drifted by 3pp → below threshold
+_MONTHLY_CFG = HybridRebalancingConfig.for_monthly_with_5pct_threshold()  # 21 bdays
+
+
+def _review_date(base: pd.Timestamp, bdays: int) -> pd.Timestamp:
+    """Return a date exactly ``bdays`` business days after ``base``."""
+    return cast_ts(pd.bdate_range(base, periods=bdays + 1)[-1])
+
+
+def cast_ts(x: object) -> pd.Timestamp:
+    return pd.Timestamp(x)  # type: ignore[arg-type]
+
+
+_LAST_REVIEW = pd.Timestamp("2024-01-02")
+
+
+class TestShouldRebalanceHybrid:
+    # -- Acceptance criterion 1: calendar date + breach → True ----------------
+
+    def test_review_date_with_breach_returns_true(self) -> None:
+        """At a calendar review date with breach, rebalancing is triggered."""
+        current = _review_date(_LAST_REVIEW, 21)  # exactly 21 bdays later
+        assert should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+        ) is True
+
+    # -- Acceptance criterion 2: calendar date + no breach → False ------------
+
+    def test_review_date_no_breach_returns_false(self) -> None:
+        """At a calendar review date with no drift breach, no rebalancing."""
+        current = _review_date(_LAST_REVIEW, 21)
+        assert should_rebalance_hybrid(
+            _NO_BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+        ) is False
+
+    # -- Acceptance criterion 3: mid-calendar + breach → False ----------------
+
+    def test_mid_calendar_breach_returns_false(self) -> None:
+        """Between review dates, always returns False regardless of drift."""
+        current = _review_date(_LAST_REVIEW, 10)  # only 10 bdays elapsed
+        assert should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+        ) is False
+
+    # -- Edge cases -----------------------------------------------------------
+
+    def test_exactly_at_threshold_bdays(self) -> None:
+        """Exactly trading_days elapsed is treated as a review date."""
+        current = _review_date(_LAST_REVIEW, 21)
+        result = should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+        )
+        assert isinstance(result, bool)
+        assert result is True
+
+    def test_one_day_before_review(self) -> None:
+        """One business day before the review interval → always False."""
+        current = _review_date(_LAST_REVIEW, 20)
+        assert should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+        ) is False
+
+    def test_past_due_review_with_breach(self) -> None:
+        """Overdue review (more than trading_days elapsed) with breach → True."""
+        current = _review_date(_LAST_REVIEW, 42)  # 2 months elapsed
+        assert should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+        ) is True
+
+    def test_relative_threshold_variant(self) -> None:
+        """Hybrid with relative threshold behaves consistently."""
+        cfg = HybridRebalancingConfig(
+            calendar=CalendarRebalancingConfig.for_quarterly(),
+            threshold=ThresholdRebalancingConfig.for_relative(threshold=0.25),
+        )
+        # asset 1 relative drift: |0.38-0.30|/0.30 = 0.267 > 0.25 → breach
+        breaching = np.array([0.50, 0.38, 0.12])
+        current = _review_date(_LAST_REVIEW, 63)  # quarterly = 63 bdays
+        assert should_rebalance_hybrid(
+            breaching, _TARGET, cfg, current, _LAST_REVIEW
+        ) is True

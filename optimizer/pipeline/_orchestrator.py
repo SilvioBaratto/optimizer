@@ -29,10 +29,14 @@ from optimizer.factors._standardization import standardize_all_factors
 from optimizer.pipeline._builder import build_portfolio_pipeline
 from optimizer.pipeline._config import PortfolioResult
 from optimizer.pre_selection._config import PreSelectionConfig
-from optimizer.rebalancing._config import ThresholdRebalancingConfig
+from optimizer.rebalancing._config import (
+    HybridRebalancingConfig,
+    ThresholdRebalancingConfig,
+)
 from optimizer.rebalancing._rebalancer import (
     compute_turnover,
     should_rebalance,
+    should_rebalance_hybrid,
 )
 from optimizer.tuning._config import GridSearchConfig
 from optimizer.tuning._factory import build_grid_search_cv
@@ -180,7 +184,11 @@ def run_full_pipeline(
     sector_mapping: dict[str, str] | None = None,
     cv_config: WalkForwardConfig | None = None,
     previous_weights: npt.NDArray[np.float64] | None = None,
-    rebalancing_config: ThresholdRebalancingConfig | None = None,
+    rebalancing_config: (
+        ThresholdRebalancingConfig | HybridRebalancingConfig | None
+    ) = None,
+    current_date: pd.Timestamp | None = None,
+    last_review_date: pd.Timestamp | None = None,
     y_prices: pd.DataFrame | None = None,
     n_jobs: int | None = None,
 ) -> PortfolioResult:
@@ -210,8 +218,17 @@ def run_full_pipeline(
         backtesting.
     previous_weights : ndarray or None
         Current portfolio weights for rebalancing analysis.
-    rebalancing_config : ThresholdRebalancingConfig or None
-        Threshold configuration for rebalancing decisions.
+    rebalancing_config : ThresholdRebalancingConfig or HybridRebalancingConfig or None
+        Rebalancing configuration.  Pass a ``ThresholdRebalancingConfig``
+        for pure drift-based rebalancing or a ``HybridRebalancingConfig``
+        for calendar-gated threshold rebalancing.
+    current_date : pd.Timestamp or None
+        Evaluation date for hybrid rebalancing.  Defaults to the last
+        date in the return series when not provided.
+    last_review_date : pd.Timestamp or None
+        Date of the last hybrid review.  When ``None`` with a
+        ``HybridRebalancingConfig``, the calendar gate is treated as
+        already elapsed (threshold alone decides).
     y_prices : pd.DataFrame or None
         Benchmark or factor price series.  Converted to returns
         alongside asset prices.
@@ -285,11 +302,32 @@ def run_full_pipeline(
             npt.NDArray[np.float64], result.weights.to_numpy(dtype=np.float64)
         )
         result.turnover = compute_turnover(prev_arr, new_arr)
-        result.rebalance_needed = should_rebalance(
-            prev_arr,
-            new_arr,
-            config=rebalancing_config,
-        )
+        if isinstance(rebalancing_config, HybridRebalancingConfig):
+            _current = (
+                current_date
+                if current_date is not None
+                else cast(pd.Timestamp, X.index[-1])
+            )
+            _last_review = (
+                last_review_date
+                if last_review_date is not None
+                else cast(
+                    pd.Timestamp,
+                    _current
+                    - pd.Timedelta(
+                        days=rebalancing_config.calendar.trading_days * 2
+                    ),
+                )
+            )
+            result.rebalance_needed = should_rebalance_hybrid(
+                prev_arr, new_arr, rebalancing_config, _current, _last_review
+            )
+        else:
+            result.rebalance_needed = should_rebalance(
+                prev_arr,
+                new_arr,
+                config=rebalancing_config,
+            )
 
     return result
 
@@ -315,7 +353,11 @@ def run_full_pipeline_with_selection(
     pre_selection_config: PreSelectionConfig | None = None,
     cv_config: WalkForwardConfig | None = None,
     previous_weights: npt.NDArray[np.float64] | None = None,
-    rebalancing_config: ThresholdRebalancingConfig | None = None,
+    rebalancing_config: (
+        ThresholdRebalancingConfig | HybridRebalancingConfig | None
+    ) = None,
+    current_date: pd.Timestamp | None = None,
+    last_review_date: pd.Timestamp | None = None,
     y_prices: pd.DataFrame | None = None,
     current_members: pd.Index | None = None,
     ic_history: pd.DataFrame | None = None,
@@ -488,6 +530,8 @@ def run_full_pipeline_with_selection(
         cv_config=cv_config,
         previous_weights=previous_weights,
         rebalancing_config=rebalancing_config,
+        current_date=current_date,
+        last_review_date=last_review_date,
         y_prices=y_prices,
         n_jobs=n_jobs,
     )

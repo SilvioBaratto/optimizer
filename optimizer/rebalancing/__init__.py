@@ -1,12 +1,13 @@
 """Rebalancing frameworks for portfolio management.
 
-Includes calendar-based and threshold-based rebalancing logic,
+Includes calendar-based, threshold-based, and hybrid rebalancing logic,
 turnover computation, and transaction cost estimation.
 """
 
 from optimizer.rebalancing._config import (
     TRADING_DAYS,
     CalendarRebalancingConfig,
+    HybridRebalancingConfig,
     RebalancingFrequency,
     ThresholdRebalancingConfig,
     ThresholdType,
@@ -16,11 +17,13 @@ from optimizer.rebalancing._rebalancer import (
     compute_rebalancing_cost,
     compute_turnover,
     should_rebalance,
+    should_rebalance_hybrid,
 )
 
 __all__ = [
     "TRADING_DAYS",
     "CalendarRebalancingConfig",
+    "HybridRebalancingConfig",
     "RebalancingFrequency",
     "ThresholdRebalancingConfig",
     "ThresholdType",
@@ -28,4 +31,5 @@ __all__ = [
     "compute_rebalancing_cost",
     "compute_turnover",
     "should_rebalance",
+    "should_rebalance_hybrid",
 ]
