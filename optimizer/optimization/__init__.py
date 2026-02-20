@@ -2,7 +2,8 @@
 
 Includes Mean-Risk, Risk Budgeting, Maximum Diversification, HRP, HERC,
 NCO, Benchmark Tracking, naive baselines (Equal Weighted, Inverse
-Volatility), and ensemble (Stacking) optimisation.
+Volatility), ensemble (Stacking) optimisation, and robust mean-risk with
+ellipsoidal uncertainty sets.
 """
 
 from optimizer.optimization._config import (
@@ -46,6 +47,10 @@ from optimizer.optimization._regime_risk import (
     compute_blended_risk_measure,
     compute_regime_budget,
 )
+from optimizer.optimization._robust import (
+    RobustConfig,
+    build_robust_mean_risk,
+)
 
 __all__ = [
     "BenchmarkTrackerConfig",
@@ -83,4 +88,6 @@ __all__ = [
     "build_regime_risk_budgeting",
     "compute_blended_risk_measure",
     "compute_regime_budget",
+    "RobustConfig",
+    "build_robust_mean_risk",
 ]
