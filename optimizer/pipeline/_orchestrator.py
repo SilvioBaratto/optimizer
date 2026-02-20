@@ -278,8 +278,12 @@ def run_full_pipeline(
         if prev_sum > 0:
             aligned_prev = aligned_prev / prev_sum
 
-        prev_arr = cast(npt.NDArray[np.float64], aligned_prev.to_numpy(dtype=np.float64))
-        new_arr = cast(npt.NDArray[np.float64], result.weights.to_numpy(dtype=np.float64))
+        prev_arr = cast(
+            npt.NDArray[np.float64], aligned_prev.to_numpy(dtype=np.float64)
+        )
+        new_arr = cast(
+            npt.NDArray[np.float64], result.weights.to_numpy(dtype=np.float64)
+        )
         result.turnover = compute_turnover(prev_arr, new_arr)
         result.rebalance_needed = should_rebalance(
             prev_arr,
