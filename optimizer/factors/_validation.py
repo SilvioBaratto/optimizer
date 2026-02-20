@@ -150,8 +150,12 @@ def compute_newey_west_tstat(
 
     for lag in range(1, min(n_lags, n - 1) + 1):
         weight = 1.0 - lag / (n_lags + 1)
-        lag_vals: npt.NDArray[np.float64] = np.asarray(demeaned.iloc[lag:], dtype=np.float64)
-        lead_vals: npt.NDArray[np.float64] = np.asarray(demeaned.iloc[:-lag], dtype=np.float64)
+        lag_vals: npt.NDArray[np.float64] = np.asarray(
+            demeaned.iloc[lag:], dtype=np.float64
+        )
+        lead_vals: npt.NDArray[np.float64] = np.asarray(
+            demeaned.iloc[:-lag], dtype=np.float64
+        )
         gamma_j = float((lag_vals * lead_vals).mean())
         nw_var += 2 * weight * gamma_j
 
