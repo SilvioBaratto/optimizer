@@ -13,6 +13,12 @@ from optimizer.factors._config import (
     FactorGroupType,
     GroupWeight,
 )
+from optimizer.factors._ml_scoring import (
+    FittedMLModel,
+    fit_gbt_composite,
+    fit_ridge_composite,
+    predict_composite_scores,
+)
 from optimizer.factors._validation import compute_icir
 
 
@@ -210,11 +216,60 @@ def compute_icir_weighted_composite(
     return composite
 
 
+def compute_ml_composite(
+    standardized_factors: pd.DataFrame,
+    training_scores: pd.DataFrame,
+    training_returns: pd.Series,
+    config: CompositeScoringConfig,
+) -> pd.Series:
+    """ML composite score using ridge regression or gradient-boosted trees.
+
+    Trains the model on historical ``(training_scores, training_returns)``
+    and predicts on the current-period ``standardized_factors``.  The
+    prediction is normalised to zero mean and unit variance.
+
+    The training window must end strictly before the prediction date to
+    avoid look-ahead bias; callers are responsible for this temporal split.
+
+    Parameters
+    ----------
+    standardized_factors : pd.DataFrame
+        Current-period tickers x factors matrix (prediction target).
+    training_scores : pd.DataFrame
+        Historical tickers x factors matrix aligned with
+        ``training_returns``.
+    training_returns : pd.Series
+        Forward return per ticker for the training period.
+    config : CompositeScoringConfig
+        Must have ``method`` set to ``RIDGE_WEIGHTED`` or ``GBT_WEIGHTED``.
+
+    Returns
+    -------
+    pd.Series
+        Normalised composite score per ticker (zero mean, unit variance).
+    """
+    model: FittedMLModel
+    if config.method == CompositeMethod.RIDGE_WEIGHTED:
+        model = fit_ridge_composite(
+            training_scores, training_returns, config.ridge_alpha
+        )
+    else:
+        model = fit_gbt_composite(
+            training_scores,
+            training_returns,
+            config.gbt_max_depth,
+            config.gbt_n_estimators,
+        )
+    return predict_composite_scores(model, standardized_factors)
+
+
 def compute_composite_score(
     standardized_factors: pd.DataFrame,
     coverage: pd.DataFrame,
     config: CompositeScoringConfig | None = None,
     ic_history: pd.DataFrame | None = None,
+    training_scores: pd.DataFrame | None = None,
+    training_returns: pd.Series | None = None,
 ) -> pd.Series:
     """Compute composite score from standardized factors.
 
@@ -230,6 +285,13 @@ def compute_composite_score(
         Required when ``config.method`` is ``IC_WEIGHTED`` or
         ``ICIR_WEIGHTED``.  Columns must match group names; each column
         is treated as the IC time series for that group.
+    training_scores : pd.DataFrame or None
+        Required when ``config.method`` is ``RIDGE_WEIGHTED`` or
+        ``GBT_WEIGHTED``.  Historical tickers x factors matrix used to
+        train the ML model (must not overlap with current-period data).
+    training_returns : pd.Series or None
+        Required when ``config.method`` is ``RIDGE_WEIGHTED`` or
+        ``GBT_WEIGHTED``.  Forward returns aligned with ``training_scores``.
 
     Returns
     -------
@@ -256,6 +318,17 @@ def compute_composite_score(
         }
         return compute_icir_weighted_composite(
             group_scores, ic_series_per_group, config
+        )
+
+    if config.method in (CompositeMethod.RIDGE_WEIGHTED, CompositeMethod.GBT_WEIGHTED):
+        if training_scores is None or training_returns is None:
+            msg = (
+                "training_scores and training_returns are required for "
+                f"{config.method.value} composite method"
+            )
+            raise ValueError(msg)
+        return compute_ml_composite(
+            standardized_factors, training_scores, training_returns, config
         )
 
     return compute_equal_weight_composite(group_scores, config)

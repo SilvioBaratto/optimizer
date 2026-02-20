@@ -51,12 +51,19 @@ from optimizer.factors._regime import (
     classify_regime,
     get_regime_tilts,
 )
+from optimizer.factors._ml_scoring import (
+    FittedMLModel,
+    fit_gbt_composite,
+    fit_ridge_composite,
+    predict_composite_scores,
+)
 from optimizer.factors._scoring import (
     compute_composite_score,
     compute_equal_weight_composite,
     compute_group_scores,
     compute_ic_weighted_composite,
     compute_icir_weighted_composite,
+    compute_ml_composite,
 )
 from optimizer.factors._selection import (
     apply_sector_balance,
@@ -133,6 +140,12 @@ __all__ = [
     "compute_group_scores",
     "compute_ic_weighted_composite",
     "compute_icir_weighted_composite",
+    "compute_ml_composite",
+    # ML scoring
+    "FittedMLModel",
+    "fit_gbt_composite",
+    "fit_ridge_composite",
+    "predict_composite_scores",
     # Selection
     "apply_sector_balance",
     "select_fixed_count",
