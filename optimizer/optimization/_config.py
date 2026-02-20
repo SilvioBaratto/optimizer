@@ -94,7 +94,11 @@ class LinkageMethodType(str, Enum):
 class RatioMeasureType(str, Enum):
     """Ratio measure selection for scoring (e.g. stacking meta-optimiser).
 
-    Maps to :class:`skfolio.measures.RatioMeasure`.
+    Most members map directly to :class:`skfolio.measures.RatioMeasure`.
+    ``INFORMATION_RATIO`` is implemented as a custom scorer (active return
+    divided by tracking error) because skfolio does not expose it natively;
+    use :func:`~optimizer.scoring.build_scorer` with a ``benchmark_returns``
+    argument to build the corresponding callable.
     """
 
     SHARPE_RATIO = "sharpe_ratio"
@@ -115,6 +119,7 @@ class RatioMeasureType(str, Enum):
     EDAR_RATIO = "edar_ratio"
     ULCER_INDEX_RATIO = "ulcer_index_ratio"
     GINI_MEAN_DIFFERENCE_RATIO = "gini_mean_difference_ratio"
+    INFORMATION_RATIO = "information_ratio"
 
 
 # ---------------------------------------------------------------------------

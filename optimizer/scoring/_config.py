@@ -49,6 +49,15 @@ class ScorerConfig:
         return cls(ratio_measure=RatioMeasureType.CVAR_RATIO)
 
     @classmethod
+    def for_information_ratio(cls) -> ScorerConfig:
+        """Information Ratio scorer (active return / tracking error).
+
+        Requires ``benchmark_returns`` to be passed to
+        :func:`~optimizer.scoring.build_scorer`.
+        """
+        return cls(ratio_measure=RatioMeasureType.INFORMATION_RATIO)
+
+    @classmethod
     def for_custom(cls) -> ScorerConfig:
         """Custom scoring function (callable passed to factory)."""
         return cls(ratio_measure=None)

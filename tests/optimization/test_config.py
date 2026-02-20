@@ -102,7 +102,7 @@ class TestLinkageMethodType:
 
 class TestRatioMeasureType:
     def test_members(self) -> None:
-        assert len(RatioMeasureType) == 18
+        assert len(RatioMeasureType) == 19
 
     def test_str_serialization(self) -> None:
         assert RatioMeasureType.SHARPE_RATIO.value == "sharpe_ratio"
