@@ -39,6 +39,11 @@ from optimizer.optimization._factory import (
     build_risk_budgeting,
     build_stacking,
 )
+from optimizer.optimization._regime_risk import (
+    RegimeRiskConfig,
+    build_regime_blended_optimizer,
+    compute_blended_risk_measure,
+)
 
 __all__ = [
     "BenchmarkTrackerConfig",
@@ -71,4 +76,7 @@ __all__ = [
     "build_nco",
     "build_risk_budgeting",
     "build_stacking",
+    "RegimeRiskConfig",
+    "build_regime_blended_optimizer",
+    "compute_blended_risk_measure",
 ]
