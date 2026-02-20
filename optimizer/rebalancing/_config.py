@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -105,4 +105,45 @@ class ThresholdRebalancingConfig:
         return cls(
             threshold_type=ThresholdType.RELATIVE,
             threshold=threshold,
+        )
+
+
+@dataclass(frozen=True)
+class HybridRebalancingConfig:
+    """Hybrid rebalancing: check threshold only at calendar review dates.
+
+    Combines calendar and threshold strategies: the portfolio is reviewed
+    at regular calendar intervals, but trades are executed only when drift
+    exceeds the threshold at that review date.  Between review dates,
+    ``should_rebalance_hybrid`` always returns ``False`` regardless of drift.
+
+    Parameters
+    ----------
+    calendar : CalendarRebalancingConfig
+        Calendar schedule that defines review dates.
+    threshold : ThresholdRebalancingConfig
+        Drift threshold evaluated at each review date.
+    """
+
+    calendar: CalendarRebalancingConfig = field(
+        default_factory=CalendarRebalancingConfig
+    )
+    threshold: ThresholdRebalancingConfig = field(
+        default_factory=ThresholdRebalancingConfig
+    )
+
+    @classmethod
+    def for_monthly_with_5pct_threshold(cls) -> HybridRebalancingConfig:
+        """Monthly review with 5pp absolute drift threshold."""
+        return cls(
+            calendar=CalendarRebalancingConfig.for_monthly(),
+            threshold=ThresholdRebalancingConfig.for_absolute(threshold=0.05),
+        )
+
+    @classmethod
+    def for_quarterly_with_10pct_threshold(cls) -> HybridRebalancingConfig:
+        """Quarterly review with 10pp absolute drift threshold."""
+        return cls(
+            calendar=CalendarRebalancingConfig.for_quarterly(),
+            threshold=ThresholdRebalancingConfig.for_absolute(threshold=0.10),
         )

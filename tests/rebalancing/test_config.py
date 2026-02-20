@@ -7,6 +7,7 @@ import pytest
 from optimizer.rebalancing import (
     TRADING_DAYS,
     CalendarRebalancingConfig,
+    HybridRebalancingConfig,
     RebalancingFrequency,
     ThresholdRebalancingConfig,
     ThresholdType,
@@ -94,3 +95,43 @@ class TestThresholdRebalancingConfig:
         cfg = ThresholdRebalancingConfig.for_relative(threshold=0.20)
         assert cfg.threshold_type == ThresholdType.RELATIVE
         assert cfg.threshold == 0.20
+
+
+class TestHybridRebalancingConfig:
+    def test_defaults(self) -> None:
+        cfg = HybridRebalancingConfig()
+        assert cfg.calendar == CalendarRebalancingConfig()
+        assert cfg.threshold == ThresholdRebalancingConfig()
+
+    def test_frozen(self) -> None:
+        cfg = HybridRebalancingConfig()
+        with pytest.raises(AttributeError):
+            cfg.calendar = CalendarRebalancingConfig.for_monthly()  # type: ignore[misc]
+
+    def test_is_hashable(self) -> None:
+        cfg = HybridRebalancingConfig()
+        assert isinstance(hash(cfg), int)
+
+    def test_usable_in_set(self) -> None:
+        a = HybridRebalancingConfig.for_monthly_with_5pct_threshold()
+        b = HybridRebalancingConfig.for_quarterly_with_10pct_threshold()
+        assert len({a, b}) == 2
+
+    def test_for_monthly_with_5pct_threshold(self) -> None:
+        cfg = HybridRebalancingConfig.for_monthly_with_5pct_threshold()
+        assert cfg.calendar.frequency == RebalancingFrequency.MONTHLY
+        assert cfg.threshold.threshold == pytest.approx(0.05)
+        assert cfg.threshold.threshold_type == ThresholdType.ABSOLUTE
+
+    def test_for_quarterly_with_10pct_threshold(self) -> None:
+        cfg = HybridRebalancingConfig.for_quarterly_with_10pct_threshold()
+        assert cfg.calendar.frequency == RebalancingFrequency.QUARTERLY
+        assert cfg.threshold.threshold == pytest.approx(0.10)
+
+    def test_custom_calendar_and_threshold(self) -> None:
+        cfg = HybridRebalancingConfig(
+            calendar=CalendarRebalancingConfig.for_annual(),
+            threshold=ThresholdRebalancingConfig.for_relative(threshold=0.20),
+        )
+        assert cfg.calendar.trading_days == 252
+        assert cfg.threshold.threshold_type == ThresholdType.RELATIVE

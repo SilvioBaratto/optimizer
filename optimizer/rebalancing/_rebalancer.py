@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 
-from optimizer.rebalancing._config import ThresholdRebalancingConfig, ThresholdType
+from optimizer.rebalancing._config import (
+    HybridRebalancingConfig,
+    ThresholdRebalancingConfig,
+    ThresholdType,
+)
 
 
 def compute_drifted_weights(
@@ -113,3 +118,48 @@ def should_rebalance(
     safe_targets = np.where(target_weights > 0, target_weights, np.inf)
     relative_drifts = drifts / safe_targets
     return bool(np.any(relative_drifts > config.threshold))
+
+
+def should_rebalance_hybrid(
+    current_weights: npt.NDArray[np.float64],
+    target_weights: npt.NDArray[np.float64],
+    config: HybridRebalancingConfig,
+    current_date: pd.Timestamp,
+    last_review_date: pd.Timestamp,
+) -> bool:
+    """Determine whether to rebalance under a hybrid calendar+threshold policy.
+
+    Returns ``True`` only when **both** conditions are met:
+
+    1. ``current_date`` is a calendar review date — at least
+       ``config.calendar.trading_days`` business days have elapsed since
+       ``last_review_date``.
+    2. At least one asset's drift exceeds the threshold defined in
+       ``config.threshold``.
+
+    Between calendar review dates the function always returns ``False``
+    regardless of how much drift has accumulated.
+
+    Parameters
+    ----------
+    current_weights : ndarray, shape (n_assets,)
+        Current (drifted) portfolio weights.
+    target_weights : ndarray, shape (n_assets,)
+        Target portfolio weights from the optimiser.
+    config : HybridRebalancingConfig
+        Hybrid configuration combining calendar and threshold rules.
+    current_date : pd.Timestamp
+        The date being evaluated.
+    last_review_date : pd.Timestamp
+        Date of the last calendar review.
+
+    Returns
+    -------
+    bool
+        ``True`` only if it is a calendar review date AND drift exceeds
+        the threshold.
+    """
+    elapsed = len(pd.bdate_range(last_review_date, current_date)) - 1
+    if elapsed < config.calendar.trading_days:
+        return False
+    return should_rebalance(current_weights, target_weights, config.threshold)
