@@ -41,6 +41,11 @@ from optimizer.factors._mimicking import (
     compute_cross_factor_correlation,
     compute_quintile_spread,
 )
+from optimizer.factors._oos_validation import (
+    FactorOOSConfig,
+    FactorOOSResult,
+    run_factor_oos_validation,
+)
 from optimizer.factors._regime import (
     apply_regime_tilts,
     classify_regime,
@@ -118,6 +123,10 @@ __all__ = [
     "standardize_factor",
     "winsorize_cross_section",
     "z_score_standardize",
+    # OOS validation
+    "FactorOOSConfig",
+    "FactorOOSResult",
+    "run_factor_oos_validation",
     # Scoring
     "compute_composite_score",
     "compute_equal_weight_composite",
