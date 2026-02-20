@@ -42,7 +42,9 @@ from optimizer.optimization._factory import (
 from optimizer.optimization._regime_risk import (
     RegimeRiskConfig,
     build_regime_blended_optimizer,
+    build_regime_risk_budgeting,
     compute_blended_risk_measure,
+    compute_regime_budget,
 )
 
 __all__ = [
@@ -78,5 +80,7 @@ __all__ = [
     "build_stacking",
     "RegimeRiskConfig",
     "build_regime_blended_optimizer",
+    "build_regime_risk_budgeting",
     "compute_blended_risk_measure",
+    "compute_regime_budget",
 ]

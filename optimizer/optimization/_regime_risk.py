@@ -7,6 +7,12 @@ Implements the probability-weighted risk objective::
 where γ_T(s) = P(z_T = s | r_{1:T}) is the current filtered state probability
 from a fitted HMM, and ρ_s is the regime-specific risk measure for state s.
 
+Also implements regime-conditional risk budgets::
+
+    b_t = Σ_s γ_T(s) · b_s
+
+where b_s is the budget vector for regime s, blended by current state probs.
+
 Usage example::
 
     from optimizer.moments._hmm import fit_hmm, HMMConfig
@@ -14,6 +20,8 @@ Usage example::
         RegimeRiskConfig,
         compute_blended_risk_measure,
         build_regime_blended_optimizer,
+        compute_regime_budget,
+        build_regime_risk_budgeting,
     )
 
     hmm_result = fit_hmm(returns, HMMConfig(n_states=2))
@@ -33,11 +41,11 @@ from dataclasses import dataclass, field
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from skfolio.optimization import MeanRisk
+from skfolio.optimization import MeanRisk, RiskBudgeting
 
 from optimizer.moments._hmm import HMMConfig, HMMResult
-from optimizer.optimization._config import RiskMeasureType
-from optimizer.optimization._factory import _RISK_MEASURE_MAP
+from optimizer.optimization._config import RiskBudgetingConfig, RiskMeasureType
+from optimizer.optimization._factory import _RISK_MEASURE_MAP, build_risk_budgeting
 
 # Minimum per-regime observations before falling back to full-sample risk.
 _MIN_REGIME_SAMPLES: int = 5
@@ -279,3 +287,83 @@ def build_regime_blended_optimizer(
     skfolio_measure = _RISK_MEASURE_MAP[dominant_measure]
 
     return MeanRisk(risk_measure=skfolio_measure, **mean_risk_kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Regime-conditional risk budgets
+# ---------------------------------------------------------------------------
+
+
+def compute_regime_budget(
+    regime_budgets: list[npt.NDArray[np.float64]],
+    filtered_probs_last: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """Compute b_t = Σ_s γ_T(s) · b_s: probability-weighted blended budget.
+
+    Args:
+        regime_budgets: One budget vector per HMM state, each shape
+            ``(n_assets,)``.  Values must be non-negative.
+        filtered_probs_last: Current state probabilities γ_T, shape
+            ``(n_states,)``.  Typically the last row of
+            ``HMMResult.filtered_probs``.
+
+    Returns:
+        Blended budget vector of shape ``(n_assets,)``, normalised to sum
+        to 1.
+
+    Raises:
+        ValueError: If ``len(regime_budgets) != len(filtered_probs_last)``.
+    """
+    n_states = len(filtered_probs_last)
+    if len(regime_budgets) != n_states:
+        raise ValueError(
+            f"len(regime_budgets) = {len(regime_budgets)} must match "
+            f"len(filtered_probs_last) = {n_states}."
+        )
+
+    gamma = filtered_probs_last.astype(np.float64)
+    blended: npt.NDArray[np.float64] = np.zeros(
+        len(regime_budgets[0]), dtype=np.float64
+    )
+    for s in range(n_states):
+        blended += gamma[s] * regime_budgets[s].astype(np.float64)
+
+    total = float(blended.sum())
+    if total <= 0.0:
+        n_assets = len(blended)
+        return np.full(n_assets, 1.0 / n_assets, dtype=np.float64)
+    return blended / total
+
+
+def build_regime_risk_budgeting(
+    config: RiskBudgetingConfig,
+    hmm_result: HMMResult,
+    regime_budgets: list[npt.NDArray[np.float64]],
+    **kwargs: object,
+) -> RiskBudgeting:
+    """Return a RiskBudgeting optimizer with a regime-blended budget vector.
+
+    Computes ``b_t = Σ_s γ_T(s) · b_s`` from the current HMM state
+    probabilities and injects the result as ``risk_budget`` into
+    :func:`build_risk_budgeting`.
+
+    Args:
+        config: Risk-budgeting configuration (risk measure, constraints, …).
+        hmm_result: Fitted HMM providing current filtered state probabilities.
+        regime_budgets: One budget vector per HMM state, each shape
+            ``(n_assets,)``.
+        **kwargs: Additional keyword arguments forwarded to
+            :func:`build_risk_budgeting` (e.g. ``prior_estimator``).
+
+    Returns:
+        :class:`skfolio.optimization.RiskBudgeting` instance ready for
+        ``fit(X)`` calls.
+
+    Raises:
+        ValueError: If ``len(regime_budgets) != hmm_result.n_states``.
+    """
+    gamma: npt.NDArray[np.float64] = (
+        hmm_result.filtered_probs.iloc[-1].to_numpy(dtype=np.float64)
+    )
+    blended_budget = compute_regime_budget(regime_budgets, gamma)
+    return build_risk_budgeting(config, risk_budget=blended_budget, **kwargs)
