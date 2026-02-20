@@ -67,7 +67,7 @@ class TestRobustConfig:
     def test_default_cov_uncertainty_method(self) -> None:
         assert RobustConfig().cov_uncertainty_method == "bootstrap"
 
-    def test_default_B(self) -> None:
+    def test_default_b(self) -> None:
         assert RobustConfig().B == 500
 
     def test_default_block_size(self) -> None:
@@ -144,7 +144,7 @@ class TestBuildRobustMeanRisk:
         assert model.covariance_uncertainty_set_estimator is None
 
     def test_cov_uncertainty_true_default_bootstrap(self) -> None:
-        """Default cov_uncertainty_method='bootstrap' injects BootstrapCovarianceUncertaintySet."""
+        """Default bootstrap method injects BootstrapCovarianceUncertaintySet."""
         model = build_robust_mean_risk(RobustConfig(cov_uncertainty=True))
         assert isinstance(
             model.covariance_uncertainty_set_estimator,
@@ -152,7 +152,7 @@ class TestBuildRobustMeanRisk:
         )
 
     def test_cov_uncertainty_empirical_method(self) -> None:
-        """cov_uncertainty_method='empirical' falls back to EmpiricalCovarianceUncertaintySet."""
+        """cov_uncertainty_method='empirical' → EmpiricalCovarianceUncertaintySet."""
         model = build_robust_mean_risk(
             RobustConfig(cov_uncertainty=True, cov_uncertainty_method="empirical")
         )
@@ -164,7 +164,9 @@ class TestBuildRobustMeanRisk:
     def test_bootstrap_params_forwarded(self) -> None:
         """B and block_size are forwarded to BootstrapCovarianceUncertaintySet."""
         model = build_robust_mean_risk(
-            RobustConfig(cov_uncertainty=True, B=200, block_size=10, bootstrap_alpha=0.10)
+            RobustConfig(
+                cov_uncertainty=True, B=200, block_size=10, bootstrap_alpha=0.10
+            )
         )
         est = model.covariance_uncertainty_set_estimator
         assert isinstance(est, BootstrapCovarianceUncertaintySet)
@@ -310,7 +312,9 @@ class TestCovarianceUncertaintyResult:
     def test_fields_accessible(self) -> None:
         cov = np.eye(3)
         samples = np.tile(np.eye(3), (10, 1, 1))
-        result = CovarianceUncertaintyResult(cov_hat=cov, delta=0.5, cov_samples=samples)
+        result = CovarianceUncertaintyResult(
+            cov_hat=cov, delta=0.5, cov_samples=samples
+        )
         np.testing.assert_array_equal(result.cov_hat, cov)
         assert result.delta == pytest.approx(0.5)
         assert result.cov_samples.shape == (10, 3, 3)
