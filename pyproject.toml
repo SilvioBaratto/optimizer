@@ -31,6 +31,7 @@ dependencies = [
     "scipy>=1.11",
     "scikit-learn>=1.6",
     "skfolio>=0.5",
+    "hmmlearn>=0.3.3",
 ]
 
 [project.optional-dependencies]
