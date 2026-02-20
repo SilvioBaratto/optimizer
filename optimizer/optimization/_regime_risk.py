@@ -278,4 +278,4 @@ def build_regime_blended_optimizer(
     dominant_measure = config.regime_measures[dominant_state]
     skfolio_measure = _RISK_MEASURE_MAP[dominant_measure]
 
-    return MeanRisk(risk_measure=skfolio_measure, **mean_risk_kwargs)  # type: ignore[arg-type]
+    return MeanRisk(risk_measure=skfolio_measure, **mean_risk_kwargs)
