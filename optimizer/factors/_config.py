@@ -68,6 +68,8 @@ class CompositeMethod(str, Enum):
     EQUAL_WEIGHT = "equal_weight"
     IC_WEIGHTED = "ic_weighted"
     ICIR_WEIGHTED = "icir_weighted"
+    RIDGE_WEIGHTED = "ridge_weighted"
+    GBT_WEIGHTED = "gbt_weighted"
 
 
 class SelectionMethod(str, Enum):
@@ -282,19 +284,29 @@ class CompositeScoringConfig:
     Parameters
     ----------
     method : CompositeMethod
-        Equal-weight or IC-weighted composite.
+        Equal-weight, IC-weighted, ICIR-weighted, ridge, or GBT composite.
     ic_lookback : int
         Number of periods for IC estimation when using IC weighting.
     core_weight : float
         Relative weight for core factor groups.
     supplementary_weight : float
         Relative weight for supplementary factor groups.
+    ridge_alpha : float
+        L2 regularisation strength for ``RIDGE_WEIGHTED``.  Passed as the
+        single candidate to ``RidgeCV``; increase for more shrinkage.
+    gbt_max_depth : int
+        Maximum tree depth for ``GBT_WEIGHTED``.
+    gbt_n_estimators : int
+        Number of boosting rounds for ``GBT_WEIGHTED``.
     """
 
     method: CompositeMethod = CompositeMethod.EQUAL_WEIGHT
     ic_lookback: int = 36
     core_weight: float = 1.0
     supplementary_weight: float = 0.5
+    ridge_alpha: float = 1.0
+    gbt_max_depth: int = 3
+    gbt_n_estimators: int = 50
 
     @classmethod
     def for_equal_weight(cls) -> CompositeScoringConfig:
@@ -314,6 +326,24 @@ class CompositeScoringConfig:
         volatility before normalising weights.
         """
         return cls(method=CompositeMethod.ICIR_WEIGHTED)
+
+    @classmethod
+    def for_ridge_weighted(cls) -> CompositeScoringConfig:
+        """Ridge regression composite scoring.
+
+        Learns optimal linear factor weights from historical data with
+        L2 regularisation, avoiding the need for IC proxies.
+        """
+        return cls(method=CompositeMethod.RIDGE_WEIGHTED)
+
+    @classmethod
+    def for_gbt_weighted(cls) -> CompositeScoringConfig:
+        """Gradient-boosted tree composite scoring.
+
+        Captures non-linear factor interactions (e.g. high value +
+        improving momentum = stronger combined signal).
+        """
+        return cls(method=CompositeMethod.GBT_WEIGHTED)
 
 
 @dataclass(frozen=True)

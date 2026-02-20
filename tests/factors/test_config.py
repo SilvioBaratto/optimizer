@@ -54,6 +54,8 @@ class TestEnums:
             CompositeMethod.EQUAL_WEIGHT,
             CompositeMethod.IC_WEIGHTED,
             CompositeMethod.ICIR_WEIGHTED,
+            CompositeMethod.RIDGE_WEIGHTED,
+            CompositeMethod.GBT_WEIGHTED,
         }
 
     def test_selection_method_members(self) -> None:
