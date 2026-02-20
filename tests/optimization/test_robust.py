@@ -1,4 +1,4 @@
-"""Unit tests for robust mean-risk optimization (issue #18)."""
+"""Unit tests for robust mean-risk optimization (issues #18, #33)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from skfolio.optimization import MeanRisk
 from skfolio.uncertainty_set import (
+    BootstrapCovarianceUncertaintySet,
     EmpiricalCovarianceUncertaintySet,
     EmpiricalMuUncertaintySet,
 )
@@ -14,8 +15,10 @@ from skfolio.uncertainty_set import (
 from optimizer.optimization._config import MeanRiskConfig, ObjectiveFunctionType
 from optimizer.optimization._factory import build_mean_risk
 from optimizer.optimization._robust import (
+    CovarianceUncertaintyResult,
     RobustConfig,
     _KappaEmpiricalMuUncertaintySet,
+    bootstrap_covariance_uncertainty,
     build_robust_mean_risk,
 )
 
@@ -61,6 +64,18 @@ class TestRobustConfig:
     def test_default_cov_uncertainty(self) -> None:
         assert RobustConfig().cov_uncertainty is False
 
+    def test_default_cov_uncertainty_method(self) -> None:
+        assert RobustConfig().cov_uncertainty_method == "bootstrap"
+
+    def test_default_B(self) -> None:
+        assert RobustConfig().B == 500
+
+    def test_default_block_size(self) -> None:
+        assert RobustConfig().block_size == 21
+
+    def test_default_bootstrap_alpha(self) -> None:
+        assert RobustConfig().bootstrap_alpha == 0.05
+
     def test_default_mean_risk_config_is_none(self) -> None:
         assert RobustConfig().mean_risk_config is None
 
@@ -72,6 +87,12 @@ class TestRobustConfig:
 
     def test_for_aggressive_kappa(self) -> None:
         assert RobustConfig.for_aggressive().kappa == 0.5
+
+    def test_for_bootstrap_covariance_preset(self) -> None:
+        cfg = RobustConfig.for_bootstrap_covariance()
+        assert cfg.kappa == 1.0
+        assert cfg.cov_uncertainty is True
+        assert cfg.cov_uncertainty_method == "bootstrap"
 
     def test_embedded_mean_risk_config(self) -> None:
         inner = MeanRiskConfig.for_max_sharpe()
@@ -122,12 +143,34 @@ class TestBuildRobustMeanRisk:
         model = build_robust_mean_risk(RobustConfig(cov_uncertainty=False))
         assert model.covariance_uncertainty_set_estimator is None
 
-    def test_cov_uncertainty_true_injects_cov_set(self) -> None:
+    def test_cov_uncertainty_true_default_bootstrap(self) -> None:
+        """Default cov_uncertainty_method='bootstrap' injects BootstrapCovarianceUncertaintySet."""
         model = build_robust_mean_risk(RobustConfig(cov_uncertainty=True))
+        assert isinstance(
+            model.covariance_uncertainty_set_estimator,
+            BootstrapCovarianceUncertaintySet,
+        )
+
+    def test_cov_uncertainty_empirical_method(self) -> None:
+        """cov_uncertainty_method='empirical' falls back to EmpiricalCovarianceUncertaintySet."""
+        model = build_robust_mean_risk(
+            RobustConfig(cov_uncertainty=True, cov_uncertainty_method="empirical")
+        )
         assert isinstance(
             model.covariance_uncertainty_set_estimator,
             EmpiricalCovarianceUncertaintySet,
         )
+
+    def test_bootstrap_params_forwarded(self) -> None:
+        """B and block_size are forwarded to BootstrapCovarianceUncertaintySet."""
+        model = build_robust_mean_risk(
+            RobustConfig(cov_uncertainty=True, B=200, block_size=10, bootstrap_alpha=0.10)
+        )
+        est = model.covariance_uncertainty_set_estimator
+        assert isinstance(est, BootstrapCovarianceUncertaintySet)
+        assert est.n_bootstrap_samples == 200
+        assert est.block_size == pytest.approx(10.0)
+        assert est.confidence_level == pytest.approx(0.90)
 
     def test_default_config_used_when_none(self) -> None:
         model = build_robust_mean_risk(None)
@@ -256,3 +299,115 @@ class TestKappaEmpiricalMuUncertaintySet:
         est = _KappaEmpiricalMuUncertaintySet(kappa=1.0)
         est.fit(returns)
         assert hasattr(est, "uncertainty_set_")
+
+
+# ---------------------------------------------------------------------------
+# TestCovarianceUncertaintyResult
+# ---------------------------------------------------------------------------
+
+
+class TestCovarianceUncertaintyResult:
+    def test_fields_accessible(self) -> None:
+        cov = np.eye(3)
+        samples = np.tile(np.eye(3), (10, 1, 1))
+        result = CovarianceUncertaintyResult(cov_hat=cov, delta=0.5, cov_samples=samples)
+        np.testing.assert_array_equal(result.cov_hat, cov)
+        assert result.delta == pytest.approx(0.5)
+        assert result.cov_samples.shape == (10, 3, 3)
+
+    def test_delta_is_float(self) -> None:
+        result = CovarianceUncertaintyResult(
+            cov_hat=np.eye(2), delta=1.23, cov_samples=np.zeros((5, 2, 2))
+        )
+        assert isinstance(result.delta, float)
+
+
+# ---------------------------------------------------------------------------
+# TestBootstrapCovarianceUncertainty
+# ---------------------------------------------------------------------------
+
+
+class TestBootstrapCovarianceUncertainty:
+    def test_returns_correct_type(self, returns: pd.DataFrame) -> None:
+        result = bootstrap_covariance_uncertainty(returns, B=50, seed=0)
+        assert isinstance(result, CovarianceUncertaintyResult)
+
+    def test_cov_hat_shape(self, returns: pd.DataFrame) -> None:
+        result = bootstrap_covariance_uncertainty(returns, B=50, seed=0)
+        assert result.cov_hat.shape == (N_ASSETS, N_ASSETS)
+
+    def test_cov_samples_shape(self, returns: pd.DataFrame) -> None:
+        result = bootstrap_covariance_uncertainty(returns, B=50, seed=0)
+        assert result.cov_samples.shape == (50, N_ASSETS, N_ASSETS)
+
+    def test_delta_positive_finite(self, returns: pd.DataFrame) -> None:
+        result = bootstrap_covariance_uncertainty(returns, B=50, seed=0)
+        assert result.delta > 0.0
+        assert np.isfinite(result.delta)
+
+    def test_each_sample_is_symmetric(self, returns: pd.DataFrame) -> None:
+        result = bootstrap_covariance_uncertainty(returns, B=50, seed=0)
+        for i in range(50):
+            np.testing.assert_allclose(
+                result.cov_samples[i],
+                result.cov_samples[i].T,
+                atol=1e-12,
+            )
+
+    def test_each_sample_is_psd(self, returns: pd.DataFrame) -> None:
+        result = bootstrap_covariance_uncertainty(returns, B=50, seed=0)
+        for i in range(50):
+            eigenvalues = np.linalg.eigvalsh(result.cov_samples[i])
+            assert np.all(eigenvalues >= -1e-10), f"Sample {i} is not PSD"
+
+    def test_delta_shrinks_with_more_data(self) -> None:
+        """Larger T → smaller bootstrap uncertainty radius (acceptance criterion)."""
+        rng = np.random.default_rng(42)
+        short_dates = pd.date_range("2020-01-02", periods=126, freq="B")
+        long_dates = pd.date_range("2020-01-02", periods=504, freq="B")
+        short_data = pd.DataFrame(
+            rng.normal(0.0005, 0.01, (126, 5)),
+            index=short_dates,
+            columns=[f"A{i}" for i in range(5)],
+        )
+        long_data = pd.DataFrame(
+            rng.normal(0.0005, 0.01, (504, 5)),
+            index=long_dates,
+            columns=[f"A{i}" for i in range(5)],
+        )
+        delta_short = bootstrap_covariance_uncertainty(short_data, B=200, seed=0).delta
+        delta_long = bootstrap_covariance_uncertainty(long_data, B=200, seed=0).delta
+        assert delta_short > delta_long
+
+    def test_reproducible_with_seed(self, returns: pd.DataFrame) -> None:
+        r1 = bootstrap_covariance_uncertainty(returns, B=30, seed=7)
+        r2 = bootstrap_covariance_uncertainty(returns, B=30, seed=7)
+        np.testing.assert_allclose(r1.delta, r2.delta)
+        np.testing.assert_allclose(r1.cov_samples, r2.cov_samples)
+
+
+# ---------------------------------------------------------------------------
+# TestBuildRobustMeanRiskBootstrapCovariance
+# ---------------------------------------------------------------------------
+
+
+class TestBuildRobustMeanRiskBootstrapCovariance:
+    def test_bootstrap_cov_fit_produces_valid_weights(
+        self, returns: pd.DataFrame
+    ) -> None:
+        """Acceptance criterion: cov_uncertainty=True yields valid weights."""
+        model = build_robust_mean_risk(
+            RobustConfig(cov_uncertainty=True, B=50, block_size=21)
+        )
+        model.fit(returns)
+        portfolio = model.predict(returns)
+        assert np.sum(portfolio.weights) == pytest.approx(1.0, abs=1e-6)
+        assert np.all(portfolio.weights >= -1e-8)
+
+    def test_for_bootstrap_covariance_preset_fits(
+        self, returns: pd.DataFrame
+    ) -> None:
+        model = build_robust_mean_risk(RobustConfig.for_bootstrap_covariance())
+        model.fit(returns)
+        portfolio = model.predict(returns)
+        assert float(np.sum(portfolio.weights)) == pytest.approx(1.0, abs=1e-6)

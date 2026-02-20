@@ -18,9 +18,20 @@ which introduces a penalty ``κ · ‖S_μ^(1/2) · w‖₂`` into the objective
 
 where ``n_assets`` is only known at fit time, so the conversion is deferred.
 
+Covariance uncertainty uses a stationary block bootstrap to construct an
+ellipsoidal uncertainty set around Σ̂.  The standalone utility
+:func:`bootstrap_covariance_uncertainty` additionally reports the
+Frobenius-norm confidence radius::
+
+    δ = quantile_{1-α}  ‖Σ_b - Σ̂‖_F ,  b = 1…B
+
 Usage example::
 
-    from optimizer.optimization._robust import RobustConfig, build_robust_mean_risk
+    from optimizer.optimization._robust import (
+        RobustConfig,
+        build_robust_mean_risk,
+        bootstrap_covariance_uncertainty,
+    )
 
     # Conservative: κ=2.0, min-variance objective
     model = build_robust_mean_risk(RobustConfig.for_conservative())
@@ -29,6 +40,11 @@ Usage example::
 
     # κ=0 → identical to standard MeanRisk (no penalty)
     baseline = build_robust_mean_risk(RobustConfig(kappa=0.0))
+
+    # Bootstrap covariance uncertainty with stationary block bootstrap
+    result = bootstrap_covariance_uncertainty(returns, B=500, block_size=21)
+    print(result.delta)         # Frobenius-norm confidence radius
+    print(result.cov_samples)   # (500, n, n) bootstrap covariance samples
 """
 
 from __future__ import annotations
@@ -38,10 +54,13 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
+from arch.bootstrap import StationaryBootstrap
 from scipy.stats import chi2
 from skfolio.optimization import MeanRisk
 from skfolio.prior._base import BasePrior
 from skfolio.uncertainty_set import (
+    BootstrapCovarianceUncertaintySet,
     EmpiricalCovarianceUncertaintySet,
     EmpiricalMuUncertaintySet,
 )
@@ -49,6 +68,91 @@ from skfolio.uncertainty_set import (
 from optimizer.moments._factory import build_prior
 from optimizer.optimization._config import MeanRiskConfig
 from optimizer.optimization._factory import _OBJECTIVE_MAP, _RISK_MEASURE_MAP
+
+# ---------------------------------------------------------------------------
+# Bootstrap covariance uncertainty
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CovarianceUncertaintyResult:
+    """Result of bootstrap covariance uncertainty estimation.
+
+    Attributes
+    ----------
+    cov_hat : np.ndarray, shape (n_assets, n_assets)
+        Sample covariance matrix estimated from the full return series.
+    delta : float
+        Frobenius-norm confidence radius: the ``(1-alpha)`` quantile of
+        ``‖Σ_b - Σ̂‖_F`` across B stationary bootstrap samples.
+    cov_samples : np.ndarray, shape (B, n_assets, n_assets)
+        Bootstrap covariance estimates, one per bootstrap resample.
+    """
+
+    cov_hat: np.ndarray
+    delta: float
+    cov_samples: np.ndarray
+
+
+def bootstrap_covariance_uncertainty(
+    returns: pd.DataFrame,
+    B: int = 500,
+    block_size: int = 21,
+    alpha: float = 0.05,
+    seed: int | None = None,
+) -> CovarianceUncertaintyResult:
+    """Estimate covariance uncertainty via stationary block bootstrap.
+
+    Draws *B* bootstrap resamples from *returns* using a stationary block
+    bootstrap (preserving autocorrelation structure), estimates the sample
+    covariance for each resample, and reports the Frobenius-norm confidence
+    radius as the ``(1-alpha)`` quantile of ``‖Σ_b - Σ̂‖_F``.
+
+    The Frobenius-norm confidence set is::
+
+        { Σ : ‖Σ - Σ̂‖_F ≤ δ }
+
+    Parameters
+    ----------
+    returns : pd.DataFrame, shape (T, n_assets)
+        Linear asset returns (rows = observations, columns = assets).
+    B : int, default=500
+        Number of bootstrap resamples.
+    block_size : int, default=21
+        Expected block length for the stationary bootstrap (≈ 1 trading
+        month).  Larger values preserve more autocorrelation at the cost of
+        bootstrap variance.
+    alpha : float, default=0.05
+        Significance level; ``delta`` is the ``(1-alpha)`` quantile of
+        Frobenius distances.
+    seed : int or None, default=None
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    CovarianceUncertaintyResult
+        Dataclass with ``cov_hat``, ``delta``, and ``cov_samples``.
+    """
+    X = returns.to_numpy()
+    n = X.shape[1]
+    cov_hat = np.cov(X.T)
+
+    bs = StationaryBootstrap(block_size, X, seed=seed)
+    cov_samples = np.empty((B, n, n))
+    for i, (pos, _) in enumerate(bs.bootstrap(B)):
+        cov_samples[i] = np.cov(pos[0].T)
+
+    frob_distances = np.linalg.norm(
+        (cov_samples - cov_hat).reshape(B, -1), axis=1
+    )
+    delta = float(np.quantile(frob_distances, 1.0 - alpha))
+
+    return CovarianceUncertaintyResult(
+        cov_hat=cov_hat,
+        delta=delta,
+        cov_samples=cov_samples,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Private: kappa-parameterised mu uncertainty set
@@ -130,6 +234,11 @@ class RobustConfig:
     so the penalty grows with κ and with the portfolio's exposure to
     estimation uncertainty.
 
+    When ``cov_uncertainty=True`` and ``cov_uncertainty_method="bootstrap"``
+    a stationary block bootstrap is used (via ``arch``) to construct a
+    skfolio ``BootstrapCovarianceUncertaintySet``.  The ``"empirical"``
+    method falls back to ``EmpiricalCovarianceUncertaintySet``.
+
     Parameters
     ----------
     kappa : float
@@ -137,9 +246,25 @@ class RobustConfig:
         conservative (diversified) portfolios.  ``kappa=0`` recovers the
         standard (non-robust) MeanRisk exactly.
     cov_uncertainty : bool
-        If True, also apply an empirical covariance uncertainty set
-        ``EmpiricalCovarianceUncertaintySet(confidence_level=0.95)``
-        to hedge against covariance estimation error.
+        If True, also apply a covariance uncertainty set to hedge against
+        covariance estimation error.  The method is controlled by
+        ``cov_uncertainty_method``.
+    cov_uncertainty_method : str
+        Method for covariance uncertainty set construction.
+        ``"bootstrap"`` (default) uses stationary block bootstrap via
+        ``BootstrapCovarianceUncertaintySet``; ``"empirical"`` uses the
+        formula-based ``EmpiricalCovarianceUncertaintySet``.
+    B : int
+        Number of bootstrap resamples for the stationary block bootstrap
+        (only used when ``cov_uncertainty_method="bootstrap"``).
+    block_size : int
+        Expected block length for the stationary bootstrap (≈ 1 trading
+        month).  Only used when ``cov_uncertainty_method="bootstrap"``.
+    bootstrap_alpha : float
+        Significance level for the covariance uncertainty ellipsoid; the
+        ``BootstrapCovarianceUncertaintySet`` confidence level is set to
+        ``1 - bootstrap_alpha``.  Only used when
+        ``cov_uncertainty_method="bootstrap"``.
     mean_risk_config : MeanRiskConfig or None
         Embedded mean-risk configuration (objective, risk measure,
         weight bounds, …).  ``None`` uses ``MeanRiskConfig()`` defaults
@@ -148,6 +273,10 @@ class RobustConfig:
 
     kappa: float = 1.0
     cov_uncertainty: bool = False
+    cov_uncertainty_method: str = "bootstrap"
+    B: int = 500
+    block_size: int = 21
+    bootstrap_alpha: float = 0.05
     mean_risk_config: MeanRiskConfig | None = None
 
     # -- factory methods ---------------------------------------------------
@@ -180,6 +309,16 @@ class RobustConfig:
         """
         return cls(kappa=0.5)
 
+    @classmethod
+    def for_bootstrap_covariance(cls) -> RobustConfig:
+        """Robust portfolio with bootstrap covariance uncertainty (κ=1.0).
+
+        Combines mean-vector robustness (κ=1.0) with stationary block
+        bootstrap covariance uncertainty to hedge against both sources of
+        estimation error.
+        """
+        return cls(kappa=1.0, cov_uncertainty=True, cov_uncertainty_method="bootstrap")
+
 
 # ---------------------------------------------------------------------------
 # Factory
@@ -196,7 +335,9 @@ def build_robust_mean_risk(
 
     Injects skfolio's ``mu_uncertainty_set_estimator`` into a standard
     ``MeanRisk`` to hedge against estimation error in the expected return
-    vector μ.  Optionally adds covariance uncertainty as well.
+    vector μ.  Optionally adds covariance uncertainty via stationary block
+    bootstrap (``cov_uncertainty_method="bootstrap"``, default) or the
+    analytic formula (``cov_uncertainty_method="empirical"``).
 
     Kappa–confidence_level mapping
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -245,11 +386,19 @@ def build_robust_mean_risk(
         else None
     )
 
-    cov_uncertainty: EmpiricalCovarianceUncertaintySet | None = (
-        EmpiricalCovarianceUncertaintySet(confidence_level=0.95)
-        if config.cov_uncertainty
-        else None
+    cov_uncertainty: (
+        BootstrapCovarianceUncertaintySet | EmpiricalCovarianceUncertaintySet | None
     )
+    if not config.cov_uncertainty:
+        cov_uncertainty = None
+    elif config.cov_uncertainty_method == "bootstrap":
+        cov_uncertainty = BootstrapCovarianceUncertaintySet(
+            n_bootstrap_samples=config.B,
+            block_size=float(config.block_size),
+            confidence_level=1.0 - config.bootstrap_alpha,
+        )
+    else:
+        cov_uncertainty = EmpiricalCovarianceUncertaintySet(confidence_level=0.95)
 
     return MeanRisk(
         objective_function=_OBJECTIVE_MAP[mean_risk_cfg.objective],
