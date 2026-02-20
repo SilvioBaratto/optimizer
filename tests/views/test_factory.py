@@ -23,6 +23,7 @@ from optimizer.views import (
     build_entropy_pooling,
     build_opinion_pooling,
 )
+from optimizer.views._factory import _EmpiricalOmegaBlackLitterman
 
 
 @pytest.fixture()
@@ -406,6 +407,82 @@ class TestIntegration:
         rd = prior.return_distribution_
         assert rd.mu is not None
         assert rd.covariance is not None
+
+    def test_empirical_omega_via_histories(self) -> None:
+        """build_black_litterman with view/return histories produces valid posterior."""
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        n_obs = 30
+        dates = returns.index[-n_obs:]
+        # Simulate 1 absolute view with forecast history
+        view_h = pd.DataFrame(
+            {"view_0": [0.001] * n_obs}, index=dates, dtype=float
+        )
+        ret_h = pd.DataFrame(
+            returns.loc[dates, "AAPL"].rename("view_0")
+        )
+        cfg = BlackLittermanConfig(
+            views=("AAPL == 0.05",),
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        prior = build_black_litterman(cfg, view_history=view_h, return_history=ret_h)
+        assert isinstance(prior, _EmpiricalOmegaBlackLitterman)
+        prior.fit(returns)
+        rd = prior.return_distribution_
+        assert rd.mu is not None
+        assert rd.mu.shape == (returns.shape[1],)
+        assert np.all(np.isfinite(rd.mu))
+
+    def test_empirical_omega_via_precomputed_array(self) -> None:
+        """build_black_litterman accepts a pre-computed omega directly."""
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        omega = np.diag([1e-4])
+        cfg = BlackLittermanConfig(
+            views=("AAPL == 0.05",),
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        prior = build_black_litterman(cfg, omega=omega)
+        assert isinstance(prior, _EmpiricalOmegaBlackLitterman)
+        prior.fit(returns)
+        rd = prior.return_distribution_
+        assert rd.mu is not None
+        assert rd.covariance is not None
+
+    def test_empirical_omega_raises_without_data(self) -> None:
+        """EMPIRICAL_TRACK_RECORD without omega or histories raises ValueError."""
+        cfg = BlackLittermanConfig(
+            views=("TICK_00 == 0.05",),
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        with pytest.raises(ValueError, match="EMPIRICAL_TRACK_RECORD"):
+            build_black_litterman(cfg)
+
+    def test_empirical_omega_covariance_is_psd(self) -> None:
+        """Posterior covariance from empirical omega is positive semi-definite."""
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        omega = np.diag([5e-5])
+        cfg = BlackLittermanConfig(
+            views=("AAPL == 0.05",),
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        prior = build_black_litterman(cfg, omega=omega)
+        prior.fit(returns)
+        eigvals = np.linalg.eigvalsh(prior.return_distribution_.covariance)
+        assert np.all(eigvals >= -1e-10)
 
     def test_bl_composes_with_meanrisk(self) -> None:
         from skfolio.datasets import load_sp500_dataset

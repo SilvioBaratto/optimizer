@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
+import numpy as np
+import numpy.typing as npt
+import pandas as pd
 from skfolio.prior import (
     BlackLitterman,
     EntropyPooling,
     FactorModel,
     OpinionPooling,
 )
-from skfolio.prior._base import BasePrior
+from skfolio.prior._base import BasePrior, ReturnDistribution
 
 from optimizer.moments._config import MomentEstimationConfig
 from optimizer.moments._factory import build_prior
@@ -20,21 +24,93 @@ from optimizer.views._config import (
     OpinionPoolingConfig,
     ViewUncertaintyMethod,
 )
+from optimizer.views._uncertainty import calibrate_omega_from_track_record
 
 
-def build_black_litterman(config: BlackLittermanConfig) -> BasePrior:
+class _EmpiricalOmegaBlackLitterman(BlackLitterman):
+    """BlackLitterman variant using a pre-computed empirical omega matrix.
+
+    Extends :class:`skfolio.prior.BlackLitterman` by accepting a
+    diagonal omega matrix calibrated from a forecast error track record.
+    After the parent ``fit()`` completes (handling view parsing and prior
+    estimation), the posterior mean and covariance are recomputed with the
+    empirical omega in place of the He-Litterman or Idzorek-derived one.
+    """
+
+    def __init__(
+        self,
+        empirical_omega: npt.NDArray[np.float64],
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.empirical_omega = empirical_omega
+
+    def fit(
+        self, X: npt.ArrayLike, y: object = None, **fit_params: Any
+    ) -> _EmpiricalOmegaBlackLitterman:
+        """Fit prior then recompute posterior with empirical omega."""
+        # Let the parent handle view parsing, prior fitting, and validation.
+        super().fit(X, y, **fit_params)
+
+        prior_mu = self.prior_estimator_.return_distribution_.mu
+        prior_cov = self.prior_estimator_.return_distribution_.covariance
+        prior_returns = self.prior_estimator_.return_distribution_.returns
+
+        omega: npt.NDArray[np.float64] = np.diag(
+            np.diag(self.empirical_omega.astype(np.float64))
+        )
+        P = self.picking_matrix_
+        q = self.views_
+
+        _v = self.tau * prior_cov @ P.T
+        _a = P @ _v + omega
+        _b = q - P @ prior_mu
+        posterior_mu = (
+            prior_mu + _v @ np.linalg.solve(_a, _b) + self.risk_free_rate
+        )
+        posterior_cov = (
+            prior_cov
+            + self.tau * prior_cov
+            - _v @ np.linalg.solve(_a, _v.T)
+        )
+        self.return_distribution_ = ReturnDistribution(
+            mu=posterior_mu,
+            covariance=posterior_cov,
+            returns=prior_returns,
+        )
+        return self
+
+
+def build_black_litterman(
+    config: BlackLittermanConfig,
+    view_history: pd.DataFrame | None = None,
+    return_history: pd.DataFrame | None = None,
+    omega: npt.NDArray[np.float64] | None = None,
+) -> BasePrior:
     """Build a skfolio Black-Litterman prior from *config*.
 
     Parameters
     ----------
     config : BlackLittermanConfig
         Black-Litterman configuration.
+    view_history : pd.DataFrame or None
+        Historical forecasted Q values (dates × views).  Required when
+        ``config.uncertainty_method`` is ``EMPIRICAL_TRACK_RECORD`` and
+        ``omega`` is not pre-supplied.
+    return_history : pd.DataFrame or None
+        Realised returns aligned to each view (dates × views).  Required
+        together with ``view_history`` for empirical omega calibration.
+    omega : ndarray of shape (n_views, n_views) or None
+        Pre-computed diagonal omega matrix.  When provided and method is
+        ``EMPIRICAL_TRACK_RECORD``, used directly (skipping the history
+        computation).
 
     Returns
     -------
     BasePrior
-        A fitted-ready :class:`skfolio.prior.BlackLitterman`, optionally
-        wrapped in a :class:`skfolio.prior.FactorModel`.
+        A fitted-ready :class:`skfolio.prior.BlackLitterman` (or
+        :class:`_EmpiricalOmegaBlackLitterman` for the empirical method),
+        optionally wrapped in a :class:`skfolio.prior.FactorModel`.
     """
     prior_cfg = (
         config.prior_config
@@ -43,21 +119,34 @@ def build_black_litterman(config: BlackLittermanConfig) -> BasePrior:
     )
     inner_prior = build_prior(prior_cfg)
 
-    view_confidences = (
-        list(config.view_confidences)
-        if config.uncertainty_method == ViewUncertaintyMethod.IDZOREK
-        and config.view_confidences is not None
-        else None
-    )
-
-    bl = BlackLitterman(
+    shared_kwargs: dict[str, Any] = dict(
         views=list(config.views),
         groups=config.groups,
         prior_estimator=inner_prior,
         tau=config.tau,
-        view_confidences=view_confidences,
         risk_free_rate=config.risk_free_rate,
     )
+
+    if config.uncertainty_method == ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD:
+        if omega is None:
+            if view_history is None or return_history is None:
+                raise ValueError(
+                    "EMPIRICAL_TRACK_RECORD requires either a pre-computed "
+                    "'omega' array or both 'view_history' and 'return_history'"
+                )
+            omega = calibrate_omega_from_track_record(view_history, return_history)
+        bl: BasePrior = _EmpiricalOmegaBlackLitterman(
+            empirical_omega=omega, **shared_kwargs
+        )
+    elif config.uncertainty_method == ViewUncertaintyMethod.IDZOREK:
+        view_confidences = (
+            list(config.view_confidences)
+            if config.view_confidences is not None
+            else None
+        )
+        bl = BlackLitterman(view_confidences=view_confidences, **shared_kwargs)
+    else:
+        bl = BlackLitterman(**shared_kwargs)
 
     if config.use_factor_model:
         return FactorModel(
