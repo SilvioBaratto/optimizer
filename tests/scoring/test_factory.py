@@ -18,8 +18,11 @@ class TestBuildScorer:
         scorer = build_scorer(cfg)
         assert callable(scorer)
 
-    def test_all_ratio_measures(self) -> None:
+    def test_all_ratio_measures_except_ir(self) -> None:
+        """All RatioMeasureType members except IR build without benchmark_returns."""
         for measure in RatioMeasureType:
+            if measure == RatioMeasureType.INFORMATION_RATIO:
+                continue
             cfg = ScorerConfig(ratio_measure=measure)
             scorer = build_scorer(cfg)
             assert callable(scorer)
