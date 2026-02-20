@@ -7,7 +7,10 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+import sklearn.utils.validation as skv
 from hmmlearn.hmm import GaussianHMM
+from skfolio.moments.covariance._base import BaseCovariance
+from skfolio.moments.expected_returns._base import BaseMu
 
 
 @dataclass(frozen=True)
@@ -197,6 +200,182 @@ def blend_moments_by_regime(
     mu = pd.Series(mu_arr, index=tickers)
     cov = pd.DataFrame(cov_arr, index=tickers, columns=tickers)
     return mu, cov
+
+
+# ---------------------------------------------------------------------------
+# skfolio-compatible estimator classes
+# ---------------------------------------------------------------------------
+
+
+class HMMBlendedMu(BaseMu):
+    """Expected-return estimator that blends regime-conditional means via HMM.
+
+    Fits a Gaussian HMM with :func:`fit_hmm` and computes the
+    probability-weighted blended expected return vector::
+
+        μ = Σ_s p(z_T=s | r_{1:T}) · μ_s
+
+    where the weights are the smoothed posterior at the final observation.
+
+    Conforms to the skfolio ``BaseMu`` API: exposes ``mu_`` (``ndarray``
+    of shape ``(n_assets,)``) after ``fit``.
+
+    Parameters
+    ----------
+    hmm_config : HMMConfig or None, default=None
+        HMM hyper-parameters.  ``None`` falls back to ``HMMConfig()``
+        (2 states, full covariance, 100 EM iterations).
+
+    Attributes
+    ----------
+    mu_ : ndarray of shape (n_assets,)
+        Probability-weighted blended expected return vector.
+    hmm_result_ : HMMResult
+        The fitted HMM result (for inspection or downstream use).
+    n_features_in_ : int
+        Number of assets seen during ``fit``.
+    feature_names_in_ : ndarray of shape (n_features_in_,)
+        Asset names seen during ``fit`` (only when input is a DataFrame
+        with string column names).
+    """
+
+    def __init__(self, hmm_config: HMMConfig | None = None) -> None:
+        self.hmm_config = hmm_config
+
+    def fit(self, X: npt.ArrayLike, y: object = None) -> HMMBlendedMu:
+        """Fit the HMM and compute the blended expected return vector.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_observations, n_assets)
+            Linear returns of the assets.
+        y : ignored
+
+        Returns
+        -------
+        self
+        """
+        X_arr: npt.NDArray[np.float64] = skv.validate_data(self, X)
+        tickers: list[str | int] = (
+            list(self.feature_names_in_)
+            if hasattr(self, "feature_names_in_")
+            else list(range(X_arr.shape[1]))
+        )
+        returns_df = pd.DataFrame(X_arr, columns=tickers)
+
+        cfg = self.hmm_config if self.hmm_config is not None else HMMConfig()
+        self.hmm_result_: HMMResult = fit_hmm(returns_df, cfg)
+
+        mu_series, _ = blend_moments_by_regime(self.hmm_result_)
+        self.mu_: npt.NDArray[np.float64] = mu_series.to_numpy(dtype=np.float64)
+        return self
+
+
+class HMMBlendedCovariance(BaseCovariance):
+    """Covariance estimator that blends regime covariances via HMM.
+
+    Fits a Gaussian HMM with :func:`fit_hmm` and computes the blended
+    covariance matrix using the full law of total variance formula::
+
+        Σ = Σ_s p(z_T=s | r_{1:T}) · [Σ_s + (μ_s - μ)(μ_s - μ)ᵀ]
+
+    The second term ``(μ_s - μ)(μ_s - μ)ᵀ`` is the cross-state mean
+    dispersion contribution, which the simpler blend in
+    :func:`blend_moments_by_regime` omits.
+
+    Conforms to the skfolio ``BaseCovariance`` API: exposes
+    ``covariance_`` (``ndarray`` of shape ``(n_assets, n_assets)``) after
+    ``fit``.
+
+    Parameters
+    ----------
+    hmm_config : HMMConfig or None, default=None
+        HMM hyper-parameters.  ``None`` falls back to ``HMMConfig()``.
+    nearest : bool, default=True
+        Project the blended covariance to the nearest positive-definite
+        matrix if it is not already PSD.
+    higham : bool, default=False
+        Use the Higham (2002) algorithm for the PSD projection instead of
+        eigenvalue clipping.
+    higham_max_iteration : int, default=100
+        Maximum iterations for the Higham algorithm.
+
+    Attributes
+    ----------
+    covariance_ : ndarray of shape (n_assets, n_assets)
+        Blended covariance matrix (with mean-dispersion term).
+    hmm_result_ : HMMResult
+        The fitted HMM result.
+    n_features_in_ : int
+        Number of assets seen during ``fit``.
+    feature_names_in_ : ndarray of shape (n_features_in_,)
+        Asset names seen during ``fit`` (only when input is a DataFrame
+        with string column names).
+    """
+
+    def __init__(
+        self,
+        hmm_config: HMMConfig | None = None,
+        nearest: bool = True,
+        higham: bool = False,
+        higham_max_iteration: int = 100,
+    ) -> None:
+        super().__init__(
+            nearest=nearest,
+            higham=higham,
+            higham_max_iteration=higham_max_iteration,
+        )
+        self.hmm_config = hmm_config
+
+    def fit(self, X: npt.ArrayLike, y: object = None) -> HMMBlendedCovariance:
+        """Fit the HMM and compute the blended covariance matrix.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_observations, n_assets)
+            Linear returns of the assets.
+        y : ignored
+
+        Returns
+        -------
+        self
+        """
+        X_arr: npt.NDArray[np.float64] = skv.validate_data(self, X)
+        tickers: list[str | int] = (
+            list(self.feature_names_in_)
+            if hasattr(self, "feature_names_in_")
+            else list(range(X_arr.shape[1]))
+        )
+        returns_df = pd.DataFrame(X_arr, columns=tickers)
+
+        cfg = self.hmm_config if self.hmm_config is not None else HMMConfig()
+        self.hmm_result_: HMMResult = fit_hmm(returns_df, cfg)
+
+        weights: npt.NDArray[np.float64] = (
+            self.hmm_result_.filtered_probs.iloc[-1].to_numpy(dtype=np.float64)
+        )
+        n_states = len(weights)
+        n_assets = X_arr.shape[1]
+
+        # Blended mu: μ = Σ_s p_s · μ_s
+        mu_arr = np.zeros(n_assets, dtype=np.float64)
+        for s in range(n_states):
+            mu_arr += (
+                weights[s]
+                * self.hmm_result_.regime_means.iloc[s].to_numpy(dtype=np.float64)
+            )
+
+        # Full blended covariance: Σ = Σ_s p_s · [Σ_s + (μ_s - μ)(μ_s - μ)ᵀ]
+        cov_arr = np.zeros((n_assets, n_assets), dtype=np.float64)
+        for s in range(n_states):
+            mu_s = self.hmm_result_.regime_means.iloc[s].to_numpy(dtype=np.float64)
+            diff = mu_s - mu_arr
+            cov_arr += weights[s] * (
+                self.hmm_result_.regime_covariances[s] + np.outer(diff, diff)
+            )
+
+        self._set_covariance(cov_arr)
+        return self
 
 
 # ---------------------------------------------------------------------------

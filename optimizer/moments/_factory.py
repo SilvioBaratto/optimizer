@@ -30,6 +30,7 @@ from optimizer.moments._config import (
     MuEstimatorType,
     ShrinkageMethod,
 )
+from optimizer.moments._hmm import HMMBlendedCovariance, HMMBlendedMu
 
 _SHRINKAGE_MAP: dict[ShrinkageMethod, ShrunkMuMethods] = {
     ShrinkageMethod.JAMES_STEIN: ShrunkMuMethods.JAMES_STEIN,
@@ -60,6 +61,8 @@ def build_mu_estimator(config: MomentEstimationConfig) -> BaseMu:
             return EWMu(alpha=config.ew_mu_alpha)
         case MuEstimatorType.EQUILIBRIUM:
             return EquilibriumMu(risk_aversion=config.risk_aversion)
+        case MuEstimatorType.HMM_BLENDED:
+            return HMMBlendedMu(hmm_config=config.hmm_config)
 
 
 def build_cov_estimator(config: MomentEstimationConfig) -> BaseCovariance:
@@ -100,6 +103,8 @@ def build_cov_estimator(config: MomentEstimationConfig) -> BaseCovariance:
             )
         case CovEstimatorType.IMPLIED:
             return ImpliedCovariance()
+        case CovEstimatorType.HMM_BLENDED:
+            return HMMBlendedCovariance(hmm_config=config.hmm_config)
 
 
 def build_prior(config: MomentEstimationConfig | None = None) -> BasePrior:

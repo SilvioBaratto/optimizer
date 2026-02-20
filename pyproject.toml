@@ -75,6 +75,11 @@ ignore_missing_imports = true
 module = "optimizer.preprocessing.*"
 disallow_subclassing_any = false
 
+# skfolio BaseMu / BaseCovariance lack type stubs — suppress subclassing errors
+[[tool.mypy.overrides]]
+module = "optimizer.moments._hmm"
+disallow_subclassing_any = false
+
 # torch/pyro have incomplete stubs — suppress all strict errors for the DMM module
 [[tool.mypy.overrides]]
 module = "optimizer.moments._dmm"

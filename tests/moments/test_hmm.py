@@ -6,7 +6,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from optimizer.moments import HMMConfig, HMMResult, blend_moments_by_regime, fit_hmm
+from optimizer.moments import (
+    HMMBlendedCovariance,
+    HMMBlendedMu,
+    HMMConfig,
+    HMMResult,
+    blend_moments_by_regime,
+    fit_hmm,
+)
 
 TICKERS = ["AAPL", "MSFT", "GOOG"]
 N_ASSETS = len(TICKERS)
@@ -230,3 +237,163 @@ class TestBlendMomentsByRegime:
         mu, cov = blend_moments_by_regime(result)
         np.testing.assert_allclose(mu.to_numpy(), means_arr[0], atol=1e-12)
         np.testing.assert_allclose(cov.to_numpy(), covs[0], atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# HMMBlendedMu — skfolio BaseMu estimator
+# ---------------------------------------------------------------------------
+
+
+class TestHMMBlendedMu:
+    def test_fit_returns_self(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedMu(hmm_config=HMMConfig(n_states=2, random_state=0))
+        result = est.fit(synthetic_returns)
+        assert result is est
+
+    def test_mu_attribute_set_after_fit(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedMu(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert hasattr(est, "mu_")
+
+    def test_mu_shape(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedMu(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert est.mu_.shape == (N_ASSETS,)
+
+    def test_mu_is_numpy_array(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedMu(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert isinstance(est.mu_, np.ndarray)
+
+    def test_mu_values_finite(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedMu(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert np.all(np.isfinite(est.mu_))
+
+    def test_hmm_result_attribute_set(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedMu(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert hasattr(est, "hmm_result_")
+        assert isinstance(est.hmm_result_, HMMResult)
+
+    def test_n_features_in_set(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedMu(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert est.n_features_in_ == N_ASSETS
+
+    def test_feature_names_preserved(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedMu(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert list(est.feature_names_in_) == TICKERS
+
+    def test_default_config_used_when_none(
+        self, synthetic_returns: pd.DataFrame
+    ) -> None:
+        est = HMMBlendedMu()
+        est.fit(synthetic_returns)
+        assert est.mu_.shape == (N_ASSETS,)
+
+    def test_mu_within_regime_range(self, synthetic_returns: pd.DataFrame) -> None:
+        """Blended mu must fall within the envelope of per-regime means."""
+        est = HMMBlendedMu(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        mu_min = est.hmm_result_.regime_means.min(axis=0).to_numpy()
+        mu_max = est.hmm_result_.regime_means.max(axis=0).to_numpy()
+        assert np.all(est.mu_ >= mu_min - 1e-12)
+        assert np.all(est.mu_ <= mu_max + 1e-12)
+
+    def test_accepts_numpy_array_input(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedMu(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns.to_numpy())
+        assert est.mu_.shape == (N_ASSETS,)
+
+
+# ---------------------------------------------------------------------------
+# HMMBlendedCovariance — skfolio BaseCovariance estimator
+# ---------------------------------------------------------------------------
+
+
+class TestHMMBlendedCovariance:
+    def test_fit_returns_self(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        result = est.fit(synthetic_returns)
+        assert result is est
+
+    def test_covariance_attribute_set_after_fit(
+        self, synthetic_returns: pd.DataFrame
+    ) -> None:
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert hasattr(est, "covariance_")
+
+    def test_covariance_shape(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert est.covariance_.shape == (N_ASSETS, N_ASSETS)
+
+    def test_covariance_is_numpy_array(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert isinstance(est.covariance_, np.ndarray)
+
+    def test_covariance_is_symmetric(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        np.testing.assert_allclose(
+            est.covariance_, est.covariance_.T, atol=1e-12
+        )
+
+    def test_covariance_is_psd(self, synthetic_returns: pd.DataFrame) -> None:
+        """All eigenvalues must be non-negative (positive semi-definite)."""
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        eigvals = np.linalg.eigvalsh(est.covariance_)
+        assert np.all(eigvals >= -1e-10)
+
+    def test_covariance_values_finite(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert np.all(np.isfinite(est.covariance_))
+
+    def test_hmm_result_attribute_set(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert hasattr(est, "hmm_result_")
+        assert isinstance(est.hmm_result_, HMMResult)
+
+    def test_n_features_in_set(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert est.n_features_in_ == N_ASSETS
+
+    def test_feature_names_preserved(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        assert list(est.feature_names_in_) == TICKERS
+
+    def test_default_config_used_when_none(
+        self, synthetic_returns: pd.DataFrame
+    ) -> None:
+        est = HMMBlendedCovariance()
+        est.fit(synthetic_returns)
+        assert est.covariance_.shape == (N_ASSETS, N_ASSETS)
+
+    def test_covariance_larger_than_within_regime(
+        self, synthetic_returns: pd.DataFrame
+    ) -> None:
+        """Full law of total variance includes mean-dispersion term, so blended
+        diagonal variance >= weighted average of within-regime variances."""
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        weights = est.hmm_result_.filtered_probs.iloc[-1].to_numpy()
+        weighted_diag = sum(
+            weights[s] * np.diag(est.hmm_result_.regime_covariances[s])
+            for s in range(len(weights))
+        )
+        blended_diag = np.diag(est.covariance_)
+        assert np.all(blended_diag >= weighted_diag - 1e-12)
+
+    def test_accepts_numpy_array_input(self, synthetic_returns: pd.DataFrame) -> None:
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns.to_numpy())
+        assert est.covariance_.shape == (N_ASSETS, N_ASSETS)
