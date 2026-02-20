@@ -41,6 +41,12 @@ class LlmResponseParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ClassifyMacroRegime", llm_response=llm_response, mode="request")
         return typing.cast(types.MacroRegimeCalibration, __result__)
 
+    def DesignStressScenarios(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> typing.List["types.StressScenario"]:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="DesignStressScenarios", llm_response=llm_response, mode="request")
+        return typing.cast(typing.List["types.StressScenario"], __result__)
+
     def GenerateExpertView(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.ViewOutput:
@@ -108,6 +114,12 @@ class LlmStreamParser:
     ) -> stream_types.MacroRegimeCalibration:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ClassifyMacroRegime", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.MacroRegimeCalibration, __result__)
+
+    def DesignStressScenarios(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> typing.List["stream_types.StressScenario"]:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="DesignStressScenarios", llm_response=llm_response, mode="stream")
+        return typing.cast(typing.List["stream_types.StressScenario"], __result__)
 
     def GenerateExpertView(
         self, llm_response: str, baml_options: BamlCallOptions = {},

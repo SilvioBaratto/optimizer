@@ -127,6 +127,21 @@ class BamlAsyncClient:
                 "macro_summary": macro_summary,
             })
             return typing.cast(types.MacroRegimeCalibration, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    async def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
+        baml_options: BamlCallOptions = {},
+    ) -> typing.List["types.StressScenario"]:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            # Use streaming internally when on_tick is provided
+            __stream__ = self.stream.DesignStressScenarios(tickers=tickers,macro_context=macro_context,n_scenarios=n_scenarios,
+                baml_options=baml_options)
+            return await __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="DesignStressScenarios", args={
+                "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
+            })
+            return typing.cast(typing.List["types.StressScenario"], __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,
         baml_options: BamlCallOptions = {},
     ) -> types.ViewOutput:
@@ -277,6 +292,18 @@ class BamlStreamClient:
           lambda x: typing.cast(types.MacroRegimeCalibration, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
+    def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlStream[typing.List["stream_types.StressScenario"], typing.List["types.StressScenario"]]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="DesignStressScenarios", args={
+            "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
+        })
+        return baml_py.BamlStream[typing.List["stream_types.StressScenario"], typing.List["types.StressScenario"]](
+          __result__,
+          lambda x: typing.cast(typing.List["stream_types.StressScenario"], x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(typing.List["types.StressScenario"], x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
     def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[stream_types.ViewOutput, types.ViewOutput]:
@@ -390,6 +417,13 @@ class BamlHttpRequestClient:
             "macro_summary": macro_summary,
         }, mode="request")
         return __result__
+    async def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="DesignStressScenarios", args={
+            "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
+        }, mode="request")
+        return __result__
     async def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
@@ -466,6 +500,13 @@ class BamlHttpStreamRequestClient:
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ClassifyMacroRegime", args={
             "macro_summary": macro_summary,
+        }, mode="stream")
+        return __result__
+    async def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="DesignStressScenarios", args={
+            "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
         }, mode="stream")
         return __result__
     async def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,

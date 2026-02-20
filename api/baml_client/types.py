@@ -64,7 +64,7 @@ class ExpertPersona(str, Enum):
     MACRO_ANALYST = "MACRO_ANALYST"
 
 # #########################################################################
-# Generated classes (9)
+# Generated classes (10)
 # #########################################################################
 
 class AssetFactorData(BaseModel):
@@ -120,6 +120,13 @@ class NewsArticle(BaseModel):
 class NewsSentimentOutput(BaseModel):
     scores: typing.List[float] = Field(description='Sentiment score for each article: +1=strongly bullish, -1=strongly bearish, 0=neutral.')
     reasoning: str = Field(description='Brief overall summary of the sentiment assessment.')
+
+class StressScenario(BaseModel):
+    name: str = Field(description='Short label for the scenario, e.g. \'Global Recession 2026\'.')
+    description: str = Field(description='2-4 sentence narrative explaining the macro/geopolitical trigger.')
+    shocks: typing.Dict[str, float] = Field(description='Ticker → expected return shock over the horizon. Values in (-1, 1). E.g. {"SPY": -0.15, "GLD": 0.08}.')
+    probability: float = Field(description='Subjective probability that this scenario materialises. Must be in (0, 1).')
+    horizon_days: int = Field(description='Time horizon over which the shocks occur, in trading days.')
 
 class ViewOutput(BaseModel):
     views: typing.List["AssetView"] = Field(description='List of asset views. Only include assets with sufficiently strong factor evidence.')
