@@ -53,6 +53,7 @@ class TestEnums:
         assert set(CompositeMethod) == {
             CompositeMethod.EQUAL_WEIGHT,
             CompositeMethod.IC_WEIGHTED,
+            CompositeMethod.ICIR_WEIGHTED,
         }
 
     def test_selection_method_members(self) -> None:
@@ -225,6 +226,10 @@ class TestCompositeScoringConfig:
     def test_for_ic_weighted(self) -> None:
         cfg = CompositeScoringConfig.for_ic_weighted()
         assert cfg.method == CompositeMethod.IC_WEIGHTED
+
+    def test_for_icir_weighted(self) -> None:
+        cfg = CompositeScoringConfig.for_icir_weighted()
+        assert cfg.method == CompositeMethod.ICIR_WEIGHTED
 
 
 class TestSelectionConfig:

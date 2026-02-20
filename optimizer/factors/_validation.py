@@ -160,6 +160,32 @@ def compute_ic_series(
     return pd.Series(ics, name=factor_name, dtype=float)
 
 
+def compute_icir(ic_series: pd.Series) -> float:
+    """Compute the IC Information Ratio (mean IC / std IC).
+
+    ICIR penalises factors with high average IC but also high IC
+    volatility (inconsistent predictors).  Use this as the weighting
+    signal in ICIR-weighted composite scoring.
+
+    Parameters
+    ----------
+    ic_series : pd.Series
+        Time series of IC values (one per cross-section date).
+
+    Returns
+    -------
+    float
+        ICIR value, or 0.0 if ``std(IC) == 0`` or fewer than
+        2 non-NaN observations.
+    """
+    clean = ic_series.dropna()
+    if len(clean) < 2:
+        return 0.0
+    mean_ic = float(clean.mean())
+    ic_std = float(clean.std(ddof=1))
+    return mean_ic / ic_std if ic_std > 0.0 else 0.0
+
+
 def compute_newey_west_tstat(
     ic_series: pd.Series,
     n_lags: int = 6,

@@ -51,6 +51,7 @@ from optimizer.factors._scoring import (
     compute_equal_weight_composite,
     compute_group_scores,
     compute_ic_weighted_composite,
+    compute_icir_weighted_composite,
 )
 from optimizer.factors._selection import (
     apply_sector_balance,
@@ -75,6 +76,7 @@ from optimizer.factors._validation import (
     benjamini_hochberg,
     compute_ic_series,
     compute_ic_stats,
+    compute_icir,
     compute_monthly_ic,
     compute_newey_west_tstat,
     compute_quantile_spread,
@@ -121,6 +123,7 @@ __all__ = [
     "compute_equal_weight_composite",
     "compute_group_scores",
     "compute_ic_weighted_composite",
+    "compute_icir_weighted_composite",
     # Selection
     "apply_sector_balance",
     "select_fixed_count",
@@ -139,6 +142,7 @@ __all__ = [
     "benjamini_hochberg",
     "compute_ic_series",
     "compute_ic_stats",
+    "compute_icir",
     "compute_monthly_ic",
     "compute_newey_west_tstat",
     "compute_quantile_spread",
