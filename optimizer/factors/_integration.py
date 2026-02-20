@@ -4,46 +4,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-from optimizer.factors._config import FactorIntegrationConfig
-
-
-def factor_scores_to_expected_returns(
-    factor_scores: pd.Series,
-    betas: pd.DataFrame,
-    factor_premia: dict[str, float],
-    config: FactorIntegrationConfig | None = None,
-) -> pd.Series:
-    """Map factor scores to expected returns via linear model.
-
-    ``E[r_i] = r_f + sum_k (beta_ik * premium_k * score_ik)``
-
-    Parameters
-    ----------
-    factor_scores : pd.Series
-        Composite or individual factor scores per ticker.
-    betas : pd.DataFrame
-        Tickers x factors matrix of factor exposures.
-    factor_premia : dict[str, float]
-        Expected premium per factor.
-    config : FactorIntegrationConfig or None
-        Integration parameters.
-
-    Returns
-    -------
-    pd.Series
-        Expected return per ticker (annualized).
-    """
-    if config is None:
-        config = FactorIntegrationConfig()
-
-    expected = pd.Series(config.risk_free_rate, index=betas.index)
-
-    for factor_name, premium in factor_premia.items():
-        if factor_name in betas.columns:
-            expected = expected + betas[factor_name] * premium
-
-    return expected
-
 
 def build_factor_bl_views(
     factor_scores: pd.DataFrame,

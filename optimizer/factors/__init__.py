@@ -1,5 +1,11 @@
 """Factor construction, scoring, and selection for stock pre-selection."""
 
+from optimizer.factors._alpha import factor_scores_to_expected_returns
+from optimizer.factors._diagnostics import (
+    FactorPCAResult,
+    compute_factor_pca,
+    flag_redundant_factors,
+)
 from optimizer.factors._config import (
     FACTOR_GROUP_MAPPING,
     GROUP_WEIGHT_TIER,
@@ -23,7 +29,12 @@ from optimizer.factors._integration import (
     build_factor_bl_views,
     build_factor_exposure_constraints,
     estimate_factor_premia,
-    factor_scores_to_expected_returns,
+)
+from optimizer.factors._mimicking import (
+    QuintileSpreadResult,
+    build_factor_mimicking_portfolios,
+    compute_cross_factor_correlation,
+    compute_quintile_spread,
 )
 from optimizer.factors._regime import (
     apply_regime_tilts,
@@ -51,16 +62,21 @@ from optimizer.factors._standardization import (
     z_score_standardize,
 )
 from optimizer.factors._validation import (
+    CorrectedPValues,
     FactorValidationReport,
     ICResult,
+    ICStats,
     QuantileSpreadResult,
     benjamini_hochberg,
     compute_ic_series,
+    compute_ic_stats,
     compute_monthly_ic,
     compute_newey_west_tstat,
     compute_quantile_spread,
     compute_vif,
+    correct_pvalues,
     run_factor_validation,
+    validate_factor_universe,
 )
 
 __all__ = [
@@ -108,19 +124,33 @@ __all__ = [
     "classify_regime",
     "get_regime_tilts",
     # Validation
+    "CorrectedPValues",
     "FactorValidationReport",
     "ICResult",
+    "ICStats",
     "QuantileSpreadResult",
     "benjamini_hochberg",
     "compute_ic_series",
+    "compute_ic_stats",
     "compute_monthly_ic",
     "compute_newey_west_tstat",
     "compute_quantile_spread",
     "compute_vif",
+    "correct_pvalues",
     "run_factor_validation",
+    "validate_factor_universe",
     # Integration
     "build_factor_bl_views",
     "build_factor_exposure_constraints",
     "estimate_factor_premia",
     "factor_scores_to_expected_returns",
+    # Mimicking portfolios and quintile analysis
+    "QuintileSpreadResult",
+    "build_factor_mimicking_portfolios",
+    "compute_cross_factor_correlation",
+    "compute_quintile_spread",
+    # Diagnostics
+    "FactorPCAResult",
+    "compute_factor_pca",
+    "flag_redundant_factors",
 ]
