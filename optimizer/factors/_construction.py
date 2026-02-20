@@ -8,7 +8,78 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from optimizer.factors._config import FactorConstructionConfig, FactorType
+from optimizer.factors._config import (
+    FactorConstructionConfig,
+    FactorType,
+)
+
+# ---------------------------------------------------------------------------
+# Point-in-time alignment
+# ---------------------------------------------------------------------------
+
+
+def align_to_pit(
+    data: pd.DataFrame,
+    period_date_col: str,
+    as_of_date: pd.Timestamp | str,
+    lag_days: int,
+    ticker_col: str = "ticker",
+) -> pd.DataFrame:
+    """Filter time-series data to records published before ``as_of_date``.
+
+    A record with period end date ``D`` is considered published
+    ``lag_days`` calendar days after ``D``.  A record is available as of
+    ``as_of_date`` only when ``D + lag_days <= as_of_date``, equivalently
+    when ``D <= as_of_date - lag_days``.
+
+    For each ticker, the most recent record satisfying the availability
+    constraint is returned so that callers receive a cross-sectional view
+    as of ``as_of_date``.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Time-series data containing ``period_date_col`` and optionally
+        ``ticker_col``.
+    period_date_col : str
+        Name of the column holding the period end date.
+    as_of_date : pd.Timestamp or str
+        The computation date.  Only records available on or before this
+        date (after the lag has elapsed) are returned.
+    lag_days : int
+        Calendar days between period end and data availability.
+    ticker_col : str
+        Column holding the ticker identifier.  Defaults to ``"ticker"``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Cross-sectional view: one row per ticker (the most recent
+        available record), indexed by ``ticker_col`` when present.
+        Returns an empty DataFrame with the same columns if no records
+        pass the cutoff.
+    """
+    as_of = pd.Timestamp(as_of_date)
+    cutoff = as_of - pd.Timedelta(days=lag_days)
+
+    dates = pd.to_datetime(data[period_date_col])
+    available = data.loc[dates <= cutoff].copy()
+
+    if available.empty:
+        return pd.DataFrame(columns=data.columns)
+
+    if ticker_col in available.columns:
+        available["_sort_date"] = pd.to_datetime(available[period_date_col])
+        result = (
+            available.sort_values("_sort_date")
+            .groupby(ticker_col)
+            .last()
+            .drop(columns=["_sort_date"])
+        )
+        return result
+
+    return available
+
 
 # ---------------------------------------------------------------------------
 # Individual factor calculators

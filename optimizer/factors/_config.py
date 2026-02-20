@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 # ---------------------------------------------------------------------------
@@ -135,6 +135,47 @@ GROUP_WEIGHT_TIER: dict[FactorGroupType, GroupWeight] = {
 
 
 @dataclass(frozen=True)
+class PublicationLagConfig:
+    """Differentiated publication lags by data source type.
+
+    Each source has an independent delay between the period end date and
+    the date the data is reliably available for use in factor construction.
+    Using source-specific lags avoids look-ahead bias when aligning
+    fundamental data to price dates.
+
+    Parameters
+    ----------
+    annual_days : int
+        Lag for annual financial statements (days after fiscal year end).
+        Default: 90 days (~3 months for 10-K filing).
+    quarterly_days : int
+        Lag for quarterly financial statements (days after quarter end).
+        Default: 45 days (~6 weeks for 10-Q filing).
+    analyst_days : int
+        Lag for analyst estimates and recommendations.
+        Default: 5 days (short dissemination buffer).
+    macro_days : int
+        Lag for macroeconomic indicators (release lag + revision lag).
+        Default: 63 days (~2 months).
+    """
+
+    annual_days: int = 90
+    quarterly_days: int = 45
+    analyst_days: int = 5
+    macro_days: int = 63
+
+    @classmethod
+    def uniform(cls, days: int) -> PublicationLagConfig:
+        """Create a config with the same lag applied to all sources."""
+        return cls(
+            annual_days=days,
+            quarterly_days=days,
+            analyst_days=days,
+            macro_days=days,
+        )
+
+
+@dataclass(frozen=True)
 class FactorConstructionConfig:
     """Configuration for factor computation.
 
@@ -152,8 +193,11 @@ class FactorConstructionConfig:
         Lookback window for beta estimation in trading days.
     amihud_lookback : int
         Lookback window for Amihud illiquidity in trading days.
-    publication_lag : int
-        Days to lag fundamental data for point-in-time correctness.
+    publication_lag : PublicationLagConfig
+        Per-source publication lags for point-in-time correctness.
+        Pass a plain ``int`` for a uniform lag across all sources
+        (backward-compatible; converted to :class:`PublicationLagConfig`
+        automatically).
     """
 
     factors: tuple[FactorType, ...] = (
@@ -171,7 +215,18 @@ class FactorConstructionConfig:
     volatility_lookback: int = 252
     beta_lookback: int = 252
     amihud_lookback: int = 252
-    publication_lag: int = 63
+    publication_lag: PublicationLagConfig = field(
+        default_factory=PublicationLagConfig
+    )
+
+    def __post_init__(self) -> None:
+        # Runtime backward-compat: accept plain int for uniform lag
+        if not isinstance(self.publication_lag, PublicationLagConfig):
+            object.__setattr__(
+                self,
+                "publication_lag",
+                PublicationLagConfig.uniform(int(self.publication_lag)),
+            )
 
     @classmethod
     def for_core_factors(cls) -> FactorConstructionConfig:

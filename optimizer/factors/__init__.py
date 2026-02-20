@@ -13,13 +13,18 @@ from optimizer.factors._config import (
     FactorValidationConfig,
     GroupWeight,
     MacroRegime,
+    PublicationLagConfig,
     RegimeTiltConfig,
     SelectionConfig,
     SelectionMethod,
     StandardizationConfig,
     StandardizationMethod,
 )
-from optimizer.factors._construction import compute_all_factors, compute_factor
+from optimizer.factors._construction import (
+    align_to_pit,
+    compute_all_factors,
+    compute_factor,
+)
 from optimizer.factors._diagnostics import (
     FactorPCAResult,
     compute_factor_pca,
@@ -92,6 +97,7 @@ __all__ = [
     "CompositeScoringConfig",
     "FactorConstructionConfig",
     "FactorIntegrationConfig",
+    "PublicationLagConfig",
     "FactorValidationConfig",
     "RegimeTiltConfig",
     "SelectionConfig",
@@ -100,6 +106,7 @@ __all__ = [
     "FACTOR_GROUP_MAPPING",
     "GROUP_WEIGHT_TIER",
     # Construction
+    "align_to_pit",
     "compute_all_factors",
     "compute_factor",
     # Standardization
