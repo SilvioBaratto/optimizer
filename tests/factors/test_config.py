@@ -16,6 +16,7 @@ from optimizer.factors import (
     FactorValidationConfig,
     GroupWeight,
     MacroRegime,
+    PublicationLagConfig,
     RegimeTiltConfig,
     SelectionConfig,
     SelectionMethod,
@@ -112,18 +113,71 @@ class TestMappingConstants:
         }
 
 
+class TestPublicationLagConfig:
+    def test_defaults(self) -> None:
+        lag = PublicationLagConfig()
+        assert lag.annual_days == 90
+        assert lag.quarterly_days == 45
+        assert lag.analyst_days == 5
+        assert lag.macro_days == 63
+
+    def test_frozen(self) -> None:
+        lag = PublicationLagConfig()
+        with pytest.raises(AttributeError):
+            lag.annual_days = 100  # type: ignore[misc]
+
+    def test_is_hashable(self) -> None:
+        lag = PublicationLagConfig()
+        assert hash(lag) is not None
+        assert {lag, lag} == {lag}
+
+    def test_uniform_applies_same_lag_to_all_sources(self) -> None:
+        lag = PublicationLagConfig.uniform(30)
+        assert lag.annual_days == 30
+        assert lag.quarterly_days == 30
+        assert lag.analyst_days == 30
+        assert lag.macro_days == 30
+
+    def test_custom_values(self) -> None:
+        lag = PublicationLagConfig(annual_days=120, analyst_days=2)
+        assert lag.annual_days == 120
+        assert lag.analyst_days == 2
+        # Other fields stay at defaults
+        assert lag.quarterly_days == 45
+        assert lag.macro_days == 63
+
+
 class TestFactorConstructionConfig:
     def test_defaults(self) -> None:
         cfg = FactorConstructionConfig()
         assert len(cfg.factors) == 8
         assert cfg.momentum_lookback == 252
         assert cfg.momentum_skip == 21
-        assert cfg.publication_lag == 63
+        assert isinstance(cfg.publication_lag, PublicationLagConfig)
+        assert cfg.publication_lag.annual_days == 90
+        assert cfg.publication_lag.quarterly_days == 45
+        assert cfg.publication_lag.analyst_days == 5
+        assert cfg.publication_lag.macro_days == 63
 
     def test_frozen(self) -> None:
         cfg = FactorConstructionConfig()
         with pytest.raises(AttributeError):
             cfg.momentum_lookback = 126  # type: ignore[misc]
+
+    def test_publication_lag_int_converted_to_config(self) -> None:
+        """Passing a plain int converts to PublicationLagConfig.uniform(n)."""
+        cfg = FactorConstructionConfig(publication_lag=100)  # type: ignore[arg-type]
+        assert isinstance(cfg.publication_lag, PublicationLagConfig)
+        assert cfg.publication_lag.annual_days == 100
+        assert cfg.publication_lag.quarterly_days == 100
+        assert cfg.publication_lag.analyst_days == 100
+        assert cfg.publication_lag.macro_days == 100
+
+    def test_publication_lag_config_accepted(self) -> None:
+        lag = PublicationLagConfig(annual_days=60, analyst_days=3)
+        cfg = FactorConstructionConfig(publication_lag=lag)
+        assert cfg.publication_lag.annual_days == 60
+        assert cfg.publication_lag.analyst_days == 3
 
     def test_for_core_factors(self) -> None:
         cfg = FactorConstructionConfig.for_core_factors()
