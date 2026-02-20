@@ -1,7 +1,8 @@
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from datetime import date
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from app.services.trading212.config import UniverseBuilderConfig
 from app.services.trading212.protocols import (
@@ -158,6 +159,11 @@ class UniverseBuilder:
             exchange_dto = self.repository.save_exchange(ex_data)
             total_exchanges_saved += 1
 
+            # Snapshot active tickers before processing (for delisting detection)
+            tickers_before: Set[str] = set()
+            if hasattr(self.repository, "get_active_tickers"):
+                tickers_before = self.repository.get_active_tickers(exchange_dto.id)
+
             # Process instruments concurrently
             processed = self._process_instruments(
                 instruments, ex_data["name"], total_stocks, total_processed
@@ -165,13 +171,47 @@ class UniverseBuilder:
             total_processed += len(instruments)
 
             # Save in batches
+            tickers_saved: Set[str] = set()
             if processed:
                 saved = self.repository.save_instruments_batch(
                     processed, exchange_dto.id
                 )
                 total_instruments_saved += saved
+                tickers_saved = {d.get("ticker", "") for d in processed}
+
+            # Detect instruments that dropped out of the T212 universe
+            self._mark_delisted_instruments(
+                tickers_before, tickers_saved, exchange_dto.id
+            )
 
         return total_exchanges_saved, total_instruments_saved, total_processed
+
+    def _mark_delisted_instruments(
+        self,
+        tickers_before: Set[str],
+        tickers_seen: Set[str],
+        exchange_id: Any,
+    ) -> None:
+        """Mark instruments that were active but absent from the latest T212 response."""
+        if not hasattr(self.repository, "mark_delisted"):
+            return
+
+        dropped = tickers_before - tickers_seen
+        if not dropped:
+            return
+
+        today = date.today()
+        for ticker in dropped:
+            marked = self.repository.mark_delisted(
+                ticker=ticker,
+                exchange_id=exchange_id,
+                delisted_at=today,
+            )
+            if marked:
+                import logging as _logging
+                _logging.getLogger(__name__).info(
+                    "Marked instrument %s as delisted on %s", ticker, today
+                )
 
     def _process_instruments(
         self,

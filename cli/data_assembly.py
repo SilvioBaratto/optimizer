@@ -14,6 +14,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -61,17 +62,89 @@ def _to_float(val: Any) -> float | None:
     return float(val)
 
 
-def _build_ticker_map(session: Session) -> dict[str, str]:
-    """Return {instrument_id_hex: yfinance_ticker} for all instruments."""
-    rows = (
-        session.execute(
-            select(Instrument.id, Instrument.yfinance_ticker)
-            .where(Instrument.yfinance_ticker.isnot(None))
-            .where(Instrument.yfinance_ticker != "")
-        )
-        .all()
+def _build_ticker_map(
+    session: Session, include_delisted: bool = True
+) -> dict[str, str]:
+    """Return {instrument_id_hex: yfinance_ticker} for instruments.
+
+    Parameters
+    ----------
+    include_delisted : bool, default=True
+        When ``False``, exclude instruments with a non-null ``delisted_at``.
+    """
+    stmt = (
+        select(Instrument.id, Instrument.yfinance_ticker)
+        .where(Instrument.yfinance_ticker.isnot(None))
+        .where(Instrument.yfinance_ticker != "")
     )
+    if not include_delisted:
+        stmt = stmt.where(Instrument.delisted_at.is_(None))
+    rows = session.execute(stmt).all()
     return {str(r[0]): r[1] for r in rows}
+
+
+def _apply_delisting_returns(
+    prices: pd.DataFrame,
+    delistings: list[tuple[str, pd.Timestamp, float]],
+) -> pd.DataFrame:
+    """Append a synthetic delisting-date price row for each delisted instrument.
+
+    For each ``(yf_ticker, delisted_at, delisting_return)`` tuple, finds the
+    last known close price on or before ``delisted_at`` and adds a synthetic
+    price row at ``delisted_at`` equal to ``last_price * (1 + delisting_return)``.
+
+    When ``prices_to_returns`` is subsequently applied, this synthetic row
+    produces the correct delisting return as the final observation for that
+    instrument.
+
+    Parameters
+    ----------
+    prices : pd.DataFrame
+        dates × tickers close-price DataFrame.
+    delistings : list[tuple[str, pd.Timestamp, float]]
+        ``(yf_ticker, delisted_at, delisting_return)`` for each delisted
+        instrument.  Instruments not in ``prices.columns`` are silently
+        skipped.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of ``prices`` with synthetic delisting rows appended and sorted.
+    """
+    if not delistings:
+        return prices
+
+    out = prices.copy()
+
+    for yf_ticker, delisted_ts, r in delistings:
+        if yf_ticker not in out.columns:
+            continue
+
+        col = out[yf_ticker].dropna()
+        if col.empty:
+            continue
+
+        # Last known price on or before the delisting date.
+        before = col[col.index <= delisted_ts]
+        if before.empty:
+            continue
+
+        last_price = float(before.iloc[-1])
+        synthetic_price = last_price * (1.0 + r)
+
+        # Add a new index row for the delisting date if not already present.
+        if delisted_ts not in out.index:
+            new_row = pd.Series(
+                {c: np.nan for c in out.columns}, name=delisted_ts
+            )
+            out = pd.concat([out, new_row.to_frame().T])
+            out = out.sort_index()
+
+        # Only write synthetic price if the cell is currently NaN.
+        if pd.isna(out.loc[delisted_ts, yf_ticker]):
+            out.loc[delisted_ts, yf_ticker] = synthetic_price
+
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -79,34 +152,53 @@ def _build_ticker_map(session: Session) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def assemble_prices(session: Session) -> pd.DataFrame:
+def assemble_prices(
+    session: Session,
+    include_delisted: bool = True,
+) -> pd.DataFrame:
     """Build a ``dates x tickers`` close-price DataFrame.
+
+    Parameters
+    ----------
+    include_delisted : bool, default=True
+        When ``True`` (default), delisted instruments are included in the
+        price history up to and including their delisting date.  A synthetic
+        price row is appended on the delisting date so that
+        ``prices_to_returns`` produces the correct final (delisting) return.
+
+        When ``False``, only currently active instruments are included,
+        reproducing the original survivorship-biased behaviour.
 
     Returns
     -------
     pd.DataFrame
         Index = ``pd.DatetimeIndex``, columns = yfinance tickers.
     """
-    ticker_map = _build_ticker_map(session)
+    ticker_map = _build_ticker_map(session, include_delisted=include_delisted)
 
-    rows = session.execute(
-        select(
-            PriceHistory.instrument_id,
-            PriceHistory.date,
-            PriceHistory.close,
-        ).order_by(PriceHistory.date)
-    ).all()
+    price_query = select(
+        PriceHistory.instrument_id,
+        PriceHistory.date,
+        PriceHistory.close,
+    ).order_by(PriceHistory.date)
+
+    if not include_delisted:
+        price_query = price_query.join(Instrument).where(
+            Instrument.delisted_at.is_(None)
+        )
+
+    rows = session.execute(price_query).all()
 
     if not rows:
         return pd.DataFrame()
 
     records: list[dict[str, Any]] = []
-    for instrument_id, date, close in rows:
+    for instrument_id, row_date, close in rows:
         ticker = ticker_map.get(str(instrument_id))
         if ticker is None:
             continue
         records.append({
-            "date": pd.Timestamp(date),
+            "date": pd.Timestamp(row_date),
             "ticker": ticker,
             "close": _to_float(close),
         })
@@ -123,26 +215,64 @@ def assemble_prices(session: Session) -> pd.DataFrame:
     )
     pivoted.index = pd.DatetimeIndex(pivoted.index)
     pivoted = pivoted.sort_index()
+
+    # Append synthetic delisting-date price rows so that prices_to_returns()
+    # produces the correct final return for each delisted instrument.
+    if include_delisted and not pivoted.empty:
+        delisting_rows = session.execute(
+            select(
+                Instrument.yfinance_ticker,
+                Instrument.delisted_at,
+                Instrument.delisting_return,
+            )
+            .where(Instrument.delisted_at.isnot(None))
+            .where(Instrument.yfinance_ticker.isnot(None))
+        ).all()
+
+        delistings = [
+            (
+                yf_ticker,
+                pd.Timestamp(delisted_at),
+                float(dr) if dr is not None else -0.30,
+            )
+            for yf_ticker, delisted_at, dr in delisting_rows
+            if yf_ticker in pivoted.columns
+        ]
+        pivoted = _apply_delisting_returns(pivoted, delistings)
+
     return pivoted
 
 
-def assemble_volumes(session: Session) -> pd.DataFrame:
+def assemble_volumes(
+    session: Session,
+    include_delisted: bool = True,
+) -> pd.DataFrame:
     """Build a ``dates x tickers`` volume DataFrame.
+
+    Parameters
+    ----------
+    include_delisted : bool, default=True
+        When ``False``, volume data for delisted instruments is excluded.
 
     Returns
     -------
     pd.DataFrame
         Index = ``pd.DatetimeIndex``, columns = yfinance tickers.
     """
-    ticker_map = _build_ticker_map(session)
+    ticker_map = _build_ticker_map(session, include_delisted=include_delisted)
 
-    rows = session.execute(
-        select(
-            PriceHistory.instrument_id,
-            PriceHistory.date,
-            PriceHistory.volume,
-        ).order_by(PriceHistory.date)
-    ).all()
+    vol_query = select(
+        PriceHistory.instrument_id,
+        PriceHistory.date,
+        PriceHistory.volume,
+    ).order_by(PriceHistory.date)
+
+    if not include_delisted:
+        vol_query = vol_query.join(Instrument).where(
+            Instrument.delisted_at.is_(None)
+        )
+
+    rows = session.execute(vol_query).all()
 
     if not rows:
         return pd.DataFrame()
@@ -611,6 +741,8 @@ class DataAssembly:
         Rows with ticker/shares/transaction_type.
     macro_data : pd.DataFrame
         gdp_growth and yield_spread.
+    include_delisted : bool
+        Whether delisted instruments are included in ``prices``.
     """
 
     def __init__(
@@ -623,6 +755,7 @@ class DataAssembly:
         analyst_data: pd.DataFrame,
         insider_data: pd.DataFrame,
         macro_data: pd.DataFrame,
+        include_delisted: bool = True,
     ) -> None:
         self.prices = prices
         self.volumes = volumes
@@ -632,6 +765,7 @@ class DataAssembly:
         self.analyst_data = analyst_data
         self.insider_data = insider_data
         self.macro_data = macro_data
+        self.include_delisted = include_delisted
 
     @property
     def n_tickers(self) -> int:
@@ -657,6 +791,7 @@ class DataAssembly:
 def assemble_all(
     db_manager: DatabaseManager,
     macro_country: str = "United States",
+    include_delisted: bool = True,
 ) -> DataAssembly:
     """Query the database and assemble all DataFrames.
 
@@ -666,6 +801,10 @@ def assemble_all(
         Initialized database manager.
     macro_country : str
         Country for macro regime data.
+    include_delisted : bool, default=True
+        Whether to include delisted instruments in prices and volumes.
+        Pass ``False`` to reproduce the original survivorship-biased
+        behaviour (e.g. for backward-compatibility checks).
 
     Returns
     -------
@@ -673,11 +812,11 @@ def assemble_all(
         All assembled DataFrames ready for the optimizer.
     """
     with db_manager.get_session() as session:
-        logger.info("Assembling price data...")
-        prices = assemble_prices(session)
+        logger.info("Assembling price data (include_delisted=%s)...", include_delisted)
+        prices = assemble_prices(session, include_delisted=include_delisted)
 
         logger.info("Assembling volume data...")
-        volumes = assemble_volumes(session)
+        volumes = assemble_volumes(session, include_delisted=include_delisted)
 
         logger.info("Assembling fundamentals...")
         fundamentals, sector_mapping = assemble_fundamentals(session)
@@ -703,4 +842,5 @@ def assemble_all(
         analyst_data=analyst_data,
         insider_data=insider_data,
         macro_data=macro_data,
+        include_delisted=include_delisted,
     )

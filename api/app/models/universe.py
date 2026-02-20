@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import String, Integer, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Date, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
@@ -56,6 +57,15 @@ class Instrument(BaseModel):
     instrument_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     currency_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     yfinance_ticker: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # Survivorship-bias correction: populated when an instrument drops out of
+    # the active Trading 212 universe.
+    delisted_at: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True, index=True
+    )
+    delisting_return: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True
+    )
 
     exchange_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("exchanges.id", ondelete="CASCADE"), nullable=False
