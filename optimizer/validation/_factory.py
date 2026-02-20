@@ -122,6 +122,7 @@ def run_cross_val(
     *,
     cv: WalkForward | CombinatorialPurgedCV | MultipleRandomizedCV | None = None,
     y: Any | None = None,
+    params: dict[str, Any] | None = None,
     n_jobs: int | None = None,
     portfolio_params: dict[str, Any] | None = None,
 ) -> Any:
@@ -142,6 +143,11 @@ def run_cross_val(
     y : array-like or None
         Benchmark returns or factor returns (for models that
         require ``fit(X, y)``).
+    params : dict or None
+        Auxiliary metadata forwarded to nested estimators via sklearn
+        metadata routing (e.g. ``{"implied_vol": implied_vol_df}``).
+        Requires ``sklearn.set_config(enable_metadata_routing=True)``
+        and the relevant ``set_fit_request`` calls on sub-estimators.
     n_jobs : int or None
         Number of parallel jobs.
     portfolio_params : dict or None
@@ -162,6 +168,7 @@ def run_cross_val(
         X=X,
         **({} if y is None else {"y": y}),
         cv=cv,
+        params=params,
         n_jobs=n_jobs,
         portfolio_params=portfolio_params,
     )
