@@ -146,7 +146,7 @@ class TestStandardizeAllFactors:
         scores, coverage = standardize_all_factors(factors)
         assert scores.shape == factors.shape
         assert coverage.shape == factors.shape
-        assert coverage.dtypes.apply(lambda x: x is bool).all()
+        assert coverage.dtypes.apply(pd.api.types.is_bool_dtype).all()
 
     def test_nan_coverage(self) -> None:
         factors = pd.DataFrame(
