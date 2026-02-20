@@ -31,6 +31,7 @@ from optimizer.factors._diagnostics import (
     flag_redundant_factors,
 )
 from optimizer.factors._integration import (
+    FactorExposureConstraints,
     build_factor_bl_views,
     build_factor_exposure_constraints,
     estimate_factor_premia,
@@ -173,6 +174,7 @@ __all__ = [
     "run_factor_validation",
     "validate_factor_universe",
     # Integration
+    "FactorExposureConstraints",
     "build_factor_bl_views",
     "build_factor_exposure_constraints",
     "estimate_factor_premia",

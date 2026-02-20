@@ -31,6 +31,7 @@ from skfolio.optimization import (
 from skfolio.optimization.convex._base import ObjectiveFunction
 from skfolio.prior._base import BasePrior
 
+from optimizer.factors._integration import FactorExposureConstraints
 from optimizer.moments._factory import build_prior
 from optimizer.optimization._config import (
     BenchmarkTrackerConfig,
@@ -235,6 +236,7 @@ def build_mean_risk(
     config: MeanRiskConfig | None = None,
     *,
     prior_estimator: BasePrior | None = None,
+    factor_exposure_constraints: FactorExposureConstraints | None = None,
     **kwargs: Any,
 ) -> MeanRisk:
     """Build a skfolio :class:`MeanRisk` optimiser from *config*.
@@ -247,6 +249,13 @@ def build_mean_risk(
     prior_estimator : BasePrior or None
         Prior estimator.  When ``None``, one is built from
         ``config.prior_config`` (or skfolio default).
+    factor_exposure_constraints : FactorExposureConstraints or None
+        Enforceable factor exposure constraints produced by
+        :func:`~optimizer.factors.build_factor_exposure_constraints`.
+        When provided, ``left_inequality`` and ``right_inequality`` are
+        injected into the :class:`MeanRisk` constructor.  Any explicit
+        ``left_inequality`` / ``right_inequality`` entries in ``kwargs``
+        take precedence.
     **kwargs
         Additional keyword arguments forwarded to the
         :class:`MeanRisk` constructor (for non-serialisable
@@ -263,6 +272,14 @@ def build_mean_risk(
 
     if prior_estimator is None and config.prior_config is not None:
         prior_estimator = build_prior(config.prior_config)
+
+    if factor_exposure_constraints is not None:
+        kwargs.setdefault(
+            "left_inequality", factor_exposure_constraints.left_inequality
+        )
+        kwargs.setdefault(
+            "right_inequality", factor_exposure_constraints.right_inequality
+        )
 
     return MeanRisk(
         objective_function=_OBJECTIVE_MAP[config.objective],
