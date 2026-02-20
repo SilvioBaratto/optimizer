@@ -128,3 +128,6 @@ node_modules/
 # Frontend build artifacts
 frontend/dist/
 frontend/.angular/
+
+# Claude Code
+.claude/

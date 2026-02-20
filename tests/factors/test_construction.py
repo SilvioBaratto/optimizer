@@ -63,40 +63,56 @@ def volume_history(price_history: pd.DataFrame) -> pd.DataFrame:
 
 
 class TestIndividualFactors:
-    def test_book_to_price(self, fundamentals: pd.DataFrame, price_history: pd.DataFrame) -> None:
+    def test_book_to_price(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
         result = compute_factor(FactorType.BOOK_TO_PRICE, fundamentals, price_history)
         assert isinstance(result, pd.Series)
         assert len(result) == len(fundamentals)
         assert result.notna().any()
 
-    def test_earnings_yield(self, fundamentals: pd.DataFrame, price_history: pd.DataFrame) -> None:
+    def test_earnings_yield(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
         result = compute_factor(FactorType.EARNINGS_YIELD, fundamentals, price_history)
         assert len(result) == len(fundamentals)
 
-    def test_gross_profitability(self, fundamentals: pd.DataFrame, price_history: pd.DataFrame) -> None:
-        result = compute_factor(FactorType.GROSS_PROFITABILITY, fundamentals, price_history)
+    def test_gross_profitability(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
+        result = compute_factor(
+            FactorType.GROSS_PROFITABILITY, fundamentals, price_history
+        )
         assert len(result) == len(fundamentals)
 
     def test_roe(self, fundamentals: pd.DataFrame, price_history: pd.DataFrame) -> None:
         result = compute_factor(FactorType.ROE, fundamentals, price_history)
         assert len(result) == len(fundamentals)
 
-    def test_asset_growth(self, fundamentals: pd.DataFrame, price_history: pd.DataFrame) -> None:
+    def test_asset_growth(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
         result = compute_factor(FactorType.ASSET_GROWTH, fundamentals, price_history)
         # Sign is flipped: negative growth -> positive score
         assert (result == -fundamentals["asset_growth"]).all()
 
-    def test_momentum(self, fundamentals: pd.DataFrame, price_history: pd.DataFrame) -> None:
+    def test_momentum(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
         result = compute_factor(FactorType.MOMENTUM_12_1, fundamentals, price_history)
         assert isinstance(result, pd.Series)
         assert len(result) == price_history.shape[1]
 
-    def test_volatility(self, fundamentals: pd.DataFrame, price_history: pd.DataFrame) -> None:
+    def test_volatility(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
         result = compute_factor(FactorType.VOLATILITY, fundamentals, price_history)
         # Sign flipped: lower vol -> higher score
         assert (result <= 0).all()
 
-    def test_beta(self, fundamentals: pd.DataFrame, price_history: pd.DataFrame) -> None:
+    def test_beta(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
         result = compute_factor(FactorType.BETA, fundamentals, price_history)
         assert isinstance(result, pd.Series)
         assert len(result) == price_history.shape[1]
@@ -116,16 +132,26 @@ class TestIndividualFactors:
         assert isinstance(result, pd.Series)
         assert (result >= 0).all()
 
-    def test_dividend_yield(self, fundamentals: pd.DataFrame, price_history: pd.DataFrame) -> None:
+    def test_dividend_yield(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
         result = compute_factor(FactorType.DIVIDEND_YIELD, fundamentals, price_history)
         assert len(result) == len(fundamentals)
 
-    def test_recommendation_change_none(self, fundamentals: pd.DataFrame, price_history: pd.DataFrame) -> None:
-        result = compute_factor(FactorType.RECOMMENDATION_CHANGE, fundamentals, price_history)
+    def test_recommendation_change_none(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, fundamentals, price_history
+        )
         assert len(result) == 0  # No analyst data
 
-    def test_net_insider_buying_none(self, fundamentals: pd.DataFrame, price_history: pd.DataFrame) -> None:
-        result = compute_factor(FactorType.NET_INSIDER_BUYING, fundamentals, price_history)
+    def test_net_insider_buying_none(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING, fundamentals, price_history
+        )
         assert len(result) == 0  # No insider data
 
 

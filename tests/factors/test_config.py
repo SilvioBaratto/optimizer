@@ -5,15 +5,15 @@ from __future__ import annotations
 import pytest
 
 from optimizer.factors import (
+    FACTOR_GROUP_MAPPING,
+    GROUP_WEIGHT_TIER,
     CompositeMethod,
     CompositeScoringConfig,
-    FACTOR_GROUP_MAPPING,
     FactorConstructionConfig,
     FactorGroupType,
     FactorIntegrationConfig,
     FactorType,
     FactorValidationConfig,
-    GROUP_WEIGHT_TIER,
     GroupWeight,
     MacroRegime,
     RegimeTiltConfig,
@@ -81,7 +81,9 @@ class TestEnums:
 class TestMappingConstants:
     def test_every_factor_mapped(self) -> None:
         for factor in FactorType:
-            assert factor in FACTOR_GROUP_MAPPING, f"{factor} not in FACTOR_GROUP_MAPPING"
+            assert factor in FACTOR_GROUP_MAPPING, (
+                f"{factor} not in FACTOR_GROUP_MAPPING"
+            )
 
     def test_every_group_has_weight_tier(self) -> None:
         for group in FactorGroupType:
@@ -97,7 +99,10 @@ class TestMappingConstants:
         }
 
     def test_supplementary_groups(self) -> None:
-        supp = {g for g, w in GROUP_WEIGHT_TIER.items() if w == GroupWeight.SUPPLEMENTARY}
+        supp = {
+            g for g, w in GROUP_WEIGHT_TIER.items()
+            if w == GroupWeight.SUPPLEMENTARY
+        }
         assert supp == {
             FactorGroupType.INVESTMENT,
             FactorGroupType.LIQUIDITY,
