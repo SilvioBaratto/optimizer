@@ -2,11 +2,12 @@
 
 import logging
 import uuid as uuid_mod
-from typing import Dict, Any, List, Tuple, Optional, Sequence
+from datetime import date
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import select, func, delete
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.universe import Exchange, Instrument
 
@@ -66,11 +67,59 @@ class UniverseRepository:
                 "instrument_type": stmt.excluded.instrument_type,
                 "currency_code": stmt.excluded.currency_code,
                 "yfinance_ticker": stmt.excluded.yfinance_ticker,
+                # Re-activating an instrument clears its delisting status.
+                "delisted_at": None,
+                "delisting_return": None,
             },
         )
         self.session.execute(stmt)
         self.session.flush()
         return len(rows)
+
+    def mark_delisted(
+        self,
+        ticker: str,
+        exchange_id: Any,
+        delisted_at: date,
+        delisting_return: float = -0.30,
+    ) -> bool:
+        """Mark an instrument as delisted.
+
+        Parameters
+        ----------
+        ticker : str
+            Trading 212 ticker of the instrument.
+        exchange_id : UUID
+            Exchange the instrument belongs to.
+        delisted_at : date
+            The date the instrument was last seen in the T212 universe.
+        delisting_return : float, default=-0.30
+            CRSP-style default delisting return.  Use the actual value
+            when known (e.g. acquisition premium or -1.0 for bankruptcy).
+
+        Returns
+        -------
+        bool
+            ``True`` if the record was updated, ``False`` if not found.
+        """
+        result = self.session.execute(
+            update(Instrument)
+            .where(Instrument.ticker == ticker)
+            .where(Instrument.exchange_id == exchange_id)
+            .where(Instrument.delisted_at.is_(None))  # only if not already marked
+            .values(delisted_at=delisted_at, delisting_return=delisting_return)
+        )
+        self.session.flush()
+        return bool(result.rowcount)
+
+    def get_active_tickers(self, exchange_id: Any) -> Set[str]:
+        """Return the set of non-delisted tickers for an exchange."""
+        rows = self.session.execute(
+            select(Instrument.ticker)
+            .where(Instrument.exchange_id == exchange_id)
+            .where(Instrument.delisted_at.is_(None))
+        ).all()
+        return {r[0] for r in rows}
 
     def clear_all(self) -> Tuple[int, int]:
         inst_count = self.session.execute(
