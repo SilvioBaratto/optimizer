@@ -73,6 +73,17 @@ class InvestabilityScreenConfig:
         Minimum quarterly financial statements required.
     exchange_region : ExchangeRegion
         Region for price threshold selection.
+    mcap_percentile_entry : float
+        Minimum exchange-percentile rank (0-1) for entry.  A stock must
+        exceed BOTH the absolute ``market_cap.entry`` floor AND this
+        percentile within its exchange to enter the universe.  Defaults
+        to the 10th percentile (0.10).  Requires an ``exchange`` column
+        in the ``fundamentals`` DataFrame passed to
+        ``apply_investability_screens``.
+    mcap_percentile_exit : float
+        Minimum exchange-percentile rank (0-1) for existing members to
+        avoid removal.  Must be <= ``mcap_percentile_entry``.  Defaults
+        to the 7.5th percentile (0.075).
     """
 
     market_cap: HysteresisConfig = HysteresisConfig(
@@ -94,6 +105,17 @@ class InvestabilityScreenConfig:
     min_annual_reports: int = 3
     min_quarterly_reports: int = 8
     exchange_region: ExchangeRegion = ExchangeRegion.US
+    mcap_percentile_entry: float = 0.10
+    mcap_percentile_exit: float = 0.075
+
+    def __post_init__(self) -> None:
+        if not (0.0 <= self.mcap_percentile_exit <= self.mcap_percentile_entry <= 1.0):
+            msg = (
+                f"mcap_percentile_exit ({self.mcap_percentile_exit}) must be "
+                f"<= mcap_percentile_entry ({self.mcap_percentile_entry}) "
+                f"and both must be in [0, 1]"
+            )
+            raise ValueError(msg)
 
     @classmethod
     def for_developed_markets(cls) -> InvestabilityScreenConfig:

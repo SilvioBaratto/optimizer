@@ -58,11 +58,27 @@ class TestInvestabilityScreenConfig:
         assert cfg.min_annual_reports == 3
         assert cfg.min_quarterly_reports == 8
         assert cfg.exchange_region == ExchangeRegion.US
+        assert cfg.mcap_percentile_entry == 0.10
+        assert cfg.mcap_percentile_exit == 0.075
 
     def test_frozen(self) -> None:
         cfg = InvestabilityScreenConfig()
         with pytest.raises(AttributeError):
             cfg.min_trading_history = 100  # type: ignore[misc]
+
+    def test_percentile_exit_above_entry_raises(self) -> None:
+        with pytest.raises(ValueError, match="mcap_percentile_exit"):
+            InvestabilityScreenConfig(
+                mcap_percentile_entry=0.10,
+                mcap_percentile_exit=0.15,
+            )
+
+    def test_percentile_entry_above_one_raises(self) -> None:
+        with pytest.raises(ValueError, match="mcap_percentile_exit"):
+            InvestabilityScreenConfig(
+                mcap_percentile_entry=1.5,
+                mcap_percentile_exit=0.10,
+            )
 
     def test_custom_values(self) -> None:
         cfg = InvestabilityScreenConfig(
