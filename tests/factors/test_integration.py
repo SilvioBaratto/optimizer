@@ -48,7 +48,9 @@ class TestFactorScoresToExpectedReturns:
         # All should be > risk_free_rate (most betas/premia are positive)
         assert result.mean() > 0
 
-    def test_custom_config(self, factor_scores: pd.DataFrame, betas: pd.DataFrame) -> None:
+    def test_custom_config(
+        self, factor_scores: pd.DataFrame, betas: pd.DataFrame
+    ) -> None:
         config = FactorIntegrationConfig(risk_free_rate=0.02)
         premia = {"value": 0.04}
         result = factor_scores_to_expected_returns(

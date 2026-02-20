@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 
 from optimizer.factors import (
-    CompositeMethod,
     CompositeScoringConfig,
     compute_composite_score,
     compute_equal_weight_composite,
@@ -37,7 +36,11 @@ def standardized_factors() -> pd.DataFrame:
 
 @pytest.fixture()
 def coverage(standardized_factors: pd.DataFrame) -> pd.DataFrame:
-    return pd.DataFrame(True, index=standardized_factors.index, columns=standardized_factors.columns)
+    return pd.DataFrame(
+        True,
+        index=standardized_factors.index,
+        columns=standardized_factors.columns,
+    )
 
 
 class TestComputeGroupScores:
@@ -55,7 +58,8 @@ class TestComputeGroupScores:
         self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
     ) -> None:
         result = compute_group_scores(standardized_factors, coverage)
-        expected = standardized_factors[["book_to_price", "earnings_yield"]].mean(axis=1)
+        cols = ["book_to_price", "earnings_yield"]
+        expected = standardized_factors[cols].mean(axis=1)
         pd.testing.assert_series_equal(result["value"], expected, check_names=False)
 
 

@@ -160,7 +160,7 @@ def run_cross_val(
     return _skfolio_cross_val_predict(
         estimator=estimator,
         X=X,
-        y=y,
+        **({} if y is None else {"y": y}),
         cv=cv,
         n_jobs=n_jobs,
         portfolio_params=portfolio_params,

@@ -278,8 +278,8 @@ def run_full_pipeline(
         if prev_sum > 0:
             aligned_prev = aligned_prev / prev_sum
 
-        prev_arr = aligned_prev.to_numpy()
-        new_arr = result.weights.to_numpy()
+        prev_arr = cast(npt.NDArray[np.float64], aligned_prev.to_numpy(dtype=np.float64))
+        new_arr = cast(npt.NDArray[np.float64], result.weights.to_numpy(dtype=np.float64))
         result.turnover = compute_turnover(prev_arr, new_arr)
         result.rebalance_needed = should_rebalance(
             prev_arr,
@@ -441,6 +441,7 @@ def run_full_pipeline_with_selection(
             and regime_config.enable
         )
         if has_regime:
+            assert macro_data is not None
             regime = classify_regime(macro_data)
 
             # Build base group weights from config

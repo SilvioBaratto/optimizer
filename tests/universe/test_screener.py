@@ -68,15 +68,23 @@ def financial_statements() -> pd.DataFrame:
     records = []
     for ticker in ["AAPL", "MSFT", "GOOG"]:
         for i in range(4):
-            records.append(
-                {"ticker": ticker, "period_type": "annual", "period_date": f"202{i}-12-31"}
-            )
+            records.append({
+                "ticker": ticker,
+                "period_type": "annual",
+                "period_date": f"202{i}-12-31",
+            })
         for i in range(10):
-            records.append(
-                {"ticker": ticker, "period_type": "quarterly", "period_date": f"2023-{(i % 4 + 1) * 3:02d}-30"}
-            )
+            records.append({
+                "ticker": ticker,
+                "period_type": "quarterly",
+                "period_date": f"2023-{(i % 4 + 1) * 3:02d}-30",
+            })
     # TINY has only 1 annual report
-    records.append({"ticker": "TINY", "period_type": "annual", "period_date": "2023-12-31"})
+    records.append({
+        "ticker": "TINY",
+        "period_type": "annual",
+        "period_date": "2023-12-31",
+    })
     # NEW has no statements
     return pd.DataFrame(records)
 
@@ -121,13 +129,17 @@ class TestApplyScreen:
 
 
 class TestComputeAddv:
-    def test_basic(self, price_history: pd.DataFrame, volume_history: pd.DataFrame) -> None:
+    def test_basic(
+        self, price_history: pd.DataFrame, volume_history: pd.DataFrame
+    ) -> None:
         addv = compute_addv(price_history, volume_history, window=252)
         assert isinstance(addv, pd.Series)
         assert len(addv) == price_history.shape[1]
         assert (addv >= 0).all()
 
-    def test_short_window(self, price_history: pd.DataFrame, volume_history: pd.DataFrame) -> None:
+    def test_short_window(
+        self, price_history: pd.DataFrame, volume_history: pd.DataFrame
+    ) -> None:
         addv_short = compute_addv(price_history, volume_history, window=20)
         addv_long = compute_addv(price_history, volume_history, window=252)
         # Both should produce values for all tickers
@@ -161,7 +173,9 @@ class TestCountFinancialStatements:
         assert counts["TINY"] == 1
 
     def test_quarterly_count(self, financial_statements: pd.DataFrame) -> None:
-        counts = count_financial_statements(financial_statements, period_type="quarterly")
+        counts = count_financial_statements(
+            financial_statements, period_type="quarterly"
+        )
         assert counts["AAPL"] == 10
         assert "TINY" not in counts  # no quarterly reports
 

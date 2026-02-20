@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 
 from optimizer.factors import (
-    FactorValidationConfig,
     FactorValidationReport,
     benjamini_hochberg,
     compute_ic_series,
@@ -28,7 +27,10 @@ def factor_scores() -> pd.Series:
 @pytest.fixture()
 def forward_returns() -> pd.Series:
     rng = np.random.default_rng(99)
-    return pd.Series(rng.normal(0.001, 0.02, 100), index=[f"T{i:03d}" for i in range(100)])
+    return pd.Series(
+        rng.normal(0.001, 0.02, 100),
+        index=[f"T{i:03d}" for i in range(100)],
+    )
 
 
 class TestComputeMonthlyIC:
@@ -58,8 +60,12 @@ class TestComputeICSeries:
         dates = pd.date_range("2023-01-01", periods=12, freq="ME")
         tickers = [f"T{i:02d}" for i in range(20)]
 
-        scores_hist = pd.DataFrame(rng.normal(0, 1, (12, 20)), index=dates, columns=tickers)
-        returns_hist = pd.DataFrame(rng.normal(0.001, 0.02, (12, 20)), index=dates, columns=tickers)
+        scores_hist = pd.DataFrame(
+            rng.normal(0, 1, (12, 20)), index=dates, columns=tickers
+        )
+        returns_hist = pd.DataFrame(
+            rng.normal(0.001, 0.02, (12, 20)), index=dates, columns=tickers
+        )
 
         result = compute_ic_series(scores_hist, returns_hist, "test_factor")
         assert isinstance(result, pd.Series)
