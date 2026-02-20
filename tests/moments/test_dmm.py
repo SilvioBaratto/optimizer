@@ -17,8 +17,8 @@ from optimizer.moments import (  # noqa: E402
     fit_dmm,
 )
 from optimizer.moments._dmm import (  # noqa: E402
-    Combiner,
     DMM,
+    Combiner,
     Emitter,
     GatedTransition,
 )

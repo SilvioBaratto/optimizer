@@ -142,7 +142,9 @@ def fit_hmm(returns: pd.DataFrame, config: HMMConfig | None = None) -> HMMResult
 
     # covars_ shape depends on covariance_type; "full" → (n_states, n_feat, n_feat)
     if model.covars_ is None:
-        raise RuntimeError("HMM covariance matrix is None after fitting — model did not converge")
+        raise RuntimeError(
+            "HMM covariance matrix is None after fitting — model did not converge"
+        )
     covars: npt.NDArray[np.float64] = _expand_covars(
         model.covars_, config.covariance_type, config.n_states, len(tickers)
     )
