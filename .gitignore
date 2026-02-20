@@ -131,3 +131,6 @@ frontend/.angular/
 
 # Claude Code
 .claude/
+
+# Ideas / scratch notes (local only)
+ideas/
