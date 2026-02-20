@@ -216,7 +216,7 @@ class DMM(nn.Module):
         """Pyro generative model p(x, z)."""
         pyro.module("dmm", self)
         T = x.shape[0]
-        z_prev = self.z_0
+        z_prev: torch.Tensor = self.z_0
         for t in pyro.markov(range(1, T + 1)):
             z_loc, z_scale = self.trans(z_prev)
             with poutine.scale(scale=annealing_factor):
@@ -244,7 +244,7 @@ class DMM(nn.Module):
         # Process reversed sequence; re-reverse output to forward time
         rnn_out, _ = self.rnn(x_reversed.unsqueeze(0))
         rnn_out = rnn_out.squeeze(0).flip(0)  # (T, rnn_dim)
-        z_prev = self.z_q_0
+        z_prev: torch.Tensor = self.z_q_0
         for t in pyro.markov(range(1, T + 1)):
             z_loc, z_scale = self.combiner(z_prev, rnn_out[t - 1])
             with poutine.scale(scale=annealing_factor):

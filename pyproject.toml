@@ -74,6 +74,13 @@ ignore_missing_imports = true
 module = "optimizer.preprocessing.*"
 disallow_subclassing_any = false
 
+# torch/pyro have incomplete stubs — suppress all strict errors for the DMM module
+[[tool.mypy.overrides]]
+module = "optimizer.moments._dmm"
+disallow_subclassing_any = false
+disallow_untyped_calls = false
+warn_return_any = false
+
 [[tool.mypy.overrides]]
 module = [
     "optimizer.scoring._factory",
