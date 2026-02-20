@@ -32,6 +32,7 @@ dependencies = [
     "scikit-learn>=1.6",
     "skfolio>=0.5",
     "hmmlearn>=0.3.3",
+    "arch>=8.0.0",
 ]
 
 [project.optional-dependencies]
