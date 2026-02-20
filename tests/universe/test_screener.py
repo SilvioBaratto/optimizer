@@ -13,6 +13,7 @@ from optimizer.universe import (
     apply_investability_screens,
     apply_screen,
     compute_addv,
+    compute_exchange_mcap_percentile_thresholds,
     compute_listing_age,
     compute_trading_frequency,
     count_financial_statements,
@@ -271,3 +272,296 @@ class TestApplyInvestabilityScreens:
             current_members=first_pass,
         )
         assert set(first_pass) == set(second_pass)
+
+
+# ---------------------------------------------------------------------------
+# Exchange percentile threshold tests
+# ---------------------------------------------------------------------------
+
+def _make_exchange_fundamentals(
+    tickers: list[str],
+    mcaps: list[float],
+    exchanges: list[str],
+) -> pd.DataFrame:
+    """Build a minimal fundamentals DataFrame with exchange column."""
+    return pd.DataFrame(
+        {
+            "market_cap": mcaps,
+            "current_price": [10.0] * len(tickers),
+            "exchange": exchanges,
+        },
+        index=pd.Index(tickers, name="ticker"),
+    )
+
+
+class TestComputeExchangeMcapPercentileThresholds:
+    def test_returns_correct_percentile_per_exchange(self) -> None:
+        # 10 stocks on NYSE with mcaps 100–1000 (step 100)
+        tickers = [f"T{i}" for i in range(10)]
+        mcaps = pd.Series(
+            [100.0, 200.0, 300.0, 400.0, 500.0,
+             600.0, 700.0, 800.0, 900.0, 1000.0],
+            index=tickers,
+        )
+        exchanges = pd.Series(["NYSE"] * 10, index=tickers)
+
+        thresholds = compute_exchange_mcap_percentile_thresholds(
+            mcaps, exchanges, percentile=0.10
+        )
+
+        expected = float(np.percentile(mcaps.values, 10))
+        assert (thresholds == expected).all()
+
+    def test_small_exchange_defaults_to_zero(self) -> None:
+        # 5 stocks — below default min_exchange_size of 10
+        tickers = [f"T{i}" for i in range(5)]
+        mcaps = pd.Series([100.0, 200.0, 300.0, 400.0, 500.0], index=tickers)
+        exchanges = pd.Series(["AIM"] * 5, index=tickers)
+
+        thresholds = compute_exchange_mcap_percentile_thresholds(
+            mcaps, exchanges, percentile=0.10
+        )
+
+        assert (thresholds == 0.0).all()
+
+    def test_two_exchanges_get_independent_thresholds(self) -> None:
+        nyse_tickers = [f"N{i}" for i in range(10)]
+        aim_tickers = [f"A{i}" for i in range(10)]
+        all_tickers = nyse_tickers + aim_tickers
+
+        nyse_mcaps = list(range(100, 1100, 100))   # 100, 200, ..., 1000
+        aim_mcaps = list(range(10, 110, 10))        # 10, 20, ..., 100
+
+        mcaps = pd.Series(nyse_mcaps + aim_mcaps, index=all_tickers, dtype=float)
+        exchanges = pd.Series(
+            ["NYSE"] * 10 + ["AIM"] * 10, index=all_tickers
+        )
+
+        thresholds = compute_exchange_mcap_percentile_thresholds(
+            mcaps, exchanges, percentile=0.10
+        )
+
+        nyse_thresh = float(np.percentile(nyse_mcaps, 10))
+        aim_thresh = float(np.percentile(aim_mcaps, 10))
+
+        assert thresholds.loc[nyse_tickers].eq(nyse_thresh).all()
+        assert thresholds.loc[aim_tickers].eq(aim_thresh).all()
+        assert nyse_thresh != aim_thresh
+
+    def test_returns_series_indexed_by_ticker(self) -> None:
+        tickers = [f"T{i}" for i in range(10)]
+        mcaps = pd.Series(range(100, 1100, 100), index=tickers, dtype=float)
+        exchanges = pd.Series(["NYSE"] * 10, index=tickers)
+
+        thresholds = compute_exchange_mcap_percentile_thresholds(
+            mcaps, exchanges, percentile=0.10
+        )
+
+        assert isinstance(thresholds, pd.Series)
+        assert set(thresholds.index) == set(tickers)
+
+    def test_custom_min_exchange_size(self) -> None:
+        # 8 stocks; with min_exchange_size=5, percentile IS computed
+        tickers = [f"T{i}" for i in range(8)]
+        mcaps = pd.Series(range(100, 900, 100), index=tickers, dtype=float)
+        exchanges = pd.Series(["XETRA"] * 8, index=tickers)
+
+        thresholds = compute_exchange_mcap_percentile_thresholds(
+            mcaps, exchanges, percentile=0.10, min_exchange_size=5
+        )
+
+        expected = float(np.percentile(mcaps.values, 10))
+        assert (thresholds == expected).all()
+
+
+class TestMcapPercentileScreenInApplyInvestabilityScreens:
+    """Acceptance criteria from issue #22."""
+
+    def _make_large_exchange_fundamentals(self) -> pd.DataFrame:
+        """12 NYSE stocks; one stock at 250M is ~8th percentile."""
+        tickers = ["TARGET"] + [f"BIG{i}" for i in range(11)]
+        # TARGET: 250M; 11 bigger stocks: 300M, 400M, ..., 1400M
+        mcaps = [250e6] + [300e6 + i * 100e6 for i in range(11)]
+        # 10th percentile of [250, 300, 400, ..., 1400] ≈ 310M > 250M
+        prices = [10.0] * len(tickers)
+        exchanges = ["NYSE"] * len(tickers)
+        return pd.DataFrame(
+            {
+                "market_cap": mcaps,
+                "current_price": prices,
+                "exchange": exchanges,
+            },
+            index=pd.Index(tickers, name="ticker"),
+        )
+
+    def test_passes_absolute_but_below_exchange_percentile_excluded(
+        self,
+        price_history: pd.DataFrame,
+        volume_history: pd.DataFrame,
+    ) -> None:
+        """Stock above 200M floor but below 10th exchange percentile is excluded."""
+        fundamentals = self._make_large_exchange_fundamentals()
+
+        # Extend price_history / volume_history for new tickers
+        n_days = len(price_history)
+        extra_tickers = [
+            t for t in fundamentals.index if t not in price_history.columns
+        ]
+        rng = np.random.default_rng(7)
+        extra_prices = pd.DataFrame(
+            np.abs(100 + rng.normal(0, 1, (n_days, len(extra_tickers))).cumsum(axis=0)),
+            index=price_history.index,
+            columns=extra_tickers,
+        )
+        extra_vols = pd.DataFrame(
+            rng.integers(1_000_000, 5_000_000, (n_days, len(extra_tickers))),
+            index=volume_history.index,
+            columns=extra_tickers,
+        )
+        ph = pd.concat([price_history[["AAPL"]], extra_prices], axis=1)
+        ph.columns = ["AAPL"] + extra_tickers
+        vh = pd.concat([volume_history[["AAPL"]], extra_vols], axis=1)
+        vh.columns = ["AAPL"] + extra_tickers
+
+        # Only test fundamentals (no financial statements, simpler)
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=ph,
+            volume_history=vh,
+        )
+
+        # TARGET (250M) passes absolute floor (200M) but is below the
+        # 10th percentile of the NYSE exchange → must be excluded
+        assert "TARGET" not in result
+
+    def test_stock_below_absolute_floor_excluded_regardless_of_percentile(
+        self,
+        price_history: pd.DataFrame,
+        volume_history: pd.DataFrame,
+    ) -> None:
+        """Stock at 150M (below 200M absolute floor) is excluded regardless."""
+        # Single stock exchange: percentile threshold = 0 (< 10 stocks)
+        fundamentals = pd.DataFrame(
+            {
+                "market_cap": [150e6],
+                "current_price": [5.0],
+                "exchange": ["NYSE"],
+            },
+            index=pd.Index(["CHEAP"], name="ticker"),
+        )
+        ph = price_history[["AAPL"]].rename(columns={"AAPL": "CHEAP"})
+        vh = volume_history[["AAPL"]].rename(columns={"AAPL": "CHEAP"})
+
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=ph,
+            volume_history=vh,
+        )
+
+        assert "CHEAP" not in result
+
+    def test_no_exchange_column_skips_percentile_screen(
+        self,
+        fundamentals: pd.DataFrame,
+        price_history: pd.DataFrame,
+        volume_history: pd.DataFrame,
+        financial_statements: pd.DataFrame,
+    ) -> None:
+        """Without exchange column the percentile screen is skipped."""
+        # fundamentals fixture has no 'exchange' column
+        assert "exchange" not in fundamentals.columns
+
+        result_without = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=price_history,
+            volume_history=volume_history,
+            financial_statements=financial_statements,
+        )
+        assert "AAPL" in result_without
+        assert "MSFT" in result_without
+        assert "GOOG" in result_without
+
+    def test_small_exchange_passes_percentile_screen(
+        self,
+        price_history: pd.DataFrame,
+        volume_history: pd.DataFrame,
+    ) -> None:
+        """Exchange with < 10 stocks: percentile threshold = 0, all pass."""
+        # 3 stocks, absolute floor = 200M (all qualify)
+        tickers = ["A1", "A2", "A3"]
+        fundamentals = pd.DataFrame(
+            {
+                "market_cap": [300e6, 400e6, 500e6],
+                "current_price": [10.0, 10.0, 10.0],
+                "exchange": ["AIM", "AIM", "AIM"],
+            },
+            index=pd.Index(tickers, name="ticker"),
+        )
+        n_days = len(price_history)
+        rng = np.random.default_rng(11)
+        ph = pd.DataFrame(
+            np.abs(50 + rng.normal(0, 1, (n_days, 3)).cumsum(axis=0)),
+            index=price_history.index,
+            columns=tickers,
+        )
+        vh = pd.DataFrame(
+            rng.integers(2_000_000, 5_000_000, (n_days, 3)),
+            index=price_history.index,
+            columns=tickers,
+        )
+
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=ph,
+            volume_history=vh,
+        )
+
+        # All 3 stocks pass (small exchange → no percentile filter)
+        assert set(result) == {"A1", "A2", "A3"}
+
+    def test_exactly_at_percentile_threshold_accepted(self) -> None:
+        """Stock at exactly the 10th percentile is accepted (>= boundary).
+
+        With 11 values, np.percentile at 10% lands on index 1.0 exactly,
+        giving the second-smallest value.  "EXACT" holds that value and
+        must pass the screen.
+        """
+        rng = np.random.default_rng(42)
+        n_days = 300
+        dates = pd.bdate_range("2023-01-01", periods=n_days)
+
+        # 11 stocks: "EXACT" at 250M, 10 bigger stocks at 300M–1200M
+        tickers = ["EXACT"] + [f"BIG{i}" for i in range(10)]
+        mcaps = [250e6] + [300e6 + i * 100e6 for i in range(10)]
+        # With 11 values, 10th percentile = index 1.0 = value[1] = 300M
+        # but EXACT is sorted to index 0 (smallest); we need to verify
+        pct_10 = float(np.percentile(sorted(mcaps), 10))
+        # pct_10 == 300M; EXACT (250M) is below it — redesign so EXACT IS at pct_10
+
+        # Rebuild: "EXACT" at 300M (which IS the 10th percentile)
+        mcaps = [300e6] + [300e6 + i * 100e6 for i in range(10)]
+        pct_10 = float(np.percentile(mcaps, 10))
+
+        fundamentals = pd.DataFrame(
+            {
+                "market_cap": mcaps,
+                "current_price": [10.0] * 11,
+                "exchange": ["NYSE"] * 11,
+            },
+            index=pd.Index(tickers, name="ticker"),
+        )
+
+        prices = np.abs(50 + rng.normal(0, 1, (n_days, 11)).cumsum(axis=0))
+        ph = pd.DataFrame(prices, index=dates, columns=tickers)
+        vols = rng.integers(2_000_000, 5_000_000, (n_days, 11))
+        vh = pd.DataFrame(vols, index=dates, columns=tickers)
+
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=ph,
+            volume_history=vh,
+        )
+
+        # EXACT (300M) >= pct_10 and >= 200M abs floor → must be included
+        assert mcaps[0] >= pct_10, "EXACT must be at or above 10th percentile"
+        assert "EXACT" in result

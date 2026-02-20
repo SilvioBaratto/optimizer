@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from optimizer.universe._config import (
@@ -155,6 +156,98 @@ def count_financial_statements(
     return filtered.groupby("ticker").size()
 
 
+def compute_exchange_mcap_percentile_thresholds(
+    market_caps: pd.Series,
+    exchange_mapping: pd.Series,
+    percentile: float,
+    min_exchange_size: int = 10,
+) -> pd.Series:
+    """Compute per-exchange market-cap percentile threshold for each ticker.
+
+    For each exchange, the Nth percentile of all member market caps is
+    computed and assigned as the threshold for every stock on that
+    exchange.  Exchanges with fewer than ``min_exchange_size`` stocks
+    receive a threshold of 0 (no filter applied).
+
+    Parameters
+    ----------
+    market_caps : pd.Series
+        Free-float market caps indexed by ticker.
+    exchange_mapping : pd.Series
+        Exchange labels indexed by ticker.
+    percentile : float
+        Percentile to compute on a 0–1 scale (e.g. 0.10 for the 10th
+        percentile).
+    min_exchange_size : int
+        Minimum number of stocks an exchange must have before the
+        percentile threshold is applied.  Smaller exchanges default to
+        a threshold of 0.
+
+    Returns
+    -------
+    pd.Series
+        Per-ticker threshold values (same index as ``market_caps``).
+    """
+    common = market_caps.index.intersection(exchange_mapping.index)
+    mcaps = market_caps.loc[common]
+    exchanges = exchange_mapping.loc[common]
+
+    thresholds = pd.Series(0.0, index=common)
+
+    for _, group_mcaps in mcaps.groupby(exchanges):
+        if len(group_mcaps) >= min_exchange_size:
+            threshold = float(np.percentile(group_mcaps.values, percentile * 100))
+        else:
+            threshold = 0.0
+        thresholds.loc[group_mcaps.index] = threshold
+
+    return thresholds
+
+
+def _apply_mcap_percentile_screen(
+    market_caps: pd.Series,
+    exchange_mapping: pd.Series,
+    config: InvestabilityScreenConfig,
+    current_members: pd.Index | None,
+) -> pd.Index:
+    """Apply exchange-percentile market-cap screen with hysteresis.
+
+    Parameters
+    ----------
+    market_caps : pd.Series
+        Free-float market caps indexed by ticker.
+    exchange_mapping : pd.Series
+        Exchange labels indexed by ticker.
+    config : InvestabilityScreenConfig
+        Screening configuration supplying percentile thresholds.
+    current_members : pd.Index or None
+        Tickers currently in the universe for hysteresis.
+
+    Returns
+    -------
+    pd.Index
+        Tickers passing the percentile screen.
+    """
+    entry_thresholds = compute_exchange_mcap_percentile_thresholds(
+        market_caps, exchange_mapping, config.mcap_percentile_entry
+    )
+    exit_thresholds = compute_exchange_mcap_percentile_thresholds(
+        market_caps, exchange_mapping, config.mcap_percentile_exit
+    )
+
+    entry_thresh_aligned = entry_thresholds.reindex(market_caps.index, fill_value=0.0)
+    new_entrants = market_caps.index[market_caps >= entry_thresh_aligned]
+
+    if current_members is None or len(current_members) == 0:
+        return new_entrants
+
+    surviving = current_members.intersection(market_caps.index)
+    exit_thresh_aligned = exit_thresholds.reindex(surviving, fill_value=0.0)
+    surviving = surviving[market_caps.loc[surviving] >= exit_thresh_aligned.values]
+
+    return surviving.union(new_entrants)
+
+
 def apply_investability_screens(
     fundamentals: pd.DataFrame,
     price_history: pd.DataFrame,
@@ -194,10 +287,18 @@ def apply_investability_screens(
     # Start with all tickers present in fundamentals
     candidates = fundamentals.index
 
-    # 1. Market capitalization
+    # 1. Market capitalization (absolute floor + optional exchange percentile)
     if "market_cap" in fundamentals.columns:
         mcap = fundamentals["market_cap"].dropna()
         passed = apply_screen(mcap, config.market_cap, current_members)
+
+        if "exchange" in fundamentals.columns:
+            exchange_mapping = fundamentals["exchange"].dropna()
+            pct_passed = _apply_mcap_percentile_screen(
+                mcap, exchange_mapping, config, current_members
+            )
+            passed = passed.intersection(pct_passed)
+
         candidates = candidates.intersection(passed)
 
     # 2. ADDV 12-month
