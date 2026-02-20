@@ -12,6 +12,8 @@ from optimizer.moments._factory import (
     build_prior,
 )
 from optimizer.moments._hmm import (
+    HMMBlendedCovariance,
+    HMMBlendedMu,
     HMMConfig,
     HMMResult,
     blend_moments_by_regime,
@@ -42,6 +44,8 @@ __all__ = [
     "build_prior",
     "apply_lognormal_correction",
     "scale_moments_to_horizon",
+    "HMMBlendedMu",
+    "HMMBlendedCovariance",
     "HMMConfig",
     "HMMResult",
     "fit_hmm",

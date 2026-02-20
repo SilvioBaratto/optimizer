@@ -19,6 +19,7 @@ class TestEnums:
             MuEstimatorType.SHRUNK,
             MuEstimatorType.EW,
             MuEstimatorType.EQUILIBRIUM,
+            MuEstimatorType.HMM_BLENDED,
         }
 
     def test_cov_estimator_members(self) -> None:
@@ -33,6 +34,7 @@ class TestEnums:
             CovEstimatorType.DENOISE,
             CovEstimatorType.DETONE,
             CovEstimatorType.IMPLIED,
+            CovEstimatorType.HMM_BLENDED,
         }
 
     def test_shrinkage_method_members(self) -> None:
