@@ -18,7 +18,6 @@ from optimizer.factors import (
     predict_composite_scores,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -373,7 +372,7 @@ class TestComputeCompositeScoreDispatch:
             compute_composite_score(current_scores, coverage, config=config)
 
     def test_ridge_and_gbt_are_valid_composite_methods(self) -> None:
-        """Acceptance criterion: RIDGE_WEIGHTED and GBT_WEIGHTED are valid enum values."""
+        """RIDGE_WEIGHTED and GBT_WEIGHTED are valid CompositeMethod values."""
         assert CompositeMethod.RIDGE_WEIGHTED in CompositeMethod
         assert CompositeMethod.GBT_WEIGHTED in CompositeMethod
         assert CompositeMethod.RIDGE_WEIGHTED.value == "ridge_weighted"

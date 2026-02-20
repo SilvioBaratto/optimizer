@@ -41,6 +41,12 @@ from optimizer.factors._mimicking import (
     compute_cross_factor_correlation,
     compute_quintile_spread,
 )
+from optimizer.factors._ml_scoring import (
+    FittedMLModel,
+    fit_gbt_composite,
+    fit_ridge_composite,
+    predict_composite_scores,
+)
 from optimizer.factors._oos_validation import (
     FactorOOSConfig,
     FactorOOSResult,
@@ -50,12 +56,6 @@ from optimizer.factors._regime import (
     apply_regime_tilts,
     classify_regime,
     get_regime_tilts,
-)
-from optimizer.factors._ml_scoring import (
-    FittedMLModel,
-    fit_gbt_composite,
-    fit_ridge_composite,
-    predict_composite_scores,
 )
 from optimizer.factors._scoring import (
     compute_composite_score,
