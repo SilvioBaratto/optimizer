@@ -122,6 +122,20 @@ class BamlSyncClient:
                 "macro_text": macro_text,
             })
             return typing.cast(types.DeltaCalibration, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    def CalibrateRiskBudget(self, sector_outlook: str,sector_universe: typing.List[str],asset_sector_map: typing.Dict[str, str],
+        baml_options: BamlCallOptions = {},
+    ) -> types.RiskBudgetOutput:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            __stream__ = self.stream.CalibrateRiskBudget(sector_outlook=sector_outlook,sector_universe=sector_universe,asset_sector_map=asset_sector_map,
+                baml_options=baml_options)
+            return __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="CalibrateRiskBudget", args={
+                "sector_outlook": sector_outlook,"sector_universe": sector_universe,"asset_sector_map": asset_sector_map,
+            })
+            return typing.cast(types.RiskBudgetOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
     def ClassifyMacroRegime(self, macro_summary: str,
         baml_options: BamlCallOptions = {},
     ) -> types.MacroRegimeCalibration:
@@ -281,6 +295,18 @@ class BamlStreamClient:
           lambda x: typing.cast(types.DeltaCalibration, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
+    def CalibrateRiskBudget(self, sector_outlook: str,sector_universe: typing.List[str],asset_sector_map: typing.Dict[str, str],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlSyncStream[stream_types.RiskBudgetOutput, types.RiskBudgetOutput]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="CalibrateRiskBudget", args={
+            "sector_outlook": sector_outlook,"sector_universe": sector_universe,"asset_sector_map": asset_sector_map,
+        })
+        return baml_py.BamlSyncStream[stream_types.RiskBudgetOutput, types.RiskBudgetOutput](
+          __result__,
+          lambda x: typing.cast(stream_types.RiskBudgetOutput, x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(types.RiskBudgetOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
     def ClassifyMacroRegime(self, macro_summary: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.MacroRegimeCalibration, types.MacroRegimeCalibration]:
@@ -411,6 +437,13 @@ class BamlHttpRequestClient:
             "macro_text": macro_text,
         }, mode="request")
         return __result__
+    def CalibrateRiskBudget(self, sector_outlook: str,sector_universe: typing.List[str],asset_sector_map: typing.Dict[str, str],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="CalibrateRiskBudget", args={
+            "sector_outlook": sector_outlook,"sector_universe": sector_universe,"asset_sector_map": asset_sector_map,
+        }, mode="request")
+        return __result__
     def ClassifyMacroRegime(self, macro_summary: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
@@ -494,6 +527,13 @@ class BamlHttpStreamRequestClient:
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="CalibrateDelta", args={
             "macro_text": macro_text,
+        }, mode="stream")
+        return __result__
+    def CalibrateRiskBudget(self, sector_outlook: str,sector_universe: typing.List[str],asset_sector_map: typing.Dict[str, str],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="CalibrateRiskBudget", args={
+            "sector_outlook": sector_outlook,"sector_universe": sector_universe,"asset_sector_map": asset_sector_map,
         }, mode="stream")
         return __result__
     def ClassifyMacroRegime(self, macro_summary: str,

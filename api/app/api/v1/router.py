@@ -12,6 +12,7 @@ from app.api.v1.views import router as views_router
 from app.api.v1.macro_calibration import router as macro_calibration_router
 from app.api.v1.opinion_pooling import router as opinion_pooling_router
 from app.api.v1.stress_scenarios import router as stress_scenarios_router
+from app.api.v1.risk_budget import router as risk_budget_router
 
 # Create the main API router
 api_router = APIRouter()
@@ -27,3 +28,4 @@ api_router.include_router(views_router)
 api_router.include_router(macro_calibration_router)
 api_router.include_router(opinion_pooling_router)
 api_router.include_router(stress_scenarios_router)
+api_router.include_router(risk_budget_router)

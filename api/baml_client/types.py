@@ -64,7 +64,7 @@ class ExpertPersona(str, Enum):
     MACRO_ANALYST = "MACRO_ANALYST"
 
 # #########################################################################
-# Generated classes (10)
+# Generated classes (11)
 # #########################################################################
 
 class AssetFactorData(BaseModel):
@@ -120,6 +120,11 @@ class NewsArticle(BaseModel):
 class NewsSentimentOutput(BaseModel):
     scores: typing.List[float] = Field(description='Sentiment score for each article: +1=strongly bullish, -1=strongly bearish, 0=neutral.')
     reasoning: str = Field(description='Brief overall summary of the sentiment assessment.')
+
+class RiskBudgetOutput(BaseModel):
+    sector_budgets: typing.Dict[str, float] = Field(description='Sector name → risk budget weight. All values are non-negative and sum to 1.0.')
+    asset_budgets: typing.Dict[str, float] = Field(description='Asset ticker → risk budget weight. Derived from sector_budgets by equal-weighting assets within each sector. Values are non-negative and sum to 1.0.')
+    rationale: str = Field(description='2-4 sentence explanation of the budget allocation rationale.')
 
 class StressScenario(BaseModel):
     name: str = Field(description='Short label for the scenario, e.g. \'Global Recession 2026\'.')
