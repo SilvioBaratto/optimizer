@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(GH=/opt/homebrew/bin/gh:*)",
+      "Bash(__NEW_LINE_df141d9cabe5d92a__ $GH issue create --repo SilvioBaratto/optimizer --title \"BAML function for LLM-driven Black-Litterman view generation from multi-factor asset data\" --milestone \"Chapter 03 — View Integration\" --label \"enhancement,api,llm,chapter-03\" --body \"## Summary:*)",
+      "Bash(__NEW_LINE_df141d9cabe5d92a__ echo \"Issue 10 done\")"
     ]
   }
 }

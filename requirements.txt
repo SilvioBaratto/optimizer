@@ -39,7 +39,7 @@ pybind11>=3.0.2
 # Skfolio
 skfolio>=0.15.5
 
-# Deep Markov Models (DMM) — probabilistic state-space models via variational inference
+# Deep Markov Models 
 torch>=2.10.0
 pyro-ppl>=1.9.1
 
