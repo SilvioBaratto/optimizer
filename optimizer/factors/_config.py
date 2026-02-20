@@ -67,6 +67,7 @@ class CompositeMethod(str, Enum):
 
     EQUAL_WEIGHT = "equal_weight"
     IC_WEIGHTED = "ic_weighted"
+    ICIR_WEIGHTED = "icir_weighted"
 
 
 class SelectionMethod(str, Enum):
@@ -302,8 +303,17 @@ class CompositeScoringConfig:
 
     @classmethod
     def for_ic_weighted(cls) -> CompositeScoringConfig:
-        """IC-weighted composite scoring."""
+        """IC-weighted composite scoring (raw IC magnitude)."""
         return cls(method=CompositeMethod.IC_WEIGHTED)
+
+    @classmethod
+    def for_icir_weighted(cls) -> CompositeScoringConfig:
+        """ICIR-weighted composite scoring (mean IC / std IC).
+
+        Penalises inconsistent predictors by dividing mean IC by IC
+        volatility before normalising weights.
+        """
+        return cls(method=CompositeMethod.ICIR_WEIGHTED)
 
 
 @dataclass(frozen=True)
