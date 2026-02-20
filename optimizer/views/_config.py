@@ -17,6 +17,7 @@ class ViewUncertaintyMethod(str, Enum):
 
     HE_LITTERMAN = "he_litterman"
     IDZOREK = "idzorek"
+    EMPIRICAL_TRACK_RECORD = "empirical_track_record"
 
 
 @dataclass(frozen=True)

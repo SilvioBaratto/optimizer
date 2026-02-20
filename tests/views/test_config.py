@@ -18,11 +18,16 @@ class TestViewUncertaintyMethod:
         assert set(ViewUncertaintyMethod) == {
             ViewUncertaintyMethod.HE_LITTERMAN,
             ViewUncertaintyMethod.IDZOREK,
+            ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
         }
 
     def test_str_serialization(self) -> None:
         assert ViewUncertaintyMethod.HE_LITTERMAN.value == "he_litterman"
         assert ViewUncertaintyMethod.IDZOREK.value == "idzorek"
+        assert (
+            ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD.value
+            == "empirical_track_record"
+        )
 
 
 class TestBlackLittermanConfig:

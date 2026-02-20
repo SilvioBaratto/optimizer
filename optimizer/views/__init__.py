@@ -11,6 +11,7 @@ from optimizer.views._factory import (
     build_entropy_pooling,
     build_opinion_pooling,
 )
+from optimizer.views._uncertainty import calibrate_omega_from_track_record
 
 __all__ = [
     "BlackLittermanConfig",
@@ -20,4 +21,5 @@ __all__ = [
     "build_black_litterman",
     "build_entropy_pooling",
     "build_opinion_pooling",
+    "calibrate_omega_from_track_record",
 ]
