@@ -108,7 +108,9 @@ class TestFitHMM:
 
     def test_filtered_probs_rows_sum_to_one(self, hmm_result: HMMResult) -> None:
         row_sums = hmm_result.filtered_probs.sum(axis=1)
-        np.testing.assert_allclose(row_sums.to_numpy(), np.ones(len(row_sums)), atol=1e-8)
+        np.testing.assert_allclose(
+            row_sums.to_numpy(), np.ones(len(row_sums)), atol=1e-8
+        )
 
     def test_filtered_probs_non_negative(self, hmm_result: HMMResult) -> None:
         assert (hmm_result.filtered_probs >= 0).all().all()
@@ -138,12 +140,16 @@ class TestFitHMM:
         assert result.transition_matrix.shape == (3, 3)
         assert result.filtered_probs.shape == (len(synthetic_returns), 3)
         row_sums = result.filtered_probs.sum(axis=1)
-        np.testing.assert_allclose(row_sums.to_numpy(), np.ones(len(row_sums)), atol=1e-8)
+        np.testing.assert_allclose(
+            row_sums.to_numpy(), np.ones(len(row_sums)), atol=1e-8
+        )
 
     def test_nan_rows_dropped(self) -> None:
         rng = np.random.default_rng(5)
         dates = pd.date_range("2020-01-01", periods=200, freq="B")
-        df = pd.DataFrame(rng.normal(0, 0.01, (200, N_ASSETS)), index=dates, columns=TICKERS)
+        df = pd.DataFrame(
+            rng.normal(0, 0.01, (200, N_ASSETS)), index=dates, columns=TICKERS
+        )
         df.iloc[10] = np.nan
         df.iloc[50] = np.nan
         result = fit_hmm(df, HMMConfig(n_states=2, random_state=0))
@@ -203,7 +209,6 @@ class TestBlendMomentsByRegime:
 
     def test_pure_state_returns_regime_moments(self) -> None:
         """If last filtered prob is 100% in state 0, blended = regime 0 moments."""
-        rng = np.random.default_rng(3)
         n = 100
         dates = pd.date_range("2020-01-01", periods=n, freq="B")
 

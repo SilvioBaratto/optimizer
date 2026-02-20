@@ -62,7 +62,9 @@ class TestComputeVIF:
         self, orthogonal_scores: pd.DataFrame
     ) -> None:
         result = compute_vif(orthogonal_scores)
-        assert (result < 2.0).all(), f"Expected VIF ≈ 1 for orthogonal factors, got:\n{result}"
+        assert (result < 2.0).all(), (
+            f"Expected VIF ≈ 1 for orthogonal factors, got:\n{result}"
+        )
 
     def test_collinear_factor_has_high_vif(
         self, collinear_scores: pd.DataFrame

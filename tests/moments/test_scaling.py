@@ -1,4 +1,7 @@
-"""Tests for log-normal moment scaling (apply_lognormal_correction / scale_moments_to_horizon)."""
+"""Tests for log-normal moment scaling.
+
+Covers apply_lognormal_correction and scale_moments_to_horizon.
+"""
 
 from __future__ import annotations
 
@@ -65,7 +68,7 @@ class TestApplyLognormalCorrection:
     def test_horizon_1_mu_close_to_daily(
         self, daily_mu: pd.Series, daily_cov: pd.DataFrame
     ) -> None:
-        """At horizon=1 the correction exp(mu + 0.5*sigma^2) - 1 ≈ mu for small values."""
+        """At horizon=1, exp(mu + 0.5*sigma^2) - 1 ≈ mu for small values."""
         mu_t, _ = apply_lognormal_correction(daily_mu, daily_cov, horizon=1)
         sigma2 = np.diag(daily_cov.to_numpy())
         # First-order Taylor: exp(mu + 0.5*s2) - 1 ≈ mu + 0.5*s2

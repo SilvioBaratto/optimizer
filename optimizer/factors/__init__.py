@@ -1,11 +1,6 @@
 """Factor construction, scoring, and selection for stock pre-selection."""
 
 from optimizer.factors._alpha import factor_scores_to_expected_returns
-from optimizer.factors._diagnostics import (
-    FactorPCAResult,
-    compute_factor_pca,
-    flag_redundant_factors,
-)
 from optimizer.factors._config import (
     FACTOR_GROUP_MAPPING,
     GROUP_WEIGHT_TIER,
@@ -25,6 +20,11 @@ from optimizer.factors._config import (
     StandardizationMethod,
 )
 from optimizer.factors._construction import compute_all_factors, compute_factor
+from optimizer.factors._diagnostics import (
+    FactorPCAResult,
+    compute_factor_pca,
+    flag_redundant_factors,
+)
 from optimizer.factors._integration import (
     build_factor_bl_views,
     build_factor_exposure_constraints,
