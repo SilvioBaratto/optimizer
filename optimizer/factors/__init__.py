@@ -32,8 +32,10 @@ from optimizer.factors._diagnostics import (
 )
 from optimizer.factors._integration import (
     FactorExposureConstraints,
+    NetAlphaResult,
     build_factor_bl_views,
     build_factor_exposure_constraints,
+    compute_net_alpha,
     estimate_factor_premia,
 )
 from optimizer.factors._mimicking import (
@@ -175,8 +177,10 @@ __all__ = [
     "validate_factor_universe",
     # Integration
     "FactorExposureConstraints",
+    "NetAlphaResult",
     "build_factor_bl_views",
     "build_factor_exposure_constraints",
+    "compute_net_alpha",
     "estimate_factor_premia",
     "factor_scores_to_expected_returns",
     # Mimicking portfolios and quintile analysis

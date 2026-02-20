@@ -8,6 +8,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from optimizer.rebalancing._rebalancer import compute_turnover
+
 
 @dataclass(frozen=True)
 class FactorExposureConstraints:
@@ -207,3 +209,106 @@ def estimate_factor_premia(
     mean_daily = factor_mimicking_returns.mean()
     annualized = mean_daily * 252
     return dict(annualized)
+
+
+# ---------------------------------------------------------------------------
+# Net alpha
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class NetAlphaResult:
+    """Result of net alpha calculation after transaction cost deduction.
+
+    Attributes
+    ----------
+    gross_alpha : float
+        Annualised IC-based alpha proxy: ``mean(IC) * sqrt(annualisation)``.
+    avg_turnover : float
+        Mean one-way turnover across consecutive rebalancing dates, computed
+        via :func:`~optimizer.rebalancing._rebalancer.compute_turnover`.
+    total_cost : float
+        Cost deduction: ``avg_turnover * cost_bps / 10_000``.
+    net_alpha : float
+        Net annualised alpha after cost deduction:
+        ``gross_alpha - total_cost``.
+    net_icir : float
+        Net information coefficient information ratio:
+        ``net_alpha / (std(IC) * sqrt(annualisation))``.
+        ``0.0`` when the IC series has zero variance.
+    """
+
+    gross_alpha: float
+    avg_turnover: float
+    total_cost: float
+    net_alpha: float
+    net_icir: float
+
+
+def compute_net_alpha(
+    ic_series: pd.Series,
+    weights_history: pd.DataFrame,
+    cost_bps: float = 10.0,
+    annualisation: int = 252,
+) -> NetAlphaResult:
+    """Compute factor net alpha after deducting turnover-based transaction costs.
+
+    Combines IC-based gross alpha with the turnover cost from a weights
+    history to produce a single net performance metric::
+
+        gross_alpha  = mean(IC) * sqrt(annualisation)
+        avg_turnover = mean one-way turnover across rebalancing dates
+        total_cost   = avg_turnover * cost_bps / 10_000
+        net_alpha    = gross_alpha - total_cost
+        net_icir     = net_alpha / (std(IC) * sqrt(annualisation))
+
+    Parameters
+    ----------
+    ic_series : pd.Series
+        Time series of period information coefficients (Spearman or
+        Pearson rank correlation between factor scores and forward returns),
+        one value per rebalancing period.
+    weights_history : pd.DataFrame
+        Portfolio weights at each rebalancing date: rows = dates,
+        columns = assets.  Turnover is computed between every pair of
+        consecutive rows.
+    cost_bps : float, default=10.0
+        Round-trip transaction cost in basis points.
+    annualisation : int, default=252
+        Number of periods per year (252 for daily, 12 for monthly).
+
+    Returns
+    -------
+    NetAlphaResult
+        Dataclass with ``gross_alpha``, ``avg_turnover``, ``total_cost``,
+        ``net_alpha``, and ``net_icir``.
+    """
+    ic_values = ic_series.dropna().to_numpy(dtype=float)
+    ic_mean = float(np.mean(ic_values)) if len(ic_values) > 0 else 0.0
+    ic_std = float(np.std(ic_values, ddof=1)) if len(ic_values) > 1 else 0.0
+
+    gross_alpha = ic_mean * float(np.sqrt(annualisation))
+
+    # Compute mean one-way turnover across consecutive rebalancing dates
+    turnovers: list[float] = []
+    for i in range(1, len(weights_history)):
+        t = compute_turnover(
+            weights_history.iloc[i - 1].to_numpy(dtype=float),
+            weights_history.iloc[i].to_numpy(dtype=float),
+        )
+        turnovers.append(t)
+    avg_turnover = float(np.mean(turnovers)) if turnovers else 0.0
+
+    total_cost = avg_turnover * cost_bps / 10_000.0
+    net_alpha = gross_alpha - total_cost
+
+    annual_ic_vol = ic_std * float(np.sqrt(annualisation))
+    net_icir = net_alpha / annual_ic_vol if annual_ic_vol > 1e-12 else 0.0
+
+    return NetAlphaResult(
+        gross_alpha=gross_alpha,
+        avg_turnover=avg_turnover,
+        total_cost=total_cost,
+        net_alpha=net_alpha,
+        net_icir=net_icir,
+    )
