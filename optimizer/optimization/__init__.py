@@ -27,6 +27,10 @@ from optimizer.optimization._config import (
     RiskMeasureType,
     StackingConfig,
 )
+from optimizer.optimization._dr_cvar import (
+    DRCVaRConfig,
+    build_dr_cvar,
+)
 from optimizer.optimization._factory import (
     build_benchmark_tracker,
     build_clustering_estimator,
@@ -51,10 +55,6 @@ from optimizer.optimization._regime_risk import (
 from optimizer.optimization._robust import (
     RobustConfig,
     build_robust_mean_risk,
-)
-from optimizer.optimization._dr_cvar import (
-    DRCVaRConfig,
-    build_dr_cvar,
 )
 
 __all__ = [
