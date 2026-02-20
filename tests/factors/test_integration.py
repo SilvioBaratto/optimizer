@@ -7,11 +7,9 @@ import pandas as pd
 import pytest
 
 from optimizer.factors import (
-    FactorIntegrationConfig,
     build_factor_bl_views,
     build_factor_exposure_constraints,
     estimate_factor_premia,
-    factor_scores_to_expected_returns,
 )
 
 
@@ -24,40 +22,6 @@ def factor_scores() -> pd.DataFrame:
         index=tickers,
         columns=["value", "momentum", "profitability"],
     )
-
-
-@pytest.fixture()
-def betas() -> pd.DataFrame:
-    rng = np.random.default_rng(42)
-    tickers = [f"T{i:02d}" for i in range(20)]
-    return pd.DataFrame(
-        rng.uniform(0.5, 1.5, (20, 3)),
-        index=tickers,
-        columns=["value", "momentum", "profitability"],
-    )
-
-
-class TestFactorScoresToExpectedReturns:
-    def test_basic(self, factor_scores: pd.DataFrame, betas: pd.DataFrame) -> None:
-        premia = {"value": 0.04, "momentum": 0.06, "profitability": 0.03}
-        result = factor_scores_to_expected_returns(
-            factor_scores["value"], betas, premia
-        )
-        assert isinstance(result, pd.Series)
-        assert len(result) == 20
-        # All should be > risk_free_rate (most betas/premia are positive)
-        assert result.mean() > 0
-
-    def test_custom_config(
-        self, factor_scores: pd.DataFrame, betas: pd.DataFrame
-    ) -> None:
-        config = FactorIntegrationConfig(risk_free_rate=0.02)
-        premia = {"value": 0.04}
-        result = factor_scores_to_expected_returns(
-            factor_scores["value"], betas, premia, config=config
-        )
-        # Minimum possible return is risk_free_rate
-        assert (result >= 0.02 - 1.0).all()  # generous bound
 
 
 class TestBuildFactorBLViews:

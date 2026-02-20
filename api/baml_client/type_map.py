@@ -16,5 +16,38 @@ from . import stream_types
 
 type_map = {
 
+    "types.AssetFactorData": types.AssetFactorData,
+    "stream_types.AssetFactorData": stream_types.AssetFactorData,
+
+    "types.AssetView": types.AssetView,
+    "stream_types.AssetView": stream_types.AssetView,
+
+    "types.CovRegimeSelection": types.CovRegimeSelection,
+    "stream_types.CovRegimeSelection": stream_types.CovRegimeSelection,
+
+    "types.DeltaCalibration": types.DeltaCalibration,
+    "stream_types.DeltaCalibration": stream_types.DeltaCalibration,
+
+    "types.FactorWeightAdaptation": types.FactorWeightAdaptation,
+    "stream_types.FactorWeightAdaptation": stream_types.FactorWeightAdaptation,
+
+    "types.MacroRegimeCalibration": types.MacroRegimeCalibration,
+    "stream_types.MacroRegimeCalibration": stream_types.MacroRegimeCalibration,
+
+    "types.NewsArticle": types.NewsArticle,
+    "stream_types.NewsArticle": stream_types.NewsArticle,
+
+    "types.NewsSentimentOutput": types.NewsSentimentOutput,
+    "stream_types.NewsSentimentOutput": stream_types.NewsSentimentOutput,
+
+    "types.ViewOutput": types.ViewOutput,
+    "stream_types.ViewOutput": stream_types.ViewOutput,
+
+
+    "types.BusinessCyclePhase": types.BusinessCyclePhase,
+
+    "types.CovEstimatorChoice": types.CovEstimatorChoice,
+
+    "types.ExpertPersona": types.ExpertPersona,
 
 }
