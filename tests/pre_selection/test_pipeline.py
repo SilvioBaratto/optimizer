@@ -328,6 +328,49 @@ class TestPreSelectionBehavioral:
         assert "CONST" not in out.columns
 
 
+class TestStepOrdering:
+    """Tests for pipeline step ordering invariants (issue #83)."""
+
+    def test_select_complete_before_drop_zero_variance_before_drop_correlated(
+        self,
+    ) -> None:
+        pipe = build_preselection_pipeline()
+        step_names = [name for name, _ in pipe.steps]
+        assert step_names.index("select_complete") < step_names.index(
+            "drop_zero_variance"
+        )
+        assert step_names.index("drop_zero_variance") < step_names.index(
+            "drop_correlated"
+        )
+
+    def test_drop_correlated_before_select_k_when_top_k_set(self) -> None:
+        cfg = PreSelectionConfig(top_k=10)
+        pipe = build_preselection_pipeline(cfg)
+        step_names = [name for name, _ in pipe.steps]
+        assert step_names.index("drop_correlated") < step_names.index("select_k")
+
+    def test_ordering_with_pareto_filter(self) -> None:
+        cfg = PreSelectionConfig(use_pareto=True)
+        pipe = build_preselection_pipeline(cfg)
+        step_names = [name for name, _ in pipe.steps]
+        assert step_names.index("drop_correlated") < step_names.index("select_pareto")
+
+    def test_ordering_with_all_optional_steps(self) -> None:
+        cfg = PreSelectionConfig(
+            top_k=10,
+            use_pareto=True,
+            use_non_expiring=True,
+            expiration_lookahead=90,
+        )
+        pipe = build_preselection_pipeline(cfg)
+        step_names = [name for name, _ in pipe.steps]
+        assert step_names.index("drop_correlated") < step_names.index("select_k")
+        assert step_names.index("select_k") < step_names.index("select_pareto")
+        assert step_names.index("select_pareto") < step_names.index(
+            "select_non_expiring"
+        )
+
+
 class TestSkfolioIntegration:
     """Smoke tests with skfolio's built-in dataset."""
 

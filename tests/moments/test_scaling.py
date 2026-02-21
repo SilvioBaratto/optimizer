@@ -101,6 +101,50 @@ class TestApplyLognormalCorrection:
         with pytest.raises(DataError, match="same ticker index"):
             apply_lognormal_correction(mu_bad, daily_cov, horizon=21)
 
+    def test_correction_exceeds_naive_compound_when_sigma_positive(
+        self, daily_mu: pd.Series, daily_cov: pd.DataFrame
+    ) -> None:
+        """E[R_T] = exp(mu*T + 0.5*sigma^2*T) - 1 > exp(mu*T) - 1 for sigma > 0."""
+        horizon = 252
+        mu_t, _ = apply_lognormal_correction(daily_mu, daily_cov, horizon=horizon)
+        naive_compound = np.exp(daily_mu.to_numpy() * horizon) - 1.0
+        assert np.all(mu_t.to_numpy() > naive_compound)
+
+    def test_zero_variance_matches_naive_compound(
+        self, daily_mu: pd.Series
+    ) -> None:
+        """With zero covariance, correction = exp(mu*T) - 1 exactly."""
+        horizon = 63
+        zero_cov = pd.DataFrame(
+            np.zeros((len(daily_mu), len(daily_mu))),
+            index=daily_mu.index,
+            columns=daily_mu.index,
+        )
+        mu_t, _ = apply_lognormal_correction(daily_mu, zero_cov, horizon=horizon)
+        expected = np.exp(daily_mu.to_numpy() * horizon) - 1.0
+        np.testing.assert_allclose(mu_t.to_numpy(), expected, rtol=1e-12)
+
+    def test_higher_sigma_produces_larger_correction(self) -> None:
+        """Higher vol should produce a larger corrected expected return."""
+        mu_val = 0.10 / 252
+        horizon = 252
+
+        # Low vol
+        mu_low = pd.Series([mu_val], index=["X"])
+        cov_low = pd.DataFrame(
+            [[0.15**2 / 252]], index=["X"], columns=["X"]
+        )
+        mu_t_low, _ = apply_lognormal_correction(mu_low, cov_low, horizon=horizon)
+
+        # High vol
+        mu_high = pd.Series([mu_val], index=["X"])
+        cov_high = pd.DataFrame(
+            [[0.30**2 / 252]], index=["X"], columns=["X"]
+        )
+        mu_t_high, _ = apply_lognormal_correction(mu_high, cov_high, horizon=horizon)
+
+        assert float(mu_t_high.iloc[0]) > float(mu_t_low.iloc[0])
+
     def test_invalid_method_raises(
         self, daily_mu: pd.Series, daily_cov: pd.DataFrame
     ) -> None:

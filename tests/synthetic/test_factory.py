@@ -158,6 +158,45 @@ class TestIntegration:
         samples = model.sample(n_samples=100)
         assert samples.shape == (100, returns_df.shape[1])
 
+    def test_stress_test_fit_produces_moments(self, returns_df: pd.DataFrame) -> None:
+        cfg = SyntheticDataConfig.for_stress_test(n_samples=500)
+        model = build_synthetic_data(
+            cfg,
+            sample_args={"conditioning": {"TICK_00": -0.30}},
+        )
+        model.fit(returns_df)
+        prior = model.return_distribution_
+        assert prior.mu is not None
+        assert prior.covariance is not None
+
+    def test_stressed_covariance_differs_from_unconditional(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        vine_cfg = VineCopulaConfig(random_state=42)
+
+        # Unconditional
+        cfg_uncond = SyntheticDataConfig(
+            n_samples=500,
+            vine_copula_config=vine_cfg,
+        )
+        model_uncond = build_synthetic_data(cfg_uncond)
+        model_uncond.fit(returns_df)
+
+        # Stressed (conditioning on extreme negative return)
+        cfg_stress = SyntheticDataConfig(
+            n_samples=500,
+            vine_copula_config=vine_cfg,
+        )
+        model_stress = build_synthetic_data(
+            cfg_stress,
+            sample_args={"conditioning": {"TICK_00": -0.30}},
+        )
+        model_stress.fit(returns_df)
+
+        cov_uncond = model_uncond.return_distribution_.covariance
+        cov_stress = model_stress.return_distribution_.covariance
+        assert not np.allclose(cov_uncond, cov_stress)
+
     def test_synthetic_data_fit_predict(self, returns_df: pd.DataFrame) -> None:
         cfg = SyntheticDataConfig(
             n_samples=500,

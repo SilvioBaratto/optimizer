@@ -305,6 +305,18 @@ def blend_moments_by_regime(
     tuple[pd.Series, pd.DataFrame]
         ``(mu, cov)`` — blended expected returns (indexed by ticker) and
         blended covariance matrix (tickers × tickers).
+
+    Notes
+    -----
+    This function computes only the within-regime weighted covariance
+    ``Σ = Σ_s γ(s) · Σ_s`` and **omits** the cross-state mean-dispersion
+    term ``Σ_s γ(s) · (μ_s − μ)(μ_s − μ)ᵀ`` from the full law of total
+    variance.  As a result, the blended covariance will under-estimate
+    total uncertainty when regime means differ materially.
+
+    For optimizer inputs that require the full variance decomposition, use
+    :class:`HMMBlendedCovariance` instead, which includes both the
+    within-regime and between-regime components.
     """
     weights: npt.NDArray[np.float64] = result.filtered_probs.iloc[-1].to_numpy(
         dtype=np.float64

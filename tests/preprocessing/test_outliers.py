@@ -137,6 +137,27 @@ class TestOutlierTreater:
             out = ot.transform(test_df)
             assert out.iloc[0, 0] == pytest.approx(normal_val, rel=1e-10)
 
+    def test_no_leakage_outlier_treater(self, normal_returns: pd.DataFrame) -> None:
+        """Fitted statistics must not change when transforming unseen data."""
+        import copy
+
+        train = normal_returns.iloc[:100]
+        ot = OutlierTreater().fit(train)
+        mu_before = copy.deepcopy(ot.mu_)
+        sigma_before = copy.deepcopy(ot.sigma_)
+
+        # Transform test data with different scale
+        rng = np.random.default_rng(99)
+        test = pd.DataFrame(
+            rng.normal(loc=0.1, scale=0.05, size=(50, 3)),
+            columns=normal_returns.columns,
+            index=pd.date_range("2025-01-01", periods=50),
+        )
+        ot.transform(test)
+
+        pd.testing.assert_series_equal(ot.mu_, mu_before)
+        pd.testing.assert_series_equal(ot.sigma_, sigma_before)
+
     def test_sklearn_params(self) -> None:
         ot = OutlierTreater(winsorize_threshold=2.5, remove_threshold=8.0)
         params = ot.get_params()

@@ -542,6 +542,88 @@ class TestIntegration:
         assert portfolio.weights is not None
         assert len(portfolio.weights) > 0
 
+    def test_ep_fit_kurtosis_views(self) -> None:
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        cfg = EntropyPoolingConfig(kurtosis_views=("AAPL == 5.0",))
+        prior = build_entropy_pooling(cfg)
+        prior.fit(returns)
+        rd = prior.return_distribution_
+        assert rd.mu is not None
+        assert np.all(np.isfinite(rd.mu))
+
+    def test_op_fit_geometric_pooling(self) -> None:
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        expert_1 = EntropyPooling(mean_views=["AAPL == 0.05"])
+        expert_2 = EntropyPooling(mean_views=["JPM == 0.03"])
+        estimators: list[tuple[str, BasePrior]] = [
+            ("ep_1", expert_1),
+            ("ep_2", expert_2),
+        ]
+        cfg = OpinionPoolingConfig(is_linear_pooling=False)
+        prior = build_opinion_pooling(estimators, cfg)
+        prior.fit(returns)
+        rd = prior.return_distribution_
+        assert rd.mu is not None
+        assert rd.covariance is not None
+
+    def test_bl_fit_multi_asset_relative_view(self) -> None:
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        # Multi-asset relative view: AAPL outperforms MSFT by 2%
+        cfg = BlackLittermanConfig.for_equilibrium(
+            views=("AAPL - MSFT == 0.02", "JPM == 0.03"),
+        )
+        prior = build_black_litterman(cfg)
+        prior.fit(returns)
+        rd = prior.return_distribution_
+        assert rd.mu is not None
+        assert np.all(np.isfinite(rd.mu))
+
+    def test_op_base_prior_anchors_posterior(self) -> None:
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        # Two experts with mild views
+        expert_1 = EntropyPooling(mean_views=["AAPL == 0.001"])
+        expert_2 = EntropyPooling(mean_views=["JPM == 0.001"])
+        estimators: list[tuple[str, BasePrior]] = [
+            ("mild_1", expert_1),
+            ("mild_2", expert_2),
+        ]
+        # Very low weight for the experts → posterior anchored to base
+        cfg = OpinionPoolingConfig(opinion_probabilities=(0.01, 0.01))
+        prior = build_opinion_pooling(estimators, cfg)
+        prior.fit(returns)
+
+        # Base prior (empirical)
+        from skfolio.prior import EmpiricalPrior
+
+        base = EmpiricalPrior()
+        base.fit(returns)
+
+        diff = np.linalg.norm(
+            prior.return_distribution_.mu - base.return_distribution_.mu
+        )
+        # With low weight on mild views, posterior should be close to base
+        assert diff < 0.1
+
     def test_idzorek_high_confidence_closer_to_view(self) -> None:
         """High-confidence Idzorek posterior is closer to view target (issue #68)."""
         from skfolio.datasets import load_sp500_dataset
