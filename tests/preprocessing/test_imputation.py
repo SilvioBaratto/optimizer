@@ -100,6 +100,39 @@ class TestSectorImputer:
         expected = ["AAPL", "MSFT", "GOOG", "JPM", "GS"]
         np.testing.assert_array_equal(imp.get_feature_names_out(), expected)
 
+    def test_no_leakage_sector_imputer(
+        self, sector_df: pd.DataFrame, sector_mapping: dict[str, str]
+    ) -> None:
+        """Fitted sector_groups_ must not change when transforming unseen data."""
+        import copy
+
+        imp = SectorImputer(sector_mapping=sector_mapping).fit(sector_df)
+        groups_before = copy.deepcopy(imp.sector_groups_)
+
+        # Transform new data
+        rng = np.random.default_rng(99)
+        test = pd.DataFrame(
+            rng.normal(0, 0.02, (10, 5)),
+            columns=sector_df.columns,
+            index=pd.date_range("2025-01-01", periods=10),
+        )
+        test.iloc[0, 0] = np.nan
+        imp.transform(test)
+
+        assert imp.sector_groups_ == groups_before
+
+    def test_leave_one_out_excludes_own_value(self) -> None:
+        """Imputed value should be the other asset's value, not the average
+        including self (leave-one-out)."""
+        df = pd.DataFrame(
+            {"X": [0.10, np.nan], "Y": [0.20, 0.30]},
+            index=pd.date_range("2024-01-01", periods=2),
+        )
+        mapping = {"X": "S1", "Y": "S1"}
+        out = SectorImputer(sector_mapping=mapping).fit_transform(df)
+        # X is NaN at row 1; only Y=0.30 in same sector → imputed = 0.30
+        assert out.loc[out.index[1], "X"] == pytest.approx(0.30)
+
     def test_entire_sector_nan_falls_back_to_global(self) -> None:
         """When an entire sector is NaN for a row, use global mean."""
         df = pd.DataFrame(

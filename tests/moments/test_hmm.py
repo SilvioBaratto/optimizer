@@ -434,6 +434,21 @@ class TestHMMBlendedCovariance:
         blended_diag = np.diag(est.covariance_)
         assert np.all(blended_diag >= weighted_diag - 1e-12)
 
+    def test_blended_cov_geq_simple_blend_diag(
+        self, synthetic_returns: pd.DataFrame
+    ) -> None:
+        """Full law of total variance (HMMBlendedCovariance) should produce
+        diagonal variances >= simple weighted blend (blend_moments_by_regime)."""
+        est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
+        est.fit(synthetic_returns)
+        full_cov = est.covariance_
+
+        _, simple_cov = blend_moments_by_regime(est.hmm_result_)
+        simple_diag = np.diag(simple_cov.to_numpy())
+        full_diag = np.diag(full_cov)
+
+        assert np.all(full_diag >= simple_diag - 1e-12)
+
     def test_accepts_numpy_array_input(self, synthetic_returns: pd.DataFrame) -> None:
         est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
         est.fit(synthetic_returns.to_numpy())

@@ -823,6 +823,77 @@ class TestIntegration:
         assert portfolio.weights is not None
         assert len(portfolio.weights) == returns.shape[1]
 
+    def test_hrp_cdar_fit(self, returns_df: pd.DataFrame) -> None:
+        cfg = HRPConfig(risk_measure=RiskMeasureType.CDAR)
+        model = build_hrp(cfg)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.weights is not None
+        assert len(portfolio.weights) == returns_df.shape[1]
+        assert abs(sum(portfolio.weights) - 1.0) < 1e-6
+
+    def test_hrp_mutual_information_distance_fit(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        cfg = HRPConfig(
+            distance_config=DistanceConfig(
+                distance_type=DistanceType.MUTUAL_INFORMATION
+            ),
+        )
+        model = build_hrp(cfg)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.weights is not None
+        assert len(portfolio.weights) == returns_df.shape[1]
+        assert abs(sum(portfolio.weights) - 1.0) < 1e-6
+
+    def test_hrp_kendall_distance_fit(self, returns_df: pd.DataFrame) -> None:
+        cfg = HRPConfig(
+            distance_config=DistanceConfig(distance_type=DistanceType.KENDALL),
+        )
+        model = build_hrp(cfg)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.weights is not None
+        assert len(portfolio.weights) == returns_df.shape[1]
+        assert abs(sum(portfolio.weights) - 1.0) < 1e-6
+
+    def test_herc_cdar_fit(self, returns_df: pd.DataFrame) -> None:
+        cfg = HERCConfig(risk_measure=RiskMeasureType.CDAR)
+        model = build_herc(cfg)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.weights is not None
+        assert len(portfolio.weights) == returns_df.shape[1]
+        assert abs(sum(portfolio.weights) - 1.0) < 1e-6
+
+    def test_nco_hrp_inner_mean_risk_outer(self, returns_df: pd.DataFrame) -> None:
+        inner_cfg = HRPConfig(
+            risk_measure=RiskMeasureType.VARIANCE,
+            clustering_config=ClusteringConfig(max_clusters=3),
+        )
+        inner = build_hrp(inner_cfg)
+        outer = build_mean_risk(MeanRiskConfig.for_min_variance())
+        model = build_nco(inner_estimator=inner, outer_estimator=outer)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.weights is not None
+        assert len(portfolio.weights) == returns_df.shape[1]
+        assert abs(sum(portfolio.weights) - 1.0) < 1e-6
+
+    def test_inverse_volatility_formula(self, returns_df: pd.DataFrame) -> None:
+        """Verify inverse-volatility weights match 1/sigma_i / sum(1/sigma_j)."""
+        model = build_inverse_volatility()
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+
+        # Manual computation
+        sigmas = returns_df.std().to_numpy()
+        inv_vol = 1.0 / sigmas
+        expected_weights = inv_vol / inv_vol.sum()
+
+        np.testing.assert_allclose(portfolio.weights, expected_weights, rtol=1e-6)
+
     def test_efficient_frontier(self, returns_df: pd.DataFrame) -> None:
         cfg = MeanRiskConfig.for_efficient_frontier(size=5)
         model = build_mean_risk(cfg)

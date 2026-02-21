@@ -246,6 +246,87 @@ class TestTransform:
         out = imp.transform(clean_df)
         pd.testing.assert_frame_equal(out, clean_df)
 
+    def test_no_leakage_regression_imputer(self, clean_df: pd.DataFrame) -> None:
+        """Fitted coefs_ and neighbors_ must not change when transforming."""
+        import copy
+
+        imp = RegressionImputer(n_neighbors=3, min_train_periods=20).fit(clean_df)
+        coefs_before = copy.deepcopy(imp.coefs_)
+        neighbors_before = copy.deepcopy(imp.neighbors_)
+
+        # Transform a copy with injected NaN
+        test = clean_df.copy()
+        test.iloc[50, 0] = np.nan
+        imp.transform(test)
+
+        # Compare coefs_ element-wise (values are numpy arrays)
+        assert imp.coefs_.keys() == coefs_before.keys()
+        for key in coefs_before:
+            np.testing.assert_array_equal(imp.coefs_[key], coefs_before[key])
+        assert imp.neighbors_ == neighbors_before
+
+    def test_cold_start_asset_uses_fallback(self) -> None:
+        """When min_train_periods > available data, coefs_ is None and
+        fallback imputer is used."""
+        df = _make_correlated_df(n_periods=30)
+        df.iloc[25, 0] = np.nan  # A at row 25
+
+        imp = RegressionImputer(n_neighbors=3, min_train_periods=100).fit(df)
+        assert imp.coefs_["A"] is None
+
+        # Get fallback result
+        fallback_out = imp._fallback_imputer_.transform(df.copy())
+        out = imp.transform(df)
+
+        # Imputed value should match fallback
+        assert out.iloc[25, 0] == pytest.approx(fallback_out.iloc[25, 0])
+
+    def test_missing_neighbors_row_uses_fallback(self) -> None:
+        """When target and all its neighbors are NaN at a row, fallback is used."""
+        df = _make_correlated_df(n_periods=120)
+        imp = RegressionImputer(n_neighbors=2, min_train_periods=20).fit(df)
+
+        # Set target A and its top neighbors to NaN at one row
+        row = df.index[110]
+        test = df.copy()
+        test.loc[row, "A"] = np.nan
+        for nbr in imp.neighbors_["A"]:
+            test.loc[row, nbr] = np.nan
+
+        out = imp.transform(test)
+        assert not np.isnan(out.loc[row, "A"])
+
+    def test_imputation_after_winsorization_differs_from_reverse(self) -> None:
+        """Winsorize-then-impute should produce different results from
+        impute-then-winsorize when data contains both outliers and NaN."""
+        from optimizer.preprocessing import OutlierTreater
+
+        rng = np.random.default_rng(42)
+        n = 200
+        common = rng.standard_normal(n)
+        df = pd.DataFrame(
+            {
+                "A": 0.8 * common + 0.2 * rng.standard_normal(n),
+                "B": 0.7 * common + 0.3 * rng.standard_normal(n),
+                "C": 0.6 * common + 0.4 * rng.standard_normal(n),
+            },
+            index=pd.date_range("2020-01-01", periods=n),
+        )
+        # Inject outlier and NaN
+        df.iloc[50, 0] = 10.0  # extreme outlier in A
+        df.iloc[100, 1] = np.nan  # missing value in B
+
+        ot = OutlierTreater(winsorize_threshold=3.0, remove_threshold=10.0)
+        imp = RegressionImputer(n_neighbors=2, min_train_periods=20)
+
+        # Order 1: winsorize then impute
+        out1 = imp.fit_transform(ot.fit_transform(df.copy()))
+
+        # Order 2: impute then winsorize
+        out2 = ot.fit_transform(imp.fit_transform(df.copy()))
+
+        assert not np.allclose(out1.to_numpy(), out2.to_numpy())
+
     def test_rejects_non_dataframe_in_transform(self, clean_df: pd.DataFrame) -> None:
         imp = RegressionImputer().fit(clean_df)
         with pytest.raises(DataError, match="pandas DataFrame"):
