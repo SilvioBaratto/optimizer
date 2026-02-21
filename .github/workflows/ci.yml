@@ -69,7 +69,7 @@ jobs:
       - run: pip install -e ".[test]"
       - run: pytest tests/ -v --tb=short --cov=optimizer --cov-report=xml --cov-report=term-missing
       - if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@4650159d642e33fdc30954ca22638caf0df6cac8  # v5.4.3
+        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24  # v5.4.3
         with:
           file: ./coverage.xml
           fail_ci_if_error: false
