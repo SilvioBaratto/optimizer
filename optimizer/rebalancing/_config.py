@@ -66,6 +66,11 @@ class CalendarRebalancingConfig:
         return cls(frequency=RebalancingFrequency.QUARTERLY)
 
     @classmethod
+    def for_semiannual(cls) -> CalendarRebalancingConfig:
+        """Semiannual rebalancing (126 trading days)."""
+        return cls(frequency=RebalancingFrequency.SEMIANNUAL)
+
+    @classmethod
     def for_annual(cls) -> CalendarRebalancingConfig:
         """Annual rebalancing (252 trading days)."""
         return cls(frequency=RebalancingFrequency.ANNUAL)

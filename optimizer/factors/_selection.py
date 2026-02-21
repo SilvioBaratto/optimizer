@@ -163,13 +163,43 @@ def apply_sector_balance(
     return pd.Index(sorted(set(result)))
 
 
+def compute_selection_turnover(
+    current: pd.Index,
+    new: pd.Index,
+    universe: pd.Index,
+) -> float:
+    """Compute selection turnover as fraction of universe changed.
+
+    Parameters
+    ----------
+    current : pd.Index
+        Currently selected tickers.
+    new : pd.Index
+        Newly selected tickers.
+    universe : pd.Index
+        Full investable universe.
+
+    Returns
+    -------
+    float
+        ``len(added | removed) / len(universe)``, or 0.0 if universe
+        is empty.
+    """
+    if len(universe) == 0:
+        return 0.0
+    added = new.difference(current)
+    removed = current.difference(new)
+    return len(added.union(removed)) / len(universe)
+
+
 def select_stocks(
     scores: pd.Series,
     config: SelectionConfig | None = None,
     current_members: pd.Index | None = None,
     sector_labels: pd.Series | None = None,
     parent_universe: pd.Index | None = None,
-) -> pd.Index:
+    return_turnover: bool = False,
+) -> pd.Index | tuple[pd.Index, float]:
     """Select stocks from scored universe.
 
     Parameters
@@ -184,11 +214,13 @@ def select_stocks(
         Sector labels for sector balancing.
     parent_universe : pd.Index or None
         Full universe for sector weight targets.
+    return_turnover : bool
+        When ``True``, return ``(selected, turnover)`` tuple.
 
     Returns
     -------
-    pd.Index
-        Selected tickers.
+    pd.Index or tuple[pd.Index, float]
+        Selected tickers, optionally with turnover.
     """
     if config is None:
         config = SelectionConfig()
@@ -217,5 +249,11 @@ def select_stocks(
             parent_universe=universe,
             tolerance=config.sector_tolerance,
         )
+
+    if return_turnover:
+        prev = current_members if current_members is not None else pd.Index([])
+        univ = parent_universe if parent_universe is not None else scores.index
+        turnover = compute_selection_turnover(prev, selected, univ)
+        return selected, turnover
 
     return selected

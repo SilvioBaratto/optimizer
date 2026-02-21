@@ -70,6 +70,11 @@ class TestCalendarRebalancingConfig:
         cfg = CalendarRebalancingConfig.for_quarterly()
         assert cfg.trading_days == 63
 
+    def test_for_semiannual(self) -> None:
+        cfg = CalendarRebalancingConfig.for_semiannual()
+        assert cfg.frequency == RebalancingFrequency.SEMIANNUAL
+        assert cfg.trading_days == 126
+
     def test_for_annual(self) -> None:
         cfg = CalendarRebalancingConfig.for_annual()
         assert cfg.trading_days == 252

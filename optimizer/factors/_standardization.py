@@ -159,9 +159,15 @@ def standardize_factor(
         scores = rank_normal_standardize(scores)
 
     # 3. Sector/country neutralize
+    neutralized = False
     if config.neutralize_sector and sector_labels is not None:
         country = country_labels if config.neutralize_country else None
         scores = neutralize_sector(scores, sector_labels, country)
+        neutralized = True
+
+    # 4. Re-standardize after neutralization (optional)
+    if config.re_standardize_after_neutralization and neutralized:
+        scores = z_score_standardize(scores)
 
     return scores
 

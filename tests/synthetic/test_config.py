@@ -106,3 +106,18 @@ class TestSyntheticDataConfig:
         cfg = SyntheticDataConfig.for_stress_test(n_samples=20_000)
         assert cfg.n_samples == 20_000
         assert cfg.vine_copula_config is not None
+
+    def test_stress_test_uses_bic(self) -> None:
+        cfg = SyntheticDataConfig.for_stress_test()
+        assert cfg.vine_copula_config is not None
+        assert cfg.vine_copula_config.selection_criterion == SelectionCriterionType.BIC
+
+    def test_stress_test_max_depth_6(self) -> None:
+        cfg = SyntheticDataConfig.for_stress_test()
+        assert cfg.vine_copula_config is not None
+        assert cfg.vine_copula_config.max_depth == 6
+
+    def test_scenario_vs_stress_differ(self) -> None:
+        scenario = SyntheticDataConfig.for_scenario_generation()
+        stress = SyntheticDataConfig.for_stress_test()
+        assert scenario.vine_copula_config != stress.vine_copula_config

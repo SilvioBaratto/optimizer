@@ -166,13 +166,26 @@ def _merge_mean_views(config: EntropyPoolingConfig) -> list[str] | None:
     return views if views else None
 
 
-def build_entropy_pooling(config: EntropyPoolingConfig) -> EntropyPooling:
+def build_entropy_pooling(
+    config: EntropyPoolingConfig,
+    prior_moments: (
+        tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]] | None
+    ) = None,
+    asset_names: list[str] | None = None,
+) -> EntropyPooling:
     """Build a skfolio Entropy Pooling prior from *config*.
 
     Parameters
     ----------
     config : EntropyPoolingConfig
         Entropy Pooling configuration.
+    prior_moments : tuple[ndarray, ndarray] or None
+        ``(mu, cov)`` arrays from a fitted prior.  Required when
+        ``config.relative_mean_views`` or ``config.relative_variance_views``
+        are set.
+    asset_names : list[str] or None
+        Asset names corresponding to rows/columns of *prior_moments*.
+        Required together with *prior_moments*.
 
     Returns
     -------
@@ -182,10 +195,42 @@ def build_entropy_pooling(config: EntropyPoolingConfig) -> EntropyPooling:
     inner_prior = build_prior(config.prior_config)
     merged_mean_views = _merge_mean_views(config)
 
+    variance_views = list(config.variance_views) if config.variance_views else None
+
+    has_relative = (
+        config.relative_mean_views is not None
+        or config.relative_variance_views is not None
+    )
+    if has_relative and (prior_moments is None or asset_names is None):
+        raise ConfigurationError(
+            "prior_moments and asset_names are required when "
+            "relative_mean_views or relative_variance_views are set"
+        )
+
+    if has_relative and prior_moments is not None and asset_names is not None:
+        mu, cov = prior_moments
+        name_to_idx = {name: i for i, name in enumerate(asset_names)}
+
+        if config.relative_mean_views is not None:
+            if merged_mean_views is None:
+                merged_mean_views = []
+            for asset, multiplier in config.relative_mean_views:
+                idx = name_to_idx[asset]
+                abs_val = float(mu[idx]) + multiplier
+                merged_mean_views.append(f"{asset} == {abs_val}")
+
+        if config.relative_variance_views is not None:
+            if variance_views is None:
+                variance_views = []
+            for asset, multiplier in config.relative_variance_views:
+                idx = name_to_idx[asset]
+                abs_val = float(cov[idx, idx]) * multiplier
+                variance_views.append(f"{asset} == {abs_val}")
+
     return EntropyPooling(
         prior_estimator=inner_prior,
         mean_views=merged_mean_views,
-        variance_views=(list(config.variance_views) if config.variance_views else None),
+        variance_views=variance_views,
         correlation_views=(
             list(config.correlation_views) if config.correlation_views else None
         ),

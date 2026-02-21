@@ -12,6 +12,7 @@ from optimizer.pipeline import (
     PortfolioResult,
     backtest,
     build_portfolio_pipeline,
+    compute_net_backtest_returns,
     optimize,
     run_full_pipeline,
     run_full_pipeline_with_selection,
@@ -483,3 +484,64 @@ class TestRunFullPipelineWithSelection:
                 vol_arg = call_kwargs[0][2]
             assert isinstance(vol_arg, pd.DataFrame)
             assert len(vol_arg) == 0
+
+
+class TestTuneRandomizedSearch:
+    """Tests for RandomizedSearchConfig in tune_and_optimize (issue #97)."""
+
+    def test_tune_randomized_search(self, returns_df: pd.DataFrame) -> None:
+        from optimizer.tuning import RandomizedSearchConfig
+
+        optimizer = build_mean_risk(MeanRiskConfig.for_min_variance())
+        pipe = build_portfolio_pipeline(optimizer)
+        cfg = RandomizedSearchConfig(
+            n_iter=2,
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        result = tune_and_optimize(
+            pipe,
+            returns_df,
+            param_grid={"optimizer__l2_coef": [0.0, 0.01, 0.05]},
+            tuning_config=cfg,
+        )
+        assert isinstance(result, PortfolioResult)
+        assert result.weights.sum() == pytest.approx(1.0, abs=1e-6)
+
+
+class TestComputeNetBacktestReturns:
+    """Tests for compute_net_backtest_returns (issue #98)."""
+
+    def test_zero_cost_equals_gross(self) -> None:
+        dates = pd.date_range("2023-01-01", periods=5, freq="B")
+        gross = pd.Series([0.01, 0.02, -0.01, 0.005, 0.03], index=dates)
+        changes = pd.DataFrame(
+            {"A": [0.1, 0.0, 0.0, 0.0, 0.0], "B": [-0.1, 0.0, 0.0, 0.0, 0.0]},
+            index=dates,
+        )
+        net = compute_net_backtest_returns(gross, changes, cost_bps=0.0)
+        pd.testing.assert_series_equal(net, gross)
+
+    def test_full_turnover_deducts_cost(self) -> None:
+        dates = pd.date_range("2023-01-01", periods=3, freq="B")
+        gross = pd.Series([0.01, 0.02, 0.03], index=dates)
+        # Turnover = sum(abs) = 0.5 + 0.5 = 1.0 on first date
+        changes = pd.DataFrame(
+            {"A": [0.5, 0.0, 0.0], "B": [-0.5, 0.0, 0.0]},
+            index=dates,
+        )
+        net = compute_net_backtest_returns(gross, changes, cost_bps=10.0)
+        # First date: 0.01 - 1.0 * 10/10000 = 0.01 - 0.001 = 0.009
+        assert net.iloc[0] == pytest.approx(0.009)
+        # Other dates: no changes → same as gross
+        assert net.iloc[1] == pytest.approx(0.02)
+        assert net.iloc[2] == pytest.approx(0.03)
+
+    def test_no_weight_change_no_deduction(self) -> None:
+        dates = pd.date_range("2023-01-01", periods=3, freq="B")
+        gross = pd.Series([0.01, 0.02, 0.03], index=dates)
+        changes = pd.DataFrame(
+            {"A": [0.0, 0.0, 0.0], "B": [0.0, 0.0, 0.0]},
+            index=dates,
+        )
+        net = compute_net_backtest_returns(gross, changes, cost_bps=10.0)
+        pd.testing.assert_series_equal(net, gross)

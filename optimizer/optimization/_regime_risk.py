@@ -35,6 +35,7 @@ Usage example::
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
@@ -85,6 +86,16 @@ class RegimeRiskConfig:
             regime_measures=(RiskMeasureType.VARIANCE, RiskMeasureType.CVAR),
             hmm_config=HMMConfig(n_states=2),
             **kwargs,  # type: ignore[arg-type]
+        )
+
+    @classmethod
+    def for_calm_stress_drawdown(cls, **kwargs: object) -> RegimeRiskConfig:
+        """Two-regime preset: calm → variance, stress → CDaR."""
+        return cls(
+            regime_measures=(RiskMeasureType.VARIANCE, RiskMeasureType.CDAR),
+            hmm_config=HMMConfig(n_states=2),
+            cvar_beta=0.95,
+            **kwargs,
         )
 
     @classmethod
@@ -189,10 +200,13 @@ def _compute_regime_risk(
             "regime-conditional risk computation"
         )
 
-    raise NotImplementedError(
+    warnings.warn(
         f"Risk measure {measure.value!r} is not supported for "
-        "regime-conditional risk computation"
+        "regime-conditional risk computation; falling back to standard deviation",
+        UserWarning,
+        stacklevel=2,
     )
+    return float(np.std(r, ddof=ddof))
 
 
 # ---------------------------------------------------------------------------

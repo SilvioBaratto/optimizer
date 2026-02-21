@@ -18,6 +18,7 @@ from optimizer.factors._config import (
     FactorGroupType,
     FactorIntegrationConfig,
     GroupWeight,
+    PublicationLagConfig,
     RegimeTiltConfig,
     SelectionConfig,
     StandardizationConfig,
@@ -39,8 +40,8 @@ from optimizer.rebalancing._rebalancer import (
     should_rebalance,
     should_rebalance_hybrid,
 )
-from optimizer.tuning._config import GridSearchConfig
-from optimizer.tuning._factory import build_grid_search_cv
+from optimizer.tuning._config import GridSearchConfig, RandomizedSearchConfig
+from optimizer.tuning._factory import build_grid_search_cv, build_randomized_search_cv
 from optimizer.universe._config import InvestabilityScreenConfig
 from optimizer.universe._factory import screen_universe
 from optimizer.validation._config import WalkForwardConfig
@@ -127,10 +128,10 @@ def tune_and_optimize(
     X: pd.DataFrame,
     param_grid: dict[str, list[Any]],
     *,
-    tuning_config: GridSearchConfig | None = None,
+    tuning_config: GridSearchConfig | RandomizedSearchConfig | None = None,
     y: pd.DataFrame | None = None,
 ) -> PortfolioResult:
-    """Tune hyperparameters via grid search, then optimise.
+    """Tune hyperparameters via grid or randomized search, then optimise.
 
     Parameters
     ----------
@@ -139,11 +140,12 @@ def tune_and_optimize(
     X : pd.DataFrame
         Return matrix (observations x assets).
     param_grid : dict
-        Parameter grid for ``GridSearchCV``.  Keys use sklearn
-        double-underscore notation for nested parameters.
-    tuning_config : GridSearchConfig or None
-        Grid search configuration.  Defaults to quarterly
-        walk-forward with Sharpe ratio scoring.
+        Parameter grid for ``GridSearchCV`` or distributions for
+        ``RandomizedSearchCV``.  Keys use sklearn double-underscore
+        notation for nested parameters.
+    tuning_config : GridSearchConfig or RandomizedSearchConfig or None
+        Search configuration.  Defaults to quarterly walk-forward
+        with Sharpe ratio scoring (grid search).
     y : pd.DataFrame or None
         Benchmark or factor returns.
 
@@ -152,7 +154,10 @@ def tune_and_optimize(
     PortfolioResult
         Weights from the best estimator, with backtest from CV.
     """
-    gs = build_grid_search_cv(pipeline, param_grid, config=tuning_config)
+    if isinstance(tuning_config, RandomizedSearchConfig):
+        gs = build_randomized_search_cv(pipeline, param_grid, config=tuning_config)
+    else:
+        gs = build_grid_search_cv(pipeline, param_grid, config=tuning_config)
 
     if y is not None:
         gs.fit(X, y)
@@ -175,6 +180,45 @@ def tune_and_optimize(
 # ---------------------------------------------------------------------------
 # High-level end-to-end function
 # ---------------------------------------------------------------------------
+
+
+def compute_net_backtest_returns(
+    gross_returns: pd.Series,
+    weight_changes: pd.DataFrame,
+    cost_bps: float = 10.0,
+) -> pd.Series:
+    """Deduct proportional transaction costs from gross backtest returns.
+
+    For each date with weight changes, the turnover (sum of absolute
+    weight deltas) is multiplied by ``cost_bps / 10_000`` and subtracted
+    from the gross return at that date.
+
+    Parameters
+    ----------
+    gross_returns : pd.Series
+        Gross portfolio returns indexed by date.
+    weight_changes : pd.DataFrame
+        Weight change matrix (dates x assets).  Only dates present
+        in this DataFrame incur transaction costs.
+    cost_bps : float
+        Transaction cost in basis points (default 10 bps).
+
+    Returns
+    -------
+    pd.Series
+        Net returns with costs deducted.
+    """
+    net = gross_returns.copy()
+    cost_frac = cost_bps / 10_000.0
+
+    for date in weight_changes.index:
+        if date not in net.index:
+            continue
+        row = weight_changes.loc[date].to_numpy(dtype=np.float64)
+        turnover = float(np.sum(np.abs(row)))
+        net.at[date] = net.at[date] - turnover * cost_frac
+
+    return net
 
 
 def run_full_pipeline(
@@ -485,7 +529,25 @@ def run_full_pipeline_with_selection(
             if macro_data is None:  # pragma: no cover — guarded by has_regime
                 msg = "macro_data is required when regime_config is enabled"
                 raise DataError(msg)
-            regime = classify_regime(macro_data)
+
+            # Apply publication lag to macro data (point-in-time correctness)
+            _lag_cfg = (
+                factor_config.publication_lag
+                if factor_config is not None
+                else PublicationLagConfig()
+            )
+            macro_days = _lag_cfg.macro_days
+            as_of = (
+                current_date
+                if current_date is not None
+                else pd.Timestamp(prices.index[-1])
+            )
+            cutoff = as_of - pd.Timedelta(days=macro_days)
+            lagged_macro = macro_data.loc[macro_data.index <= cutoff]
+            if len(lagged_macro) == 0:
+                lagged_macro = macro_data
+
+            regime = classify_regime(lagged_macro)
 
             # Build base group weights from config
             _scoring = scoring_config or CompositeScoringConfig()

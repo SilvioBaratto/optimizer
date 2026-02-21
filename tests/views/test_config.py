@@ -87,6 +87,15 @@ class TestBlackLittermanConfig:
         assert cfg.prior_config.mu_estimator == MuEstimatorType.EQUILIBRIUM
         assert cfg.use_factor_model is True
 
+    def test_for_idzorek(self) -> None:
+        views = ("AAPL == 0.05", "MSFT == 0.03")
+        confs = (0.8, 0.6)
+        cfg = BlackLittermanConfig.for_idzorek(views, confs)
+        assert cfg.views == views
+        assert cfg.uncertainty_method == ViewUncertaintyMethod.IDZOREK
+        assert cfg.view_confidences == confs
+        assert cfg.prior_config is not None
+
     def test_tau_zero_raises(self) -> None:
         """tau=0 raises ValueError (issue #68)."""
         with pytest.raises(ValueError, match="tau must be strictly positive"):
@@ -151,6 +160,25 @@ class TestEntropyPoolingConfig:
         assert cfg.variance_views == var_views
         assert cfg.correlation_views == corr_views
         assert cfg.mean_views is None
+
+    def test_for_group_views(self) -> None:
+        mean_views = ("tech == 0.05",)
+        groups = {"tech": ["AAPL", "MSFT"]}
+        cfg = EntropyPoolingConfig.for_group_views(mean_views, groups)
+        assert cfg.mean_views == mean_views
+        assert cfg.groups == groups
+
+    def test_relative_mean_views_field(self) -> None:
+        cfg = EntropyPoolingConfig(
+            relative_mean_views=(("AAPL", 0.01),),
+        )
+        assert cfg.relative_mean_views == (("AAPL", 0.01),)
+
+    def test_relative_variance_views_field(self) -> None:
+        cfg = EntropyPoolingConfig(
+            relative_variance_views=(("AAPL", 2.0),),
+        )
+        assert cfg.relative_variance_views == (("AAPL", 2.0),)
 
     def test_mean_inequality_views_custom(self) -> None:
         """mean_inequality_views field stores inequality views (issue #69)."""
