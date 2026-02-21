@@ -24,6 +24,8 @@ from skfolio.prior import EmpiricalPrior, FactorModel
 
 from optimizer.moments import (
     CovEstimatorType,
+    HMMBlendedCovariance,
+    HMMBlendedMu,
     MomentEstimationConfig,
     MuEstimatorType,
     ShrinkageMethod,
@@ -41,6 +43,7 @@ class TestBuildMuEstimator:
             (MuEstimatorType.SHRUNK, ShrunkMu),
             (MuEstimatorType.EW, EWMu),
             (MuEstimatorType.EQUILIBRIUM, EquilibriumMu),
+            (MuEstimatorType.HMM_BLENDED, HMMBlendedMu),
         ],
     )
     def test_each_type_produces_correct_class(
@@ -96,6 +99,7 @@ class TestBuildCovEstimator:
             (CovEstimatorType.DENOISE, DenoiseCovariance),
             (CovEstimatorType.DETONE, DetoneCovariance),
             (CovEstimatorType.IMPLIED, ImpliedCovariance),
+            (CovEstimatorType.HMM_BLENDED, HMMBlendedCovariance),
         ],
     )
     def test_each_type_produces_correct_class(
@@ -275,3 +279,17 @@ class TestIntegration:
         rd = prior.return_distribution_
         assert rd.mu is not None
         assert rd.covariance is not None
+
+    def test_hmm_blended_prior_composes_with_meanrisk(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        """HMM-blended prior fits and composes with MeanRisk (issue #67)."""
+        from skfolio.optimization import MeanRisk
+
+        cfg = MomentEstimationConfig.for_hmm_blended()
+        prior = build_prior(cfg)
+        model = MeanRisk(prior_estimator=prior)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.weights is not None
+        assert len(portfolio.weights) > 0

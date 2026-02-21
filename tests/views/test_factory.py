@@ -179,6 +179,29 @@ class TestBuildEntropyPooling:
         assert prior.kurtosis_views is None
         assert prior.cvar_views is None
 
+    def test_mean_inequality_views_forwarded(self) -> None:
+        """Inequality mean views are merged into mean_views (issue #69)."""
+        cfg = EntropyPoolingConfig(
+            mean_inequality_views=("TICK_00 >= 0.03",),
+        )
+        prior = build_entropy_pooling(cfg)
+        assert prior.mean_views == ["TICK_00 >= 0.03"]
+
+    def test_mean_equality_and_inequality_merged(self) -> None:
+        """Both equality and inequality mean views are merged."""
+        cfg = EntropyPoolingConfig(
+            mean_views=("TICK_00 == 0.05",),
+            mean_inequality_views=("TICK_01 >= 0.03",),
+        )
+        prior = build_entropy_pooling(cfg)
+        assert prior.mean_views == ["TICK_00 == 0.05", "TICK_01 >= 0.03"]
+
+    def test_neither_mean_views_gives_none(self) -> None:
+        """No equality or inequality mean views → mean_views=None."""
+        cfg = EntropyPoolingConfig()
+        prior = build_entropy_pooling(cfg)
+        assert prior.mean_views is None
+
 
 class TestBuildOpinionPooling:
     def test_produces_opinion_pooling_instance(self) -> None:
@@ -478,3 +501,36 @@ class TestIntegration:
         portfolio = model.predict(returns)
         assert portfolio.weights is not None
         assert len(portfolio.weights) > 0
+
+    def test_idzorek_high_confidence_closer_to_view(self) -> None:
+        """High-confidence Idzorek posterior is closer to view target (issue #68)."""
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+        aapl_idx = list(returns.columns).index("AAPL")
+        view_target = 0.10
+
+        cfg_high = BlackLittermanConfig(
+            views=("AAPL == 0.10",),
+            uncertainty_method=ViewUncertaintyMethod.IDZOREK,
+            view_confidences=(0.9,),
+        )
+        cfg_low = BlackLittermanConfig(
+            views=("AAPL == 0.10",),
+            uncertainty_method=ViewUncertaintyMethod.IDZOREK,
+            view_confidences=(0.1,),
+        )
+
+        prior_high = build_black_litterman(cfg_high)
+        prior_low = build_black_litterman(cfg_low)
+
+        prior_high.fit(returns)
+        prior_low.fit(returns)
+
+        mu_high = prior_high.return_distribution_.mu[aapl_idx]
+        mu_low = prior_low.return_distribution_.mu[aapl_idx]
+
+        # High confidence should be closer to the view target
+        assert abs(mu_high - view_target) < abs(mu_low - view_target)

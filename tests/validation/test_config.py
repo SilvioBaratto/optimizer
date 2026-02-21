@@ -69,8 +69,8 @@ class TestCPCVConfig:
 
     def test_for_statistical_testing(self) -> None:
         cfg = CPCVConfig.for_statistical_testing()
-        assert cfg.n_folds == 10
-        assert cfg.n_test_folds == 8
+        assert cfg.n_folds == 12
+        assert cfg.n_test_folds == 2
 
     def test_for_small_sample(self) -> None:
         cfg = CPCVConfig.for_small_sample()

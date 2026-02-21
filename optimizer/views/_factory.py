@@ -155,6 +155,17 @@ def build_black_litterman(
     return bl
 
 
+def _merge_mean_views(config: EntropyPoolingConfig) -> list[str] | None:
+    """Merge equality and inequality mean views into a single list.
+
+    skfolio's EntropyPooling handles ``==``, ``>=``, and ``<=`` operators
+    in view strings, so both equality and inequality views can be passed
+    together in the ``mean_views`` parameter.
+    """
+    views = list(config.mean_views or ()) + list(config.mean_inequality_views or ())
+    return views if views else None
+
+
 def build_entropy_pooling(config: EntropyPoolingConfig) -> EntropyPooling:
     """Build a skfolio Entropy Pooling prior from *config*.
 
@@ -169,10 +180,11 @@ def build_entropy_pooling(config: EntropyPoolingConfig) -> EntropyPooling:
         A fitted-ready :class:`skfolio.prior.EntropyPooling`.
     """
     inner_prior = build_prior(config.prior_config)
+    merged_mean_views = _merge_mean_views(config)
 
     return EntropyPooling(
         prior_estimator=inner_prior,
-        mean_views=list(config.mean_views) if config.mean_views else None,
+        mean_views=merged_mean_views,
         variance_views=(list(config.variance_views) if config.variance_views else None),
         correlation_views=(
             list(config.correlation_views) if config.correlation_views else None

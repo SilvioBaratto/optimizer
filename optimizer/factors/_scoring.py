@@ -56,8 +56,10 @@ def compute_group_scores(
         sub = standardized_factors[group_cols]
         cov = coverage[group_cols]
 
-        # Weighted average, ignoring NaN
-        group_scores[group.value] = sub.where(cov).mean(axis=1)
+        # Coverage-weighted mean: sum(cov * score) / sum(cov)
+        numerator = (sub * cov).sum(axis=1)
+        denominator = cov.sum(axis=1)
+        group_scores[group.value] = numerator / denominator.replace(0, np.nan)
 
     return pd.DataFrame(group_scores, index=standardized_factors.index)
 

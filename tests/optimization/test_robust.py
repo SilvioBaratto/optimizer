@@ -180,6 +180,11 @@ class TestBuildRobustMeanRisk:
         assert est.block_size == pytest.approx(10.0)
         assert est.confidence_level == pytest.approx(0.90)
 
+    def test_negative_kappa_raises(self) -> None:
+        """Negative kappa raises ValueError (issue #73)."""
+        with pytest.raises(ValueError, match="kappa must be non-negative"):
+            build_robust_mean_risk(RobustConfig(kappa=-0.5))
+
     def test_default_config_used_when_none(self) -> None:
         model = build_robust_mean_risk(None)
         assert isinstance(model, MeanRisk)

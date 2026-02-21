@@ -132,9 +132,63 @@ class TestComputeRegimeRisk:
         result = _compute_regime_risk(r, RiskMeasureType.SEMI_VARIANCE)
         assert result == pytest.approx(expected, rel=1e-10)
 
-    def test_all_positive_returns_worst_realization_zero(self) -> None:
+    def test_all_positive_returns_worst_realization_clamped(self) -> None:
+        """WR with all positive returns should be clamped to 0 (issue #71)."""
         r = np.abs(self._r()) + 0.001
-        assert _compute_regime_risk(r, RiskMeasureType.WORST_REALIZATION) < 0.0
+        result = _compute_regime_risk(r, RiskMeasureType.WORST_REALIZATION)
+        assert result == pytest.approx(0.0)
+
+    def test_worst_realization_negative_returns(self) -> None:
+        """WR with negative returns should be positive."""
+        r = np.array([-0.01, -0.02, 0.005, -0.03], dtype=np.float64)
+        result = _compute_regime_risk(r, RiskMeasureType.WORST_REALIZATION)
+        assert result > 0.0
+        assert result == pytest.approx(0.03)
+
+    def test_max_drawdown_positive(self) -> None:
+        r = self._r()
+        dd = _compute_regime_risk(r, RiskMeasureType.MAX_DRAWDOWN)
+        assert dd >= 0.0
+
+    def test_average_drawdown_le_max_drawdown(self) -> None:
+        r = self._r()
+        avg = _compute_regime_risk(r, RiskMeasureType.AVERAGE_DRAWDOWN)
+        mx = _compute_regime_risk(r, RiskMeasureType.MAX_DRAWDOWN)
+        assert avg <= mx + 1e-10
+
+    def test_ulcer_index_positive(self) -> None:
+        r = self._r()
+        ui = _compute_regime_risk(r, RiskMeasureType.ULCER_INDEX)
+        assert ui >= 0.0
+
+    def test_cdar_positive(self) -> None:
+        r = self._r()
+        cdar = _compute_regime_risk(r, RiskMeasureType.CDAR, cvar_beta=0.95)
+        assert cdar >= 0.0
+
+    def test_cdar_le_max_drawdown(self) -> None:
+        r = self._r()
+        cdar = _compute_regime_risk(r, RiskMeasureType.CDAR, cvar_beta=0.95)
+        mx = _compute_regime_risk(r, RiskMeasureType.MAX_DRAWDOWN)
+        assert cdar <= mx + 1e-10
+
+    def test_edar_raises_not_implemented(self) -> None:
+        r = self._r()
+        with pytest.raises(NotImplementedError, match="EDAR"):
+            _compute_regime_risk(r, RiskMeasureType.EDAR)
+
+    def test_unsupported_measure_raises_not_implemented(self) -> None:
+        r = self._r()
+        with pytest.raises(NotImplementedError, match="not supported"):
+            _compute_regime_risk(r, RiskMeasureType.GINI_MEAN_DIFFERENCE)
+
+    def test_drawdown_measures_with_known_data(self) -> None:
+        """Known data: monotonically decreasing prices → predictable drawdown."""
+        # Returns that cause monotonic decline: -1% each period
+        r = np.full(10, -0.01, dtype=np.float64)
+        dd = _compute_regime_risk(r, RiskMeasureType.MAX_DRAWDOWN)
+        # Max drawdown should be significant
+        assert dd > 0.05
 
 
 # ---------------------------------------------------------------------------

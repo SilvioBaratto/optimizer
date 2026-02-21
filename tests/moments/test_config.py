@@ -104,3 +104,13 @@ class TestFactoryMethods:
         cfg = MomentEstimationConfig.for_adaptive()
         assert cfg.mu_estimator == MuEstimatorType.EW
         assert cfg.cov_estimator == CovEstimatorType.EW
+
+    def test_for_hmm_blended(self) -> None:
+        cfg = MomentEstimationConfig.for_hmm_blended()
+        assert cfg.mu_estimator == MuEstimatorType.HMM_BLENDED
+        assert cfg.cov_estimator == CovEstimatorType.HMM_BLENDED
+        assert cfg.hmm_config.n_states == 2
+
+    def test_for_hmm_blended_custom_states(self) -> None:
+        cfg = MomentEstimationConfig.for_hmm_blended(n_states=3)
+        assert cfg.hmm_config.n_states == 3

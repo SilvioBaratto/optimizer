@@ -53,6 +53,12 @@ def build_preselection_pipeline(
     if config is None:
         config = PreSelectionConfig()
 
+    if config.outlier_method != "time_series":
+        raise ValueError(
+            f"Unsupported outlier_method {config.outlier_method!r}. "
+            "Only 'time_series' is currently supported."
+        )
+
     steps: list[tuple[str, object]] = [
         (
             "validate",

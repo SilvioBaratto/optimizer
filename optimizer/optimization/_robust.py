@@ -373,6 +373,11 @@ def build_robust_mean_risk(
     if config is None:
         config = RobustConfig()
 
+    if config.kappa < 0:
+        raise ValueError(
+            f"kappa must be non-negative, got {config.kappa}"
+        )
+
     mean_risk_cfg = config.mean_risk_config or MeanRiskConfig()
 
     if prior_estimator is None and mean_risk_cfg.prior_config is not None:
