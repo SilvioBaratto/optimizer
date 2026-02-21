@@ -11,7 +11,8 @@ from optimizer.factors import (
     FactorOOSResult,
     run_factor_oos_validation,
 )
-from optimizer.factors._oos_validation import _make_folds
+from optimizer.factors._oos_validation import _make_cpcv_folds, _make_folds
+from optimizer.validation._config import CPCVConfig
 
 _FACTORS = ["value", "momentum"]
 _TICKERS = [f"T{i:02d}" for i in range(20)]
@@ -211,3 +212,67 @@ class TestRunFactorOOSValidation:
         # floor((60-24)/12) = 3
         assert result.n_folds == 3
         assert result.per_fold_ic.shape == (3, len(_FACTORS))
+
+
+# ---------------------------------------------------------------------------
+# CPCV path (issue #100)
+# ---------------------------------------------------------------------------
+
+
+class TestCPCVPath:
+    @pytest.fixture()
+    def panel_60(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+        dates = pd.date_range("2019-01-31", periods=60, freq="ME")
+        return _make_panel(dates, np.random.default_rng(42))
+
+    def test_fold_count_matches_cnk(self) -> None:
+        """Number of folds matches C(n_folds, n_test_folds)."""
+        from math import comb
+
+        dates = pd.date_range("2019-01-31", periods=60, freq="ME")
+        cpcv = CPCVConfig(n_folds=6, n_test_folds=2)
+        folds = _make_cpcv_folds(dates, cpcv)
+        assert len(folds) == comb(6, 2)  # 15
+
+    def test_per_fold_ic_shape(
+        self, panel_60: tuple[pd.DataFrame, pd.DataFrame]
+    ) -> None:
+        from math import comb
+
+        scores, returns = panel_60
+        cpcv = CPCVConfig(n_folds=6, n_test_folds=2)
+        result = run_factor_oos_validation(scores, returns, cpcv_config=cpcv)
+        assert result.per_fold_ic.shape == (comb(6, 2), len(_FACTORS))
+
+    def test_cpcv_overrides_rolling_config(
+        self, panel_60: tuple[pd.DataFrame, pd.DataFrame]
+    ) -> None:
+        """When cpcv_config is given, rolling config is ignored."""
+        from math import comb
+
+        scores, returns = panel_60
+        rolling = FactorOOSConfig(train_months=36, val_months=12, step_months=6)
+        cpcv = CPCVConfig(n_folds=6, n_test_folds=2)
+        result = run_factor_oos_validation(
+            scores, returns, config=rolling, cpcv_config=cpcv
+        )
+        assert result.n_folds == comb(6, 2)
+
+    def test_purging_removes_adjacent_train_dates(self) -> None:
+        """Purging excludes dates adjacent to test boundaries from train."""
+        dates = pd.date_range("2019-01-31", periods=60, freq="ME")
+        cpcv = CPCVConfig(n_folds=6, n_test_folds=2, purged_size=1)
+        folds = _make_cpcv_folds(dates, cpcv)
+        for train_dates, test_dates in folds:
+            train_set = set(train_dates)
+            test_set = set(test_dates)
+            assert len(train_set & test_set) == 0
+
+    def test_train_test_disjointness(self) -> None:
+        """Train and test dates must never overlap."""
+        dates = pd.date_range("2019-01-31", periods=48, freq="ME")
+        cpcv = CPCVConfig(n_folds=6, n_test_folds=2, purged_size=0, embargo_size=0)
+        folds = _make_cpcv_folds(dates, cpcv)
+        for train_dates, test_dates in folds:
+            overlap = set(train_dates) & set(test_dates)
+            assert len(overlap) == 0

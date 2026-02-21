@@ -416,3 +416,29 @@ class TestBuildRobustMeanRiskBootstrapCovariance:
         model.fit(returns)
         portfolio = model.predict(returns)
         assert float(np.sum(portfolio.weights)) == pytest.approx(1.0, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# HHI monotonicity for robust optimization (issue #109)
+# ---------------------------------------------------------------------------
+
+
+def _compute_hhi(weights: np.ndarray) -> float:
+    """Herfindahl-Hirschman Index: sum(w_i^2)."""
+    return float(np.sum(weights**2))
+
+
+class TestHHIMonotonicityRobust:
+    def test_hhi_non_increasing_with_kappa(self, returns: pd.DataFrame) -> None:
+        """Larger kappa → more diversified → HHI non-increasing."""
+        kappas = [0.5, 1.0, 2.0]
+        hhis: list[float] = []
+
+        for kappa in kappas:
+            model = build_robust_mean_risk(RobustConfig(kappa=kappa))
+            model.fit(returns)
+            w = model.predict(returns).weights
+            hhis.append(_compute_hhi(w))
+
+        assert hhis[0] >= hhis[1] - 1e-4
+        assert hhis[1] >= hhis[2] - 1e-4

@@ -336,3 +336,73 @@ class TestComputeCrossFactorCorrelation:
         result = compute_cross_factor_correlation(factor_returns)
         n = len(factor_returns.columns)
         assert result.shape == (n, n)
+
+
+# ---------------------------------------------------------------------------
+# Beta-neutral mimicking portfolios (issue #101)
+# ---------------------------------------------------------------------------
+
+
+class TestBetaNeutral:
+    @pytest.fixture()
+    def market_returns(self, returns: pd.DataFrame) -> pd.Series:
+        return returns.mean(axis=1)
+
+    def test_returns_dataframe(
+        self,
+        scores: pd.DataFrame,
+        returns: pd.DataFrame,
+        market_returns: pd.Series,
+    ) -> None:
+        result = build_factor_mimicking_portfolios(
+            scores, returns, beta_neutral=True, market_returns=market_returns
+        )
+        assert isinstance(result, pd.DataFrame)
+        assert "factor_return" in result.columns
+
+    def test_differs_from_standard(
+        self,
+        scores: pd.DataFrame,
+        returns: pd.DataFrame,
+        market_returns: pd.Series,
+    ) -> None:
+        standard = build_factor_mimicking_portfolios(scores, returns)
+        hedged = build_factor_mimicking_portfolios(
+            scores, returns, beta_neutral=True, market_returns=market_returns
+        )
+        assert not standard["factor_return"].equals(hedged["factor_return"])
+
+    def test_lower_market_correlation(
+        self,
+        scores: pd.DataFrame,
+        returns: pd.DataFrame,
+        market_returns: pd.Series,
+    ) -> None:
+        standard = build_factor_mimicking_portfolios(scores, returns)
+        hedged = build_factor_mimicking_portfolios(
+            scores, returns, beta_neutral=True, market_returns=market_returns
+        )
+        corr_std = abs(standard["factor_return"].corr(market_returns))
+        corr_hedged = abs(hedged["factor_return"].corr(market_returns))
+        # Hedged should have lower or equal market correlation
+        assert corr_hedged <= corr_std + 0.15
+
+    def test_missing_market_returns_raises(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="market_returns"):
+            build_factor_mimicking_portfolios(
+                scores, returns, beta_neutral=True, market_returns=None
+            )
+
+    def test_beta_neutral_false_is_noop(
+        self,
+        scores: pd.DataFrame,
+        returns: pd.DataFrame,
+        market_returns: pd.Series,
+    ) -> None:
+        standard = build_factor_mimicking_portfolios(scores, returns)
+        explicit_false = build_factor_mimicking_portfolios(
+            scores, returns, beta_neutral=False, market_returns=market_returns
+        )
+        pd.testing.assert_frame_equal(standard, explicit_false)

@@ -76,3 +76,32 @@ def factor_scores_to_expected_returns(
             expected = expected + premium * scores[group].reindex(tickers).fillna(0.0)
 
     return expected
+
+
+def compute_gross_alpha(
+    net_alpha: float,
+    avg_turnover: float,
+    cost_bps: float = 10.0,
+) -> float:
+    """Compute gross alpha by adding back estimated transaction costs.
+
+    Formula::
+
+        gross = net_alpha + avg_turnover * cost_bps / 10_000
+
+    Parameters
+    ----------
+    net_alpha : float
+        Net alpha after transaction costs (annualised).
+    avg_turnover : float
+        Average one-way turnover (e.g. 0.5 means 50% of portfolio
+        traded per period).
+    cost_bps : float
+        One-way transaction cost in basis points.
+
+    Returns
+    -------
+    float
+        Gross alpha before transaction costs.
+    """
+    return net_alpha + avg_turnover * cost_bps / 10_000

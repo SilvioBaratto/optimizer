@@ -1,6 +1,9 @@
 """Factor construction, scoring, and selection for stock pre-selection."""
 
-from optimizer.factors._alpha import factor_scores_to_expected_returns
+from optimizer.factors._alpha import (
+    compute_gross_alpha,
+    factor_scores_to_expected_returns,
+)
 from optimizer.factors._config import (
     FACTOR_GROUP_MAPPING,
     GROUP_WEIGHT_TIER,
@@ -27,6 +30,7 @@ from optimizer.factors._construction import (
 )
 from optimizer.factors._diagnostics import (
     FactorPCAResult,
+    check_survivorship_bias,
     compute_factor_pca,
     flag_redundant_factors,
 )
@@ -77,6 +81,7 @@ from optimizer.factors._selection import (
 )
 from optimizer.factors._standardization import (
     neutralize_sector,
+    orthogonalize_factors,
     rank_normal_standardize,
     standardize_all_factors,
     standardize_factor,
@@ -141,6 +146,7 @@ __all__ = [
     "build_factor_bl_views",
     "build_factor_exposure_constraints",
     "build_factor_mimicking_portfolios",
+    "check_survivorship_bias",
     "classify_regime",
     "compute_all_factors",
     "compute_composite_score",
@@ -148,6 +154,7 @@ __all__ = [
     "compute_equal_weight_composite",
     "compute_factor",
     "compute_factor_pca",
+    "compute_gross_alpha",
     "compute_group_scores",
     "compute_ic_series",
     "compute_ic_stats",
@@ -170,6 +177,7 @@ __all__ = [
     "flag_redundant_factors",
     "get_regime_tilts",
     "neutralize_sector",
+    "orthogonalize_factors",
     "predict_composite_scores",
     "rank_normal_standardize",
     "run_factor_oos_validation",

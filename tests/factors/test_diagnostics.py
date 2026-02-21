@@ -9,6 +9,7 @@ import pytest
 from optimizer.exceptions import DataError
 from optimizer.factors import (
     FactorPCAResult,
+    check_survivorship_bias,
     compute_factor_pca,
     compute_vif,
     flag_redundant_factors,
@@ -238,3 +239,51 @@ class TestFlagRedundantFactors:
         col_order = list(collinear_scores.columns)
         positions = [col_order.index(f) for f in result]
         assert positions == sorted(positions)
+
+
+# ---------------------------------------------------------------------------
+# check_survivorship_bias (issue #103)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckSurvivorshipBias:
+    def test_warns_when_no_zeros(self) -> None:
+        """No near-zero returns in tail → warns and returns True."""
+        rng = np.random.default_rng(42)
+        returns = pd.DataFrame(
+            rng.normal(0.001, 0.02, (100, 10)),
+            columns=[f"A{i}" for i in range(10)],
+        )
+        with pytest.warns(UserWarning, match="survivorship bias"):
+            result = check_survivorship_bias(returns)
+        assert result is True
+
+    def test_no_warn_when_zeros_exist(self) -> None:
+        """Near-zero returns in tail → no warning and returns False."""
+        rng = np.random.default_rng(42)
+        data = rng.normal(0.001, 0.02, (100, 10))
+        # Make one asset have zero returns in the tail
+        data[-5:, 3] = 0.0
+        returns = pd.DataFrame(data, columns=[f"A{i}" for i in range(10)])
+        result = check_survivorship_bias(returns)
+        assert result is False
+
+    def test_short_data_returns_false(self) -> None:
+        """Fewer rows than final_periods → returns False."""
+        rng = np.random.default_rng(42)
+        returns = pd.DataFrame(
+            rng.normal(0.001, 0.02, (5, 3)),
+            columns=["A", "B", "C"],
+        )
+        result = check_survivorship_bias(returns, final_periods=12)
+        assert result is False
+
+    def test_custom_threshold(self) -> None:
+        """Custom zero_threshold correctly detects small returns."""
+        rng = np.random.default_rng(42)
+        data = rng.normal(0.001, 0.02, (100, 5))
+        # Set tiny returns below custom threshold
+        data[-3:, 0] = 1e-8
+        returns = pd.DataFrame(data, columns=[f"A{i}" for i in range(5)])
+        result = check_survivorship_bias(returns, zero_threshold=1e-7)
+        assert result is False

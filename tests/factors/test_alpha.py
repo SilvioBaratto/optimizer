@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from optimizer.factors import factor_scores_to_expected_returns
+from optimizer.factors import compute_gross_alpha, factor_scores_to_expected_returns
 
 TICKERS = ["AAPL", "MSFT", "GOOG", "AMZN", "META"]
 GROUPS = ["value", "momentum", "quality"]
@@ -212,3 +212,31 @@ class TestLinearityInScores:
             result_base * 2,
             check_names=False,
         )
+
+
+# ---------------------------------------------------------------------------
+# compute_gross_alpha (issue #103)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeGrossAlpha:
+    def test_formula_correctness(self) -> None:
+        # net=0.03, turnover=0.5, cost=10bps → gross = 0.03 + 0.5*10/10000
+        result = compute_gross_alpha(0.03, 0.5, cost_bps=10.0)
+        assert result == pytest.approx(0.03 + 0.5 * 10.0 / 10_000)
+
+    def test_zero_turnover(self) -> None:
+        result = compute_gross_alpha(0.05, 0.0, cost_bps=10.0)
+        assert result == pytest.approx(0.05)
+
+    def test_zero_cost(self) -> None:
+        result = compute_gross_alpha(0.05, 1.0, cost_bps=0.0)
+        assert result == pytest.approx(0.05)
+
+    def test_negative_net_alpha(self) -> None:
+        result = compute_gross_alpha(-0.02, 0.5, cost_bps=10.0)
+        assert result == pytest.approx(-0.02 + 0.5 * 10.0 / 10_000)
+
+    def test_returns_float(self) -> None:
+        result = compute_gross_alpha(0.01, 0.3, cost_bps=5.0)
+        assert isinstance(result, float)

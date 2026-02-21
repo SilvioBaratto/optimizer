@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import combinations
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,7 @@ from optimizer.factors._validation import (
     compute_icir,
     compute_quantile_spread,
 )
+from optimizer.validation._config import CPCVConfig
 
 # ---------------------------------------------------------------------------
 # Config and result containers
@@ -94,6 +96,88 @@ def _make_folds(
     return folds
 
 
+def _make_cpcv_folds(
+    dates: pd.Index,
+    cpcv_config: CPCVConfig,
+) -> list[tuple[pd.Index, pd.Index]]:
+    """Generate combinatorial purged cross-validation folds.
+
+    Divides *dates* into ``n_folds`` contiguous blocks, then generates
+    all C(n_folds, n_test_folds) combinations.  For each combination the
+    selected blocks form the test set and the rest form the train set,
+    with purging and embargo applied at train-test boundaries.
+
+    Parameters
+    ----------
+    dates : pd.Index
+        Sorted date index.
+    cpcv_config : CPCVConfig
+        CPCV parameters (n_folds, n_test_folds, purged_size, embargo_size).
+
+    Returns
+    -------
+    list[tuple[pd.Index, pd.Index]]
+        (train_dates, test_dates) pairs.
+    """
+    n = len(dates)
+    n_folds = cpcv_config.n_folds
+    n_test_folds = cpcv_config.n_test_folds
+    purged_size = cpcv_config.purged_size
+    embargo_size = cpcv_config.embargo_size
+
+    # Split into n_folds contiguous blocks
+    block_indices: list[tuple[int, int]] = []
+    block_size = n // n_folds
+    for i in range(n_folds):
+        start = i * block_size
+        end = (i + 1) * block_size if i < n_folds - 1 else n
+        block_indices.append((start, end))
+
+    folds: list[tuple[pd.Index, pd.Index]] = []
+    for test_combo in combinations(range(n_folds), n_test_folds):
+        test_set = set(test_combo)
+        train_set = set(range(n_folds)) - test_set
+
+        # Collect test indices
+        test_idx: list[int] = []
+        for b in test_combo:
+            s, e = block_indices[b]
+            test_idx.extend(range(s, e))
+
+        # Collect train indices
+        train_idx: list[int] = []
+        for b in sorted(train_set):
+            s, e = block_indices[b]
+            train_idx.extend(range(s, e))
+
+        # Apply purging: remove train indices within purged_size of any
+        # train-test boundary
+        if purged_size > 0:
+            purge_exclusions: set[int] = set()
+            for t_idx in test_idx:
+                for offset in range(1, purged_size + 1):
+                    purge_exclusions.add(t_idx - offset)
+                    purge_exclusions.add(t_idx + offset)
+            train_idx = [i for i in train_idx if i not in purge_exclusions]
+
+        # Apply embargo: remove train indices in embargo_size positions
+        # after each test block
+        if embargo_size > 0:
+            embargo_exclusions: set[int] = set()
+            for b in test_combo:
+                _, block_end = block_indices[b]
+                for offset in range(embargo_size):
+                    embargo_exclusions.add(block_end + offset)
+            train_idx = [i for i in train_idx if i not in embargo_exclusions]
+
+        train_dates = dates[train_idx]
+        test_dates = dates[list(test_idx)]
+        if len(train_dates) > 0 and len(test_dates) > 0:
+            folds.append((train_dates, test_dates))
+
+    return folds
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -103,8 +187,9 @@ def run_factor_oos_validation(
     scores: pd.DataFrame,
     returns: pd.DataFrame,
     config: FactorOOSConfig | None = None,
+    cpcv_config: CPCVConfig | None = None,
 ) -> FactorOOSResult:
-    """Rolling block OOS validation of factor IC and quintile spreads.
+    """Rolling block or CPCV out-of-sample validation of factor IC and spreads.
 
     Parameters
     ----------
@@ -116,6 +201,10 @@ def run_factor_oos_validation(
         and a single return column.
     config : FactorOOSConfig or None
         Rolling window parameters.  Defaults to ``FactorOOSConfig()``.
+        Ignored when ``cpcv_config`` is provided.
+    cpcv_config : CPCVConfig or None
+        When provided, uses combinatorial purged cross-validation
+        instead of rolling blocks.  Overrides ``config``.
 
     Returns
     -------
@@ -126,15 +215,20 @@ def run_factor_oos_validation(
     -----
     The validation window computation uses **only val-window dates**; no
     training-window data is used.  Fold count equals
-    ``floor((total_months - train_months) / step_months)``.
+    ``floor((total_months - train_months) / step_months)`` for rolling,
+    or ``C(n_folds, n_test_folds)`` for CPCV.
     """
     if config is None:
         config = FactorOOSConfig()
 
     all_dates = scores.index.get_level_values(0).unique().sort_values()
-    folds = _make_folds(
-        all_dates, config.train_months, config.val_months, config.step_months
-    )
+
+    if cpcv_config is not None:
+        folds = _make_cpcv_folds(all_dates, cpcv_config)
+    else:
+        folds = _make_folds(
+            all_dates, config.train_months, config.val_months, config.step_months
+        )
 
     factors = list(scores.columns)
 

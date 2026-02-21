@@ -103,11 +103,43 @@ def _long_short_return_at(
     return long_ret - short_ret
 
 
+def _compute_leg_beta(
+    leg_returns: pd.Series,
+    market_returns: pd.Series,
+) -> float:
+    """Compute OLS beta of leg returns against market returns.
+
+    Parameters
+    ----------
+    leg_returns : pd.Series
+        Return series for the portfolio leg.
+    market_returns : pd.Series
+        Market return series.
+
+    Returns
+    -------
+    float
+        OLS beta coefficient.
+    """
+    common = leg_returns.dropna().index.intersection(market_returns.dropna().index)
+    if len(common) < 2:
+        return 1.0
+    y = leg_returns.loc[common].to_numpy(dtype=np.float64)
+    x = market_returns.loc[common].to_numpy(dtype=np.float64)
+    cov_xy = float(np.cov(y, x, ddof=1)[0, 1])
+    var_x = float(np.var(x, ddof=1))
+    if var_x < 1e-20:
+        return 1.0
+    return cov_xy / var_x
+
+
 def build_factor_mimicking_portfolios(
     scores: pd.DataFrame,
     returns: pd.DataFrame,
     quantile: float = 0.30,
     weighting: str = "equal",
+    beta_neutral: bool = False,
+    market_returns: pd.Series | None = None,
 ) -> pd.DataFrame:
     """Build long-short factor-mimicking portfolio return time series.
 
@@ -147,6 +179,12 @@ def build_factor_mimicking_portfolios(
         ``"equal"`` — every asset in the leg receives the same weight.
         ``"value"``  — assets are weighted by the absolute value of
         their factor score.
+    beta_neutral : bool, default False
+        When ``True``, hedge the long-short portfolio against market
+        beta exposure.  The hedge ratio adjusts the short-leg weight
+        so that the portfolio beta is approximately zero.
+    market_returns : pd.Series or None
+        Market return series, required when ``beta_neutral=True``.
 
     Returns
     -------
@@ -167,17 +205,53 @@ def build_factor_mimicking_portfolios(
         raise ConfigurationError(
             f"weighting must be one of {sorted(_WEIGHTING_MODES)!r}, got {weighting!r}"
         )
+    if beta_neutral and market_returns is None:
+        raise ConfigurationError(
+            "market_returns is required when beta_neutral=True"
+        )
 
     common_dates = scores.index.intersection(returns.index)
     common_assets = scores.columns.intersection(returns.columns)
 
+    long_ret_series: dict[object, float] = {}
+    short_ret_series: dict[object, float] = {}
     ls_returns: dict[object, float] = {}
     for date in common_dates:
         scores_t = scores.loc[date, common_assets]
         returns_t = returns.loc[date, common_assets]
         valid_n = int((~scores_t.isna() & ~returns_t.isna()).sum())
         k = max(1, math.ceil(valid_n * quantile))
-        ls_returns[date] = _long_short_return_at(scores_t, returns_t, k, weighting)
+
+        if beta_neutral:
+            common = scores_t.dropna().index.intersection(returns_t.dropna().index)
+            n = len(common)
+            if n < 2 * k:
+                long_ret_series[date] = float(np.nan)
+                short_ret_series[date] = float(np.nan)
+                ls_returns[date] = float(np.nan)
+                continue
+            ranked = scores_t.loc[common].sort_values(ascending=False)
+            long_idx = ranked.index[:k]
+            short_idx = ranked.index[-k:]
+            long_ret_series[date] = float(returns_t.loc[long_idx].mean())
+            short_ret_series[date] = float(returns_t.loc[short_idx].mean())
+        else:
+            ls_returns[date] = _long_short_return_at(
+                scores_t, returns_t, k, weighting
+            )
+
+    if beta_neutral and market_returns is not None:
+        long_s = pd.Series(long_ret_series, dtype=float)
+        short_s = pd.Series(short_ret_series, dtype=float)
+        beta_long = _compute_leg_beta(long_s, market_returns)
+        beta_short = _compute_leg_beta(short_s, market_returns)
+        hedge_ratio = beta_long / beta_short if abs(beta_short) > 1e-10 else 1.0
+        hedged = long_s - hedge_ratio * short_s
+        return pd.DataFrame(
+            {"factor_return": hedged},
+            index=common_dates,
+            dtype=float,
+        )
 
     return pd.DataFrame(
         {"factor_return": ls_returns},
