@@ -12,14 +12,6 @@ requires-python = ">=3.10"
 authors = [
     {name = "Silvio Baratto"},
 ]
-
-[project.urls]
-Homepage = "https://github.com/SilvioBaratto/optimizer"
-Documentation = "https://silviobaratto.github.io/optimizer"
-Repository = "https://github.com/SilvioBaratto/optimizer"
-Issues = "https://github.com/SilvioBaratto/optimizer/issues"
-Changelog = "https://github.com/SilvioBaratto/optimizer/blob/main/CHANGELOG.md"
-
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Financial and Insurance Industry",
@@ -42,6 +34,13 @@ dependencies = [
     "hmmlearn>=0.3.3",
     "arch>=8.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/SilvioBaratto/optimizer"
+Documentation = "https://silviobaratto.github.io/optimizer"
+Repository = "https://github.com/SilvioBaratto/optimizer"
+Issues = "https://github.com/SilvioBaratto/optimizer/issues"
+Changelog = "https://github.com/SilvioBaratto/optimizer/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = ["pytest>=7.4", "pytest-cov>=4.0", "hypothesis>=6.0"]

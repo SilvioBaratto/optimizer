@@ -47,7 +47,7 @@ jobs:
           python-version: "3.12"
           cache: "pip"
       - run: pip install -e ".[typecheck]"
-      - uses: jakebailey/pyright-action@b8ebc31a358e530b2baaed7dccdd4789a62dd9a4  # v3.0.0
+      - uses: jakebailey/pyright-action@6cabc0f01c4994be48fd45cd9dbacdd6e1ee6e5e  # v2
         with:
           version: '1.1.398'
           python-version: '3.10'
