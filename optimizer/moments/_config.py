@@ -130,3 +130,12 @@ class MomentEstimationConfig:
             mu_estimator=MuEstimatorType.EW,
             cov_estimator=CovEstimatorType.EW,
         )
+
+    @classmethod
+    def for_hmm_blended(cls, n_states: int = 2) -> MomentEstimationConfig:
+        """HMM-blended prior: regime-probability-weighted mu and covariance."""
+        return cls(
+            mu_estimator=MuEstimatorType.HMM_BLENDED,
+            cov_estimator=CovEstimatorType.HMM_BLENDED,
+            hmm_config=HMMConfig(n_states=n_states),
+        )

@@ -83,8 +83,12 @@ class CPCVConfig:
 
     @classmethod
     def for_statistical_testing(cls) -> CPCVConfig:
-        """High-path-count configuration for significance testing."""
-        return cls(n_folds=10, n_test_folds=8)
+        """High-path-count configuration for significance testing.
+
+        Uses C(12, 2) = 66 paths with 10 training folds per split,
+        providing high statistical power for backtest overfitting tests.
+        """
+        return cls(n_folds=12, n_test_folds=2)
 
     @classmethod
     def for_small_sample(cls) -> CPCVConfig:

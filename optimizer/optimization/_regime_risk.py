@@ -155,10 +155,44 @@ def _compute_regime_risk(
         return float(-np.mean(sorted_r[:cutoff]))
 
     if measure == RiskMeasureType.WORST_REALIZATION:
-        return float(-np.min(r))
+        return max(float(-np.min(r)), 0.0)
 
-    # Fallback for unsupported measures: standard deviation
-    return float(np.std(r, ddof=ddof))
+    # -- Drawdown-based measures --
+    # Compute cumulative wealth and drawdown series
+    if measure in (
+        RiskMeasureType.MAX_DRAWDOWN,
+        RiskMeasureType.AVERAGE_DRAWDOWN,
+        RiskMeasureType.CDAR,
+        RiskMeasureType.ULCER_INDEX,
+    ):
+        cumulative = np.cumprod(1.0 + r)
+        running_max = np.maximum.accumulate(cumulative)
+        drawdown = 1.0 - cumulative / running_max
+
+        if measure == RiskMeasureType.MAX_DRAWDOWN:
+            return float(np.max(drawdown))
+
+        if measure == RiskMeasureType.AVERAGE_DRAWDOWN:
+            return float(np.mean(drawdown))
+
+        if measure == RiskMeasureType.ULCER_INDEX:
+            return float(np.sqrt(np.mean(drawdown**2)))
+
+        if measure == RiskMeasureType.CDAR:
+            sorted_dd = np.sort(drawdown)[::-1]
+            cutoff = max(1, int(np.floor((1.0 - cvar_beta) * n)))
+            return float(np.mean(sorted_dd[:cutoff]))
+
+    if measure == RiskMeasureType.EDAR:
+        raise NotImplementedError(
+            "EDAR (Entropic Drawdown at Risk) is not implemented for "
+            "regime-conditional risk computation"
+        )
+
+    raise NotImplementedError(
+        f"Risk measure {measure.value!r} is not supported for "
+        "regime-conditional risk computation"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -143,6 +143,66 @@ class TestBuildPreselectionPipeline:
         assert isinstance(out, pd.DataFrame)
 
 
+class TestPreSelectionConfigValidation:
+    """Tests for PreSelectionConfig.__post_init__ validation (issue #64)."""
+
+    def test_winsorize_ge_remove_raises(self) -> None:
+        with pytest.raises(ValueError, match="winsorize_threshold"):
+            PreSelectionConfig(winsorize_threshold=10.0, remove_threshold=10.0)
+
+    def test_winsorize_gt_remove_raises(self) -> None:
+        with pytest.raises(ValueError, match="winsorize_threshold"):
+            PreSelectionConfig(winsorize_threshold=11.0, remove_threshold=10.0)
+
+    def test_winsorize_lt_remove_ok(self) -> None:
+        cfg = PreSelectionConfig(winsorize_threshold=3.0, remove_threshold=10.0)
+        assert cfg.winsorize_threshold == 3.0
+
+    def test_correlation_threshold_zero_raises(self) -> None:
+        with pytest.raises(ValueError, match="correlation_threshold"):
+            PreSelectionConfig(correlation_threshold=0.0)
+
+    def test_correlation_threshold_negative_raises(self) -> None:
+        with pytest.raises(ValueError, match="correlation_threshold"):
+            PreSelectionConfig(correlation_threshold=-0.5)
+
+    def test_correlation_threshold_above_one_raises(self) -> None:
+        with pytest.raises(ValueError, match="correlation_threshold"):
+            PreSelectionConfig(correlation_threshold=1.5)
+
+    def test_correlation_threshold_one_ok(self) -> None:
+        cfg = PreSelectionConfig(correlation_threshold=1.0)
+        assert cfg.correlation_threshold == 1.0
+
+    def test_max_abs_return_zero_raises(self) -> None:
+        with pytest.raises(ValueError, match="max_abs_return"):
+            PreSelectionConfig(max_abs_return=0.0)
+
+    def test_max_abs_return_negative_raises(self) -> None:
+        with pytest.raises(ValueError, match="max_abs_return"):
+            PreSelectionConfig(max_abs_return=-1.0)
+
+    def test_existing_presets_pass_validation(self) -> None:
+        PreSelectionConfig.for_daily_annual()
+        PreSelectionConfig.for_conservative()
+
+
+class TestOutlierMethodValidation:
+    """Tests for outlier_method wiring in build_preselection_pipeline (issue #63)."""
+
+    def test_unsupported_outlier_method_raises(self) -> None:
+        cfg = PreSelectionConfig()
+        # Bypass frozen dataclass to inject unsupported value
+        object.__setattr__(cfg, "outlier_method", "cross_sectional")
+        with pytest.raises(ValueError, match="Unsupported outlier_method"):
+            build_preselection_pipeline(cfg)
+
+    def test_time_series_method_accepted(self) -> None:
+        cfg = PreSelectionConfig(outlier_method="time_series")
+        pipe = build_preselection_pipeline(cfg)
+        assert isinstance(pipe, Pipeline)
+
+
 class TestSkfolioIntegration:
     """Smoke tests with skfolio's built-in dataset."""
 

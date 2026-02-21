@@ -67,6 +67,22 @@ class PreSelectionConfig:
     expiration_lookahead: int | None = None
     is_log_normal: bool = True
 
+    def __post_init__(self) -> None:
+        if self.winsorize_threshold >= self.remove_threshold:
+            raise ValueError(
+                f"winsorize_threshold ({self.winsorize_threshold}) must be "
+                f"less than remove_threshold ({self.remove_threshold})"
+            )
+        if not (0.0 < self.correlation_threshold <= 1.0):
+            raise ValueError(
+                f"correlation_threshold must be in (0, 1], "
+                f"got {self.correlation_threshold}"
+            )
+        if self.max_abs_return <= 0:
+            raise ValueError(
+                f"max_abs_return must be positive, got {self.max_abs_return}"
+            )
+
     # -- factory methods -----------------------------------------------------
 
     @classmethod

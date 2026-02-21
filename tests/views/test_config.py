@@ -87,11 +87,21 @@ class TestBlackLittermanConfig:
         assert cfg.prior_config.mu_estimator == MuEstimatorType.EQUILIBRIUM
         assert cfg.use_factor_model is True
 
+    def test_tau_zero_raises(self) -> None:
+        """tau=0 raises ValueError (issue #68)."""
+        with pytest.raises(ValueError, match="tau must be strictly positive"):
+            BlackLittermanConfig(views=("AAPL == 0.05",), tau=0.0)
+
+    def test_tau_negative_raises(self) -> None:
+        with pytest.raises(ValueError, match="tau must be strictly positive"):
+            BlackLittermanConfig(views=("AAPL == 0.05",), tau=-0.01)
+
 
 class TestEntropyPoolingConfig:
     def test_default_values(self) -> None:
         cfg = EntropyPoolingConfig()
         assert cfg.mean_views is None
+        assert cfg.mean_inequality_views is None
         assert cfg.variance_views is None
         assert cfg.correlation_views is None
         assert cfg.skew_views is None
@@ -142,6 +152,17 @@ class TestEntropyPoolingConfig:
         assert cfg.correlation_views == corr_views
         assert cfg.mean_views is None
 
+    def test_mean_inequality_views_custom(self) -> None:
+        """mean_inequality_views field stores inequality views (issue #69)."""
+        cfg = EntropyPoolingConfig(
+            mean_inequality_views=("AAPL >= 0.03",),
+        )
+        assert cfg.mean_inequality_views == ("AAPL >= 0.03",)
+
+    def test_mean_inequality_views_default_none(self) -> None:
+        cfg = EntropyPoolingConfig()
+        assert cfg.mean_inequality_views is None
+
 
 class TestOpinionPoolingConfig:
     def test_default_values(self) -> None:
@@ -170,3 +191,24 @@ class TestOpinionPoolingConfig:
         assert cfg.divergence_penalty == 0.1
         assert cfg.n_jobs == 2
         assert cfg.prior_config is not None
+
+    def test_probabilities_sum_above_one_raises(self) -> None:
+        """Sum > 1.0 raises ValueError (issue #70)."""
+        with pytest.raises(ValueError, match=r"sum to at most 1\.0"):
+            OpinionPoolingConfig(opinion_probabilities=(0.6, 0.5))
+
+    def test_probabilities_sum_one_accepted(self) -> None:
+        cfg = OpinionPoolingConfig(opinion_probabilities=(0.6, 0.4))
+        assert cfg.opinion_probabilities == (0.6, 0.4)
+
+    def test_negative_probability_raises(self) -> None:
+        with pytest.raises(ValueError, match="in \\[0, 1\\]"):
+            OpinionPoolingConfig(opinion_probabilities=(-0.1, 0.5))
+
+    def test_probability_above_one_raises(self) -> None:
+        with pytest.raises(ValueError, match="in \\[0, 1\\]"):
+            OpinionPoolingConfig(opinion_probabilities=(1.5, 0.0))
+
+    def test_none_probabilities_accepted(self) -> None:
+        cfg = OpinionPoolingConfig(opinion_probabilities=None)
+        assert cfg.opinion_probabilities is None

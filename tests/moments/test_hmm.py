@@ -14,6 +14,7 @@ from optimizer.moments import (
     HMMResult,
     blend_moments_by_regime,
     fit_hmm,
+    select_hmm_n_states,
 )
 
 TICKERS = ["AAPL", "MSFT", "GOOG"]
@@ -437,3 +438,59 @@ class TestHMMBlendedCovariance:
         est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
         est.fit(synthetic_returns.to_numpy())
         assert est.covariance_.shape == (N_ASSETS, N_ASSETS)
+
+
+# ---------------------------------------------------------------------------
+# select_hmm_n_states — AIC/BIC model selection (issue #66)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectHMMNStates:
+    def test_returns_int(self, synthetic_returns: pd.DataFrame) -> None:
+        result = select_hmm_n_states(
+            synthetic_returns,
+            candidate_n_states=(2, 3),
+            hmm_config=HMMConfig(random_state=0),
+        )
+        assert isinstance(result, int)
+
+    def test_result_in_candidates(self, synthetic_returns: pd.DataFrame) -> None:
+        candidates = (2, 3, 4)
+        result = select_hmm_n_states(
+            synthetic_returns,
+            candidate_n_states=candidates,
+            hmm_config=HMMConfig(random_state=0),
+        )
+        assert result in candidates
+
+    def test_bic_selects_two_for_two_regime_data(
+        self, synthetic_returns: pd.DataFrame
+    ) -> None:
+        """BIC should prefer 2 states for clearly two-regime data."""
+        result = select_hmm_n_states(
+            synthetic_returns,
+            candidate_n_states=(2, 3, 4),
+            criterion="bic",
+            hmm_config=HMMConfig(random_state=0),
+        )
+        assert result == 2
+
+    def test_aic_works(self, synthetic_returns: pd.DataFrame) -> None:
+        result = select_hmm_n_states(
+            synthetic_returns,
+            candidate_n_states=(2, 3),
+            criterion="aic",
+            hmm_config=HMMConfig(random_state=0),
+        )
+        assert result in (2, 3)
+
+    def test_invalid_criterion_raises(self, synthetic_returns: pd.DataFrame) -> None:
+        with pytest.raises(ValueError, match="criterion"):
+            select_hmm_n_states(
+                synthetic_returns,
+                criterion="hqic",
+            )
+
+    def test_default_config_works(self, synthetic_returns: pd.DataFrame) -> None:
+        result = select_hmm_n_states(synthetic_returns, candidate_n_states=(2,))
+        assert result == 2

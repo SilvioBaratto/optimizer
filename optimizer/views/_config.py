@@ -62,6 +62,12 @@ class BlackLittermanConfig:
     use_factor_model: bool = False
     residual_variance: bool = True
 
+    def __post_init__(self) -> None:
+        if self.tau <= 0:
+            raise ValueError(
+                f"tau must be strictly positive, got {self.tau}"
+            )
+
     # -- factory methods -----------------------------------------------------
 
     @classmethod
@@ -116,6 +122,7 @@ class EntropyPoolingConfig:
     """
 
     mean_views: tuple[str, ...] | None = None
+    mean_inequality_views: tuple[str, ...] | None = None
     variance_views: tuple[str, ...] | None = None
     correlation_views: tuple[str, ...] | None = None
     skew_views: tuple[str, ...] | None = None
@@ -175,3 +182,17 @@ class OpinionPoolingConfig:
     divergence_penalty: float = 0.0
     n_jobs: int | None = None
     prior_config: MomentEstimationConfig | None = None
+
+    def __post_init__(self) -> None:
+        if self.opinion_probabilities is not None:
+            for p in self.opinion_probabilities:
+                if not (0.0 <= p <= 1.0):
+                    raise ValueError(
+                        f"Each opinion probability must be in [0, 1], got {p}"
+                    )
+            total = sum(self.opinion_probabilities)
+            if total > 1.0 + 1e-10:
+                raise ValueError(
+                    f"opinion_probabilities must sum to at most 1.0, "
+                    f"got {total}"
+                )

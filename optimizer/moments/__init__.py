@@ -20,6 +20,7 @@ from optimizer.moments._hmm import (
     HMMResult,
     blend_moments_by_regime,
     fit_hmm,
+    select_hmm_n_states,
 )
 from optimizer.moments._scaling import (
     apply_lognormal_correction,
@@ -54,4 +55,5 @@ __all__ = [
     "fit_dmm",
     "fit_hmm",
     "scale_moments_to_horizon",
+    "select_hmm_n_states",
 ]

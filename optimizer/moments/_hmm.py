@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -196,6 +197,91 @@ def fit_hmm(returns: pd.DataFrame, config: HMMConfig | None = None) -> HMMResult
         smoothed_probs=smoothed_probs,
         log_likelihood=float(model.score(X)),
     )
+
+
+def select_hmm_n_states(
+    returns: pd.DataFrame,
+    candidate_n_states: Sequence[int] = (2, 3, 4),
+    criterion: str = "bic",
+    hmm_config: HMMConfig | None = None,
+) -> int:
+    """Select the optimal number of HMM states via AIC or BIC.
+
+    For each candidate state count, fits an HMM via :func:`fit_hmm` and
+    computes the information criterion.  Returns the candidate that
+    minimises the chosen criterion.
+
+    Free parameters per state count S with d assets::
+
+        k = S*(S-1) + S*d + S*d*(d+1)//2
+
+    where the three terms correspond to transition matrix rows (each
+    row sums to 1, so S-1 free per row), per-regime means, and
+    per-regime full covariance (lower triangle).
+
+    Parameters
+    ----------
+    returns : pd.DataFrame
+        Dates x assets matrix of linear returns.
+    candidate_n_states : Sequence[int]
+        State counts to evaluate (default ``(2, 3, 4)``).
+    criterion : str
+        ``"aic"`` or ``"bic"`` (default ``"bic"``).
+    hmm_config : HMMConfig or None
+        Base HMM config.  ``n_states`` is overridden per candidate.
+
+    Returns
+    -------
+    int
+        The state count that minimises the chosen criterion.
+
+    Raises
+    ------
+    ValueError
+        If ``criterion`` is not ``"aic"`` or ``"bic"``.
+    DataError
+        If no candidate succeeds.
+    """
+    if criterion not in ("aic", "bic"):
+        raise ValueError(
+            f"criterion must be 'aic' or 'bic', got {criterion!r}"
+        )
+
+    base_cfg = hmm_config if hmm_config is not None else HMMConfig()
+    clean = returns.dropna()
+    T = len(clean)
+    d = clean.shape[1]
+
+    best_score = np.inf
+    best_n: int | None = None
+
+    for n_s in candidate_n_states:
+        cfg = HMMConfig(
+            n_states=n_s,
+            n_iter=base_cfg.n_iter,
+            tol=base_cfg.tol,
+            covariance_type=base_cfg.covariance_type,
+            random_state=base_cfg.random_state,
+        )
+        try:
+            result = fit_hmm(returns, cfg)
+        except (DataError, ConvergenceError, ValueError):
+            continue
+
+        # Free parameters: transition + means + covariances
+        k = n_s * (n_s - 1) + n_s * d + n_s * d * (d + 1) // 2
+        ll = result.log_likelihood
+
+        score = -2.0 * ll + 2.0 * k if criterion == "aic" else -2.0 * ll + k * np.log(T)
+
+        if score < best_score:
+            best_score = score
+            best_n = n_s
+
+    if best_n is None:
+        raise DataError("No candidate n_states succeeded during HMM fitting")
+
+    return best_n
 
 
 def blend_moments_by_regime(

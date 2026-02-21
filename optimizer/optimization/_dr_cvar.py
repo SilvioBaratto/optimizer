@@ -188,6 +188,11 @@ def build_dr_cvar(
     if config is None:
         config = DRCVaRConfig()
 
+    if config.epsilon < 0:
+        raise ValueError(
+            f"epsilon must be non-negative, got {config.epsilon}"
+        )
+
     if prior_estimator is None and config.prior_config is not None:
         prior_estimator = build_prior(config.prior_config)
 

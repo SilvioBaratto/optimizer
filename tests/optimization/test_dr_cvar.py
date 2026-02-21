@@ -109,6 +109,11 @@ class TestBuildDrCvarDispatch:
         model = build_dr_cvar()
         assert isinstance(model, DistributionallyRobustCVaR)
 
+    def test_negative_epsilon_raises(self) -> None:
+        """Negative epsilon raises ValueError (issue #73)."""
+        with pytest.raises(ValueError, match="epsilon must be non-negative"):
+            build_dr_cvar(DRCVaRConfig(epsilon=-0.01))
+
     def test_none_config_uses_defaults(self) -> None:
         model = build_dr_cvar(None)
         assert isinstance(model, DistributionallyRobustCVaR)

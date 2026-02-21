@@ -384,3 +384,35 @@ class TestICIRWeightedComposite:
         icir_result = compute_icir_weighted_composite(group_scores, ic_per_group)
         equal_result = compute_equal_weight_composite(group_scores)
         pd.testing.assert_series_equal(icir_result, equal_result)
+
+
+class TestCoverageWeightedMean:
+    """Tests for coverage-weighted mean in group scoring (issue #62)."""
+
+    def test_partial_coverage_equals_single_factor(self) -> None:
+        """Ticker missing 1 of 2 factors has group score equal to the present factor."""
+        tickers = ["T00", "T01"]
+        factors = pd.DataFrame(
+            {"book_to_price": [0.5, 0.8], "earnings_yield": [np.nan, 0.6]},
+            index=tickers,
+        )
+        cov = pd.DataFrame(
+            {"book_to_price": [True, True], "earnings_yield": [False, True]},
+            index=tickers,
+        )
+        result = compute_group_scores(factors, cov)
+        # T00 has only book_to_price covered → group score = 0.5
+        assert result.loc["T00", "value"] == pytest.approx(0.5)
+        # T01 has both covered → group score = mean(0.8, 0.6) = 0.7
+        assert result.loc["T01", "value"] == pytest.approx(0.7)
+
+    def test_full_coverage_matches_simple_mean(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """With full coverage, coverage-weighted mean equals simple mean."""
+        result = compute_group_scores(standardized_factors, coverage)
+        cols = ["book_to_price", "earnings_yield"]
+        expected = standardized_factors[cols].mean(axis=1)
+        pd.testing.assert_series_equal(
+            result["value"], expected, check_names=False
+        )
