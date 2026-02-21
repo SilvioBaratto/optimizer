@@ -12,6 +12,7 @@ from skfolio.uncertainty_set import (
     EmpiricalMuUncertaintySet,
 )
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.optimization._config import MeanRiskConfig, ObjectiveFunctionType
 from optimizer.optimization._factory import build_mean_risk
 from optimizer.optimization._robust import (
@@ -158,6 +159,13 @@ class TestBuildRobustMeanRisk:
             model.covariance_uncertainty_set_estimator,
             EmpiricalCovarianceUncertaintySet,
         )
+
+    def test_invalid_cov_uncertainty_method_raises(self) -> None:
+        """Unknown cov_uncertainty_method raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="Unknown cov_uncertainty_method"):
+            build_robust_mean_risk(
+                RobustConfig(cov_uncertainty=True, cov_uncertainty_method="invalid")
+            )
 
     def test_bootstrap_params_forwarded(self) -> None:
         """B and block_size are forwarded to BootstrapCovarianceUncertaintySet."""

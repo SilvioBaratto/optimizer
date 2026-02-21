@@ -74,6 +74,7 @@ class _EmpiricalOmegaBlackLitterman(BlackLitterman):
             mu=posterior_mu,
             covariance=posterior_cov,
             returns=prior_returns,
+            sample_weight=self.prior_estimator_.return_distribution_.sample_weight,
         )
         return self
 

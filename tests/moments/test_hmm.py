@@ -169,6 +169,48 @@ class TestFitHMM:
         with pytest.raises(DataError, match="observations"):
             fit_hmm(tiny, HMMConfig(n_states=2))
 
+    def test_smoothed_probs_shape(
+        self, synthetic_returns: pd.DataFrame, hmm_result: HMMResult
+    ) -> None:
+        assert hmm_result.smoothed_probs.shape == (len(synthetic_returns), 2)
+
+    def test_smoothed_probs_rows_sum_to_one(self, hmm_result: HMMResult) -> None:
+        row_sums = hmm_result.smoothed_probs.sum(axis=1)
+        np.testing.assert_allclose(
+            row_sums.to_numpy(), np.ones(len(row_sums)), atol=1e-8
+        )
+
+    def test_filtered_probs_differ_from_smoothed(self) -> None:
+        """Forward-filtered probabilities should differ from smoothed posteriors.
+
+        Smoothed posteriors condition on the full sequence (including future
+        observations), so they should generally differ from the forward-only
+        filtered probabilities, especially at early timesteps where future
+        data provides the most additional information.
+        """
+        returns = _make_two_regime_returns(n_obs=300, seed=7)
+        config = HMMConfig(n_states=2, n_iter=200, random_state=0)
+        result = fit_hmm(returns, config)
+
+        # Filtered and smoothed should have the same shape and properties
+        assert result.filtered_probs.shape == result.smoothed_probs.shape
+        # Both should sum to 1 across states
+        np.testing.assert_allclose(
+            result.filtered_probs.sum(axis=1).to_numpy(),
+            np.ones(len(returns)),
+            atol=1e-8,
+        )
+        np.testing.assert_allclose(
+            result.smoothed_probs.sum(axis=1).to_numpy(),
+            np.ones(len(returns)),
+            atol=1e-8,
+        )
+        # They should not be identical (smoothed uses backward pass too)
+        diff = (result.filtered_probs - result.smoothed_probs).abs().max().max()
+        assert diff > 1e-6, (
+            "Filtered and smoothed probs should differ for two-regime data"
+        )
+
     def test_two_regime_means_differ(self, hmm_result: HMMResult) -> None:
         """Fitted regime means should be distinguishable (not identical)."""
         m0 = hmm_result.regime_means.iloc[0].to_numpy()
@@ -231,6 +273,7 @@ class TestBlendMomentsByRegime:
             regime_means=pd.DataFrame(means_arr, index=[0, 1], columns=TICKERS),
             regime_covariances=covs,
             filtered_probs=probs,
+            smoothed_probs=probs,
             log_likelihood=-100.0,
         )
         mu, cov = blend_moments_by_regime(result)

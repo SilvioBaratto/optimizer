@@ -423,6 +423,28 @@ class TestIntegration:
         with pytest.raises(ConfigurationError, match="EMPIRICAL_TRACK_RECORD"):
             build_black_litterman(cfg)
 
+    def test_empirical_omega_preserves_sample_weight(self) -> None:
+        """sample_weight from the prior is preserved through posterior computation."""
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        omega = np.diag([1e-4])
+        cfg = BlackLittermanConfig(
+            views=("AAPL == 0.05",),
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        prior = build_black_litterman(cfg, omega=omega)
+        assert isinstance(prior, _EmpiricalOmegaBlackLitterman)
+        prior.fit(returns)
+        rd = prior.return_distribution_
+        # The prior's sample_weight should be propagated (None by default for
+        # EmpiricalPrior, but must not be silently dropped)
+        prior_sw = prior.prior_estimator_.return_distribution_.sample_weight
+        assert rd.sample_weight is prior_sw
+
     def test_empirical_omega_covariance_is_psd(self) -> None:
         """Posterior covariance from empirical omega is positive semi-definite."""
         from skfolio.datasets import load_sp500_dataset

@@ -64,13 +64,16 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
 
         z = (out - self.mu_) / safe_sigma
 
-        # Group 1: data errors → NaN
-        out[z.abs() > self.remove_threshold] = np.nan
+        # Group 1: data errors → NaN (values at exactly the threshold are errors)
+        err_mask = z.abs() >= self.remove_threshold
+        out[err_mask] = np.nan
 
         # Group 2: outliers → winsorise to μ ± threshold * σ
+        # Only clip cells that are in the winsorize band, not already NaN
+        win_mask = (z.abs() >= self.winsorize_threshold) & ~err_mask
         upper = self.mu_ + self.winsorize_threshold * self.sigma_
         lower = self.mu_ - self.winsorize_threshold * self.sigma_
-        out = out.clip(lower=lower, upper=upper, axis=1)
+        out = out.where(~win_mask, out.clip(lower=lower, upper=upper, axis=1))
 
         return out
 

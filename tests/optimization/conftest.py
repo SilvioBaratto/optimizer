@@ -73,5 +73,6 @@ def make_hmm_result(
         regime_means=means,
         regime_covariances=covs,
         filtered_probs=filtered_df,
+        smoothed_probs=filtered_df,
         log_likelihood=-100.0,
     )

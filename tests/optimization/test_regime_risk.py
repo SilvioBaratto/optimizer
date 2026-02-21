@@ -111,6 +111,27 @@ class TestComputeRegimeRisk:
         v = _compute_regime_risk(r, RiskMeasureType.VARIANCE)
         assert sv <= v + 1e-10
 
+    def test_semi_variance_positive_mean_all_positive_returns(self) -> None:
+        """With all positive returns and positive mean, semi-variance > 0."""
+        r = np.array([0.005, 0.01, 0.015, 0.02], dtype=np.float64)
+        sv = _compute_regime_risk(r, RiskMeasureType.SEMI_VARIANCE)
+        assert sv > 0.0, "semi-variance should be > 0 for returns below the mean"
+
+    def test_semi_deviation_positive_mean_all_positive_returns(self) -> None:
+        """With all positive returns and positive mean, semi-deviation > 0."""
+        r = np.array([0.005, 0.01, 0.015, 0.02], dtype=np.float64)
+        sd = _compute_regime_risk(r, RiskMeasureType.SEMI_DEVIATION)
+        assert sd > 0.0, "semi-deviation should be > 0 for returns below the mean"
+
+    def test_semi_variance_uses_mean_threshold(self) -> None:
+        """Semi-variance threshold is the mean, not zero."""
+        r = np.array([0.01, 0.02, 0.03, 0.04], dtype=np.float64)
+        mu = np.mean(r)
+        downside = r[r < mu] - mu
+        expected = float(np.mean(downside**2))
+        result = _compute_regime_risk(r, RiskMeasureType.SEMI_VARIANCE)
+        assert result == pytest.approx(expected, rel=1e-10)
+
     def test_all_positive_returns_worst_realization_zero(self) -> None:
         r = np.abs(self._r()) + 0.001
         assert _compute_regime_risk(r, RiskMeasureType.WORST_REALIZATION) < 0.0
