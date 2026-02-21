@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import pytest
-from fastapi.testclient import TestClient
-
 from baml_client.types import AssetFactorData, AssetView, ExpertPersona, ViewOutput
+from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -92,8 +91,8 @@ class TestComputeICWeights:
     def test_high_icir_gets_higher_weight(self) -> None:
         from app.services.opinion_pooling import compute_ic_weights
 
-        good = pd.Series([0.30, 0.28, 0.32, 0.29])   # high ICIR
-        bad = pd.Series([0.01, -0.01, 0.02, -0.02])   # near-zero ICIR
+        good = pd.Series([0.30, 0.28, 0.32, 0.29])  # high ICIR
+        bad = pd.Series([0.01, -0.01, 0.02, -0.02])  # near-zero ICIR
         weights = compute_ic_weights([good, bad])
         assert weights[0] > weights[1]
 
@@ -108,7 +107,9 @@ class TestComputeICWeights:
     def test_empty_series_gets_eps_weight(self) -> None:
         from app.services.opinion_pooling import compute_ic_weights
 
-        weights = compute_ic_weights([pd.Series([], dtype=float), pd.Series([0.2, 0.3, 0.25])])
+        weights = compute_ic_weights(
+            [pd.Series([], dtype=float), pd.Series([0.2, 0.3, 0.25])]
+        )
         assert weights[0] > 0.0
         assert weights.sum() == pytest.approx(1.0)
 
@@ -148,14 +149,23 @@ class TestRunLLMExperts:
         }
 
     def test_returns_one_result_per_persona(self) -> None:
-        from app.services.opinion_pooling import run_llm_experts, ALL_PERSONAS
+        from app.services.opinion_pooling import ALL_PERSONAS, run_llm_experts
 
         assets = [_make_asset_factor_data(t) for t in TICKERS]
 
         with (
-            patch("app.services.opinion_pooling.b.GenerateValueView", return_value=_make_view_output("AAPL")),
-            patch("app.services.opinion_pooling.b.GenerateMomentumView", return_value=_make_view_output("MSFT")),
-            patch("app.services.opinion_pooling.b.GenerateMacroView", return_value=_make_view_output("GOOGL")),
+            patch(
+                "app.services.opinion_pooling.b.GenerateValueView",
+                return_value=_make_view_output("AAPL"),
+            ),
+            patch(
+                "app.services.opinion_pooling.b.GenerateMomentumView",
+                return_value=_make_view_output("MSFT"),
+            ),
+            patch(
+                "app.services.opinion_pooling.b.GenerateMacroView",
+                return_value=_make_view_output("GOOGL"),
+            ),
         ):
             results = run_llm_experts(assets, TICKERS)
 
@@ -167,9 +177,18 @@ class TestRunLLMExperts:
         assets = [_make_asset_factor_data(t) for t in TICKERS]
 
         with (
-            patch("app.services.opinion_pooling.b.GenerateValueView", return_value=_make_view_output("AAPL")),
-            patch("app.services.opinion_pooling.b.GenerateMomentumView", return_value=_make_view_output("MSFT")),
-            patch("app.services.opinion_pooling.b.GenerateMacroView", return_value=_make_view_output("GOOGL")),
+            patch(
+                "app.services.opinion_pooling.b.GenerateValueView",
+                return_value=_make_view_output("AAPL"),
+            ),
+            patch(
+                "app.services.opinion_pooling.b.GenerateMomentumView",
+                return_value=_make_view_output("MSFT"),
+            ),
+            patch(
+                "app.services.opinion_pooling.b.GenerateMacroView",
+                return_value=_make_view_output("GOOGL"),
+            ),
         ):
             results = run_llm_experts(assets, TICKERS)
 
@@ -185,8 +204,14 @@ class TestRunLLMExperts:
         two_personas = [ExpertPersona.VALUE_INVESTOR, ExpertPersona.MOMENTUM_TRADER]
 
         with (
-            patch("app.services.opinion_pooling.b.GenerateValueView", return_value=_make_view_output("AAPL")),
-            patch("app.services.opinion_pooling.b.GenerateMomentumView", return_value=_make_view_output("MSFT")),
+            patch(
+                "app.services.opinion_pooling.b.GenerateValueView",
+                return_value=_make_view_output("AAPL"),
+            ),
+            patch(
+                "app.services.opinion_pooling.b.GenerateMomentumView",
+                return_value=_make_view_output("MSFT"),
+            ),
         ):
             results = run_llm_experts(assets, TICKERS, personas=two_personas)
 
@@ -199,20 +224,39 @@ class TestRunLLMExperts:
 
         assets = [_make_asset_factor_data("AAPL")]
         hallucinated = ViewOutput(
-            views=[AssetView(asset="FAKE", direction=1, magnitude_bps=100, confidence=0.5, reasoning="x")],
+            views=[
+                AssetView(
+                    asset="FAKE",
+                    direction=1,
+                    magnitude_bps=100,
+                    confidence=0.5,
+                    reasoning="x",
+                )
+            ],
             idzorek_alphas={"FAKE": 0.5},
             rationale="x",
         )
 
         with (
-            patch("app.services.opinion_pooling.b.GenerateValueView", return_value=hallucinated),
-            patch("app.services.opinion_pooling.b.GenerateMomentumView", return_value=_make_empty_view_output()),
-            patch("app.services.opinion_pooling.b.GenerateMacroView", return_value=_make_empty_view_output()),
+            patch(
+                "app.services.opinion_pooling.b.GenerateValueView",
+                return_value=hallucinated,
+            ),
+            patch(
+                "app.services.opinion_pooling.b.GenerateMomentumView",
+                return_value=_make_empty_view_output(),
+            ),
+            patch(
+                "app.services.opinion_pooling.b.GenerateMacroView",
+                return_value=_make_empty_view_output(),
+            ),
         ):
             results = run_llm_experts(assets, ["AAPL"])
 
         assert all(
-            v.asset in {"AAPL"} for r in results for v in r.view_output.views
+            v.asset in {"AAPL"}
+            for r in results
+            for v in r.view_output.views
             if r.view_strings  # only check results that kept views
         )
 
@@ -223,9 +267,18 @@ class TestRunLLMExperts:
         assets = [_make_asset_factor_data("AAPL")]
 
         with (
-            patch("app.services.opinion_pooling.b.GenerateValueView", return_value=_make_view_output("AAPL")),
-            patch("app.services.opinion_pooling.b.GenerateMomentumView", return_value=_make_empty_view_output()),
-            patch("app.services.opinion_pooling.b.GenerateMacroView", return_value=_make_empty_view_output()),
+            patch(
+                "app.services.opinion_pooling.b.GenerateValueView",
+                return_value=_make_view_output("AAPL"),
+            ),
+            patch(
+                "app.services.opinion_pooling.b.GenerateMomentumView",
+                return_value=_make_empty_view_output(),
+            ),
+            patch(
+                "app.services.opinion_pooling.b.GenerateMacroView",
+                return_value=_make_empty_view_output(),
+            ),
         ):
             results = run_llm_experts(assets, TICKERS)
 
@@ -241,9 +294,18 @@ class TestRunLLMExperts:
 class TestBuildLLMOpinionPool:
     def _mock_all(self):
         return (
-            patch("app.services.opinion_pooling.b.GenerateValueView", return_value=_make_view_output("AAPL")),
-            patch("app.services.opinion_pooling.b.GenerateMomentumView", return_value=_make_view_output("MSFT")),
-            patch("app.services.opinion_pooling.b.GenerateMacroView", return_value=_make_view_output("GOOGL")),
+            patch(
+                "app.services.opinion_pooling.b.GenerateValueView",
+                return_value=_make_view_output("AAPL"),
+            ),
+            patch(
+                "app.services.opinion_pooling.b.GenerateMomentumView",
+                return_value=_make_view_output("MSFT"),
+            ),
+            patch(
+                "app.services.opinion_pooling.b.GenerateMacroView",
+                return_value=_make_view_output("GOOGL"),
+            ),
         )
 
     def test_ic_weights_sum_to_one(self) -> None:
@@ -306,8 +368,8 @@ class TestBuildLLMOpinionPool:
         assets = [_make_asset_factor_data(t) for t in TICKERS]
         ic_histories = [
             pd.Series([0.30, 0.28, 0.32, 0.29]),  # high ICIR → expert 0 (value)
-            pd.Series([0.01, -0.01, 0.01]),         # near-zero ICIR → expert 1 (momentum)
-            pd.Series([0.15, 0.12, 0.18, 0.14]),    # medium ICIR → expert 2 (macro)
+            pd.Series([0.01, -0.01, 0.01]),  # near-zero ICIR → expert 1 (momentum)
+            pd.Series([0.15, 0.12, 0.18, 0.14]),  # medium ICIR → expert 2 (macro)
         ]
 
         with self._mock_all()[0], self._mock_all()[1], self._mock_all()[2]:
@@ -327,8 +389,8 @@ _FETCH = "app.api.v1.opinion_pooling.fetch_factor_data"
 _BUILD = "app.api.v1.opinion_pooling.build_llm_opinion_pool"
 
 
-def _make_pool_result(n_experts: int = 3) -> "OpinionPoolResult":
-    from app.services.opinion_pooling import OpinionPoolResult, ExpertViewResult
+def _make_pool_result(n_experts: int = 3) -> OpinionPoolResult:
+    from app.services.opinion_pooling import ExpertViewResult, OpinionPoolResult
     from skfolio.prior import BlackLitterman, OpinionPooling
 
     persona_list = [
@@ -405,14 +467,18 @@ class TestOpinionPoolEndpoint:
 
         assert all(w >= 0.0 for w in resp.json()["ic_weights"])
 
-    def test_at_least_two_distinct_personas_in_response(self, client: TestClient) -> None:
+    def test_at_least_two_distinct_personas_in_response(
+        self, client: TestClient
+    ) -> None:
         mock_pool = _make_pool_result(n_experts=2)
 
         with (
             patch(_FETCH, return_value=[_make_asset_factor_data(t) for t in TICKERS]),
             patch(_BUILD, return_value=mock_pool),
         ):
-            resp = client.post(URL, json={**PAYLOAD, "personas": ["VALUE_INVESTOR", "MOMENTUM_TRADER"]})
+            resp = client.post(
+                URL, json={**PAYLOAD, "personas": ["VALUE_INVESTOR", "MOMENTUM_TRADER"]}
+            )
 
         assert resp.status_code == 200
         personas = {e["persona"] for e in resp.json()["experts"]}

@@ -7,7 +7,22 @@ import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
 
-from .infrastructure import LRUCache, CircuitBreaker, RateLimiter, is_rate_limit_error, retry_with_backoff
+from .infrastructure import (
+    CircuitBreaker,
+    LRUCache,
+    RateLimiter,
+    is_rate_limit_error,
+    retry_with_backoff,
+)
+from .market import (
+    AsyncStreamingClient,
+    CalendarsClient,
+    MarketClient,
+    ScreenerClient,
+    SearchClient,
+    SectorIndustryClient,
+    StreamingClient,
+)
 from .protocols import CacheProtocol, CircuitBreakerProtocol, RateLimiterProtocol
 from .ticker import (
     AnalysisClient,
@@ -16,15 +31,6 @@ from .ticker import (
     FundsClient,
     HoldersClient,
     MetadataClient,
-)
-from .market import (
-    CalendarsClient,
-    MarketClient,
-    ScreenerClient,
-    SearchClient,
-    SectorIndustryClient,
-    AsyncStreamingClient,
-    StreamingClient,
 )
 
 logger = logging.getLogger(__name__)
@@ -147,7 +153,9 @@ class YFinanceClient:
         result = retry_with_backoff(
             _action,
             max_retries,
-            is_valid=lambda hist: hist is not None and not hist.empty and len(hist) >= min_rows,
+            is_valid=lambda hist: hist is not None
+            and not hist.empty
+            and len(hist) >= min_rows,
             is_rate_limit_error=self._is_rate_limit_error,
             on_rate_limit=self.circuit_breaker.trigger,
             on_success=lambda _: self.circuit_breaker.reset(),
@@ -173,7 +181,9 @@ class YFinanceClient:
         if stock_hist is None or stock_hist.empty:
             return None, None, None
 
-        benchmark_hist = self.fetch_history(benchmark, period=period, max_retries=max_retries)
+        benchmark_hist = self.fetch_history(
+            benchmark, period=period, max_retries=max_retries
+        )
 
         if benchmark_hist is None or benchmark_hist.empty:
             return stock_hist, None, stock_info
@@ -288,7 +298,9 @@ class YFinanceClient:
             if prices is not None:
                 return prices
 
-        logger.info("Bulk download failed or incomplete, falling back to individual fetches")
+        logger.info(
+            "Bulk download failed or incomplete, falling back to individual fetches"
+        )
         return self._fetch_individual_prices(symbols, period, start, end, interval)
 
     def _extract_close_prices(
@@ -331,7 +343,9 @@ class YFinanceClient:
             return prices
 
         except Exception:
-            logger.warning("Failed to extract close prices from bulk data", exc_info=True)
+            logger.warning(
+                "Failed to extract close prices from bulk data", exc_info=True
+            )
             return None
 
     def _fetch_individual_prices(
@@ -429,7 +443,9 @@ class YFinanceClient:
     @property
     def corporate_actions(self) -> CorporateActionsClient:
         if not hasattr(self, "_corporate_actions"):
-            self._corporate_actions = CorporateActionsClient(**self._ticker_sub_client_kwargs())
+            self._corporate_actions = CorporateActionsClient(
+                **self._ticker_sub_client_kwargs()
+            )
         return self._corporate_actions
 
     @property

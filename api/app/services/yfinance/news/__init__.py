@@ -7,6 +7,6 @@ from .scraper import ArticleResult, ArticleScraper
 __all__ = [
     "ArticleResult",
     "ArticleScraper",
-    "NewsClient",
     "CountryNewsFetcher",
+    "NewsClient",
 ]

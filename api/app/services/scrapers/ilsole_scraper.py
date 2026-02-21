@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-import requests
-from bs4 import BeautifulSoup
-import pandas as pd
-from typing import Dict, Optional, List
 import time
 from datetime import datetime
+
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 
 
 class IlSoleScraper:
@@ -92,10 +92,12 @@ class IlSoleScraper:
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update(
-            {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+            {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+            }
         )
 
-    def _fetch_page(self, endpoint: str) -> Optional[BeautifulSoup]:
+    def _fetch_page(self, endpoint: str) -> BeautifulSoup | None:
         try:
             url = f"{self.BASE_URL}/{endpoint}"
             response = self.session.get(url, timeout=self.timeout)
@@ -104,7 +106,7 @@ class IlSoleScraper:
         except Exception:
             return None
 
-    def get_real_indicators(self, country: str = "USA") -> Optional[Dict]:
+    def get_real_indicators(self, country: str = "USA") -> dict | None:
         soup = self._fetch_page("indicatori-reali")
         if soup is None:
             return None
@@ -116,7 +118,9 @@ class IlSoleScraper:
                 return None
 
             # Find country row (use REAL indicators mapping)
-            country_italian = [k for k, v in self.COUNTRY_MAP_REAL.items() if v == country]
+            country_italian = [
+                k for k, v in self.COUNTRY_MAP_REAL.items() if v == country
+            ]
             if not country_italian:
                 return None
 
@@ -151,7 +155,9 @@ class IlSoleScraper:
                 "gdp_growth_qq": self._safe_float(
                     cells.get("Pil_TT")
                 ),  # T/T only (Quarter-over-Quarter)
-                "industrial_production": self._safe_float(cells.get("ProdIndustriale_AA")),
+                "industrial_production": self._safe_float(
+                    cells.get("ProdIndustriale_AA")
+                ),
                 "unemployment": self._safe_float(cells.get("Disoccupazione_AA")),
                 "consumer_prices": self._safe_float(cells.get("PrezziConsumo_AA")),
                 "deficit": self._safe_float(cells.get("Deficit_AA")),
@@ -166,7 +172,7 @@ class IlSoleScraper:
         except Exception:
             return None
 
-    def get_forecasts(self, country: str = "USA") -> Optional[Dict]:
+    def get_forecasts(self, country: str = "USA") -> dict | None:
         soup = self._fetch_page("previsione-economica")
         if soup is None:
             return None
@@ -178,7 +184,9 @@ class IlSoleScraper:
                 return None
 
             # Find country row (use FORECAST mapping)
-            country_italian = [k for k, v in self.COUNTRY_MAP_FORECAST.items() if v == country]
+            country_italian = [
+                k for k, v in self.COUNTRY_MAP_FORECAST.items() if v == country
+            ]
             if not country_italian:
                 return None
 
@@ -227,7 +235,7 @@ class IlSoleScraper:
         except Exception:
             return None
 
-    def get_country_data(self, country: str = "USA") -> Dict:
+    def get_country_data(self, country: str = "USA") -> dict:
         real_data = self.get_real_indicators(country)
         forecast_data = self.get_forecasts(country)
 
@@ -242,7 +250,7 @@ class IlSoleScraper:
             "timestamp": datetime.now().isoformat(),
         }
 
-    def get_all_data(self, country: str = "USA") -> Dict:
+    def get_all_data(self, country: str = "USA") -> dict:
         result = self.get_country_data(country)
 
         if result["status"] == "error":
@@ -257,7 +265,7 @@ class IlSoleScraper:
             "timestamp": result["timestamp"],
         }
 
-    def get_multiple_countries(self, countries: List[str]) -> Dict:
+    def get_multiple_countries(self, countries: list[str]) -> dict:
         results = {}
 
         for country in countries:
@@ -268,7 +276,7 @@ class IlSoleScraper:
         return results
 
     @staticmethod
-    def _safe_float(value) -> Optional[float]:
+    def _safe_float(value) -> float | None:
         if value is None or pd.isna(value):
             return None
         try:

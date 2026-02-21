@@ -8,6 +8,7 @@ import pytest
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import RidgeCV
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
     CompositeMethod,
     CompositeScoringConfig,
@@ -44,9 +45,8 @@ def training_scores(factor_columns: list[str]) -> pd.DataFrame:
 def training_returns(training_scores: pd.DataFrame) -> pd.Series:
     """Forward returns correlated with first factor."""
     rng = np.random.default_rng(1)
-    returns = (
-        0.3 * training_scores["book_to_price"]
-        + rng.normal(0, 0.05, len(training_scores))
+    returns = 0.3 * training_scores["book_to_price"] + rng.normal(
+        0, 0.05, len(training_scores)
     )
     return pd.Series(returns, index=training_scores.index)
 
@@ -112,9 +112,7 @@ class TestFitRidgeComposite:
     def test_handles_nan_rows(self) -> None:
         """NaN rows in training data are dropped; model still fits."""
         rng = np.random.default_rng(5)
-        scores = pd.DataFrame(
-            rng.normal(0, 1, (50, 3)), columns=["a", "b", "c"]
-        )
+        scores = pd.DataFrame(rng.normal(0, 1, (50, 3)), columns=["a", "b", "c"])
         returns = pd.Series(rng.normal(0, 1, 50))
         # Inject NaN
         scores.iloc[5, 1] = float("nan")
@@ -157,16 +155,12 @@ class TestFitGbtComposite:
     def test_respects_n_estimators(
         self, training_scores: pd.DataFrame, training_returns: pd.Series
     ) -> None:
-        model = fit_gbt_composite(
-            training_scores, training_returns, n_estimators=10
-        )
+        model = fit_gbt_composite(training_scores, training_returns, n_estimators=10)
         assert model.n_estimators_ == 10
 
     def test_handles_nan_rows(self) -> None:
         rng = np.random.default_rng(7)
-        scores = pd.DataFrame(
-            rng.normal(0, 1, (50, 3)), columns=["a", "b", "c"]
-        )
+        scores = pd.DataFrame(rng.normal(0, 1, (50, 3)), columns=["a", "b", "c"])
         returns = pd.Series(rng.normal(0, 1, 50))
         scores.iloc[3, 2] = float("nan")
         model = fit_gbt_composite(scores, returns, n_estimators=5)
@@ -361,14 +355,14 @@ class TestComputeCompositeScoreDispatch:
         self, current_scores: pd.DataFrame, coverage: pd.DataFrame
     ) -> None:
         config = CompositeScoringConfig.for_ridge_weighted()
-        with pytest.raises(ValueError, match="training_scores"):
+        with pytest.raises(ConfigurationError, match="training_scores"):
             compute_composite_score(current_scores, coverage, config=config)
 
     def test_gbt_raises_without_training_data(
         self, current_scores: pd.DataFrame, coverage: pd.DataFrame
     ) -> None:
         config = CompositeScoringConfig.for_gbt_weighted()
-        with pytest.raises(ValueError, match="training_scores"):
+        with pytest.raises(ConfigurationError, match="training_scores"):
             compute_composite_score(current_scores, coverage, config=config)
 
     def test_ridge_and_gbt_are_valid_composite_methods(self) -> None:

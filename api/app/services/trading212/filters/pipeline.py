@@ -1,20 +1,20 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Tuple, List
+from typing import Any
 
 from app.services.trading212.protocols import InstrumentFilter
 
 
 @dataclass
 class FilterPipelineImpl:
-    _filters: List[InstrumentFilter] = field(default_factory=list)
-    _stats: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    _filters: list[InstrumentFilter] = field(default_factory=list)
+    _stats: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def add_filter(self, filter: InstrumentFilter) -> "FilterPipelineImpl":
         self._filters.append(filter)
         self._stats[filter.name] = {"passed": 0, "failed": 0}
         return self
 
-    def apply(self, data: Dict[str, Any], yf_ticker: str) -> Tuple[bool, str]:
+    def apply(self, data: dict[str, Any], yf_ticker: str) -> tuple[bool, str]:
         if not self._filters:
             return True, "No filters configured"
 
@@ -29,14 +29,14 @@ class FilterPipelineImpl:
 
         return True, "Passed all filters"
 
-    def get_summary(self) -> Dict[str, Dict[str, int]]:
+    def get_summary(self) -> dict[str, dict[str, int]]:
         return self._stats.copy()
 
     def reset_stats(self) -> None:
         for name in self._stats:
             self._stats[name] = {"passed": 0, "failed": 0}
 
-    def get_filters(self) -> List[InstrumentFilter]:
+    def get_filters(self) -> list[InstrumentFilter]:
         return self._filters.copy()
 
     def get_pipeline_summary(self) -> str:

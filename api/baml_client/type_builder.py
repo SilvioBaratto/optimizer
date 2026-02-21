@@ -10,20 +10,47 @@
 # BAML files and re-generate this code using: baml-cli generate
 # baml-cli is available with the baml package.
 
-import typing
-from baml_py import type_builder
-from baml_py import baml_py
+
+from baml_py import baml_py, type_builder
+
 # These are exports, not used here, hence the linter is disabled
-from baml_py.baml_py import FieldType, EnumValueBuilder, EnumBuilder, ClassBuilder # noqa: F401 # pylint: disable=unused-import
+from baml_py.baml_py import (  # noqa: F401 # pylint: disable=unused-import
+    ClassBuilder,
+    EnumBuilder,
+    EnumValueBuilder,
+    FieldType,
+)
+
 from .globals import DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME
+
 
 class TypeBuilder(type_builder.TypeBuilder):
     def __init__(self):
-        super().__init__(classes=set(
-          ["AssetFactorData","AssetView","CovRegimeSelection","DeltaCalibration","FactorWeightAdaptation","MacroRegimeCalibration","NewsArticle","NewsSentimentOutput","RiskBudgetOutput","StressScenario","ViewOutput",]
-        ), enums=set(
-          ["BusinessCyclePhase","CovEstimatorChoice","ExpertPersona",]
-        ), runtime=DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME)
+        super().__init__(
+            classes=set(
+                [
+                    "AssetFactorData",
+                    "AssetView",
+                    "CovRegimeSelection",
+                    "DeltaCalibration",
+                    "FactorWeightAdaptation",
+                    "MacroRegimeCalibration",
+                    "NewsArticle",
+                    "NewsSentimentOutput",
+                    "RiskBudgetOutput",
+                    "StressScenario",
+                    "ViewOutput",
+                ]
+            ),
+            enums=set(
+                [
+                    "BusinessCyclePhase",
+                    "CovEstimatorChoice",
+                    "ExpertPersona",
+                ]
+            ),
+            runtime=DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME,
+        )
 
     # #########################################################################
     # Generated enums 3
@@ -40,7 +67,6 @@ class TypeBuilder(type_builder.TypeBuilder):
     @property
     def ExpertPersona(self) -> "ExpertPersonaViewer":
         return ExpertPersonaViewer(self)
-
 
     # #########################################################################
     # Generated classes 11
@@ -91,16 +117,23 @@ class TypeBuilder(type_builder.TypeBuilder):
         return ViewOutputViewer(self)
 
 
-
 # #########################################################################
 # Generated enums 3
 # #########################################################################
 
+
 class BusinessCyclePhaseAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.enum("BusinessCyclePhase")
-        self._values: typing.Set[str] = set([  "EARLY_EXPANSION",  "MID_EXPANSION",  "LATE_EXPANSION",  "RECESSION",  ])
+        self._values: set[str] = set(
+            [
+                "EARLY_EXPANSION",
+                "MID_EXPANSION",
+                "LATE_EXPANSION",
+                "RECESSION",
+            ]
+        )
         self._vals = BusinessCyclePhaseValues(self._bldr, self._values)
 
     def type(self) -> baml_py.FieldType:
@@ -115,42 +148,53 @@ class BusinessCyclePhaseViewer(BusinessCyclePhaseAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_values(self) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
-        return [(name, type_builder.EnumValueViewer(self._bldr.value(name))) for name in self._values]
-    
+    def list_values(self) -> list[tuple[str, type_builder.EnumValueViewer]]:
+        return [
+            (name, type_builder.EnumValueViewer(self._bldr.value(name)))
+            for name in self._values
+        ]
+
 
 class BusinessCyclePhaseValues:
-    def __init__(self, enum_bldr: baml_py.EnumBuilder, values: typing.Set[str]):
+    def __init__(self, enum_bldr: baml_py.EnumBuilder, values: set[str]):
         self.__bldr = enum_bldr
-        self.__values = values # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__values = values  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def EARLY_EXPANSION(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("EARLY_EXPANSION"))
-    
+
     @property
     def MID_EXPANSION(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("MID_EXPANSION"))
-    
+
     @property
     def LATE_EXPANSION(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("LATE_EXPANSION"))
-    
+
     @property
     def RECESSION(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("RECESSION"))
-    
-    
 
 
 class CovEstimatorChoiceAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.enum("CovEstimatorChoice")
-        self._values: typing.Set[str] = set([  "EMPIRICAL",  "LEDOIT_WOLF",  "OAS",  "SHRUNK",  "EW",  "GERBER",  "GRAPHICAL_LASSO_CV",  "DENOISE",  "DETONE",  "IMPLIED",  ])
+        self._values: set[str] = set(
+            [
+                "EMPIRICAL",
+                "LEDOIT_WOLF",
+                "OAS",
+                "SHRUNK",
+                "EW",
+                "GERBER",
+                "GRAPHICAL_LASSO_CV",
+                "DENOISE",
+                "DETONE",
+                "IMPLIED",
+            ]
+        )
         self._vals = CovEstimatorChoiceValues(self._bldr, self._values)
 
     def type(self) -> baml_py.FieldType:
@@ -165,66 +209,70 @@ class CovEstimatorChoiceViewer(CovEstimatorChoiceAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_values(self) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
-        return [(name, type_builder.EnumValueViewer(self._bldr.value(name))) for name in self._values]
-    
+    def list_values(self) -> list[tuple[str, type_builder.EnumValueViewer]]:
+        return [
+            (name, type_builder.EnumValueViewer(self._bldr.value(name)))
+            for name in self._values
+        ]
+
 
 class CovEstimatorChoiceValues:
-    def __init__(self, enum_bldr: baml_py.EnumBuilder, values: typing.Set[str]):
+    def __init__(self, enum_bldr: baml_py.EnumBuilder, values: set[str]):
         self.__bldr = enum_bldr
-        self.__values = values # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__values = values  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def EMPIRICAL(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("EMPIRICAL"))
-    
+
     @property
     def LEDOIT_WOLF(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("LEDOIT_WOLF"))
-    
+
     @property
     def OAS(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("OAS"))
-    
+
     @property
     def SHRUNK(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("SHRUNK"))
-    
+
     @property
     def EW(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("EW"))
-    
+
     @property
     def GERBER(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("GERBER"))
-    
+
     @property
     def GRAPHICAL_LASSO_CV(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("GRAPHICAL_LASSO_CV"))
-    
+
     @property
     def DENOISE(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("DENOISE"))
-    
+
     @property
     def DETONE(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("DETONE"))
-    
+
     @property
     def IMPLIED(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("IMPLIED"))
-    
-    
 
 
 class ExpertPersonaAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.enum("ExpertPersona")
-        self._values: typing.Set[str] = set([  "VALUE_INVESTOR",  "MOMENTUM_TRADER",  "MACRO_ANALYST",  ])
+        self._values: set[str] = set(
+            [
+                "VALUE_INVESTOR",
+                "MOMENTUM_TRADER",
+                "MACRO_ANALYST",
+            ]
+        )
         self._vals = ExpertPersonaValues(self._bldr, self._values)
 
     def type(self) -> baml_py.FieldType:
@@ -239,43 +287,61 @@ class ExpertPersonaViewer(ExpertPersonaAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_values(self) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
-        return [(name, type_builder.EnumValueViewer(self._bldr.value(name))) for name in self._values]
-    
+    def list_values(self) -> list[tuple[str, type_builder.EnumValueViewer]]:
+        return [
+            (name, type_builder.EnumValueViewer(self._bldr.value(name)))
+            for name in self._values
+        ]
+
 
 class ExpertPersonaValues:
-    def __init__(self, enum_bldr: baml_py.EnumBuilder, values: typing.Set[str]):
+    def __init__(self, enum_bldr: baml_py.EnumBuilder, values: set[str]):
         self.__bldr = enum_bldr
-        self.__values = values # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__values = values  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def VALUE_INVESTOR(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("VALUE_INVESTOR"))
-    
+
     @property
     def MOMENTUM_TRADER(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("MOMENTUM_TRADER"))
-    
+
     @property
     def MACRO_ANALYST(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("MACRO_ANALYST"))
-    
-    
-
 
 
 # #########################################################################
 # Generated classes 11
 # #########################################################################
 
+
 class AssetFactorDataAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("AssetFactorData")
-        self._properties: typing.Set[str] = set([  "ticker",  "trailing_pe",  "price_to_book",  "ev_to_ebitda",  "momentum_12_1m",  "momentum_1m",  "rsi_14",  "return_on_equity",  "debt_to_equity",  "profit_margins",  "revenue_growth_yoy",  "earnings_growth_yoy",  "pct_from_52w_high",  "pct_from_52w_low",  "recommendation_mean",  "target_upside",  "analyst_count",  ])
+        self._properties: set[str] = set(
+            [
+                "ticker",
+                "trailing_pe",
+                "price_to_book",
+                "ev_to_ebitda",
+                "momentum_12_1m",
+                "momentum_1m",
+                "rsi_14",
+                "return_on_equity",
+                "debt_to_equity",
+                "profit_margins",
+                "revenue_growth_yoy",
+                "earnings_growth_yoy",
+                "pct_from_52w_high",
+                "pct_from_52w_low",
+                "recommendation_mean",
+                "target_upside",
+                "analyst_count",
+            ]
+        )
         self._props = AssetFactorDataProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -290,95 +356,112 @@ class AssetFactorDataViewer(AssetFactorDataAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
-    
+    def list_properties(self) -> list[tuple[str, type_builder.ClassPropertyViewer]]:
+        return [
+            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
+            for name in self._properties
+        ]
 
 
 class AssetFactorDataProperties:
-    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: set[str]):
         self.__bldr = bldr
-        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def ticker(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("ticker"))
-    
+
     @property
     def trailing_pe(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("trailing_pe"))
-    
+
     @property
     def price_to_book(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("price_to_book"))
-    
+
     @property
     def ev_to_ebitda(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("ev_to_ebitda"))
-    
+
     @property
     def momentum_12_1m(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("momentum_12_1m"))
-    
+
     @property
     def momentum_1m(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("momentum_1m"))
-    
+
     @property
     def rsi_14(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("rsi_14"))
-    
+
     @property
     def return_on_equity(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("return_on_equity"))
-    
+        return type_builder.ClassPropertyViewer(
+            self.__bldr.property("return_on_equity")
+        )
+
     @property
     def debt_to_equity(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("debt_to_equity"))
-    
+
     @property
     def profit_margins(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("profit_margins"))
-    
+
     @property
     def revenue_growth_yoy(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("revenue_growth_yoy"))
-    
+        return type_builder.ClassPropertyViewer(
+            self.__bldr.property("revenue_growth_yoy")
+        )
+
     @property
     def earnings_growth_yoy(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("earnings_growth_yoy"))
-    
+        return type_builder.ClassPropertyViewer(
+            self.__bldr.property("earnings_growth_yoy")
+        )
+
     @property
     def pct_from_52w_high(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("pct_from_52w_high"))
-    
+        return type_builder.ClassPropertyViewer(
+            self.__bldr.property("pct_from_52w_high")
+        )
+
     @property
     def pct_from_52w_low(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("pct_from_52w_low"))
-    
+        return type_builder.ClassPropertyViewer(
+            self.__bldr.property("pct_from_52w_low")
+        )
+
     @property
     def recommendation_mean(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("recommendation_mean"))
-    
+        return type_builder.ClassPropertyViewer(
+            self.__bldr.property("recommendation_mean")
+        )
+
     @property
     def target_upside(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("target_upside"))
-    
+
     @property
     def analyst_count(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("analyst_count"))
-    
-    
 
 
 class AssetViewAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("AssetView")
-        self._properties: typing.Set[str] = set([  "asset",  "direction",  "magnitude_bps",  "confidence",  "reasoning",  ])
+        self._properties: set[str] = set(
+            [
+                "asset",
+                "direction",
+                "magnitude_bps",
+                "confidence",
+                "reasoning",
+            ]
+        )
         self._props = AssetViewProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -393,47 +476,50 @@ class AssetViewViewer(AssetViewAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
-    
+    def list_properties(self) -> list[tuple[str, type_builder.ClassPropertyViewer]]:
+        return [
+            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
+            for name in self._properties
+        ]
 
 
 class AssetViewProperties:
-    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: set[str]):
         self.__bldr = bldr
-        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def asset(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("asset"))
-    
+
     @property
     def direction(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("direction"))
-    
+
     @property
     def magnitude_bps(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("magnitude_bps"))
-    
+
     @property
     def confidence(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("confidence"))
-    
+
     @property
     def reasoning(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("reasoning"))
-    
-    
 
 
 class CovRegimeSelectionAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("CovRegimeSelection")
-        self._properties: typing.Set[str] = set([  "estimator",  "confidence",  "rationale",  ])
+        self._properties: set[str] = set(
+            [
+                "estimator",
+                "confidence",
+                "rationale",
+            ]
+        )
         self._props = CovRegimeSelectionProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -448,39 +534,41 @@ class CovRegimeSelectionViewer(CovRegimeSelectionAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
-    
+    def list_properties(self) -> list[tuple[str, type_builder.ClassPropertyViewer]]:
+        return [
+            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
+            for name in self._properties
+        ]
 
 
 class CovRegimeSelectionProperties:
-    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: set[str]):
         self.__bldr = bldr
-        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def estimator(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("estimator"))
-    
+
     @property
     def confidence(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("confidence"))
-    
+
     @property
     def rationale(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("rationale"))
-    
-    
 
 
 class DeltaCalibrationAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("DeltaCalibration")
-        self._properties: typing.Set[str] = set([  "delta",  "rationale",  ])
+        self._properties: set[str] = set(
+            [
+                "delta",
+                "rationale",
+            ]
+        )
         self._props = DeltaCalibrationProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -495,35 +583,38 @@ class DeltaCalibrationViewer(DeltaCalibrationAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
-    
+    def list_properties(self) -> list[tuple[str, type_builder.ClassPropertyViewer]]:
+        return [
+            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
+            for name in self._properties
+        ]
 
 
 class DeltaCalibrationProperties:
-    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: set[str]):
         self.__bldr = bldr
-        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def delta(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("delta"))
-    
+
     @property
     def rationale(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("rationale"))
-    
-    
 
 
 class FactorWeightAdaptationAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("FactorWeightAdaptation")
-        self._properties: typing.Set[str] = set([  "phase",  "weights",  "rationale",  ])
+        self._properties: set[str] = set(
+            [
+                "phase",
+                "weights",
+                "rationale",
+            ]
+        )
         self._props = FactorWeightAdaptationProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -538,39 +629,44 @@ class FactorWeightAdaptationViewer(FactorWeightAdaptationAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
-    
+    def list_properties(self) -> list[tuple[str, type_builder.ClassPropertyViewer]]:
+        return [
+            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
+            for name in self._properties
+        ]
 
 
 class FactorWeightAdaptationProperties:
-    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: set[str]):
         self.__bldr = bldr
-        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def phase(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("phase"))
-    
+
     @property
     def weights(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("weights"))
-    
+
     @property
     def rationale(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("rationale"))
-    
-    
 
 
 class MacroRegimeCalibrationAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("MacroRegimeCalibration")
-        self._properties: typing.Set[str] = set([  "phase",  "delta",  "tau",  "confidence",  "rationale",  ])
+        self._properties: set[str] = set(
+            [
+                "phase",
+                "delta",
+                "tau",
+                "confidence",
+                "rationale",
+            ]
+        )
         self._props = MacroRegimeCalibrationProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -585,47 +681,48 @@ class MacroRegimeCalibrationViewer(MacroRegimeCalibrationAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
-    
+    def list_properties(self) -> list[tuple[str, type_builder.ClassPropertyViewer]]:
+        return [
+            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
+            for name in self._properties
+        ]
 
 
 class MacroRegimeCalibrationProperties:
-    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: set[str]):
         self.__bldr = bldr
-        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def phase(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("phase"))
-    
+
     @property
     def delta(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("delta"))
-    
+
     @property
     def tau(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("tau"))
-    
+
     @property
     def confidence(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("confidence"))
-    
+
     @property
     def rationale(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("rationale"))
-    
-    
 
 
 class NewsArticleAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("NewsArticle")
-        self._properties: typing.Set[str] = set([  "title",  ])
+        self._properties: set[str] = set(
+            [
+                "title",
+            ]
+        )
         self._props = NewsArticleProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -640,31 +737,33 @@ class NewsArticleViewer(NewsArticleAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
-    
+    def list_properties(self) -> list[tuple[str, type_builder.ClassPropertyViewer]]:
+        return [
+            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
+            for name in self._properties
+        ]
 
 
 class NewsArticleProperties:
-    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: set[str]):
         self.__bldr = bldr
-        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def title(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("title"))
-    
-    
 
 
 class NewsSentimentOutputAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("NewsSentimentOutput")
-        self._properties: typing.Set[str] = set([  "scores",  "reasoning",  ])
+        self._properties: set[str] = set(
+            [
+                "scores",
+                "reasoning",
+            ]
+        )
         self._props = NewsSentimentOutputProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -679,35 +778,38 @@ class NewsSentimentOutputViewer(NewsSentimentOutputAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
-    
+    def list_properties(self) -> list[tuple[str, type_builder.ClassPropertyViewer]]:
+        return [
+            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
+            for name in self._properties
+        ]
 
 
 class NewsSentimentOutputProperties:
-    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: set[str]):
         self.__bldr = bldr
-        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def scores(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("scores"))
-    
+
     @property
     def reasoning(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("reasoning"))
-    
-    
 
 
 class RiskBudgetOutputAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("RiskBudgetOutput")
-        self._properties: typing.Set[str] = set([  "sector_budgets",  "asset_budgets",  "rationale",  ])
+        self._properties: set[str] = set(
+            [
+                "sector_budgets",
+                "asset_budgets",
+                "rationale",
+            ]
+        )
         self._props = RiskBudgetOutputProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -722,39 +824,44 @@ class RiskBudgetOutputViewer(RiskBudgetOutputAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
-    
+    def list_properties(self) -> list[tuple[str, type_builder.ClassPropertyViewer]]:
+        return [
+            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
+            for name in self._properties
+        ]
 
 
 class RiskBudgetOutputProperties:
-    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: set[str]):
         self.__bldr = bldr
-        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def sector_budgets(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("sector_budgets"))
-    
+
     @property
     def asset_budgets(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("asset_budgets"))
-    
+
     @property
     def rationale(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("rationale"))
-    
-    
 
 
 class StressScenarioAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("StressScenario")
-        self._properties: typing.Set[str] = set([  "name",  "description",  "shocks",  "probability",  "horizon_days",  ])
+        self._properties: set[str] = set(
+            [
+                "name",
+                "description",
+                "shocks",
+                "probability",
+                "horizon_days",
+            ]
+        )
         self._props = StressScenarioProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -769,47 +876,50 @@ class StressScenarioViewer(StressScenarioAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
-    
+    def list_properties(self) -> list[tuple[str, type_builder.ClassPropertyViewer]]:
+        return [
+            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
+            for name in self._properties
+        ]
 
 
 class StressScenarioProperties:
-    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: set[str]):
         self.__bldr = bldr
-        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def name(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("name"))
-    
+
     @property
     def description(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("description"))
-    
+
     @property
     def shocks(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("shocks"))
-    
+
     @property
     def probability(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("probability"))
-    
+
     @property
     def horizon_days(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("horizon_days"))
-    
-    
 
 
 class ViewOutputAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("ViewOutput")
-        self._properties: typing.Set[str] = set([  "views",  "idzorek_alphas",  "rationale",  ])
+        self._properties: set[str] = set(
+            [
+                "views",
+                "idzorek_alphas",
+                "rationale",
+            ]
+        )
         self._props = ViewOutputProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -824,30 +934,26 @@ class ViewOutputViewer(ViewOutputAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
-    
+    def list_properties(self) -> list[tuple[str, type_builder.ClassPropertyViewer]]:
+        return [
+            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
+            for name in self._properties
+        ]
 
 
 class ViewOutputProperties:
-    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: set[str]):
         self.__bldr = bldr
-        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties  # type: ignore (we know how to use this private attribute)
 
-    
-    
     @property
     def views(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("views"))
-    
+
     @property
     def idzorek_alphas(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("idzorek_alphas"))
-    
+
     @property
     def rationale(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("rationale"))
-    
-    
-

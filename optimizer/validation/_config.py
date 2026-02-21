@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -114,7 +114,7 @@ class MultipleRandomizedCVConfig:
         Seed for reproducibility.
     """
 
-    walk_forward_config: WalkForwardConfig = WalkForwardConfig()
+    walk_forward_config: WalkForwardConfig = field(default_factory=WalkForwardConfig)
     n_subsamples: int = 10
     asset_subset_size: int = 10
     window_size: int | None = None

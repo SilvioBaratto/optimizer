@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import DataError
 from optimizer.factors import (
     FactorPCAResult,
     compute_factor_pca,
@@ -36,9 +37,7 @@ def collinear_scores(orthogonal_scores: pd.DataFrame) -> pd.DataFrame:
     rng = np.random.default_rng(0)
     df = orthogonal_scores.copy()
     # redundant = sum of value + momentum + tiny noise
-    df["redundant"] = (
-        df["value"] + df["momentum"] + rng.normal(0, 0.01, N_TICKERS)
-    )
+    df["redundant"] = df["value"] + df["momentum"] + rng.normal(0, 0.01, N_TICKERS)
     return df
 
 
@@ -52,9 +51,7 @@ class TestComputeVIF:
         result = compute_vif(orthogonal_scores)
         assert isinstance(result, pd.Series)
 
-    def test_index_matches_factor_names(
-        self, orthogonal_scores: pd.DataFrame
-    ) -> None:
+    def test_index_matches_factor_names(self, orthogonal_scores: pd.DataFrame) -> None:
         result = compute_vif(orthogonal_scores)
         assert list(result.index) == FACTORS
 
@@ -87,14 +84,12 @@ class TestComputeVIF:
 
     def test_single_factor_raises(self) -> None:
         single = pd.DataFrame({"value": np.random.default_rng(0).standard_normal(50)})
-        with pytest.raises(ValueError, match="at least 2 factor columns"):
+        with pytest.raises(DataError, match="at least 2 factor columns"):
             compute_vif(single)
 
     def test_two_factors_works(self) -> None:
         rng = np.random.default_rng(1)
-        df = pd.DataFrame(
-            rng.standard_normal((100, 2)), columns=["a", "b"]
-        )
+        df = pd.DataFrame(rng.standard_normal((100, 2)), columns=["a", "b"])
         result = compute_vif(df)
         assert len(result) == 2
         assert (result >= 1.0 - 1e-9).all()
@@ -106,9 +101,7 @@ class TestComputeVIF:
 
 
 class TestComputeFactorPCA:
-    def test_returns_factor_pca_result(
-        self, orthogonal_scores: pd.DataFrame
-    ) -> None:
+    def test_returns_factor_pca_result(self, orthogonal_scores: pd.DataFrame) -> None:
         result = compute_factor_pca(orthogonal_scores)
         assert isinstance(result, FactorPCAResult)
 
@@ -184,10 +177,8 @@ class TestComputeFactorPCA:
         assert result.n_components_95pct == 1
 
     def test_single_factor_raises(self) -> None:
-        single = pd.DataFrame(
-            {"value": np.random.default_rng(0).standard_normal(50)}
-        )
-        with pytest.raises(ValueError, match="at least 2 factor columns"):
+        single = pd.DataFrame({"value": np.random.default_rng(0).standard_normal(50)})
+        with pytest.raises(DataError, match="at least 2 factor columns"):
             compute_factor_pca(single)
 
     def test_too_few_observations_raises(self) -> None:
@@ -195,7 +186,7 @@ class TestComputeFactorPCA:
             np.random.default_rng(0).standard_normal((1, 3)),
             columns=["a", "b", "c"],
         )
-        with pytest.raises(ValueError, match="at least 2 observations"):
+        with pytest.raises(DataError, match="at least 2 observations"):
             compute_factor_pca(df)
 
 
@@ -215,9 +206,7 @@ class TestFlagRedundantFactors:
         result = flag_redundant_factors(orthogonal_scores, vif_threshold=10.0)
         assert result == []
 
-    def test_collinear_factor_flagged(
-        self, collinear_scores: pd.DataFrame
-    ) -> None:
+    def test_collinear_factor_flagged(self, collinear_scores: pd.DataFrame) -> None:
         result = flag_redundant_factors(collinear_scores, vif_threshold=10.0)
         assert "redundant" in result
 
@@ -232,18 +221,14 @@ class TestFlagRedundantFactors:
         result = flag_redundant_factors(df, vif_threshold=10.0)
         assert result == []
 
-    def test_strict_threshold_flags_more(
-        self, collinear_scores: pd.DataFrame
-    ) -> None:
+    def test_strict_threshold_flags_more(self, collinear_scores: pd.DataFrame) -> None:
         loose = flag_redundant_factors(collinear_scores, vif_threshold=100.0)
         strict = flag_redundant_factors(collinear_scores, vif_threshold=5.0)
         assert len(strict) >= len(loose)
 
     def test_single_factor_raises(self) -> None:
-        single = pd.DataFrame(
-            {"value": np.random.default_rng(0).standard_normal(50)}
-        )
-        with pytest.raises(ValueError, match="at least 2 factor columns"):
+        single = pd.DataFrame({"value": np.random.default_rng(0).standard_normal(50)})
+        with pytest.raises(DataError, match="at least 2 factor columns"):
             flag_redundant_factors(single)
 
     def test_result_preserves_column_order(

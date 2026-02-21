@@ -8,6 +8,7 @@ import pytest
 from skfolio.measures import RiskMeasure
 from skfolio.optimization import MeanRisk
 
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.moments._hmm import HMMResult
 from optimizer.optimization._config import RiskMeasureType
 from optimizer.optimization._regime_risk import (
@@ -16,6 +17,7 @@ from optimizer.optimization._regime_risk import (
     build_regime_blended_optimizer,
     compute_blended_risk_measure,
 )
+from tests.optimization.conftest import make_hmm_result
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -41,35 +43,13 @@ def _make_hmm_result(
     """Build a synthetic HMMResult without fitting."""
     if returns is None:
         returns = _make_returns()
-
-    n_obs = len(returns)
-    rng = np.random.default_rng(42)
-
-    # Random filtered probs that sum to 1 per row
-    raw = rng.random((n_obs, n_states))
-    filtered = raw / raw.sum(axis=1, keepdims=True)
-
-    # Override last row if requested
-    if last_probs is not None:
-        assert len(last_probs) == n_states
-        filtered[-1] = last_probs
-
-    filtered_df = pd.DataFrame(
-        filtered, index=returns.index, columns=list(range(n_states))
-    )
-
-    transition = np.full((n_states, n_states), 1.0 / n_states)
-    means = pd.DataFrame(
-        np.zeros((n_states, N_ASSETS)), columns=TICKERS
-    )
-    covs = np.stack([np.eye(N_ASSETS) * 1e-4] * n_states)
-
-    return HMMResult(
-        transition_matrix=transition,
-        regime_means=means,
-        regime_covariances=covs,
-        filtered_probs=filtered_df,
-        log_likelihood=-100.0,
+    return make_hmm_result(
+        n_assets=N_ASSETS,
+        n_obs=len(returns),
+        tickers=TICKERS,
+        n_states=n_states,
+        last_probs=last_probs,
+        returns=returns,
     )
 
 
@@ -182,7 +162,7 @@ class TestComputeBlendedRiskMeasure:
         returns = _make_returns()
         hmm = _make_hmm_result(n_states=2)
         weights = _equal_weights()
-        with pytest.raises(ValueError, match="regime_measures"):
+        with pytest.raises(ConfigurationError, match="regime_measures"):
             compute_blended_risk_measure(
                 returns, weights, hmm, [RiskMeasureType.VARIANCE]
             )
@@ -191,7 +171,7 @@ class TestComputeBlendedRiskMeasure:
         returns = _make_returns()
         hmm = _make_hmm_result(n_states=2)
         bad_weights = np.ones(N_ASSETS + 1) / (N_ASSETS + 1)
-        with pytest.raises(ValueError, match="weights length"):
+        with pytest.raises(DataError, match="weights length"):
             compute_blended_risk_measure(
                 returns, bad_weights, hmm, [RiskMeasureType.VARIANCE] * 2
             )
@@ -206,9 +186,7 @@ class TestComputeBlendedRiskMeasure:
 
     def test_three_regime_model(self) -> None:
         returns = _make_returns()
-        hmm = _make_hmm_result(
-            n_states=3, last_probs=[0.2, 0.5, 0.3], returns=returns
-        )
+        hmm = _make_hmm_result(n_states=3, last_probs=[0.2, 0.5, 0.3], returns=returns)
         weights = _equal_weights()
         measures = [
             RiskMeasureType.VARIANCE,
@@ -330,7 +308,7 @@ class TestBuildRegimeBlendedOptimizer:
             regime_measures=(RiskMeasureType.VARIANCE,)  # 1 measure for 2-state HMM
         )
         hmm = _make_hmm_result(n_states=2)
-        with pytest.raises(ValueError, match="regime_measures"):
+        with pytest.raises(ConfigurationError, match="regime_measures"):
             build_regime_blended_optimizer(config, hmm)
 
     def test_kwargs_forwarded_to_mean_risk(self) -> None:

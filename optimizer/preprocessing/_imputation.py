@@ -9,6 +9,8 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
+from optimizer.exceptions import DataError
+
 
 class SectorImputer(BaseEstimator, TransformerMixin):
     """Fill NaN values using sector cross-sectional averages.
@@ -44,9 +46,7 @@ class SectorImputer(BaseEstimator, TransformerMixin):
         self.sector_mapping = sector_mapping
         self.fallback_strategy = fallback_strategy
 
-    def fit(
-        self, X: pd.DataFrame, y: object = None
-    ) -> SectorImputer:
+    def fit(self, X: pd.DataFrame, y: object = None) -> SectorImputer:
         """Build the internal sector → columns index."""
         X = self._validate_input(X)
         self.n_features_in_: int = X.shape[1]
@@ -71,7 +71,7 @@ class SectorImputer(BaseEstimator, TransformerMixin):
         # Pre-compute global cross-sectional mean per row
         global_mean = out.mean(axis=1)
 
-        for sector, cols in self.sector_groups_.items():
+        for _sector, cols in self.sector_groups_.items():
             sector_cols = [c for c in cols if c in out.columns]
             if not sector_cols:
                 continue
@@ -85,10 +85,7 @@ class SectorImputer(BaseEstimator, TransformerMixin):
 
                 # Leave-one-out: sector mean excluding the current column
                 others = [c for c in sector_cols if c != col]
-                if others:
-                    sector_mean = out[others].mean(axis=1)
-                else:
-                    sector_mean = global_mean
+                sector_mean = out[others].mean(axis=1) if others else global_mean
 
                 # Fill with sector mean; fall back to global mean where
                 # the sector itself is entirely NaN
@@ -97,9 +94,7 @@ class SectorImputer(BaseEstimator, TransformerMixin):
 
         return out
 
-    def get_feature_names_out(
-        self, input_features: object = None
-    ) -> np.ndarray:
+    def get_feature_names_out(self, input_features: object = None) -> np.ndarray:
         """Return feature names (pass-through)."""
         check_is_fitted(self)
         return self.feature_names_in_
@@ -109,7 +104,7 @@ class SectorImputer(BaseEstimator, TransformerMixin):
     @staticmethod
     def _validate_input(X: pd.DataFrame) -> pd.DataFrame:
         if not isinstance(X, pd.DataFrame):
-            raise TypeError(
+            raise DataError(
                 f"SectorImputer requires a pandas DataFrame, got {type(X).__name__}"
             )
         return X

@@ -4,7 +4,7 @@ import logging
 import threading
 import uuid as uuid_mod
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -31,16 +31,16 @@ router = APIRouter(prefix="/macro-data", tags=["Macro Data"])
 # In-memory job store (same pattern as yfinance_data.py)
 # ---------------------------------------------------------------------------
 
-_fetch_jobs: Dict[str, Dict[str, Any]] = {}
+_fetch_jobs: dict[str, dict[str, Any]] = {}
 _fetch_jobs_lock = threading.Lock()
 
 
-def _set_job(job_id: str, data: Dict[str, Any]) -> None:
+def _set_job(job_id: str, data: dict[str, Any]) -> None:
     with _fetch_jobs_lock:
         _fetch_jobs[job_id] = data
 
 
-def _get_job(job_id: str) -> Optional[Dict[str, Any]]:
+def _get_job(job_id: str) -> dict[str, Any] | None:
     with _fetch_jobs_lock:
         return _fetch_jobs.get(job_id, {}).copy() if job_id in _fetch_jobs else None
 
@@ -55,6 +55,7 @@ def _update_job(job_id: str, **kwargs: Any) -> None:
 # Background bulk fetch worker
 # ---------------------------------------------------------------------------
 
+
 def _run_bulk_fetch(
     job_id: str,
     request: MacroFetchRequest,
@@ -68,12 +69,15 @@ def _run_bulk_fetch(
 
             # Determine countries
             from app.services.scrapers.ilsole_scraper import PORTFOLIO_COUNTRIES
-            countries = request.countries if request.countries else list(PORTFOLIO_COUNTRIES)
+
+            countries = (
+                request.countries if request.countries else list(PORTFOLIO_COUNTRIES)
+            )
             total = len(countries)
             _update_job(job_id, total=total)
 
-            all_errors: List[str] = []
-            total_counts: Dict[str, int] = {}
+            all_errors: list[str] = []
+            total_counts: dict[str, int] = {}
 
             for idx, country in enumerate(countries, 1):
                 _update_job(job_id, current=idx, current_country=country)
@@ -126,6 +130,7 @@ def _run_bulk_fetch(
 # Dependency helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_repo(db: Session = Depends(get_db)) -> MacroRegimeRepository:
     return MacroRegimeRepository(db)
 
@@ -133,6 +138,7 @@ def _get_repo(db: Session = Depends(get_db)) -> MacroRegimeRepository:
 # ---------------------------------------------------------------------------
 # Bulk fetch endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/fetch",
@@ -153,17 +159,20 @@ def start_bulk_fetch(
                 )
 
     job_id = str(uuid_mod.uuid4())
-    _set_job(job_id, {
-        "job_id": job_id,
-        "status": "pending",
-        "current": 0,
-        "total": 0,
-        "current_country": "",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "errors": [],
-        "result": None,
-        "error": None,
-    })
+    _set_job(
+        job_id,
+        {
+            "job_id": job_id,
+            "status": "pending",
+            "current": 0,
+            "total": 0,
+            "current_country": "",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "errors": [],
+            "result": None,
+            "error": None,
+        },
+    )
 
     thread = threading.Thread(
         target=_run_bulk_fetch,
@@ -205,6 +214,7 @@ def get_fetch_status(job_id: str):
 # Single-country fetch
 # ---------------------------------------------------------------------------
 
+
 @router.post("/fetch/{country}")
 def fetch_single_country(
     country: str,
@@ -227,6 +237,7 @@ def fetch_single_country(
 # Read endpoints
 # ---------------------------------------------------------------------------
 
+
 @router.get(
     "/countries/{country}",
     response_model=CountryMacroSummary,
@@ -248,10 +259,10 @@ def get_country_summary(
 
 @router.get(
     "/economic-indicators",
-    response_model=List[EconomicIndicatorResponse],
+    response_model=list[EconomicIndicatorResponse],
 )
 def get_economic_indicators(
-    country: Optional[str] = Query(default=None, description="Filter by country"),
+    country: str | None = Query(default=None, description="Filter by country"),
     repo: MacroRegimeRepository = Depends(_get_repo),
 ):
     """List all economic indicators, optionally filtered by country."""
@@ -260,10 +271,10 @@ def get_economic_indicators(
 
 @router.get(
     "/te-indicators",
-    response_model=List[TradingEconomicsIndicatorResponse],
+    response_model=list[TradingEconomicsIndicatorResponse],
 )
 def get_te_indicators(
-    country: Optional[str] = Query(default=None, description="Filter by country"),
+    country: str | None = Query(default=None, description="Filter by country"),
     repo: MacroRegimeRepository = Depends(_get_repo),
 ):
     """List all Trading Economics indicators, optionally filtered by country."""
@@ -272,10 +283,10 @@ def get_te_indicators(
 
 @router.get(
     "/bond-yields",
-    response_model=List[BondYieldResponse],
+    response_model=list[BondYieldResponse],
 )
 def get_bond_yields(
-    country: Optional[str] = Query(default=None, description="Filter by country"),
+    country: str | None = Query(default=None, description="Filter by country"),
     repo: MacroRegimeRepository = Depends(_get_repo),
 ):
     """List all bond yields, optionally filtered by country."""

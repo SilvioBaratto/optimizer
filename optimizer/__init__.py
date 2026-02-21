@@ -41,4 +41,22 @@ pipeline
     End-to-end portfolio orchestration: prices → validated weights.
 """
 
+from optimizer.exceptions import (
+    ConfigurationError,
+    ConvergenceError,
+    DataError,
+    OptimizationError,
+    OptimizerError,
+    ValidationError,
+)
+
+__all__ = [
+    "ConfigurationError",
+    "ConvergenceError",
+    "DataError",
+    "OptimizationError",
+    "OptimizerError",
+    "ValidationError",
+]
+
 __version__ = "0.1.0"

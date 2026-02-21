@@ -5,9 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
-
 from baml_client.types import BusinessCyclePhase, MacroRegimeCalibration
+from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
 # Helpers — mock BAML responses
@@ -91,8 +90,13 @@ class TestClassifyMacroRegime:
         mock_session = MagicMock()
         mock_raw = _make_calibration()
 
-        with patch("app.services.macro_calibration.b.ClassifyMacroRegime", return_value=mock_raw):
-            result = classify_macro_regime(mock_session, macro_summary_override=self.SUMMARY)
+        with patch(
+            "app.services.macro_calibration.b.ClassifyMacroRegime",
+            return_value=mock_raw,
+        ):
+            result = classify_macro_regime(
+                mock_session, macro_summary_override=self.SUMMARY
+            )
 
         assert result.phase == BusinessCyclePhase.MID_EXPANSION
         assert result.delta == pytest.approx(2.75)
@@ -104,8 +108,13 @@ class TestClassifyMacroRegime:
         mock_session = MagicMock()
         mock_raw = _make_calibration(delta=999.0)
 
-        with patch("app.services.macro_calibration.b.ClassifyMacroRegime", return_value=mock_raw):
-            result = classify_macro_regime(mock_session, macro_summary_override=self.SUMMARY)
+        with patch(
+            "app.services.macro_calibration.b.ClassifyMacroRegime",
+            return_value=mock_raw,
+        ):
+            result = classify_macro_regime(
+                mock_session, macro_summary_override=self.SUMMARY
+            )
 
         assert result.delta == pytest.approx(DELTA_MAX)
 
@@ -115,8 +124,13 @@ class TestClassifyMacroRegime:
         mock_session = MagicMock()
         mock_raw = _make_calibration(delta=0.0)
 
-        with patch("app.services.macro_calibration.b.ClassifyMacroRegime", return_value=mock_raw):
-            result = classify_macro_regime(mock_session, macro_summary_override=self.SUMMARY)
+        with patch(
+            "app.services.macro_calibration.b.ClassifyMacroRegime",
+            return_value=mock_raw,
+        ):
+            result = classify_macro_regime(
+                mock_session, macro_summary_override=self.SUMMARY
+            )
 
         assert result.delta == pytest.approx(DELTA_MIN)
 
@@ -126,8 +140,13 @@ class TestClassifyMacroRegime:
         mock_session = MagicMock()
         mock_raw = _make_calibration(tau=5.0)
 
-        with patch("app.services.macro_calibration.b.ClassifyMacroRegime", return_value=mock_raw):
-            result = classify_macro_regime(mock_session, macro_summary_override=self.SUMMARY)
+        with patch(
+            "app.services.macro_calibration.b.ClassifyMacroRegime",
+            return_value=mock_raw,
+        ):
+            result = classify_macro_regime(
+                mock_session, macro_summary_override=self.SUMMARY
+            )
 
         assert result.tau == pytest.approx(TAU_MAX)
 
@@ -137,8 +156,13 @@ class TestClassifyMacroRegime:
         mock_session = MagicMock()
         mock_raw = _make_calibration(tau=0.0)
 
-        with patch("app.services.macro_calibration.b.ClassifyMacroRegime", return_value=mock_raw):
-            result = classify_macro_regime(mock_session, macro_summary_override=self.SUMMARY)
+        with patch(
+            "app.services.macro_calibration.b.ClassifyMacroRegime",
+            return_value=mock_raw,
+        ):
+            result = classify_macro_regime(
+                mock_session, macro_summary_override=self.SUMMARY
+            )
 
         assert result.tau == pytest.approx(TAU_MIN)
 
@@ -148,8 +172,13 @@ class TestClassifyMacroRegime:
         mock_session = MagicMock()
         mock_raw = _make_calibration(confidence=1.5)
 
-        with patch("app.services.macro_calibration.b.ClassifyMacroRegime", return_value=mock_raw):
-            result = classify_macro_regime(mock_session, macro_summary_override=self.SUMMARY)
+        with patch(
+            "app.services.macro_calibration.b.ClassifyMacroRegime",
+            return_value=mock_raw,
+        ):
+            result = classify_macro_regime(
+                mock_session, macro_summary_override=self.SUMMARY
+            )
 
         assert result.confidence <= 1.0
 
@@ -178,34 +207,48 @@ class TestClassifyMacroRegime:
         mock_raw = _make_calibration()
         custom_summary = "Custom macro context."
 
-        with patch("app.services.macro_calibration.b.ClassifyMacroRegime", return_value=mock_raw):
+        with patch(
+            "app.services.macro_calibration.b.ClassifyMacroRegime",
+            return_value=mock_raw,
+        ):
             result = classify_macro_regime(
                 mock_session, macro_summary_override=custom_summary
             )
 
         assert result.macro_summary == custom_summary
 
-    @pytest.mark.parametrize("phase,exp_delta_range,exp_tau_range", [
-        (BusinessCyclePhase.EARLY_EXPANSION, (2.0, 2.5), (0.04, 0.06)),
-        (BusinessCyclePhase.MID_EXPANSION, (2.5, 3.0), (0.02, 0.03)),
-        (BusinessCyclePhase.LATE_EXPANSION, (3.0, 4.0), (0.005, 0.015)),
-        (BusinessCyclePhase.RECESSION, (4.0, 6.0), (0.04, 0.06)),
-    ])
+    @pytest.mark.parametrize(
+        "phase,exp_delta_range,exp_tau_range",
+        [
+            (BusinessCyclePhase.EARLY_EXPANSION, (2.0, 2.5), (0.04, 0.06)),
+            (BusinessCyclePhase.MID_EXPANSION, (2.5, 3.0), (0.02, 0.03)),
+            (BusinessCyclePhase.LATE_EXPANSION, (3.0, 4.0), (0.005, 0.015)),
+            (BusinessCyclePhase.RECESSION, (4.0, 6.0), (0.04, 0.06)),
+        ],
+    )
     def test_phase_produces_expected_parameter_ranges(
         self,
         phase: BusinessCyclePhase,
         exp_delta_range: tuple[float, float],
         exp_tau_range: tuple[float, float],
     ) -> None:
-        from app.services.macro_calibration import classify_macro_regime, _PHASE_DEFAULTS
+        from app.services.macro_calibration import (
+            _PHASE_DEFAULTS,
+            classify_macro_regime,
+        )
 
         # Use phase defaults as the mock LLM output
         default_delta, default_tau = _PHASE_DEFAULTS[phase]
         mock_session = MagicMock()
         mock_raw = _make_calibration(phase=phase, delta=default_delta, tau=default_tau)
 
-        with patch("app.services.macro_calibration.b.ClassifyMacroRegime", return_value=mock_raw):
-            result = classify_macro_regime(mock_session, macro_summary_override=self.SUMMARY)
+        with patch(
+            "app.services.macro_calibration.b.ClassifyMacroRegime",
+            return_value=mock_raw,
+        ):
+            result = classify_macro_regime(
+                mock_session, macro_summary_override=self.SUMMARY
+            )
 
         assert exp_delta_range[0] <= result.delta <= exp_delta_range[1], (
             f"Phase {phase}: delta={result.delta} not in {exp_delta_range}"
@@ -221,7 +264,7 @@ class TestClassifyMacroRegime:
 
 
 class TestBuildBlConfig:
-    def _make_result(self, delta: float = 3.0, tau: float = 0.025) -> "CalibrationResult":
+    def _make_result(self, delta: float = 3.0, tau: float = 0.025) -> CalibrationResult:
         from app.services.macro_calibration import CalibrationResult
 
         return CalibrationResult(
@@ -253,9 +296,10 @@ class TestBuildBlConfig:
 
     def test_compatible_with_black_litterman_config(self) -> None:
         """tau and risk_aversion wire correctly into optimizer config classes."""
-        from optimizer.views._config import BlackLittermanConfig
-        from optimizer.moments._config import MomentEstimationConfig, MuEstimatorType
         from app.services.macro_calibration import build_bl_config_from_calibration
+
+        from optimizer.moments._config import MomentEstimationConfig, MuEstimatorType
+        from optimizer.views._config import BlackLittermanConfig
 
         result = self._make_result(delta=3.5, tau=0.01)
         cfg = build_bl_config_from_calibration(result, views=("AAPL == 0.02",))
@@ -284,7 +328,12 @@ class TestBusinessCyclePhaseEnum:
 
     def test_all_expected_values_present(self) -> None:
         values = {p.value for p in BusinessCyclePhase}
-        assert values == {"EARLY_EXPANSION", "MID_EXPANSION", "LATE_EXPANSION", "RECESSION"}
+        assert values == {
+            "EARLY_EXPANSION",
+            "MID_EXPANSION",
+            "LATE_EXPANSION",
+            "RECESSION",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +350,7 @@ class TestMacroCalibrationEndpoint:
         phase: BusinessCyclePhase = BusinessCyclePhase.MID_EXPANSION,
         delta: float = 2.75,
         tau: float = 0.025,
-    ) -> "CalibrationResult":
+    ) -> CalibrationResult:
         from app.services.macro_calibration import CalibrationResult
 
         return CalibrationResult(
@@ -364,7 +413,9 @@ class TestMacroCalibrationEndpoint:
             resp = client.get(URL, params={"macro_text": "Recession onset."})
 
         data = resp.json()
-        assert data["bl_config"]["prior_config"]["risk_aversion"] == pytest.approx(data["delta"])
+        assert data["bl_config"]["prior_config"]["risk_aversion"] == pytest.approx(
+            data["delta"]
+        )
         assert data["bl_config"]["tau"] == pytest.approx(data["tau"])
 
     def test_no_db_data_returns_422(self, client: TestClient) -> None:
@@ -402,7 +453,9 @@ class TestMacroCalibrationEndpoint:
             return mock_result
 
         with patch(_CLASSIFY, side_effect=_capture):
-            resp = client.get(URL, params={"country": "Germany", "macro_text": "PMI 54."})
+            resp = client.get(
+                URL, params={"country": "Germany", "macro_text": "PMI 54."}
+            )
 
         assert resp.status_code == 200
         assert captured["country"] == "Germany"

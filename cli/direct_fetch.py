@@ -5,20 +5,19 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Add the api directory to Python path for imports
 api_path = Path(__file__).parent.parent / "api"
 if str(api_path) not in sys.path:
     sys.path.insert(0, str(api_path))
 
-from sqlalchemy import select
-from sqlalchemy.orm import joinedload
-
 from app.database import DatabaseManager
 from app.models.universe import Instrument
 from app.services.yfinance import YFinanceClient, get_yfinance_client
 from app.services.yfinance_data_service import YFinanceDataService
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +26,8 @@ class DirectFetcher:
     """Direct database and yfinance fetcher for CLI fallback."""
 
     def __init__(self):
-        self._db_manager: Optional[DatabaseManager] = None
-        self._yf_client: Optional[YFinanceClient] = None
+        self._db_manager: DatabaseManager | None = None
+        self._yf_client: YFinanceClient | None = None
 
     def _ensure_initialized(self) -> None:
         """Initialize database and yfinance client if not already done."""
@@ -44,7 +43,7 @@ class DirectFetcher:
             self._db_manager.close()
             self._db_manager = None
 
-    def get_instruments_with_tickers(self) -> List[Dict[str, Any]]:
+    def get_instruments_with_tickers(self) -> list[dict[str, Any]]:
         """Get all instruments that have yfinance_ticker set."""
         self._ensure_initialized()
 
@@ -72,8 +71,8 @@ class DirectFetcher:
         self,
         period: str = "5y",
         mode: str = "incremental",
-        progress_callback: Optional[callable] = None,
-    ) -> Dict[str, Any]:
+        progress_callback: callable | None = None,
+    ) -> dict[str, Any]:
         """
         Fetch yfinance data for all instruments directly.
 
@@ -87,8 +86,8 @@ class DirectFetcher:
         """
         self._ensure_initialized()
 
-        all_errors: List[str] = []
-        total_counts: Dict[str, int] = {}
+        all_errors: list[str] = []
+        total_counts: dict[str, int] = {}
         total_skipped: int = 0
 
         with self._db_manager.get_session() as session:
@@ -151,7 +150,7 @@ class DirectFetcher:
         yfinance_ticker: str,
         period: str = "5y",
         mode: str = "incremental",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Fetch yfinance data for a single ticker directly.
 
@@ -178,7 +177,9 @@ class DirectFetcher:
                     "ticker": yfinance_ticker,
                     "instrument_id": None,
                     "counts": {},
-                    "errors": [f"No instrument found with yfinance_ticker={yfinance_ticker}"],
+                    "errors": [
+                        f"No instrument found with yfinance_ticker={yfinance_ticker}"
+                    ],
                     "skipped": [],
                 }
 
@@ -214,7 +215,7 @@ class DirectFetcher:
 
 
 # Module-level singleton for reuse
-_direct_fetcher: Optional[DirectFetcher] = None
+_direct_fetcher: DirectFetcher | None = None
 
 
 def get_direct_fetcher() -> DirectFetcher:

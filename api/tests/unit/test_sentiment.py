@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
-
 from app.services.sentiment import (
     _ALPHA_MAX,
     _ALPHA_MIN,
@@ -19,7 +18,6 @@ from app.services.sentiment import (
 )
 from app.services.view_generation import adjust_view_confidences
 from baml_client.types import AssetView, NewsSentimentOutput
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -84,7 +82,9 @@ class TestComputeSentimentSignal:
         half_life = 5.0
         fresh = _series([1.0], [0.0])
         old = _series([1.0], [30.0])  # 30 days old
-        assert compute_sentiment_signal(fresh, half_life) > compute_sentiment_signal(old, half_life)
+        assert compute_sentiment_signal(fresh, half_life) > compute_sentiment_signal(
+            old, half_life
+        )
 
     def test_multiple_articles_summed(self) -> None:
         """Sum of two fresh articles with opposite signs cancels out."""
@@ -169,7 +169,9 @@ class TestAdjustIdzorekAlpha:
 
     def test_stronger_conflict_gives_lower_alpha(self) -> None:
         alpha_weak = adjust_idzorek_alpha(0.5, sentiment_signal=-0.2, view_direction=1)
-        alpha_strong = adjust_idzorek_alpha(0.5, sentiment_signal=-0.8, view_direction=1)
+        alpha_strong = adjust_idzorek_alpha(
+            0.5, sentiment_signal=-0.8, view_direction=1
+        )
         assert alpha_strong < alpha_weak
 
     # --- Edge values ---
@@ -383,7 +385,7 @@ class TestAdjustViewConfidences:
             _make_view("MSFT", direction=-1, confidence=0.5),
         ]
         sentiment_map = {
-            "AAPL": 0.4,   # bullish signal, bullish view → boost
+            "AAPL": 0.4,  # bullish signal, bullish view → boost
             "MSFT": -0.4,  # bearish signal, bearish view → boost
         }
         result = adjust_view_confidences(views, sentiment_map)

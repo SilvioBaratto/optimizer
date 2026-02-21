@@ -16,6 +16,7 @@ from skfolio.prior import (
 )
 from skfolio.prior._base import BasePrior, ReturnDistribution
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.moments._config import MomentEstimationConfig
 from optimizer.moments._factory import build_prior
 from optimizer.views._config import (
@@ -65,13 +66,9 @@ class _EmpiricalOmegaBlackLitterman(BlackLitterman):
         _v = self.tau * prior_cov @ P.T
         _a = P @ _v + omega
         _b = q - P @ prior_mu
-        posterior_mu = (
-            prior_mu + _v @ np.linalg.solve(_a, _b) + self.risk_free_rate
-        )
+        posterior_mu = prior_mu + _v @ np.linalg.solve(_a, _b) + self.risk_free_rate
         posterior_cov = (
-            prior_cov
-            + self.tau * prior_cov
-            - _v @ np.linalg.solve(_a, _v.T)
+            prior_cov + self.tau * prior_cov - _v @ np.linalg.solve(_a, _v.T)
         )
         self.return_distribution_ = ReturnDistribution(
             mu=posterior_mu,
@@ -119,18 +116,18 @@ def build_black_litterman(
     )
     inner_prior = build_prior(prior_cfg)
 
-    shared_kwargs: dict[str, Any] = dict(
-        views=list(config.views),
-        groups=config.groups,
-        prior_estimator=inner_prior,
-        tau=config.tau,
-        risk_free_rate=config.risk_free_rate,
-    )
+    shared_kwargs: dict[str, Any] = {
+        "views": list(config.views),
+        "groups": config.groups,
+        "prior_estimator": inner_prior,
+        "tau": config.tau,
+        "risk_free_rate": config.risk_free_rate,
+    }
 
     if config.uncertainty_method == ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD:
         if omega is None:
             if view_history is None or return_history is None:
-                raise ValueError(
+                raise ConfigurationError(
                     "EMPIRICAL_TRACK_RECORD requires either a pre-computed "
                     "'omega' array or both 'view_history' and 'return_history'"
                 )
@@ -175,23 +172,13 @@ def build_entropy_pooling(config: EntropyPoolingConfig) -> EntropyPooling:
     return EntropyPooling(
         prior_estimator=inner_prior,
         mean_views=list(config.mean_views) if config.mean_views else None,
-        variance_views=(
-            list(config.variance_views) if config.variance_views else None
-        ),
+        variance_views=(list(config.variance_views) if config.variance_views else None),
         correlation_views=(
-            list(config.correlation_views)
-            if config.correlation_views
-            else None
+            list(config.correlation_views) if config.correlation_views else None
         ),
-        skew_views=(
-            list(config.skew_views) if config.skew_views else None
-        ),
-        kurtosis_views=(
-            list(config.kurtosis_views) if config.kurtosis_views else None
-        ),
-        cvar_views=(
-            list(config.cvar_views) if config.cvar_views else None
-        ),
+        skew_views=(list(config.skew_views) if config.skew_views else None),
+        kurtosis_views=(list(config.kurtosis_views) if config.kurtosis_views else None),
+        cvar_views=(list(config.cvar_views) if config.cvar_views else None),
         cvar_beta=config.cvar_beta,
         groups=config.groups,
         solver=config.solver,
@@ -223,9 +210,7 @@ def build_opinion_pooling(
         config = OpinionPoolingConfig()
 
     common_prior = (
-        build_prior(config.prior_config)
-        if config.prior_config is not None
-        else None
+        build_prior(config.prior_config) if config.prior_config is not None else None
     )
 
     return OpinionPooling(

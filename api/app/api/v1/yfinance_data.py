@@ -4,7 +4,7 @@ import logging
 import threading
 import uuid as uuid_mod
 from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -44,16 +44,16 @@ router = APIRouter(prefix="/yfinance-data", tags=["YFinance Data"])
 # In-memory job store (same pattern as trading212.py)
 # ---------------------------------------------------------------------------
 
-_fetch_jobs: Dict[str, Dict[str, Any]] = {}
+_fetch_jobs: dict[str, dict[str, Any]] = {}
 _fetch_jobs_lock = threading.Lock()
 
 
-def _set_job(job_id: str, data: Dict[str, Any]) -> None:
+def _set_job(job_id: str, data: dict[str, Any]) -> None:
     with _fetch_jobs_lock:
         _fetch_jobs[job_id] = data
 
 
-def _get_job(job_id: str) -> Optional[Dict[str, Any]]:
+def _get_job(job_id: str) -> dict[str, Any] | None:
     with _fetch_jobs_lock:
         return _fetch_jobs.get(job_id, {}).copy() if job_id in _fetch_jobs else None
 
@@ -67,6 +67,7 @@ def _update_job(job_id: str, **kwargs: Any) -> None:
 # ---------------------------------------------------------------------------
 # Background bulk fetch worker
 # ---------------------------------------------------------------------------
+
 
 def _run_bulk_fetch(
     job_id: str,
@@ -94,8 +95,8 @@ def _run_bulk_fetch(
             total = len(instruments)
             _update_job(job_id, total=total)
 
-            all_errors: List[str] = []
-            total_counts: Dict[str, int] = {}
+            all_errors: list[str] = []
+            total_counts: dict[str, int] = {}
             total_skipped: int = 0
 
             for idx, instrument in enumerate(instruments, 1):
@@ -159,6 +160,7 @@ def _run_bulk_fetch(
 # Dependency helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_yf_client() -> YFinanceClient:
     return get_yfinance_client()
 
@@ -170,6 +172,7 @@ def _get_repo(db: Session = Depends(get_db)) -> YFinanceRepository:
 # ---------------------------------------------------------------------------
 # Bulk fetch endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/fetch",
@@ -191,17 +194,20 @@ def start_bulk_fetch(
                 )
 
     job_id = str(uuid_mod.uuid4())
-    _set_job(job_id, {
-        "job_id": job_id,
-        "status": "pending",
-        "current": 0,
-        "total": 0,
-        "current_ticker": "",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "errors": [],
-        "result": None,
-        "error": None,
-    })
+    _set_job(
+        job_id,
+        {
+            "job_id": job_id,
+            "status": "pending",
+            "current": 0,
+            "total": 0,
+            "current_ticker": "",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "errors": [],
+            "result": None,
+            "error": None,
+        },
+    )
 
     thread = threading.Thread(
         target=_run_bulk_fetch,
@@ -242,6 +248,7 @@ def get_fetch_status(job_id: str):
 # ---------------------------------------------------------------------------
 # Single-ticker fetch
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/fetch/ticker/{yfinance_ticker}",
@@ -290,6 +297,7 @@ def fetch_single_ticker(
 # Read endpoints
 # ---------------------------------------------------------------------------
 
+
 @router.get(
     "/instruments/{instrument_id}/profile",
     response_model=TickerProfileResponse,
@@ -307,12 +315,12 @@ def get_profile(
 
 @router.get(
     "/instruments/{instrument_id}/prices",
-    response_model=List[PriceHistoryResponse],
+    response_model=list[PriceHistoryResponse],
 )
 def get_prices(
     instrument_id: UUID,
-    start_date: Optional[date] = Query(default=None),
-    end_date: Optional[date] = Query(default=None),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
     limit: int = Query(default=5000, ge=1, le=50000),
     repo: YFinanceRepository = Depends(_get_repo),
 ):
@@ -324,17 +332,15 @@ def get_prices(
 
 @router.get(
     "/instruments/{instrument_id}/financials",
-    response_model=List[FinancialStatementResponse],
+    response_model=list[FinancialStatementResponse],
 )
 def get_financials(
     instrument_id: UUID,
-    statement_type: Optional[str] = Query(
+    statement_type: str | None = Query(
         default=None,
         description="income_statement | balance_sheet | cashflow | earnings",
     ),
-    period_type: Optional[str] = Query(
-        default=None, description="annual | quarterly"
-    ),
+    period_type: str | None = Query(default=None, description="annual | quarterly"),
     repo: YFinanceRepository = Depends(_get_repo),
 ):
     """Read stored financial statements for an instrument."""
@@ -345,7 +351,7 @@ def get_financials(
 
 @router.get(
     "/instruments/{instrument_id}/dividends",
-    response_model=List[DividendResponse],
+    response_model=list[DividendResponse],
 )
 def get_dividends(
     instrument_id: UUID,
@@ -357,7 +363,7 @@ def get_dividends(
 
 @router.get(
     "/instruments/{instrument_id}/splits",
-    response_model=List[StockSplitResponse],
+    response_model=list[StockSplitResponse],
 )
 def get_splits(
     instrument_id: UUID,
@@ -369,7 +375,7 @@ def get_splits(
 
 @router.get(
     "/instruments/{instrument_id}/recommendations",
-    response_model=List[AnalystRecommendationResponse],
+    response_model=list[AnalystRecommendationResponse],
 )
 def get_recommendations(
     instrument_id: UUID,
@@ -396,7 +402,7 @@ def get_price_targets(
 
 @router.get(
     "/instruments/{instrument_id}/institutional-holders",
-    response_model=List[InstitutionalHolderResponse],
+    response_model=list[InstitutionalHolderResponse],
 )
 def get_institutional_holders(
     instrument_id: UUID,
@@ -408,7 +414,7 @@ def get_institutional_holders(
 
 @router.get(
     "/instruments/{instrument_id}/mutualfund-holders",
-    response_model=List[MutualFundHolderResponse],
+    response_model=list[MutualFundHolderResponse],
 )
 def get_mutualfund_holders(
     instrument_id: UUID,
@@ -420,7 +426,7 @@ def get_mutualfund_holders(
 
 @router.get(
     "/instruments/{instrument_id}/insider-transactions",
-    response_model=List[InsiderTransactionResponse],
+    response_model=list[InsiderTransactionResponse],
 )
 def get_insider_transactions(
     instrument_id: UUID,
@@ -432,7 +438,7 @@ def get_insider_transactions(
 
 @router.get(
     "/instruments/{instrument_id}/news",
-    response_model=List[TickerNewsResponse],
+    response_model=list[TickerNewsResponse],
 )
 def get_news(
     instrument_id: UUID,

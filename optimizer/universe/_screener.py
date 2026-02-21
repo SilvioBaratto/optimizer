@@ -358,12 +358,9 @@ def apply_investability_screens(
         quarterly_ok = quarterly_counts.reindex(candidates, fill_value=0)
 
         # Pass if either annual OR quarterly threshold is met
-        has_enough = (
-            (annual_ok >= config.min_annual_reports)
-            | (quarterly_ok >= config.min_quarterly_reports)
+        has_enough = (annual_ok >= config.min_annual_reports) | (
+            quarterly_ok >= config.min_quarterly_reports
         )
-        candidates = candidates.intersection(
-            has_enough.index[has_enough]
-        )
+        candidates = candidates.intersection(has_enough.index[has_enough])
 
     return candidates

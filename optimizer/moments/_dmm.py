@@ -111,9 +111,7 @@ class Emitter(nn.Module):
         self.relu = nn.ReLU()
         self.softplus = nn.Softplus()
 
-    def forward(
-        self, z_t: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, z_t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         h1 = self.relu(self.lin_z_h1(z_t))
         h2 = self.relu(self.lin_h1_h2(h1))
         loc = self.lin_h2_loc(h2)
@@ -141,12 +139,8 @@ class GatedTransition(nn.Module):
         self.relu = nn.ReLU()
         self.softplus = nn.Softplus()
 
-    def forward(
-        self, z_prev: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        gate = torch.sigmoid(
-            self.lin_gate_hz(self.relu(self.lin_gate_zh(z_prev)))
-        )
+    def forward(self, z_prev: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        gate = torch.sigmoid(self.lin_gate_hz(self.relu(self.lin_gate_zh(z_prev))))
         proposed = self.lin_prop_hz(self.relu(self.lin_prop_zh(z_prev)))
         loc = (1.0 - gate) * self.lin_residual(z_prev) + gate * proposed
         scale = self.softplus(self.lin_scale(self.relu(proposed))) + 1e-5
@@ -254,9 +248,7 @@ class DMM(nn.Module):
                 )
             z_prev = z_t
 
-    def encode(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Encode a sequence to variational posterior means/stds, shape (T, z_dim)."""
         x_rev = x.flip(0)
         rnn_out, _ = self.rnn(x_rev.unsqueeze(0))
@@ -318,12 +310,14 @@ def fit_dmm(
     pyro.clear_param_store()
     dmm = DMM(input_dim, config)
 
-    adam = ClippedAdam({
-        "lr": config.learning_rate,
-        "betas": (0.96, 0.999),
-        "clip_norm": 10.0,
-        "lrd": 0.99996,
-    })
+    adam = ClippedAdam(
+        {
+            "lr": config.learning_rate,
+            "betas": (0.96, 0.999),
+            "clip_norm": 10.0,
+            "lrd": 0.99996,
+        }
+    )
     svi = SVI(dmm.model, dmm.guide, adam, loss=Trace_ELBO())
 
     elbo_history: list[float] = []
@@ -375,9 +369,7 @@ def blend_moments_dmm(result: DMMResult) -> tuple[pd.Series, pd.DataFrame]:
         ``(mu, cov)`` — expected returns and diagonal covariance matrix
         in the original (un-standardised) return scale.
     """
-    z_last = torch.tensor(
-        result.latent_means.iloc[-1].to_numpy(dtype=np.float32)
-    )
+    z_last = torch.tensor(result.latent_means.iloc[-1].to_numpy(dtype=np.float32))
     result.model.eval()
     with torch.no_grad():
         emission_loc, emission_scale = result.model.emitter(z_last)

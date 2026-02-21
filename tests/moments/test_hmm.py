@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import DataError
 from optimizer.moments import (
     HMMBlendedCovariance,
     HMMBlendedMu,
@@ -19,9 +20,7 @@ TICKERS = ["AAPL", "MSFT", "GOOG"]
 N_ASSETS = len(TICKERS)
 
 
-def _make_two_regime_returns(
-    n_obs: int = 300, seed: int = 42
-) -> pd.DataFrame:
+def _make_two_regime_returns(n_obs: int = 300, seed: int = 42) -> pd.DataFrame:
     """Synthetic return panel with two clearly separated regimes."""
     rng = np.random.default_rng(seed)
     dates = pd.date_range("2018-01-01", periods=n_obs, freq="B")
@@ -31,8 +30,8 @@ def _make_two_regime_returns(
     regime[n_obs // 2 :] = 1
 
     means = [
-        np.array([0.001, 0.0012, 0.0008]),   # bull
-        np.array([-0.002, -0.0025, -0.0015]), # bear
+        np.array([0.001, 0.0012, 0.0008]),  # bull
+        np.array([-0.002, -0.0025, -0.0015]),  # bear
     ]
     stds = [
         np.array([0.01, 0.012, 0.009]),  # bull: low vol
@@ -167,7 +166,7 @@ class TestFitHMM:
             np.random.default_rng(0).normal(0, 0.01, (2, N_ASSETS)),
             columns=TICKERS,
         )
-        with pytest.raises(ValueError, match="observations"):
+        with pytest.raises(DataError, match="observations"):
             fit_hmm(tiny, HMMConfig(n_states=2))
 
     def test_two_regime_means_differ(self, hmm_result: HMMResult) -> None:
@@ -339,9 +338,7 @@ class TestHMMBlendedCovariance:
     def test_covariance_is_symmetric(self, synthetic_returns: pd.DataFrame) -> None:
         est = HMMBlendedCovariance(hmm_config=HMMConfig(n_states=2, random_state=0))
         est.fit(synthetic_returns)
-        np.testing.assert_allclose(
-            est.covariance_, est.covariance_.T, atol=1e-12
-        )
+        np.testing.assert_allclose(est.covariance_, est.covariance_.T, atol=1e-12)
 
     def test_covariance_is_psd(self, synthetic_returns: pd.DataFrame) -> None:
         """All eigenvalues must be non-negative (positive semi-definite)."""

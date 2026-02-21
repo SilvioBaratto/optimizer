@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from typing import Dict, Any, Tuple, List
+from typing import Any
 
 from app.services.trading212.config import (
-    UniverseBuilderConfig,
     InstitutionalFieldSpec,
+    UniverseBuilderConfig,
 )
 
 
@@ -15,11 +15,11 @@ class DataCoverageFilter:
     def name(self) -> str:
         return "DataCoverageFilter"
 
-    def filter(self, data: Dict[str, Any], yf_ticker: str) -> Tuple[bool, str]:
+    def filter(self, data: dict[str, Any], yf_ticker: str) -> tuple[bool, str]:
         if not data:
             return False, "No data available"
 
-        missing_categories: List[str] = []
+        missing_categories: list[str] = []
 
         # Check each required category
         for category_name, spec in self.config.institutional_fields.items():
@@ -42,8 +42,8 @@ class DataCoverageFilter:
         return True, f"100% coverage ({required_count} required categories)"
 
     def _check_category(
-        self, data: Dict[str, Any], category_name: str, spec: InstitutionalFieldSpec
-    ) -> Tuple[bool, List[str]]:
+        self, data: dict[str, Any], category_name: str, spec: InstitutionalFieldSpec
+    ) -> tuple[bool, list[str]]:
         available = []
         missing = []
 

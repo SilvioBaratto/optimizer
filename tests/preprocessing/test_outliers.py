@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from sklearn.utils.validation import check_is_fitted
 
+from optimizer.exceptions import DataError
 from optimizer.preprocessing import OutlierTreater
 
 
@@ -81,14 +82,12 @@ class TestOutlierTreater:
         assert list(out.columns) == ["A", "B", "C"]
 
     def test_rejects_non_dataframe(self) -> None:
-        with pytest.raises(TypeError, match="pandas DataFrame"):
+        with pytest.raises(DataError, match="pandas DataFrame"):
             OutlierTreater().fit(np.array([[1, 2]]))
 
     def test_get_feature_names_out(self, normal_returns: pd.DataFrame) -> None:
         ot = OutlierTreater().fit(normal_returns)
-        np.testing.assert_array_equal(
-            ot.get_feature_names_out(), ["A", "B", "C"]
-        )
+        np.testing.assert_array_equal(ot.get_feature_names_out(), ["A", "B", "C"])
 
     def test_sklearn_params(self) -> None:
         ot = OutlierTreater(winsorize_threshold=2.5, remove_threshold=8.0)

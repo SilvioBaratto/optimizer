@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
@@ -62,10 +61,12 @@ class GenerateViewsResponse(BaseModel):
         ..., description="skfolio-compatible view expressions (e.g. 'AAPL == 0.02')."
     )
     P: list[list[float]] = Field(
-        ..., description="Pick matrix, shape (n_views, n_assets). Row i is the i-th view."
+        ...,
+        description="Pick matrix, shape (n_views, n_assets). Row i is the i-th view.",
     )
     Q: list[float] = Field(
-        ..., description="Expected excess returns vector, shape (n_views,). Decimal units."
+        ...,
+        description="Expected excess returns vector, shape (n_views,). Decimal units.",
     )
     view_confidences: list[float] = Field(
         ...,
@@ -74,7 +75,9 @@ class GenerateViewsResponse(BaseModel):
     idzorek_alphas: dict[str, float] = Field(
         ..., description="Asset ticker → Idzorek alpha_k. All values in (0, 1)."
     )
-    views: list[AssetViewResponse] = Field(..., description="Structured per-asset views.")
+    views: list[AssetViewResponse] = Field(
+        ..., description="Structured per-asset views."
+    )
     rationale: str = Field(..., description="LLM narrative explaining view generation.")
     tickers_with_data: list[str] = Field(
         ..., description="Tickers for which factor data was found in the DB."

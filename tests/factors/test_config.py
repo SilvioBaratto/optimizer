@@ -104,8 +104,7 @@ class TestMappingConstants:
 
     def test_supplementary_groups(self) -> None:
         supp = {
-            g for g, w in GROUP_WEIGHT_TIER.items()
-            if w == GroupWeight.SUPPLEMENTARY
+            g for g, w in GROUP_WEIGHT_TIER.items() if w == GroupWeight.SUPPLEMENTARY
         }
         assert supp == {
             FactorGroupType.INVESTMENT,

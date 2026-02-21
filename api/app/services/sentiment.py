@@ -21,16 +21,15 @@ from __future__ import annotations
 import logging
 import math
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 import pandas as pd
+from baml_client import b
+from baml_client.types import NewsArticle
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.universe import Instrument
 from app.models.yfinance_data import TickerNews
-from baml_client import b
-from baml_client.types import NewsArticle
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +122,7 @@ def adjust_idzorek_alpha(
 # ---------------------------------------------------------------------------
 
 
-def _get_instrument_id(session: Session, ticker: str) -> Optional[object]:
+def _get_instrument_id(session: Session, ticker: str) -> object | None:
     row = session.execute(
         select(Instrument.id).where(Instrument.ticker == ticker)
     ).scalar_one_or_none()
@@ -149,7 +148,9 @@ def fetch_news_sentiment(
     """
     instrument_id = _get_instrument_id(session, ticker)
     if instrument_id is None:
-        logger.warning("ticker %s not found in instruments table — no sentiment", ticker)
+        logger.warning(
+            "ticker %s not found in instruments table — no sentiment", ticker
+        )
         return pd.Series(dtype=float)
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)

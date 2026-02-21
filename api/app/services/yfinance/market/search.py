@@ -7,8 +7,8 @@ from typing import Any
 
 import yfinance as yf
 
-from ..protocols import CircuitBreakerProtocol, RateLimiterProtocol
 from ..infrastructure import is_rate_limit_error, retry_with_backoff
+from ..protocols import CircuitBreakerProtocol, RateLimiterProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,11 @@ class SearchClient:
 
         method_name = _LOOKUP_ASSET_TYPES.get(asset_type)
         if method_name is None:
-            logger.error("Unknown asset_type '%s'. Valid: %s", asset_type, list(_LOOKUP_ASSET_TYPES))
+            logger.error(
+                "Unknown asset_type '%s'. Valid: %s",
+                asset_type,
+                list(_LOOKUP_ASSET_TYPES),
+            )
             return None
 
         def _action() -> list[dict[str, Any]] | None:

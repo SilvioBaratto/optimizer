@@ -142,9 +142,7 @@ def bootstrap_covariance_uncertainty(
     for i, (pos, _) in enumerate(bs.bootstrap(B)):
         cov_samples[i] = np.cov(pos[0].T)
 
-    frob_distances = np.linalg.norm(
-        (cov_samples - cov_hat).reshape(B, -1), axis=1
-    )
+    frob_distances = np.linalg.norm((cov_samples - cov_hat).reshape(B, -1), axis=1)
     delta = float(np.quantile(frob_distances, 1.0 - alpha))
 
     return CovarianceUncertaintyResult(

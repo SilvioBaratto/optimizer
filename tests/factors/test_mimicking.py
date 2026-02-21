@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
     build_factor_mimicking_portfolios,
     compute_cross_factor_correlation,
@@ -164,9 +165,7 @@ class TestReturnValues:
     def test_nan_when_too_few_assets(self) -> None:
         """2 valid assets with quantile=0.30 → k=1, needs 2 → should succeed."""
         dates = pd.date_range("2021-01-01", periods=3, freq="ME")
-        sc = pd.DataFrame(
-            {"A": [1.0, 1.0, 1.0], "B": [-1.0, -1.0, -1.0]}, index=dates
-        )
+        sc = pd.DataFrame({"A": [1.0, 1.0, 1.0], "B": [-1.0, -1.0, -1.0]}, index=dates)
         rt = pd.DataFrame(
             {"A": [0.01, 0.02, 0.01], "B": [-0.01, -0.02, -0.01]}, index=dates
         )
@@ -216,7 +215,7 @@ class TestWeightingModes:
     def test_invalid_weighting_raises(
         self, scores: pd.DataFrame, returns: pd.DataFrame
     ) -> None:
-        with pytest.raises(ValueError, match="weighting"):
+        with pytest.raises(ConfigurationError, match="weighting"):
             build_factor_mimicking_portfolios(scores, returns, weighting="market_cap")
 
 
@@ -229,13 +228,13 @@ class TestQuantileValidation:
     def test_invalid_quantile_zero_raises(
         self, scores: pd.DataFrame, returns: pd.DataFrame
     ) -> None:
-        with pytest.raises(ValueError, match="quantile"):
+        with pytest.raises(ConfigurationError, match="quantile"):
             build_factor_mimicking_portfolios(scores, returns, quantile=0.0)
 
     def test_invalid_quantile_above_half_raises(
         self, scores: pd.DataFrame, returns: pd.DataFrame
     ) -> None:
-        with pytest.raises(ValueError, match="quantile"):
+        with pytest.raises(ConfigurationError, match="quantile"):
             build_factor_mimicking_portfolios(scores, returns, quantile=0.51)
 
     def test_quantile_half_allowed(

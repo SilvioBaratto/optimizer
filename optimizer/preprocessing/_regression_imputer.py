@@ -7,6 +7,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.preprocessing._imputation import SectorImputer
 
 
@@ -83,7 +84,7 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
         self.feature_names_in_: np.ndarray = np.asarray(X.columns)
 
         if self.fallback != "sector_mean":
-            raise ValueError(
+            raise ConfigurationError(
                 f"Unsupported fallback strategy: '{self.fallback}'. "
                 "Only 'sector_mean' is supported."
             )
@@ -184,9 +185,7 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
     # sklearn protocol
     # ------------------------------------------------------------------
 
-    def get_feature_names_out(
-        self, input_features: object = None
-    ) -> np.ndarray:
+    def get_feature_names_out(self, input_features: object = None) -> np.ndarray:
         """Return feature names (pass-through)."""
         check_is_fitted(self)
         return self.feature_names_in_
@@ -198,8 +197,7 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
     @staticmethod
     def _validate_input(X: pd.DataFrame) -> pd.DataFrame:
         if not isinstance(X, pd.DataFrame):
-            raise TypeError(
-                "RegressionImputer requires a pandas DataFrame, "
-                f"got {type(X).__name__}"
+            raise DataError(
+                f"RegressionImputer requires a pandas DataFrame, got {type(X).__name__}"
             )
         return X

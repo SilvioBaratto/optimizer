@@ -10,18 +10,17 @@ Revises: 6b106e82ce20
 Create Date: 2026-02-18
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import UUID
-
 
 # revision identifiers, used by Alembic.
 revision: str = "a1b2c3d4e5f6"
-down_revision: Union[str, Sequence[str], None] = "6b106e82ce20"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "6b106e82ce20"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -78,9 +77,13 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.func.now(),
         ),
-        sa.UniqueConstraint("country", "source", name="uq_economic_indicator_country_source"),
+        sa.UniqueConstraint(
+            "country", "source", name="uq_economic_indicator_country_source"
+        ),
     )
-    op.create_index("ix_economic_indicators_country", "economic_indicators", ["country"])
+    op.create_index(
+        "ix_economic_indicators_country", "economic_indicators", ["country"]
+    )
 
     # Recreate trading_economics_indicators to match ORM
     op.create_table(
@@ -105,7 +108,9 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.func.now(),
         ),
-        sa.UniqueConstraint("country", "indicator_key", name="uq_te_indicator_country_key"),
+        sa.UniqueConstraint(
+            "country", "indicator_key", name="uq_te_indicator_country_key"
+        ),
     )
     op.create_index(
         "ix_trading_economics_indicators_country",

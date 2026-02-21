@@ -161,10 +161,7 @@ def run_factor_oos_validation(
 
             spreads: list[float] = []
             for date in val_dates:
-                if (
-                    date not in factor_history.index
-                    or date not in returns_val.index
-                ):
+                if date not in factor_history.index or date not in returns_val.index:
                     continue
                 f_scores = factor_history.loc[date].dropna()
                 r_returns = returns_val.loc[date].dropna()

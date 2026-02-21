@@ -13,14 +13,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
-from sqlalchemy.orm import Session
-
-from app.models.macro_regime import BondYield, EconomicIndicator, TradingEconomicsIndicator
-from app.repositories.macro_regime_repository import MacroRegimeRepository
 from baml_client import b
 from baml_client.types import BusinessCyclePhase, MacroRegimeCalibration
+from sqlalchemy.orm import Session
+
+from app.repositories.macro_regime_repository import MacroRegimeRepository
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +134,9 @@ def _build_macro_summary(
         lines.append("Bond yields: " + ", ".join(yield_parts))
         if "10Y" in yield_map and "2Y" in yield_map:
             spread = yield_map["10Y"] - yield_map["2Y"]
-            lines.append(f"10Y-2Y spread: {spread:+.2f}% ({'steepening' if spread > 0 else 'inverted'})")
+            lines.append(
+                f"10Y-2Y spread: {spread:+.2f}% ({'steepening' if spread > 0 else 'inverted'})"
+            )
 
     return "\n".join(lines) if len(lines) > 1 else ""
 
@@ -166,7 +166,7 @@ def _clamp_confidence(value: float) -> float:
 def classify_macro_regime(
     session: Session,
     country: str = "United States",
-    macro_summary_override: Optional[str] = None,
+    macro_summary_override: str | None = None,
 ) -> CalibrationResult:
     """Classify business cycle phase and return calibrated (δ, τ) for Black-Litterman.
 
@@ -204,7 +204,10 @@ def classify_macro_regime(
     if delta != raw.delta or tau != raw.tau:
         logger.warning(
             "LLM returned out-of-range values (delta=%.4f, tau=%.4f); clamped to (%.4f, %.4f)",
-            raw.delta, raw.tau, delta, tau,
+            raw.delta,
+            raw.tau,
+            delta,
+            tau,
         )
 
     return CalibrationResult(

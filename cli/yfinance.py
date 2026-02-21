@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+)
 
 from cli.client import ApiClient
 from cli.display import (
@@ -86,8 +90,12 @@ def fetch(
     ctx: typer.Context,
     max_workers: int = typer.Option(4, help="Parallel workers (1-20)"),
     period: str = typer.Option("5y", help="Price history period (e.g. 1y, 2y, 5y)"),
-    mode: str = typer.Option("incremental", help="Fetch mode: 'incremental' (skip fresh) or 'full'"),
-    direct: bool = typer.Option(False, "--direct", "-d", help="Bypass API and fetch directly from database"),
+    mode: str = typer.Option(
+        "incremental", help="Fetch mode: 'incremental' (skip fresh) or 'full'"
+    ),
+    direct: bool = typer.Option(
+        False, "--direct", "-d", help="Bypass API and fetch directly from database"
+    ),
 ) -> None:
     """Start a bulk yfinance fetch for all instruments and poll until complete."""
     # If --direct flag is set, skip API entirely
@@ -121,6 +129,7 @@ def fetch(
 # ------------------------------------------------------------------
 # fetch-status
 # ------------------------------------------------------------------
+
 
 @yfinance_app.command("fetch-status")
 def fetch_status(
@@ -172,8 +181,12 @@ def fetch_ticker(
     ctx: typer.Context,
     ticker: str = typer.Argument(help="YFinance ticker symbol (e.g. AAPL, IHG.L)"),
     period: str = typer.Option("5y", help="Price history period"),
-    mode: str = typer.Option("incremental", help="Fetch mode: 'incremental' (skip fresh) or 'full'"),
-    direct: bool = typer.Option(False, "--direct", "-d", help="Bypass API and fetch directly from database"),
+    mode: str = typer.Option(
+        "incremental", help="Fetch mode: 'incremental' (skip fresh) or 'full'"
+    ),
+    direct: bool = typer.Option(
+        False, "--direct", "-d", help="Bypass API and fetch directly from database"
+    ),
 ) -> None:
     """Synchronously fetch all yfinance data for a single ticker."""
     # If --direct flag is set, skip API entirely
@@ -208,6 +221,7 @@ def fetch_ticker(
 # profile
 # ------------------------------------------------------------------
 
+
 @yfinance_app.command()
 def profile(
     ctx: typer.Context,
@@ -222,12 +236,13 @@ def profile(
 # prices
 # ------------------------------------------------------------------
 
+
 @yfinance_app.command()
 def prices(
     ctx: typer.Context,
     instrument_id: str = typer.Argument(help="Instrument UUID"),
-    start: Optional[str] = typer.Option(None, "--start", help="Start date (YYYY-MM-DD)"),
-    end: Optional[str] = typer.Option(None, "--end", help="End date (YYYY-MM-DD)"),
+    start: str | None = typer.Option(None, "--start", help="Start date (YYYY-MM-DD)"),
+    end: str | None = typer.Option(None, "--end", help="End date (YYYY-MM-DD)"),
     limit: int = typer.Option(5000, help="Max rows to return"),
 ) -> None:
     """Show stored price history (OHLCV) for an instrument."""
@@ -245,16 +260,17 @@ def prices(
 # financials
 # ------------------------------------------------------------------
 
+
 @yfinance_app.command()
 def financials(
     ctx: typer.Context,
     instrument_id: str = typer.Argument(help="Instrument UUID"),
-    type_: Optional[str] = typer.Option(
+    type_: str | None = typer.Option(
         None,
         "--type",
         help="Statement type: income_statement|balance_sheet|cashflow|earnings",
     ),
-    period: Optional[str] = typer.Option(
+    period: str | None = typer.Option(
         None,
         "--period",
         help="Period type: annual|quarterly",
@@ -275,6 +291,7 @@ def financials(
 # dividends
 # ------------------------------------------------------------------
 
+
 @yfinance_app.command()
 def dividends(
     ctx: typer.Context,
@@ -289,6 +306,7 @@ def dividends(
 # splits
 # ------------------------------------------------------------------
 
+
 @yfinance_app.command()
 def splits(
     ctx: typer.Context,
@@ -302,6 +320,7 @@ def splits(
 # ------------------------------------------------------------------
 # recommendations
 # ------------------------------------------------------------------
+
 
 @yfinance_app.command()
 def recommendations(
@@ -320,6 +339,7 @@ def recommendations(
 # ------------------------------------------------------------------
 # price-targets
 # ------------------------------------------------------------------
+
 
 @yfinance_app.command("price-targets")
 def price_targets(
@@ -344,6 +364,7 @@ def price_targets(
 # holders (institutional)
 # ------------------------------------------------------------------
 
+
 @yfinance_app.command()
 def holders(
     ctx: typer.Context,
@@ -361,6 +382,7 @@ def holders(
 # ------------------------------------------------------------------
 # fund-holders (mutual fund)
 # ------------------------------------------------------------------
+
 
 @yfinance_app.command("fund-holders")
 def fund_holders(
@@ -380,6 +402,7 @@ def fund_holders(
 # insiders
 # ------------------------------------------------------------------
 
+
 @yfinance_app.command()
 def insiders(
     ctx: typer.Context,
@@ -397,6 +420,7 @@ def insiders(
 # ------------------------------------------------------------------
 # news
 # ------------------------------------------------------------------
+
 
 @yfinance_app.command()
 def news(

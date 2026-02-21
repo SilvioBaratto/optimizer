@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from cli.client import ApiClient
@@ -26,10 +24,11 @@ def _client(ctx: typer.Context) -> ApiClient:
 # fetch (bulk)
 # ------------------------------------------------------------------
 
+
 @macro_app.command()
 def fetch(
     ctx: typer.Context,
-    country: Optional[list[str]] = typer.Option(
+    country: list[str] | None = typer.Option(
         None, help="Country name(s). Repeat for multiple."
     ),
     no_bonds: bool = typer.Option(False, "--no-bonds", help="Skip bond yield scraping"),
@@ -59,6 +58,7 @@ def fetch(
 # fetch-status
 # ------------------------------------------------------------------
 
+
 @macro_app.command("fetch-status")
 def fetch_status(
     ctx: typer.Context,
@@ -72,6 +72,7 @@ def fetch_status(
 # ------------------------------------------------------------------
 # fetch-country (single sync fetch)
 # ------------------------------------------------------------------
+
 
 @macro_app.command("fetch-country")
 def fetch_country(
@@ -95,6 +96,7 @@ def fetch_country(
 # summary
 # ------------------------------------------------------------------
 
+
 @macro_app.command()
 def summary(
     ctx: typer.Context,
@@ -107,7 +109,14 @@ def summary(
     if ei:
         list_table(
             ei,
-            columns=["source", "gdp_growth_qq", "unemployment", "consumer_prices", "st_rate", "lt_rate"],
+            columns=[
+                "source",
+                "gdp_growth_qq",
+                "unemployment",
+                "consumer_prices",
+                "st_rate",
+                "lt_rate",
+            ],
             title=f"{country} — Economic Indicators",
         )
 
@@ -123,7 +132,13 @@ def summary(
     if by:
         list_table(
             by,
-            columns=["maturity", "yield_value", "day_change", "month_change", "year_change"],
+            columns=[
+                "maturity",
+                "yield_value",
+                "day_change",
+                "month_change",
+                "year_change",
+            ],
             title=f"{country} — Bond Yields",
         )
 
@@ -132,16 +147,25 @@ def summary(
 # economic-indicators
 # ------------------------------------------------------------------
 
+
 @macro_app.command("economic-indicators")
 def economic_indicators(
     ctx: typer.Context,
-    country: Optional[str] = typer.Option(None, help="Filter by country"),
+    country: str | None = typer.Option(None, help="Filter by country"),
 ) -> None:
     """List stored economic indicators."""
     rows = _client(ctx).get_economic_indicators(country=country)
     list_table(
         rows,
-        columns=["country", "source", "gdp_growth_qq", "unemployment", "consumer_prices", "st_rate", "lt_rate"],
+        columns=[
+            "country",
+            "source",
+            "gdp_growth_qq",
+            "unemployment",
+            "consumer_prices",
+            "st_rate",
+            "lt_rate",
+        ],
         title="Economic Indicators",
     )
 
@@ -150,10 +174,11 @@ def economic_indicators(
 # te-indicators
 # ------------------------------------------------------------------
 
+
 @macro_app.command("te-indicators")
 def te_indicators(
     ctx: typer.Context,
-    country: Optional[str] = typer.Option(None, help="Filter by country"),
+    country: str | None = typer.Option(None, help="Filter by country"),
 ) -> None:
     """List stored Trading Economics indicators."""
     rows = _client(ctx).get_te_indicators(country=country)
@@ -168,15 +193,23 @@ def te_indicators(
 # bond-yields
 # ------------------------------------------------------------------
 
+
 @macro_app.command("bond-yields")
 def bond_yields(
     ctx: typer.Context,
-    country: Optional[str] = typer.Option(None, help="Filter by country"),
+    country: str | None = typer.Option(None, help="Filter by country"),
 ) -> None:
     """List stored bond yields."""
     rows = _client(ctx).get_bond_yields(country=country)
     list_table(
         rows,
-        columns=["country", "maturity", "yield_value", "day_change", "month_change", "year_change"],
+        columns=[
+            "country",
+            "maturity",
+            "yield_value",
+            "day_change",
+            "month_change",
+            "year_change",
+        ],
         title="Bond Yields",
     )

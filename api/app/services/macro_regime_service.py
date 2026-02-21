@@ -1,13 +1,15 @@
 """Service layer orchestrating macro regime data fetching and storage."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.repositories.macro_regime_repository import MacroRegimeRepository
-from app.services.scrapers.ilsole_scraper import IlSoleScraper, PORTFOLIO_COUNTRIES
-from app.services.scrapers.tradingeconomics_scraper import TradingEconomicsIndicatorsScraper
+from app.services.scrapers.ilsole_scraper import PORTFOLIO_COUNTRIES, IlSoleScraper
+from app.services.scrapers.tradingeconomics_scraper import (
+    TradingEconomicsIndicatorsScraper,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +25,9 @@ class MacroRegimeService:
 
     def fetch_and_store(
         self,
-        countries: Optional[List[str]] = None,
+        countries: list[str] | None = None,
         include_bonds: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Fetch macro data for all specified countries and store in database.
 
@@ -39,13 +41,13 @@ class MacroRegimeService:
         if countries is None:
             countries = list(PORTFOLIO_COUNTRIES)
 
-        total_counts: Dict[str, int] = {
+        total_counts: dict[str, int] = {
             "ilsole_real": 0,
             "ilsole_forecast": 0,
             "te_indicators": 0,
             "bond_yields": 0,
         }
-        all_errors: List[str] = []
+        all_errors: list[str] = []
 
         for country in countries:
             try:
@@ -73,15 +75,15 @@ class MacroRegimeService:
         self,
         country: str,
         include_bonds: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Fetch and store macro data for a single country.
 
         Returns:
             Dict with "counts" and "errors" for this country.
         """
-        counts: Dict[str, int] = {}
-        errors: List[str] = []
+        counts: dict[str, int] = {}
+        errors: list[str] = []
 
         # 1. IlSole real indicators
         try:
@@ -149,9 +151,7 @@ class MacroRegimeService:
                 counts["bond_yields"] = 0
                 te_error = te_data.get("error", "Unknown error")
                 errors.append(f"trading_economics: {te_error}")
-                logger.warning(
-                    "Trading Economics failed for %s: %s", country, te_error
-                )
+                logger.warning("Trading Economics failed for %s: %s", country, te_error)
 
         except Exception as e:
             errors.append(f"trading_economics: {e}")

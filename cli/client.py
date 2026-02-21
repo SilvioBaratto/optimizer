@@ -71,9 +71,7 @@ class ApiClient:
                 detail = resp.json().get("detail", resp.text)
             except Exception:
                 detail = resp.text
-            console.print(
-                f"[bold red]API error {resp.status_code}:[/] {detail}"
-            )
+            console.print(f"[bold red]API error {resp.status_code}:[/] {detail}")
             raise typer.Exit(code=1)
 
         return resp.json()
@@ -118,7 +116,10 @@ class ApiClient:
         skip_filters: bool = False,
         max_workers: int = 20,
     ) -> dict[str, Any]:
-        body: dict[str, Any] = {"max_workers": max_workers, "skip_filters": skip_filters}
+        body: dict[str, Any] = {
+            "max_workers": max_workers,
+            "skip_filters": skip_filters,
+        }
         if exchanges:
             body["exchanges"] = exchanges
         return self._post("/universe/build", json=body)
@@ -162,9 +163,7 @@ class ApiClient:
         )
 
     def get_profile(self, instrument_id: str) -> dict[str, Any]:
-        return self._get(
-            f"/yfinance-data/instruments/{instrument_id}/profile"
-        )
+        return self._get(f"/yfinance-data/instruments/{instrument_id}/profile")
 
     def get_prices(
         self,
@@ -193,50 +192,34 @@ class ApiClient:
         )
 
     def get_dividends(self, instrument_id: str) -> list[dict[str, Any]]:
-        return self._get(
-            f"/yfinance-data/instruments/{instrument_id}/dividends"
-        )
+        return self._get(f"/yfinance-data/instruments/{instrument_id}/dividends")
 
     def get_splits(self, instrument_id: str) -> list[dict[str, Any]]:
-        return self._get(
-            f"/yfinance-data/instruments/{instrument_id}/splits"
-        )
+        return self._get(f"/yfinance-data/instruments/{instrument_id}/splits")
 
     def get_recommendations(self, instrument_id: str) -> list[dict[str, Any]]:
-        return self._get(
-            f"/yfinance-data/instruments/{instrument_id}/recommendations"
-        )
+        return self._get(f"/yfinance-data/instruments/{instrument_id}/recommendations")
 
     def get_price_targets(self, instrument_id: str) -> dict[str, Any]:
-        return self._get(
-            f"/yfinance-data/instruments/{instrument_id}/price-targets"
-        )
+        return self._get(f"/yfinance-data/instruments/{instrument_id}/price-targets")
 
-    def get_institutional_holders(
-        self, instrument_id: str
-    ) -> list[dict[str, Any]]:
+    def get_institutional_holders(self, instrument_id: str) -> list[dict[str, Any]]:
         return self._get(
             f"/yfinance-data/instruments/{instrument_id}/institutional-holders"
         )
 
-    def get_mutualfund_holders(
-        self, instrument_id: str
-    ) -> list[dict[str, Any]]:
+    def get_mutualfund_holders(self, instrument_id: str) -> list[dict[str, Any]]:
         return self._get(
             f"/yfinance-data/instruments/{instrument_id}/mutualfund-holders"
         )
 
-    def get_insider_transactions(
-        self, instrument_id: str
-    ) -> list[dict[str, Any]]:
+    def get_insider_transactions(self, instrument_id: str) -> list[dict[str, Any]]:
         return self._get(
             f"/yfinance-data/instruments/{instrument_id}/insider-transactions"
         )
 
     def get_news(self, instrument_id: str) -> list[dict[str, Any]]:
-        return self._get(
-            f"/yfinance-data/instruments/{instrument_id}/news"
-        )
+        return self._get(f"/yfinance-data/instruments/{instrument_id}/news")
 
     # ------------------------------------------------------------------
     # Macro data endpoints
@@ -273,14 +256,10 @@ class ApiClient:
     ) -> list[dict[str, Any]]:
         return self._get("/macro-data/economic-indicators", country=country)
 
-    def get_te_indicators(
-        self, country: str | None = None
-    ) -> list[dict[str, Any]]:
+    def get_te_indicators(self, country: str | None = None) -> list[dict[str, Any]]:
         return self._get("/macro-data/te-indicators", country=country)
 
-    def get_bond_yields(
-        self, country: str | None = None
-    ) -> list[dict[str, Any]]:
+    def get_bond_yields(self, country: str | None = None) -> list[dict[str, Any]]:
         return self._get("/macro-data/bond-yields", country=country)
 
     # ------------------------------------------------------------------

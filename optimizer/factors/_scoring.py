@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.factors._config import (
     FACTOR_GROUP_MAPPING,
     GROUP_WEIGHT_TIER,
@@ -306,13 +307,13 @@ def compute_composite_score(
     if config.method == CompositeMethod.IC_WEIGHTED:
         if ic_history is None:
             msg = "ic_history required for IC_WEIGHTED composite method"
-            raise ValueError(msg)
+            raise ConfigurationError(msg)
         return compute_ic_weighted_composite(group_scores, ic_history, config)
 
     if config.method == CompositeMethod.ICIR_WEIGHTED:
         if ic_history is None:
             msg = "ic_history required for ICIR_WEIGHTED composite method"
-            raise ValueError(msg)
+            raise ConfigurationError(msg)
         ic_series_per_group = {
             col: ic_history[col].dropna() for col in ic_history.columns
         }
@@ -326,7 +327,7 @@ def compute_composite_score(
                 "training_scores and training_returns are required for "
                 f"{config.method.value} composite method"
             )
-            raise ValueError(msg)
+            raise ConfigurationError(msg)
         return compute_ml_composite(
             standardized_factors, training_scores, training_returns, config
         )

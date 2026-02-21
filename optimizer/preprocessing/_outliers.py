@@ -7,6 +7,8 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
+from optimizer.exceptions import DataError
+
 
 class OutlierTreater(BaseEstimator, TransformerMixin):
     """Three-group outlier methodology on per-column z-scores.
@@ -41,9 +43,7 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         self.winsorize_threshold = winsorize_threshold
         self.remove_threshold = remove_threshold
 
-    def fit(
-        self, X: pd.DataFrame, y: object = None
-    ) -> OutlierTreater:
+    def fit(self, X: pd.DataFrame, y: object = None) -> OutlierTreater:
         """Compute per-column mean and std from training data."""
         X = self._validate_input(X)
         self.n_features_in_: int = X.shape[1]
@@ -74,9 +74,7 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
 
         return out
 
-    def get_feature_names_out(
-        self, input_features: object = None
-    ) -> np.ndarray:
+    def get_feature_names_out(self, input_features: object = None) -> np.ndarray:
         """Return feature names (pass-through)."""
         check_is_fitted(self)
         return self.feature_names_in_
@@ -86,7 +84,7 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
     @staticmethod
     def _validate_input(X: pd.DataFrame) -> pd.DataFrame:
         if not isinstance(X, pd.DataFrame):
-            raise TypeError(
+            raise DataError(
                 f"OutlierTreater requires a pandas DataFrame, got {type(X).__name__}"
             )
         return X

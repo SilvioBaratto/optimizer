@@ -88,11 +88,11 @@ Best Practices
 """
 
 from app.middleware.logging import LoggingMiddleware
-from app.middleware.security import SecurityHeadersMiddleware
 from app.middleware.rate_limiting import RateLimitingMiddleware
+from app.middleware.security import SecurityHeadersMiddleware
 
 __all__ = [
     "LoggingMiddleware",
-    "SecurityHeadersMiddleware",
     "RateLimitingMiddleware",
+    "SecurityHeadersMiddleware",
 ]

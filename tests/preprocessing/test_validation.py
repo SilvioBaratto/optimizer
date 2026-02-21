@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from sklearn.utils.validation import check_is_fitted
 
+from optimizer.exceptions import DataError
 from optimizer.preprocessing import DataValidator
 
 
@@ -61,14 +62,12 @@ class TestDataValidator:
         assert out.loc[0, "X"] == pytest.approx(0.5)
 
     def test_rejects_non_dataframe(self) -> None:
-        with pytest.raises(TypeError, match="pandas DataFrame"):
+        with pytest.raises(DataError, match="pandas DataFrame"):
             DataValidator().fit(np.array([[1, 2], [3, 4]]))
 
     def test_get_feature_names_out(self, returns_df: pd.DataFrame) -> None:
         v = DataValidator().fit(returns_df)
-        np.testing.assert_array_equal(
-            v.get_feature_names_out(), ["A", "B", "C"]
-        )
+        np.testing.assert_array_equal(v.get_feature_names_out(), ["A", "B", "C"])
 
     def test_sklearn_get_params(self) -> None:
         v = DataValidator(max_abs_return=5.0)

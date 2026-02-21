@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
+import re
+import time
+from datetime import datetime
+
 import requests
 from bs4 import BeautifulSoup
-import re
-from typing import Optional, Dict, List
-from datetime import datetime
-import time
-
 
 # Country code mapping to Trading Economics URL slugs
 COUNTRY_MAPPING = {
@@ -111,7 +110,7 @@ class TradingEconomicsIndicatorsScraper:
             }
         )
 
-    def get_country_indicators(self, country: str, include_bonds: bool = True) -> Dict:
+    def get_country_indicators(self, country: str, include_bonds: bool = True) -> dict:
         if country not in COUNTRY_MAPPING:
             return {
                 "country": country,
@@ -156,17 +155,17 @@ class TradingEconomicsIndicatorsScraper:
                 "country": country,
                 "status": "error",
                 "timestamp": datetime.now().isoformat(),
-                "error": f"HTTP request failed: {str(e)}",
+                "error": f"HTTP request failed: {e!s}",
             }
         except Exception as e:
             return {
                 "country": country,
                 "status": "error",
                 "timestamp": datetime.now().isoformat(),
-                "error": f"Parsing failed: {str(e)}",
+                "error": f"Parsing failed: {e!s}",
             }
 
-    def _parse_indicators_table(self, soup: BeautifulSoup) -> Dict:
+    def _parse_indicators_table(self, soup: BeautifulSoup) -> dict:
         indicators = {}
 
         # Find all tables with class "table table-hover"
@@ -199,7 +198,9 @@ class TradingEconomicsIndicatorsScraper:
                         unit = cells[5].get_text(strip=True) if len(cells) > 5 else ""
 
                         # Column 6: Reference date (if exists)
-                        reference = cells[6].get_text(strip=True) if len(cells) > 6 else ""
+                        reference = (
+                            cells[6].get_text(strip=True) if len(cells) > 6 else ""
+                        )
 
                         # Extract numeric values
                         last_value = self._extract_number(last_text)
@@ -224,7 +225,7 @@ class TradingEconomicsIndicatorsScraper:
 
         return indicators
 
-    def _match_indicator_name(self, name: str) -> Optional[str]:
+    def _match_indicator_name(self, name: str) -> str | None:
         name_lower = name.lower()
 
         for standard_key, patterns in INDICATOR_PATTERNS.items():
@@ -235,7 +236,7 @@ class TradingEconomicsIndicatorsScraper:
 
         return None
 
-    def _extract_number(self, text: str) -> Optional[float]:
+    def _extract_number(self, text: str) -> float | None:
         if not text or text.strip().upper() in ["N/A", "NA", "-", ""]:
             return None
 
@@ -253,7 +254,7 @@ class TradingEconomicsIndicatorsScraper:
 
         return None
 
-    def get_bond_yields(self, country: str) -> Dict:
+    def get_bond_yields(self, country: str) -> dict:
         if country not in COUNTRY_MAPPING:
             return {
                 "status": "error",
@@ -283,12 +284,16 @@ class TradingEconomicsIndicatorsScraper:
             return {
                 "status": "error",
                 "country": country,
-                "error": f"HTTP request failed: {str(e)}",
+                "error": f"HTTP request failed: {e!s}",
             }
         except Exception as e:
-            return {"status": "error", "country": country, "error": f"Parsing failed: {str(e)}"}
+            return {
+                "status": "error",
+                "country": country,
+                "error": f"Parsing failed: {e!s}",
+            }
 
-    def _parse_bond_yields_table(self, soup: BeautifulSoup, _country: str) -> Dict:
+    def _parse_bond_yields_table(self, soup: BeautifulSoup, _country: str) -> dict:
         yields = {}
 
         # Find the bonds table (table-heatmap class)
@@ -338,19 +343,27 @@ class TradingEconomicsIndicatorsScraper:
                             continue
 
                         # Column 3: Day change
-                        day_change_text = cells[3].get_text(strip=True) if len(cells) > 3 else ""
+                        day_change_text = (
+                            cells[3].get_text(strip=True) if len(cells) > 3 else ""
+                        )
                         day_change = self._extract_number(day_change_text)
 
                         # Column 4: Month change
-                        month_change_text = cells[4].get_text(strip=True) if len(cells) > 4 else ""
+                        month_change_text = (
+                            cells[4].get_text(strip=True) if len(cells) > 4 else ""
+                        )
                         month_change = self._extract_number(month_change_text)
 
                         # Column 5: Year change
-                        year_change_text = cells[5].get_text(strip=True) if len(cells) > 5 else ""
+                        year_change_text = (
+                            cells[5].get_text(strip=True) if len(cells) > 5 else ""
+                        )
                         year_change = self._extract_number(year_change_text)
 
                         # Column 6: Date
-                        date_text = cells[6].get_text(strip=True) if len(cells) > 6 else ""
+                        date_text = (
+                            cells[6].get_text(strip=True) if len(cells) > 6 else ""
+                        )
 
                         yields[maturity] = {
                             "yield": yield_value,
@@ -366,7 +379,7 @@ class TradingEconomicsIndicatorsScraper:
 
         return yields
 
-    def get_industrial_production_all(self) -> Dict:
+    def get_industrial_production_all(self) -> dict:
         url = f"{self.BASE_URL}/country-list/industrial-production"
 
         try:
@@ -384,11 +397,11 @@ class TradingEconomicsIndicatorsScraper:
             }
 
         except requests.RequestException as e:
-            return {"status": "error", "error": f"HTTP request failed: {str(e)}"}
+            return {"status": "error", "error": f"HTTP request failed: {e!s}"}
         except Exception as e:
-            return {"status": "error", "error": f"Parsing failed: {str(e)}"}
+            return {"status": "error", "error": f"Parsing failed: {e!s}"}
 
-    def get_capacity_utilization_all(self) -> Dict:
+    def get_capacity_utilization_all(self) -> dict:
         url = f"{self.BASE_URL}/country-list/capacity-utilization?continent=g20"
 
         try:
@@ -406,11 +419,11 @@ class TradingEconomicsIndicatorsScraper:
             }
 
         except requests.RequestException as e:
-            return {"status": "error", "error": f"HTTP request failed: {str(e)}"}
+            return {"status": "error", "error": f"HTTP request failed: {e!s}"}
         except Exception as e:
-            return {"status": "error", "error": f"Parsing failed: {str(e)}"}
+            return {"status": "error", "error": f"Parsing failed: {e!s}"}
 
-    def _parse_industrial_production_table(self, soup: BeautifulSoup) -> Dict:
+    def _parse_industrial_production_table(self, soup: BeautifulSoup) -> dict:
         production = {}
 
         # Find the industrial production table (table-heatmap class)
@@ -445,7 +458,9 @@ class TradingEconomicsIndicatorsScraper:
                         previous_value = self._extract_number(previous_text)
 
                         # Column 3: Reference date
-                        reference = cells[3].get_text(strip=True) if len(cells) > 3 else ""
+                        reference = (
+                            cells[3].get_text(strip=True) if len(cells) > 3 else ""
+                        )
 
                         # Column 4: Unit
                         unit = cells[4].get_text(strip=True) if len(cells) > 4 else ""
@@ -462,7 +477,7 @@ class TradingEconomicsIndicatorsScraper:
 
         return production
 
-    def _parse_capacity_utilization_table(self, soup: BeautifulSoup) -> Dict:
+    def _parse_capacity_utilization_table(self, soup: BeautifulSoup) -> dict:
         capacity = {}
 
         # Find the capacity utilization table (table-heatmap class)
@@ -497,7 +512,9 @@ class TradingEconomicsIndicatorsScraper:
                         previous_value = self._extract_number(previous_text)
 
                         # Column 3: Reference date
-                        reference = cells[3].get_text(strip=True) if len(cells) > 3 else ""
+                        reference = (
+                            cells[3].get_text(strip=True) if len(cells) > 3 else ""
+                        )
 
                         # Column 4: Unit
                         unit = cells[4].get_text(strip=True) if len(cells) > 4 else ""
@@ -516,11 +533,11 @@ class TradingEconomicsIndicatorsScraper:
 
     def get_multiple_countries(
         self,
-        countries: List[str],
+        countries: list[str],
         include_bonds: bool = True,
         include_industrial_production: bool = True,
         include_capacity_utilization: bool = True,
-    ) -> Dict[str, Dict]:
+    ) -> dict[str, dict]:
         results = {}
 
         # Fetch industrial production data once for all countries (more efficient)
@@ -538,23 +555,28 @@ class TradingEconomicsIndicatorsScraper:
                 capacity_utilization_data = capacity_result.get("data", {})
 
         for i, country in enumerate(countries):
-            results[country] = self.get_country_indicators(country, include_bonds=include_bonds)
+            results[country] = self.get_country_indicators(
+                country, include_bonds=include_bonds
+            )
 
             # Add industrial production data if available
             if include_industrial_production and industrial_production_data:
                 country_full_name = COUNTRY_NAME_MAPPING.get(country)
-                if country_full_name and country_full_name in industrial_production_data:
-                    results[country]["industrial_production"] = industrial_production_data[
-                        country_full_name
-                    ]
+                if (
+                    country_full_name
+                    and country_full_name in industrial_production_data
+                ):
+                    results[country]["industrial_production"] = (
+                        industrial_production_data[country_full_name]
+                    )
 
             # Add capacity utilization data if available
             if include_capacity_utilization and capacity_utilization_data:
                 country_full_name = COUNTRY_NAME_MAPPING.get(country)
                 if country_full_name and country_full_name in capacity_utilization_data:
-                    results[country]["capacity_utilization"] = capacity_utilization_data[
-                        country_full_name
-                    ]
+                    results[country]["capacity_utilization"] = (
+                        capacity_utilization_data[country_full_name]
+                    )
 
             # Rate limiting: delay between requests (except for last)
             if i < len(countries) - 1:
@@ -562,10 +584,10 @@ class TradingEconomicsIndicatorsScraper:
 
         return results
 
-    def get_all_portfolio_countries(self) -> Dict[str, Dict]:
+    def get_all_portfolio_countries(self) -> dict[str, dict]:
         return self.get_multiple_countries(list(COUNTRY_MAPPING.keys()))
 
-    def get_indicator_summary(self, country_data: Dict) -> str:
+    def get_indicator_summary(self, country_data: dict) -> str:
         if country_data.get("status") != "success":
             return f"{country_data['country']}: Error - {country_data.get('error', 'Unknown')}"
 
@@ -616,7 +638,7 @@ class TradingEconomicsIndicatorsScraper:
         # Show bond yields if available
         bond_yields = country_data.get("bond_yields", {})
         if bond_yields:
-            lines.append(f"\nGovernment Bond Yields:")
+            lines.append("\nGovernment Bond Yields:")
             for maturity in ["2Y", "5Y", "10Y", "30Y"]:
                 if maturity in bond_yields:
                     data = bond_yields[maturity]
@@ -653,7 +675,7 @@ class TradingEconomicsIndicatorsScraper:
                         change_indicator = "→"
 
                 prev_str = f"{previous:.2f}" if previous is not None else "N/A"
-                lines.append(f"\nIndustrial Production:")
+                lines.append("\nIndustrial Production:")
                 lines.append(
                     f"  {value:7.2f} {unit:15s} {change_indicator} "
                     f"(prev: {prev_str}) [{reference}]"
@@ -678,7 +700,7 @@ class TradingEconomicsIndicatorsScraper:
                         change_indicator = "→"
 
                 prev_str = f"{previous:.2f}" if previous is not None else "N/A"
-                lines.append(f"\nCapacity Utilization:")
+                lines.append("\nCapacity Utilization:")
                 lines.append(
                     f"  {value:7.2f} {unit:15s} {change_indicator} "
                     f"(prev: {prev_str}) [{reference}]"

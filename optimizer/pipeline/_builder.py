@@ -55,7 +55,7 @@ def build_portfolio_pipeline(
 
     # Flatten pre-selection steps + final optimiser into one pipeline
     # so that get_params() exposes all nested parameters for tuning.
-    steps = list(preselection.steps) + [("optimizer", optimizer)]
+    steps = [*preselection.steps, ("optimizer", optimizer)]
     pipe = Pipeline(steps)
     pipe.set_output(transform="pandas")
     return pipe

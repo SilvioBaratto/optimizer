@@ -16,7 +16,7 @@ from optimizer.optimization._dr_cvar import DRCVaRConfig, build_dr_cvar
 from optimizer.optimization._factory import build_mean_risk
 
 # ---------------------------------------------------------------------------
-# Shared fixtures
+# Shared fixtures — returns provided by optimization/conftest.py
 # ---------------------------------------------------------------------------
 
 N_ASSETS = 10
@@ -26,10 +26,8 @@ DATES = pd.date_range("2020-01-02", periods=N_OBS, freq="B")
 
 
 @pytest.fixture(scope="module")
-def returns() -> pd.DataFrame:
-    rng = np.random.default_rng(42)
-    data = rng.normal(loc=0.0005, scale=0.01, size=(N_OBS, N_ASSETS))
-    return pd.DataFrame(data, index=DATES, columns=TICKERS)
+def returns(returns_10a_252: pd.DataFrame) -> pd.DataFrame:
+    return returns_10a_252
 
 
 # ---------------------------------------------------------------------------

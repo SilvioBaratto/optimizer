@@ -644,7 +644,7 @@ def build_benchmark_tracker(
 
 
 def build_equal_weighted(
-    config: EqualWeightedConfig | None = None,  # noqa: ARG001
+    config: EqualWeightedConfig | None = None,
     **kwargs: Any,
 ) -> EqualWeighted:
     """Build a skfolio :class:`EqualWeighted` (1/N) optimiser.

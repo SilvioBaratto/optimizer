@@ -7,6 +7,8 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
+from optimizer.exceptions import DataError
+
 
 class DataValidator(BaseEstimator, TransformerMixin):
     """Replace infinities and extreme values with NaN.
@@ -29,9 +31,7 @@ class DataValidator(BaseEstimator, TransformerMixin):
     def __init__(self, max_abs_return: float = 10.0) -> None:
         self.max_abs_return = max_abs_return
 
-    def fit(
-        self, X: pd.DataFrame, y: object = None
-    ) -> DataValidator:
+    def fit(self, X: pd.DataFrame, y: object = None) -> DataValidator:
         """Store metadata.  This transformer is stateless."""
         X = self._validate_input(X)
         self.n_features_in_: int = X.shape[1]
@@ -48,9 +48,7 @@ class DataValidator(BaseEstimator, TransformerMixin):
         out[out.abs() > self.max_abs_return] = np.nan
         return out
 
-    def get_feature_names_out(
-        self, input_features: object = None
-    ) -> np.ndarray:
+    def get_feature_names_out(self, input_features: object = None) -> np.ndarray:
         """Return feature names (pass-through)."""
         check_is_fitted(self)
         return self.feature_names_in_
@@ -60,7 +58,7 @@ class DataValidator(BaseEstimator, TransformerMixin):
     @staticmethod
     def _validate_input(X: pd.DataFrame) -> pd.DataFrame:
         if not isinstance(X, pd.DataFrame):
-            raise TypeError(
+            raise DataError(
                 f"DataValidator requires a pandas DataFrame, got {type(X).__name__}"
             )
         return X

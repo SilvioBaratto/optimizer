@@ -10,6 +10,7 @@ import pandas as pd
 from skfolio.preprocessing import prices_to_returns
 from sklearn.pipeline import Pipeline
 
+from optimizer.exceptions import DataError
 from optimizer.factors._config import (
     GROUP_WEIGHT_TIER,
     CompositeScoringConfig,
@@ -314,9 +315,7 @@ def run_full_pipeline(
                 else cast(
                     pd.Timestamp,
                     _current
-                    - pd.Timedelta(
-                        days=rebalancing_config.calendar.trading_days * 2
-                    ),
+                    - pd.Timedelta(days=rebalancing_config.calendar.trading_days * 2),
                 )
             )
             result.rebalance_needed = should_rebalance_hybrid(
@@ -449,15 +448,11 @@ def run_full_pipeline_with_selection(
         investable_fundamentals = fundamentals.loc[
             fundamentals.index.intersection(investable)
         ]
-        investable_prices = prices[
-            prices.columns.intersection(investable)
-        ]
+        investable_prices = prices[prices.columns.intersection(investable)]
 
         # 2. Compute factors
         investable_vol = (
-            vol[vol.columns.intersection(investable)]
-            if len(vol) > 0
-            else None
+            vol[vol.columns.intersection(investable)] if len(vol) > 0 else None
         )
         raw_factors = compute_all_factors(
             fundamentals=investable_fundamentals,
@@ -487,7 +482,9 @@ def run_full_pipeline_with_selection(
             and regime_config.enable
         )
         if has_regime:
-            assert macro_data is not None
+            if macro_data is None:  # pragma: no cover — guarded by has_regime
+                msg = "macro_data is required when regime_config is enabled"
+                raise DataError(msg)
             regime = classify_regime(macro_data)
 
             # Build base group weights from config
@@ -505,7 +502,8 @@ def run_full_pipeline_with_selection(
 
         # 5. Composite score
         composite = compute_composite_score(
-            standardized, coverage,
+            standardized,
+            coverage,
             config=scoring_config,
             ic_history=ic_history,
         )

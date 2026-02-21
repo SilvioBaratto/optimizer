@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import DataError
 from optimizer.views import calibrate_omega_from_track_record
 
 N_VIEWS = 3
@@ -66,7 +67,7 @@ class TestCalibrateOmegaFromTrackRecord:
 
     def test_zero_forecast_error_gives_zero_diagonal(self) -> None:
         """Perfect forecasts (zero error) → Ω diagonal ≈ 0 (full confidence)."""
-        view_h, ret_h = _make_histories()
+        _view_h, ret_h = _make_histories()
         # Make forecasts identical to realised returns
         perfect_forecast = ret_h.copy()
         omega = calibrate_omega_from_track_record(perfect_forecast, ret_h)
@@ -114,26 +115,26 @@ class TestCalibrateOmegaFromTrackRecord:
     def test_raises_when_shapes_differ(self) -> None:
         view_h, ret_h = _make_histories()
         bad_ret = ret_h.iloc[:, :2]
-        with pytest.raises(ValueError, match="same shape"):
+        with pytest.raises(DataError, match="same shape"):
             calibrate_omega_from_track_record(view_h, bad_ret)
 
     def test_raises_when_columns_differ(self) -> None:
         view_h, ret_h = _make_histories()
         bad_ret = ret_h.copy()
         bad_ret.columns = ["x", "y", "z"]
-        with pytest.raises(ValueError, match="same column names"):
+        with pytest.raises(DataError, match="same column names"):
             calibrate_omega_from_track_record(view_h, bad_ret)
 
     def test_raises_when_fewer_than_5_observations(self) -> None:
         view_h, ret_h = _make_histories(n_obs=4)
-        with pytest.raises(ValueError, match="at least 5"):
+        with pytest.raises(DataError, match="at least 5"):
             calibrate_omega_from_track_record(view_h, ret_h)
 
     def test_raises_when_nan_rows_reduce_below_5(self) -> None:
         view_h, ret_h = _make_histories(n_obs=6)
         view_h.iloc[0] = np.nan
         view_h.iloc[1] = np.nan
-        with pytest.raises(ValueError, match="at least 5"):
+        with pytest.raises(DataError, match="at least 5"):
             calibrate_omega_from_track_record(view_h, ret_h)
 
     def test_nan_rows_are_dropped_before_computation(self) -> None:

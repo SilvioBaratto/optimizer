@@ -301,14 +301,10 @@ class TestPreviousWeightsTurnoverConstraint:
         for portfolio in pred.portfolios:
             assert float(np.sum(portfolio.weights)) == pytest.approx(1.0, abs=1e-6)
 
-    def test_turnover_lower_with_previous_weights(
-        self, returns: pd.DataFrame
-    ) -> None:
+    def test_turnover_lower_with_previous_weights(self, returns: pd.DataFrame) -> None:
         """L1 penalty with equal-weight prior reduces max weight vs no penalty."""
         prev_w = np.full(N_ASSETS, 1.0 / N_ASSETS)
-        model_with = MeanRisk(
-            min_weights=0.0, previous_weights=prev_w, l1_coef=0.01
-        )
+        model_with = MeanRisk(min_weights=0.0, previous_weights=prev_w, l1_coef=0.01)
         model_without = MeanRisk(min_weights=0.0)
 
         cv = build_walk_forward(_WF_CONFIG)
@@ -316,9 +312,7 @@ class TestPreviousWeightsTurnoverConstraint:
         pred_without = run_cross_val(model_without, returns, cv=cv)
 
         max_w_with = max(float(np.max(p.weights)) for p in pred_with.portfolios)
-        max_w_without = max(
-            float(np.max(p.weights)) for p in pred_without.portfolios
-        )
+        max_w_without = max(float(np.max(p.weights)) for p in pred_without.portfolios)
 
         # L1 regularization should push weights towards equal-weight,
         # reducing the maximum weight

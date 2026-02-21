@@ -1,12 +1,13 @@
 """Centralized exception handling for the API"""
 
-from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
 import logging
-from typing import Optional, Any, Dict, List
 from datetime import datetime, timezone
+from typing import Any
+
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,8 @@ class BaseAPIException(Exception):
         self,
         message: str,
         status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
-        error_code: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
+        error_code: str | None = None,
+        details: dict[str, Any] | None = None,
     ):
         self.message = message
         self.status_code = status_code
@@ -31,7 +32,7 @@ class BaseAPIException(Exception):
 class ValidationError(BaseAPIException):
     """Raised when business logic validation fails"""
 
-    def __init__(self, message: str, errors: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, errors: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -65,7 +66,7 @@ class AuthorizationError(BaseAPIException):
 class NotFoundError(BaseAPIException):
     """Raised when a resource is not found"""
 
-    def __init__(self, resource: str, identifier: Optional[Any] = None):
+    def __init__(self, resource: str, identifier: Any | None = None):
         message = f"{resource} not found"
         if identifier:
             message = f"{resource} with id '{identifier}' not found"
@@ -91,7 +92,7 @@ class RateLimitError(BaseAPIException):
     """Raised when rate limit is exceeded"""
 
     def __init__(
-        self, message: str = "Rate limit exceeded", retry_after: Optional[int] = None
+        self, message: str = "Rate limit exceeded", retry_after: int | None = None
     ):
         super().__init__(
             message=message,
@@ -130,7 +131,7 @@ class DatabaseTimeoutError(DatabaseError):
     def __init__(
         self,
         message: str = "Database operation timed out",
-        timeout_duration: Optional[float] = None,
+        timeout_duration: float | None = None,
     ):
         super().__init__(message)
         self.error_code = "DATABASE_TIMEOUT_ERROR"
@@ -144,7 +145,7 @@ class DatabaseConnectionError(DatabaseError):
     def __init__(
         self,
         message: str = "Database connection failed",
-        connection_info: Optional[Dict[str, Any]] = None,
+        connection_info: dict[str, Any] | None = None,
     ):
         super().__init__(message)
         self.error_code = "DATABASE_CONNECTION_ERROR"
@@ -161,7 +162,7 @@ class TokenValidationError(AuthenticationError):
     def __init__(
         self,
         message: str = "Token validation failed",
-        token_info: Optional[Dict[str, Any]] = None,
+        token_info: dict[str, Any] | None = None,
     ):
         super().__init__(message)
         self.details = {"token_info": token_info or {}}
@@ -171,7 +172,7 @@ class TokenExpiredError(AuthenticationError):
     """Raised when JWT token has expired"""
 
     def __init__(
-        self, message: str = "Token has expired", expired_at: Optional[str] = None
+        self, message: str = "Token has expired", expired_at: str | None = None
     ):
         super().__init__(message)
         if expired_at:
@@ -189,7 +190,7 @@ class InvalidTokenFormatError(AuthenticationError):
 class UserInactiveError(AuthenticationError):
     """Raised when user account is inactive"""
 
-    def __init__(self, user_id: Optional[str] = None):
+    def __init__(self, user_id: str | None = None):
         message = "User account is inactive or disabled"
         super().__init__(message)
         if user_id:
@@ -201,8 +202,8 @@ class InsufficientPermissionsError(AuthorizationError):
 
     def __init__(
         self,
-        required_permissions: List[str],
-        user_permissions: Optional[List[str]] = None,
+        required_permissions: list[str],
+        user_permissions: list[str] | None = None,
     ):
         message = (
             f"Insufficient permissions. Required: {', '.join(required_permissions)}"
@@ -217,7 +218,7 @@ class InsufficientPermissionsError(AuthorizationError):
 class SecurityViolationError(BaseAPIException):
     """Raised when security policy is violated"""
 
-    def __init__(self, violation_type: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, violation_type: str, details: dict[str, Any] | None = None):
         message = f"Security policy violation: {violation_type}"
         super().__init__(
             message=message,
@@ -230,7 +231,7 @@ class SecurityViolationError(BaseAPIException):
 class SuspiciousActivityError(SecurityViolationError):
     """Raised when suspicious activity is detected"""
 
-    def __init__(self, activity_type: str, client_ip: Optional[str] = None):
+    def __init__(self, activity_type: str, client_ip: str | None = None):
         message = f"Suspicious activity detected: {activity_type}"
         details = {}
         if client_ip:
@@ -248,7 +249,7 @@ class AuthServiceUnavailableError(ExternalServiceError):
 class CacheError(BaseAPIException):
     """Raised when cache operations fail"""
 
-    def __init__(self, operation: str, message: Optional[str] = None):
+    def __init__(self, operation: str, message: str | None = None):
         error_message = f"Cache {operation} failed"
         if message:
             error_message += f": {message}"
@@ -265,12 +266,12 @@ def create_error_response(
     status_code: int,
     message: str,
     error_code: str,
-    details: Optional[Dict[str, Any]] = None,
-    request_id: Optional[str] = None,
+    details: dict[str, Any] | None = None,
+    request_id: str | None = None,
 ) -> JSONResponse:
     """Create a standardized error response"""
 
-    content: Dict[str, Any] = {
+    content: dict[str, Any] = {
         "error": {
             "code": error_code,
             "message": message,

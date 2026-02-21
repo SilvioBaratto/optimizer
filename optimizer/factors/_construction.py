@@ -246,11 +246,11 @@ def _compute_beta(
         return pd.Series(0.0, index=tail.columns)
 
     beta_values = {
-        str(col): float(tail[col].cov(mkt) / market_var)
-        for col in tail.columns
+        str(col): float(tail[col].cov(mkt) / market_var) for col in tail.columns
     }
     return pd.Series(
-        {k: -v for k, v in beta_values.items()}, dtype=float,
+        {k: -v for k, v in beta_values.items()},
+        dtype=float,
     )
 
 
@@ -293,9 +293,9 @@ def _compute_recommendation_change(
     if analyst_data is None or len(analyst_data) == 0:
         return pd.Series(dtype=float)
     if "recommendation_change" in analyst_data.columns:
-        result: pd.Series = (
-            analyst_data.groupby("ticker")["recommendation_change"].mean()
-        )
+        result: pd.Series = analyst_data.groupby("ticker")[
+            "recommendation_change"
+        ].mean()
         return result
     if "strong_buy" in analyst_data.columns:
         # Compute from raw counts: positive = bullish
@@ -303,14 +303,12 @@ def _compute_recommendation_change(
         buy = analyst_data.get("buy")
         strong_sell = analyst_data.get("strong_sell")
         sell = analyst_data.get("sell")
-        bull_total = (
-            (cast(pd.Series, bull) if bull is not None else 0)
-            + (cast(pd.Series, buy) if buy is not None else 0)
+        bull_total = (cast(pd.Series, bull) if bull is not None else 0) + (
+            cast(pd.Series, buy) if buy is not None else 0
         )
         bear_total = (
-            (cast(pd.Series, strong_sell) if strong_sell is not None else 0)
-            + (cast(pd.Series, sell) if sell is not None else 0)
-        )
+            cast(pd.Series, strong_sell) if strong_sell is not None else 0
+        ) + (cast(pd.Series, sell) if sell is not None else 0)
         score = pd.Series(bull_total - bear_total, dtype=float)
         if "ticker" in analyst_data.columns:
             grouped: pd.Series = score.groupby(analyst_data["ticker"]).mean()

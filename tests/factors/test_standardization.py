@@ -48,9 +48,7 @@ class TestWinsorize:
             raw_scores.quantile(0.01),
             raw_scores.quantile(0.99),
         )
-        pd.testing.assert_series_equal(
-            result[middle], raw_scores[middle]
-        )
+        pd.testing.assert_series_equal(result[middle], raw_scores[middle])
 
     def test_empty_series(self) -> None:
         result = winsorize_cross_section(pd.Series(dtype=float), 0.05, 0.95)
@@ -153,6 +151,6 @@ class TestStandardizeAllFactors:
             {"a": [1.0, np.nan, 3.0], "b": [np.nan, 2.0, 3.0]},
             index=["X", "Y", "Z"],
         )
-        scores, coverage = standardize_all_factors(factors)
+        _scores, coverage = standardize_all_factors(factors)
         assert not coverage.loc["Y", "a"]
         assert not coverage.loc["X", "b"]

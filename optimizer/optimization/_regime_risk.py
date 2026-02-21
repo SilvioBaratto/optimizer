@@ -43,6 +43,7 @@ import numpy.typing as npt
 import pandas as pd
 from skfolio.optimization import MeanRisk, RiskBudgeting
 
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.moments._hmm import HMMConfig, HMMResult
 from optimizer.optimization._config import RiskBudgetingConfig, RiskMeasureType
 from optimizer.optimization._factory import _RISK_MEASURE_MAP, build_risk_budgeting
@@ -197,20 +198,18 @@ def compute_blended_risk_measure(
     """
     n_states = hmm_result.filtered_probs.shape[1]
     if len(regime_measures) != n_states:
-        raise ValueError(
+        raise ConfigurationError(
             f"len(regime_measures) = {len(regime_measures)} must match "
             f"hmm_result n_states = {n_states}."
         )
 
     n_assets = returns.shape[1]
     if len(weights) != n_assets:
-        raise ValueError(
-            f"weights length {len(weights)} != returns columns {n_assets}."
-        )
+        raise DataError(f"weights length {len(weights)} != returns columns {n_assets}.")
 
     # Current regime probabilities (last timestep of the filtered sequence)
-    gamma: npt.NDArray[np.float64] = (
-        hmm_result.filtered_probs.iloc[-1].to_numpy(dtype=np.float64)
+    gamma: npt.NDArray[np.float64] = hmm_result.filtered_probs.iloc[-1].to_numpy(
+        dtype=np.float64
     )
 
     # Align on common dates
@@ -219,9 +218,7 @@ def compute_blended_risk_measure(
         return 0.0
 
     aligned_returns = returns.loc[common_idx].to_numpy(dtype=np.float64)
-    aligned_probs = hmm_result.filtered_probs.loc[common_idx].to_numpy(
-        dtype=np.float64
-    )
+    aligned_probs = hmm_result.filtered_probs.loc[common_idx].to_numpy(dtype=np.float64)
 
     portfolio_returns: npt.NDArray[np.float64] = aligned_returns @ weights
     regime_assignments: npt.NDArray[np.intp] = np.argmax(aligned_probs, axis=1)
@@ -274,13 +271,13 @@ def build_regime_blended_optimizer(
     """
     n_states = hmm_result.filtered_probs.shape[1]
     if len(config.regime_measures) != n_states:
-        raise ValueError(
+        raise ConfigurationError(
             f"len(config.regime_measures) = {len(config.regime_measures)} must "
             f"match hmm_result n_states = {n_states}."
         )
 
-    gamma: npt.NDArray[np.float64] = (
-        hmm_result.filtered_probs.iloc[-1].to_numpy(dtype=np.float64)
+    gamma: npt.NDArray[np.float64] = hmm_result.filtered_probs.iloc[-1].to_numpy(
+        dtype=np.float64
     )
     dominant_state = int(np.argmax(gamma))
     dominant_measure = config.regime_measures[dominant_state]
@@ -316,7 +313,7 @@ def compute_regime_budget(
     """
     n_states = len(filtered_probs_last)
     if len(regime_budgets) != n_states:
-        raise ValueError(
+        raise ConfigurationError(
             f"len(regime_budgets) = {len(regime_budgets)} must match "
             f"len(filtered_probs_last) = {n_states}."
         )
@@ -362,8 +359,8 @@ def build_regime_risk_budgeting(
     Raises:
         ValueError: If ``len(regime_budgets) != hmm_result.n_states``.
     """
-    gamma: npt.NDArray[np.float64] = (
-        hmm_result.filtered_probs.iloc[-1].to_numpy(dtype=np.float64)
+    gamma: npt.NDArray[np.float64] = hmm_result.filtered_probs.iloc[-1].to_numpy(
+        dtype=np.float64
     )
     blended_budget = compute_regime_budget(regime_budgets, gamma)
     return build_risk_budgeting(config, risk_budget=blended_budget, **kwargs)

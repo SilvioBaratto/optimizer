@@ -6,6 +6,8 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from optimizer.exceptions import DataError
+
 _MIN_HISTORY = 5
 
 
@@ -43,12 +45,12 @@ def calibrate_omega_from_track_record(
         or if fewer than 5 aligned observations are available per view.
     """
     if view_history.shape != return_history.shape:
-        raise ValueError(
+        raise DataError(
             "view_history and return_history must have the same shape; "
             f"got {view_history.shape} vs {return_history.shape}"
         )
     if list(view_history.columns) != list(return_history.columns):
-        raise ValueError(
+        raise DataError(
             "view_history and return_history must have the same column names"
         )
 
@@ -59,7 +61,7 @@ def calibrate_omega_from_track_record(
 
     n_obs = len(errors)
     if n_obs < _MIN_HISTORY:
-        raise ValueError(
+        raise DataError(
             f"calibrate_omega_from_track_record requires at least {_MIN_HISTORY} "
             f"aligned observations after dropping NaN rows, got {n_obs}"
         )

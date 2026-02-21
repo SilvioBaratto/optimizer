@@ -2,31 +2,28 @@
 
 # Load environment variables FIRST, before any other imports
 # This ensures libraries can access env vars
+
 from dotenv import load_dotenv
-import os
 
 # Load .env file from the project root
 load_dotenv()
 
-import secrets
 import logging
-import time
 from contextlib import asynccontextmanager
-from typing import Dict, Any
+from typing import Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
+from app.api.v1.router import api_router
 from app.config import settings
-from app.database import database_manager, init_db, close_db
+from app.database import close_db, database_manager, init_db
 from app.exceptions import setup_exception_handlers
-from app.middleware.security import SecurityHeadersMiddleware
 from app.middleware.logging import LoggingMiddleware
 from app.middleware.rate_limiting import RateLimitingMiddleware
-from app.api.v1.router import api_router
+from app.middleware.security import SecurityHeadersMiddleware
 
 # Configure structured logging
 logging.basicConfig(
@@ -159,7 +156,7 @@ def setup_health_endpoints(app: FastAPI) -> None:
     """Setup health check and monitoring endpoints"""
 
     @app.get("/")
-    async def read_root() -> Dict[str, Any]:
+    async def read_root() -> dict[str, Any]:
         """Root endpoint with API information"""
         return {
             "message": f"Welcome to the {settings.project_name}!",
@@ -172,7 +169,7 @@ def setup_health_endpoints(app: FastAPI) -> None:
         }
 
     @app.get("/health")
-    async def health_check() -> Dict[str, str]:
+    async def health_check() -> dict[str, str]:
         """Simple health check endpoint - just return OK"""
         return {"status": "ok"}
 

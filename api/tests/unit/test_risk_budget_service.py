@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-
 from app.services.risk_budget_service import (
     _expand_sector_to_asset_budgets,
     _normalise,
@@ -14,7 +13,6 @@ from app.services.risk_budget_service import (
     calibrate_risk_budget,
 )
 from baml_client.types import RiskBudgetOutput
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -30,7 +28,9 @@ ASSET_SECTOR_MAP = {
     "JPM": "Financials",
 }
 
-OUTLOOK = "Overweight Technology and Healthcare; underweight Energy; neutral Financials."
+OUTLOOK = (
+    "Overweight Technology and Healthcare; underweight Energy; neutral Financials."
+)
 
 
 def _make_output(
@@ -188,7 +188,11 @@ class TestCalibrateRiskBudget:
     def test_order_matches_asset_sector_map(self) -> None:
         """Budget vector entries follow dict insertion order of asset_sector_map."""
         asset_budgets = {
-            "AAPL": 0.20, "MSFT": 0.20, "JNJ": 0.30, "XOM": 0.10, "JPM": 0.20
+            "AAPL": 0.20,
+            "MSFT": 0.20,
+            "JNJ": 0.30,
+            "XOM": 0.10,
+            "JPM": 0.20,
         }
         with patch("app.services.risk_budget_service.b") as mock_b:
             mock_b.CalibrateRiskBudget.return_value = _make_output(
@@ -237,10 +241,17 @@ class TestCalibrateRiskBudget:
     def test_sector_expansion_overweight_tech(self) -> None:
         """Overweight Technology → AAPL + MSFT combined budget > single sector baseline."""
         sector_budgets = {
-            "Technology": 0.50, "Healthcare": 0.20, "Energy": 0.10, "Financials": 0.20
+            "Technology": 0.50,
+            "Healthcare": 0.20,
+            "Energy": 0.10,
+            "Financials": 0.20,
         }
         asset_budgets = {
-            "AAPL": 0.25, "MSFT": 0.25, "JNJ": 0.20, "XOM": 0.10, "JPM": 0.20
+            "AAPL": 0.25,
+            "MSFT": 0.25,
+            "JNJ": 0.20,
+            "XOM": 0.10,
+            "JPM": 0.20,
         }
         with patch("app.services.risk_budget_service.b") as mock_b:
             mock_b.CalibrateRiskBudget.return_value = _make_output(

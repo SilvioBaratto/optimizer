@@ -8,11 +8,11 @@ from .sector_industry import SectorIndustryClient
 from .streaming import AsyncStreamingClient, StreamingClient
 
 __all__ = [
+    "AsyncStreamingClient",
     "CalendarsClient",
     "MarketClient",
     "ScreenerClient",
     "SearchClient",
     "SectorIndustryClient",
     "StreamingClient",
-    "AsyncStreamingClient",
 ]

@@ -8,7 +8,6 @@ Design Principles:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Tuple, Optional
 
 
 @dataclass(frozen=True)
@@ -29,7 +28,7 @@ class LiquidityTier:
 class InstitutionalFieldSpec:
     """Specification for an institutional data category."""
 
-    fields: Tuple[str, ...]
+    fields: tuple[str, ...]
     description: str
     required: bool = True
     at_least_one: bool = False
@@ -64,14 +63,12 @@ class UniverseBuilderConfig:
     max_price: float = 10_000.0
 
     # Liquidity by market cap segment
-    liquidity_tiers: Dict[str, LiquidityTier] = field(
+    liquidity_tiers: dict[str, LiquidityTier] = field(
         default_factory=lambda: {
             "large_cap": LiquidityTier(
                 min_adv_dollars=10_000_000, min_adv_shares=500_000
             ),
-            "mid_cap": LiquidityTier(
-                min_adv_dollars=5_000_000, min_adv_shares=250_000
-            ),
+            "mid_cap": LiquidityTier(min_adv_dollars=5_000_000, min_adv_shares=250_000),
             "small_cap": LiquidityTier(
                 min_adv_dollars=1_000_000, min_adv_shares=100_000
             ),
@@ -82,7 +79,7 @@ class UniverseBuilderConfig:
     min_trading_days: int = 750
 
     # Portfolio countries
-    portfolio_countries: Tuple[str, ...] = (
+    portfolio_countries: tuple[str, ...] = (
         "USA",
         "Germany",
         "France",
@@ -90,7 +87,7 @@ class UniverseBuilderConfig:
     )
 
     # Mapping of countries to their Trading212 exchanges
-    country_to_exchanges: Dict[str, Tuple[str, ...]] = field(
+    country_to_exchanges: dict[str, tuple[str, ...]] = field(
         default_factory=lambda: {
             "USA": ("NYSE", "NASDAQ"),
             "Germany": ("Deutsche Börse Xetra",),
@@ -100,7 +97,7 @@ class UniverseBuilderConfig:
     )
 
     # Institutional data coverage requirements
-    institutional_fields: Dict[str, InstitutionalFieldSpec] = field(
+    institutional_fields: dict[str, InstitutionalFieldSpec] = field(
         default_factory=lambda: {
             "market_cap": InstitutionalFieldSpec(
                 fields=("marketCap",),
@@ -174,7 +171,7 @@ class UniverseBuilderConfig:
     )
 
     # Yahoo Finance suffix mapping by exchange
-    yahoo_suffix_map: Dict[str, str] = field(
+    yahoo_suffix_map: dict[str, str] = field(
         default_factory=lambda: {
             "NYSE": "",
             "NASDAQ": "",
@@ -192,7 +189,9 @@ class UniverseBuilderConfig:
             "large_cap_threshold": self.large_cap_threshold,
             "min_price": self.min_price,
             "max_price": self.max_price,
-            "liquidity_tiers": {k: v.to_dict() for k, v in self.liquidity_tiers.items()},
+            "liquidity_tiers": {
+                k: v.to_dict() for k, v in self.liquidity_tiers.items()
+            },
             "min_trading_days": self.min_trading_days,
             "portfolio_countries": list(self.portfolio_countries),
         }
@@ -219,7 +218,7 @@ class UniverseBuilderConfig:
         segment = self.determine_market_cap_segment(market_cap)
         return self.liquidity_tiers[segment]
 
-    def get_yahoo_suffix(self, exchange_name: str) -> Optional[str]:
+    def get_yahoo_suffix(self, exchange_name: str) -> str | None:
         return self.yahoo_suffix_map.get(exchange_name)
 
     @classmethod

@@ -186,9 +186,7 @@ class TestRunFactorOOSValidation:
         train_mask = scores_corrupted.index.get_level_values(0).isin(train_dates)
         scores_corrupted.loc[train_mask] = 999.0
 
-        result_corrupted = run_factor_oos_validation(
-            scores_corrupted, returns, config
-        )
+        result_corrupted = run_factor_oos_validation(scores_corrupted, returns, config)
         pd.testing.assert_frame_equal(
             result_orig.per_fold_ic, result_corrupted.per_fold_ic
         )

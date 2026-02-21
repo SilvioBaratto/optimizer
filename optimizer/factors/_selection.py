@@ -138,16 +138,15 @@ def apply_sector_balance(
     result = list(selected)
 
     for sector, target_w in target_weights.items():
-        min_n = max(0, int(round((target_w - tolerance) * n_selected)))
-        max_n = int(round((target_w + tolerance) * n_selected))
+        min_n = max(0, round((target_w - tolerance) * n_selected))
+        max_n = round((target_w + tolerance) * n_selected)
 
         current_n = (selected_sectors == sector).sum()
 
         if current_n < min_n:
             # Under-represented: add highest-scoring non-selected from this sector
             candidates = sector_labels.index[
-                (sector_labels == sector)
-                & (~sector_labels.index.isin(selected))
+                (sector_labels == sector) & (~sector_labels.index.isin(selected))
             ]
             candidate_scores = (
                 scores.reindex(candidates).dropna().sort_values(ascending=False)

@@ -21,7 +21,9 @@ class FinancialsClient(BaseClient):
         quarterly: bool = False,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
-        logger.debug("Fetching income statement for '%s' (quarterly=%s)", symbol, quarterly)
+        logger.debug(
+            "Fetching income statement for '%s' (quarterly=%s)", symbol, quarterly
+        )
         attr = "quarterly_income_stmt" if quarterly else "income_stmt"
 
         def _action() -> pd.DataFrame | None:
@@ -39,7 +41,9 @@ class FinancialsClient(BaseClient):
         quarterly: bool = False,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
-        logger.debug("Fetching balance sheet for '%s' (quarterly=%s)", symbol, quarterly)
+        logger.debug(
+            "Fetching balance sheet for '%s' (quarterly=%s)", symbol, quarterly
+        )
         attr = "quarterly_balance_sheet" if quarterly else "balance_sheet"
 
         def _action() -> pd.DataFrame | None:

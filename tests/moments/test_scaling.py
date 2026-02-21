@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.moments import apply_lognormal_correction, scale_moments_to_horizon
 
 TICKERS = ["AAPL", "MSFT", "GOOG"]
@@ -86,27 +87,25 @@ class TestApplyLognormalCorrection:
     def test_invalid_horizon_zero_raises(
         self, daily_mu: pd.Series, daily_cov: pd.DataFrame
     ) -> None:
-        with pytest.raises(ValueError, match="positive integer"):
+        with pytest.raises(DataError, match="positive integer"):
             apply_lognormal_correction(daily_mu, daily_cov, horizon=0)
 
     def test_invalid_horizon_negative_raises(
         self, daily_mu: pd.Series, daily_cov: pd.DataFrame
     ) -> None:
-        with pytest.raises(ValueError, match="positive integer"):
+        with pytest.raises(DataError, match="positive integer"):
             apply_lognormal_correction(daily_mu, daily_cov, horizon=-5)
 
     def test_mismatched_index_raises(self, daily_cov: pd.DataFrame) -> None:
         mu_bad = pd.Series([0.001, 0.002, 0.003], index=["X", "Y", "Z"])
-        with pytest.raises(ValueError, match="same ticker index"):
+        with pytest.raises(DataError, match="same ticker index"):
             apply_lognormal_correction(mu_bad, daily_cov, horizon=21)
 
     def test_invalid_method_raises(
         self, daily_mu: pd.Series, daily_cov: pd.DataFrame
     ) -> None:
-        with pytest.raises(ValueError, match="method must be one of"):
-            apply_lognormal_correction(
-                daily_mu, daily_cov, horizon=21, method="bad"
-            )
+        with pytest.raises(ConfigurationError, match="method must be one of"):
+            apply_lognormal_correction(daily_mu, daily_cov, horizon=21, method="bad")
 
 
 # ---------------------------------------------------------------------------
@@ -123,9 +122,7 @@ class TestLinearMethod:
             daily_mu, daily_cov, horizon=horizon, method="linear"
         )
         expected_diag = np.diag(daily_cov.to_numpy()) * horizon
-        np.testing.assert_allclose(
-            np.diag(cov_t.to_numpy()), expected_diag, rtol=1e-9
-        )
+        np.testing.assert_allclose(np.diag(cov_t.to_numpy()), expected_diag, rtol=1e-9)
 
     def test_off_diagonal_cov_scales_linearly(self) -> None:
         rng = np.random.default_rng(7)
@@ -134,9 +131,7 @@ class TestLinearMethod:
         mu = pd.Series(np.zeros(N), index=TICKERS)
         cov = pd.DataFrame(cov_mat, index=TICKERS, columns=TICKERS)
         horizon = 21
-        _, cov_t = apply_lognormal_correction(
-            mu, cov, horizon=horizon, method="linear"
-        )
+        _, cov_t = apply_lognormal_correction(mu, cov, horizon=horizon, method="linear")
         np.testing.assert_allclose(cov_t.to_numpy(), cov_mat * horizon, rtol=1e-9)
 
     def test_horizon_1_cov_unchanged(
@@ -145,9 +140,7 @@ class TestLinearMethod:
         _, cov_t = apply_lognormal_correction(
             daily_mu, daily_cov, horizon=1, method="linear"
         )
-        np.testing.assert_allclose(
-            cov_t.to_numpy(), daily_cov.to_numpy(), rtol=1e-9
-        )
+        np.testing.assert_allclose(cov_t.to_numpy(), daily_cov.to_numpy(), rtol=1e-9)
 
     def test_monthly_horizon_21(
         self, daily_mu: pd.Series, daily_cov: pd.DataFrame
@@ -158,9 +151,7 @@ class TestLinearMethod:
         sigma2 = np.diag(daily_cov.to_numpy())
         expected_mu = np.exp(daily_mu.to_numpy() * 21 + 0.5 * sigma2 * 21) - 1.0
         np.testing.assert_allclose(mu_t.to_numpy(), expected_mu, rtol=1e-9)
-        np.testing.assert_allclose(
-            np.diag(cov_t.to_numpy()), sigma2 * 21, rtol=1e-9
-        )
+        np.testing.assert_allclose(np.diag(cov_t.to_numpy()), sigma2 * 21, rtol=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -173,9 +164,7 @@ class TestExactMethod:
         self, daily_mu: pd.Series, daily_cov: pd.DataFrame
     ) -> None:
         """Omitting method= uses "exact" by default."""
-        _, cov_default = apply_lognormal_correction(
-            daily_mu, daily_cov, horizon=63
-        )
+        _, cov_default = apply_lognormal_correction(daily_mu, daily_cov, horizon=63)
         _, cov_exact = apply_lognormal_correction(
             daily_mu, daily_cov, horizon=63, method="exact"
         )
@@ -188,16 +177,13 @@ class TestExactMethod:
         horizon = 63
         mu_arr = daily_mu.to_numpy()
         sigma2 = np.diag(daily_cov.to_numpy())
-        expected_diag = (
-            np.exp(2 * mu_arr * horizon + sigma2 * horizon)
-            * (np.exp(sigma2 * horizon) - 1.0)
+        expected_diag = np.exp(2 * mu_arr * horizon + sigma2 * horizon) * (
+            np.exp(sigma2 * horizon) - 1.0
         )
         _, cov_t = apply_lognormal_correction(
             daily_mu, daily_cov, horizon=horizon, method="exact"
         )
-        np.testing.assert_allclose(
-            np.diag(cov_t.to_numpy()), expected_diag, rtol=1e-9
-        )
+        np.testing.assert_allclose(np.diag(cov_t.to_numpy()), expected_diag, rtol=1e-9)
 
     def test_off_diagonal_exact_formula(self) -> None:
         """Verify Cov[R_T^i, R_T^j] formula for off-diagonal elements."""
@@ -210,18 +196,12 @@ class TestExactMethod:
         horizon = 21
         sigma2 = np.diag(cov_arr)
 
-        _, cov_t = apply_lognormal_correction(
-            mu, cov, horizon=horizon, method="exact"
-        )
+        _, cov_t = apply_lognormal_correction(mu, cov, horizon=horizon, method="exact")
 
         i, j = 0, 1
-        expected_01 = (
-            np.exp(
-                (mu_arr[i] + mu_arr[j]) * horizon
-                + 0.5 * (sigma2[i] + sigma2[j]) * horizon
-            )
-            * (np.exp(cov_arr[i, j] * horizon) - 1.0)
-        )
+        expected_01 = np.exp(
+            (mu_arr[i] + mu_arr[j]) * horizon + 0.5 * (sigma2[i] + sigma2[j]) * horizon
+        ) * (np.exp(cov_arr[i, j] * horizon) - 1.0)
         assert cov_t.iloc[i, j] == pytest.approx(expected_01, rel=1e-9)
 
     def test_index_preserved(
@@ -264,9 +244,7 @@ class TestExactMethod:
         _, cov_ex = apply_lognormal_correction(
             daily_mu, daily_cov, horizon=1, method="exact"
         )
-        np.testing.assert_allclose(
-            cov_ex.to_numpy(), cov_lin.to_numpy(), atol=1e-6
-        )
+        np.testing.assert_allclose(cov_ex.to_numpy(), cov_lin.to_numpy(), atol=1e-6)
 
     # --- Acceptance criterion 3 ---
 
@@ -278,12 +256,8 @@ class TestExactMethod:
         mu = pd.Series([mu_daily], index=["X"])
         cov = pd.DataFrame([[sigma2_daily]], index=["X"], columns=["X"])
 
-        _, cov_lin = apply_lognormal_correction(
-            mu, cov, horizon=252, method="linear"
-        )
-        _, cov_ex = apply_lognormal_correction(
-            mu, cov, horizon=252, method="exact"
-        )
+        _, cov_lin = apply_lognormal_correction(mu, cov, horizon=252, method="linear")
+        _, cov_ex = apply_lognormal_correction(mu, cov, horizon=252, method="exact")
 
         var_lin = float(cov_lin.iloc[0, 0])
         var_ex = float(cov_ex.iloc[0, 0])
@@ -328,9 +302,7 @@ class TestScaleMomentsToHorizon:
     def test_default_method_is_exact(
         self, daily_mu: pd.Series, daily_cov: pd.DataFrame
     ) -> None:
-        _, cov_default = scale_moments_to_horizon(
-            daily_mu, daily_cov, daily_horizon=63
-        )
+        _, cov_default = scale_moments_to_horizon(daily_mu, daily_cov, daily_horizon=63)
         _, cov_exact = scale_moments_to_horizon(
             daily_mu, daily_cov, daily_horizon=63, method="exact"
         )
@@ -338,26 +310,24 @@ class TestScaleMomentsToHorizon:
 
     def test_non_square_cov_raises(self, daily_mu: pd.Series) -> None:
         bad_cov = pd.DataFrame(np.ones((2, 3)))
-        with pytest.raises(ValueError, match="square matrix"):
+        with pytest.raises(DataError, match="square matrix"):
             scale_moments_to_horizon(daily_mu, bad_cov, daily_horizon=21)
 
     def test_mismatched_mu_cov_length_raises(self) -> None:
         mu = pd.Series([0.001, 0.002], index=["A", "B"])
         cov = pd.DataFrame(np.eye(3), index=["A", "B", "C"], columns=["A", "B", "C"])
-        with pytest.raises(ValueError):
+        with pytest.raises(DataError):
             scale_moments_to_horizon(mu, cov, daily_horizon=21)
 
     def test_negative_variance_raises(self, daily_mu: pd.Series) -> None:
-        bad_cov = pd.DataFrame(
-            -np.eye(N) * 0.001, index=TICKERS, columns=TICKERS
-        )
-        with pytest.raises(ValueError, match="negative values"):
+        bad_cov = pd.DataFrame(-np.eye(N) * 0.001, index=TICKERS, columns=TICKERS)
+        with pytest.raises(DataError, match="negative values"):
             scale_moments_to_horizon(daily_mu, bad_cov, daily_horizon=21)
 
     def test_horizon_must_be_positive(
         self, daily_mu: pd.Series, daily_cov: pd.DataFrame
     ) -> None:
-        with pytest.raises(ValueError, match="positive integer"):
+        with pytest.raises(DataError, match="positive integer"):
             scale_moments_to_horizon(daily_mu, daily_cov, daily_horizon=0)
 
     def test_output_mu_geq_naive_scaling(
@@ -365,9 +335,7 @@ class TestScaleMomentsToHorizon:
     ) -> None:
         """Corrected mu is always >= naive mu * T (Jensen's inequality)."""
         horizon = 252
-        mu_t, _ = scale_moments_to_horizon(
-            daily_mu, daily_cov, daily_horizon=horizon
-        )
+        mu_t, _ = scale_moments_to_horizon(daily_mu, daily_cov, daily_horizon=horizon)
         assert (mu_t >= daily_mu * horizon - 1e-12).all()
 
     def test_output_cov_diagonal_linear(

@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from optimizer.exceptions import ConfigurationError, DataError
+
 _VALID_METHODS = {"exact", "linear"}
 
 
@@ -64,15 +66,15 @@ def apply_lognormal_correction(
         share the same ticker index, or if *method* is not recognised.
     """
     if horizon < 1:
-        raise ValueError(f"horizon must be a positive integer, got {horizon}")
+        raise DataError(f"horizon must be a positive integer, got {horizon}")
 
     if method not in _VALID_METHODS:
-        raise ValueError(
+        raise ConfigurationError(
             f"method must be one of {sorted(_VALID_METHODS)}, got {method!r}"
         )
 
     if list(mu.index) != list(cov.index) or list(mu.index) != list(cov.columns):
-        raise ValueError(
+        raise DataError(
             "mu and cov must share the same ticker index; "
             f"mu.index={list(mu.index)}, cov.index={list(cov.index)}"
         )
@@ -91,8 +93,8 @@ def apply_lognormal_correction(
         # Vectorised exact formula:
         #   Cov[R_T^i, R_T^j] = exp((mu_i+mu_j)*T + 0.5*(sigma_i^2+sigma_j^2)*T)
         #                        * (exp(sigma_ij * T) - 1)
-        mu_sum = mu_arr[:, None] + mu_arr[None, :]        # (n, n)
-        sigma2_sum = sigma2[:, None] + sigma2[None, :]    # (n, n)
+        mu_sum = mu_arr[:, None] + mu_arr[None, :]  # (n, n)
+        sigma2_sum = sigma2[:, None] + sigma2[None, :]  # (n, n)
         scale = np.exp((mu_sum + 0.5 * sigma2_sum) * horizon)
         cov_exact = scale * (np.exp(cov_arr * horizon) - 1.0)
         cov_t = pd.DataFrame(cov_exact, index=cov.index, columns=cov.columns)
@@ -135,16 +137,14 @@ def scale_moments_to_horizon(
         the diagonal contains negative values, or *daily_horizon* < 1.
     """
     if cov.shape[0] != cov.shape[1]:
-        raise ValueError(
-            f"cov must be a square matrix, got shape {cov.shape}"
-        )
+        raise DataError(f"cov must be a square matrix, got shape {cov.shape}")
     if len(mu) != cov.shape[0]:
-        raise ValueError(
+        raise DataError(
             f"mu length ({len(mu)}) must match cov dimension ({cov.shape[0]})"
         )
 
     diag = np.diag(cov.to_numpy(dtype=np.float64))
     if np.any(diag < 0):
-        raise ValueError("cov diagonal contains negative values")
+        raise DataError("cov diagonal contains negative values")
 
     return apply_lognormal_correction(mu, cov, daily_horizon, method=method)

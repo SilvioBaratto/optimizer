@@ -240,12 +240,12 @@ Best Practices
 # from app.services.user_service import UserService
 # from app.services.auth_service import AuthService
 from app.services.trading212 import (
-    UniverseBuilder,
-    BuildResult,
     BuildProgress,
+    BuildResult,
     Trading212Client,
-    YFinanceTickerMapper,
+    UniverseBuilder,
     UniverseBuilderConfig,
+    YFinanceTickerMapper,
 )
 
 __all__ = [

@@ -4,38 +4,37 @@ import logging
 import threading
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import get_db, database_manager
+from app.database import database_manager, get_db
 from app.repositories.universe_repository import UniverseRepository
-from app.services.trading212.config import UniverseBuilderConfig
-from app.services.trading212.client import Trading212Client
-from app.services.trading212.cache.ticker_cache import TickerMappingCache
-from app.services.trading212.ticker_mapper import YFinanceTickerMapper
-from app.services.trading212.filters import (
-    FilterPipelineImpl,
-    MarketCapFilter,
-    PriceFilter,
-    LiquidityFilter,
-    DataCoverageFilter,
-    HistoricalDataFilter,
-)
-from app.services.trading212.builder import UniverseBuilder, BuildProgress
 from app.schemas.trading212 import (
-    UniverseBuildRequest,
-    ExchangeResponse,
-    InstrumentResponse,
-    InstrumentListResponse,
-    BuildResultResponse,
     BuildJobResponse,
     BuildProgressResponse,
+    BuildResultResponse,
     CacheStatsResponse,
+    ExchangeResponse,
+    InstrumentListResponse,
+    UniverseBuildRequest,
     UniverseStatsResponse,
 )
+from app.services.trading212.builder import BuildProgress, UniverseBuilder
+from app.services.trading212.cache.ticker_cache import TickerMappingCache
+from app.services.trading212.client import Trading212Client
+from app.services.trading212.config import UniverseBuilderConfig
+from app.services.trading212.filters import (
+    DataCoverageFilter,
+    FilterPipelineImpl,
+    HistoricalDataFilter,
+    LiquidityFilter,
+    MarketCapFilter,
+    PriceFilter,
+)
+from app.services.trading212.ticker_mapper import YFinanceTickerMapper
 
 logger = logging.getLogger(__name__)
 
@@ -46,16 +45,16 @@ router = APIRouter(prefix="/universe", tags=["Universe"])
 # In-memory build job store
 # ---------------------------------------------------------------------------
 
-_build_jobs: Dict[str, Dict[str, Any]] = {}
+_build_jobs: dict[str, dict[str, Any]] = {}
 _build_jobs_lock = threading.Lock()
 
 
-def _set_job(build_id: str, data: Dict[str, Any]) -> None:
+def _set_job(build_id: str, data: dict[str, Any]) -> None:
     with _build_jobs_lock:
         _build_jobs[build_id] = data
 
 
-def _get_job(build_id: str) -> Dict[str, Any] | None:
+def _get_job(build_id: str) -> dict[str, Any] | None:
     with _build_jobs_lock:
         return _build_jobs.get(build_id, {}).copy() if build_id in _build_jobs else None
 
@@ -69,6 +68,7 @@ def _update_job(build_id: str, **kwargs: Any) -> None:
 # ---------------------------------------------------------------------------
 # Background build worker
 # ---------------------------------------------------------------------------
+
 
 def _run_build(
     build_id: str,
@@ -150,6 +150,7 @@ def _run_build(
 # Dependency factories
 # ---------------------------------------------------------------------------
 
+
 def get_universe_config() -> UniverseBuilderConfig:
     return UniverseBuilderConfig()
 
@@ -177,6 +178,7 @@ def get_universe_repository(db: Session = Depends(get_db)) -> UniverseRepository
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get("/stats", response_model=UniverseStatsResponse)
 def get_stats(repo: UniverseRepository = Depends(get_universe_repository)):
@@ -228,17 +230,20 @@ def build_universe(
                 )
 
     build_id = str(uuid.uuid4())
-    _set_job(build_id, {
-        "build_id": build_id,
-        "status": "pending",
-        "current": 0,
-        "total": 0,
-        "current_exchange": "",
-        "current_stock": "",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "result": None,
-        "error": None,
-    })
+    _set_job(
+        build_id,
+        {
+            "build_id": build_id,
+            "status": "pending",
+            "current": 0,
+            "total": 0,
+            "current_exchange": "",
+            "current_stock": "",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "result": None,
+            "error": None,
+        },
+    )
 
     thread = threading.Thread(
         target=_run_build,

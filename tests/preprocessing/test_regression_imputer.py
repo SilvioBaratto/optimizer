@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from sklearn.utils.validation import check_is_fitted
 
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.preprocessing import RegressionImputer, SectorImputer
 
 # ---------------------------------------------------------------------------
@@ -57,19 +58,15 @@ class TestFit:
         imp = RegressionImputer(n_neighbors=3, min_train_periods=20).fit(clean_df)
         check_is_fitted(imp)
         assert imp.n_features_in_ == 5
-        np.testing.assert_array_equal(
-            imp.feature_names_in_, ["A", "B", "C", "D", "E"]
-        )
+        np.testing.assert_array_equal(imp.feature_names_in_, ["A", "B", "C", "D", "E"])
 
     def test_neighbors_capped_by_n_assets(self, clean_df: pd.DataFrame) -> None:
         """With 5 assets and n_neighbors=10, each asset gets at most 4 nbrs."""
         imp = RegressionImputer(n_neighbors=10).fit(clean_df)
-        for col, nbrs in imp.neighbors_.items():
+        for _col, nbrs in imp.neighbors_.items():
             assert len(nbrs) <= 4  # at most n_assets - 1
 
-    def test_neighbor_count_respects_n_neighbors(
-        self, clean_df: pd.DataFrame
-    ) -> None:
+    def test_neighbor_count_respects_n_neighbors(self, clean_df: pd.DataFrame) -> None:
         imp = RegressionImputer(n_neighbors=2).fit(clean_df)
         for nbrs in imp.neighbors_.values():
             assert len(nbrs) <= 2
@@ -93,11 +90,11 @@ class TestFit:
         check_is_fitted(imp._fallback_imputer_)
 
     def test_unsupported_fallback_raises(self, clean_df: pd.DataFrame) -> None:
-        with pytest.raises(ValueError, match="Unsupported fallback"):
+        with pytest.raises(ConfigurationError, match="Unsupported fallback"):
             RegressionImputer(fallback="constant").fit(clean_df)
 
     def test_rejects_non_dataframe(self) -> None:
-        with pytest.raises(TypeError, match="pandas DataFrame"):
+        with pytest.raises(DataError, match="pandas DataFrame"):
             RegressionImputer().fit(np.zeros((10, 3)))
 
 
@@ -180,9 +177,9 @@ class TestTransform:
 
         sector_map = {"A": "S", "B": "S", "C": "S", "D": "S"}
 
-        out_reg = RegressionImputer(
-            n_neighbors=3, min_train_periods=20
-        ).fit_transform(df_nan)
+        out_reg = RegressionImputer(n_neighbors=3, min_train_periods=20).fit_transform(
+            df_nan
+        )
 
         out_sec = SectorImputer(sector_mapping=sector_map).fit_transform(df_nan)
 
@@ -249,9 +246,7 @@ class TestTransform:
         out = imp.transform(clean_df)
         pd.testing.assert_frame_equal(out, clean_df)
 
-    def test_rejects_non_dataframe_in_transform(
-        self, clean_df: pd.DataFrame
-    ) -> None:
+    def test_rejects_non_dataframe_in_transform(self, clean_df: pd.DataFrame) -> None:
         imp = RegressionImputer().fit(clean_df)
-        with pytest.raises(TypeError, match="pandas DataFrame"):
+        with pytest.raises(DataError, match="pandas DataFrame"):
             imp.transform(np.zeros((10, 5)))

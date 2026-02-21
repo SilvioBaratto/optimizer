@@ -32,7 +32,6 @@ import logging
 
 import numpy as np
 import numpy.typing as npt
-
 from baml_client import b
 from baml_client.types import RiskBudgetOutput
 

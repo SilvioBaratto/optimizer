@@ -12,6 +12,8 @@ from hmmlearn.hmm import GaussianHMM
 from skfolio.moments.covariance._base import BaseCovariance
 from skfolio.moments.expected_returns._base import BaseMu
 
+from optimizer.exceptions import ConvergenceError, DataError
+
 
 @dataclass(frozen=True)
 class HMMConfig:
@@ -98,15 +100,14 @@ def fit_hmm(returns: pd.DataFrame, config: HMMConfig | None = None) -> HMMResult
         config = HMMConfig()
 
     if returns.shape[1] < 1:
-        raise ValueError(
-            "fit_hmm requires at least 1 asset column, "
-            f"got {returns.shape[1]}"
+        raise DataError(
+            f"fit_hmm requires at least 1 asset column, got {returns.shape[1]}"
         )
 
     clean = returns.dropna()
     min_obs = config.n_states + 1
     if len(clean) < min_obs:
-        raise ValueError(
+        raise DataError(
             f"fit_hmm requires at least {min_obs} observations after dropping "
             f"NaN rows, got {len(clean)}"
         )
@@ -145,7 +146,7 @@ def fit_hmm(returns: pd.DataFrame, config: HMMConfig | None = None) -> HMMResult
 
     # covars_ shape depends on covariance_type; "full" → (n_states, n_feat, n_feat)
     if model.covars_ is None:
-        raise RuntimeError(
+        raise ConvergenceError(
             "HMM covariance matrix is None after fitting — model did not converge"
         )
     covars: npt.NDArray[np.float64] = _expand_covars(
@@ -183,8 +184,8 @@ def blend_moments_by_regime(
         ``(mu, cov)`` — blended expected returns (indexed by ticker) and
         blended covariance matrix (tickers × tickers).
     """
-    weights: npt.NDArray[np.float64] = (
-        result.filtered_probs.iloc[-1].to_numpy(dtype=np.float64)
+    weights: npt.NDArray[np.float64] = result.filtered_probs.iloc[-1].to_numpy(
+        dtype=np.float64
     )
     tickers = list(result.regime_means.columns)
     n_assets = len(tickers)
@@ -351,18 +352,17 @@ class HMMBlendedCovariance(BaseCovariance):
         cfg = self.hmm_config if self.hmm_config is not None else HMMConfig()
         self.hmm_result_: HMMResult = fit_hmm(returns_df, cfg)
 
-        weights: npt.NDArray[np.float64] = (
-            self.hmm_result_.filtered_probs.iloc[-1].to_numpy(dtype=np.float64)
-        )
+        weights: npt.NDArray[np.float64] = self.hmm_result_.filtered_probs.iloc[
+            -1
+        ].to_numpy(dtype=np.float64)
         n_states = len(weights)
         n_assets = X_arr.shape[1]
 
         # Blended mu: μ = Σ_s p_s · μ_s
         mu_arr = np.zeros(n_assets, dtype=np.float64)
         for s in range(n_states):
-            mu_arr += (
-                weights[s]
-                * self.hmm_result_.regime_means.iloc[s].to_numpy(dtype=np.float64)
+            mu_arr += weights[s] * self.hmm_result_.regime_means.iloc[s].to_numpy(
+                dtype=np.float64
             )
 
         # Full blended covariance: Σ = Σ_s p_s · [Σ_s + (μ_s - μ)(μ_s - μ)ᵀ]

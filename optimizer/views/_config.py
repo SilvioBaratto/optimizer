@@ -130,9 +130,7 @@ class EntropyPoolingConfig:
     # -- factory methods -----------------------------------------------------
 
     @classmethod
-    def for_mean_views(
-        cls, mean_views: tuple[str, ...]
-    ) -> EntropyPoolingConfig:
+    def for_mean_views(cls, mean_views: tuple[str, ...]) -> EntropyPoolingConfig:
         """Mean-only Entropy Pooling."""
         return cls(mean_views=mean_views)
 
