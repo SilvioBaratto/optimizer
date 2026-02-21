@@ -218,9 +218,7 @@ class FactorConstructionConfig:
     volatility_lookback: int = 252
     beta_lookback: int = 252
     amihud_lookback: int = 252
-    publication_lag: PublicationLagConfig = field(
-        default_factory=PublicationLagConfig
-    )
+    publication_lag: PublicationLagConfig = field(default_factory=PublicationLagConfig)
 
     def __post_init__(self) -> None:
         # Runtime backward-compat: accept plain int for uniform lag

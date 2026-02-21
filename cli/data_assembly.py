@@ -134,9 +134,7 @@ def _apply_delisting_returns(
 
         # Add a new index row for the delisting date if not already present.
         if delisted_ts not in out.index:
-            new_row = pd.Series(
-                {c: np.nan for c in out.columns}, name=delisted_ts
-            )
+            new_row = pd.Series({c: np.nan for c in out.columns}, name=delisted_ts)
             out = pd.concat([out, new_row.to_frame().T])
             out = out.sort_index()
 
@@ -197,11 +195,13 @@ def assemble_prices(
         ticker = ticker_map.get(str(instrument_id))
         if ticker is None:
             continue
-        records.append({
-            "date": pd.Timestamp(row_date),
-            "ticker": ticker,
-            "close": _to_float(close),
-        })
+        records.append(
+            {
+                "date": pd.Timestamp(row_date),
+                "ticker": ticker,
+                "close": _to_float(close),
+            }
+        )
 
     if not records:
         return pd.DataFrame()
@@ -211,7 +211,10 @@ def assemble_prices(
     # listed on different exchanges).  Use pivot_table with 'first' to
     # deduplicate gracefully instead of raising on duplicates.
     pivoted = df.pivot_table(
-        index="date", columns="ticker", values="close", aggfunc="first",
+        index="date",
+        columns="ticker",
+        values="close",
+        aggfunc="first",
     )
     pivoted.index = pd.DatetimeIndex(pivoted.index)
     pivoted = pivoted.sort_index()
@@ -268,9 +271,7 @@ def assemble_volumes(
     ).order_by(PriceHistory.date)
 
     if not include_delisted:
-        vol_query = vol_query.join(Instrument).where(
-            Instrument.delisted_at.is_(None)
-        )
+        vol_query = vol_query.join(Instrument).where(Instrument.delisted_at.is_(None))
 
     rows = session.execute(vol_query).all()
 
@@ -282,18 +283,23 @@ def assemble_volumes(
         ticker = ticker_map.get(str(instrument_id))
         if ticker is None:
             continue
-        records.append({
-            "date": pd.Timestamp(date),
-            "ticker": ticker,
-            "volume": _to_float(volume),
-        })
+        records.append(
+            {
+                "date": pd.Timestamp(date),
+                "ticker": ticker,
+                "volume": _to_float(volume),
+            }
+        )
 
     if not records:
         return pd.DataFrame()
 
     df = pd.DataFrame(records)
     pivoted = df.pivot_table(
-        index="date", columns="ticker", values="volume", aggfunc="first",
+        index="date",
+        columns="ticker",
+        values="volume",
+        aggfunc="first",
     )
     pivoted.index = pd.DatetimeIndex(pivoted.index)
     pivoted = pivoted.sort_index()
@@ -432,8 +438,7 @@ def _enrich_from_financial_statements(
     n_after = df.notna().sum().sum()
     n_filled = n_after - n_before
     logger.info(
-        "Enriched fundamentals with %d values from financial statements "
-        "(%d tickers).",
+        "Enriched fundamentals with %d values from financial statements (%d tickers).",
         n_filled,
         len(enrich_df),
     )
@@ -478,10 +483,13 @@ def assemble_fundamentals(
         - Fundamentals DataFrame indexed by yfinance ticker.
         - ``{ticker: sector}`` mapping.
     """
-    profiles = session.execute(
-        select(TickerProfile)
-        .options(joinedload(TickerProfile.instrument))
-    ).scalars().all()
+    profiles = (
+        session.execute(
+            select(TickerProfile).options(joinedload(TickerProfile.instrument))
+        )
+        .scalars()
+        .all()
+    )
 
     if not profiles:
         return pd.DataFrame(), {}
@@ -552,12 +560,14 @@ def assemble_financial_statements(session: Session) -> pd.DataFrame:
         ticker = ticker_map.get(str(instrument_id))
         if ticker is None:
             continue
-        records.append({
-            "ticker": ticker,
-            "statement_type": stmt_type,
-            "period_type": period_type,
-            "period_date": period_date,
-        })
+        records.append(
+            {
+                "ticker": ticker,
+                "statement_type": stmt_type,
+                "period_type": period_type,
+                "period_date": period_date,
+            }
+        )
 
     return pd.DataFrame(records)
 
@@ -587,8 +597,13 @@ def assemble_analyst_data(session: Session) -> pd.DataFrame:
 
     if not rows:
         cols = [
-            "ticker", "period", "strong_buy",
-            "buy", "hold", "sell", "strong_sell",
+            "ticker",
+            "period",
+            "strong_buy",
+            "buy",
+            "hold",
+            "sell",
+            "strong_sell",
         ]
         return pd.DataFrame(columns=cols)
 
@@ -597,15 +612,17 @@ def assemble_analyst_data(session: Session) -> pd.DataFrame:
         ticker = ticker_map.get(str(instrument_id))
         if ticker is None:
             continue
-        records.append({
-            "ticker": ticker,
-            "period": period,
-            "strong_buy": sb or 0,
-            "buy": b or 0,
-            "hold": h or 0,
-            "sell": s or 0,
-            "strong_sell": ss or 0,
-        })
+        records.append(
+            {
+                "ticker": ticker,
+                "period": period,
+                "strong_buy": sb or 0,
+                "buy": b or 0,
+                "hold": h or 0,
+                "sell": s or 0,
+                "strong_sell": ss or 0,
+            }
+        )
 
     return pd.DataFrame(records)
 
@@ -638,12 +655,14 @@ def assemble_insider_data(session: Session) -> pd.DataFrame:
         ticker = ticker_map.get(str(instrument_id))
         if ticker is None:
             continue
-        records.append({
-            "ticker": ticker,
-            "shares": shares or 0,
-            "transaction_type": tx_type,
-            "start_date": start_date,
-        })
+        records.append(
+            {
+                "ticker": ticker,
+                "shares": shares or 0,
+                "transaction_type": tx_type,
+                "start_date": start_date,
+            }
+        )
 
     return pd.DataFrame(records)
 
@@ -669,10 +688,13 @@ def assemble_macro_data(
         ``yield_spread`` columns.
     """
     # GDP growth from EconomicIndicator (IlSole)
-    indicators = session.execute(
-        select(EconomicIndicator)
-        .where(EconomicIndicator.country == country)
-    ).scalars().all()
+    indicators = (
+        session.execute(
+            select(EconomicIndicator).where(EconomicIndicator.country == country)
+        )
+        .scalars()
+        .all()
+    )
 
     gdp_growth: float | None = None
     st_rate: float | None = None
@@ -688,10 +710,11 @@ def assemble_macro_data(
 
     # Yield spread from bond yields if not available from indicators
     if lt_rate is None or st_rate is None:
-        bonds = session.execute(
-            select(BondYield)
-            .where(BondYield.country == country)
-        ).scalars().all()
+        bonds = (
+            session.execute(select(BondYield).where(BondYield.country == country))
+            .scalars()
+            .all()
+        )
 
         bond_map: dict[str, float] = {}
         for bond in bonds:

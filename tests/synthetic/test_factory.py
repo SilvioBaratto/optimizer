@@ -158,9 +158,7 @@ class TestIntegration:
         samples = model.sample(n_samples=100)
         assert samples.shape == (100, returns_df.shape[1])
 
-    def test_synthetic_data_fit_predict(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_synthetic_data_fit_predict(self, returns_df: pd.DataFrame) -> None:
         cfg = SyntheticDataConfig(
             n_samples=500,
             vine_copula_config=VineCopulaConfig(random_state=42),

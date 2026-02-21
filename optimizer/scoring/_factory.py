@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from skfolio.metrics import make_scorer as _skfolio_make_scorer
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.optimization._config import RatioMeasureType
 from optimizer.optimization._factory import _RATIO_MEASURE_MAP
 from optimizer.scoring._config import ScorerConfig
@@ -113,7 +114,7 @@ def build_scorer(
                 "ratio_measure=RatioMeasureType.INFORMATION_RATIO; "
                 "pass a pd.Series of benchmark returns indexed by date"
             )
-            raise ValueError(msg)
+            raise ConfigurationError(msg)
         return _build_ir_scorer(benchmark_returns)
 
     if config.ratio_measure is not None:
@@ -125,7 +126,7 @@ def build_scorer(
             "score_func is required when ratio_measure is None; "
             "pass a callable that accepts a portfolio and returns a scalar"
         )
-        raise ValueError(msg)
+        raise ConfigurationError(msg)
 
     return _skfolio_make_scorer(
         score_func,

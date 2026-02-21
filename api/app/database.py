@@ -11,15 +11,16 @@ This module provides:
 """
 
 import logging
-import time
 import threading
+import time
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Optional, Generator, Dict, Any
+from typing import Any
 
-from sqlalchemy import create_engine, Engine, text
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import QueuePool, NullPool
-from sqlalchemy.exc import SQLAlchemyError, OperationalError, DisconnectionError
+from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import DisconnectionError, OperationalError, SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import QueuePool
 
 from app.config import settings
 from app.models.base import Base
@@ -40,8 +41,8 @@ class DatabaseManager:
     """
 
     def __init__(self):
-        self._engine: Optional[Engine] = None
-        self._session_factory: Optional[sessionmaker] = None
+        self._engine: Engine | None = None
+        self._session_factory: sessionmaker | None = None
         self._is_initialized: bool = False
         self._lock = threading.RLock()
         self._last_health_check: float = 0
@@ -95,14 +96,14 @@ class DatabaseManager:
 
         self._engine = create_engine(**engine_kwargs)
 
-        logger.info(f"Database engine created:")
-        logger.info(f"  - Pool class: QueuePool")
+        logger.info("Database engine created:")
+        logger.info("  - Pool class: QueuePool")
         logger.info(f"  - Pool size: {settings.database_pool_size}")
         logger.info(f"  - Max overflow: {settings.database_max_overflow}")
         logger.info(f"  - Pool recycle: {settings.database_pool_recycle}s")
         logger.info(f"  - Pre-ping enabled: {settings.database_pool_pre_ping}")
 
-    def _build_connect_args(self) -> Dict[str, Any]:
+    def _build_connect_args(self) -> dict[str, Any]:
         """Build psycopg2-specific connection arguments."""
         connect_args = {
             "application_name": f"app-api-{settings.environment}",
@@ -191,7 +192,7 @@ class DatabaseManager:
             logger.error(f"Database health check failed: {e}")
             return False
 
-    def get_detailed_status(self) -> Dict[str, Any]:
+    def get_detailed_status(self) -> dict[str, Any]:
         """
         Get detailed database status information for monitoring.
 
@@ -345,7 +346,7 @@ class DatabaseManager:
         return self._is_initialized
 
     @property
-    def engine(self) -> Optional[Engine]:
+    def engine(self) -> Engine | None:
         """Get the SQLAlchemy engine (for advanced use cases)."""
         return self._engine
 
@@ -419,7 +420,7 @@ def get_db() -> Generator[Session, None, None]:
         yield session
 
 
-def get_db_status() -> Dict[str, Any]:
+def get_db_status() -> dict[str, Any]:
     """
     Get comprehensive database status information.
 
@@ -432,7 +433,7 @@ def get_db_status() -> Dict[str, Any]:
 # Utility functions for common database operations
 
 
-def execute_raw_sql(sql: str, parameters: Optional[Dict[str, Any]] = None) -> Any:
+def execute_raw_sql(sql: str, parameters: dict[str, Any] | None = None) -> Any:
     """
     Execute raw SQL with parameter binding.
 
@@ -499,13 +500,13 @@ def database_transaction() -> Generator[Session, None, None]:
 
 # Export commonly used items
 __all__ = [
-    "database_manager",
-    "init_db",
+    "DatabaseManager",
     "close_db",
+    "database_manager",
+    "database_transaction",
+    "execute_raw_sql",
     "get_db",
     "get_db_status",
-    "execute_raw_sql",
+    "init_db",
     "test_database_connection",
-    "database_transaction",
-    "DatabaseManager",
 ]

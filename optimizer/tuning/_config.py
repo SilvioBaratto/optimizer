@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from optimizer.scoring._config import ScorerConfig
 from optimizer.validation._config import WalkForwardConfig
@@ -28,8 +28,8 @@ class GridSearchConfig:
         Whether to compute training scores (increases runtime).
     """
 
-    cv_config: WalkForwardConfig = WalkForwardConfig()
-    scorer_config: ScorerConfig = ScorerConfig()
+    cv_config: WalkForwardConfig = field(default_factory=WalkForwardConfig)
+    scorer_config: ScorerConfig = field(default_factory=ScorerConfig)
     n_jobs: int | None = None
     return_train_score: bool = False
 
@@ -76,8 +76,8 @@ class RandomizedSearchConfig:
     """
 
     n_iter: int = 50
-    cv_config: WalkForwardConfig = WalkForwardConfig()
-    scorer_config: ScorerConfig = ScorerConfig()
+    cv_config: WalkForwardConfig = field(default_factory=WalkForwardConfig)
+    scorer_config: ScorerConfig = field(default_factory=ScorerConfig)
     n_jobs: int | None = None
     random_state: int | None = None
     return_train_score: bool = False

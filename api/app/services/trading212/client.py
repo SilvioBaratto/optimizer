@@ -1,6 +1,6 @@
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
 
 import requests
 
@@ -21,17 +21,17 @@ class Trading212Client:
             self.base_url = "https://live.trading212.com"
 
     @property
-    def headers(self) -> Dict[str, str]:
+    def headers(self) -> dict[str, str]:
         return {"Authorization": self.api_key}
 
-    def get_exchanges(self) -> List[Dict[str, Any]]:
+    def get_exchanges(self) -> list[dict[str, Any]]:
         return self._fetch_json("/api/v0/equity/metadata/exchanges")
 
-    def get_instruments(self) -> List[Dict[str, Any]]:
+    def get_instruments(self) -> list[dict[str, Any]]:
         return self._fetch_json("/api/v0/equity/metadata/instruments")
 
-    def _fetch_json(self, path: str) -> List[Dict[str, Any]]:
-        last_error: Optional[Exception] = None
+    def _fetch_json(self, path: str) -> list[dict[str, Any]]:
+        last_error: Exception | None = None
 
         for attempt in range(self.max_retries):
             try:
@@ -51,9 +51,9 @@ class Trading212Client:
                         try:
                             wait_time = int(retry_after)
                         except ValueError:
-                            wait_time = (2 ** attempt) * 2
+                            wait_time = (2**attempt) * 2
                     else:
-                        wait_time = (2 ** attempt) * 2
+                        wait_time = (2**attempt) * 2
                     time.sleep(wait_time)
                     continue
                 raise
@@ -62,13 +62,15 @@ class Trading212Client:
                 last_error = e
                 if attempt >= self.max_retries - 1:
                     raise
-                time.sleep((2 ** attempt) * 2)
+                time.sleep((2**attempt) * 2)
                 continue
 
-        raise Exception(f"Failed to fetch {path} after {self.max_retries} attempts") from last_error
+        raise Exception(
+            f"Failed to fetch {path} after {self.max_retries} attempts"
+        ) from last_error
 
     @classmethod
-    def from_settings(cls, mode: Optional[str] = None) -> Optional["Trading212Client"]:
+    def from_settings(cls, mode: str | None = None) -> Optional["Trading212Client"]:
         api_key = settings.trading_212_api_key
         if not api_key:
             return None

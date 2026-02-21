@@ -7,12 +7,14 @@ import pandas as pd
 import pytest
 from skfolio.optimization import RiskBudgeting
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.moments._hmm import HMMResult
 from optimizer.optimization._config import RiskBudgetingConfig
 from optimizer.optimization._regime_risk import (
     build_regime_risk_budgeting,
     compute_regime_budget,
 )
+from tests.optimization.conftest import make_hmm_result
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -28,24 +30,12 @@ def _make_hmm_result(
     n_states: int = 2,
     last_probs: list[float] | None = None,
 ) -> HMMResult:
-    rng = np.random.default_rng(42)
-    raw = rng.random((N_OBS, n_states))
-    filtered = raw / raw.sum(axis=1, keepdims=True)
-    if last_probs is not None:
-        assert len(last_probs) == n_states
-        filtered[-1] = last_probs
-    filtered_df = pd.DataFrame(
-        filtered, index=DATES, columns=list(range(n_states))
-    )
-    transition = np.full((n_states, n_states), 1.0 / n_states)
-    means = pd.DataFrame(np.zeros((n_states, N_ASSETS)), columns=TICKERS)
-    covs = np.stack([np.eye(N_ASSETS) * 1e-4] * n_states)
-    return HMMResult(
-        transition_matrix=transition,
-        regime_means=means,
-        regime_covariances=covs,
-        filtered_probs=filtered_df,
-        log_likelihood=-100.0,
+    return make_hmm_result(
+        n_assets=N_ASSETS,
+        n_obs=N_OBS,
+        tickers=TICKERS,
+        n_states=n_states,
+        last_probs=last_probs,
     )
 
 
@@ -126,7 +116,7 @@ class TestComputeRegimeBudget:
     def test_wrong_n_budgets_raises_value_error(self) -> None:
         b0 = _uniform_budget()
         gamma = np.array([0.5, 0.5], dtype=np.float64)
-        with pytest.raises(ValueError, match="regime_budgets"):
+        with pytest.raises(ConfigurationError, match="regime_budgets"):
             compute_regime_budget([b0], gamma)  # 1 budget for 2-state probs
 
     def test_shape_preserved(self) -> None:
@@ -177,9 +167,7 @@ class TestBuildRegimeRiskBudgeting:
         config = RiskBudgetingConfig.for_risk_parity()
         optimizer = build_regime_risk_budgeting(config, hmm, [b0, b1])
         expected = b0 / b0.sum()
-        np.testing.assert_allclose(
-            optimizer.risk_budget, expected, atol=1e-10
-        )
+        np.testing.assert_allclose(optimizer.risk_budget, expected, atol=1e-10)
 
     def test_pure_state_1_budget_equals_b1(self) -> None:
         """γ = [0, 1] → risk_budget in optimizer == b1 (normalised)."""
@@ -189,9 +177,7 @@ class TestBuildRegimeRiskBudgeting:
         config = RiskBudgetingConfig.for_risk_parity()
         optimizer = build_regime_risk_budgeting(config, hmm, [b0, b1])
         expected = b1 / b1.sum()
-        np.testing.assert_allclose(
-            optimizer.risk_budget, expected, atol=1e-10
-        )
+        np.testing.assert_allclose(optimizer.risk_budget, expected, atol=1e-10)
 
     def test_budget_sums_to_one(self) -> None:
         b0 = np.array([0.4, 0.3, 0.2, 0.1], dtype=np.float64)
@@ -204,7 +190,7 @@ class TestBuildRegimeRiskBudgeting:
     def test_wrong_n_budgets_raises_value_error(self) -> None:
         hmm = _make_hmm_result(n_states=2)
         config = RiskBudgetingConfig.for_risk_parity()
-        with pytest.raises(ValueError, match="regime_budgets"):
+        with pytest.raises(ConfigurationError, match="regime_budgets"):
             build_regime_risk_budgeting(config, hmm, [_uniform_budget()])
 
     def test_three_regime_model(self) -> None:

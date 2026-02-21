@@ -2,8 +2,9 @@
 
 import logging
 import uuid
-from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -19,13 +20,22 @@ logger = logging.getLogger(__name__)
 
 # Month abbreviation mapping for parsing reference dates like "Dec 2024"
 _MONTH_ABBR = {
-    "jan": 1, "feb": 2, "mar": 3, "apr": 4,
-    "may": 5, "jun": 6, "jul": 7, "aug": 8,
-    "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
 }
 
 
-def _parse_reference_date(value: Any) -> Optional[date]:
+def _parse_reference_date(value: Any) -> date | None:
     """Parse a reference date string like 'Dec 2024' into date(2024, 12, 1).
 
     Also handles ISO-format strings and date objects passed through.
@@ -105,9 +115,9 @@ class MacroRegimeRepository:
     def _upsert(
         self,
         model: type,
-        rows: List[Dict[str, Any]],
+        rows: list[dict[str, Any]],
         constraint_name: str,
-        update_columns: Optional[List[str]] = None,
+        update_columns: list[str] | None = None,
     ) -> int:
         """Insert rows with ON CONFLICT DO UPDATE. Returns count of rows processed."""
         if not rows:
@@ -142,7 +152,7 @@ class MacroRegimeRepository:
         self,
         country: str,
         source: str,
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> int:
         """
         Upsert a single economic indicator row for a country+source pair.
@@ -158,36 +168,40 @@ class MacroRegimeRepository:
         if not data:
             return 0
 
-        row: Dict[str, Any] = {
+        row: dict[str, Any] = {
             "id": uuid.uuid4(),
             "country": country,
             "source": source,
         }
 
         if source == "ilsole_real":
-            row.update({
-                "gdp_growth_qq": data.get("gdp_growth_qq"),
-                "industrial_production": data.get("industrial_production"),
-                "unemployment": data.get("unemployment"),
-                "consumer_prices": data.get("consumer_prices"),
-                "deficit": data.get("deficit"),
-                "debt": data.get("debt"),
-                "st_rate": data.get("st_rate"),
-                "lt_rate": data.get("lt_rate"),
-            })
+            row.update(
+                {
+                    "gdp_growth_qq": data.get("gdp_growth_qq"),
+                    "industrial_production": data.get("industrial_production"),
+                    "unemployment": data.get("unemployment"),
+                    "consumer_prices": data.get("consumer_prices"),
+                    "deficit": data.get("deficit"),
+                    "debt": data.get("debt"),
+                    "st_rate": data.get("st_rate"),
+                    "lt_rate": data.get("lt_rate"),
+                }
+            )
         elif source == "ilsole_forecast":
-            row.update({
-                "last_inflation": data.get("last_inflation"),
-                "inflation_6m": data.get("inflation_6m"),
-                "inflation_10y_avg": data.get("inflation_10y_avg"),
-                "gdp_growth_6m": data.get("gdp_growth_6m"),
-                "earnings_12m": data.get("earnings_12m"),
-                "eps_expected_12m": data.get("eps_expected_12m"),
-                "peg_ratio": data.get("peg_ratio"),
-                "st_rate_forecast": data.get("st_rate_forecast"),
-                "lt_rate_forecast": data.get("lt_rate_forecast"),
-                "reference_date": _parse_reference_date(data.get("reference_date")),
-            })
+            row.update(
+                {
+                    "last_inflation": data.get("last_inflation"),
+                    "inflation_6m": data.get("inflation_6m"),
+                    "inflation_10y_avg": data.get("inflation_10y_avg"),
+                    "gdp_growth_6m": data.get("gdp_growth_6m"),
+                    "earnings_12m": data.get("earnings_12m"),
+                    "eps_expected_12m": data.get("eps_expected_12m"),
+                    "peg_ratio": data.get("peg_ratio"),
+                    "st_rate_forecast": data.get("st_rate_forecast"),
+                    "lt_rate_forecast": data.get("lt_rate_forecast"),
+                    "reference_date": _parse_reference_date(data.get("reference_date")),
+                }
+            )
 
         return self._upsert(
             EconomicIndicator,
@@ -196,7 +210,7 @@ class MacroRegimeRepository:
         )
 
     def get_economic_indicators(
-        self, country: Optional[str] = None
+        self, country: str | None = None
     ) -> Sequence[EconomicIndicator]:
         """Query economic indicators with optional country filter."""
         stmt = select(EconomicIndicator)
@@ -212,7 +226,7 @@ class MacroRegimeRepository:
     def upsert_te_indicators(
         self,
         country: str,
-        indicators_dict: Dict[str, Dict[str, Any]],
+        indicators_dict: dict[str, dict[str, Any]],
     ) -> int:
         """
         Bulk upsert Trading Economics indicator rows for a country.
@@ -227,19 +241,21 @@ class MacroRegimeRepository:
         if not indicators_dict:
             return 0
 
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
 
         for indicator_key, indicator_data in indicators_dict.items():
-            rows.append({
-                "id": uuid.uuid4(),
-                "country": country,
-                "indicator_key": indicator_key,
-                "value": indicator_data.get("value"),
-                "previous": indicator_data.get("previous"),
-                "unit": indicator_data.get("unit", ""),
-                "reference": indicator_data.get("reference", ""),
-                "raw_name": indicator_data.get("raw_name", ""),
-            })
+            rows.append(
+                {
+                    "id": uuid.uuid4(),
+                    "country": country,
+                    "indicator_key": indicator_key,
+                    "value": indicator_data.get("value"),
+                    "previous": indicator_data.get("previous"),
+                    "unit": indicator_data.get("unit", ""),
+                    "reference": indicator_data.get("reference", ""),
+                    "raw_name": indicator_data.get("raw_name", ""),
+                }
+            )
 
         return self._upsert(
             TradingEconomicsIndicator,
@@ -248,7 +264,7 @@ class MacroRegimeRepository:
         )
 
     def get_te_indicators(
-        self, country: Optional[str] = None
+        self, country: str | None = None
     ) -> Sequence[TradingEconomicsIndicator]:
         """Query Trading Economics indicators with optional country filter."""
         stmt = select(TradingEconomicsIndicator)
@@ -267,7 +283,7 @@ class MacroRegimeRepository:
     def upsert_bond_yields(
         self,
         country: str,
-        yields_dict: Dict[str, Dict[str, Any]],
+        yields_dict: dict[str, dict[str, Any]],
     ) -> int:
         """
         Bulk upsert bond yield rows for a country.
@@ -282,19 +298,21 @@ class MacroRegimeRepository:
         if not yields_dict:
             return 0
 
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
 
         for maturity, yield_data in yields_dict.items():
-            rows.append({
-                "id": uuid.uuid4(),
-                "country": country,
-                "maturity": maturity,
-                "yield_value": yield_data.get("yield"),
-                "day_change": yield_data.get("day_change"),
-                "month_change": yield_data.get("month_change"),
-                "year_change": yield_data.get("year_change"),
-                "reference_date": _parse_reference_date(yield_data.get("date", "")),
-            })
+            rows.append(
+                {
+                    "id": uuid.uuid4(),
+                    "country": country,
+                    "maturity": maturity,
+                    "yield_value": yield_data.get("yield"),
+                    "day_change": yield_data.get("day_change"),
+                    "month_change": yield_data.get("month_change"),
+                    "year_change": yield_data.get("year_change"),
+                    "reference_date": _parse_reference_date(yield_data.get("date", "")),
+                }
+            )
 
         return self._upsert(
             BondYield,
@@ -302,9 +320,7 @@ class MacroRegimeRepository:
             constraint_name="uq_bond_yield_country_maturity",
         )
 
-    def get_bond_yields(
-        self, country: Optional[str] = None
-    ) -> Sequence[BondYield]:
+    def get_bond_yields(self, country: str | None = None) -> Sequence[BondYield]:
         """Query bond yields with optional country filter."""
         stmt = select(BondYield)
         if country:
@@ -316,9 +332,7 @@ class MacroRegimeRepository:
     # Country Summary
     # ------------------------------------------------------------------
 
-    def get_country_summary(
-        self, country: str
-    ) -> Dict[str, Any]:
+    def get_country_summary(self, country: str) -> dict[str, Any]:
         """
         Get all three data types for a single country.
 

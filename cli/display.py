@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Callable, Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
 
 console = Console()
@@ -17,6 +24,7 @@ console = Console()
 # ------------------------------------------------------------------
 # Panels
 # ------------------------------------------------------------------
+
 
 def error_panel(msg: str) -> None:
     """Print a red error panel."""
@@ -41,6 +49,7 @@ def info_panel(title: str, body: str) -> None:
 # ------------------------------------------------------------------
 # Tables
 # ------------------------------------------------------------------
+
 
 def dict_table(data: dict[str, Any], title: str = "") -> None:
     """Render a key/value table from a dict."""
@@ -76,6 +85,7 @@ def list_table(
 # ------------------------------------------------------------------
 # Live progress polling
 # ------------------------------------------------------------------
+
 
 def progress_loop(
     poll_fn: Callable[[], dict[str, Any]],

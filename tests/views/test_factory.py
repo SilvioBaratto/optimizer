@@ -13,6 +13,7 @@ from skfolio.prior import (
 )
 from skfolio.prior._base import BasePrior
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.moments import MomentEstimationConfig, MuEstimatorType
 from optimizer.views import (
     BlackLittermanConfig,
@@ -24,20 +25,6 @@ from optimizer.views import (
     build_opinion_pooling,
 )
 from optimizer.views._factory import _EmpiricalOmegaBlackLitterman
-
-
-@pytest.fixture()
-def returns_df() -> pd.DataFrame:
-    """Synthetic return DataFrame with 20 assets and 200 observations."""
-    rng = np.random.default_rng(42)
-    n_obs, n_assets = 200, 20
-    data = rng.normal(loc=0.001, scale=0.02, size=(n_obs, n_assets))
-    tickers = [f"TICK_{i:02d}" for i in range(n_assets)]
-    return pd.DataFrame(
-        data,
-        columns=tickers,
-        index=pd.date_range("2023-01-01", periods=n_obs, freq="B"),
-    )
 
 
 class TestBuildBlackLitterman:
@@ -53,9 +40,7 @@ class TestBuildBlackLitterman:
         assert prior.tau == 0.1
 
     def test_risk_free_rate_forwarded(self) -> None:
-        cfg = BlackLittermanConfig(
-            views=("TICK_00 == 0.05",), risk_free_rate=0.02
-        )
+        cfg = BlackLittermanConfig(views=("TICK_00 == 0.05",), risk_free_rate=0.02)
         prior = build_black_litterman(cfg)
         assert isinstance(prior, BlackLitterman)
         assert prior.risk_free_rate == 0.02
@@ -81,20 +66,14 @@ class TestBuildBlackLitterman:
 
     def test_groups_forwarded(self) -> None:
         groups = {"group_a": ["TICK_00", "TICK_01"]}
-        cfg = BlackLittermanConfig(
-            views=("TICK_00 == 0.05",), groups=groups
-        )
+        cfg = BlackLittermanConfig(views=("TICK_00 == 0.05",), groups=groups)
         prior = build_black_litterman(cfg)
         assert isinstance(prior, BlackLitterman)
         assert prior.groups == groups
 
     def test_custom_prior_config_forwarded(self) -> None:
-        prior_cfg = MomentEstimationConfig(
-            mu_estimator=MuEstimatorType.SHRUNK
-        )
-        cfg = BlackLittermanConfig(
-            views=("TICK_00 == 0.05",), prior_config=prior_cfg
-        )
+        prior_cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.SHRUNK)
+        cfg = BlackLittermanConfig(views=("TICK_00 == 0.05",), prior_config=prior_cfg)
         prior = build_black_litterman(cfg)
         assert isinstance(prior, BlackLitterman)
         from skfolio.prior import EmpiricalPrior
@@ -105,9 +84,7 @@ class TestBuildBlackLitterman:
         assert isinstance(prior.prior_estimator.mu_estimator, ShrunkMu)
 
     def test_factor_model_variant(self) -> None:
-        cfg = BlackLittermanConfig(
-            views=("TICK_00 == 0.05",), use_factor_model=True
-        )
+        cfg = BlackLittermanConfig(views=("TICK_00 == 0.05",), use_factor_model=True)
         prior = build_black_litterman(cfg)
         assert isinstance(prior, FactorModel)
 
@@ -145,9 +122,7 @@ class TestBuildEntropyPooling:
         assert prior.variance_views == ["TICK_00 == 0.04"]
 
     def test_correlation_views_forwarded(self) -> None:
-        cfg = EntropyPoolingConfig(
-            correlation_views=("TICK_00; TICK_01 == 0.5",)
-        )
+        cfg = EntropyPoolingConfig(correlation_views=("TICK_00; TICK_01 == 0.5",))
         prior = build_entropy_pooling(cfg)
         assert prior.correlation_views == ["TICK_00; TICK_01 == 0.5"]
 
@@ -167,31 +142,23 @@ class TestBuildEntropyPooling:
         assert prior.cvar_views == ["TICK_00 <= -0.05"]
 
     def test_cvar_beta_forwarded(self) -> None:
-        cfg = EntropyPoolingConfig(
-            cvar_views=("TICK_00 <= -0.05",), cvar_beta=0.99
-        )
+        cfg = EntropyPoolingConfig(cvar_views=("TICK_00 <= -0.05",), cvar_beta=0.99)
         prior = build_entropy_pooling(cfg)
         assert prior.cvar_beta == 0.99
 
     def test_solver_forwarded(self) -> None:
-        cfg = EntropyPoolingConfig(
-            mean_views=("TICK_00 == 0.05",), solver="SLSQP"
-        )
+        cfg = EntropyPoolingConfig(mean_views=("TICK_00 == 0.05",), solver="SLSQP")
         prior = build_entropy_pooling(cfg)
         assert prior.solver == "SLSQP"
 
     def test_groups_forwarded(self) -> None:
         groups = {"group_a": ["TICK_00", "TICK_01"]}
-        cfg = EntropyPoolingConfig(
-            mean_views=("TICK_00 == 0.05",), groups=groups
-        )
+        cfg = EntropyPoolingConfig(mean_views=("TICK_00 == 0.05",), groups=groups)
         prior = build_entropy_pooling(cfg)
         assert prior.groups == groups
 
     def test_custom_prior_config_forwarded(self) -> None:
-        prior_cfg = MomentEstimationConfig(
-            mu_estimator=MuEstimatorType.SHRUNK
-        )
+        prior_cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.SHRUNK)
         cfg = EntropyPoolingConfig(
             mean_views=("TICK_00 == 0.05",), prior_config=prior_cfg
         )
@@ -321,9 +288,7 @@ class TestIntegration:
         prices = load_sp500_dataset()
         returns = prices_to_returns(prices)
 
-        cfg = BlackLittermanConfig.for_equilibrium(
-            views=("AAPL - MSFT == 0.02",)
-        )
+        cfg = BlackLittermanConfig.for_equilibrium(views=("AAPL - MSFT == 0.02",))
         prior = build_black_litterman(cfg)
         prior.fit(returns)
         rd = prior.return_distribution_
@@ -336,9 +301,7 @@ class TestIntegration:
         prices = load_sp500_dataset()
         returns = prices_to_returns(prices)
 
-        cfg = EntropyPoolingConfig.for_mean_views(
-            mean_views=("AAPL == 0.05",)
-        )
+        cfg = EntropyPoolingConfig.for_mean_views(mean_views=("AAPL == 0.05",))
         prior = build_entropy_pooling(cfg)
         prior.fit(returns)
         rd = prior.return_distribution_
@@ -399,9 +362,7 @@ class TestIntegration:
         factor_returns = prices_to_returns(factor_prices.loc[common_idx])
 
         # Views must reference factor names when wrapped in FactorModel
-        cfg = BlackLittermanConfig.for_factor_model(
-            views=("MTUM == 0.05",)
-        )
+        cfg = BlackLittermanConfig.for_factor_model(views=("MTUM == 0.05",))
         prior = build_black_litterman(cfg)
         prior.fit(asset_returns, y=factor_returns)
         rd = prior.return_distribution_
@@ -419,12 +380,8 @@ class TestIntegration:
         n_obs = 30
         dates = returns.index[-n_obs:]
         # Simulate 1 absolute view with forecast history
-        view_h = pd.DataFrame(
-            {"view_0": [0.001] * n_obs}, index=dates, dtype=float
-        )
-        ret_h = pd.DataFrame(
-            returns.loc[dates, "AAPL"].rename("view_0")
-        )
+        view_h = pd.DataFrame({"view_0": [0.001] * n_obs}, index=dates, dtype=float)
+        ret_h = pd.DataFrame(returns.loc[dates, "AAPL"].rename("view_0"))
         cfg = BlackLittermanConfig(
             views=("AAPL == 0.05",),
             uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
@@ -463,7 +420,7 @@ class TestIntegration:
             views=("TICK_00 == 0.05",),
             uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
         )
-        with pytest.raises(ValueError, match="EMPIRICAL_TRACK_RECORD"):
+        with pytest.raises(ConfigurationError, match="EMPIRICAL_TRACK_RECORD"):
             build_black_litterman(cfg)
 
     def test_empirical_omega_covariance_is_psd(self) -> None:
@@ -492,9 +449,7 @@ class TestIntegration:
         prices = load_sp500_dataset()
         returns = prices_to_returns(prices)
 
-        cfg = BlackLittermanConfig.for_equilibrium(
-            views=("AAPL == 0.05",)
-        )
+        cfg = BlackLittermanConfig.for_equilibrium(views=("AAPL == 0.05",))
         prior = build_black_litterman(cfg)
         model = MeanRisk(prior_estimator=prior)
         model.fit(returns)

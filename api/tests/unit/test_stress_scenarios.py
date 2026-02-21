@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-
 from app.services.stress_scenarios import (
     _PROB_MAX,
     _PROB_MIN,
@@ -17,7 +16,6 @@ from app.services.stress_scenarios import (
     scenario_to_synthetic_data_args,
 )
 from baml_client.types import StressScenario
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -99,13 +97,17 @@ class TestClampScenario:
 
 class TestEnsureMarketDrawdown:
     def test_existing_drawdown_scenario_unchanged(self) -> None:
-        s = _make_scenario(shocks={"SPY": -0.25, "QQQ": -0.30, "GLD": 0.08, "TLT": 0.05})
+        s = _make_scenario(
+            shocks={"SPY": -0.25, "QQQ": -0.30, "GLD": 0.08, "TLT": 0.05}
+        )
         result = _ensure_market_drawdown([s])
         assert result[0].shocks["SPY"] == pytest.approx(-0.25)
 
     def test_no_drawdown_patches_first(self) -> None:
         """If no scenario has avg negative shock ≥10%, first is patched."""
-        s = _make_scenario(shocks={"SPY": -0.03, "QQQ": -0.02, "GLD": 0.01, "TLT": 0.01})
+        s = _make_scenario(
+            shocks={"SPY": -0.03, "QQQ": -0.02, "GLD": 0.01, "TLT": 0.01}
+        )
         result = _ensure_market_drawdown([s])
         # All shocks should be ≤ -0.10 after patch
         for shock in result[0].shocks.values():

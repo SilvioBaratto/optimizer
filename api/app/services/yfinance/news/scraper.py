@@ -53,7 +53,9 @@ class ArticleScraper:
             soup = BeautifulSoup(response.content, "html.parser")
 
             # Remove script and style elements
-            for element in soup(["script", "style", "nav", "header", "footer", "aside"]):
+            for element in soup(
+                ["script", "style", "nav", "header", "footer", "aside"]
+            ):
                 element.decompose()
 
             # Try to find article content using common selectors
@@ -91,14 +93,14 @@ class ArticleScraper:
                 success=False,
                 content=None,
                 content_length=None,
-                error=f"Request failed: {str(e)}",
+                error=f"Request failed: {e!s}",
             )
         except Exception as e:
             return ArticleResult(
                 success=False,
                 content=None,
                 content_length=None,
-                error=f"Parsing error: {str(e)}",
+                error=f"Parsing error: {e!s}",
             )
 
     def _find_article_content(self, soup: BeautifulSoup):
@@ -116,7 +118,9 @@ class ArticleScraper:
         max_articles: int | None = None,
     ) -> list[ArticleResult]:
         results = []
-        fetch_count = len(urls) if max_articles is None else min(len(urls), max_articles)
+        fetch_count = (
+            len(urls) if max_articles is None else min(len(urls), max_articles)
+        )
 
         for url in urls[:fetch_count]:
             result = self.fetch(url)

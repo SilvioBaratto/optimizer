@@ -23,7 +23,7 @@ from optimizer.optimization._robust import (
 )
 
 # ---------------------------------------------------------------------------
-# Shared fixtures
+# Shared fixtures — returns provided by optimization/conftest.py
 # ---------------------------------------------------------------------------
 
 N_ASSETS = 10
@@ -33,10 +33,8 @@ DATES = pd.date_range("2020-01-02", periods=N_OBS, freq="B")
 
 
 @pytest.fixture(scope="module")
-def returns() -> pd.DataFrame:
-    rng = np.random.default_rng(42)
-    data = rng.normal(loc=0.0005, scale=0.01, size=(N_OBS, N_ASSETS))
-    return pd.DataFrame(data, index=DATES, columns=TICKERS)
+def returns(returns_10a_252: pd.DataFrame) -> pd.DataFrame:
+    return returns_10a_252
 
 
 # ---------------------------------------------------------------------------
@@ -182,9 +180,7 @@ class TestBuildRobustMeanRisk:
     def test_kwargs_forwarded(self) -> None:
         """Non-config kwargs (e.g. previous_weights) are forwarded to MeanRisk."""
         prev = np.full(N_ASSETS, 1.0 / N_ASSETS)
-        model = build_robust_mean_risk(
-            RobustConfig(kappa=1.0), previous_weights=prev
-        )
+        model = build_robust_mean_risk(RobustConfig(kappa=1.0), previous_weights=prev)
         np.testing.assert_array_equal(model.previous_weights, prev)
 
     def test_mean_risk_config_objective_forwarded(self) -> None:
@@ -219,9 +215,7 @@ class TestBuildRobustMeanRisk:
 
     # -- kappa=0 acceptance criterion ------------------------------------------
 
-    def test_kappa_zero_matches_standard_mean_risk(
-        self, returns: pd.DataFrame
-    ) -> None:
+    def test_kappa_zero_matches_standard_mean_risk(self, returns: pd.DataFrame) -> None:
         """At κ=0 output weights are within 1e-4 of standard build_mean_risk()."""
         standard = build_mean_risk(MeanRiskConfig())
         robust_zero = build_robust_mean_risk(RobustConfig(kappa=0.0))
@@ -282,9 +276,7 @@ class TestKappaEmpiricalMuUncertaintySet:
         est = _KappaEmpiricalMuUncertaintySet(kappa=1.5)
         assert est.kappa == pytest.approx(1.5)
 
-    def test_confidence_level_updated_after_fit(
-        self, returns: pd.DataFrame
-    ) -> None:
+    def test_confidence_level_updated_after_fit(self, returns: pd.DataFrame) -> None:
         """After fit(), confidence_level == chi2.cdf(kappa², df=n_assets)."""
         from scipy.stats import chi2
 
@@ -295,9 +287,7 @@ class TestKappaEmpiricalMuUncertaintySet:
         expected = chi2.cdf(kappa**2, df=N_ASSETS)
         assert est.confidence_level == pytest.approx(expected, rel=1e-9)
 
-    def test_uncertainty_set_fitted_after_fit(
-        self, returns: pd.DataFrame
-    ) -> None:
+    def test_uncertainty_set_fitted_after_fit(self, returns: pd.DataFrame) -> None:
         est = _KappaEmpiricalMuUncertaintySet(kappa=1.0)
         est.fit(returns)
         assert hasattr(est, "uncertainty_set_")
@@ -408,9 +398,7 @@ class TestBuildRobustMeanRiskBootstrapCovariance:
         assert np.sum(portfolio.weights) == pytest.approx(1.0, abs=1e-6)
         assert np.all(portfolio.weights >= -1e-8)
 
-    def test_for_bootstrap_covariance_preset_fits(
-        self, returns: pd.DataFrame
-    ) -> None:
+    def test_for_bootstrap_covariance_preset_fits(self, returns: pd.DataFrame) -> None:
         model = build_robust_mean_risk(RobustConfig.for_bootstrap_covariance())
         model.fit(returns)
         portfolio = model.predict(returns)

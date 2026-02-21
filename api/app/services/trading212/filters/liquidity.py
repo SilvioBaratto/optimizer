@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Any, Tuple
+from typing import Any
 
 from app.services.trading212.config import UniverseBuilderConfig
 
@@ -12,7 +12,7 @@ class LiquidityFilter:
     def name(self) -> str:
         return "LiquidityFilter"
 
-    def filter(self, data: Dict[str, Any], yf_ticker: str) -> Tuple[bool, str]:
+    def filter(self, data: dict[str, Any], yf_ticker: str) -> tuple[bool, str]:
         if not data:
             return False, "No data available"
 

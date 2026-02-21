@@ -21,7 +21,7 @@ class CircuitBreaker:
                     return
 
             self._attempt += 1
-            wait_seconds = (2 ** self._attempt) * 60 * self.base_wait_minutes / 2
+            wait_seconds = (2**self._attempt) * 60 * self.base_wait_minutes / 2
             resume_time = time.time() + wait_seconds
 
             self._until = resume_time

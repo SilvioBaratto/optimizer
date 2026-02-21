@@ -62,21 +62,6 @@ from optimizer.optimization import (
     build_stacking,
 )
 
-
-@pytest.fixture()
-def returns_df() -> pd.DataFrame:
-    """Synthetic return DataFrame with 20 assets and 200 observations."""
-    rng = np.random.default_rng(42)
-    n_obs, n_assets = 200, 20
-    data = rng.normal(loc=0.001, scale=0.02, size=(n_obs, n_assets))
-    tickers = [f"TICK_{i:02d}" for i in range(n_assets)]
-    return pd.DataFrame(
-        data,
-        columns=tickers,
-        index=pd.date_range("2023-01-01", periods=n_obs, freq="B"),
-    )
-
-
 # ---------------------------------------------------------------------------
 # Distance estimator
 # ---------------------------------------------------------------------------
@@ -655,9 +640,7 @@ class TestBuildStacking:
 class TestIntegration:
     """Integration tests using real skfolio fit/predict."""
 
-    def test_mean_risk_min_variance_fit(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_mean_risk_min_variance_fit(self, returns_df: pd.DataFrame) -> None:
         cfg = MeanRiskConfig.for_min_variance()
         model = build_mean_risk(cfg)
         model.fit(returns_df)
@@ -666,36 +649,28 @@ class TestIntegration:
         assert len(portfolio.weights) == returns_df.shape[1]
         assert abs(sum(portfolio.weights) - 1.0) < 1e-6
 
-    def test_mean_risk_max_sharpe_fit(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_mean_risk_max_sharpe_fit(self, returns_df: pd.DataFrame) -> None:
         cfg = MeanRiskConfig.for_max_sharpe()
         model = build_mean_risk(cfg)
         model.fit(returns_df)
         portfolio = model.predict(returns_df)
         assert portfolio.weights is not None
 
-    def test_mean_risk_max_utility_fit(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_mean_risk_max_utility_fit(self, returns_df: pd.DataFrame) -> None:
         cfg = MeanRiskConfig.for_max_utility(risk_aversion=2.0)
         model = build_mean_risk(cfg)
         model.fit(returns_df)
         portfolio = model.predict(returns_df)
         assert portfolio.weights is not None
 
-    def test_mean_risk_min_cvar_fit(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_mean_risk_min_cvar_fit(self, returns_df: pd.DataFrame) -> None:
         cfg = MeanRiskConfig.for_min_cvar()
         model = build_mean_risk(cfg)
         model.fit(returns_df)
         portfolio = model.predict(returns_df)
         assert portfolio.weights is not None
 
-    def test_mean_risk_with_transaction_costs(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_mean_risk_with_transaction_costs(self, returns_df: pd.DataFrame) -> None:
         cfg = MeanRiskConfig(
             objective=ObjectiveFunctionType.MINIMIZE_RISK,
             transaction_costs=0.001,
@@ -714,9 +689,7 @@ class TestIntegration:
         assert portfolio.weights is not None
         assert len(portfolio.weights) == returns_df.shape[1]
 
-    def test_risk_budgeting_custom_budget(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_risk_budgeting_custom_budget(self, returns_df: pd.DataFrame) -> None:
         n = returns_df.shape[1]
         budget = np.ones(n) / n
         model = build_risk_budgeting(risk_budget=budget)
@@ -724,9 +697,7 @@ class TestIntegration:
         portfolio = model.predict(returns_df)
         assert portfolio.weights is not None
 
-    def test_max_diversification_fit(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_max_diversification_fit(self, returns_df: pd.DataFrame) -> None:
         model = build_max_diversification()
         model.fit(returns_df)
         portfolio = model.predict(returns_df)
@@ -770,9 +741,7 @@ class TestIntegration:
         assert portfolio.weights is not None
         assert len(portfolio.weights) == returns_df.shape[1]
 
-    def test_nco_with_custom_estimators(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_nco_with_custom_estimators(self, returns_df: pd.DataFrame) -> None:
         inner = MeanRisk()
         outer = MeanRisk()
         model = build_nco(inner_estimator=inner, outer_estimator=outer)
@@ -780,9 +749,7 @@ class TestIntegration:
         portfolio = model.predict(returns_df)
         assert portfolio.weights is not None
 
-    def test_benchmark_tracker_fit(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_benchmark_tracker_fit(self, returns_df: pd.DataFrame) -> None:
         model = build_benchmark_tracker()
         benchmark = returns_df.mean(axis=1)
         model.fit(returns_df, y=benchmark)
@@ -797,14 +764,9 @@ class TestIntegration:
         assert portfolio.weights is not None
         assert len(portfolio.weights) == returns_df.shape[1]
         expected_weight = 1.0 / returns_df.shape[1]
-        assert all(
-            abs(w - expected_weight) < 1e-10
-            for w in portfolio.weights
-        )
+        assert all(abs(w - expected_weight) < 1e-10 for w in portfolio.weights)
 
-    def test_inverse_volatility_fit(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_inverse_volatility_fit(self, returns_df: pd.DataFrame) -> None:
         model = build_inverse_volatility()
         model.fit(returns_df)
         portfolio = model.predict(returns_df)
@@ -819,9 +781,7 @@ class TestIntegration:
         assert portfolio.weights is not None
         assert len(portfolio.weights) == returns_df.shape[1]
 
-    def test_stacking_with_custom_estimators(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_stacking_with_custom_estimators(self, returns_df: pd.DataFrame) -> None:
         estimators = [
             ("min_var", build_mean_risk(MeanRiskConfig.for_min_variance())),
             ("hrp", build_hrp(HRPConfig.for_variance())),

@@ -93,8 +93,11 @@ class TestApplySectorBalance:
         # Select top 20
         selected = scores.nlargest(20).index
         result = apply_sector_balance(
-            selected, scores, sector_labels,
-            parent_universe=scores.index, tolerance=0.05,
+            selected,
+            scores,
+            sector_labels,
+            parent_universe=scores.index,
+            tolerance=0.05,
         )
         assert isinstance(result, pd.Index)
         assert len(result) > 0
@@ -127,7 +130,8 @@ class TestSelectStocks:
             sector_balance=True,
         )
         result = select_stocks(
-            scores, config=config,
+            scores,
+            config=config,
             sector_labels=sector_labels,
             parent_universe=scores.index,
         )

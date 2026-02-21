@@ -9,16 +9,15 @@ Revises: b2c3d4e5f6a7
 Create Date: 2026-02-18
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "c3d4e5f6a7b8"
-down_revision: Union[str, Sequence[str], None] = "b2c3d4e5f6a7"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "b2c3d4e5f6a7"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -30,18 +29,26 @@ def upgrade() -> None:
 
     # 2. Rename columns to match ORM
     op.alter_column(
-        "exchanges", "exchange_name", new_column_name="name",
-        existing_type=sa.String(255), existing_nullable=False,
+        "exchanges",
+        "exchange_name",
+        new_column_name="name",
+        existing_type=sa.String(255),
+        existing_nullable=False,
     )
     op.alter_column(
-        "exchanges", "exchange_id", new_column_name="t212_id",
-        existing_type=sa.Integer(), existing_nullable=False,
+        "exchanges",
+        "exchange_id",
+        new_column_name="t212_id",
+        existing_type=sa.Integer(),
+        existing_nullable=False,
     )
 
     # 3. Make t212_id nullable (ORM: Optional[int])
     op.alter_column(
-        "exchanges", "t212_id",
-        existing_type=sa.Integer(), nullable=True,
+        "exchanges",
+        "t212_id",
+        existing_type=sa.Integer(),
+        nullable=True,
     )
 
     # 4. Drop columns not in ORM (BaseModel already provides updated_at)
@@ -62,23 +69,35 @@ def downgrade() -> None:
     )
     op.add_column(
         "exchanges",
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column(
+            "is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")
+        ),
     )
 
     op.alter_column(
-        "exchanges", "t212_id",
-        existing_type=sa.Integer(), nullable=False,
+        "exchanges",
+        "t212_id",
+        existing_type=sa.Integer(),
+        nullable=False,
     )
     op.alter_column(
-        "exchanges", "t212_id", new_column_name="exchange_id",
-        existing_type=sa.Integer(), existing_nullable=False,
+        "exchanges",
+        "t212_id",
+        new_column_name="exchange_id",
+        existing_type=sa.Integer(),
+        existing_nullable=False,
     )
     op.alter_column(
-        "exchanges", "name", new_column_name="exchange_name",
-        existing_type=sa.String(255), existing_nullable=False,
+        "exchanges",
+        "name",
+        new_column_name="exchange_name",
+        existing_type=sa.String(255),
+        existing_nullable=False,
     )
 
     op.create_index("ix_exchanges_exchange_name", "exchanges", ["exchange_name"])
     op.create_index("idx_exchange_name", "exchanges", ["exchange_name"])
-    op.create_index("ix_exchanges_exchange_id", "exchanges", ["exchange_id"], unique=True)
+    op.create_index(
+        "ix_exchanges_exchange_id", "exchanges", ["exchange_id"], unique=True
+    )
     op.create_index("idx_exchange_id", "exchanges", ["exchange_id"])

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.main import app
 from baml_client.types import (
     BusinessCyclePhase,
@@ -15,6 +13,7 @@ from baml_client.types import (
     DeltaCalibration,
     FactorWeightAdaptation,
 )
+from fastapi.testclient import TestClient
 
 client = TestClient(app)
 
@@ -34,14 +33,18 @@ def _factor_response(
 ) -> FactorWeightAdaptation:
     if weights is None:
         weights = {"momentum": 1.2, "value": 0.8, "quality": 1.0, "low_volatility": 1.0}
-    return FactorWeightAdaptation(phase=phase, weights=weights, rationale="Test rationale.")
+    return FactorWeightAdaptation(
+        phase=phase, weights=weights, rationale="Test rationale."
+    )
 
 
 def _cov_response(
     estimator: CovEstimatorChoice = CovEstimatorChoice.LEDOIT_WOLF,
     confidence: float = 0.85,
 ) -> CovRegimeSelection:
-    return CovRegimeSelection(estimator=estimator, confidence=confidence, rationale="Test.")
+    return CovRegimeSelection(
+        estimator=estimator, confidence=confidence, rationale="Test."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +56,10 @@ class TestCalibrateDelta:
     def test_returns_delta_calibration(self) -> None:
         from app.services.llm_moments import calibrate_delta
 
-        with patch("app.services.llm_moments.b.CalibrateDelta", return_value=_delta_response(4.0)):
+        with patch(
+            "app.services.llm_moments.b.CalibrateDelta",
+            return_value=_delta_response(4.0),
+        ):
             result = calibrate_delta("Global growth slowing.")
 
         assert result.delta == pytest.approx(4.0)
@@ -126,7 +132,12 @@ class TestAdaptFactorWeights:
     def test_all_weights_positive(self) -> None:
         from app.services.llm_moments import adapt_factor_weights
 
-        raw_weights = {"momentum": -1.0, "value": 0.0, "quality": 3.0, "low_volatility": 2.0}
+        raw_weights = {
+            "momentum": -1.0,
+            "value": 0.0,
+            "quality": 3.0,
+            "low_volatility": 2.0,
+        }
         with patch(
             "app.services.llm_moments.b.AdaptFactorWeights",
             return_value=_factor_response(weights=raw_weights),
@@ -232,7 +243,9 @@ class TestCalibrateDeltaEndpoint:
             "app.services.llm_moments.b.CalibrateDelta",
             return_value=_delta_response(5.0),
         ):
-            resp = client.post(self.URL, json={"macro_text": "GDP fell for two consecutive quarters."})
+            resp = client.post(
+                self.URL, json={"macro_text": "GDP fell for two consecutive quarters."}
+            )
 
         assert resp.status_code == 200
         data = resp.json()
@@ -248,7 +261,9 @@ class TestCalibrateDeltaEndpoint:
             "app.services.llm_moments.b.CalibrateDelta",
             side_effect=RuntimeError("LLM timeout"),
         ):
-            resp = client.post(self.URL, json={"macro_text": "Inflation rose sharply this quarter."})
+            resp = client.post(
+                self.URL, json={"macro_text": "Inflation rose sharply this quarter."}
+            )
 
         assert resp.status_code == 502
 

@@ -133,7 +133,8 @@ Best Practices
 """
 
 from datetime import datetime, timezone
-from typing import Optional, List, Any
+from typing import Any, List, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -146,51 +147,62 @@ def utc_now() -> datetime:
 # Message/Echo Schemas
 # ===========================
 
+
 class MessageResponse(BaseModel):
     """Simple message response"""
+
     message: str
 
 
 class EchoRequest(BaseModel):
     """Echo request body"""
+
     message: str = Field(..., description="Message to echo back")
-    metadata: Optional[dict] = Field(default=None, description="Optional metadata")
+    metadata: dict | None = Field(default=None, description="Optional metadata")
 
 
 class EchoResponse(BaseModel):
     """Echo response"""
+
     echo: str
     received_at: datetime = Field(default_factory=utc_now)
-    metadata: Optional[dict] = None
+    metadata: dict | None = None
 
 
 # ===========================
 # Item CRUD Schemas
 # ===========================
 
+
 class ItemBase(BaseModel):
     """Base item schema"""
+
     name: str = Field(..., min_length=1, max_length=100, description="Item name")
-    description: Optional[str] = Field(default=None, max_length=500, description="Item description")
-    price: Optional[float] = Field(default=None, ge=0, description="Item price")
+    description: str | None = Field(
+        default=None, max_length=500, description="Item description"
+    )
+    price: float | None = Field(default=None, ge=0, description="Item price")
     is_active: bool = Field(default=True, description="Whether item is active")
 
 
 class ItemCreate(ItemBase):
     """Schema for creating an item"""
+
     pass
 
 
 class ItemUpdate(BaseModel):
     """Schema for updating an item (all fields optional)"""
-    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    description: Optional[str] = Field(default=None, max_length=500)
-    price: Optional[float] = Field(default=None, ge=0)
-    is_active: Optional[bool] = None
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+    price: float | None = Field(default=None, ge=0)
+    is_active: bool | None = None
 
 
 class ItemResponse(ItemBase):
     """Schema for item response"""
+
     model_config = {"from_attributes": True}
 
     id: str = Field(..., description="Item ID")
@@ -200,7 +212,8 @@ class ItemResponse(ItemBase):
 
 class ItemListResponse(BaseModel):
     """Schema for list of items response"""
-    items: List[ItemResponse]
+
+    items: list[ItemResponse]
     total: int = Field(..., description="Total number of items")
 
 
@@ -208,89 +221,92 @@ class ItemListResponse(BaseModel):
 # Generic API Schemas
 # ===========================
 
+
 class ErrorResponse(BaseModel):
     """Standard error response"""
+
     error: str
-    detail: Optional[str] = None
-    code: Optional[str] = None
+    detail: str | None = None
+    code: str | None = None
 
 
 class SuccessResponse(BaseModel):
     """Standard success response"""
+
     success: bool = True
-    message: Optional[str] = None
-    data: Optional[Any] = None
+    message: str | None = None
+    data: Any | None = None
 
 
 # Import trading212 schemas
 from app.schemas.trading212 import (
-    UniverseBuildRequest,
-    ExchangeResponse,
-    InstrumentResponse,
-    InstrumentListResponse,
-    BuildResultResponse,
     BuildJobResponse,
     BuildProgressResponse,
+    BuildResultResponse,
     CacheStatsResponse,
+    ExchangeResponse,
+    InstrumentListResponse,
+    InstrumentResponse,
+    UniverseBuildRequest,
     UniverseStatsResponse,
 )
 
 # Import yfinance data schemas
 from app.schemas.yfinance_data import (
-    YFinanceFetchRequest,
-    YFinanceSingleFetchRequest,
-    YFinanceFetchJobResponse,
-    YFinanceFetchProgress,
-    YFinanceSingleFetchResponse,
-    TickerProfileResponse,
-    PriceHistoryResponse,
-    FinancialStatementResponse,
-    DividendResponse,
-    StockSplitResponse,
-    AnalystRecommendationResponse,
     AnalystPriceTargetResponse,
+    AnalystRecommendationResponse,
+    DividendResponse,
+    FinancialStatementResponse,
+    InsiderTransactionResponse,
     InstitutionalHolderResponse,
     MutualFundHolderResponse,
-    InsiderTransactionResponse,
+    PriceHistoryResponse,
+    StockSplitResponse,
     TickerNewsResponse,
+    TickerProfileResponse,
+    YFinanceFetchJobResponse,
+    YFinanceFetchProgress,
+    YFinanceFetchRequest,
+    YFinanceSingleFetchRequest,
+    YFinanceSingleFetchResponse,
 )
 
 # Export all schemas
 __all__ = [
-    "utc_now",
-    "MessageResponse",
-    "EchoRequest",
-    "EchoResponse",
-    "ItemBase",
-    "ItemCreate",
-    "ItemUpdate",
-    "ItemResponse",
-    "ItemListResponse",
-    "ErrorResponse",
-    "SuccessResponse",
-    "UniverseBuildRequest",
-    "ExchangeResponse",
-    "InstrumentResponse",
-    "InstrumentListResponse",
-    "BuildResultResponse",
+    "AnalystPriceTargetResponse",
+    "AnalystRecommendationResponse",
     "BuildJobResponse",
     "BuildProgressResponse",
+    "BuildResultResponse",
     "CacheStatsResponse",
+    "DividendResponse",
+    "EchoRequest",
+    "EchoResponse",
+    "ErrorResponse",
+    "ExchangeResponse",
+    "FinancialStatementResponse",
+    "InsiderTransactionResponse",
+    "InstitutionalHolderResponse",
+    "InstrumentListResponse",
+    "InstrumentResponse",
+    "ItemBase",
+    "ItemCreate",
+    "ItemListResponse",
+    "ItemResponse",
+    "ItemUpdate",
+    "MessageResponse",
+    "MutualFundHolderResponse",
+    "PriceHistoryResponse",
+    "StockSplitResponse",
+    "SuccessResponse",
+    "TickerNewsResponse",
+    "TickerProfileResponse",
+    "UniverseBuildRequest",
     "UniverseStatsResponse",
-    "YFinanceFetchRequest",
-    "YFinanceSingleFetchRequest",
     "YFinanceFetchJobResponse",
     "YFinanceFetchProgress",
+    "YFinanceFetchRequest",
+    "YFinanceSingleFetchRequest",
     "YFinanceSingleFetchResponse",
-    "TickerProfileResponse",
-    "PriceHistoryResponse",
-    "FinancialStatementResponse",
-    "DividendResponse",
-    "StockSplitResponse",
-    "AnalystRecommendationResponse",
-    "AnalystPriceTargetResponse",
-    "InstitutionalHolderResponse",
-    "MutualFundHolderResponse",
-    "InsiderTransactionResponse",
-    "TickerNewsResponse",
+    "utc_now",
 ]

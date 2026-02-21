@@ -7,12 +7,13 @@ rate limiter, and circuit breaker instance with the main ``YFinanceClient``.
 from __future__ import annotations
 
 import logging
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 import yfinance as yf
 
-from .protocols import CacheProtocol, CircuitBreakerProtocol, RateLimiterProtocol
 from .infrastructure import is_rate_limit_error, retry_with_backoff
+from .protocols import CacheProtocol, CircuitBreakerProtocol, RateLimiterProtocol
 
 logger = logging.getLogger(__name__)
 

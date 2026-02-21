@@ -8,6 +8,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from optimizer.exceptions import ConfigurationError
+
 _WEIGHTING_MODES = frozenset({"equal", "value"})
 
 
@@ -160,11 +162,10 @@ def build_factor_mimicking_portfolios(
         If *quantile* is outside ``(0, 0.5]`` or *weighting* is unknown.
     """
     if not (0.0 < quantile <= 0.5):
-        raise ValueError(f"quantile must be in (0, 0.5], got {quantile}")
+        raise ConfigurationError(f"quantile must be in (0, 0.5], got {quantile}")
     if weighting not in _WEIGHTING_MODES:
-        raise ValueError(
-            f"weighting must be one of {sorted(_WEIGHTING_MODES)!r}, "
-            f"got {weighting!r}"
+        raise ConfigurationError(
+            f"weighting must be one of {sorted(_WEIGHTING_MODES)!r}, got {weighting!r}"
         )
 
     common_dates = scores.index.intersection(returns.index)
@@ -243,7 +244,7 @@ def compute_quintile_spread(
         If *n_quantiles* < 2.
     """
     if n_quantiles < 2:
-        raise ValueError(f"n_quantiles must be >= 2, got {n_quantiles}")
+        raise ConfigurationError(f"n_quantiles must be >= 2, got {n_quantiles}")
 
     labels = [f"Q{i}" for i in range(1, n_quantiles + 1)]
     common_dates = scores.index.intersection(returns.index)

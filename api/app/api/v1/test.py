@@ -1,20 +1,19 @@
 """Test endpoints for API demonstration"""
 
-from typing import Dict
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
 
 from app.schemas import (
-    utc_now,
-    MessageResponse,
     EchoRequest,
     EchoResponse,
     ItemCreate,
-    ItemUpdate,
-    ItemResponse,
     ItemListResponse,
+    ItemResponse,
+    ItemUpdate,
+    MessageResponse,
     SuccessResponse,
+    utc_now,
 )
 
 router = APIRouter(prefix="/test", tags=["Test"])
@@ -24,12 +23,13 @@ router = APIRouter(prefix="/test", tags=["Test"])
 # ===========================
 
 # Simple in-memory storage for items (demo purposes)
-_items_store: Dict[str, dict] = {}
+_items_store: dict[str, dict] = {}
 
 
 # ===========================
 # Health/Echo Endpoints
 # ===========================
+
 
 @router.get("/ping", response_model=MessageResponse)
 async def ping():
@@ -53,11 +53,7 @@ async def echo_get(message: str):
     Returns:
         Echo response with the message and timestamp
     """
-    return EchoResponse(
-        echo=message,
-        received_at=utc_now(),
-        metadata=None
-    )
+    return EchoResponse(echo=message, received_at=utc_now(), metadata=None)
 
 
 @router.post("/echo", response_model=EchoResponse)
@@ -72,15 +68,14 @@ async def echo_post(request: EchoRequest):
         Echo response with the message and timestamp
     """
     return EchoResponse(
-        echo=request.message,
-        received_at=utc_now(),
-        metadata=request.metadata
+        echo=request.message, received_at=utc_now(), metadata=request.metadata
     )
 
 
 # ===========================
 # CRUD Endpoints for Items
 # ===========================
+
 
 @router.get("/items", response_model=ItemListResponse)
 async def list_items():
@@ -158,7 +153,7 @@ async def get_item(item_id: str):
     if item_id not in _items_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Item with ID '{item_id}' not found"
+            detail=f"Item with ID '{item_id}' not found",
         )
 
     item = _items_store[item_id]
@@ -191,7 +186,7 @@ async def update_item(item_id: str, item_update: ItemUpdate):
     if item_id not in _items_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Item with ID '{item_id}' not found"
+            detail=f"Item with ID '{item_id}' not found",
         )
 
     item = _items_store[item_id]
@@ -231,12 +226,11 @@ async def delete_item(item_id: str):
     if item_id not in _items_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Item with ID '{item_id}' not found"
+            detail=f"Item with ID '{item_id}' not found",
         )
 
     del _items_store[item_id]
 
     return SuccessResponse(
-        success=True,
-        message=f"Item '{item_id}' deleted successfully"
+        success=True, message=f"Item '{item_id}' deleted successfully"
     )

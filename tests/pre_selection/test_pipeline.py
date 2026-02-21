@@ -103,9 +103,7 @@ class TestBuildPreselectionPipeline:
         pipe.set_params(outliers__winsorize_threshold=2.5)
         assert pipe.named_steps["outliers"].winsorize_threshold == 2.5
 
-    def test_fit_transform_reduces_or_preserves(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_fit_transform_reduces_or_preserves(self, returns_df: pd.DataFrame) -> None:
         pipe = build_preselection_pipeline()
         out = pipe.fit_transform(returns_df)
         assert isinstance(out, pd.DataFrame)

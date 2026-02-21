@@ -110,9 +110,7 @@ class TestNegativeScoresBelowMarket:
 
         assert (neg_result < pos_result).all()
 
-    def test_deeply_negative_scores_below_capm_baseline(
-        self, betas: pd.Series
-    ) -> None:
+    def test_deeply_negative_scores_below_capm_baseline(self, betas: pd.Series) -> None:
         neg_scores = pd.DataFrame(-5.0, index=TICKERS, columns=GROUPS)
         premiums = {"market": 0.05, "value": 0.03, "momentum": 0.04, "quality": 0.02}
         rf = 0.02
@@ -151,9 +149,7 @@ class TestMissingBetasHandledGracefully:
         self, scores: pd.DataFrame, factor_premiums: dict[str, float]
     ) -> None:
         empty_betas: pd.Series = pd.Series(dtype=float)
-        result = factor_scores_to_expected_returns(
-            scores, empty_betas, factor_premiums
-        )
+        result = factor_scores_to_expected_returns(scores, empty_betas, factor_premiums)
         assert isinstance(result, pd.Series)
         assert list(result.index) == TICKERS
 

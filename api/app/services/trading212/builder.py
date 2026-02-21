@@ -1,15 +1,16 @@
 from collections import defaultdict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from app.services.trading212.config import UniverseBuilderConfig
 from app.services.trading212.protocols import (
     FilterPipeline,
     TickerMapper,
-    UniverseRepository,
     Trading212ApiClient,
+    UniverseRepository,
 )
 from app.services.trading212.ticker_mapper import YFinanceTickerMapper
 
@@ -29,8 +30,8 @@ class BuildResult:
     exchanges_saved: int = 0
     instruments_saved: int = 0
     total_processed: int = 0
-    filter_stats: Dict[str, Dict[str, int]] = field(default_factory=dict)
-    errors: List[str] = field(default_factory=list)
+    filter_stats: dict[str, dict[str, int]] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
 
 
 # Type alias for progress callback
@@ -47,15 +48,15 @@ class UniverseBuilder:
     max_workers: int = 20
     batch_size: int = 50
     skip_filters: bool = False
-    only_exchanges: Optional[List[str]] = None
-    progress_callback: Optional[ProgressCallback] = None
-    _schedule_to_exchange: Dict[int, Dict[str, Any]] = field(
+    only_exchanges: list[str] | None = None
+    progress_callback: ProgressCallback | None = None
+    _schedule_to_exchange: dict[int, dict[str, Any]] = field(
         default_factory=dict, init=False
     )
-    _instruments_by_schedule: Dict[int, List[Dict[str, Any]]] = field(
+    _instruments_by_schedule: dict[int, list[dict[str, Any]]] = field(
         default_factory=lambda: defaultdict(list), init=False
     )
-    _errors: List[str] = field(default_factory=list, init=False)
+    _errors: list[str] = field(default_factory=list, init=False)
 
     def build(self) -> BuildResult:
         self._errors = []
@@ -86,19 +87,19 @@ class UniverseBuilder:
             errors=self._errors.copy(),
         )
 
-    def fetch_metadata(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    def fetch_metadata(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         exchanges = self.api_client.get_exchanges()
         instruments = self.api_client.get_instruments()
         return exchanges, instruments
 
     def get_exchange_stocks(
-        self, exchanges: List[Dict[str, Any]], instruments: List[Dict[str, Any]]
-    ) -> List[Tuple[Dict[str, Any], List[Dict[str, Any]]]]:
+        self, exchanges: list[dict[str, Any]], instruments: list[dict[str, Any]]
+    ) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
         self._build_schedule_mappings(exchanges, instruments)
         return self._prepare_exchange_stocks(exchanges)
 
     def _build_schedule_mappings(
-        self, exchanges: List[Dict[str, Any]], instruments: List[Dict[str, Any]]
+        self, exchanges: list[dict[str, Any]], instruments: list[dict[str, Any]]
     ) -> None:
         self._schedule_to_exchange = {}
         for ex in exchanges:
@@ -112,8 +113,8 @@ class UniverseBuilder:
                 self._instruments_by_schedule[schedule_id].append(inst)
 
     def _prepare_exchange_stocks(
-        self, exchanges: List[Dict[str, Any]]
-    ) -> List[Tuple[Dict[str, Any], List[Dict[str, Any]]]]:
+        self, exchanges: list[dict[str, Any]]
+    ) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
         allowed_exchanges = self.config.get_allowed_exchanges()
         exchange_stocks = []
 
@@ -135,7 +136,9 @@ class UniverseBuilder:
             all_exchange_instruments = []
             for schedule in ex.get("workingSchedules", []):
                 schedule_id = schedule["id"]
-                schedule_instruments = self._instruments_by_schedule.get(schedule_id, [])
+                schedule_instruments = self._instruments_by_schedule.get(
+                    schedule_id, []
+                )
                 all_exchange_instruments.extend(schedule_instruments)
 
             # Filter: only STOCK type
@@ -147,9 +150,9 @@ class UniverseBuilder:
 
     def _process_exchanges(
         self,
-        exchange_stocks: List[Tuple[Dict[str, Any], List[Dict[str, Any]]]],
+        exchange_stocks: list[tuple[dict[str, Any], list[dict[str, Any]]]],
         total_stocks: int,
-    ) -> Tuple[int, int, int]:
+    ) -> tuple[int, int, int]:
         total_exchanges_saved = 0
         total_instruments_saved = 0
         total_processed = 0
@@ -160,7 +163,7 @@ class UniverseBuilder:
             total_exchanges_saved += 1
 
             # Snapshot active tickers before processing (for delisting detection)
-            tickers_before: Set[str] = set()
+            tickers_before: set[str] = set()
             if hasattr(self.repository, "get_active_tickers"):
                 tickers_before = self.repository.get_active_tickers(exchange_dto.id)
 
@@ -171,7 +174,7 @@ class UniverseBuilder:
             total_processed += len(instruments)
 
             # Save in batches
-            tickers_saved: Set[str] = set()
+            tickers_saved: set[str] = set()
             if processed:
                 saved = self.repository.save_instruments_batch(
                     processed, exchange_dto.id
@@ -188,8 +191,8 @@ class UniverseBuilder:
 
     def _mark_delisted_instruments(
         self,
-        tickers_before: Set[str],
-        tickers_seen: Set[str],
+        tickers_before: set[str],
+        tickers_seen: set[str],
         exchange_id: Any,
     ) -> None:
         """Mark instruments that were active but absent from the latest T212 response."""
@@ -209,17 +212,18 @@ class UniverseBuilder:
             )
             if marked:
                 import logging as _logging
+
                 _logging.getLogger(__name__).info(
                     "Marked instrument %s as delisted on %s", ticker, today
                 )
 
     def _process_instruments(
         self,
-        instruments: List[Dict[str, Any]],
+        instruments: list[dict[str, Any]],
         exchange_name: str,
         total_stocks: int,
         current_offset: int,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         processed = []
         local_count = 0
 
@@ -270,8 +274,8 @@ class UniverseBuilder:
         return processed
 
     def _process_single_instrument(
-        self, instrument: Dict[str, Any], exchange_name: str
-    ) -> Tuple[Optional[Dict[str, Any]], str, str]:
+        self, instrument: dict[str, Any], exchange_name: str
+    ) -> tuple[dict[str, Any] | None, str, str]:
         try:
             short_name = instrument.get("shortName", "unknown")
 
@@ -316,7 +320,7 @@ class UniverseBuilder:
         except Exception as e:
             return None, "error", str(e)
 
-    def _fetch_filter_data(self, yf_ticker: str) -> Optional[Dict[str, Any]]:
+    def _fetch_filter_data(self, yf_ticker: str) -> dict[str, Any] | None:
         if isinstance(self.ticker_mapper, YFinanceTickerMapper):
             return self.ticker_mapper.fetch_basic_data(yf_ticker)
 
@@ -325,5 +329,5 @@ class UniverseBuilder:
         client = YFinanceClient.get_instance()
         return client.fetch_info(yf_ticker)
 
-    def get_filter_stats(self) -> Dict[str, Dict[str, int]]:
+    def get_filter_stats(self) -> dict[str, dict[str, int]]:
         return self.filter_pipeline.get_summary()

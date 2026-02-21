@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.rebalancing._rebalancer import compute_turnover
 
 
@@ -144,7 +145,7 @@ def build_factor_exposure_constraints(
         for k, name in enumerate(factor_names):
             if name not in bounds:
                 msg = f"Factor '{name}' has no entry in bounds dict."
-                raise KeyError(msg)
+                raise ConfigurationError(msg)
             lb, ub = bounds[name]
             lower_arr[k] = lb
             upper_arr[k] = ub

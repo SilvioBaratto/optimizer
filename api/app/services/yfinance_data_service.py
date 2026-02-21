@@ -1,12 +1,11 @@
 """Service layer orchestrating yfinance data fetching and storage."""
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
-import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.repositories.yfinance_repository import YFinanceRepository
@@ -39,7 +38,7 @@ DEFAULT_THRESHOLDS = StalenessThresholds()
 
 
 def _is_fresh(
-    updated_at: Optional[datetime],
+    updated_at: datetime | None,
     threshold_hours: int,
     now: datetime,
 ) -> bool:
@@ -68,9 +67,9 @@ class YFinanceDataService:
         yfinance_ticker: str,
         period: str = "5y",
         mode: str = "incremental",
-        thresholds: Optional[StalenessThresholds] = None,
-        exchange_name: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        thresholds: StalenessThresholds | None = None,
+        exchange_name: str | None = None,
+    ) -> dict[str, Any]:
         """Fetch all data categories for a single ticker and store.
 
         Args:
@@ -84,22 +83,23 @@ class YFinanceDataService:
 
         Returns dict with counts per category, list of errors, and skipped categories.
         """
-        counts: Dict[str, int] = {}
-        errors: List[str] = []
-        skipped: List[str] = []
+        counts: dict[str, int] = {}
+        errors: list[str] = []
+        skipped: list[str] = []
 
         if thresholds is None:
             thresholds = DEFAULT_THRESHOLDS
 
         # In incremental mode, query staleness info once upfront
-        staleness: Optional[Dict[str, Any]] = None
+        staleness: dict[str, Any] | None = None
         if mode == "incremental":
             try:
                 staleness = self.repo.get_staleness_info(instrument_id)
             except Exception as e:
                 logger.warning(
                     "Staleness query failed for %s, falling back to full fetch: %s",
-                    yfinance_ticker, e,
+                    yfinance_ticker,
+                    e,
                 )
                 staleness = None
 
@@ -111,7 +111,9 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(staleness.get("profile_updated_at"), thresholds.profile_hours, now)
+            and _is_fresh(
+                staleness.get("profile_updated_at"), thresholds.profile_hours, now
+            )
         ):
             skipped.append("profile")
         else:
@@ -165,8 +167,12 @@ class YFinanceDataService:
                         logger.info(
                             "Skipping price storage for %s: got %d rows, "
                             "expected ~%d (min %d) for %s on %s",
-                            yfinance_ticker, len(history),
-                            expected, minimum, period, exchange_name,
+                            yfinance_ticker,
+                            len(history),
+                            expected,
+                            minimum,
+                            period,
+                            exchange_name,
                         )
                         counts["prices"] = 0
                         skipped.append("prices:insufficient_history")
@@ -186,17 +192,35 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(staleness.get("financials_updated_at"), thresholds.financials_hours, now)
+            and _is_fresh(
+                staleness.get("financials_updated_at"), thresholds.financials_hours, now
+            )
         ):
             skipped.append("financials")
         else:
             try:
                 fs_count = 0
                 for stmt_type, fetch_method, quarterly_flag in [
-                    ("income_statement", self.yf_client.financials.fetch_income_stmt, False),
-                    ("income_statement", self.yf_client.financials.fetch_income_stmt, True),
-                    ("balance_sheet", self.yf_client.financials.fetch_balance_sheet, False),
-                    ("balance_sheet", self.yf_client.financials.fetch_balance_sheet, True),
+                    (
+                        "income_statement",
+                        self.yf_client.financials.fetch_income_stmt,
+                        False,
+                    ),
+                    (
+                        "income_statement",
+                        self.yf_client.financials.fetch_income_stmt,
+                        True,
+                    ),
+                    (
+                        "balance_sheet",
+                        self.yf_client.financials.fetch_balance_sheet,
+                        False,
+                    ),
+                    (
+                        "balance_sheet",
+                        self.yf_client.financials.fetch_balance_sheet,
+                        True,
+                    ),
                     ("cashflow", self.yf_client.financials.fetch_cashflow, False),
                     ("cashflow", self.yf_client.financials.fetch_cashflow, True),
                 ]:
@@ -211,7 +235,10 @@ class YFinanceDataService:
                         errors.append(f"financials.{stmt_type}.{period_type}: {e}")
                         logger.warning(
                             "Failed %s %s for %s: %s",
-                            stmt_type, period_type, yfinance_ticker, e,
+                            stmt_type,
+                            period_type,
+                            yfinance_ticker,
+                            e,
                         )
 
                 # Earnings (annual + quarterly)
@@ -229,7 +256,9 @@ class YFinanceDataService:
                         errors.append(f"financials.earnings.{period_type}: {e}")
                         logger.warning(
                             "Failed earnings %s for %s: %s",
-                            period_type, yfinance_ticker, e,
+                            period_type,
+                            yfinance_ticker,
+                            e,
                         )
 
                 counts["financials"] = fs_count
@@ -241,12 +270,16 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(staleness.get("dividends_updated_at"), thresholds.dividends_hours, now)
+            and _is_fresh(
+                staleness.get("dividends_updated_at"), thresholds.dividends_hours, now
+            )
         ):
             skipped.append("dividends")
         else:
             try:
-                dividends = self.yf_client.corporate_actions.fetch_dividends(yfinance_ticker)
+                dividends = self.yf_client.corporate_actions.fetch_dividends(
+                    yfinance_ticker
+                )
                 if dividends is not None and not dividends.empty:
                     counts["dividends"] = self.repo.upsert_dividends(
                         instrument_id, dividends
@@ -261,7 +294,9 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(staleness.get("splits_updated_at"), thresholds.splits_hours, now)
+            and _is_fresh(
+                staleness.get("splits_updated_at"), thresholds.splits_hours, now
+            )
         ):
             skipped.append("splits")
         else:
@@ -279,12 +314,18 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(staleness.get("recommendations_updated_at"), thresholds.recommendations_hours, now)
+            and _is_fresh(
+                staleness.get("recommendations_updated_at"),
+                thresholds.recommendations_hours,
+                now,
+            )
         ):
             skipped.append("recommendations")
         else:
             try:
-                rec_df = self.yf_client.analysis.fetch_recommendations_summary(yfinance_ticker)
+                rec_df = self.yf_client.analysis.fetch_recommendations_summary(
+                    yfinance_ticker
+                )
                 if rec_df is not None and not rec_df.empty:
                     counts["recommendations"] = self.repo.upsert_recommendations(
                         instrument_id, rec_df
@@ -299,12 +340,18 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(staleness.get("price_targets_updated_at"), thresholds.price_targets_hours, now)
+            and _is_fresh(
+                staleness.get("price_targets_updated_at"),
+                thresholds.price_targets_hours,
+                now,
+            )
         ):
             skipped.append("price_targets")
         else:
             try:
-                targets = self.yf_client.analysis.fetch_analyst_price_targets(yfinance_ticker)
+                targets = self.yf_client.analysis.fetch_analyst_price_targets(
+                    yfinance_ticker
+                )
                 if targets:
                     counts["price_targets"] = self.repo.upsert_price_targets(
                         instrument_id, targets
@@ -319,15 +366,21 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(staleness.get("institutional_holders_updated_at"), thresholds.institutional_holders_hours, now)
+            and _is_fresh(
+                staleness.get("institutional_holders_updated_at"),
+                thresholds.institutional_holders_hours,
+                now,
+            )
         ):
             skipped.append("institutional_holders")
         else:
             try:
-                inst_df = self.yf_client.holders.fetch_institutional_holders(yfinance_ticker)
+                inst_df = self.yf_client.holders.fetch_institutional_holders(
+                    yfinance_ticker
+                )
                 if inst_df is not None and not inst_df.empty:
-                    counts["institutional_holders"] = self.repo.upsert_institutional_holders(
-                        instrument_id, inst_df
+                    counts["institutional_holders"] = (
+                        self.repo.upsert_institutional_holders(instrument_id, inst_df)
                     )
                 else:
                     counts["institutional_holders"] = 0
@@ -341,7 +394,11 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(staleness.get("mutualfund_holders_updated_at"), thresholds.mutualfund_holders_hours, now)
+            and _is_fresh(
+                staleness.get("mutualfund_holders_updated_at"),
+                thresholds.mutualfund_holders_hours,
+                now,
+            )
         ):
             skipped.append("mutualfund_holders")
         else:
@@ -355,21 +412,31 @@ class YFinanceDataService:
                     counts["mutualfund_holders"] = 0
             except Exception as e:
                 errors.append(f"mutualfund_holders: {e}")
-                logger.warning("Failed mutual fund holders for %s: %s", yfinance_ticker, e)
+                logger.warning(
+                    "Failed mutual fund holders for %s: %s", yfinance_ticker, e
+                )
 
         # 10. Insider transactions
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(staleness.get("insider_transactions_updated_at"), thresholds.insider_transactions_hours, now)
+            and _is_fresh(
+                staleness.get("insider_transactions_updated_at"),
+                thresholds.insider_transactions_hours,
+                now,
+            )
         ):
             skipped.append("insider_transactions")
         else:
             try:
-                insiders_df = self.yf_client.holders.fetch_insider_transactions(yfinance_ticker)
+                insiders_df = self.yf_client.holders.fetch_insider_transactions(
+                    yfinance_ticker
+                )
                 if insiders_df is not None and not insiders_df.empty:
-                    counts["insider_transactions"] = self.repo.upsert_insider_transactions(
-                        instrument_id, insiders_df
+                    counts["insider_transactions"] = (
+                        self.repo.upsert_insider_transactions(
+                            instrument_id, insiders_df
+                        )
                     )
                 else:
                     counts["insider_transactions"] = 0

@@ -34,9 +34,7 @@ class LRUCache:
 
     def put(self, key: str, value: Any, ttl: float | None = None) -> None:
         effective_ttl = ttl if ttl is not None else self._default_ttl
-        expiry = (
-            time.monotonic() + effective_ttl if effective_ttl is not None else None
-        )
+        expiry = time.monotonic() + effective_ttl if effective_ttl is not None else None
 
         with self._lock:
             if key in self._cache:

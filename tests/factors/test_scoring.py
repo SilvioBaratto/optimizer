@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
     CompositeScoringConfig,
     compute_composite_score,
@@ -26,8 +27,10 @@ def standardized_factors() -> pd.DataFrame:
         rng.normal(0, 1, (20, 8)),
         index=tickers,
         columns=[
-            "book_to_price", "earnings_yield",  # value
-            "gross_profitability", "roe",  # profitability
+            "book_to_price",
+            "earnings_yield",  # value
+            "gross_profitability",
+            "roe",  # profitability
             "asset_growth",  # investment
             "momentum_12_1",  # momentum
             "volatility",  # low_risk
@@ -110,7 +113,7 @@ class TestComputeCompositeScore:
         self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
     ) -> None:
         config = CompositeScoringConfig.for_ic_weighted()
-        with pytest.raises(ValueError, match="ic_history required"):
+        with pytest.raises(ConfigurationError, match="ic_history required"):
             compute_composite_score(standardized_factors, coverage, config=config)
 
     def test_ic_weighted_with_history(
@@ -132,7 +135,7 @@ class TestComputeCompositeScore:
         self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
     ) -> None:
         config = CompositeScoringConfig.for_icir_weighted()
-        with pytest.raises(ValueError, match="ic_history required"):
+        with pytest.raises(ConfigurationError, match="ic_history required"):
             compute_composite_score(standardized_factors, coverage, config=config)
 
     def test_icir_weighted_with_history(
@@ -199,8 +202,7 @@ class TestICIRWeightedComposite:
     ) -> None:
         group_scores = compute_group_scores(standardized_factors, coverage)
         ic_per_group = {
-            col: self._make_ic_series(0.05, 0.02)
-            for col in group_scores.columns
+            col: self._make_ic_series(0.05, 0.02) for col in group_scores.columns
         }
         result = compute_icir_weighted_composite(group_scores, ic_per_group)
         assert isinstance(result, pd.Series)
@@ -233,9 +235,7 @@ class TestICIRWeightedComposite:
         groups = list(group_scores.columns)
 
         # Set "value" group to score = 1.0; all others = 0.0
-        controlled_scores = pd.DataFrame(
-            0.0, index=group_scores.index, columns=groups
-        )
+        controlled_scores = pd.DataFrame(0.0, index=group_scores.index, columns=groups)
         if "value" in controlled_scores.columns:
             controlled_scores["value"] = 1.0
 
@@ -260,9 +260,7 @@ class TestICIRWeightedComposite:
         groups = list(group_scores.columns)
 
         # "value": score = +1; "momentum": score = -1; others = 0
-        controlled = pd.DataFrame(
-            0.0, index=group_scores.index, columns=groups
-        )
+        controlled = pd.DataFrame(0.0, index=group_scores.index, columns=groups)
         if "value" in controlled.columns:
             controlled["value"] = 1.0
         if "momentum" in controlled.columns:
@@ -272,14 +270,10 @@ class TestICIRWeightedComposite:
         for col in groups:
             if col == "value":
                 # low mean IC, very stable → high ICIR
-                ic_per_group[col] = self._make_ic_series(
-                    mean=0.03, std=0.001, seed=1
-                )
+                ic_per_group[col] = self._make_ic_series(mean=0.03, std=0.001, seed=1)
             elif col == "momentum":
                 # high mean IC, very volatile → low ICIR
-                ic_per_group[col] = self._make_ic_series(
-                    mean=0.15, std=0.50, seed=2
-                )
+                ic_per_group[col] = self._make_ic_series(mean=0.15, std=0.50, seed=2)
             else:
                 ic_per_group[col] = pd.Series([0.0] * 36)
 
@@ -306,9 +300,7 @@ class TestICIRWeightedComposite:
     ) -> None:
         """Falls back to equal weight when all groups have ICIR = 0."""
         group_scores = compute_group_scores(standardized_factors, coverage)
-        ic_per_group = {
-            col: pd.Series([0.0] * 36) for col in group_scores.columns
-        }
+        ic_per_group = {col: pd.Series([0.0] * 36) for col in group_scores.columns}
         icir_result = compute_icir_weighted_composite(group_scores, ic_per_group)
         equal_result = compute_equal_weight_composite(group_scores)
         pd.testing.assert_series_equal(icir_result, equal_result)

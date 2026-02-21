@@ -25,6 +25,7 @@ import pandas as pd
 import pytest
 from skfolio.optimization import EqualWeighted
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.optimization import RatioMeasureType
 from optimizer.scoring import ScorerConfig, build_scorer
 from optimizer.scoring._factory import _build_ir_scorer
@@ -101,17 +102,15 @@ class TestBuildScorerIR:
 
     def test_missing_benchmark_raises_value_error(self) -> None:
         cfg = ScorerConfig.for_information_ratio()
-        with pytest.raises(ValueError, match="benchmark_returns is required"):
+        with pytest.raises(ConfigurationError, match="benchmark_returns is required"):
             build_scorer(cfg)
 
     def test_missing_benchmark_none_raises_value_error(self) -> None:
         cfg = ScorerConfig.for_information_ratio()
-        with pytest.raises(ValueError, match="benchmark_returns is required"):
+        with pytest.raises(ConfigurationError, match="benchmark_returns is required"):
             build_scorer(cfg, benchmark_returns=None)
 
-    def test_ir_scorer_with_direct_config(
-        self, benchmark_returns: pd.Series
-    ) -> None:
+    def test_ir_scorer_with_direct_config(self, benchmark_returns: pd.Series) -> None:
         cfg = ScorerConfig(ratio_measure=RatioMeasureType.INFORMATION_RATIO)
         scorer = build_scorer(cfg, benchmark_returns=benchmark_returns)
         assert callable(scorer)
@@ -175,13 +174,9 @@ class TestIRScoreRanking:
         base_data = rng.normal(0.0, 0.01, (N_OBS, N_ASSETS))
 
         # Dataset A: mean return 0.001 per asset vs zero benchmark
-        returns_a = pd.DataFrame(
-            base_data + 0.001, index=DATES, columns=TICKERS
-        )
+        returns_a = pd.DataFrame(base_data + 0.001, index=DATES, columns=TICKERS)
         # Dataset B: mean return 0.0005 per asset vs zero benchmark
-        returns_b = pd.DataFrame(
-            base_data + 0.0005, index=DATES, columns=TICKERS
-        )
+        returns_b = pd.DataFrame(base_data + 0.0005, index=DATES, columns=TICKERS)
         bm = pd.Series(np.zeros(N_OBS), index=DATES)
 
         cfg = ScorerConfig.for_information_ratio()

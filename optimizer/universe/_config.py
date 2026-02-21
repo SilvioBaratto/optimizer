@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+
+from optimizer.exceptions import ConfigurationError
 
 
 class ExchangeRegion(str, Enum):
@@ -34,10 +36,8 @@ class HysteresisConfig:
 
     def __post_init__(self) -> None:
         if self.exit_ > self.entry:
-            msg = (
-                f"exit_ ({self.exit_}) must be <= entry ({self.entry})"
-            )
-            raise ValueError(msg)
+            msg = f"exit_ ({self.exit_}) must be <= entry ({self.entry})"
+            raise ConfigurationError(msg)
 
 
 @dataclass(frozen=True)
@@ -86,20 +86,24 @@ class InvestabilityScreenConfig:
         to the 7.5th percentile (0.075).
     """
 
-    market_cap: HysteresisConfig = HysteresisConfig(
-        entry=200_000_000, exit_=150_000_000
+    market_cap: HysteresisConfig = field(
+        default_factory=lambda: HysteresisConfig(entry=200_000_000, exit_=150_000_000)
     )
-    addv_12m: HysteresisConfig = HysteresisConfig(
-        entry=750_000, exit_=500_000
+    addv_12m: HysteresisConfig = field(
+        default_factory=lambda: HysteresisConfig(entry=750_000, exit_=500_000)
     )
-    addv_3m: HysteresisConfig = HysteresisConfig(
-        entry=500_000, exit_=350_000
+    addv_3m: HysteresisConfig = field(
+        default_factory=lambda: HysteresisConfig(entry=500_000, exit_=350_000)
     )
-    trading_frequency: HysteresisConfig = HysteresisConfig(
-        entry=0.95, exit_=0.90
+    trading_frequency: HysteresisConfig = field(
+        default_factory=lambda: HysteresisConfig(entry=0.95, exit_=0.90)
     )
-    price_us: HysteresisConfig = HysteresisConfig(entry=3.0, exit_=2.0)
-    price_europe: HysteresisConfig = HysteresisConfig(entry=2.0, exit_=1.5)
+    price_us: HysteresisConfig = field(
+        default_factory=lambda: HysteresisConfig(entry=3.0, exit_=2.0)
+    )
+    price_europe: HysteresisConfig = field(
+        default_factory=lambda: HysteresisConfig(entry=2.0, exit_=1.5)
+    )
     min_trading_history: int = 252
     min_ipo_seasoning: int = 60
     min_annual_reports: int = 3
@@ -115,7 +119,7 @@ class InvestabilityScreenConfig:
                 f"<= mcap_percentile_entry ({self.mcap_percentile_entry}) "
                 f"and both must be in [0, 1]"
             )
-            raise ValueError(msg)
+            raise ConfigurationError(msg)
 
     @classmethod
     def for_developed_markets(cls) -> InvestabilityScreenConfig:

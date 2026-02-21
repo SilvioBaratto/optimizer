@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.factors import QuintileSpreadResult, compute_quintile_spread
 
 N_DATES = 60
@@ -268,7 +269,7 @@ class TestEdgeCases:
     def test_invalid_n_quantiles_raises(
         self, scores: pd.DataFrame, returns: pd.DataFrame
     ) -> None:
-        with pytest.raises(ValueError, match="n_quantiles"):
+        with pytest.raises(ConfigurationError, match="n_quantiles"):
             compute_quintile_spread(scores, returns, n_quantiles=1)
 
     def test_partial_date_overlap(

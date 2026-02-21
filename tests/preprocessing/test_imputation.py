@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from sklearn.utils.validation import check_is_fitted
 
+from optimizer.exceptions import DataError
 from optimizer.preprocessing import SectorImputer
 
 
@@ -49,18 +50,14 @@ class TestSectorImputer:
     def test_no_nan_after_transform(
         self, sector_df: pd.DataFrame, sector_mapping: dict[str, str]
     ) -> None:
-        out = SectorImputer(sector_mapping=sector_mapping).fit_transform(
-            sector_df
-        )
+        out = SectorImputer(sector_mapping=sector_mapping).fit_transform(sector_df)
         assert not out.isna().any().any()
 
     def test_sector_average_used(
         self, sector_df: pd.DataFrame, sector_mapping: dict[str, str]
     ) -> None:
         """AAPL is NaN at row 1; MSFT=0.04, GOOG=0.02 → sector avg = 0.03."""
-        out = SectorImputer(sector_mapping=sector_mapping).fit_transform(
-            sector_df
-        )
+        out = SectorImputer(sector_mapping=sector_mapping).fit_transform(sector_df)
         # Leave-one-out: AAPL NaN at idx 1 → mean of MSFT(0.04), GOOG(0.02) = 0.03
         assert out.loc[out.index[1], "AAPL"] == pytest.approx(0.03)
 
@@ -68,32 +65,24 @@ class TestSectorImputer:
         self, sector_df: pd.DataFrame, sector_mapping: dict[str, str]
     ) -> None:
         """JPM is NaN at row 0; GS=0.02 → sector avg = 0.02."""
-        out = SectorImputer(sector_mapping=sector_mapping).fit_transform(
-            sector_df
-        )
+        out = SectorImputer(sector_mapping=sector_mapping).fit_transform(sector_df)
         assert out.loc[out.index[0], "JPM"] == pytest.approx(0.02)
 
-    def test_no_mapping_uses_global_mean(
-        self, sector_df: pd.DataFrame
-    ) -> None:
+    def test_no_mapping_uses_global_mean(self, sector_df: pd.DataFrame) -> None:
         out = SectorImputer(sector_mapping=None).fit_transform(sector_df)
         assert not out.isna().any().any()
 
     def test_non_nan_values_preserved(
         self, sector_df: pd.DataFrame, sector_mapping: dict[str, str]
     ) -> None:
-        out = SectorImputer(sector_mapping=sector_mapping).fit_transform(
-            sector_df
-        )
+        out = SectorImputer(sector_mapping=sector_mapping).fit_transform(sector_df)
         assert out.loc[out.index[0], "AAPL"] == pytest.approx(0.01)
         assert out.loc[out.index[0], "GS"] == pytest.approx(0.02)
 
     def test_returns_dataframe(
         self, sector_df: pd.DataFrame, sector_mapping: dict[str, str]
     ) -> None:
-        out = SectorImputer(sector_mapping=sector_mapping).fit_transform(
-            sector_df
-        )
+        out = SectorImputer(sector_mapping=sector_mapping).fit_transform(sector_df)
         assert isinstance(out, pd.DataFrame)
         assert list(out.columns) == ["AAPL", "MSFT", "GOOG", "JPM", "GS"]
 
@@ -103,12 +92,10 @@ class TestSectorImputer:
         assert "Y" in imp.sector_groups_["__unmapped__"]
 
     def test_rejects_non_dataframe(self) -> None:
-        with pytest.raises(TypeError, match="pandas DataFrame"):
+        with pytest.raises(DataError, match="pandas DataFrame"):
             SectorImputer().fit(np.array([[1, 2]]))
 
-    def test_get_feature_names_out(
-        self, sector_df: pd.DataFrame
-    ) -> None:
+    def test_get_feature_names_out(self, sector_df: pd.DataFrame) -> None:
         imp = SectorImputer().fit(sector_df)
         expected = ["AAPL", "MSFT", "GOOG", "JPM", "GS"]
         np.testing.assert_array_equal(imp.get_feature_names_out(), expected)

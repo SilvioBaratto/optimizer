@@ -5,19 +5,17 @@ Pytest Configuration and Shared Fixtures
 This module provides shared fixtures for testing the FastAPI application.
 """
 
-import pytest
-from typing import AsyncGenerator, Generator
+from collections.abc import Generator
 from unittest.mock import MagicMock
 
+import pytest
+from app.database import get_db
+from app.main import app
+from app.models.base import Base
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from app.main import app
-from app.database import get_db
-from app.models.base import Base
-
 
 # Test database URL - use SQLite for fast tests
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -46,9 +44,7 @@ def db_session(test_engine) -> Generator[Session, None, None]:
     Rolls back after each test for isolation.
     """
     TestingSessionLocal = sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=test_engine
+        autocommit=False, autoflush=False, bind=test_engine
     )
     session = TestingSessionLocal()
     try:
@@ -63,6 +59,7 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
     """
     Create a test client with overridden database dependency.
     """
+
     def override_get_db():
         try:
             yield db_session

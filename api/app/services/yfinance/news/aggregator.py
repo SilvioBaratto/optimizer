@@ -31,6 +31,7 @@ _MAX_AGE_DAYS = 60
 # Private helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_article_date(pub_time: Any) -> datetime | None:
     if pub_time is None or pub_time == "N/A":
         return None
@@ -59,6 +60,7 @@ def _is_article_recent(pub_time: Any, max_days: int = _MAX_AGE_DAYS) -> bool:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CountryNewsFetcher:
@@ -115,7 +117,10 @@ class CountryNewsFetcher:
 
                 for article in news:
                     article_dict = self._process_article(
-                        article, ticker, seen_titles, fetch_full_content,
+                        article,
+                        ticker,
+                        seen_titles,
+                        fetch_full_content,
                     )
                     if article_dict is not None:
                         all_news.append(article_dict)

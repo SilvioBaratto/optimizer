@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.optimization import RatioMeasureType
 from optimizer.scoring import ScorerConfig, build_scorer
 
@@ -38,5 +39,5 @@ class TestBuildScorer:
 
     def test_custom_scorer_without_func_raises(self) -> None:
         cfg = ScorerConfig.for_custom()
-        with pytest.raises(ValueError, match="score_func is required"):
+        with pytest.raises(ConfigurationError, match="score_func is required"):
             build_scorer(cfg)

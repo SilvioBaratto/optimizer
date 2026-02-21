@@ -13,200 +13,172 @@ These must be loaded proactively, not on request. Any work involving financial d
 
 ## Project Overview
 
-Portfolio optimizer platform with a FastAPI backend (synchronous SQLAlchemy + PostgreSQL), a Typer CLI that talks to the API (or falls back to direct DB access), and a `skfolio`-based optimization library. The codebase is organized into three top-level packages:
+Portfolio optimizer platform with a FastAPI backend (synchronous SQLAlchemy + PostgreSQL), a Typer CLI, and a `skfolio`-based optimization library:
 
+- **`optimizer/`** — Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based)
 - **`api/`** — FastAPI application (app factory in `api/app/main.py`, runs on port 8000)
 - **`cli/`** — Typer CLI (`cli/__init__.py` creates the app, entry via `python -m cli`)
-- **`optimizer/`** — Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based)
 - **`theory/`** — LaTeX/Markdown theoretical documentation (not code)
 
 ## Build & Run Commands
 
-### Infrastructure
 ```bash
-docker compose up -d              # Start PostgreSQL (port 54320) + Adminer (port 18080)
-```
+# Infrastructure
+docker compose up -d              # PostgreSQL (port 54320) + Adminer (port 18080)
 
-### API Server
-```bash
-cd api
-pip install -r requirements.txt
+# Optimizer library (root)
+pip install -e ".[dev]"           # Install optimizer + dev deps (what CI uses)
+pytest tests/ -v                  # All optimizer tests
+pytest tests/rebalancing/ -v      # Single module tests
+pytest -k "test_name"             # Single test by name
+ruff check optimizer/ tests/      # Lint (CI step)
+ruff check . --fix                # Lint + auto-fix
+mypy optimizer/                   # Type check strict mode (CI step)
+
+# API
+cd api && pip install -r requirements.txt
 alembic upgrade head              # Run migrations
 uvicorn app.main:app --reload     # Start dev server on :8000
-```
+cd api && pytest                  # API tests
 
-### CLI
-```bash
-pip install -r requirements.txt   # Root requirements
+# CLI
 python -m cli --help              # Show all commands
 python -m cli db health           # Check DB connectivity
-python -m cli universe stats      # Universe statistics
-python -m cli yfinance fetch      # Bulk fetch yfinance data
-python -m cli macro fetch         # Fetch macro data
+
+# BAML (regenerate after editing api/baml_src/)
+cd api && baml-cli generate
 ```
 
-### Tests
-```bash
-# Optimizer library tests (root)
-pytest tests/ -v                  # All optimizer library tests
+## CI Pipeline
 
-# API tests
-cd api
-pytest                            # Run all tests
-pytest tests/unit/                # Unit tests only
-pytest tests/integration/         # Integration tests only
-pytest tests/e2e/                 # E2E tests only
-pytest -k "test_name"             # Run single test by name
-pytest -m slow                    # Run only slow-marked tests
+`.github/workflows/ci.yml` — triggers on push/PR to `main`, runs on Ubuntu with Python 3.12:
 ```
-
-### Linting & Type Checking (root optimizer package)
-```bash
-ruff check .                      # Lint
-ruff check . --fix                # Lint + auto-fix
-mypy .                            # Type check (strict mode)
+pip install -e ".[dev]"    →    ruff check optimizer/ tests/    →    mypy optimizer/    →    pytest tests/ -v --tb=short
 ```
-
-### Database Migrations
-```bash
-cd api
-alembic revision --autogenerate -m "description"   # Create migration
-alembic upgrade head                                # Apply all
-alembic downgrade -1                                # Rollback one
-```
-
-### BAML Client (regenerate after editing `api/baml_src/`)
-```bash
-cd api
-baml-cli generate
-```
+**Important**: CI installs via `pyproject.toml` (not `requirements.txt`). Any new dependency must be added to **both** `pyproject.toml` `[project.dependencies]` and `requirements.txt`.
 
 ## Architecture
 
+### Optimizer Library (`optimizer/`)
+
+Every module follows the same pattern: **frozen `@dataclass` config** + **factory function** + **`str, Enum` types**. Configs hold only primitives/enums/nested frozen dataclasses (serialisable). Non-serialisable objects (estimator instances, numpy arrays, callables) are passed as factory `**kwargs`. This boundary is strict and consistent across all modules.
+
+All transformers follow the sklearn `BaseEstimator + TransformerMixin` API and compose in `sklearn.pipeline.Pipeline`. The pipeline flattens pre-selection + optimiser steps so `get_params()` exposes all nested parameters (e.g. `"optimizer__l2_coef"`, `"drop_correlated__threshold"`).
+
+#### Pipeline flow
+
+```
+prices → preprocessing → pre_selection → moments → views →
+optimization → validation → tuning → rebalancing → pipeline
+```
+
+Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`
+
+#### Module details
+
+- **`preprocessing/`** — sklearn transformers for return data cleaning:
+  - `DataValidator` — replaces `inf` and extreme returns with `NaN`
+  - `OutlierTreater` — three-group z-score methodology (remove / winsorize / keep)
+  - `SectorImputer` — leave-one-out sector-average NaN imputation
+  - `RegressionImputer` — OLS regression from top-K correlated assets (`n_neighbors=5`, `min_train_periods=60`); cold-start assets and rows with missing neighbors fall back to `SectorImputer`
+
+- **`pre_selection/`** — `PreSelectionConfig` + `build_preselection_pipeline()` factory assembling sklearn `Pipeline` from config (composes custom transformers with skfolio selectors: `SelectComplete`, `DropZeroVariance`, `DropCorrelated`, `SelectKExtremes`, `SelectNonDominated`, `SelectNonExpiring`)
+
+- **`moments/`** — Moment estimation and prior construction:
+  - `MomentEstimationConfig` — selects mu/cov estimators; presets: `for_equilibrium_ledoitwolf`, `for_shrunk_denoised`, `for_adaptive`
+  - `build_mu_estimator()` — maps `MuEstimatorType` to skfolio `BaseMu` instances
+  - `build_cov_estimator()` — maps `CovEstimatorType` to skfolio `BaseCovariance` instances
+  - `build_prior()` — composes mu + cov into `EmpiricalPrior`, optionally wrapping in `FactorModel`
+  - `HMMConfig` / `HMMResult` / `fit_hmm()` — Gaussian HMM via `hmmlearn` Baum-Welch EM
+  - `HMMBlendedMu` / `HMMBlendedCovariance` — skfolio-compatible estimators using regime-probability-weighted blending. **Gotcha**: `HMMBlendedCovariance` uses full law of total variance (includes cross-state mean dispersion), while `blend_moments_by_regime()` does not — use the class for optimizer inputs
+  - `DMMConfig` / `fit_dmm()` / `blend_moments_dmm()` — Deep Markov Model via Pyro SVI. **Optional**: requires `torch`+`pyro` which are NOT in `pyproject.toml`; produces **diagonal covariance only**
+  - `apply_lognormal_correction()` / `scale_moments_to_horizon()` — multi-period variance scaling. **Gotcha**: inputs are log-return parameters, output is simple-return space (`E[R_T] = exp(...) - 1`)
+
+- **`views/`** — View integration frameworks:
+  - `BlackLittermanConfig` / `build_black_litterman()` — presets: `for_equilibrium`, `for_factor_model`. When inside `FactorModel`, views must reference factor names (e.g. `MTUM`, `QUAL`), not asset names
+  - `EntropyPoolingConfig` / `build_entropy_pooling()` — supports mean/variance/correlation/skew/kurtosis/cvar views. Correlation views use format `(ASSET1, ASSET2) == value`
+  - `OpinionPoolingConfig` / `build_opinion_pooling()` — expert estimators passed as factory kwarg (not stored in config)
+  - `calibrate_omega_from_track_record(view_history, return_history)` — empirical diagonal Ω matrix from forecast error variance; requires ≥5 aligned observations
+
+- **`optimization/`** — Portfolio optimization models:
+  - `MeanRiskConfig` + 9 other config types — convex, hierarchical, ensemble optimisers with presets
+  - `build_mean_risk()`, `build_risk_budgeting()`, `build_hrp()`, `build_herc()`, `build_nco()`, `build_max_diversification()`, `build_benchmark_tracker()`, `build_equal_weighted()`, `build_inverse_volatility()`, `build_stacking()`
+  - `RobustConfig` / `build_robust_mean_risk()` — ellipsoidal μ uncertainty via κ-scaled chi-squared confidence sets + optional bootstrap covariance uncertainty (`arch.StationaryBootstrap`). `kappa=0` recovers standard MeanRisk exactly. Presets: `for_conservative` (κ=2), `for_moderate` (κ=1), `for_aggressive` (κ=0.5), `for_bootstrap_covariance`
+  - `DRCVaRConfig` / `build_dr_cvar()` — distributionally robust CVaR over Wasserstein ball. `epsilon=0` falls back to standard empirical CVaR
+  - `RegimeRiskConfig` / `build_regime_blended_optimizer()` — HMM-driven regime-conditional risk measure selection. `build_regime_risk_budgeting()` — probability-weighted blending of per-regime budget vectors
+
+- **`synthetic/`** — Vine copula models + synthetic data generation:
+  - `VineCopulaConfig` / `SyntheticDataConfig` — presets: `for_scenario_generation`, `for_stress_test`
+  - Stress testing: pass `sample_args={"conditioning": {"TICKER": value}}` to `build_synthetic_data()`
+
+- **`validation/`** — Cross-validation:
+  - `WalkForwardConfig`, `CPCVConfig`, `MultipleRandomizedCVConfig` — temporal CV configs
+  - `run_cross_val()` — defaults to WalkForward (quarterly rolling) when no `cv` is passed
+
+- **`scoring/`** — `ScorerConfig` / `build_scorer()` — ratio measures for model selection
+
+- **`tuning/`** — `GridSearchConfig` / `RandomizedSearchConfig` — temporal CV enforced by default. Use sklearn `__` notation for nested tuning (e.g. `"prior_estimator__mu_estimator__alpha"`)
+
+- **`rebalancing/`** — Calendar, threshold, and hybrid rebalancing:
+  - `CalendarRebalancingConfig` — fixed-interval rebalancing (21/63/126/252 trading days)
+  - `ThresholdRebalancingConfig` — drift-based rebalancing (absolute or relative thresholds)
+  - `HybridRebalancingConfig` — calendar-gated threshold: checks drift only at review dates, always returns `False` between reviews. Presets: `for_monthly_with_5pct_threshold`, `for_quarterly_with_10pct_threshold`
+  - `should_rebalance()` / `should_rebalance_hybrid()` — decision functions
+  - `compute_drifted_weights()`, `compute_turnover()`, `compute_rebalancing_cost()`
+
+- **`factors/`** — Complete factor research pipeline:
+  - **Config types**: `FactorConstructionConfig`, `StandardizationConfig`, `CompositeScoringConfig`, `SelectionConfig`, `RegimeTiltConfig`, `FactorValidationConfig`, `FactorIntegrationConfig`, `PublicationLagConfig`
+  - **Enums**: `FactorGroupType` (9 groups), `FactorType` (17 factors), `CompositeMethod` (EQUAL_WEIGHT, IC_WEIGHTED, ICIR_WEIGHTED, RIDGE_WEIGHTED, GBT_WEIGHTED), `MacroRegime` (4 regimes)
+  - **Construction**: `compute_all_factors()` — builds factor scores from fundamentals + price data; `align_to_pit()` handles publication lag to prevent look-ahead bias
+  - **Standardization**: `standardize_all_factors()` — winsorize → z-score/rank-normal → sector neutralize
+  - **Scoring**: `compute_composite_score()` — dispatches to equal-weight, IC-weighted, ICIR-weighted, or ML (ridge/GBT) scoring
+  - **Selection**: `select_stocks()` — fixed-count or quantile selection with buffer-zone hysteresis and sector balancing
+  - **Regime tilts**: `classify_regime()` (GDP/yield-spread heuristic) + `apply_regime_tilts()` — multiplicative tilts on group weights
+  - **Validation**: `run_factor_validation()` → `FactorValidationReport` with IC, Newey-West t-stats, VIF, Benjamini-Hochberg correction; `run_factor_oos_validation()` — rolling block OOS validation
+  - **Mimicking portfolios**: `build_factor_mimicking_portfolios()`, `compute_quintile_spread()`
+  - **Integration**: `build_factor_exposure_constraints()` → `FactorExposureConstraints` (ready for `MeanRisk`); `build_factor_bl_views()` → Black-Litterman views; `compute_net_alpha()` → net alpha after turnover costs
+
+- **`universe/`** — Investability screening with hysteresis:
+  - `InvestabilityScreenConfig` — 8 screens (market cap, ADDV, trading frequency, price, listing age, IPO seasoning, financial statements, exchange percentile) with `HysteresisConfig` entry/exit pairs
+  - `screen_universe()` — factory returning `pd.Index` of passing tickers
+  - Presets: `for_developed_markets`, `for_broad_universe`, `for_small_cap`
+
+- **`pipeline/`** — End-to-end orchestration:
+  - `run_full_pipeline(prices, optimizer, ...)` — single entry point: prices → returns → pipeline → backtest → weights → rebalancing. Accepts `cv_config`, `previous_weights`, `rebalancing_config` (threshold or hybrid), `current_date`, `last_review_date`, `y_prices`, `sector_mapping`, `n_jobs`
+  - `run_full_pipeline_with_selection(...)` — extends with upstream stock selection: fundamentals → investability screening → factor computation → standardization → regime tilts → composite scoring → stock selection → `run_full_pipeline`. When `fundamentals=None`, skips all selection and delegates directly
+  - `optimize()`, `backtest()`, `tune_and_optimize()` — lower-level composable functions
+
+### Key conventions
+
+- `prices_to_returns()` runs **outside** the pipeline (changes data semantics); pipeline operates on return DataFrames only
+- Views use `tuple[str, ...]` in configs (hashable); factories convert to `list` for skfolio
+- View configs embed `MomentEstimationConfig` for their inner prior (keeps configs serialisable)
+- The fitted prior attribute is `return_distribution_` (not `prior_model_`), containing `mu`, `covariance`, `returns`, `sample_weight`, `cholesky`
+- For `BenchmarkTracker`, benchmark returns are passed as `y` in `fit(X, y)`
+- When `previous_weights` is passed to `run_full_pipeline()`, it auto-aligns on post-pre-selection universe and re-normalises
+- Sector mapping is injected as a plain `dict[str, str]`, not queried from the database
+
 ### API Layer (`api/app/`)
 
-Follows a layered architecture: **Routes → Services → Repositories → Models**
+Layered architecture: **Routes → Services → Repositories → Models**
 
-- `api/v1/router.py` — aggregates all v1 routers (trading212, yfinance_data, macro_regime, database)
-- `services/` — business logic. The yfinance service is decomposed into sub-modules under `services/yfinance/` (ticker, market, news, infrastructure with cache/circuit-breaker/rate-limiter)
-- `repositories/` — SQLAlchemy query layer. `base.py` has a generic `BaseRepository`
-- `models/` — SQLAlchemy ORM models inheriting from `BaseModel` (UUID PK + timestamps via mixins in `models/base.py`)
-- `schemas/` — Pydantic v2 request/response schemas
-- `middleware/` — security headers, logging, rate limiting
-- `dependencies.py` — DI: `get_db` session, `CurrentUser`/`DBSession` type aliases, `PaginationParams`, `RateLimiter`
-- `database.py` — synchronous `DatabaseManager` with connection pooling (psycopg2, QueuePool)
-- `config.py` — `pydantic-settings` based `Settings` class reading from `.env`
-
-### CLI Layer (`cli/`)
-
-Typer command groups (`db`, `universe`, `yfinance`, `macro`) that call API endpoints via `cli/client.py` (httpx). The `yfinance` commands fall back to `cli/direct_fetch.py` for direct DB access when the API is unavailable.
-
-### Database
-
-- PostgreSQL 16 via Docker on port **54320** (not 5432)
-- Alembic migrations in `api/alembic/versions/`
-- Default connection: `postgresql://postgres:postgres@localhost:54320/optimizer_db`
-- Key domain tables: Exchange, Instrument, TickerProfile, PriceHistory, FinancialStatement, AnalystRecommendation, EconomicIndicator, BondYield, TradingEconomicsIndicator
-
-### Key Patterns
-
-- **Synchronous SQLAlchemy** — the API uses sync sessions (`Session`, not `AsyncSession`) despite being a FastAPI app
-- **Repository pattern** — all DB queries go through typed repositories, not raw session calls in routes
-- **BAML** — LLM function definitions in `api/baml_src/`, generated client in `api/baml_client/` (do not edit generated files)
-- **Two separate requirements.txt** — root `requirements.txt` for the optimizer library + CLI; `api/requirements.txt` for the FastAPI app
-- **Two separate pyproject.toml** — root configures the `optimizer` package (skfolio-based); `api/pyproject.toml` configures the API package
+- All routes under `/api/v1/`. CLI client (`cli/client.py`) prepends this automatically
+- Synchronous SQLAlchemy sessions (`Session`, not `AsyncSession`)
+- Repository pattern — all DB queries through typed repositories
+- BAML — LLM function definitions in `api/baml_src/`, generated client in `api/baml_client/` (do not edit generated files)
+- PostgreSQL 16 on port **54320** (not 5432). Connection: `postgresql://postgres:postgres@localhost:54320/optimizer_db`
+- Two separate `requirements.txt` and `pyproject.toml` — root for optimizer library, `api/` for FastAPI app
 
 ### Environment Variables
 
-Configuration via `.env` at project root. Key variables:
+Configuration via `.env` at project root:
 - `DATABASE_URL` — PostgreSQL connection string
 - `TRADING_212_API_KEY` — Trading 212 API access
 - `FRED_API_KEY` — Federal Reserve Economic Data
 - `TRADING_ECONOMICS_API_KEY` — Trading Economics data
 
-### Optimizer Library (`optimizer/`)
+### Linting & Type Checking
 
-Pure-Python, DB-agnostic library for data preparation and portfolio optimization. All transformers follow the sklearn `BaseEstimator + TransformerMixin` API and compose in `sklearn.pipeline.Pipeline`.
-
-- `preprocessing/` — Custom transformers for return data cleaning:
-  - `DataValidator` — replaces `inf` and extreme returns with `NaN`
-  - `OutlierTreater` — three-group z-score methodology (remove / winsorize / keep)
-  - `SectorImputer` — leave-one-out sector-average NaN imputation
-- `pre_selection/` — Pipeline assembly and configuration:
-  - `PreSelectionConfig` — frozen dataclass with all pipeline hyper-parameters
-  - `build_preselection_pipeline()` — factory that assembles an sklearn `Pipeline` from config, composing custom transformers with skfolio selectors (`SelectComplete`, `DropZeroVariance`, `DropCorrelated`, `SelectKExtremes`, `SelectNonDominated`, `SelectNonExpiring`)
-- `moments/` — Moment estimation and prior construction (typed config + factory layer over skfolio estimators):
-  - `MomentEstimationConfig` — frozen dataclass selecting mu estimator, covariance estimator, and prior assembly options; includes factory presets (`for_equilibrium_ledoitwolf`, `for_shrunk_denoised`, `for_adaptive`)
-  - `MuEstimatorType` / `CovEstimatorType` / `ShrinkageMethod` — `str, Enum` enums for estimator selection
-  - `build_mu_estimator()` — factory mapping `MuEstimatorType` to skfolio `BaseMu` instances (`EmpiricalMu`, `ShrunkMu`, `EWMu`, `EquilibriumMu`)
-  - `build_cov_estimator()` — factory mapping `CovEstimatorType` to skfolio `BaseCovariance` instances (`EmpiricalCovariance`, `LedoitWolf`, `OAS`, `ShrunkCovariance`, `EWCovariance`, `GerberCovariance`, `GraphicalLassoCV`, `DenoiseCovariance`, `DetoneCovariance`, `ImpliedCovariance`)
-  - `build_prior()` — composes mu + cov into `EmpiricalPrior`, optionally wrapping in `FactorModel`
-- `views/` — View integration frameworks (typed config + factory layer over skfolio prior estimators):
-  - `BlackLittermanConfig` — frozen dataclass for Black-Litterman prior configuration; includes factory presets (`for_equilibrium`, `for_factor_model`)
-  - `EntropyPoolingConfig` — frozen dataclass for Entropy Pooling prior configuration; includes factory presets (`for_mean_views`, `for_stress_test`)
-  - `OpinionPoolingConfig` — frozen dataclass for Opinion Pooling prior configuration (estimator objects passed separately to factory)
-  - `ViewUncertaintyMethod` — `str, Enum` for BL uncertainty calibration (`HE_LITTERMAN`, `IDZOREK`)
-  - `build_black_litterman()` — factory building `BlackLitterman` from config, optionally wrapping in `FactorModel`
-  - `build_entropy_pooling()` — factory building `EntropyPooling` from config with mean/variance/correlation/skew/kurtosis/cvar views
-  - `build_opinion_pooling()` — factory building `OpinionPooling` from named expert estimators + config
-- `optimization/` — Portfolio optimization models (typed config + factory layer over skfolio optimisers):
-  - `ObjectiveFunctionType` / `RiskMeasureType` / `ExtraRiskMeasureType` / `DistanceType` / `LinkageMethodType` / `RatioMeasureType` — `str, Enum` enums mapping to skfolio counterparts
-  - `DistanceConfig` / `ClusteringConfig` — reusable frozen-dataclass sub-configs for distance and clustering estimators
-  - `MeanRiskConfig` — frozen dataclass for `MeanRisk`; includes `transaction_costs`, `management_fees`, `max_tracking_error`; includes presets (`for_min_variance`, `for_max_sharpe`, `for_max_utility`, `for_min_cvar`, `for_efficient_frontier`)
-  - `RiskBudgetingConfig` — frozen dataclass for `RiskBudgeting`; includes presets (`for_risk_parity`, `for_cvar_parity`)
-  - `MaxDiversificationConfig` — frozen dataclass for `MaximumDiversification`
-  - `HRPConfig` / `HERCConfig` — frozen dataclasses for hierarchical methods; include presets (`for_variance`, `for_cvar`)
-  - `NCOConfig` — frozen dataclass for `NestedClustersOptimization`
-  - `BenchmarkTrackerConfig` — frozen dataclass for `BenchmarkTracker` (minimises tracking error; benchmark returns passed as `y` in `fit(X, y)`)
-  - `EqualWeightedConfig` — frozen dataclass for `EqualWeighted` (1/N allocation, no parameters)
-  - `InverseVolatilityConfig` — frozen dataclass for `InverseVolatility` (inverse-vol weighting)
-  - `StackingConfig` — frozen dataclass for `StackingOptimization` (ensemble meta-optimiser; `estimators` and `final_estimator` passed as factory kwargs)
-  - `build_distance_estimator()` / `build_clustering_estimator()` — helper factories for sub-components
-  - `build_mean_risk()` / `build_risk_budgeting()` / `build_max_diversification()` — convex optimiser factories
-  - `build_hrp()` / `build_herc()` / `build_nco()` — hierarchical/cluster optimiser factories
-  - `build_benchmark_tracker()` — benchmark tracking factory
-  - `build_equal_weighted()` / `build_inverse_volatility()` — naive baseline factories
-  - `build_stacking()` — ensemble stacking factory
-- `synthetic/` — Synthetic data generation and vine copula models (typed config + factory layer):
-  - `DependenceMethodType` / `SelectionCriterionType` — `str, Enum` enums for vine copula configuration
-  - `VineCopulaConfig` — frozen dataclass for `VineCopula` (marginal fitting, tree depth, dependence method, selection criterion)
-  - `SyntheticDataConfig` — frozen dataclass for `SyntheticData`; embeds `VineCopulaConfig`; includes presets (`for_scenario_generation`, `for_stress_test`)
-  - `build_vine_copula()` — factory building `VineCopula` from config; non-serialisable `marginal_candidates`, `copula_candidates`, `central_assets` passed as kwargs
-  - `build_synthetic_data()` — factory building `SyntheticData` from config; `distribution_estimator` and `sample_args` (for conditional stress testing via `{"conditioning": {"AAPL": -0.10}}`) passed as kwargs
-- `validation/` — Model selection and cross-validation (typed config + factory layer over skfolio cross-validators):
-  - `WalkForwardConfig` — frozen dataclass for `WalkForward` (rolling/expanding windows with purge); includes presets (`for_monthly_rolling`, `for_quarterly_rolling`, `for_quarterly_expanding`)
-  - `CPCVConfig` — frozen dataclass for `CombinatorialPurgedCV` (n_folds, n_test_folds, purge, embargo); includes presets (`for_statistical_testing`, `for_small_sample`)
-  - `MultipleRandomizedCVConfig` — frozen dataclass for `MultipleRandomizedCV` (dual randomisation over time and assets); embeds `WalkForwardConfig`; includes preset (`for_robustness_check`)
-  - `build_walk_forward()` / `build_cpcv()` / `build_multiple_randomized_cv()` — factory functions building skfolio cross-validators from config
-  - `run_cross_val()` — convenience wrapper around `skfolio.model_selection.cross_val_predict` that enforces temporal splitting; returns `MultiPeriodPortfolio` (WalkForward) or `Population` (CPCV/MultipleRandomizedCV)
-  - `compute_optimal_folds()` — wraps `optimal_folds_number` for CPCV calibration
-- `scoring/` — Performance scoring for model selection (typed config + factory layer over skfolio metrics):
-  - `ScorerConfig` — frozen dataclass selecting a `RatioMeasureType` or custom callable; includes presets (`for_sharpe`, `for_sortino`, `for_calmar`, `for_cvar_ratio`, `for_custom`)
-  - `build_scorer()` — factory building a scorer callable from config; custom callables passed as `score_func` kwarg when `ratio_measure` is `None`
-- `tuning/` — Hyperparameter tuning with temporal cross-validation (typed config + factory layer over sklearn search estimators):
-  - `GridSearchConfig` — frozen dataclass embedding `WalkForwardConfig` + `ScorerConfig`; includes presets (`for_quick_search`, `for_thorough_search`)
-  - `RandomizedSearchConfig` — frozen dataclass with `n_iter`, `random_state`, embedded `WalkForwardConfig` + `ScorerConfig`; includes presets (`for_quick_search`, `for_thorough_search`)
-  - `build_grid_search_cv()` — factory building `GridSearchCV` with temporal CV from config; takes `estimator` + `param_grid`
-  - `build_randomized_search_cv()` — factory building `RandomizedSearchCV` with temporal CV from config; takes `estimator` + `param_distributions`
-- `rebalancing/` — Rebalancing frameworks (calendar-based, threshold-based, turnover computation):
-  - `RebalancingFrequency` — `str, Enum` for calendar frequencies (MONTHLY=21, QUARTERLY=63, SEMIANNUAL=126, ANNUAL=252 trading days)
-  - `ThresholdType` — `str, Enum` for drift threshold conventions (ABSOLUTE, RELATIVE)
-  - `CalendarRebalancingConfig` — frozen dataclass with frequency; `trading_days` property; includes presets (`for_monthly`, `for_quarterly`, `for_annual`)
-  - `ThresholdRebalancingConfig` — frozen dataclass with threshold_type + threshold value; includes presets (`for_absolute`, `for_relative`)
-  - `compute_drifted_weights()` — computes weights after one period of returns
-  - `compute_turnover()` — one-way turnover between current and target weights
-  - `compute_rebalancing_cost()` — total transaction cost of rebalancing (uniform or per-asset costs)
-  - `should_rebalance()` — checks whether any asset breaches drift threshold (absolute or relative)
-- `pipeline/` — End-to-end portfolio orchestration (prices → validated weights):
-  - `PortfolioResult` — result dataclass with `weights` (pd.Series), `portfolio` (skfolio Portfolio), `backtest` (MultiPeriodPortfolio/Population or None), `pipeline` (fitted Pipeline), `summary` (dict of key metrics), `rebalance_needed` (bool or None), `turnover` (float or None)
-  - `build_portfolio_pipeline(optimizer, pre_selection_config, sector_mapping)` — composes pre-selection transformers + optimiser into a single sklearn Pipeline with flattened steps for hyperparameter tuning
-  - `optimize(pipeline, X, y)` — fits pipeline on full data, returns PortfolioResult with final weights and in-sample metrics
-  - `backtest(pipeline, X, cv_config, y)` — runs walk-forward backtest, returns out-of-sample portfolio
-  - `tune_and_optimize(pipeline, X, param_grid, tuning_config, y)` — grid search over param_grid then returns PortfolioResult from best estimator
-  - `run_full_pipeline(prices, optimizer, ...)` — single entry point: prices → returns → pipeline → backtest → final weights → rebalancing check; accepts `cv_config`, `previous_weights`, `rebalancing_config`, `y_prices`, `sector_mapping`
-
-**Usage pattern**: `prices_to_returns()` runs *outside* the pipeline (changes data semantics); the pipeline operates on return DataFrames only. Sector mapping is injected as a plain `dict[str, str]`, not queried from the database. The fitted prior attribute is `return_distribution_` (not `prior_model_`), containing `mu`, `covariance`, `returns`, `sample_weight`, and `cholesky`. Views use `tuple[str, ...]` in configs (hashable, frozen-dataclass-friendly); factory functions convert to `list` for skfolio. View configs embed `MomentEstimationConfig` for their inner prior (not raw `BasePrior`), keeping configs serialisable. For `OpinionPooling`, expert estimators are passed as a factory argument (not stored in the frozen dataclass) since they are not serialisable. Correlation views in Entropy Pooling use the format `(ASSET1, ASSET2) == value`. When using `BlackLitterman` inside a `FactorModel`, views must reference factor names (e.g. `MTUM`, `QUAL`), not asset names. Optimization configs follow the same serialisability boundary: configs hold only primitives/enums/nested frozen dataclasses; non-serialisable objects (`prior_estimator`, `previous_weights`, `risk_budget`, `inner_estimator`/`outer_estimator`, `estimators`/`final_estimator`, `groups`, `linear_constraints`) are passed as factory keyword arguments. Optimization configs embed `MomentEstimationConfig` for their inner prior; when `prior_estimator` is passed explicitly to the factory, it overrides config-built priors. For `BenchmarkTracker`, benchmark returns are passed as `y` in `fit(X, y)`. For `StackingOptimization`, the default `estimators` are `[("mean_risk", MeanRisk()), ("hrp", HierarchicalRiskParity())]`. For synthetic data stress testing, pass `sample_args={"conditioning": {"TICKER": value}}` to `build_synthetic_data()`. Validation configs follow the same serialisability boundary: all configs are frozen dataclasses with primitives only. `run_cross_val()` defaults to `WalkForward` (quarterly rolling) when no `cv` is passed. `build_grid_search_cv()` and `build_randomized_search_cv()` enforce temporal CV by default (walk-forward, not random shuffle). For `GridSearchCV`/`RandomizedSearchCV`, use sklearn double-underscore notation for nested parameter tuning (e.g. `"prior_estimator__mu_estimator__alpha"`). `CalendarRebalancingConfig.trading_days` maps frequency to trading days; use with `WalkForwardConfig.test_size` for aligned backtesting. `should_rebalance()` handles zero-weight targets safely in relative mode. Transaction costs in `MeanRiskConfig` integrate with rebalancing via `previous_weights` factory kwarg. `run_full_pipeline()` is the single entry point for end-to-end portfolio construction: pass `prices` (DataFrame) + `optimizer` (from any `build_*` factory) → get `PortfolioResult` with weights, metrics, optional backtest, and rebalancing signals. The pipeline flattens pre-selection + optimiser steps so `get_params()` exposes all nested parameters (e.g. `"optimizer__l2_coef"`, `"drop_correlated__threshold"`). When `previous_weights` is passed to `run_full_pipeline()`, it automatically aligns on the post-pre-selection asset universe and computes turnover/drift.
-
-### API Prefix
-
-All API routes are served under `/api/v1/`. The CLI client (`cli/client.py`) prepends this automatically.
+- **ruff**: line-length 88, target py310, rules `E, F, I, N, W, UP`. Per-file ignores: `N803, N806` for `optimizer/` and `tests/` (sklearn `X, y` convention)
+- **mypy**: strict mode, `ignore_missing_imports = true`. Module overrides relax `disallow_subclassing_any` for sklearn/skfolio base classes. DMM module has broader relaxation for torch/pyro stubs
+- **Dependencies**: `numpy`, `pandas`, `scipy`, `scikit-learn`, `skfolio`, `hmmlearn`, `arch` are runtime deps in `pyproject.toml`. `torch`/`pyro` (for DMM) are **not declared** — DMM is effectively optional

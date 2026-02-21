@@ -15,7 +15,6 @@ from typing import Any
 
 from baml_client import b
 from baml_client.types import (
-    BusinessCyclePhase,
     CovEstimatorChoice,
     CovRegimeSelection,
     DeltaCalibration,

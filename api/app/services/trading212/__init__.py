@@ -1,13 +1,13 @@
-from app.services.trading212.builder import UniverseBuilder, BuildResult, BuildProgress
+from app.services.trading212.builder import BuildProgress, BuildResult, UniverseBuilder
 from app.services.trading212.client import Trading212Client
-from app.services.trading212.ticker_mapper import YFinanceTickerMapper
 from app.services.trading212.config import UniverseBuilderConfig
+from app.services.trading212.ticker_mapper import YFinanceTickerMapper
 
 __all__ = [
-    "UniverseBuilder",
-    "BuildResult",
     "BuildProgress",
+    "BuildResult",
     "Trading212Client",
-    "YFinanceTickerMapper",
+    "UniverseBuilder",
     "UniverseBuilderConfig",
+    "YFinanceTickerMapper",
 ]

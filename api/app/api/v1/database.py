@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/database", tags=["Database"])
 
 # Tables managed by the application (derived from models)
-APP_TABLES: List[str] = [
+APP_TABLES: list[str] = [
     "economic_indicators",
     "trading_economics_indicators",
     "bond_yields",
@@ -55,7 +55,7 @@ def _mask_url(url: str) -> str:
 
 
 @router.get("/health")
-def db_health(db: Session = Depends(get_db)) -> Dict[str, Any]:
+def db_health(db: Session = Depends(get_db)) -> dict[str, Any]:
     """Run a SELECT 1 health check and return latency."""
     start = time.perf_counter()
     try:
@@ -84,7 +84,7 @@ def db_health(db: Session = Depends(get_db)) -> Dict[str, Any]:
 
 
 @router.get("/status")
-def db_status() -> Dict[str, Any]:
+def db_status() -> dict[str, Any]:
     """Return detailed database manager status (pool info, config)."""
     return database_manager.get_detailed_status()
 
@@ -95,9 +95,9 @@ def db_status() -> Dict[str, Any]:
 
 
 @router.get("/tables")
-def db_tables(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+def db_tables(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     """List application tables with row counts."""
-    tables: List[Dict[str, Any]] = []
+    tables: list[dict[str, Any]] = []
 
     for table_name in APP_TABLES:
         # Check if table exists
@@ -139,11 +139,9 @@ def db_tables(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
 @router.delete("/tables/{table_name}")
 def db_clear_table(
     table_name: str,
-    confirm: bool = Query(
-        False, description="Must be true to actually truncate"
-    ),
+    confirm: bool = Query(False, description="Must be true to actually truncate"),
     db: Session = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Truncate a single application table."""
     if table_name not in APP_TABLES:
         raise HTTPException(
@@ -157,7 +155,7 @@ def db_clear_table(
             detail="Pass ?confirm=true to truncate the table.",
         )
 
-    db.execute(text(f'TRUNCATE TABLE "{table_name}" CASCADE'))  # noqa: S608
+    db.execute(text(f'TRUNCATE TABLE "{table_name}" CASCADE'))
     db.commit()
     logger.info("Truncated table: %s", table_name)
 
@@ -171,11 +169,9 @@ def db_clear_table(
 
 @router.delete("/tables")
 def db_clear_all(
-    confirm: bool = Query(
-        False, description="Must be true to actually truncate"
-    ),
+    confirm: bool = Query(False, description="Must be true to actually truncate"),
     db: Session = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Truncate all application tables."""
     if not confirm:
         raise HTTPException(
@@ -183,12 +179,12 @@ def db_clear_all(
             detail="Pass ?confirm=true to truncate all tables.",
         )
 
-    cleared: List[str] = []
-    errors: List[str] = []
+    cleared: list[str] = []
+    errors: list[str] = []
 
     for table_name in APP_TABLES:
         try:
-            db.execute(text(f'TRUNCATE TABLE "{table_name}" CASCADE'))  # noqa: S608
+            db.execute(text(f'TRUNCATE TABLE "{table_name}" CASCADE'))
             cleared.append(table_name)
         except Exception as exc:
             logger.error("Failed to truncate %s: %s", table_name, exc)

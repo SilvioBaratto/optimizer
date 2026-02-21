@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -11,11 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.services.macro_calibration import (
-    CalibrationResult,
     DELTA_MAX,
     DELTA_MIN,
     TAU_MAX,
     TAU_MIN,
+    CalibrationResult,
     build_bl_config_from_calibration,
     classify_macro_regime,
 )
@@ -33,10 +32,20 @@ router = APIRouter(prefix="/views", tags=["Views"])
 class MacroCalibrationResponse(BaseModel):
     """Calibrated Black-Litterman parameters from LLM macro regime classification."""
 
-    phase: str = Field(..., description="Business cycle phase: EARLY_EXPANSION | MID_EXPANSION | LATE_EXPANSION | RECESSION.")
-    delta: float = Field(..., description=f"Risk aversion scalar δ, clamped to [{DELTA_MIN}, {DELTA_MAX}].")
-    tau: float = Field(..., description=f"Uncertainty scaling τ, clamped to [{TAU_MIN}, {TAU_MAX}].")
-    confidence: float = Field(..., description="LLM classification confidence in [0.0, 1.0].")
+    phase: str = Field(
+        ...,
+        description="Business cycle phase: EARLY_EXPANSION | MID_EXPANSION | LATE_EXPANSION | RECESSION.",
+    )
+    delta: float = Field(
+        ...,
+        description=f"Risk aversion scalar δ, clamped to [{DELTA_MIN}, {DELTA_MAX}].",
+    )
+    tau: float = Field(
+        ..., description=f"Uncertainty scaling τ, clamped to [{TAU_MIN}, {TAU_MAX}]."
+    )
+    confidence: float = Field(
+        ..., description="LLM classification confidence in [0.0, 1.0]."
+    )
     rationale: str = Field(..., description="LLM explanation of phase classification.")
     macro_summary: str = Field(..., description="Macro indicator text fed to the LLM.")
     bl_config: dict = Field(
@@ -64,7 +73,7 @@ def get_macro_calibration(
         default="United States",
         description="Country/region to fetch macro indicators for.",
     ),
-    macro_text: Optional[str] = Query(
+    macro_text: str | None = Query(
         default=None,
         description=(
             "Optional free-form macro text override. "

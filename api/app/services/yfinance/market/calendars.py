@@ -8,8 +8,8 @@ from typing import Any
 import pandas as pd
 import yfinance as yf
 
-from ..protocols import CircuitBreakerProtocol, RateLimiterProtocol
 from ..infrastructure import is_rate_limit_error, retry_with_backoff
+from ..protocols import CircuitBreakerProtocol, RateLimiterProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,9 @@ class CalendarsClient:
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
         logger.debug("Fetching economic events calendar (start=%s, end=%s)", start, end)
-        return self._fetch_calendar_attr("economic_events_calendar", start, end, max_retries)
+        return self._fetch_calendar_attr(
+            "economic_events_calendar", start, end, max_retries
+        )
 
     def _fetch_calendar_attr(
         self,

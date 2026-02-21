@@ -2,8 +2,9 @@
 
 import logging
 import uuid as uuid_mod
+from collections.abc import Sequence
 from datetime import date
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -18,7 +19,7 @@ class UniverseRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def save_exchange(self, exchange_data: Dict[str, Any]) -> Exchange:
+    def save_exchange(self, exchange_data: dict[str, Any]) -> Exchange:
         name = exchange_data.get("name", "")
         t212_id = exchange_data.get("id")
 
@@ -36,7 +37,7 @@ class UniverseRepository:
         return exchange
 
     def save_instruments_batch(
-        self, instruments_data: List[Dict[str, Any]], exchange_id: Any
+        self, instruments_data: list[dict[str, Any]], exchange_id: Any
     ) -> int:
         if not instruments_data:
             return 0
@@ -112,7 +113,7 @@ class UniverseRepository:
         self.session.flush()
         return bool(result.rowcount)
 
-    def get_active_tickers(self, exchange_id: Any) -> Set[str]:
+    def get_active_tickers(self, exchange_id: Any) -> set[str]:
         """Return the set of non-delisted tickers for an exchange."""
         rows = self.session.execute(
             select(Instrument.ticker)
@@ -121,7 +122,7 @@ class UniverseRepository:
         ).all()
         return {r[0] for r in rows}
 
-    def clear_all(self) -> Tuple[int, int]:
+    def clear_all(self) -> tuple[int, int]:
         inst_count = self.session.execute(
             select(func.count()).select_from(Instrument)
         ).scalar_one()
@@ -147,7 +148,7 @@ class UniverseRepository:
 
     def get_instruments(
         self,
-        exchange_name: Optional[str] = None,
+        exchange_name: str | None = None,
         skip: int = 0,
         limit: int = 100,
     ) -> Sequence[Instrument]:
@@ -158,6 +159,8 @@ class UniverseRepository:
         return self.session.execute(stmt).scalars().unique().all()
 
     def get_exchanges(self) -> Sequence[Exchange]:
-        return self.session.execute(
-            select(Exchange).order_by(Exchange.name)
-        ).scalars().all()
+        return (
+            self.session.execute(select(Exchange).order_by(Exchange.name))
+            .scalars()
+            .all()
+        )

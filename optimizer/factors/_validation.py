@@ -8,6 +8,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from optimizer.exceptions import DataError
 from optimizer.factors._config import FactorValidationConfig
 
 # ---------------------------------------------------------------------------
@@ -118,9 +119,7 @@ def compute_monthly_ic(
     if len(common) < 3:
         return float(np.nan)
     return float(
-        factor_scores.loc[common].corr(
-            forward_returns.loc[common], method="spearman"
-        )
+        factor_scores.loc[common].corr(forward_returns.loc[common], method="spearman")
     )
 
 
@@ -236,9 +235,7 @@ def compute_newey_west_tstat(
 
     from scipy import stats as sp_stats
 
-    p_value = float(
-        2.0 * (1.0 - sp_stats.t.cdf(abs(t_stat), df=n - 1))
-    )
+    p_value = float(2.0 * (1.0 - sp_stats.t.cdf(abs(t_stat), df=n - 1)))
     return float(t_stat), p_value
 
 
@@ -441,9 +438,7 @@ def compute_quantile_spread(
     scores = factor_scores.loc[common]
     returns = forward_returns.loc[common]
 
-    quantile_labels = pd.qcut(
-        scores, n_quantiles, labels=False, duplicates="drop"
-    )
+    quantile_labels = pd.qcut(scores, n_quantiles, labels=False, duplicates="drop")
     quantile_returns: pd.Series = returns.groupby(quantile_labels).mean()
 
     if len(quantile_returns) < 2:
@@ -476,7 +471,7 @@ def compute_vif(factor_matrix: pd.DataFrame) -> pd.Series:
         If fewer than 2 factor columns are provided.
     """
     if len(factor_matrix.columns) < 2:
-        raise ValueError(
+        raise DataError(
             "compute_vif requires at least 2 factor columns, "
             f"got {len(factor_matrix.columns)}"
         )
@@ -501,9 +496,7 @@ def compute_vif(factor_matrix: pd.DataFrame) -> pd.Series:
             ss_res = float(np.sum((y - y_hat) ** 2))
             ss_tot = float(np.sum((y - y.mean()) ** 2))
             r_sq = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
-            vifs[str(col)] = (
-                1.0 / (1.0 - r_sq) if r_sq < 1.0 else float(np.inf)
-            )
+            vifs[str(col)] = 1.0 / (1.0 - r_sq) if r_sq < 1.0 else float(np.inf)
         except np.linalg.LinAlgError:
             vifs[str(col)] = float(np.inf)
 
@@ -535,9 +528,7 @@ def benjamini_hochberg(
     """
     sorted_pvals = p_values.sort_values()
     n = len(sorted_pvals)
-    thresholds: npt.NDArray[np.float64] = alpha * (
-        np.arange(1, n + 1) / n
-    )
+    thresholds: npt.NDArray[np.float64] = alpha * (np.arange(1, n + 1) / n)
     pval_arr: npt.NDArray[np.float64] = sorted_pvals.to_numpy(
         dtype=np.float64,
     )
@@ -546,9 +537,9 @@ def benjamini_hochberg(
     if significant.any():
         last_sig = int(np.max(np.where(significant)))
         significant[: last_sig + 1] = True
-    return pd.Series(
-        significant, index=sorted_pvals.index, dtype=bool
-    ).reindex(p_values.index)
+    return pd.Series(significant, index=sorted_pvals.index, dtype=bool).reindex(
+        p_values.index
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -585,15 +576,11 @@ def run_factor_validation(
 
     for factor_name, scores_df in factor_scores_history.items():
         # IC analysis
-        ic_series = compute_ic_series(
-            scores_df, returns_history, factor_name
-        )
+        ic_series = compute_ic_series(scores_df, returns_history, factor_name)
         if len(ic_series) == 0:
             continue
 
-        t_stat, p_value = compute_newey_west_tstat(
-            ic_series, config.newey_west_lags
-        )
+        t_stat, p_value = compute_newey_west_tstat(ic_series, config.newey_west_lags)
         significant = abs(t_stat) >= config.t_stat_threshold
 
         report.ic_results.append(

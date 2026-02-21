@@ -163,9 +163,7 @@ class TestComputeAllFactors:
         price_history: pd.DataFrame,
         volume_history: pd.DataFrame,
     ) -> None:
-        result = compute_all_factors(
-            fundamentals, price_history, volume_history
-        )
+        result = compute_all_factors(fundamentals, price_history, volume_history)
         assert isinstance(result, pd.DataFrame)
         assert len(result) == len(fundamentals)
         assert result.shape[1] > 0
@@ -210,7 +208,7 @@ def _make_annual_data(
 ) -> pd.DataFrame:
     """Build a minimal time-series fundamentals DataFrame."""
     rows = []
-    for ticker, date, val in zip(tickers, period_dates, values):
+    for ticker, date, val in zip(tickers, period_dates, values, strict=True):
         rows.append({"ticker": ticker, "period_date": date, "earnings": val})
     return pd.DataFrame(rows)
 
@@ -271,11 +269,13 @@ class TestAlignToPit:
 
     def test_most_recent_record_returned_per_ticker(self) -> None:
         """When multiple records exist, the most recent available is returned."""
-        data = pd.DataFrame([
-            {"ticker": "AAPL", "period_date": "2023-03-31", "earnings": 1.0},
-            {"ticker": "AAPL", "period_date": "2023-06-30", "earnings": 2.0},
-            {"ticker": "AAPL", "period_date": "2023-09-30", "earnings": 3.0},
-        ])
+        data = pd.DataFrame(
+            [
+                {"ticker": "AAPL", "period_date": "2023-03-31", "earnings": 1.0},
+                {"ticker": "AAPL", "period_date": "2023-06-30", "earnings": 2.0},
+                {"ticker": "AAPL", "period_date": "2023-09-30", "earnings": 3.0},
+            ]
+        )
         # as_of = 2023-11-15, lag = 45 days → cutoff = 2023-10-01
         # Sep 30 + 45 = Nov 14 ≤ Nov 15: available
         as_of = pd.Timestamp("2023-11-15")
@@ -285,13 +285,15 @@ class TestAlignToPit:
 
     def test_multiple_tickers_independent(self) -> None:
         """Each ticker gets its own most-recent available record."""
-        data = pd.DataFrame([
-            {"ticker": "AAPL", "period_date": "2023-06-30", "earnings": 2.0},
-            {"ticker": "AAPL", "period_date": "2023-09-30", "earnings": 3.0},
-            {"ticker": "MSFT", "period_date": "2023-06-30", "earnings": 4.0},
-            # MSFT Q3 not yet available (released too recently)
-            {"ticker": "MSFT", "period_date": "2023-10-15", "earnings": 5.0},
-        ])
+        data = pd.DataFrame(
+            [
+                {"ticker": "AAPL", "period_date": "2023-06-30", "earnings": 2.0},
+                {"ticker": "AAPL", "period_date": "2023-09-30", "earnings": 3.0},
+                {"ticker": "MSFT", "period_date": "2023-06-30", "earnings": 4.0},
+                # MSFT Q3 not yet available (released too recently)
+                {"ticker": "MSFT", "period_date": "2023-10-15", "earnings": 5.0},
+            ]
+        )
         # as_of = Nov 15; lag = 45; cutoff = Oct 1
         # AAPL Sep 30 available; MSFT Oct 15 not (Oct 15 + 45 > Nov 15)
         as_of = pd.Timestamp("2023-11-15")
@@ -318,7 +320,5 @@ class TestAlignToPit:
             period_dates=["2023-12-31"],
             values=[5.0],
         )
-        result = align_to_pit(
-            data, "period_date", "2024-04-01", lag_days=90
-        )
+        result = align_to_pit(data, "period_date", "2024-04-01", lag_days=90)
         assert len(result) == 1

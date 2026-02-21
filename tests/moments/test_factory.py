@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import pytest
 from skfolio.moments import (
@@ -32,20 +31,6 @@ from optimizer.moments import (
     build_mu_estimator,
     build_prior,
 )
-
-
-@pytest.fixture()
-def returns_df() -> pd.DataFrame:
-    """Synthetic return DataFrame with 20 assets and 200 observations."""
-    rng = np.random.default_rng(42)
-    n_obs, n_assets = 200, 20
-    data = rng.normal(loc=0.001, scale=0.02, size=(n_obs, n_assets))
-    tickers = [f"TICK_{i:02d}" for i in range(n_assets)]
-    return pd.DataFrame(
-        data,
-        columns=tickers,
-        index=pd.date_range("2023-01-01", periods=n_obs, freq="B"),
-    )
 
 
 class TestBuildMuEstimator:
@@ -231,9 +216,7 @@ class TestIntegration:
         assert rd.mu is not None
         assert rd.covariance is not None
 
-    def test_shrunk_denoised_prior_fit(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_shrunk_denoised_prior_fit(self, returns_df: pd.DataFrame) -> None:
         cfg = MomentEstimationConfig.for_shrunk_denoised()
         prior = build_prior(cfg)
         prior.fit(returns_df)
@@ -264,9 +247,7 @@ class TestIntegration:
             returns.shape[1],
         )
 
-    def test_prior_composes_with_meanrisk(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_prior_composes_with_meanrisk(self, returns_df: pd.DataFrame) -> None:
         from skfolio.optimization import MeanRisk
 
         prior = build_prior()

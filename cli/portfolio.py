@@ -149,7 +149,9 @@ def _display_weights(weights: Any, top_n: int = 20) -> None:
 
     total = sorted_weights.sum()
     table.add_row(
-        "TOTAL", f"{total:.6f}", f"{total * 100:.2f}%",
+        "TOTAL",
+        f"{total:.6f}",
+        f"{total * 100:.2f}%",
         style="bold green",
     )
     console.print(table)
@@ -288,8 +290,7 @@ def optimize(
 
     if data.n_tickers == 0:
         error_panel(
-            "No price data found in database. "
-            "Run 'python -m cli yfinance fetch' first."
+            "No price data found in database. Run 'python -m cli yfinance fetch' first."
         )
         db_manager.close()
         raise typer.Exit(code=1)
@@ -323,26 +324,10 @@ def optimize(
                 if len(data.financial_statements) > 0
                 else None
             )
-            analyst = (
-                data.analyst_data
-                if len(data.analyst_data) > 0
-                else None
-            )
-            insider = (
-                data.insider_data
-                if len(data.insider_data) > 0
-                else None
-            )
-            macro = (
-                data.macro_data
-                if len(data.macro_data) > 0
-                else None
-            )
-            sectors = (
-                data.sector_mapping
-                if data.sector_mapping
-                else None
-            )
+            analyst = data.analyst_data if len(data.analyst_data) > 0 else None
+            insider = data.insider_data if len(data.insider_data) > 0 else None
+            macro = data.macro_data if len(data.macro_data) > 0 else None
+            sectors = data.sector_mapping if data.sector_mapping else None
 
             result = run_full_pipeline_with_selection(
                 prices=data.prices,

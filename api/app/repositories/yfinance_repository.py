@@ -2,8 +2,9 @@
 
 import logging
 import math
+from collections.abc import Sequence
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 from uuid import UUID
 
 _SENTINEL_DATE = date(1970, 1, 1)
@@ -44,7 +45,7 @@ def _safe_val(v: Any) -> Any:
     return v
 
 
-def _safe_int(v: Any) -> Optional[int]:
+def _safe_int(v: Any) -> int | None:
     v = _safe_val(v)
     if v is None:
         return None
@@ -54,7 +55,7 @@ def _safe_int(v: Any) -> Optional[int]:
         return None
 
 
-def _safe_float(v: Any) -> Optional[float]:
+def _safe_float(v: Any) -> float | None:
     v = _safe_val(v)
     if v is None:
         return None
@@ -67,7 +68,7 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
 
 
-def _safe_str(v: Any, max_len: Optional[int] = None) -> Optional[str]:
+def _safe_str(v: Any, max_len: int | None = None) -> str | None:
     v = _safe_val(v)
     if v is None:
         return None
@@ -77,7 +78,7 @@ def _safe_str(v: Any, max_len: Optional[int] = None) -> Optional[str]:
     return s
 
 
-def _safe_date(v: Any) -> Optional[date]:
+def _safe_date(v: Any) -> date | None:
     """Convert various date-like values to date."""
     v = _safe_val(v)
     if v is None:
@@ -112,9 +113,9 @@ class YFinanceRepository:
     def _upsert(
         self,
         model: type,
-        rows: List[Dict[str, Any]],
+        rows: list[dict[str, Any]],
         constraint_name: str,
-        update_columns: Optional[List[str]] = None,
+        update_columns: list[str] | None = None,
     ) -> int:
         """Insert rows with ON CONFLICT DO UPDATE. Returns count of rows processed."""
         if not rows:
@@ -145,7 +146,7 @@ class YFinanceRepository:
     # Ticker Profile
     # ------------------------------------------------------------------
 
-    def upsert_profile(self, instrument_id: UUID, info: Dict[str, Any]) -> int:
+    def upsert_profile(self, instrument_id: UUID, info: dict[str, Any]) -> int:
         """Upsert a ticker profile from yf.Ticker.info dict."""
         # Map yfinance info keys to model columns
         ex_div = info.get("exDividendDate")
@@ -172,7 +173,9 @@ class YFinanceRepository:
             "enterprise_value": _safe_int(info.get("enterpriseValue")),
             "shares_outstanding": _safe_int(info.get("sharesOutstanding")),
             "float_shares": _safe_int(info.get("floatShares")),
-            "implied_shares_outstanding": _safe_int(info.get("impliedSharesOutstanding")),
+            "implied_shares_outstanding": _safe_int(
+                info.get("impliedSharesOutstanding")
+            ),
             "current_price": _safe_float(info.get("currentPrice")),
             "previous_close": _safe_float(info.get("previousClose")),
             "open_price": _safe_float(info.get("open")),
@@ -194,7 +197,9 @@ class YFinanceRepository:
             "forward_pe": _safe_float(info.get("forwardPE")),
             "trailing_eps": _safe_float(info.get("trailingEps")),
             "forward_eps": _safe_float(info.get("forwardEps")),
-            "price_to_sales_trailing_12months": _safe_float(info.get("priceToSalesTrailing12Months")),
+            "price_to_sales_trailing_12months": _safe_float(
+                info.get("priceToSalesTrailing12Months")
+            ),
             "price_to_book": _safe_float(info.get("priceToBook")),
             "enterprise_to_revenue": _safe_float(info.get("enterpriseToRevenue")),
             "enterprise_to_ebitda": _safe_float(info.get("enterpriseToEbitda")),
@@ -210,7 +215,9 @@ class YFinanceRepository:
             "revenue_per_share": _safe_float(info.get("revenuePerShare")),
             "revenue_growth": _safe_float(info.get("revenueGrowth")),
             "earnings_growth": _safe_float(info.get("earningsGrowth")),
-            "earnings_quarterly_growth": _safe_float(info.get("earningsQuarterlyGrowth")),
+            "earnings_quarterly_growth": _safe_float(
+                info.get("earningsQuarterlyGrowth")
+            ),
             "ebitda": _safe_int(info.get("ebitda")),
             "gross_profits": _safe_int(info.get("grossProfits")),
             "free_cashflow": _safe_int(info.get("freeCashflow")),
@@ -225,15 +232,23 @@ class YFinanceRepository:
             "dividend_yield": _safe_float(info.get("dividendYield")),
             "ex_dividend_date": ex_div,
             "payout_ratio": _safe_float(info.get("payoutRatio")),
-            "five_year_avg_dividend_yield": _safe_float(info.get("fiveYearAvgDividendYield")),
-            "trailing_annual_dividend_rate": _safe_float(info.get("trailingAnnualDividendRate")),
-            "trailing_annual_dividend_yield": _safe_float(info.get("trailingAnnualDividendYield")),
+            "five_year_avg_dividend_yield": _safe_float(
+                info.get("fiveYearAvgDividendYield")
+            ),
+            "trailing_annual_dividend_rate": _safe_float(
+                info.get("trailingAnnualDividendRate")
+            ),
+            "trailing_annual_dividend_yield": _safe_float(
+                info.get("trailingAnnualDividendYield")
+            ),
             "last_dividend_value": _safe_float(info.get("lastDividendValue")),
             "target_high_price": _safe_float(info.get("targetHighPrice")),
             "target_low_price": _safe_float(info.get("targetLowPrice")),
             "target_mean_price": _safe_float(info.get("targetMeanPrice")),
             "target_median_price": _safe_float(info.get("targetMedianPrice")),
-            "number_of_analyst_opinions": _safe_int(info.get("numberOfAnalystOpinions")),
+            "number_of_analyst_opinions": _safe_int(
+                info.get("numberOfAnalystOpinions")
+            ),
             "recommendation_key": _safe_str(info.get("recommendationKey"), 50),
             "recommendation_mean": _safe_float(info.get("recommendationMean")),
             "full_time_employees": _safe_int(info.get("fullTimeEmployees")),
@@ -245,10 +260,8 @@ class YFinanceRepository:
             constraint_name="uq_ticker_profile_instrument",
         )
 
-    def get_profile(self, instrument_id: UUID) -> Optional[TickerProfile]:
-        stmt = select(TickerProfile).where(
-            TickerProfile.instrument_id == instrument_id
-        )
+    def get_profile(self, instrument_id: UUID) -> TickerProfile | None:
+        stmt = select(TickerProfile).where(TickerProfile.instrument_id == instrument_id)
         return self.session.execute(stmt).scalar_one_or_none()
 
     # ------------------------------------------------------------------
@@ -262,22 +275,22 @@ class YFinanceRepository:
         rows = []
         for idx, row_data in history_df.iterrows():
             dt = idx
-            if isinstance(dt, pd.Timestamp):
-                dt = dt.date()
-            elif isinstance(dt, datetime):
+            if isinstance(dt, pd.Timestamp) or isinstance(dt, datetime):
                 dt = dt.date()
 
-            rows.append({
-                "instrument_id": instrument_id,
-                "date": dt,
-                "open": _safe_float(row_data.get("Open")),
-                "high": _safe_float(row_data.get("High")),
-                "low": _safe_float(row_data.get("Low")),
-                "close": _safe_float(row_data.get("Close")),
-                "volume": _safe_int(row_data.get("Volume")),
-                "dividends": _safe_float(row_data.get("Dividends")),
-                "stock_splits": _safe_float(row_data.get("Stock Splits")),
-            })
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "date": dt,
+                    "open": _safe_float(row_data.get("Open")),
+                    "high": _safe_float(row_data.get("High")),
+                    "low": _safe_float(row_data.get("Low")),
+                    "close": _safe_float(row_data.get("Close")),
+                    "volume": _safe_int(row_data.get("Volume")),
+                    "dividends": _safe_float(row_data.get("Dividends")),
+                    "stock_splits": _safe_float(row_data.get("Stock Splits")),
+                }
+            )
 
         return self._upsert(
             PriceHistory,
@@ -288,14 +301,11 @@ class YFinanceRepository:
     def get_price_history(
         self,
         instrument_id: UUID,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
         limit: int = 5000,
     ) -> Sequence[PriceHistory]:
-        stmt = (
-            select(PriceHistory)
-            .where(PriceHistory.instrument_id == instrument_id)
-        )
+        stmt = select(PriceHistory).where(PriceHistory.instrument_id == instrument_id)
         if start_date:
             stmt = stmt.where(PriceHistory.date >= start_date)
         if end_date:
@@ -327,14 +337,16 @@ class YFinanceRepository:
                 continue
             for line_item in df.index:
                 val = _safe_float(df.at[line_item, col])
-                rows.append({
-                    "instrument_id": instrument_id,
-                    "statement_type": statement_type,
-                    "period_type": period_type,
-                    "period_date": period_date,
-                    "line_item": _safe_str(line_item, 200),
-                    "value": val,
-                })
+                rows.append(
+                    {
+                        "instrument_id": instrument_id,
+                        "statement_type": statement_type,
+                        "period_type": period_type,
+                        "period_date": period_date,
+                        "line_item": _safe_str(line_item, 200),
+                        "value": val,
+                    }
+                )
 
         return self._upsert(
             FinancialStatement,
@@ -345,8 +357,8 @@ class YFinanceRepository:
     def get_financial_statements(
         self,
         instrument_id: UUID,
-        statement_type: Optional[str] = None,
-        period_type: Optional[str] = None,
+        statement_type: str | None = None,
+        period_type: str | None = None,
     ) -> Sequence[FinancialStatement]:
         stmt = select(FinancialStatement).where(
             FinancialStatement.instrument_id == instrument_id
@@ -365,9 +377,7 @@ class YFinanceRepository:
     # Dividends
     # ------------------------------------------------------------------
 
-    def upsert_dividends(
-        self, instrument_id: UUID, dividends: pd.Series
-    ) -> int:
+    def upsert_dividends(self, instrument_id: UUID, dividends: pd.Series) -> int:
         """Upsert dividend data from yfinance Series (index=date, value=amount)."""
         rows = []
         for idx, amount in dividends.items():
@@ -375,11 +385,13 @@ class YFinanceRepository:
             amt = _safe_float(amount)
             if dt is None or amt is None:
                 continue
-            rows.append({
-                "instrument_id": instrument_id,
-                "date": dt,
-                "amount": amt,
-            })
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "date": dt,
+                    "amount": amt,
+                }
+            )
 
         return self._upsert(
             Dividend,
@@ -407,11 +419,13 @@ class YFinanceRepository:
             r = _safe_float(ratio)
             if dt is None or r is None:
                 continue
-            rows.append({
-                "instrument_id": instrument_id,
-                "date": dt,
-                "ratio": r,
-            })
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "date": dt,
+                    "ratio": r,
+                }
+            )
 
         return self._upsert(
             StockSplit,
@@ -431,24 +445,24 @@ class YFinanceRepository:
     # Analyst Recommendations
     # ------------------------------------------------------------------
 
-    def upsert_recommendations(
-        self, instrument_id: UUID, rec_df: pd.DataFrame
-    ) -> int:
+    def upsert_recommendations(self, instrument_id: UUID, rec_df: pd.DataFrame) -> int:
         """Upsert analyst recommendations from recommendations_summary DataFrame."""
         rows = []
         for _, row_data in rec_df.iterrows():
             period = _safe_str(row_data.get("period"), 50)
             if not period:
                 continue
-            rows.append({
-                "instrument_id": instrument_id,
-                "period": period,
-                "strong_buy": _safe_int(row_data.get("strongBuy")),
-                "buy": _safe_int(row_data.get("buy")),
-                "hold": _safe_int(row_data.get("hold")),
-                "sell": _safe_int(row_data.get("sell")),
-                "strong_sell": _safe_int(row_data.get("strongSell")),
-            })
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "period": period,
+                    "strong_buy": _safe_int(row_data.get("strongBuy")),
+                    "buy": _safe_int(row_data.get("buy")),
+                    "hold": _safe_int(row_data.get("hold")),
+                    "sell": _safe_int(row_data.get("sell")),
+                    "strong_sell": _safe_int(row_data.get("strongSell")),
+                }
+            )
 
         return self._upsert(
             AnalystRecommendation,
@@ -470,9 +484,7 @@ class YFinanceRepository:
     # Analyst Price Targets
     # ------------------------------------------------------------------
 
-    def upsert_price_targets(
-        self, instrument_id: UUID, targets: Dict[str, Any]
-    ) -> int:
+    def upsert_price_targets(self, instrument_id: UUID, targets: dict[str, Any]) -> int:
         """Upsert analyst price targets from dict."""
         row = {
             "instrument_id": instrument_id,
@@ -489,9 +501,7 @@ class YFinanceRepository:
             constraint_name="uq_analyst_pt_instrument",
         )
 
-    def get_price_targets(
-        self, instrument_id: UUID
-    ) -> Optional[AnalystPriceTarget]:
+    def get_price_targets(self, instrument_id: UUID) -> AnalystPriceTarget | None:
         stmt = select(AnalystPriceTarget).where(
             AnalystPriceTarget.instrument_id == instrument_id
         )
@@ -510,14 +520,16 @@ class YFinanceRepository:
             name = _safe_str(row_data.get("Holder"), 500)
             if not name:
                 continue
-            rows.append({
-                "instrument_id": instrument_id,
-                "holder_name": name,
-                "date_reported": _safe_date(row_data.get("Date Reported")),
-                "shares": _safe_int(row_data.get("Shares")),
-                "value": _safe_int(row_data.get("Value")),
-                "pct_held": _safe_float(row_data.get("pctHeld")),
-            })
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "holder_name": name,
+                    "date_reported": _safe_date(row_data.get("Date Reported")),
+                    "shares": _safe_int(row_data.get("Shares")),
+                    "value": _safe_int(row_data.get("Value")),
+                    "pct_held": _safe_float(row_data.get("pctHeld")),
+                }
+            )
 
         return self._upsert(
             InstitutionalHolder,
@@ -548,14 +560,16 @@ class YFinanceRepository:
             name = _safe_str(row_data.get("Holder"), 500)
             if not name:
                 continue
-            rows.append({
-                "instrument_id": instrument_id,
-                "holder_name": name,
-                "date_reported": _safe_date(row_data.get("Date Reported")),
-                "shares": _safe_int(row_data.get("Shares")),
-                "value": _safe_int(row_data.get("Value")),
-                "pct_held": _safe_float(row_data.get("pctHeld")),
-            })
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "holder_name": name,
+                    "date_reported": _safe_date(row_data.get("Date Reported")),
+                    "shares": _safe_int(row_data.get("Shares")),
+                    "value": _safe_int(row_data.get("Value")),
+                    "pct_held": _safe_float(row_data.get("pctHeld")),
+                }
+            )
 
         return self._upsert(
             MutualFundHolder,
@@ -563,9 +577,7 @@ class YFinanceRepository:
             constraint_name="uq_mutual_fund_holder_instrument_name",
         )
 
-    def get_mutualfund_holders(
-        self, instrument_id: UUID
-    ) -> Sequence[MutualFundHolder]:
+    def get_mutualfund_holders(self, instrument_id: UUID) -> Sequence[MutualFundHolder]:
         stmt = (
             select(MutualFundHolder)
             .where(MutualFundHolder.instrument_id == instrument_id)
@@ -587,16 +599,19 @@ class YFinanceRepository:
             tx_type = _safe_str(row_data.get("Transaction"), 200)
             if not name or not tx_type:
                 continue
-            rows.append({
-                "instrument_id": instrument_id,
-                "insider_name": name,
-                "position": _safe_str(row_data.get("Position"), 500),
-                "transaction_type": tx_type,
-                "shares": _safe_int(row_data.get("Shares")),
-                "value": _safe_int(row_data.get("Value")),
-                "start_date": _safe_date(row_data.get("Start Date")) or _SENTINEL_DATE,
-                "ownership": _safe_str(row_data.get("Ownership"), 50),
-            })
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "insider_name": name,
+                    "position": _safe_str(row_data.get("Position"), 500),
+                    "transaction_type": tx_type,
+                    "shares": _safe_int(row_data.get("Shares")),
+                    "value": _safe_int(row_data.get("Value")),
+                    "start_date": _safe_date(row_data.get("Start Date"))
+                    or _SENTINEL_DATE,
+                    "ownership": _safe_str(row_data.get("Ownership"), 50),
+                }
+            )
 
         return self._upsert(
             InsiderTransaction,
@@ -618,9 +633,7 @@ class YFinanceRepository:
     # Ticker News
     # ------------------------------------------------------------------
 
-    def upsert_news(
-        self, instrument_id: UUID, articles: List[Dict[str, Any]]
-    ) -> int:
+    def upsert_news(self, instrument_id: UUID, articles: list[dict[str, Any]]) -> int:
         """Upsert news articles from yf.Ticker.news list of dicts."""
         rows = []
         for article in articles:
@@ -640,16 +653,20 @@ class YFinanceRepository:
             # Extract related tickers
             related = article.get("relatedTickers")
 
-            rows.append({
-                "instrument_id": instrument_id,
-                "news_uuid": news_uuid,
-                "title": _safe_str(article.get("title")),
-                "publisher": _safe_str(article.get("publisher"), 500),
-                "link": _safe_str(article.get("link")),
-                "publish_time": publish_time,
-                "news_type": _safe_str(article.get("type"), 100),
-                "related_tickers": ",".join(related) if isinstance(related, list) else None,
-            })
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "news_uuid": news_uuid,
+                    "title": _safe_str(article.get("title")),
+                    "publisher": _safe_str(article.get("publisher"), 500),
+                    "link": _safe_str(article.get("link")),
+                    "publish_time": publish_time,
+                    "news_type": _safe_str(article.get("type"), 100),
+                    "related_tickers": ",".join(related)
+                    if isinstance(related, list)
+                    else None,
+                }
+            )
 
         return self._upsert(
             TickerNews,
@@ -669,14 +686,14 @@ class YFinanceRepository:
     # Staleness info (for incremental fetch)
     # ------------------------------------------------------------------
 
-    def get_staleness_info(self, instrument_id: UUID) -> Dict[str, Any]:
+    def get_staleness_info(self, instrument_id: UUID) -> dict[str, Any]:
         """Return staleness metadata for incremental fetch decisions.
 
         Returns a dict with:
           - price_max_date: MAX(date) from price_history (date or None)
           - {category}_updated_at: MAX(updated_at) from each non-price table (datetime or None)
         """
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
 
         # Price: get the latest date
         price_row = self.session.execute(

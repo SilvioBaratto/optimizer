@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from ..protocols import ArticleScraperProtocol, YFinanceClientProtocol
 from ..infrastructure import retry_with_backoff
+from ..protocols import ArticleScraperProtocol, YFinanceClientProtocol
 
 
 @dataclass

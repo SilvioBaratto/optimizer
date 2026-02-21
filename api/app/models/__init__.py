@@ -4,6 +4,11 @@ from app.models.base import (
     TimestampMixin,
     UUIDPrimaryKeyMixin,
 )
+from app.models.macro_regime import (
+    BondYield,
+    EconomicIndicator,
+    TradingEconomicsIndicator,
+)
 from app.models.universe import Exchange, Instrument
 from app.models.yfinance_data import (
     AnalystPriceTarget,
@@ -18,31 +23,26 @@ from app.models.yfinance_data import (
     TickerNews,
     TickerProfile,
 )
-from app.models.macro_regime import (
-    BondYield,
-    EconomicIndicator,
-    TradingEconomicsIndicator,
-)
 
 __all__ = [
-    "Base",
-    "BaseModel",
-    "TimestampMixin",
-    "UUIDPrimaryKeyMixin",
-    "Exchange",
-    "Instrument",
     "AnalystPriceTarget",
     "AnalystRecommendation",
+    "Base",
+    "BaseModel",
+    "BondYield",
     "Dividend",
+    "EconomicIndicator",
+    "Exchange",
     "FinancialStatement",
     "InsiderTransaction",
     "InstitutionalHolder",
+    "Instrument",
     "MutualFundHolder",
     "PriceHistory",
     "StockSplit",
     "TickerNews",
     "TickerProfile",
-    "BondYield",
-    "EconomicIndicator",
+    "TimestampMixin",
     "TradingEconomicsIndicator",
+    "UUIDPrimaryKeyMixin",
 ]

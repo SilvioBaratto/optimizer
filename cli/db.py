@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from cli.client import ApiClient
@@ -84,13 +82,11 @@ def tables(ctx: typer.Context) -> None:
 @db_app.command()
 def clear(
     ctx: typer.Context,
-    table: Optional[str] = typer.Argument(
+    table: str | None = typer.Argument(
         default=None,
         help="Table name to clear. Omit to clear ALL tables.",
     ),
-    yes: bool = typer.Option(
-        False, "--yes", "-y", help="Skip confirmation prompt."
-    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
 ) -> None:
     """Truncate one or all application tables."""
     client = _client(ctx)

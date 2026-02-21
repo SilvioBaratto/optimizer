@@ -10,20 +10,19 @@ Architecture:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from baml_client import b
+from baml_client.types import AssetFactorData, ExpertPersona, ViewOutput
 from skfolio.prior import BlackLitterman
 from skfolio.prior._base import BasePrior
 
 from app.services.view_generation import _validate_idzorek_alphas, _views_to_arrays
-from baml_client import b
-from baml_client.types import AssetFactorData, ExpertPersona, ViewOutput
-from optimizer.views._config import BlackLittermanConfig
-from optimizer.views._factory import build_opinion_pooling
 from optimizer.views._config import OpinionPoolingConfig
+from optimizer.views._factory import build_opinion_pooling
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Maps persona → (name, BAML callable)
-_PERSONA_CALLABLES: dict[ExpertPersona, tuple[str, Callable[[list[AssetFactorData]], ViewOutput]]] = {
+_PERSONA_CALLABLES: dict[
+    ExpertPersona, tuple[str, Callable[[list[AssetFactorData]], ViewOutput]]
+] = {
     ExpertPersona.VALUE_INVESTOR: (
         "value_investor",
         lambda assets: b.GenerateValueView(assets=assets),
@@ -116,8 +117,8 @@ class OpinionPoolResult:
     """Full output of the multi-LLM opinion pooling pipeline."""
 
     expert_results: list[ExpertViewResult]
-    ic_weights: np.ndarray            # shape (n_experts,), sums to 1
-    opinion_pool: object   # fitted-ready skfolio.prior.OpinionPooling
+    ic_weights: np.ndarray  # shape (n_experts,), sums to 1
+    opinion_pool: object  # fitted-ready skfolio.prior.OpinionPooling
     tickers: list[str]
 
 
@@ -263,5 +264,3 @@ def build_llm_opinion_pool(
         opinion_pool=opinion_pool,
         tickers=tickers,
     )
-
-

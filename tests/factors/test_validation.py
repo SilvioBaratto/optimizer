@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import DataError
 from optimizer.factors import (
     CorrectedPValues,
     FactorValidationReport,
@@ -90,12 +91,12 @@ class TestNeweyWestTStat:
         rng = np.random.default_rng(42)
         # Weak, noisy IC series
         ic = pd.Series(rng.normal(0.001, 0.1, 20))
-        t_stat, p_value = compute_newey_west_tstat(ic)
+        t_stat, _p_value = compute_newey_west_tstat(ic)
         assert abs(t_stat) < 3.0
 
     def test_short_series(self) -> None:
         ic = pd.Series([0.05, 0.06])
-        t_stat, p_value = compute_newey_west_tstat(ic)
+        t_stat, _p_value = compute_newey_west_tstat(ic)
         assert isinstance(t_stat, float)
 
 
@@ -127,18 +128,20 @@ class TestComputeVIF:
     def test_collinear_factors(self) -> None:
         rng = np.random.default_rng(42)
         a = rng.normal(0, 1, 100)
-        factors = pd.DataFrame({
-            "a": a,
-            "b": a + rng.normal(0, 0.01, 100),  # nearly identical
-            "c": rng.normal(0, 1, 100),
-        })
+        factors = pd.DataFrame(
+            {
+                "a": a,
+                "b": a + rng.normal(0, 0.01, 100),  # nearly identical
+                "c": rng.normal(0, 1, 100),
+            }
+        )
         vif = compute_vif(factors)
         # Collinear factors should have high VIF
         assert vif["a"] > 5.0 or vif["b"] > 5.0
 
     def test_single_factor_raises(self) -> None:
         factors = pd.DataFrame({"a": [1.0, 2.0, 3.0]})
-        with pytest.raises(ValueError, match="at least 2 factor columns"):
+        with pytest.raises(DataError, match="at least 2 factor columns"):
             compute_vif(factors)
 
 

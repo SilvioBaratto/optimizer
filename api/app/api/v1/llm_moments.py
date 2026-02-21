@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
@@ -34,7 +33,9 @@ class CalibrateDeltaRequest(BaseModel):
 
 
 class CalibrateDeltaResponse(BaseModel):
-    delta: float = Field(..., description="Calibrated risk aversion scalar in [1.0, 10.0].")
+    delta: float = Field(
+        ..., description="Calibrated risk aversion scalar in [1.0, 10.0]."
+    )
     rationale: str = Field(..., description="One-sentence explanation.")
 
 
@@ -63,7 +64,9 @@ class AdaptFactorWeightsResponse(BaseModel):
     weights: dict[str, float] = Field(
         ..., description="Factor group → weight multiplier (sum = len(factor_groups))."
     )
-    rationale: str = Field(..., description="Explanation of phase and weight adjustments.")
+    rationale: str = Field(
+        ..., description="Explanation of phase and weight adjustments."
+    )
 
 
 class SelectCovRegimeRequest(BaseModel):
@@ -99,8 +102,12 @@ class SelectCovRegimeResponse(BaseModel):
     estimator_type: str = Field(
         ..., description="Optimizer CovEstimatorType string (e.g. 'ledoit_wolf')."
     )
-    confidence: float = Field(..., description="Confidence in selection, in [0.0, 1.0].")
-    rationale: str = Field(..., description="Explanation referencing sentiment and volatility.")
+    confidence: float = Field(
+        ..., description="Confidence in selection, in [0.0, 1.0]."
+    )
+    rationale: str = Field(
+        ..., description="Explanation referencing sentiment and volatility."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +174,9 @@ def adapt_factor_weights_endpoint(
     response_model=SelectCovRegimeResponse,
     summary="Select covariance estimator from news sentiment and volatility regime",
 )
-def select_cov_regime_endpoint(request: SelectCovRegimeRequest) -> SelectCovRegimeResponse:
+def select_cov_regime_endpoint(
+    request: SelectCovRegimeRequest,
+) -> SelectCovRegimeResponse:
     """Use an LLM to recommend which covariance estimator suits current market conditions.
 
     The ``estimator_type`` field maps directly to :class:`optimizer.moments.CovEstimatorType`.

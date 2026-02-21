@@ -35,7 +35,7 @@ def main(
         envvar="OPTIMIZER_API_URL",
         help="Base URL of the Optimizer API server.",
     ),
-    version: Optional[bool] = typer.Option(
+    version: bool | None = typer.Option(
         None,
         "--version",
         "-v",

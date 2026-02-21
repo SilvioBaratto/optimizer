@@ -12,16 +12,15 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date, timedelta
-from typing import Optional
 
 import numpy as np
+from baml_client import b
+from baml_client.types import AssetFactorData, AssetView, ViewOutput
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.universe import Instrument
 from app.models.yfinance_data import PriceHistory, TickerProfile
-from baml_client import b
-from baml_client.types import AssetFactorData, AssetView, ViewOutput
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +34,13 @@ class GeneratedViews:
     """Container for the BL-ready view components returned by the service."""
 
     __slots__ = (
-        "view_strings",
         "P",
         "Q",
-        "view_confidences",
-        "idzorek_alphas",
         "asset_views",
+        "idzorek_alphas",
         "rationale",
+        "view_confidences",
+        "view_strings",
     )
 
     def __init__(
@@ -54,12 +53,12 @@ class GeneratedViews:
         asset_views: list[AssetView],
         rationale: str,
     ) -> None:
-        self.view_strings = view_strings          # skfolio-compatible strings
-        self.P = P                                # (n_views, n_assets) float64
-        self.Q = Q                                # (n_views,) float64
+        self.view_strings = view_strings  # skfolio-compatible strings
+        self.P = P  # (n_views, n_assets) float64
+        self.Q = Q  # (n_views,) float64
         self.view_confidences = view_confidences  # ordered by view
-        self.idzorek_alphas = idzorek_alphas      # ticker → alpha_k
-        self.asset_views = asset_views            # raw BAML output
+        self.idzorek_alphas = idzorek_alphas  # ticker → alpha_k
+        self.asset_views = asset_views  # raw BAML output
         self.rationale = rationale
 
 
@@ -68,7 +67,7 @@ class GeneratedViews:
 # ---------------------------------------------------------------------------
 
 
-def _get_instrument_by_ticker(session: Session, ticker: str) -> Optional[Instrument]:
+def _get_instrument_by_ticker(session: Session, ticker: str) -> Instrument | None:
     return session.execute(
         select(Instrument).where(Instrument.ticker == ticker)
     ).scalar_one_or_none()
@@ -97,7 +96,9 @@ def _fetch_price_history_closes(
     return [float(c) for c in rows if c is not None]
 
 
-def _compute_momentum(closes: list[float], short_months: int = 1, long_months: int = 12) -> tuple[Optional[float], Optional[float]]:
+def _compute_momentum(
+    closes: list[float], short_months: int = 1, long_months: int = 12
+) -> tuple[float | None, float | None]:
     """Return (mom_12_1m, mom_1m) as decimals.  Returns (None, None) on insufficient data."""
     days_per_month = 21
     short_n = short_months * days_per_month
@@ -117,10 +118,10 @@ def _compute_momentum(closes: list[float], short_months: int = 1, long_months: i
     return mom_12_1m, mom_1m
 
 
-def _compute_rsi(closes: list[float], period: int = 14) -> Optional[float]:
+def _compute_rsi(closes: list[float], period: int = 14) -> float | None:
     if len(closes) < period + 1:
         return None
-    recent = closes[-(period + 1):]
+    recent = closes[-(period + 1) :]
     gains, losses = [], []
     for i in range(1, len(recent)):
         diff = recent[i] - recent[i - 1]
@@ -134,7 +135,7 @@ def _compute_rsi(closes: list[float], period: int = 14) -> Optional[float]:
     return 100.0 - (100.0 / (1.0 + rs))
 
 
-def _safe_float(v) -> Optional[float]:
+def _safe_float(v) -> float | None:
     if v is None:
         return None
     try:
@@ -147,14 +148,14 @@ def _safe_float(v) -> Optional[float]:
 def _build_factor_data(
     session: Session,
     ticker: str,
-) -> Optional[AssetFactorData]:
+) -> AssetFactorData | None:
     """Assemble per-asset factor data from DB for a single ticker."""
     instrument = _get_instrument_by_ticker(session, ticker)
     if instrument is None:
         logger.warning("Ticker %s not found in instruments table", ticker)
         return None
 
-    profile: Optional[TickerProfile] = session.execute(
+    profile: TickerProfile | None = session.execute(
         select(TickerProfile).where(TickerProfile.instrument_id == instrument.id)
     ).scalar_one_or_none()
 
@@ -163,8 +164,8 @@ def _build_factor_data(
     rsi = _compute_rsi(closes)
 
     # 52-week high/low from price history
-    pct_from_high: Optional[float] = None
-    pct_from_low: Optional[float] = None
+    pct_from_high: float | None = None
+    pct_from_low: float | None = None
     if closes:
         recent_closes = closes[-252:] if len(closes) >= 252 else closes
         w52_high = max(recent_closes)
@@ -174,7 +175,7 @@ def _build_factor_data(
         pct_from_low = (current / w52_low - 1.0) if w52_low else None
 
     # Analyst target upside from profile
-    target_upside: Optional[float] = None
+    target_upside: float | None = None
     if profile and profile.target_mean_price and profile.current_price:
         target_upside = _safe_float(
             (profile.target_mean_price - profile.current_price) / profile.current_price
@@ -195,7 +196,9 @@ def _build_factor_data(
         earnings_growth_yoy=_safe_float(profile.earnings_growth) if profile else None,
         pct_from_52w_high=pct_from_high,
         pct_from_52w_low=pct_from_low,
-        recommendation_mean=_safe_float(profile.recommendation_mean) if profile else None,
+        recommendation_mean=_safe_float(profile.recommendation_mean)
+        if profile
+        else None,
         target_upside=target_upside,
         analyst_count=profile.number_of_analyst_opinions if profile else None,
     )
@@ -234,7 +237,9 @@ def _views_to_arrays(
 
     for view in views:
         if view.asset not in ticker_index:
-            logger.warning("View asset %s not in requested tickers — skipped", view.asset)
+            logger.warning(
+                "View asset %s not in requested tickers — skipped", view.asset
+            )
             continue
 
         signed_return = view.direction * view.magnitude_bps / 10_000.0

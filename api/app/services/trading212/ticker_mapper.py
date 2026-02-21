@@ -1,17 +1,16 @@
 import time
 from dataclasses import dataclass, field
-from typing import Optional, List
 
-from app.services.trading212.config import UniverseBuilderConfig
 from app.services.trading212.cache.ticker_cache import TickerMappingCache
+from app.services.trading212.config import UniverseBuilderConfig
 from app.services.yfinance import YFinanceClient
 
 
 @dataclass
 class YFinanceTickerMapper:
     config: UniverseBuilderConfig
-    cache: Optional[TickerMappingCache] = None
-    _yf_client: Optional[YFinanceClient] = field(default=None, repr=False)
+    cache: TickerMappingCache | None = None
+    _yf_client: YFinanceClient | None = field(default=None, repr=False)
     max_retries: int = 5
 
     def __post_init__(self):
@@ -24,9 +23,7 @@ class YFinanceTickerMapper:
             self._yf_client = YFinanceClient.get_instance()
         return self._yf_client
 
-    def discover(
-        self, symbol: str, exchange_name: Optional[str] = None
-    ) -> Optional[str]:
+    def discover(self, symbol: str, exchange_name: str | None = None) -> str | None:
         try:
             # Check cache first
             if exchange_name and self.cache:
@@ -54,8 +51,8 @@ class YFinanceTickerMapper:
             return None
 
     def _build_ticker_attempts(
-        self, clean_symbol: str, exchange_name: Optional[str]
-    ) -> List[str]:
+        self, clean_symbol: str, exchange_name: str | None
+    ) -> list[str]:
         attempts = []
 
         if exchange_name:
@@ -107,9 +104,7 @@ class YFinanceTickerMapper:
 
         return False
 
-    def fetch_basic_data(
-        self, yf_ticker: str, max_retries: int = 3
-    ) -> Optional[dict]:
+    def fetch_basic_data(self, yf_ticker: str, max_retries: int = 3) -> dict | None:
         for attempt in range(max_retries):
             try:
                 info = self.yf_client.fetch_info(

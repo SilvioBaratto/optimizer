@@ -10,13 +10,13 @@ import pytest
 pytest.importorskip("torch")
 pytest.importorskip("pyro")
 
-from optimizer.moments import (  # noqa: E402
+from optimizer.moments import (
     DMMConfig,
     DMMResult,
     blend_moments_dmm,
     fit_dmm,
 )
-from optimizer.moments._dmm import (  # noqa: E402
+from optimizer.moments._dmm import (
     DMM,
     Combiner,
     Emitter,
@@ -179,7 +179,7 @@ class TestFitDMM:
 
     def test_elbo_improves_after_warmup(self, dmm_result: DMMResult) -> None:
         """ELBO should trend upward after KL annealing warmup."""
-        post = dmm_result.elbo_history[FAST_CONFIG.annealing_epochs:]
+        post = dmm_result.elbo_history[FAST_CONFIG.annealing_epochs :]
         n = len(post)
         quarter = max(1, n // 4)
         assert np.mean(post[-quarter:]) > np.mean(post[:quarter])
@@ -205,8 +205,13 @@ class TestFitDMM:
         df.iloc[10] = np.nan
         df.iloc[100] = np.nan
         cfg = DMMConfig(
-            z_dim=2, emission_dim=8, transition_dim=8,
-            rnn_dim=16, num_epochs=5, annealing_epochs=1, random_state=0,
+            z_dim=2,
+            emission_dim=8,
+            transition_dim=8,
+            rnn_dim=16,
+            num_epochs=5,
+            annealing_epochs=1,
+            random_state=0,
         )
         result = fit_dmm(df, cfg)
         assert result.latent_means.shape[0] == 200
@@ -216,8 +221,13 @@ class TestFitDMM:
     ) -> None:
         # Just verify it runs; use very short training
         cfg = DMMConfig(
-            z_dim=2, emission_dim=8, transition_dim=8,
-            rnn_dim=16, num_epochs=3, annealing_epochs=1, random_state=0,
+            z_dim=2,
+            emission_dim=8,
+            transition_dim=8,
+            rnn_dim=16,
+            num_epochs=3,
+            annealing_epochs=1,
+            random_state=0,
         )
         result = fit_dmm(synthetic_returns, cfg)
         assert isinstance(result, DMMResult)
@@ -236,9 +246,7 @@ class TestFitDMM:
 
 
 class TestBlendMomentsDmm:
-    def test_returns_series_and_dataframe(
-        self, dmm_result: DMMResult
-    ) -> None:
+    def test_returns_series_and_dataframe(self, dmm_result: DMMResult) -> None:
         mu, cov = blend_moments_dmm(dmm_result)
         assert isinstance(mu, pd.Series)
         assert isinstance(cov, pd.DataFrame)
@@ -251,9 +259,7 @@ class TestBlendMomentsDmm:
         _, cov = blend_moments_dmm(dmm_result)
         assert cov.shape == (N_ASSETS, N_ASSETS)
 
-    def test_cov_index_columns_match_tickers(
-        self, dmm_result: DMMResult
-    ) -> None:
+    def test_cov_index_columns_match_tickers(self, dmm_result: DMMResult) -> None:
         _, cov = blend_moments_dmm(dmm_result)
         assert list(cov.index) == TICKERS
         assert list(cov.columns) == TICKERS
@@ -263,9 +269,7 @@ class TestBlendMomentsDmm:
         diag = np.diag(cov.to_numpy())
         assert (diag > 0).all()
 
-    def test_same_signature_as_hmm_blend(
-        self, dmm_result: DMMResult
-    ) -> None:
+    def test_same_signature_as_hmm_blend(self, dmm_result: DMMResult) -> None:
         """blend_moments_dmm must return (pd.Series, pd.DataFrame)."""
         result = blend_moments_dmm(dmm_result)
         assert len(result) == 2

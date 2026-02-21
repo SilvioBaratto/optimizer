@@ -6,13 +6,14 @@ Generic base repository providing common CRUD operations for all entities.
 Uses SQLAlchemy 2.0+ async patterns with proper type hints.
 """
 
-from typing import Generic, TypeVar, Optional, Sequence, Any, Type
-from sqlalchemy import select, update, delete, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from collections.abc import Sequence
+from typing import Any, Generic, TypeVar
+
 from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import Base
-
 
 ModelType = TypeVar("ModelType", bound=Base)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
@@ -34,7 +35,7 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
                 super().__init__(User, session)
     """
 
-    def __init__(self, model: Type[ModelType], session: AsyncSession):
+    def __init__(self, model: type[ModelType], session: AsyncSession):
         """
         Initialize repository with model and session.
 
@@ -45,7 +46,7 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         self.model = model
         self.session = session
 
-    async def get(self, id: Any) -> Optional[ModelType]:
+    async def get(self, id: Any) -> ModelType | None:
         """
         Get a single record by ID.
 
@@ -55,16 +56,12 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Returns:
             Model instance or None if not found
         """
-        id_column = getattr(self.model, "id")
+        id_column = self.model.id
         stmt = select(self.model).where(id_column == id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_field(
-        self,
-        field: str,
-        value: Any
-    ) -> Optional[ModelType]:
+    async def get_by_field(self, field: str, value: Any) -> ModelType | None:
         """
         Get a single record by any field.
 
@@ -85,8 +82,8 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         *,
         skip: int = 0,
         limit: int = 100,
-        order_by: Optional[str] = None,
-        desc: bool = True
+        order_by: str | None = None,
+        desc: bool = True,
     ) -> Sequence[ModelType]:
         """
         Get multiple records with pagination.
@@ -107,7 +104,7 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             column = getattr(self.model, order_by)
             stmt = stmt.order_by(column.desc() if desc else column.asc())
         elif hasattr(self.model, "created_at"):
-            column = getattr(self.model, "created_at")
+            column = self.model.created_at
             stmt = stmt.order_by(column.desc() if desc else column.asc())
 
         stmt = stmt.offset(skip).limit(limit)
@@ -158,11 +155,7 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         await self.session.refresh(db_obj)
         return db_obj
 
-    async def update(
-        self,
-        id: Any,
-        obj_in: UpdateSchemaType
-    ) -> Optional[ModelType]:
+    async def update(self, id: Any, obj_in: UpdateSchemaType) -> ModelType | None:
         """
         Update an existing record.
 
@@ -185,11 +178,7 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         await self.session.refresh(db_obj)
         return db_obj
 
-    async def update_from_dict(
-        self,
-        id: Any,
-        obj_data: dict
-    ) -> Optional[ModelType]:
+    async def update_from_dict(self, id: Any, obj_data: dict) -> ModelType | None:
         """
         Update an existing record from dictionary.
 
@@ -250,7 +239,7 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Returns:
             True if exists, False otherwise
         """
-        id_column = getattr(self.model, "id")
+        id_column = self.model.id
         stmt = select(func.count()).where(id_column == id)
         result = await self.session.execute(stmt)
         return result.scalar_one() > 0

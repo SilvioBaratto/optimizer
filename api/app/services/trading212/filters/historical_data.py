@@ -1,6 +1,6 @@
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Any, Tuple, Optional
+from typing import Any
 
 from app.services.trading212.config import UniverseBuilderConfig
 from app.services.yfinance import YFinanceClient
@@ -9,7 +9,7 @@ from app.services.yfinance import YFinanceClient
 @dataclass
 class HistoricalDataFilter:
     config: UniverseBuilderConfig
-    _yf_client: Optional[YFinanceClient] = field(default=None, repr=False)
+    _yf_client: YFinanceClient | None = field(default=None, repr=False)
 
     @property
     def name(self) -> str:
@@ -21,7 +21,7 @@ class HistoricalDataFilter:
             self._yf_client = YFinanceClient.get_instance()
         return self._yf_client
 
-    def filter(self, data: Dict[str, Any], yf_ticker: str) -> Tuple[bool, str]:
+    def filter(self, data: dict[str, Any], yf_ticker: str) -> tuple[bool, str]:
         # data parameter unused but required by protocol
         _ = data
 
@@ -39,7 +39,7 @@ class HistoricalDataFilter:
 
     def _check_historical_data(
         self, yf_ticker: str, max_retries: int = 3
-    ) -> Tuple[bool, int]:
+    ) -> tuple[bool, int]:
         for attempt in range(max_retries):
             try:
                 # Fetch 5 years of historical data

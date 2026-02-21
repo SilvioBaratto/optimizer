@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
-
 import typer
 
 from cli.client import ApiClient
@@ -26,6 +24,7 @@ def _client(ctx: typer.Context) -> ApiClient:
 # stats
 # ------------------------------------------------------------------
 
+
 @universe_app.command()
 def stats(ctx: typer.Context) -> None:
     """Show exchange and instrument counts."""
@@ -36,6 +35,7 @@ def stats(ctx: typer.Context) -> None:
 # ------------------------------------------------------------------
 # exchanges
 # ------------------------------------------------------------------
+
 
 @universe_app.command()
 def exchanges(ctx: typer.Context) -> None:
@@ -48,10 +48,11 @@ def exchanges(ctx: typer.Context) -> None:
 # instruments
 # ------------------------------------------------------------------
 
+
 @universe_app.command()
 def instruments(
     ctx: typer.Context,
-    exchange: Optional[str] = typer.Option(None, help="Filter by exchange name"),
+    exchange: str | None = typer.Option(None, help="Filter by exchange name"),
     skip: int = typer.Option(0, help="Number of records to skip"),
     limit: int = typer.Option(100, help="Max records to return (1-1000)"),
 ) -> None:
@@ -70,13 +71,16 @@ def instruments(
 # build
 # ------------------------------------------------------------------
 
+
 @universe_app.command()
 def build(
     ctx: typer.Context,
-    exchange: Optional[List[str]] = typer.Option(
+    exchange: list[str] | None = typer.Option(
         None, help="Exchange name(s). Repeat for multiple."
     ),
-    skip_filters: bool = typer.Option(False, "--skip-filters", help="Skip quality filters"),
+    skip_filters: bool = typer.Option(
+        False, "--skip-filters", help="Skip quality filters"
+    ),
     max_workers: int = typer.Option(20, help="Concurrent workers (1-50)"),
 ) -> None:
     """Start a universe build and poll until complete."""
@@ -112,6 +116,7 @@ def build(
 # build-status
 # ------------------------------------------------------------------
 
+
 @universe_app.command("build-status")
 def build_status(
     ctx: typer.Context,
@@ -126,6 +131,7 @@ def build_status(
 # cache-stats
 # ------------------------------------------------------------------
 
+
 @universe_app.command("cache-stats")
 def cache_stats(ctx: typer.Context) -> None:
     """Show ticker mapping cache statistics."""
@@ -136,6 +142,7 @@ def cache_stats(ctx: typer.Context) -> None:
 # ------------------------------------------------------------------
 # cache-clear
 # ------------------------------------------------------------------
+
 
 @universe_app.command("cache-clear")
 def cache_clear(ctx: typer.Context) -> None:

@@ -1,4 +1,22 @@
-from .infrastructure import LRUCache, CircuitBreaker, RateLimiter, retry_with_backoff, is_rate_limit_error
+from ._base import BaseClient
+from ._facade import YFinanceClient, get_yfinance_client
+from .infrastructure import (
+    CircuitBreaker,
+    LRUCache,
+    RateLimiter,
+    is_rate_limit_error,
+    retry_with_backoff,
+)
+from .market import (
+    AsyncStreamingClient,
+    CalendarsClient,
+    MarketClient,
+    ScreenerClient,
+    SearchClient,
+    SectorIndustryClient,
+    StreamingClient,
+)
+from .news import ArticleResult, ArticleScraper, CountryNewsFetcher, NewsClient
 from .protocols import (
     AnalysisClientProtocol,
     ArticleScraperProtocol,
@@ -26,18 +44,6 @@ from .ticker import (
     HoldersClient,
     MetadataClient,
 )
-from .market import (
-    CalendarsClient,
-    MarketClient,
-    ScreenerClient,
-    SearchClient,
-    SectorIndustryClient,
-    StreamingClient,
-    AsyncStreamingClient,
-)
-from .news import ArticleScraper, ArticleResult, NewsClient, CountryNewsFetcher
-from ._base import BaseClient
-from ._facade import YFinanceClient, get_yfinance_client
 
 __all__ = [
     # Core client

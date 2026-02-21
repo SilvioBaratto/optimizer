@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
-from fastapi.testclient import TestClient
-
-from app.main import app
 from baml_client.types import AssetFactorData, AssetView, ViewOutput
+from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
 # Helpers — fixture factories
@@ -198,7 +196,9 @@ class TestGenerateViews:
         factor_data = [_make_factor_data("AAPL")]
         mock_output = _make_view_output([_make_asset_view("AAPL")])
 
-        with patch("app.services.view_generation.b.GenerateViews", return_value=mock_output):
+        with patch(
+            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+        ):
             result = generate_views(TICKERS, factor_data)
 
         assert len(result.view_strings) == 1
@@ -212,7 +212,9 @@ class TestGenerateViews:
         views = [_make_asset_view("AAPL"), _make_asset_view("MSFT")]
         mock_output = _make_view_output(views)
 
-        with patch("app.services.view_generation.b.GenerateViews", return_value=mock_output):
+        with patch(
+            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+        ):
             result = generate_views(TICKERS, factor_data)
 
         assert result.P.shape == (2, len(TICKERS))
@@ -223,7 +225,9 @@ class TestGenerateViews:
         factor_data = [_make_factor_data("AAPL")]
         mock_output = _make_view_output([_make_asset_view("AAPL")])
 
-        with patch("app.services.view_generation.b.GenerateViews", return_value=mock_output):
+        with patch(
+            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+        ):
             result = generate_views(TICKERS, factor_data)
 
         assert result.Q.shape == (len(result.view_strings),)
@@ -232,11 +236,11 @@ class TestGenerateViews:
         from app.services.view_generation import generate_views
 
         factor_data = [_make_factor_data("AAPL")]
-        mock_output = _make_view_output(
-            [_make_asset_view("AAPL", confidence=0.9)]
-        )
+        mock_output = _make_view_output([_make_asset_view("AAPL", confidence=0.9)])
 
-        with patch("app.services.view_generation.b.GenerateViews", return_value=mock_output):
+        with patch(
+            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+        ):
             result = generate_views(TICKERS, factor_data)
 
         assert all(0.0 < alpha < 1.0 for alpha in result.idzorek_alphas.values())
@@ -248,7 +252,9 @@ class TestGenerateViews:
         factor_data = [_make_factor_data("AAPL")]
         mock_output = _make_view_output()
 
-        with patch("app.services.view_generation.b.GenerateViews", return_value=mock_output):
+        with patch(
+            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+        ):
             result = generate_views(TICKERS, factor_data)
 
         for vs in result.view_strings:
@@ -263,7 +269,9 @@ class TestGenerateViews:
             [_make_asset_view("AAPL"), _make_asset_view("HALLUCINATED")]
         )
 
-        with patch("app.services.view_generation.b.GenerateViews", return_value=mock_output):
+        with patch(
+            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+        ):
             result = generate_views(TICKERS, factor_data)
 
         assert all(v.asset in set(TICKERS) for v in result.asset_views)
@@ -317,9 +325,13 @@ TICKERS_PAYLOAD = ["AAPL", "MSFT", "GOOGL"]
 def _make_generated_views(
     tickers: list[str],
     asset_views: list[AssetView] | None = None,
-) -> "GeneratedViews":
+) -> GeneratedViews:
     """Build a GeneratedViews result for mocking the endpoint's generate_views call."""
-    from app.services.view_generation import GeneratedViews, _views_to_arrays, _validate_idzorek_alphas
+    from app.services.view_generation import (
+        GeneratedViews,
+        _validate_idzorek_alphas,
+        _views_to_arrays,
+    )
 
     if asset_views is None:
         asset_views = [_make_asset_view("AAPL")]
@@ -357,7 +369,10 @@ class TestGenerateViewsEndpoint:
         mock_gv = _make_generated_views(TICKERS_PAYLOAD, asset_views)
 
         with (
-            patch(self._FETCH, return_value=[_make_factor_data(t) for t in TICKERS_PAYLOAD]),
+            patch(
+                self._FETCH,
+                return_value=[_make_factor_data(t) for t in TICKERS_PAYLOAD],
+            ),
             patch(self._GENERATE, return_value=mock_gv),
         ):
             resp = client.post(URL, json=self.PAYLOAD)
@@ -407,7 +422,10 @@ class TestGenerateViewsEndpoint:
         mock_gv = _make_generated_views(TICKERS_PAYLOAD, asset_views)
 
         with (
-            patch(self._FETCH, return_value=[_make_factor_data(t) for t in TICKERS_PAYLOAD]),
+            patch(
+                self._FETCH,
+                return_value=[_make_factor_data(t) for t in TICKERS_PAYLOAD],
+            ),
             patch(self._GENERATE, return_value=mock_gv),
         ):
             resp = client.post(URL, json=self.PAYLOAD)
@@ -465,7 +483,9 @@ class TestGenerateViewsEndpoint:
         assert "GOOGL" in data["tickers_missing_data"]
         assert "AAPL" in data["tickers_with_data"]
 
-    def test_output_passes_directly_to_build_black_litterman(self, client: TestClient) -> None:
+    def test_output_passes_directly_to_build_black_litterman(
+        self, client: TestClient
+    ) -> None:
         """Smoke-test that view_strings feed into BlackLittermanConfig without error."""
         from optimizer.views._config import BlackLittermanConfig
 

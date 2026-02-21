@@ -40,9 +40,7 @@ def volume_history(price_history: pd.DataFrame) -> pd.DataFrame:
     """Synthetic volume aligned with price_history."""
     rng = np.random.default_rng(99)
     vol = rng.integers(100_000, 5_000_000, size=price_history.shape)
-    df = pd.DataFrame(
-        vol, index=price_history.index, columns=price_history.columns
-    )
+    df = pd.DataFrame(vol, index=price_history.index, columns=price_history.columns)
     # TINY has zero volume on 20% of days
     mask = rng.random(len(df)) < 0.20
     df.loc[mask, "TINY"] = 0
@@ -69,23 +67,29 @@ def financial_statements() -> pd.DataFrame:
     records = []
     for ticker in ["AAPL", "MSFT", "GOOG"]:
         for i in range(4):
-            records.append({
-                "ticker": ticker,
-                "period_type": "annual",
-                "period_date": f"202{i}-12-31",
-            })
+            records.append(
+                {
+                    "ticker": ticker,
+                    "period_type": "annual",
+                    "period_date": f"202{i}-12-31",
+                }
+            )
         for i in range(10):
-            records.append({
-                "ticker": ticker,
-                "period_type": "quarterly",
-                "period_date": f"2023-{(i % 4 + 1) * 3:02d}-30",
-            })
+            records.append(
+                {
+                    "ticker": ticker,
+                    "period_type": "quarterly",
+                    "period_date": f"2023-{(i % 4 + 1) * 3:02d}-30",
+                }
+            )
     # TINY has only 1 annual report
-    records.append({
-        "ticker": "TINY",
-        "period_type": "annual",
-        "period_date": "2023-12-31",
-    })
+    records.append(
+        {
+            "ticker": "TINY",
+            "period_type": "annual",
+            "period_date": "2023-12-31",
+        }
+    )
     # NEW has no statements
     return pd.DataFrame(records)
 
@@ -278,6 +282,7 @@ class TestApplyInvestabilityScreens:
 # Exchange percentile threshold tests
 # ---------------------------------------------------------------------------
 
+
 def _make_exchange_fundamentals(
     tickers: list[str],
     mcaps: list[float],
@@ -299,8 +304,7 @@ class TestComputeExchangeMcapPercentileThresholds:
         # 10 stocks on NYSE with mcaps 100–1000 (step 100)
         tickers = [f"T{i}" for i in range(10)]
         mcaps = pd.Series(
-            [100.0, 200.0, 300.0, 400.0, 500.0,
-             600.0, 700.0, 800.0, 900.0, 1000.0],
+            [100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0],
             index=tickers,
         )
         exchanges = pd.Series(["NYSE"] * 10, index=tickers)
@@ -329,13 +333,11 @@ class TestComputeExchangeMcapPercentileThresholds:
         aim_tickers = [f"A{i}" for i in range(10)]
         all_tickers = nyse_tickers + aim_tickers
 
-        nyse_mcaps = list(range(100, 1100, 100))   # 100, 200, ..., 1000
-        aim_mcaps = list(range(10, 110, 10))        # 10, 20, ..., 100
+        nyse_mcaps = list(range(100, 1100, 100))  # 100, 200, ..., 1000
+        aim_mcaps = list(range(10, 110, 10))  # 10, 20, ..., 100
 
         mcaps = pd.Series(nyse_mcaps + aim_mcaps, index=all_tickers, dtype=float)
-        exchanges = pd.Series(
-            ["NYSE"] * 10 + ["AIM"] * 10, index=all_tickers
-        )
+        exchanges = pd.Series(["NYSE"] * 10 + ["AIM"] * 10, index=all_tickers)
 
         thresholds = compute_exchange_mcap_percentile_thresholds(
             mcaps, exchanges, percentile=0.10
@@ -419,9 +421,9 @@ class TestMcapPercentileScreenInApplyInvestabilityScreens:
             columns=extra_tickers,
         )
         ph = pd.concat([price_history[["AAPL"]], extra_prices], axis=1)
-        ph.columns = ["AAPL"] + extra_tickers
+        ph.columns = ["AAPL", *extra_tickers]
         vh = pd.concat([volume_history[["AAPL"]], extra_vols], axis=1)
-        vh.columns = ["AAPL"] + extra_tickers
+        vh.columns = ["AAPL", *extra_tickers]
 
         # Only test fundamentals (no financial statements, simpler)
         result = apply_investability_screens(

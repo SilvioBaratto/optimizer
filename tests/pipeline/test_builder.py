@@ -73,7 +73,7 @@ class TestBuildPortfolioPipeline:
         assert portfolio.weights.sum() == pytest.approx(1.0, abs=1e-6)
 
     def test_sector_mapping(self, returns_df: pd.DataFrame) -> None:
-        mapping = {col: "Tech" for col in returns_df.columns}
+        mapping = dict.fromkeys(returns_df.columns, "Tech")
         pipe = build_portfolio_pipeline(
             EqualWeighted(),
             sector_mapping=mapping,

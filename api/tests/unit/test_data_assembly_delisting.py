@@ -19,10 +19,10 @@ if str(_api_root) not in sys.path:
 
 from cli.data_assembly import _apply_delisting_returns  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _price_df(
     tickers: list[str],
@@ -32,10 +32,7 @@ def _price_df(
 ) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     idx = pd.bdate_range(start, periods=n_days)
-    data = {
-        t: 100.0 * np.cumprod(1 + rng.normal(0.001, 0.02, n_days))
-        for t in tickers
-    }
+    data = {t: 100.0 * np.cumprod(1 + rng.normal(0.001, 0.02, n_days)) for t in tickers}
     return pd.DataFrame(data, index=idx)
 
 
@@ -53,9 +50,7 @@ class TestApplyDelistingReturns:
     def test_synthetic_row_added_after_last_date(self) -> None:
         df = _price_df(["A", "B"])
         delisting_date = df.index[-1] + pd.Timedelta(days=1)
-        out = _apply_delisting_returns(
-            df, [("A", delisting_date, -0.30)]
-        )
+        out = _apply_delisting_returns(df, [("A", delisting_date, -0.30)])
         assert delisting_date in out.index
 
     def test_delisting_return_applied_correctly(self) -> None:
@@ -229,10 +224,10 @@ class TestAssemblePricesDelisting:
 
     def test_include_delisted_false_skips_extra_query(self) -> None:
         """When include_delisted=False, the delisting rows query is never made."""
-        from cli.data_assembly import assemble_prices
-
         # Two .execute() calls: ticker_map + price_history (no delisting query)
         import uuid
+
+        from cli.data_assembly import assemble_prices
 
         inst_id = uuid.uuid4()
         ticker_rows = [(inst_id, "AAPL")]
@@ -246,9 +241,9 @@ class TestAssemblePricesDelisting:
 
     def test_include_delisted_true_makes_delisting_query(self) -> None:
         """When include_delisted=True, a third query fetches delisting rows."""
-        from cli.data_assembly import assemble_prices
-
         import uuid
+
+        from cli.data_assembly import assemble_prices
 
         inst_id = uuid.uuid4()
         ticker_rows = [(inst_id, "AAPL")]
@@ -262,9 +257,9 @@ class TestAssemblePricesDelisting:
 
     def test_delisted_stock_gets_synthetic_price_row(self) -> None:
         """The delisting synthetic row appears in the returned DataFrame."""
-        from cli.data_assembly import assemble_prices
-
         import uuid
+
+        from cli.data_assembly import assemble_prices
 
         active_id = uuid.uuid4()
         delisted_id = uuid.uuid4()

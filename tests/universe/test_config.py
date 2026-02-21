@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.universe import (
     ExchangeRegion,
     HysteresisConfig,
@@ -35,7 +36,7 @@ class TestHysteresisConfig:
             cfg.entry = 50.0  # type: ignore[misc]
 
     def test_exit_above_entry_raises(self) -> None:
-        with pytest.raises(ValueError, match="exit_.*must be <= entry"):
+        with pytest.raises(ConfigurationError, match=r"exit_.*must be <= entry"):
             HysteresisConfig(entry=100.0, exit_=150.0)
 
     def test_equal_entry_exit_allowed(self) -> None:
@@ -67,14 +68,14 @@ class TestInvestabilityScreenConfig:
             cfg.min_trading_history = 100  # type: ignore[misc]
 
     def test_percentile_exit_above_entry_raises(self) -> None:
-        with pytest.raises(ValueError, match="mcap_percentile_exit"):
+        with pytest.raises(ConfigurationError, match="mcap_percentile_exit"):
             InvestabilityScreenConfig(
                 mcap_percentile_entry=0.10,
                 mcap_percentile_exit=0.15,
             )
 
     def test_percentile_entry_above_one_raises(self) -> None:
-        with pytest.raises(ValueError, match="mcap_percentile_exit"):
+        with pytest.raises(ConfigurationError, match="mcap_percentile_exit"):
             InvestabilityScreenConfig(
                 mcap_percentile_entry=1.5,
                 mcap_percentile_exit=0.10,

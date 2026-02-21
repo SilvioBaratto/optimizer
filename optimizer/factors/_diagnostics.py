@@ -10,6 +10,7 @@ import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
+from optimizer.exceptions import DataError
 from optimizer.factors._validation import compute_vif
 
 
@@ -68,14 +69,14 @@ def compute_factor_pca(
         available after dropping NaN rows.
     """
     if scores.shape[1] < 2:
-        raise ValueError(
+        raise DataError(
             "compute_factor_pca requires at least 2 factor columns, "
             f"got {scores.shape[1]}"
         )
 
     clean = scores.dropna()
     if len(clean) < 2:
-        raise ValueError(
+        raise DataError(
             "compute_factor_pca requires at least 2 observations after "
             f"dropping NaN rows, got {len(clean)}"
         )

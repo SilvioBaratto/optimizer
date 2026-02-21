@@ -7,8 +7,8 @@ from typing import Any
 
 import yfinance as yf
 
-from ..protocols import CircuitBreakerProtocol, RateLimiterProtocol
 from ..infrastructure import is_rate_limit_error, retry_with_backoff
+from ..protocols import CircuitBreakerProtocol, RateLimiterProtocol
 
 logger = logging.getLogger(__name__)
 
