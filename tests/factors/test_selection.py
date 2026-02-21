@@ -10,6 +10,7 @@ from optimizer.factors import (
     SelectionConfig,
     SelectionMethod,
     apply_sector_balance,
+    compute_selection_turnover,
     select_fixed_count,
     select_quantile,
     select_stocks,
@@ -142,3 +143,42 @@ class TestSelectStocks:
         # Default selects top 100 but we only have 50
         result = select_stocks(scores)
         assert len(result) == 50
+
+
+class TestComputeSelectionTurnover:
+    """Tests for compute_selection_turnover (issue #82)."""
+
+    def test_no_change_zero_turnover(self) -> None:
+        idx = pd.Index(["A", "B", "C"])
+        assert compute_selection_turnover(idx, idx, idx) == 0.0
+
+    def test_complete_replacement(self) -> None:
+        current = pd.Index(["A", "B"])
+        new = pd.Index(["C", "D"])
+        universe = pd.Index(["A", "B", "C", "D"])
+        assert compute_selection_turnover(current, new, universe) == 1.0
+
+    def test_partial_overlap(self) -> None:
+        current = pd.Index(["A", "B", "C"])
+        new = pd.Index(["B", "C", "D"])
+        universe = pd.Index(["A", "B", "C", "D", "E"])
+        # added = {D}, removed = {A} → 2 / 5 = 0.4
+        assert compute_selection_turnover(current, new, universe) == pytest.approx(0.4)
+
+    def test_empty_universe_returns_zero(self) -> None:
+        assert compute_selection_turnover(
+            pd.Index(["A"]), pd.Index(["B"]), pd.Index([])
+        ) == 0.0
+
+    def test_return_turnover_flag(self, scores: pd.Series) -> None:
+        config = SelectionConfig(
+            method=SelectionMethod.FIXED_COUNT,
+            target_count=10,
+            sector_balance=False,
+        )
+        result = select_stocks(scores, config=config, return_turnover=True)
+        assert isinstance(result, tuple)
+        selected, turnover = result
+        assert isinstance(selected, pd.Index)
+        assert isinstance(turnover, float)
+        assert len(selected) == 10

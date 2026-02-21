@@ -121,8 +121,15 @@ class SyntheticDataConfig:
         cls,
         n_samples: int = 10_000,
     ) -> SyntheticDataConfig:
-        """Stress-test configuration (conditioning dict passed to factory)."""
+        """Stress-test configuration (conditioning dict passed to factory).
+
+        Uses BIC for copula selection (penalises complexity more than AIC)
+        and deeper vine trees (``max_depth=6``) to capture tail dependence.
+        """
         return cls(
             n_samples=n_samples,
-            vine_copula_config=VineCopulaConfig(),
+            vine_copula_config=VineCopulaConfig(
+                selection_criterion=SelectionCriterionType.BIC,
+                max_depth=6,
+            ),
         )

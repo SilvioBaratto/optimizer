@@ -263,6 +263,7 @@ class StandardizationConfig:
     winsorize_upper: float = 0.99
     neutralize_sector: bool = True
     neutralize_country: bool = False
+    re_standardize_after_neutralization: bool = False
 
     @classmethod
     def for_heavy_tailed(cls) -> StandardizationConfig:

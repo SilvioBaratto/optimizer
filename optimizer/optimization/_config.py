@@ -369,6 +369,14 @@ class RiskBudgetingConfig:
             cvar_beta=beta,
         )
 
+    @classmethod
+    def for_cdar_parity(cls, beta: float = 0.95) -> RiskBudgetingConfig:
+        """Equal risk-budget with CDaR."""
+        return cls(
+            risk_measure=RiskMeasureType.CDAR,
+            cdar_beta=beta,
+        )
+
 
 @dataclass(frozen=True)
 class MaxDiversificationConfig:

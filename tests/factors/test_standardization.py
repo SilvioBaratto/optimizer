@@ -154,3 +154,42 @@ class TestStandardizeAllFactors:
         _scores, coverage = standardize_all_factors(factors)
         assert not coverage.loc["Y", "a"]
         assert not coverage.loc["X", "b"]
+
+
+class TestReStandardizeAfterNeutralization:
+    """Tests for re_standardize_after_neutralization flag (issue #78)."""
+
+    def test_restandardized_zero_mean_unit_std(
+        self, raw_scores: pd.Series, sector_labels: pd.Series
+    ) -> None:
+        config = StandardizationConfig(
+            neutralize_sector=True,
+            re_standardize_after_neutralization=True,
+        )
+        result = standardize_factor(raw_scores, config, sector_labels)
+        assert abs(result.mean()) < 1e-10
+        assert abs(result.std() - 1.0) < 0.05
+
+    def test_default_false_no_change(
+        self, raw_scores: pd.Series, sector_labels: pd.Series
+    ) -> None:
+        config_without = StandardizationConfig(
+            neutralize_sector=True,
+            re_standardize_after_neutralization=False,
+        )
+        config_default = StandardizationConfig(neutralize_sector=True)
+        result_without = standardize_factor(raw_scores, config_without, sector_labels)
+        result_default = standardize_factor(raw_scores, config_default, sector_labels)
+        pd.testing.assert_series_equal(result_without, result_default)
+
+    def test_skipped_when_no_neutralization(self, raw_scores: pd.Series) -> None:
+        config = StandardizationConfig(
+            neutralize_sector=False,
+            re_standardize_after_neutralization=True,
+        )
+        result = standardize_factor(raw_scores, config)
+        # Without neutralization, re-standardize flag is ignored;
+        # result should be same as plain z-score
+        config_plain = StandardizationConfig(neutralize_sector=False)
+        result_plain = standardize_factor(raw_scores, config_plain)
+        pd.testing.assert_series_equal(result, result_plain)

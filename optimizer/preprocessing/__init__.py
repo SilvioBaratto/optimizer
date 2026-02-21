@@ -1,5 +1,6 @@
 """Custom sklearn-compatible preprocessing transformers."""
 
+from optimizer.preprocessing._delisting import apply_delisting_returns
 from optimizer.preprocessing._imputation import SectorImputer
 from optimizer.preprocessing._outliers import OutlierTreater
 from optimizer.preprocessing._regression_imputer import RegressionImputer
@@ -10,4 +11,5 @@ __all__ = [
     "OutlierTreater",
     "RegressionImputer",
     "SectorImputer",
+    "apply_delisting_returns",
 ]

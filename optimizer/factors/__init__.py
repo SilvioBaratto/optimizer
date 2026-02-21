@@ -70,6 +70,7 @@ from optimizer.factors._scoring import (
 )
 from optimizer.factors._selection import (
     apply_sector_balance,
+    compute_selection_turnover,
     select_fixed_count,
     select_quantile,
     select_stocks,
@@ -83,6 +84,7 @@ from optimizer.factors._standardization import (
     z_score_standardize,
 )
 from optimizer.factors._validation import (
+    FACTOR_SPREAD_BENCHMARKS,
     CorrectedPValues,
     FactorValidationReport,
     ICResult,
@@ -103,6 +105,7 @@ from optimizer.factors._validation import (
 
 __all__ = [
     "FACTOR_GROUP_MAPPING",
+    "FACTOR_SPREAD_BENCHMARKS",
     "GROUP_WEIGHT_TIER",
     "CompositeMethod",
     "CompositeScoringConfig",
@@ -157,6 +160,7 @@ __all__ = [
     "compute_newey_west_tstat",
     "compute_quantile_spread",
     "compute_quintile_spread",
+    "compute_selection_turnover",
     "compute_vif",
     "correct_pvalues",
     "estimate_factor_premia",

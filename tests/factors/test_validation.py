@@ -8,6 +8,7 @@ import pytest
 
 from optimizer.exceptions import DataError
 from optimizer.factors import (
+    FACTOR_SPREAD_BENCHMARKS,
     CorrectedPValues,
     FactorValidationReport,
     ICStats,
@@ -378,3 +379,91 @@ class TestRunFactorValidation:
         report = run_factor_validation(factor_history, returns_hist)
         assert isinstance(report, FactorValidationReport)
         assert len(report.ic_results) == 2
+
+
+class TestFactorSpreadBenchmarks:
+    """Tests for benchmark thresholds and Holm FWER (issue #80)."""
+
+    def test_benchmark_dict_has_all_groups(self) -> None:
+        expected = {
+            "value",
+            "profitability",
+            "investment",
+            "momentum",
+            "low_risk",
+            "liquidity",
+            "dividend",
+            "sentiment",
+            "ownership",
+        }
+        assert set(FACTOR_SPREAD_BENCHMARKS.keys()) == expected
+
+    def test_benchmark_bounds_ordered(self) -> None:
+        for group, (lo, hi) in FACTOR_SPREAD_BENCHMARKS.items():
+            assert lo < hi, f"{group} benchmark bounds not ordered"
+            assert lo >= 0, f"{group} lower bound negative"
+
+    def test_within_benchmark_flag(self) -> None:
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2023-01-01", periods=36, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(30)]
+
+        factor_history = {
+            "book_to_price": pd.DataFrame(
+                rng.normal(0, 1, (36, 30)), index=dates, columns=tickers
+            ),
+        }
+        returns_hist = pd.DataFrame(
+            rng.normal(0.001, 0.02, (36, 30)), index=dates, columns=tickers
+        )
+
+        report = run_factor_validation(factor_history, returns_hist)
+        for qs in report.quantile_spreads:
+            assert isinstance(qs.within_benchmark, bool)
+
+    def test_significant_factors_holm_populated(self) -> None:
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2023-01-01", periods=60, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(50)]
+
+        # Strong signal factors
+        factor_history = {
+            "value": pd.DataFrame(
+                rng.normal(0, 1, (60, 50)), index=dates, columns=tickers
+            ),
+            "momentum": pd.DataFrame(
+                rng.normal(0, 1, (60, 50)), index=dates, columns=tickers
+            ),
+        }
+        returns_hist = pd.DataFrame(
+            rng.normal(0.001, 0.02, (60, 50)), index=dates, columns=tickers
+        )
+
+        report = run_factor_validation(factor_history, returns_hist)
+        assert isinstance(report.significant_factors_holm, list)
+
+    def test_holm_subset_of_bh(self) -> None:
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2023-01-01", periods=60, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(50)]
+
+        factor_history = {
+            "value": pd.DataFrame(
+                rng.normal(0, 1, (60, 50)), index=dates, columns=tickers
+            ),
+            "momentum": pd.DataFrame(
+                rng.normal(0, 1, (60, 50)), index=dates, columns=tickers
+            ),
+            "quality": pd.DataFrame(
+                rng.normal(0, 1, (60, 50)), index=dates, columns=tickers
+            ),
+        }
+        returns_hist = pd.DataFrame(
+            rng.normal(0.001, 0.02, (60, 50)), index=dates, columns=tickers
+        )
+
+        report = run_factor_validation(factor_history, returns_hist)
+        # Holm is stricter than BH → subset
+        assert set(report.significant_factors_holm).issubset(
+            set(report.significant_factors)
+        )

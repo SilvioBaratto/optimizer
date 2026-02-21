@@ -9,7 +9,21 @@ import numpy.typing as npt
 import pandas as pd
 
 from optimizer.exceptions import DataError
-from optimizer.factors._config import FactorValidationConfig
+from optimizer.factors._config import FACTOR_GROUP_MAPPING, FactorValidationConfig
+
+# Annualised long-short quintile spread benchmarks (low, high) per group.
+# Derived from academic literature (Fama-French, AQR, Novy-Marx).
+FACTOR_SPREAD_BENCHMARKS: dict[str, tuple[float, float]] = {
+    "value": (0.02, 0.06),
+    "profitability": (0.02, 0.05),
+    "investment": (0.01, 0.04),
+    "momentum": (0.04, 0.10),
+    "low_risk": (0.01, 0.04),
+    "liquidity": (0.01, 0.03),
+    "dividend": (0.01, 0.03),
+    "sentiment": (0.005, 0.02),
+    "ownership": (0.005, 0.02),
+}
 
 # ---------------------------------------------------------------------------
 # Result containers
@@ -35,6 +49,7 @@ class QuantileSpreadResult:
     factor_name: str
     spread: float
     quantile_returns: list[float]
+    within_benchmark: bool = False
 
 
 @dataclass
@@ -47,6 +62,7 @@ class FactorValidationReport:
     )
     vif_scores: pd.Series | None = None
     significant_factors: list[str] = field(default_factory=list)
+    significant_factors_holm: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -547,6 +563,17 @@ def benjamini_hochberg(
 # ---------------------------------------------------------------------------
 
 
+def _factor_to_group_name(factor_name: str) -> str:
+    """Map a factor name to its group name for benchmark lookup."""
+    from optimizer.factors._config import FactorType
+
+    try:
+        factor_type = FactorType(factor_name)
+        return FACTOR_GROUP_MAPPING[factor_type].value
+    except (ValueError, KeyError):
+        return factor_name.lower()
+
+
 def run_factor_validation(
     factor_scores_history: dict[str, pd.DataFrame],
     returns_history: pd.DataFrame,
@@ -607,18 +634,37 @@ def run_factor_validation(
                 n_quantiles=config.n_quantiles,
             )
             if not np.isnan(spread):
+                group_name = _factor_to_group_name(factor_name)
+                bench = FACTOR_SPREAD_BENCHMARKS.get(group_name)
+                in_bench = (
+                    bench[0] <= abs(spread) <= bench[1]
+                    if bench is not None
+                    else False
+                )
                 report.quantile_spreads.append(
                     QuantileSpreadResult(
                         factor_name=factor_name,
                         spread=spread,
                         quantile_returns=[],
+                        within_benchmark=in_bench,
                     )
                 )
 
-    # FDR correction
+    # Multiple testing correction (Holm FWER + BH FDR)
     if p_values:
-        pval_series = pd.Series(p_values)
-        fdr_sig = benjamini_hochberg(pval_series, config.fdr_alpha)
-        report.significant_factors = list(fdr_sig.index[fdr_sig])
+        factor_names = list(p_values.keys())
+        pval_arr = np.array([p_values[f] for f in factor_names], dtype=np.float64)
+        corrected = correct_pvalues(pval_arr, config.fdr_alpha)
+
+        report.significant_factors = [
+            f
+            for f, p in zip(factor_names, corrected.bh, strict=True)
+            if p <= config.fdr_alpha
+        ]
+        report.significant_factors_holm = [
+            f
+            for f, p in zip(factor_names, corrected.holm, strict=True)
+            if p <= config.fdr_alpha
+        ]
 
     return report

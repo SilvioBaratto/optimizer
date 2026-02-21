@@ -177,10 +177,11 @@ class TestComputeRegimeRisk:
         with pytest.raises(NotImplementedError, match="EDAR"):
             _compute_regime_risk(r, RiskMeasureType.EDAR)
 
-    def test_unsupported_measure_raises_not_implemented(self) -> None:
+    def test_unsupported_measure_warns_and_falls_back(self) -> None:
         r = self._r()
-        with pytest.raises(NotImplementedError, match="not supported"):
-            _compute_regime_risk(r, RiskMeasureType.GINI_MEAN_DIFFERENCE)
+        with pytest.warns(UserWarning, match="not supported"):
+            result = _compute_regime_risk(r, RiskMeasureType.GINI_MEAN_DIFFERENCE)
+        assert result > 0.0
 
     def test_drawdown_measures_with_known_data(self) -> None:
         """Known data: monotonically decreasing prices → predictable drawdown."""
@@ -338,6 +339,14 @@ class TestRegimeRiskConfig:
             cvar_beta=0.99,
         )
         assert config.cvar_beta == pytest.approx(0.99)
+
+    def test_for_calm_stress_drawdown(self) -> None:
+        config = RegimeRiskConfig.for_calm_stress_drawdown()
+        assert len(config.regime_measures) == 2
+        assert config.regime_measures[0] == RiskMeasureType.VARIANCE
+        assert config.regime_measures[1] == RiskMeasureType.CDAR
+        assert config.hmm_config.n_states == 2
+        assert config.cvar_beta == pytest.approx(0.95)
 
     def test_frozen_immutable(self) -> None:
         config = RegimeRiskConfig.for_calm_stress()

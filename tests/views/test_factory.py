@@ -202,6 +202,46 @@ class TestBuildEntropyPooling:
         prior = build_entropy_pooling(cfg)
         assert prior.mean_views is None
 
+    def test_relative_mean_views_resolved(self) -> None:
+        """Relative mean views are converted to absolute using prior moments."""
+        mu = np.array([0.05, 0.03])
+        cov = np.diag([0.04, 0.02])
+        cfg = EntropyPoolingConfig(
+            relative_mean_views=(("AAPL", 0.01),),
+        )
+        prior = build_entropy_pooling(
+            cfg,
+            prior_moments=(mu, cov),
+            asset_names=["AAPL", "MSFT"],
+        )
+        assert prior.mean_views is not None
+        assert len(prior.mean_views) == 1
+        assert "AAPL == 0.06" in prior.mean_views[0]
+
+    def test_relative_variance_views_resolved(self) -> None:
+        """Relative variance views multiply prior diagonal variance."""
+        mu = np.array([0.05, 0.03])
+        cov = np.diag([0.04, 0.02])
+        cfg = EntropyPoolingConfig(
+            relative_variance_views=(("AAPL", 2.0),),
+        )
+        prior = build_entropy_pooling(
+            cfg,
+            prior_moments=(mu, cov),
+            asset_names=["AAPL", "MSFT"],
+        )
+        assert prior.variance_views is not None
+        assert len(prior.variance_views) == 1
+        assert "AAPL == 0.08" in prior.variance_views[0]
+
+    def test_relative_views_without_prior_raises(self) -> None:
+        """ConfigurationError when relative views set but no prior_moments."""
+        cfg = EntropyPoolingConfig(
+            relative_mean_views=(("AAPL", 0.01),),
+        )
+        with pytest.raises(ConfigurationError, match="prior_moments"):
+            build_entropy_pooling(cfg)
+
 
 class TestBuildOpinionPooling:
     def test_produces_opinion_pooling_instance(self) -> None:

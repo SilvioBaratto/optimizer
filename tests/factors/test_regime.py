@@ -107,3 +107,41 @@ class TestApplyRegimeTilts:
         config = RegimeTiltConfig.for_moderate_tilts()
         result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
         assert abs(sum(result.values()) - sum(weights.values())) < 1e-10
+
+
+class TestUnemploymentRegimeOverride:
+    """Tests for multi-indicator regime with unemployment (issue #79)."""
+
+    def test_slowdown_unemployment_override(self) -> None:
+        """Rising unemployment + positive GDP → SLOWDOWN."""
+        macro = pd.DataFrame(
+            {
+                "gdp_growth": [2.0, 2.5, 3.0, 3.5],
+                "unemployment_rate": [3.5, 3.6, 3.8, 4.1],
+            },
+            index=pd.date_range("2023-01-01", periods=4, freq="QE"),
+        )
+        result = classify_regime(macro)
+        assert result == MacroRegime.SLOWDOWN
+
+    def test_unemployment_not_rising_no_override(self) -> None:
+        """Declining unemployment → original GDP-based classification."""
+        macro = pd.DataFrame(
+            {
+                "gdp_growth": [2.0, 2.5, 3.0, 3.5],
+                "unemployment_rate": [4.1, 3.8, 3.6, 3.5],
+            },
+            index=pd.date_range("2023-01-01", periods=4, freq="QE"),
+        )
+        result = classify_regime(macro)
+        # GDP is positive and rising → EXPANSION (not overridden)
+        assert result == MacroRegime.EXPANSION
+
+    def test_unemployment_missing_graceful_fallback(self) -> None:
+        """No unemployment_rate column → original behavior."""
+        macro = pd.DataFrame(
+            {"gdp_growth": [2.0, 2.5, 3.0, 3.5]},
+            index=pd.date_range("2023-01-01", periods=4, freq="QE"),
+        )
+        result = classify_regime(macro)
+        assert result == MacroRegime.EXPANSION

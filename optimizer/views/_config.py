@@ -87,6 +87,20 @@ class BlackLittermanConfig:
             use_factor_model=True,
         )
 
+    @classmethod
+    def for_idzorek(
+        cls,
+        views: tuple[str, ...],
+        view_confidences: tuple[float, ...],
+    ) -> BlackLittermanConfig:
+        """Idzorek method with per-view confidence levels."""
+        return cls(
+            views=views,
+            uncertainty_method=ViewUncertaintyMethod.IDZOREK,
+            view_confidences=view_confidences,
+            prior_config=MomentEstimationConfig.for_equilibrium_ledoitwolf(),
+        )
+
 
 @dataclass(frozen=True)
 class EntropyPoolingConfig:
@@ -124,6 +138,8 @@ class EntropyPoolingConfig:
     mean_views: tuple[str, ...] | None = None
     mean_inequality_views: tuple[str, ...] | None = None
     variance_views: tuple[str, ...] | None = None
+    relative_mean_views: tuple[tuple[str, float], ...] | None = None
+    relative_variance_views: tuple[tuple[str, float], ...] | None = None
     correlation_views: tuple[str, ...] | None = None
     skew_views: tuple[str, ...] | None = None
     kurtosis_views: tuple[str, ...] | None = None
@@ -151,6 +167,18 @@ class EntropyPoolingConfig:
         return cls(
             variance_views=variance_views,
             correlation_views=correlation_views,
+        )
+
+    @classmethod
+    def for_group_views(
+        cls,
+        mean_views: tuple[str, ...],
+        groups: dict[str, list[str]],
+    ) -> EntropyPoolingConfig:
+        """Entropy Pooling with group-relative mean views."""
+        return cls(
+            mean_views=mean_views,
+            groups=groups,
         )
 
 

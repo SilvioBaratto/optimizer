@@ -416,3 +416,70 @@ class TestCoverageWeightedMean:
         pd.testing.assert_series_equal(
             result["value"], expected, check_names=False
         )
+
+
+class TestICIRWeightedGroupWeights:
+    """Tests for group_weights parameter in ICIR_WEIGHTED (issue #81)."""
+
+    def _make_ic_series(
+        self,
+        mean: float,
+        std: float,
+        n: int = 36,
+        seed: int = 42,
+    ) -> pd.Series:
+        rng = np.random.default_rng(seed)
+        return pd.Series(mean + rng.normal(0, std, n))
+
+    def test_icir_weighted_with_group_weights_differs(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """compute_icir_weighted_composite with group_weights differs from without."""
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        ic_per_group = {
+            col: self._make_ic_series(0.05, 0.02, seed=i)
+            for i, col in enumerate(group_scores.columns)
+        }
+        groups = list(group_scores.columns)
+        gw = {g: (10.0 if g == "value" else 0.1) for g in groups}
+
+        result_with = compute_icir_weighted_composite(
+            group_scores, ic_per_group, group_weights=gw
+        )
+        result_without = compute_icir_weighted_composite(
+            group_scores, ic_per_group
+        )
+        assert not np.allclose(
+            result_with.to_numpy(), result_without.to_numpy(), atol=1e-6
+        )
+
+    def test_icir_weighted_path_forwards_group_weights(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """compute_composite_score with ICIR_WEIGHTED forwards group_weights."""
+        config = CompositeScoringConfig.for_icir_weighted()
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        rng = np.random.default_rng(42)
+        ic_history = pd.DataFrame(
+            rng.uniform(0.01, 0.06, (36, len(group_scores.columns))),
+            columns=group_scores.columns,
+        )
+        groups = list(group_scores.columns)
+        gw = {g: (5.0 if g == "value" else 1.0) for g in groups}
+
+        result_with = compute_composite_score(
+            standardized_factors,
+            coverage,
+            config=config,
+            ic_history=ic_history,
+            group_weights=gw,
+        )
+        result_without = compute_composite_score(
+            standardized_factors,
+            coverage,
+            config=config,
+            ic_history=ic_history,
+        )
+        assert not np.allclose(
+            result_with.to_numpy(), result_without.to_numpy(), atol=1e-6
+        )

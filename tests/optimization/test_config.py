@@ -260,6 +260,11 @@ class TestRiskBudgetingConfig:
         assert cfg.risk_measure == RiskMeasureType.CVAR
         assert cfg.cvar_beta == 0.99
 
+    def test_for_cdar_parity(self) -> None:
+        cfg = RiskBudgetingConfig.for_cdar_parity(beta=0.99)
+        assert cfg.risk_measure == RiskMeasureType.CDAR
+        assert cfg.cdar_beta == 0.99
+
 
 class TestMaxDiversificationConfig:
     def test_default_values(self) -> None:

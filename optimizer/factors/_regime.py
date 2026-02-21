@@ -41,6 +41,12 @@ def classify_regime(macro_data: pd.DataFrame) -> MacroRegime:
             previous = gdp.iloc[-2]
             trend = gdp.rolling(4, min_periods=1).mean().iloc[-1]
 
+            # Multi-indicator override: rising unemployment + positive GDP → SLOWDOWN
+            if "unemployment_rate" in macro_data.columns:
+                unemp = macro_data["unemployment_rate"].dropna()
+                if len(unemp) >= 2 and unemp.iloc[-1] > unemp.iloc[-2] and current > 0:
+                    return MacroRegime.SLOWDOWN
+
             if current > trend and current > previous:
                 return MacroRegime.EXPANSION
             if current > trend and current <= previous:

@@ -187,6 +187,7 @@ def compute_icir_weighted_composite(
     group_scores: pd.DataFrame,
     ic_series_per_group: dict[str, pd.Series],
     config: CompositeScoringConfig | None = None,
+    group_weights: dict[str, float] | None = None,
 ) -> pd.Series:
     """ICIR-weighted composite score.
 
@@ -202,6 +203,9 @@ def compute_icir_weighted_composite(
         Per-group IC time series.  Keys must match ``group_scores`` columns.
     config : CompositeScoringConfig or None
         Scoring configuration.
+    group_weights : dict[str, float] or None
+        Pre-computed group weights (e.g. from regime tilts). When provided,
+        use as tier multipliers instead of config core/supplementary weights.
 
     Returns
     -------
@@ -217,17 +221,20 @@ def compute_icir_weighted_composite(
             continue
         ic_s = ic_series_per_group.get(group.value, pd.Series(dtype=float))
         icir = compute_icir(ic_s)
-        tier = GROUP_WEIGHT_TIER[group]
-        tier_mult = (
-            config.core_weight
-            if tier == GroupWeight.CORE
-            else config.supplementary_weight
-        )
+        if group_weights is not None:
+            tier_mult = group_weights.get(group.value, 0.0)
+        else:
+            tier = GROUP_WEIGHT_TIER[group]
+            tier_mult = (
+                config.core_weight
+                if tier == GroupWeight.CORE
+                else config.supplementary_weight
+            )
         weights[group.value] = abs(icir) * tier_mult
 
     total_weight = sum(weights.values())
     if total_weight == 0.0:
-        return compute_equal_weight_composite(group_scores, config)
+        return compute_equal_weight_composite(group_scores, config, group_weights)
 
     composite = pd.Series(0.0, index=group_scores.index)
     for col, w in weights.items():
@@ -343,7 +350,7 @@ def compute_composite_score(
             col: ic_history[col].dropna() for col in ic_history.columns
         }
         return compute_icir_weighted_composite(
-            group_scores, ic_series_per_group, config
+            group_scores, ic_series_per_group, config, group_weights
         )
 
     if config.method in (CompositeMethod.RIDGE_WEIGHTED, CompositeMethod.GBT_WEIGHTED):
