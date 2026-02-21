@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TypeAlias
 
 import numpy as np
@@ -9,6 +10,8 @@ import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import RidgeCV
 from sklearn.preprocessing import StandardScaler
+
+logger = logging.getLogger(__name__)
 
 # Type alias for the fitted model returned by fit_ridge_composite or fit_gbt_composite
 FittedMLModel: TypeAlias = RidgeCV | GradientBoostingRegressor

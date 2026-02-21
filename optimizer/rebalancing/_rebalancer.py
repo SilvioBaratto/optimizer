@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -11,6 +13,8 @@ from optimizer.rebalancing._config import (
     ThresholdRebalancingConfig,
     ThresholdType,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def compute_drifted_weights(

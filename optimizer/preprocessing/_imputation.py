@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 
 import numpy as np
@@ -10,6 +11,8 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 from optimizer.exceptions import DataError
+
+logger = logging.getLogger(__name__)
 
 
 class SectorImputer(BaseEstimator, TransformerMixin):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable
 from typing import Any
@@ -14,6 +15,8 @@ from optimizer.exceptions import ConfigurationError
 from optimizer.optimization._config import RatioMeasureType
 from optimizer.optimization._factory import _RATIO_MEASURE_MAP
 from optimizer.scoring._config import ScorerConfig
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Information Ratio implementation

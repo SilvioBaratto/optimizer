@@ -30,10 +30,7 @@ def prices_df(returns_df: pd.DataFrame) -> pd.DataFrame:
 def sector_mapping(returns_df: pd.DataFrame) -> dict[str, str]:
     """Sector mapping for returns_df tickers."""
     sectors = ["Technology", "Financials", "Healthcare", "Energy"]
-    return {
-        col: sectors[i % len(sectors)]
-        for i, col in enumerate(returns_df.columns)
-    }
+    return {col: sectors[i % len(sectors)] for i, col in enumerate(returns_df.columns)}
 
 
 @pytest.fixture()

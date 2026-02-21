@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
 from optimizer.exceptions import DataError
+
+logger = logging.getLogger(__name__)
 
 _MIN_HISTORY = 5
 

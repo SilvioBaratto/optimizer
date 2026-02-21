@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 
 from optimizer.factors._config import (
@@ -9,6 +11,8 @@ from optimizer.factors._config import (
     MacroRegime,
     RegimeTiltConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def classify_regime(macro_data: pd.DataFrame) -> MacroRegime:

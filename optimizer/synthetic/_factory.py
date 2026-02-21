@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from skfolio.distribution import DependenceMethod, SelectionCriterion, VineCopula
@@ -13,6 +14,8 @@ from optimizer.synthetic._config import (
     SyntheticDataConfig,
     VineCopulaConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Mapping dicts

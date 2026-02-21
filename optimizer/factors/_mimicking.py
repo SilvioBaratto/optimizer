@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 
@@ -9,6 +10,8 @@ import numpy as np
 import pandas as pd
 
 from optimizer.exceptions import ConfigurationError
+
+logger = logging.getLogger(__name__)
 
 _WEIGHTING_MODES = frozenset({"equal", "value"})
 
@@ -206,9 +209,7 @@ def build_factor_mimicking_portfolios(
             f"weighting must be one of {sorted(_WEIGHTING_MODES)!r}, got {weighting!r}"
         )
     if beta_neutral and market_returns is None:
-        raise ConfigurationError(
-            "market_returns is required when beta_neutral=True"
-        )
+        raise ConfigurationError("market_returns is required when beta_neutral=True")
 
     common_dates = scores.index.intersection(returns.index)
     common_assets = scores.columns.intersection(returns.columns)
@@ -236,9 +237,7 @@ def build_factor_mimicking_portfolios(
             long_ret_series[date] = float(returns_t.loc[long_idx].mean())
             short_ret_series[date] = float(returns_t.loc[short_idx].mean())
         else:
-            ls_returns[date] = _long_short_return_at(
-                scores_t, returns_t, k, weighting
-            )
+            ls_returns[date] = _long_short_return_at(scores_t, returns_t, k, weighting)
 
     if beta_neutral and market_returns is not None:
         long_s = pd.Series(long_ret_series, dtype=float)

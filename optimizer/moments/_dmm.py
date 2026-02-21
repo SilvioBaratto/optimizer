@@ -6,19 +6,29 @@ Networks for Nonlinear State Space Models" using Pyro SVI with KL annealing.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-import pyro
-import pyro.distributions as dist
-import torch
-import torch.nn as nn
-from pyro import poutine
-from pyro.infer import SVI, Trace_ELBO
-from pyro.optim import ClippedAdam
+
+try:
+    import pyro
+    import pyro.distributions as dist
+    import torch
+    import torch.nn as nn
+    from pyro import poutine
+    from pyro.infer import SVI, Trace_ELBO
+    from pyro.optim import ClippedAdam
+except ImportError as e:
+    raise ImportError(
+        "The DMM module requires 'torch' and 'pyro-ppl'. "
+        "Install them with: pip install optimizer[dmm]"
+    ) from e
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Config and Result dataclasses
@@ -380,12 +390,8 @@ def blend_moments_dmm(
     if seed is not None:
         torch.manual_seed(seed)
 
-    z_T_mean = torch.tensor(
-        result.latent_means.iloc[-1].to_numpy(dtype=np.float32)
-    )
-    z_T_std = torch.tensor(
-        result.latent_stds.iloc[-1].to_numpy(dtype=np.float32)
-    )
+    z_T_mean = torch.tensor(result.latent_means.iloc[-1].to_numpy(dtype=np.float32))
+    z_T_std = torch.tensor(result.latent_stds.iloc[-1].to_numpy(dtype=np.float32))
 
     result.model.eval()
     with torch.no_grad():

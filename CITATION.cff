@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Portfolio Optimizer"
+version: 0.1.0
+date-released: 2026-02-21
+license: BSD-3-Clause
+repository-code: "https://github.com/SilvioBaratto/optimizer"
+url: "https://silviobaratto.github.io/optimizer"
+authors:
+  - family-names: Baratto
+    given-names: Silvio
+keywords:
+  - portfolio-optimization
+  - quantitative-finance
+  - skfolio
+  - scikit-learn
+  - mean-variance
+  - risk-management

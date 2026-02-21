@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def factor_scores_to_expected_returns(

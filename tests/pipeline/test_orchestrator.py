@@ -307,9 +307,7 @@ class TestRunFullPipelineWithSelection:
         assert isinstance(result, PortfolioResult)
         assert result.weights.sum() == pytest.approx(1.0, abs=1e-6)
 
-    def test_with_fundamentals_calls_all_steps(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_with_fundamentals_calls_all_steps(self, prices_df: pd.DataFrame) -> None:
         from unittest.mock import patch
 
         tickers = list(prices_df.columns[:5])
@@ -326,9 +324,7 @@ class TestRunFullPipelineWithSelection:
         )
         mock_selected = pd.Index(tickers[:3])
 
-        fundamentals = pd.DataFrame(
-            {"market_cap": [1e9] * len(tickers)}, index=tickers
-        )
+        fundamentals = pd.DataFrame({"market_cap": [1e9] * len(tickers)}, index=tickers)
 
         with (
             patch(
@@ -381,9 +377,7 @@ class TestRunFullPipelineWithSelection:
         )
         mock_selected = pd.Index(tickers)
 
-        fundamentals = pd.DataFrame(
-            {"market_cap": [1e9] * len(tickers)}, index=tickers
-        )
+        fundamentals = pd.DataFrame({"market_cap": [1e9] * len(tickers)}, index=tickers)
 
         with (
             patch(
@@ -423,9 +417,7 @@ class TestRunFullPipelineWithSelection:
         )
         assert result.backtest is not None
 
-    def test_volume_history_none_uses_fallback(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_volume_history_none_uses_fallback(self, prices_df: pd.DataFrame) -> None:
         from unittest.mock import patch
 
         tickers = list(prices_df.columns[:5])
@@ -442,9 +434,7 @@ class TestRunFullPipelineWithSelection:
         )
         mock_selected = pd.Index(tickers[:3])
 
-        fundamentals = pd.DataFrame(
-            {"market_cap": [1e9] * len(tickers)}, index=tickers
-        )
+        fundamentals = pd.DataFrame({"market_cap": [1e9] * len(tickers)}, index=tickers)
 
         with (
             patch(
@@ -476,9 +466,13 @@ class TestRunFullPipelineWithSelection:
             )
             # screen_universe should have been called with an empty DF for volume
             call_kwargs = m_screen.call_args
-            vol_arg = call_kwargs.kwargs.get(
-                "volume_history", call_kwargs[1].get("volume_history")
-            ) if call_kwargs.kwargs else call_kwargs[1].get("volume_history")
+            vol_arg = (
+                call_kwargs.kwargs.get(
+                    "volume_history", call_kwargs[1].get("volume_history")
+                )
+                if call_kwargs.kwargs
+                else call_kwargs[1].get("volume_history")
+            )
             if vol_arg is None:
                 # Positional arg
                 vol_arg = call_kwargs[0][2]

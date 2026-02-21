@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from sklearn.pipeline import Pipeline
 
 from optimizer.pre_selection._config import PreSelectionConfig
 from optimizer.pre_selection._pipeline import build_preselection_pipeline
+
+logger = logging.getLogger(__name__)
 
 
 def build_portfolio_pipeline(

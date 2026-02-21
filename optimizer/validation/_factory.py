@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from skfolio.model_selection import (
@@ -19,6 +20,8 @@ from optimizer.validation._config import (
     MultipleRandomizedCVConfig,
     WalkForwardConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Cross-validator factories

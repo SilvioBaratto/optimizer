@@ -1,7 +1,8 @@
 # Portfolio Optimizer
 
 [![CI](https://github.com/SilvioBaratto/optimizer/actions/workflows/ci.yml/badge.svg)](https://github.com/SilvioBaratto/optimizer/actions/workflows/ci.yml)
-![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+[![codecov](https://codecov.io/gh/SilvioBaratto/optimizer/branch/main/graph/badge.svg)](https://codecov.io/gh/SilvioBaratto/optimizer)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-green)
 
 Quantitative portfolio construction and optimization platform built on [skfolio](https://skfolio.org/) and scikit-learn.
@@ -92,6 +93,23 @@ ruff check .
 
 # Type check
 mypy .
+```
+
+## Examples
+
+Self-contained scripts using synthetic data (no API keys required):
+
+| Script | Description |
+|---|---|
+| [`quickstart.py`](examples/quickstart.py) | MeanRisk optimization with walk-forward backtest |
+| [`robust_optimization.py`](examples/robust_optimization.py) | Compare robust portfolios at different kappa values |
+| [`regime_blending.py`](examples/regime_blending.py) | HMM fitting and regime-conditional moment estimation |
+| [`factor_selection.py`](examples/factor_selection.py) | Factor construction, standardization, and stock selection |
+| [`full_pipeline.py`](examples/full_pipeline.py) | End-to-end pipeline with pre-selection and rebalancing |
+
+```bash
+pip install -e ".[dev]"
+python examples/quickstart.py
 ```
 
 ## Environment Variables

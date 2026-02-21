@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
 from optimizer.exceptions import ConfigurationError, DataError
+
+logger = logging.getLogger(__name__)
 
 _VALID_METHODS = {"exact", "linear"}
 

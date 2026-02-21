@@ -33,6 +33,7 @@ Usage example::
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,6 +44,8 @@ from skfolio.prior._base import BasePrior
 
 from optimizer.moments._config import MomentEstimationConfig
 from optimizer.moments._factory import build_prior
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Config
@@ -194,9 +197,7 @@ def build_dr_cvar(
         config = DRCVaRConfig()
 
     if config.epsilon < 0:
-        raise ValueError(
-            f"epsilon must be non-negative, got {config.epsilon}"
-        )
+        raise ValueError(f"epsilon must be non-negative, got {config.epsilon}")
 
     if prior_estimator is None and config.prior_config is not None:
         prior_estimator = build_prior(config.prior_config)

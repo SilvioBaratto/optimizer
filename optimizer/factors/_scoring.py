@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
@@ -21,6 +23,8 @@ from optimizer.factors._ml_scoring import (
     predict_composite_scores,
 )
 from optimizer.factors._validation import compute_icir
+
+logger = logging.getLogger(__name__)
 
 
 def compute_group_scores(
@@ -90,9 +94,7 @@ def compute_equal_weight_composite(
         config = CompositeScoringConfig()
 
     if group_weights is not None:
-        weights = {
-            k: v for k, v in group_weights.items() if k in group_scores.columns
-        }
+        weights = {k: v for k, v in group_weights.items() if k in group_scores.columns}
     else:
         weights = {}
         for group in FactorGroupType:

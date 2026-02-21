@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Any
 
@@ -26,6 +27,8 @@ from optimizer.views._config import (
     ViewUncertaintyMethod,
 )
 from optimizer.views._uncertainty import calibrate_omega_from_track_record
+
+logger = logging.getLogger(__name__)
 
 
 class _EmpiricalOmegaBlackLitterman(BlackLitterman):

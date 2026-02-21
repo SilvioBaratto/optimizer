@@ -461,9 +461,7 @@ class TestRegimeBlendedFitPredict:
     def test_three_regime_fit_predict(self) -> None:
         returns = _make_returns(seed=14)
         config = RegimeRiskConfig.for_three_regimes()
-        hmm = _make_hmm_result(
-            n_states=3, last_probs=[0.3, 0.4, 0.3], returns=returns
-        )
+        hmm = _make_hmm_result(n_states=3, last_probs=[0.3, 0.4, 0.3], returns=returns)
         opt = build_regime_blended_optimizer(config, hmm)
         opt.fit(returns)
         portfolio = opt.predict(returns)

@@ -64,9 +64,7 @@ class BlackLittermanConfig:
 
     def __post_init__(self) -> None:
         if self.tau <= 0:
-            raise ValueError(
-                f"tau must be strictly positive, got {self.tau}"
-            )
+            raise ValueError(f"tau must be strictly positive, got {self.tau}")
 
     # -- factory methods -----------------------------------------------------
 
@@ -221,6 +219,5 @@ class OpinionPoolingConfig:
             total = sum(self.opinion_probabilities)
             if total > 1.0 + 1e-10:
                 raise ValueError(
-                    f"opinion_probabilities must sum to at most 1.0, "
-                    f"got {total}"
+                    f"opinion_probabilities must sum to at most 1.0, got {total}"
                 )

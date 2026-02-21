@@ -1,0 +1,77 @@
+site_name: Portfolio Optimizer
+site_url: https://silviobaratto.github.io/optimizer
+repo_url: https://github.com/SilvioBaratto/optimizer
+repo_name: SilvioBaratto/optimizer
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - search.suggest
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: false
+            show_root_heading: true
+            heading_level: 3
+            members_order: source
+
+nav:
+  - Home: index.md
+  - Changelog: changelog.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+  - Guide:
+      - Pipeline Overview: guide/pipeline.md
+      - Preprocessing: guide/preprocessing.md
+      - Moments: guide/moments.md
+      - Views: guide/views.md
+      - Optimization: guide/optimization.md
+      - Validation: guide/validation.md
+      - Rebalancing: guide/rebalancing.md
+      - Factors: guide/factors.md
+  - API Reference:
+      - preprocessing: api/preprocessing.md
+      - pre_selection: api/pre_selection.md
+      - moments: api/moments.md
+      - views: api/views.md
+      - optimization: api/optimization.md
+      - synthetic: api/synthetic.md
+      - validation: api/validation.md
+      - scoring: api/scoring.md
+      - tuning: api/tuning.md
+      - rebalancing: api/rebalancing.md
+      - pipeline: api/pipeline.md
+      - universe: api/universe.md
+      - factors: api/factors.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - toc:
+      permalink: true

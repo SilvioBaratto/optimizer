@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import cast
 
@@ -12,6 +13,8 @@ from optimizer.factors._config import (
     FactorConstructionConfig,
     FactorType,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Point-in-time alignment

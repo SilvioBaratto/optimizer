@@ -122,9 +122,7 @@ class TestGroupWeightsOverride:
         self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
     ) -> None:
         """compute_composite_score passes group_weights through."""
-        groups = list(
-            compute_group_scores(standardized_factors, coverage).columns
-        )
+        groups = list(compute_group_scores(standardized_factors, coverage).columns)
         gw = {g: (5.0 if g == "value" else 1.0) for g in groups}
         result = compute_composite_score(
             standardized_factors, coverage, group_weights=gw
@@ -413,9 +411,7 @@ class TestCoverageWeightedMean:
         result = compute_group_scores(standardized_factors, coverage)
         cols = ["book_to_price", "earnings_yield"]
         expected = standardized_factors[cols].mean(axis=1)
-        pd.testing.assert_series_equal(
-            result["value"], expected, check_names=False
-        )
+        pd.testing.assert_series_equal(result["value"], expected, check_names=False)
 
 
 class TestICIRWeightedGroupWeights:
@@ -446,9 +442,7 @@ class TestICIRWeightedGroupWeights:
         result_with = compute_icir_weighted_composite(
             group_scores, ic_per_group, group_weights=gw
         )
-        result_without = compute_icir_weighted_composite(
-            group_scores, ic_per_group
-        )
+        result_without = compute_icir_weighted_composite(group_scores, ic_per_group)
         assert not np.allclose(
             result_with.to_numpy(), result_without.to_numpy(), atol=1e-6
         )
