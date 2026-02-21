@@ -101,6 +101,38 @@ class TestICWeightedComposite:
         assert len(result) == len(standardized_factors)
 
 
+class TestGroupWeightsOverride:
+    """Tests for group_weights parameter (issue #54)."""
+
+    def test_equal_weight_with_group_weights(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """compute_equal_weight_composite uses group_weights when provided."""
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+
+        # Give "value" weight 10x others
+        gw = {g: (10.0 if g == "value" else 1.0) for g in groups}
+        result = compute_equal_weight_composite(group_scores, group_weights=gw)
+        default = compute_equal_weight_composite(group_scores)
+        # Results should differ since value is upweighted
+        assert not np.allclose(result.to_numpy(), default.to_numpy(), atol=1e-6)
+
+    def test_composite_score_threads_group_weights(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """compute_composite_score passes group_weights through."""
+        groups = list(
+            compute_group_scores(standardized_factors, coverage).columns
+        )
+        gw = {g: (5.0 if g == "value" else 1.0) for g in groups}
+        result = compute_composite_score(
+            standardized_factors, coverage, group_weights=gw
+        )
+        default = compute_composite_score(standardized_factors, coverage)
+        assert not np.allclose(result.to_numpy(), default.to_numpy(), atol=1e-6)
+
+
 class TestComputeCompositeScore:
     def test_equal_weight_default(
         self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
@@ -182,6 +214,54 @@ class TestComputeIcir:
         ic_with_nan = pd.Series([0.05, float("nan"), 0.06, 0.04])
         ic_clean = pd.Series([0.05, 0.06, 0.04])
         assert abs(compute_icir(ic_with_nan) - compute_icir(ic_clean)) < 1e-10
+
+
+class TestICWeightedNegativeIC:
+    """Tests for IC_WEIGHTED clamping negative IC to zero (issue #55)."""
+
+    def test_negative_ic_group_gets_zero_weight(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """A group with negative mean IC should get zero weight."""
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+
+        # Set "value" = 1.0, all others = 0.0
+        controlled = pd.DataFrame(0.0, index=group_scores.index, columns=groups)
+        if "value" in controlled.columns:
+            controlled["value"] = 1.0
+
+        # IC history: value has negative IC, others positive
+        rng = np.random.default_rng(99)
+        ic_history = pd.DataFrame(
+            {
+                col: (
+                    rng.uniform(-0.10, -0.02, 36)
+                    if col == "value"
+                    else rng.uniform(0.02, 0.08, 36)
+                )
+                for col in groups
+            }
+        )
+        result = compute_ic_weighted_composite(controlled, ic_history)
+        # value has negative IC → zero weight → composite should be 0
+        assert (result.abs() < 1e-10).all(), (
+            "Negative-IC group should get zero weight and not contribute"
+        )
+
+    def test_all_negative_ic_falls_back_to_equal_weight(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """When all groups have negative IC, falls back to equal weight."""
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        rng = np.random.default_rng(42)
+        ic_history = pd.DataFrame(
+            {col: rng.uniform(-0.10, -0.02, 36) for col in groups}
+        )
+        ic_result = compute_ic_weighted_composite(group_scores, ic_history)
+        equal_result = compute_equal_weight_composite(group_scores)
+        pd.testing.assert_series_equal(ic_result, equal_result)
 
 
 class TestICIRWeightedComposite:

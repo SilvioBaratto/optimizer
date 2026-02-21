@@ -350,35 +350,66 @@ def fit_dmm(
     )
 
 
-def blend_moments_dmm(result: DMMResult) -> tuple[pd.Series, pd.DataFrame]:
-    """Project the last latent state through the Emitter to produce blended moments.
+def blend_moments_dmm(
+    result: DMMResult,
+    n_mc_samples: int = 500,
+    seed: int | None = None,
+) -> tuple[pd.Series, pd.DataFrame]:
+    """Project the last latent state through the generative model via MC sampling.
 
-    Uses the final variational posterior mean z_T as input to the Emitter,
-    then un-standardises the output to the original return scale.  Returns
-    the same signature as :func:`blend_moments_by_regime` (HMM) for
-    drop-in substitution.
+    Draws ``n_mc_samples`` from the variational posterior ``q(z_T)``,
+    propagates each through the transition ``p(z_{T+1} | z_T)`` and
+    emission ``p(x_{T+1} | z_{T+1})``, then applies the law of total
+    variance to produce the blended mean and covariance.
 
     Parameters
     ----------
     result : DMMResult
         Output of :func:`fit_dmm`.
+    n_mc_samples : int, default=500
+        Number of Monte Carlo samples for posterior-predictive estimation.
+    seed : int or None, default=None
+        Random seed for reproducibility.
 
     Returns
     -------
     tuple[pd.Series, pd.DataFrame]
-        ``(mu, cov)`` — expected returns and diagonal covariance matrix
+        ``(mu, cov)`` — expected returns and covariance matrix
         in the original (un-standardised) return scale.
     """
-    z_last = torch.tensor(result.latent_means.iloc[-1].to_numpy(dtype=np.float32))
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    z_T_mean = torch.tensor(
+        result.latent_means.iloc[-1].to_numpy(dtype=np.float32)
+    )
+    z_T_std = torch.tensor(
+        result.latent_stds.iloc[-1].to_numpy(dtype=np.float32)
+    )
+
     result.model.eval()
     with torch.no_grad():
-        emission_loc, emission_scale = result.model.emitter(z_last)
+        # Sample z_T from variational posterior q(z_T | x_{1:T})
+        eps_z = torch.randn(n_mc_samples, z_T_mean.shape[0])
+        z_T_samples = z_T_mean + eps_z * z_T_std
 
-    loc_arr = emission_loc.numpy().astype(np.float64)
-    scale_arr = emission_scale.numpy().astype(np.float64)
+        # Transition: z_{T+1} ~ p(z_{T+1} | z_T)
+        trans_loc, trans_scale = result.model.trans(z_T_samples)
+        eps_t = torch.randn_like(trans_loc)
+        z_T1 = trans_loc + eps_t * trans_scale
 
-    mu_arr = loc_arr * result.input_std + result.input_mean
-    cov_arr = np.diag((scale_arr * result.input_std) ** 2)
+        # Emit: x_{T+1} ~ p(x_{T+1} | z_{T+1})
+        emit_loc, emit_scale = result.model.emitter(z_T1)
+
+    # Un-standardise
+    input_std = torch.tensor(result.input_std, dtype=torch.float32)
+    input_mean = torch.tensor(result.input_mean, dtype=torch.float32)
+    locs = (emit_loc * input_std + input_mean).numpy().astype(np.float64)
+    scales = (emit_scale * input_std).numpy().astype(np.float64)
+
+    # Law of total variance: E[X] and Var[X] = E[Var[X|Z]] + Var[E[X|Z]]
+    mu_arr = locs.mean(axis=0)
+    cov_arr = np.diag(np.mean(scales**2, axis=0) + np.var(locs, axis=0, ddof=0))
 
     mu = pd.Series(mu_arr, index=result.tickers)
     cov = pd.DataFrame(cov_arr, index=result.tickers, columns=result.tickers)

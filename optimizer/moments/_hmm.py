@@ -9,6 +9,7 @@ import numpy.typing as npt
 import pandas as pd
 import sklearn.utils.validation as skv
 from hmmlearn.hmm import GaussianHMM
+from scipy.special import logsumexp
 from skfolio.moments.covariance._base import BaseCovariance
 from skfolio.moments.expected_returns._base import BaseMu
 
@@ -55,9 +56,16 @@ class HMMResult:
     regime_covariances : ndarray, shape (n_states, n_assets, n_assets)
         Per-regime covariance matrices.  Axis-0 indexes the state.
     filtered_probs : pd.DataFrame, shape (n_dates, n_states)
-        Smoothed posterior state probabilities ``γ_t(s) = P(z_t=s | r_{1:T})``.
-        Index is the DatetimeIndex of the input returns; columns are
-        integer state labels.  Rows sum to 1.0.
+        Forward-only filtered state probabilities
+        ``α_t(s) ∝ P(r_t | z_t=s) · Σ_{s'} A[s', s] · α_{t-1}(s')``,
+        conditioned only on past and current observations ``r_{1:t}``.
+        These are causal (no look-ahead bias) and suitable for online
+        blending in backtests.  Rows sum to 1.0.
+    smoothed_probs : pd.DataFrame, shape (n_dates, n_states)
+        Baum-Welch smoothed posterior probabilities
+        ``γ_t(s) = P(z_t=s | r_{1:T})`` conditioned on the **entire**
+        sequence.  Use for diagnostics and regime labeling, but NOT for
+        causal blending in backtests.
     log_likelihood : float
         Log-likelihood of the data under the fitted model.
     """
@@ -66,6 +74,7 @@ class HMMResult:
     regime_means: pd.DataFrame
     regime_covariances: npt.NDArray[np.float64]
     filtered_probs: pd.DataFrame
+    smoothed_probs: pd.DataFrame
     log_likelihood: float
 
 
@@ -125,13 +134,39 @@ def fit_hmm(returns: pd.DataFrame, config: HMMConfig | None = None) -> HMMResult
     )
     model.fit(X)
 
-    # Smoothed posterior state probabilities: shape (T, n_states)
-    log_gamma = model.predict_proba(X)  # hmmlearn returns posteriors directly
+    # Smoothed posterior state probabilities (conditioned on entire sequence)
+    smoothed = model.predict_proba(X)
+
+    # Forward-only filtered probabilities (causal — no look-ahead bias)
+    framelogprob = model._compute_log_likelihood(X)
+    log_startprob = np.log(model.startprob_ + 1e-300)
+    log_transmat = np.log(model.transmat_ + 1e-300)
+    T_len = X.shape[0]
+    n_s = config.n_states
+    fwdlattice = np.zeros((T_len, n_s), dtype=np.float64)
+    fwdlattice[0] = log_startprob + framelogprob[0]
+    for t in range(1, T_len):
+        for j in range(n_s):
+            fwdlattice[t, j] = (
+                logsumexp(fwdlattice[t - 1] + log_transmat[:, j])
+                + framelogprob[t, j]
+            )
+    # Normalize rows in log space to get proper probabilities
+    log_norm = logsumexp(fwdlattice, axis=1, keepdims=True)
+    log_filtered = fwdlattice - log_norm
+    filtered = np.exp(log_filtered)
 
     state_labels = list(range(config.n_states))
 
     filtered_probs = pd.DataFrame(
-        log_gamma,
+        filtered,
+        index=dates,
+        columns=state_labels,
+        dtype=float,
+    )
+
+    smoothed_probs = pd.DataFrame(
+        smoothed,
         index=dates,
         columns=state_labels,
         dtype=float,
@@ -158,6 +193,7 @@ def fit_hmm(returns: pd.DataFrame, config: HMMConfig | None = None) -> HMMResult
         regime_means=regime_means,
         regime_covariances=covars,
         filtered_probs=filtered_probs,
+        smoothed_probs=smoothed_probs,
         log_likelihood=float(model.score(X)),
     )
 

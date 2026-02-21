@@ -65,6 +65,7 @@ from skfolio.uncertainty_set import (
     EmpiricalMuUncertaintySet,
 )
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.moments._factory import build_prior
 from optimizer.optimization._config import MeanRiskConfig
 from optimizer.optimization._factory import _OBJECTIVE_MAP, _RISK_MEASURE_MAP
@@ -395,8 +396,13 @@ def build_robust_mean_risk(
             block_size=float(config.block_size),
             confidence_level=1.0 - config.bootstrap_alpha,
         )
-    else:
+    elif config.cov_uncertainty_method == "empirical":
         cov_uncertainty = EmpiricalCovarianceUncertaintySet(confidence_level=0.95)
+    else:
+        raise ConfigurationError(
+            f"Unknown cov_uncertainty_method {config.cov_uncertainty_method!r}. "
+            "Valid options are 'bootstrap' and 'empirical'."
+        )
 
     return MeanRisk(
         objective_function=_OBJECTIVE_MAP[mean_risk_cfg.objective],

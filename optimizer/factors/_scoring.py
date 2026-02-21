@@ -65,6 +65,7 @@ def compute_group_scores(
 def compute_equal_weight_composite(
     group_scores: pd.DataFrame,
     config: CompositeScoringConfig | None = None,
+    group_weights: dict[str, float] | None = None,
 ) -> pd.Series:
     """Equal-weight composite with core/supplementary tiering.
 
@@ -74,6 +75,9 @@ def compute_equal_weight_composite(
         Tickers x groups matrix.
     config : CompositeScoringConfig or None
         Scoring configuration.
+    group_weights : dict[str, float] or None
+        Pre-computed group weights (e.g. from regime tilts). When provided,
+        skip tier-based derivation and use these weights directly.
 
     Returns
     -------
@@ -83,16 +87,21 @@ def compute_equal_weight_composite(
     if config is None:
         config = CompositeScoringConfig()
 
-    weights: dict[str, float] = {}
-    for group in FactorGroupType:
-        if group.value not in group_scores.columns:
-            continue
-        tier = GROUP_WEIGHT_TIER[group]
-        weights[group.value] = (
-            config.core_weight
-            if tier == GroupWeight.CORE
-            else config.supplementary_weight
-        )
+    if group_weights is not None:
+        weights = {
+            k: v for k, v in group_weights.items() if k in group_scores.columns
+        }
+    else:
+        weights = {}
+        for group in FactorGroupType:
+            if group.value not in group_scores.columns:
+                continue
+            tier = GROUP_WEIGHT_TIER[group]
+            weights[group.value] = (
+                config.core_weight
+                if tier == GroupWeight.CORE
+                else config.supplementary_weight
+            )
 
     if not weights:
         return pd.Series(0.0, index=group_scores.index)
@@ -109,6 +118,7 @@ def compute_ic_weighted_composite(
     group_scores: pd.DataFrame,
     ic_history: pd.DataFrame,
     config: CompositeScoringConfig | None = None,
+    group_weights: dict[str, float] | None = None,
 ) -> pd.Series:
     """IC-weighted composite score.
 
@@ -122,6 +132,9 @@ def compute_ic_weighted_composite(
         Periods x groups matrix of IC values.
     config : CompositeScoringConfig or None
         Scoring configuration.
+    group_weights : dict[str, float] or None
+        Pre-computed group weights (e.g. from regime tilts). When provided,
+        use as tier multipliers instead of config core/supplementary weights.
 
     Returns
     -------
@@ -143,20 +156,24 @@ def compute_ic_weighted_composite(
         ic_val = recent_ic.get(group.value, 0.0)
         if np.isnan(ic_val):
             ic_val = 0.0
-        tier = GROUP_WEIGHT_TIER[group]
-        tier_mult = (
-            config.core_weight
-            if tier == GroupWeight.CORE
-            else config.supplementary_weight
-        )
-        # IC-weighted: use absolute IC to avoid sign issues,
-        # then apply sign separately
-        weights[group.value] = max(abs(ic_val), 0.001) * tier_mult
-
-    if not weights:
-        return pd.Series(0.0, index=group_scores.index)
+        if group_weights is not None:
+            tier_mult = group_weights.get(group.value, 0.0)
+        else:
+            tier = GROUP_WEIGHT_TIER[group]
+            tier_mult = (
+                config.core_weight
+                if tier == GroupWeight.CORE
+                else config.supplementary_weight
+            )
+        # IC-weighted: clamp negative IC to zero (theory: negative-IC groups
+        # should not contribute positively to the composite)
+        weights[group.value] = max(ic_val, 0.0) * tier_mult
 
     total_weight = sum(weights.values())
+    if total_weight == 0.0:
+        # All groups have negative or zero IC — fall back to equal weight
+        return compute_equal_weight_composite(group_scores, config, group_weights)
+
     composite = pd.Series(0.0, index=group_scores.index)
     for col, w in weights.items():
         composite = composite + (w / total_weight) * group_scores[col].fillna(0.0)
@@ -271,6 +288,7 @@ def compute_composite_score(
     ic_history: pd.DataFrame | None = None,
     training_scores: pd.DataFrame | None = None,
     training_returns: pd.Series | None = None,
+    group_weights: dict[str, float] | None = None,
 ) -> pd.Series:
     """Compute composite score from standardized factors.
 
@@ -293,6 +311,9 @@ def compute_composite_score(
     training_returns : pd.Series or None
         Required when ``config.method`` is ``RIDGE_WEIGHTED`` or
         ``GBT_WEIGHTED``.  Forward returns aligned with ``training_scores``.
+    group_weights : dict[str, float] or None
+        Pre-computed group weights (e.g. from regime tilts). Threaded
+        through to the inner scoring functions.
 
     Returns
     -------
@@ -308,7 +329,9 @@ def compute_composite_score(
         if ic_history is None:
             msg = "ic_history required for IC_WEIGHTED composite method"
             raise ConfigurationError(msg)
-        return compute_ic_weighted_composite(group_scores, ic_history, config)
+        return compute_ic_weighted_composite(
+            group_scores, ic_history, config, group_weights
+        )
 
     if config.method == CompositeMethod.ICIR_WEIGHTED:
         if ic_history is None:
@@ -332,4 +355,4 @@ def compute_composite_score(
             standardized_factors, training_scores, training_returns, config
         )
 
-    return compute_equal_weight_composite(group_scores, config)
+    return compute_equal_weight_composite(group_scores, config, group_weights)

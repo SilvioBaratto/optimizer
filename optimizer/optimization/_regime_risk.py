@@ -133,16 +133,18 @@ def _compute_regime_risk(
         return float(np.std(r, ddof=ddof))
 
     if measure == RiskMeasureType.SEMI_VARIANCE:
-        neg = r[r < 0.0]
-        if len(neg) < 2:
+        mu = np.mean(r)
+        downside = r[r < mu] - mu
+        if len(downside) < 2:
             return 0.0
-        return float(np.var(neg, ddof=1))
+        return float(np.mean(downside**2))
 
     if measure == RiskMeasureType.SEMI_DEVIATION:
-        neg = r[r < 0.0]
-        if len(neg) < 2:
+        mu = np.mean(r)
+        downside = r[r < mu] - mu
+        if len(downside) < 2:
             return 0.0
-        return float(np.std(neg, ddof=1))
+        return float(np.sqrt(np.mean(downside**2)))
 
     if measure == RiskMeasureType.MEAN_ABSOLUTE_DEVIATION:
         return float(np.mean(np.abs(r - np.mean(r))))

@@ -280,3 +280,31 @@ class TestBlendMomentsDmm:
         mu, _ = blend_moments_dmm(dmm_result)
         assert mu.notna().all()
         assert np.isfinite(mu.to_numpy()).all()
+
+    def test_mc_cov_includes_variance_of_means(self, dmm_result: DMMResult) -> None:
+        """MC covariance diagonal includes both E[Var] and Var[E] terms,
+        so it should be >= a single-point estimate's emission variance."""
+        import torch
+
+        # Single-point estimate (old behaviour)
+        z_last = torch.tensor(
+            dmm_result.latent_means.iloc[-1].to_numpy(dtype=np.float32)
+        )
+        dmm_result.model.eval()
+        with torch.no_grad():
+            _, emit_scale = dmm_result.model.emitter(z_last)
+        single_var = (emit_scale.numpy().astype(np.float64) * dmm_result.input_std) ** 2
+
+        # MC estimate (use many samples to reduce noise)
+        _, cov = blend_moments_dmm(dmm_result, n_mc_samples=5000, seed=42)
+        mc_var = np.diag(cov.to_numpy())
+        # MC diagonal should be >= single-point diagonal (it adds Var[E] term).
+        # Allow 5% relative tolerance for MC sampling noise.
+        assert np.all(mc_var >= single_var * 0.95)
+
+    def test_mc_reproducible_with_seed(self, dmm_result: DMMResult) -> None:
+        """Results are reproducible when seed is fixed."""
+        mu1, cov1 = blend_moments_dmm(dmm_result, n_mc_samples=100, seed=42)
+        mu2, cov2 = blend_moments_dmm(dmm_result, n_mc_samples=100, seed=42)
+        np.testing.assert_allclose(mu1.to_numpy(), mu2.to_numpy(), atol=1e-6)
+        np.testing.assert_allclose(cov1.to_numpy(), cov2.to_numpy(), atol=1e-6)

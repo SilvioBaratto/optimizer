@@ -498,7 +498,8 @@ def run_full_pipeline_with_selection(
                     else _scoring.supplementary_weight
                 )
 
-            apply_regime_tilts(base_weights, regime, regime_config)
+            tilted_weights = apply_regime_tilts(base_weights, regime, regime_config)
+            group_weights = {k.value: v for k, v in tilted_weights.items()}
 
         # 5. Composite score
         composite = compute_composite_score(
@@ -506,6 +507,7 @@ def run_full_pipeline_with_selection(
             coverage,
             config=scoring_config,
             ic_history=ic_history,
+            group_weights=group_weights if has_regime else None,
         )
 
         # 6. Select stocks

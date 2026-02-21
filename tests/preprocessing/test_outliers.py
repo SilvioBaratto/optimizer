@@ -89,6 +89,54 @@ class TestOutlierTreater:
         ot = OutlierTreater().fit(normal_returns)
         np.testing.assert_array_equal(ot.get_feature_names_out(), ["A", "B", "C"])
 
+    def test_remove_threshold_boundary_is_nan(self) -> None:
+        """A value at exactly |z| == remove_threshold should be NaN (Group 1)."""
+        base = [0.0] * 200
+        df = pd.DataFrame({"X": base})
+        ot = OutlierTreater(winsorize_threshold=3.0, remove_threshold=5.0)
+        ot.fit(df)
+        mu = ot.mu_["X"]
+        sigma = ot.sigma_["X"]
+        if sigma > 0:
+            val_at_boundary = mu + 5.0 * sigma
+            test_df = pd.DataFrame({"X": [val_at_boundary]})
+            out = ot.transform(test_df)
+            assert np.isnan(out.iloc[0, 0]), (
+                "Value at exactly remove_threshold should be NaN"
+            )
+
+    def test_winsorize_threshold_boundary_is_clipped(self) -> None:
+        """A value at exactly |z| == winsorize_threshold should be clipped (Group 2)."""
+        base = [0.0] * 200
+        df = pd.DataFrame({"X": base})
+        ot = OutlierTreater(winsorize_threshold=3.0, remove_threshold=10.0)
+        ot.fit(df)
+        mu = ot.mu_["X"]
+        sigma = ot.sigma_["X"]
+        if sigma > 0:
+            # Just above winsorize threshold to ensure it's in Group 2
+            test_val = mu + 3.5 * sigma
+            test_df = pd.DataFrame({"X": [test_val]})
+            out = ot.transform(test_df)
+            expected = mu + 3.0 * sigma
+            assert not np.isnan(out.iloc[0, 0])
+            assert out.iloc[0, 0] == pytest.approx(expected, rel=1e-6)
+
+    def test_normal_values_not_clipped_by_fix(self) -> None:
+        """Values in the normal range (|z| < winsorize_threshold) stay unchanged."""
+        base = [0.0] * 200
+        df = pd.DataFrame({"X": base})
+        ot = OutlierTreater(winsorize_threshold=3.0, remove_threshold=10.0)
+        ot.fit(df)
+        mu = ot.mu_["X"]
+        sigma = ot.sigma_["X"]
+        if sigma > 0:
+            # Value at 1σ — clearly normal
+            normal_val = mu + 1.0 * sigma
+            test_df = pd.DataFrame({"X": [normal_val]})
+            out = ot.transform(test_df)
+            assert out.iloc[0, 0] == pytest.approx(normal_val, rel=1e-10)
+
     def test_sklearn_params(self) -> None:
         ot = OutlierTreater(winsorize_threshold=2.5, remove_threshold=8.0)
         params = ot.get_params()
