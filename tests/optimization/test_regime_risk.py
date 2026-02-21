@@ -401,3 +401,61 @@ class TestBuildRegimeBlendedOptimizer:
         optimizer = build_regime_blended_optimizer(config, hmm)
         # State 1 = MEAN_ABSOLUTE_DEVIATION
         assert optimizer.risk_measure == RiskMeasure.MEAN_ABSOLUTE_DEVIATION
+
+
+# ---------------------------------------------------------------------------
+# TestRegimeBlendedFitPredict (end-to-end fit/predict, issue #72)
+# ---------------------------------------------------------------------------
+
+
+class TestRegimeBlendedFitPredict:
+    def test_fit_predict_calm_dominant(self) -> None:
+        returns = _make_returns(seed=10)
+        config = RegimeRiskConfig.for_calm_stress()
+        hmm = _make_hmm_result(n_states=2, last_probs=[0.8, 0.2], returns=returns)
+        opt = build_regime_blended_optimizer(config, hmm)
+        opt.fit(returns)
+        portfolio = opt.predict(returns)
+        weights = portfolio.weights
+        assert len(weights) == N_ASSETS
+        assert float(np.sum(weights)) == pytest.approx(1.0, abs=1e-6)
+
+    def test_fit_predict_stress_dominant(self) -> None:
+        returns = _make_returns(seed=11)
+        config = RegimeRiskConfig.for_calm_stress()
+        hmm = _make_hmm_result(n_states=2, last_probs=[0.1, 0.9], returns=returns)
+        opt = build_regime_blended_optimizer(config, hmm)
+        opt.fit(returns)
+        portfolio = opt.predict(returns)
+        weights = portfolio.weights
+        assert len(weights) == N_ASSETS
+        assert float(np.sum(weights)) == pytest.approx(1.0, abs=1e-6)
+
+    def test_weights_non_negative(self) -> None:
+        returns = _make_returns(seed=12)
+        config = RegimeRiskConfig.for_calm_stress()
+        hmm = _make_hmm_result(n_states=2, last_probs=[0.6, 0.4], returns=returns)
+        opt = build_regime_blended_optimizer(config, hmm)
+        opt.fit(returns)
+        portfolio = opt.predict(returns)
+        assert all(w >= -1e-6 for w in portfolio.weights)
+
+    def test_predict_returns_portfolio(self) -> None:
+        returns = _make_returns(seed=13)
+        config = RegimeRiskConfig.for_calm_stress()
+        hmm = _make_hmm_result(n_states=2, last_probs=[0.5, 0.5], returns=returns)
+        opt = build_regime_blended_optimizer(config, hmm)
+        opt.fit(returns)
+        portfolio = opt.predict(returns)
+        assert hasattr(portfolio, "sharpe_ratio")
+
+    def test_three_regime_fit_predict(self) -> None:
+        returns = _make_returns(seed=14)
+        config = RegimeRiskConfig.for_three_regimes()
+        hmm = _make_hmm_result(
+            n_states=3, last_probs=[0.3, 0.4, 0.3], returns=returns
+        )
+        opt = build_regime_blended_optimizer(config, hmm)
+        opt.fit(returns)
+        portfolio = opt.predict(returns)
+        assert float(np.sum(portfolio.weights)) == pytest.approx(1.0, abs=1e-6)
