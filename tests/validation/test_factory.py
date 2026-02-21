@@ -123,3 +123,97 @@ class TestRunCrossVal:
 
         pred = run_cross_val(EqualWeighted(), returns_df)
         assert hasattr(pred, "sharpe_ratio")
+
+
+class TestRunCrossValCPCV:
+    """CPCV integration through run_cross_val (issue #75)."""
+
+    def test_cpcv_returns_population(self, returns_df: pd.DataFrame) -> None:
+        from skfolio.optimization import EqualWeighted
+        from skfolio.population import Population
+
+        cfg = CPCVConfig.for_small_sample()
+        cv = build_cpcv(cfg)
+        pred = run_cross_val(EqualWeighted(), returns_df, cv=cv)
+        assert isinstance(pred, Population)
+        assert len(pred) > 0
+
+    def test_cpcv_portfolios_have_composition(self, returns_df: pd.DataFrame) -> None:
+        from skfolio.optimization import EqualWeighted
+
+        cfg = CPCVConfig.for_small_sample()
+        cv = build_cpcv(cfg)
+        pred = run_cross_val(EqualWeighted(), returns_df, cv=cv)
+        for portfolio in pred:
+            assert hasattr(portfolio, "composition")
+
+    def test_cpcv_sharpe_ratios_finite(self, returns_df: pd.DataFrame) -> None:
+        from skfolio.optimization import EqualWeighted
+
+        cfg = CPCVConfig.for_small_sample()
+        cv = build_cpcv(cfg)
+        pred = run_cross_val(EqualWeighted(), returns_df, cv=cv)
+        for portfolio in pred:
+            assert np.isfinite(portfolio.sharpe_ratio)
+
+    def test_cpcv_with_purging(self, returns_df: pd.DataFrame) -> None:
+        from skfolio.optimization import EqualWeighted
+
+        cfg = CPCVConfig(n_folds=6, n_test_folds=2, purged_size=5)
+        cv = build_cpcv(cfg)
+        pred = run_cross_val(EqualWeighted(), returns_df, cv=cv)
+        assert len(pred) > 0
+
+    def test_cpcv_statistical_testing_preset(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        from skfolio.optimization import EqualWeighted
+
+        cfg = CPCVConfig.for_statistical_testing()
+        cv = build_cpcv(cfg)
+        pred = run_cross_val(EqualWeighted(), returns_df, cv=cv)
+        assert len(pred) >= 10
+
+
+class TestRunCrossValMRCV:
+    """MRCV integration through run_cross_val (issue #75)."""
+
+    def test_mrcv_returns_population(self, returns_df: pd.DataFrame) -> None:
+        from skfolio.optimization import EqualWeighted
+        from skfolio.population import Population
+
+        cfg = MultipleRandomizedCVConfig(
+            walk_forward_config=WalkForwardConfig(test_size=21, train_size=100),
+            n_subsamples=3,
+            asset_subset_size=8,
+            random_state=42,
+        )
+        cv = build_multiple_randomized_cv(cfg)
+        pred = run_cross_val(EqualWeighted(), returns_df, cv=cv)
+        assert isinstance(pred, Population)
+        assert len(pred) > 0
+
+    def test_mrcv_portfolios_have_composition(self, returns_df: pd.DataFrame) -> None:
+        from skfolio.optimization import EqualWeighted
+
+        cfg = MultipleRandomizedCVConfig(
+            walk_forward_config=WalkForwardConfig(test_size=21, train_size=100),
+            n_subsamples=3,
+            asset_subset_size=8,
+            random_state=42,
+        )
+        cv = build_multiple_randomized_cv(cfg)
+        pred = run_cross_val(EqualWeighted(), returns_df, cv=cv)
+        for portfolio in pred:
+            assert hasattr(portfolio, "composition")
+
+    def test_mrcv_robustness_check_preset(self, returns_df: pd.DataFrame) -> None:
+        from skfolio.optimization import EqualWeighted
+
+        cfg = MultipleRandomizedCVConfig.for_robustness_check(
+            n_subsamples=3,
+            asset_subset_size=8,
+        )
+        cv = build_multiple_randomized_cv(cfg)
+        pred = run_cross_val(EqualWeighted(), returns_df, cv=cv)
+        assert len(pred) > 0

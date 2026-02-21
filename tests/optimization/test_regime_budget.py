@@ -213,3 +213,63 @@ class TestBuildRegimeRiskBudgeting:
             config, hmm, [b0, b1], transaction_costs=0.001
         )
         assert optimizer.transaction_costs == pytest.approx(0.001)
+
+
+# ---------------------------------------------------------------------------
+# TestRegimeBudgetFitPredict (end-to-end fit/predict, issue #72)
+# ---------------------------------------------------------------------------
+
+
+def _make_returns_df(seed: int = 0) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    data = rng.normal(0.0, 0.01, (N_OBS, N_ASSETS))
+    return pd.DataFrame(data, index=DATES, columns=TICKERS)
+
+
+class TestRegimeBudgetFitPredict:
+    def test_fit_predict_uniform(self) -> None:
+        returns = _make_returns_df(seed=20)
+        b0 = _uniform_budget()
+        b1 = _uniform_budget()
+        hmm = _make_hmm_result(n_states=2, last_probs=[0.6, 0.4])
+        config = RiskBudgetingConfig.for_risk_parity()
+        opt = build_regime_risk_budgeting(config, hmm, [b0, b1])
+        opt.fit(returns)
+        portfolio = opt.predict(returns)
+        assert float(np.sum(portfolio.weights)) == pytest.approx(1.0, abs=1e-6)
+
+    def test_fit_predict_skewed(self) -> None:
+        returns = _make_returns_df(seed=21)
+        b0 = np.array([0.5, 0.3, 0.1, 0.1], dtype=np.float64)
+        b1 = np.array([0.1, 0.1, 0.3, 0.5], dtype=np.float64)
+        hmm = _make_hmm_result(n_states=2, last_probs=[0.7, 0.3])
+        config = RiskBudgetingConfig.for_risk_parity()
+        opt = build_regime_risk_budgeting(config, hmm, [b0, b1])
+        opt.fit(returns)
+        portfolio = opt.predict(returns)
+        weights = portfolio.weights
+        assert float(np.sum(weights)) == pytest.approx(1.0, abs=1e-6)
+        assert all(w >= -1e-6 for w in weights)
+
+    def test_predict_returns_portfolio(self) -> None:
+        returns = _make_returns_df(seed=22)
+        b0 = _uniform_budget()
+        b1 = _uniform_budget()
+        hmm = _make_hmm_result(n_states=2, last_probs=[0.5, 0.5])
+        config = RiskBudgetingConfig.for_risk_parity()
+        opt = build_regime_risk_budgeting(config, hmm, [b0, b1])
+        opt.fit(returns)
+        portfolio = opt.predict(returns)
+        assert hasattr(portfolio, "sharpe_ratio")
+
+    def test_three_regime_fit_predict(self) -> None:
+        returns = _make_returns_df(seed=23)
+        b0 = np.array([0.4, 0.3, 0.2, 0.1], dtype=np.float64)
+        b1 = _uniform_budget()
+        b2 = np.array([0.1, 0.1, 0.3, 0.5], dtype=np.float64)
+        hmm = _make_hmm_result(n_states=3, last_probs=[0.2, 0.5, 0.3])
+        config = RiskBudgetingConfig.for_risk_parity()
+        opt = build_regime_risk_budgeting(config, hmm, [b0, b1, b2])
+        opt.fit(returns)
+        portfolio = opt.predict(returns)
+        assert float(np.sum(portfolio.weights)) == pytest.approx(1.0, abs=1e-6)

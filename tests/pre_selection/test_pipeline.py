@@ -203,6 +203,131 @@ class TestOutlierMethodValidation:
         assert isinstance(pipe, Pipeline)
 
 
+class TestPreSelectionBehavioral:
+    """Behavioral tests exercising specific pipeline steps with crafted data."""
+
+    def test_all_nan_column_imputed_and_survives(self) -> None:
+        """An all-NaN column gets imputed by cross-sectional mean and
+        passes SelectComplete (imputation runs before SelectComplete)."""
+        rng = np.random.default_rng(42)
+        data = rng.normal(0.001, 0.02, (200, 4))
+        df = pd.DataFrame(
+            data,
+            columns=["A", "B", "C", "D"],
+            index=pd.date_range("2023-01-01", periods=200, freq="B"),
+        )
+        df["D"] = np.nan
+        cfg = PreSelectionConfig(correlation_threshold=1.0)
+        pipe = build_preselection_pipeline(cfg)
+        out = pipe.fit_transform(df)
+        # Imputer fills column D with cross-sectional mean → no NaN remains
+        assert not out.isna().any().any()
+        assert "D" in out.columns
+
+    def test_select_complete_keeps_full_columns(self) -> None:
+        rng = np.random.default_rng(42)
+        data = rng.normal(0.001, 0.02, (200, 4))
+        df = pd.DataFrame(
+            data,
+            columns=["A", "B", "C", "D"],
+            index=pd.date_range("2023-01-01", periods=200, freq="B"),
+        )
+        cfg = PreSelectionConfig(correlation_threshold=1.0)
+        pipe = build_preselection_pipeline(cfg)
+        out = pipe.fit_transform(df)
+        assert out.shape[1] == 4
+
+    def test_drop_zero_variance_drops_constant(self) -> None:
+        rng = np.random.default_rng(42)
+        data = rng.normal(0.001, 0.02, (200, 4))
+        df = pd.DataFrame(
+            data,
+            columns=["A", "B", "C", "D"],
+            index=pd.date_range("2023-01-01", periods=200, freq="B"),
+        )
+        df["D"] = 0.01
+        cfg = PreSelectionConfig(correlation_threshold=1.0)
+        pipe = build_preselection_pipeline(cfg)
+        out = pipe.fit_transform(df)
+        assert out.shape[1] == 3
+        assert "D" not in out.columns
+
+    def test_drop_zero_variance_keeps_varying(self) -> None:
+        rng = np.random.default_rng(42)
+        data = rng.normal(0.001, 0.02, (200, 4))
+        df = pd.DataFrame(
+            data,
+            columns=["A", "B", "C", "D"],
+            index=pd.date_range("2023-01-01", periods=200, freq="B"),
+        )
+        cfg = PreSelectionConfig(correlation_threshold=1.0)
+        pipe = build_preselection_pipeline(cfg)
+        out = pipe.fit_transform(df)
+        assert out.shape[1] == 4
+
+    def test_select_k_extremes_highest(self) -> None:
+        rng = np.random.default_rng(42)
+        n_obs = 200
+        df = pd.DataFrame(
+            {
+                "LOW1": rng.normal(-0.02, 0.01, n_obs),
+                "LOW2": rng.normal(-0.01, 0.01, n_obs),
+                "MID": rng.normal(0.0, 0.01, n_obs),
+                "HIGH1": rng.normal(0.01, 0.01, n_obs),
+                "HIGH2": rng.normal(0.02, 0.01, n_obs),
+            },
+            index=pd.date_range("2023-01-01", periods=n_obs, freq="B"),
+        )
+        cfg = PreSelectionConfig(top_k=2, top_k_highest=True, correlation_threshold=1.0)
+        pipe = build_preselection_pipeline(cfg)
+        out = pipe.fit_transform(df)
+        assert out.shape[1] == 2
+        assert set(out.columns) == {"HIGH1", "HIGH2"}
+
+    def test_select_k_extremes_lowest(self) -> None:
+        rng = np.random.default_rng(42)
+        n_obs = 200
+        df = pd.DataFrame(
+            {
+                "LOW1": rng.normal(-0.02, 0.01, n_obs),
+                "LOW2": rng.normal(-0.01, 0.01, n_obs),
+                "MID": rng.normal(0.0, 0.01, n_obs),
+                "HIGH1": rng.normal(0.01, 0.01, n_obs),
+                "HIGH2": rng.normal(0.02, 0.01, n_obs),
+            },
+            index=pd.date_range("2023-01-01", periods=n_obs, freq="B"),
+        )
+        cfg = PreSelectionConfig(
+            top_k=2, top_k_highest=False, correlation_threshold=1.0
+        )
+        pipe = build_preselection_pipeline(cfg)
+        out = pipe.fit_transform(df)
+        assert out.shape[1] == 2
+        assert set(out.columns) == {"LOW1", "LOW2"}
+
+    def test_combined_nan_constant_top_k(self) -> None:
+        """NaN column gets imputed, constant column dropped by
+        DropZeroVariance, then SelectKExtremes picks top_k=2."""
+        rng = np.random.default_rng(42)
+        n_obs = 200
+        df = pd.DataFrame(
+            {
+                "CONST": np.full(n_obs, 0.01),
+                "V1": rng.normal(-0.01, 0.01, n_obs),
+                "V2": rng.normal(0.0, 0.01, n_obs),
+                "V3": rng.normal(0.01, 0.01, n_obs),
+                "V4": rng.normal(0.02, 0.01, n_obs),
+            },
+            index=pd.date_range("2023-01-01", periods=n_obs, freq="B"),
+        )
+        cfg = PreSelectionConfig(top_k=2, top_k_highest=True, correlation_threshold=1.0)
+        pipe = build_preselection_pipeline(cfg)
+        out = pipe.fit_transform(df)
+        assert out.shape[1] == 2
+        # Constant column dropped, top 2 from remaining selected
+        assert "CONST" not in out.columns
+
+
 class TestSkfolioIntegration:
     """Smoke tests with skfolio's built-in dataset."""
 
