@@ -66,6 +66,6 @@ __all__ = [
 ]
 
 try:
-    __version__ = _pkg_version("optimizer")
+    __version__ = _pkg_version("portopt")
 except PackageNotFoundError:
     __version__ = "0.0.0.dev0"
