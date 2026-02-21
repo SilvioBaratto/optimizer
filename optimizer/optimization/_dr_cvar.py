@@ -77,9 +77,9 @@ class DRCVaRConfig:
         ``lambda=1`` (default) balances expected return and CVaR.
         Ignored when ``epsilon=0``.
     norm : int
-        Wasserstein norm order (1 or 2).  Only ``norm=1`` is supported
-        by the current skfolio backend; stored for documentation and
-        future compatibility.
+        Wasserstein norm order.  Only ``norm=2`` (L2) is supported by
+        the current skfolio backend.  Any other value raises
+        ``ValueError`` at construction time.
     min_weights : float or None
         Lower bound on asset weights.
     max_weights : float or None
@@ -105,7 +105,7 @@ class DRCVaRConfig:
     epsilon: float = 0.001
     alpha: float = 0.95
     risk_aversion: float = 1.0
-    norm: int = 1
+    norm: int = 2
     min_weights: float | None = 0.0
     max_weights: float | None = 1.0
     budget: float | None = 1.0
@@ -115,6 +115,12 @@ class DRCVaRConfig:
     solver: str = "CLARABEL"
     solver_params: dict[str, object] | None = None
     prior_config: MomentEstimationConfig | None = None
+
+    def __post_init__(self) -> None:
+        if self.norm != 2:
+            raise ValueError(
+                f"Only L2 norm (norm=2) is supported, got norm={self.norm}"
+            )
 
     # -- factory methods ---------------------------------------------------
 
@@ -161,9 +167,8 @@ def build_dr_cvar(
 
     Wasserstein norm note
     ~~~~~~~~~~~~~~~~~~~~~
-    ``config.norm`` is stored in the config for documentation purposes.
-    Only ``norm=1`` (1-Wasserstein) is currently supported by the skfolio
-    backend.  ``norm=2`` is reserved for future work.
+    Only ``norm=2`` (L2-Wasserstein) is supported.  The config enforces
+    this via ``__post_init__`` validation.
 
     Parameters
     ----------

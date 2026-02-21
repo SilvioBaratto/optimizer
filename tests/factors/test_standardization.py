@@ -6,10 +6,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.factors import (
     StandardizationConfig,
     StandardizationMethod,
     neutralize_sector,
+    orthogonalize_factors,
     rank_normal_standardize,
     standardize_all_factors,
     standardize_factor,
@@ -193,3 +195,80 @@ class TestReStandardizeAfterNeutralization:
         config_plain = StandardizationConfig(neutralize_sector=False)
         result_plain = standardize_factor(raw_scores, config_plain)
         pd.testing.assert_series_equal(result, result_plain)
+
+
+# ---------------------------------------------------------------------------
+# orthogonalize_factors (issue #102)
+# ---------------------------------------------------------------------------
+
+
+class TestOrthogonalizeFactors:
+    @pytest.fixture()
+    def factor_df(self) -> pd.DataFrame:
+        rng = np.random.default_rng(42)
+        return pd.DataFrame(
+            rng.standard_normal((100, 5)),
+            index=[f"T{i:03d}" for i in range(100)],
+            columns=["f1", "f2", "f3", "f4", "f5"],
+        )
+
+    def test_returns_dataframe(self, factor_df: pd.DataFrame) -> None:
+        result = orthogonalize_factors(factor_df)
+        assert isinstance(result, pd.DataFrame)
+
+    def test_pc_column_names(self, factor_df: pd.DataFrame) -> None:
+        result = orthogonalize_factors(factor_df)
+        for col in result.columns:
+            assert col.startswith("PC")
+
+    def test_orthogonality(self, factor_df: pd.DataFrame) -> None:
+        """Off-diagonal correlations should be near zero."""
+        result = orthogonalize_factors(factor_df)
+        clean = result.dropna()
+        corr = clean.corr().to_numpy().copy()
+        np.fill_diagonal(corr, 0.0)
+        assert np.abs(corr).max() < 0.05
+
+    def test_variance_filtering_reduces_dimensions(self) -> None:
+        """Highly correlated factors → fewer PCs retained."""
+        rng = np.random.default_rng(42)
+        latent = rng.standard_normal(100)
+        df = pd.DataFrame(
+            {f"f{i}": latent + rng.normal(0, 0.05, 100) for i in range(5)},
+            index=[f"T{i:03d}" for i in range(100)],
+        )
+        result = orthogonalize_factors(df, min_variance_explained=0.95)
+        assert result.shape[1] < 5
+
+    def test_preserves_index(self, factor_df: pd.DataFrame) -> None:
+        result = orthogonalize_factors(factor_df)
+        assert result.index.equals(factor_df.index)
+
+    def test_nan_handling(self) -> None:
+        rng = np.random.default_rng(42)
+        data = rng.standard_normal((50, 3))
+        data[5, :] = np.nan
+        data[10, :] = np.nan
+        df = pd.DataFrame(data, columns=["a", "b", "c"])
+        result = orthogonalize_factors(df)
+        assert pd.isna(result.iloc[5]).all()
+        assert pd.isna(result.iloc[10]).all()
+
+    def test_single_factor_raises(self) -> None:
+        df = pd.DataFrame({"f1": np.random.default_rng(0).standard_normal(50)})
+        with pytest.raises(DataError, match="at least 2 factors"):
+            orthogonalize_factors(df)
+
+    def test_unsupported_method_raises(self, factor_df: pd.DataFrame) -> None:
+        with pytest.raises(ConfigurationError, match="Unsupported"):
+            orthogonalize_factors(factor_df, method="ica")
+
+    def test_highly_correlated_collapses_to_one_pc(self) -> None:
+        rng = np.random.default_rng(42)
+        latent = rng.standard_normal(100)
+        df = pd.DataFrame(
+            {f"f{i}": latent + rng.normal(0, 0.01, 100) for i in range(5)},
+            index=[f"T{i:03d}" for i in range(100)],
+        )
+        result = orthogonalize_factors(df, min_variance_explained=0.95)
+        assert result.shape[1] == 1

@@ -63,7 +63,19 @@ class TestDRCVaRConfig:
         assert DRCVaRConfig().risk_aversion == pytest.approx(1.0)
 
     def test_default_norm(self) -> None:
-        assert DRCVaRConfig().norm == 1
+        assert DRCVaRConfig().norm == 2
+
+    def test_norm_2_accepted(self) -> None:
+        cfg = DRCVaRConfig(norm=2)
+        assert cfg.norm == 2
+
+    def test_norm_1_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Only L2 norm"):
+            DRCVaRConfig(norm=1)
+
+    def test_norm_3_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Only L2 norm"):
+            DRCVaRConfig(norm=3)
 
     def test_default_min_weights(self) -> None:
         assert DRCVaRConfig().min_weights == pytest.approx(0.0)
@@ -259,3 +271,29 @@ class TestBuildDrCvarFit:
         model.fit(returns)
         w = model.predict(returns).weights
         assert float(np.sum(w)) == pytest.approx(1.0, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# HHI monotonicity for DR-CVaR (issue #109)
+# ---------------------------------------------------------------------------
+
+
+def _compute_hhi(weights: np.ndarray) -> float:
+    """Herfindahl-Hirschman Index: sum(w_i^2)."""
+    return float(np.sum(weights**2))
+
+
+class TestHHIMonotonicityDRCVaR:
+    def test_hhi_non_increasing_with_epsilon(self, returns: pd.DataFrame) -> None:
+        """Larger epsilon → more diversified → HHI non-increasing."""
+        epsilons = [0.001, 0.005, 0.05]
+        hhis: list[float] = []
+
+        for eps in epsilons:
+            model = build_dr_cvar(DRCVaRConfig(epsilon=eps))
+            model.fit(returns)
+            w = model.predict(returns).weights
+            hhis.append(_compute_hhi(w))
+
+        assert hhis[0] >= hhis[1] - 1e-4
+        assert hhis[1] >= hhis[2] - 1e-4

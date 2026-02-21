@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -145,3 +146,49 @@ def flag_redundant_factors(
     """
     vif = compute_vif(scores)
     return [str(name) for name, val in vif.items() if val > vif_threshold]
+
+
+def check_survivorship_bias(
+    returns: pd.DataFrame,
+    final_periods: int = 12,
+    zero_threshold: float = 1e-10,
+) -> bool:
+    """Check for potential survivorship bias in a return panel.
+
+    Survivorship bias occurs when delisted or failed assets are excluded
+    from the sample.  A simple heuristic: if **no** asset has near-zero
+    returns in the final ``final_periods`` rows (i.e., no asset appears
+    to have stopped trading), the panel may suffer from survivorship
+    bias.
+
+    Parameters
+    ----------
+    returns : pd.DataFrame
+        Dates × assets return matrix.
+    final_periods : int
+        Number of trailing periods to inspect.
+    zero_threshold : float
+        Absolute threshold below which a return is considered "zero".
+
+    Returns
+    -------
+    bool
+        ``True`` if survivorship bias is suspected, ``False`` otherwise.
+    """
+    if len(returns) < final_periods:
+        return False
+
+    tail = returns.iloc[-final_periods:]
+    has_zeros = (tail.abs() <= zero_threshold).any(axis=0)
+
+    if not has_zeros.any():
+        warnings.warn(
+            "No assets have near-zero returns in the final "
+            f"{final_periods} periods.  The dataset may suffer from "
+            "survivorship bias (delisted assets excluded).",
+            UserWarning,
+            stacklevel=2,
+        )
+        return True
+
+    return False

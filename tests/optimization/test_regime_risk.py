@@ -468,3 +468,32 @@ class TestRegimeBlendedFitPredict:
         opt.fit(returns)
         portfolio = opt.predict(returns)
         assert float(np.sum(portfolio.weights)) == pytest.approx(1.0, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Regime-conditional weights differ (issue #106)
+# ---------------------------------------------------------------------------
+
+
+class TestRegimeConditionalWeights:
+    def test_calm_vs_stress_dominant_weights_differ(self) -> None:
+        """Different regime probabilities produce different weights."""
+        returns = _make_returns(seed=20)
+        config = RegimeRiskConfig.for_calm_stress()
+
+        hmm_calm = _make_hmm_result(
+            n_states=2, last_probs=[0.95, 0.05], returns=returns
+        )
+        hmm_stress = _make_hmm_result(
+            n_states=2, last_probs=[0.05, 0.95], returns=returns
+        )
+
+        opt_calm = build_regime_blended_optimizer(config, hmm_calm)
+        opt_calm.fit(returns)
+        w_calm = opt_calm.predict(returns).weights
+
+        opt_stress = build_regime_blended_optimizer(config, hmm_stress)
+        opt_stress.fit(returns)
+        w_stress = opt_stress.predict(returns).weights
+
+        assert not np.allclose(w_calm, w_stress, atol=1e-4)

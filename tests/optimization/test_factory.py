@@ -900,3 +900,76 @@ class TestIntegration:
         model.fit(returns_df)
         population = model.predict(returns_df)
         assert len(population) == 5
+
+
+# ---------------------------------------------------------------------------
+# Partial-investment budget (issue #107)
+# ---------------------------------------------------------------------------
+
+
+class TestPartialInvestmentBudget:
+    def test_budget_0_8_weights_sum(self, returns_df: pd.DataFrame) -> None:
+        """Partial budget=0.8 → weights sum to 0.8."""
+        cfg = MeanRiskConfig(
+            objective=ObjectiveFunctionType.MINIMIZE_RISK,
+            budget=0.8,
+        )
+        model = build_mean_risk(cfg)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert float(np.sum(portfolio.weights)) == pytest.approx(0.8, abs=1e-6)
+
+    def test_budget_0_weights_sum(self, returns_df: pd.DataFrame) -> None:
+        """Zero budget=0.0 → weights sum to 0.0."""
+        cfg = MeanRiskConfig(
+            objective=ObjectiveFunctionType.MINIMIZE_RISK,
+            budget=0.0,
+        )
+        model = build_mean_risk(cfg)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert float(np.sum(portfolio.weights)) == pytest.approx(0.0, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Diversification ratio >= 1 (issue #106)
+# ---------------------------------------------------------------------------
+
+
+class TestDiversificationRatioGeOne:
+    def test_min_variance_dr_ge_one(self, returns_df: pd.DataFrame) -> None:
+        model = build_mean_risk(MeanRiskConfig.for_min_variance())
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.diversification >= 1.0 - 1e-6
+
+    def test_hrp_dr_ge_one(self, returns_df: pd.DataFrame) -> None:
+        model = build_hrp(HRPConfig.for_variance())
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.diversification >= 1.0 - 1e-6
+
+    def test_max_diversification_dr_ge_one(self, returns_df: pd.DataFrame) -> None:
+        model = build_max_diversification()
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.diversification >= 1.0 - 1e-6
+
+
+# ---------------------------------------------------------------------------
+# CVaR >= VaR (issue #106)
+# ---------------------------------------------------------------------------
+
+
+class TestCVaRGeVaR:
+    def test_min_cvar_portfolio(self, returns_df: pd.DataFrame) -> None:
+        model = build_mean_risk(MeanRiskConfig.for_min_cvar())
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.cvar >= portfolio.value_at_risk - 1e-8
+
+    def test_min_variance_portfolio(self, returns_df: pd.DataFrame) -> None:
+        model = build_mean_risk(MeanRiskConfig.for_min_variance())
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.cvar >= portfolio.value_at_risk - 1e-8

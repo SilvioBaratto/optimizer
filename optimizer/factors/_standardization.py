@@ -5,7 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from scipy import stats as sp_stats
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.factors._config import StandardizationConfig, StandardizationMethod
 
 
@@ -212,3 +215,81 @@ def standardize_all_factors(
     scores = pd.DataFrame(standardized, index=raw_factors.index)
     coverage = scores.notna()
     return scores, coverage
+
+
+def orthogonalize_factors(
+    factor_scores: pd.DataFrame,
+    method: str = "pca",
+    min_variance_explained: float = 0.95,
+) -> pd.DataFrame:
+    """Project factor scores onto orthogonal principal components.
+
+    Eliminates multicollinearity among factor scores by projecting
+    them into a lower-dimensional PCA space.  Retains the minimum
+    number of components that explain at least ``min_variance_explained``
+    of the total variance.
+
+    Parameters
+    ----------
+    factor_scores : pd.DataFrame
+        Tickers × factors matrix of factor scores.
+    method : str
+        Projection method.  Only ``"pca"`` is supported.
+    min_variance_explained : float
+        Minimum cumulative explained variance ratio for retained
+        components.  Must be in ``(0, 1]``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Tickers × PCs matrix with columns named ``PC1``, ``PC2``, ....
+        Rows with NaN in the input are filled with NaN in the output
+        but otherwise preserve the original index.
+
+    Raises
+    ------
+    ConfigurationError
+        If *method* is not ``"pca"``.
+    DataError
+        If fewer than 2 factors or fewer than 2 non-NaN observations.
+    """
+    if method != "pca":
+        raise ConfigurationError(
+            f"Unsupported orthogonalization method {method!r}; "
+            "only 'pca' is supported"
+        )
+
+    if factor_scores.shape[1] < 2:
+        raise DataError(
+            "orthogonalize_factors requires at least 2 factors, "
+            f"got {factor_scores.shape[1]}"
+        )
+
+    clean = factor_scores.dropna()
+    if len(clean) < 2:
+        raise DataError(
+            "orthogonalize_factors requires at least 2 non-NaN observations, "
+            f"got {len(clean)}"
+        )
+
+    scaler = StandardScaler()
+    X = scaler.fit_transform(clean.to_numpy(dtype=np.float64))
+
+    pca = PCA()
+    pca.fit(X)
+
+    cumvar = np.cumsum(pca.explained_variance_ratio_)
+    n_keep = int(np.searchsorted(cumvar, min_variance_explained)) + 1
+    n_keep = min(n_keep, len(cumvar))
+
+    projected = X @ pca.components_[:n_keep].T
+    col_names = [f"PC{i + 1}" for i in range(n_keep)]
+
+    result = pd.DataFrame(
+        projected,
+        index=clean.index,
+        columns=col_names,
+        dtype=float,
+    )
+
+    return result.reindex(factor_scores.index)
