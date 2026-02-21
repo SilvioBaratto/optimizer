@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from itertools import combinations
 
@@ -14,6 +15,8 @@ from optimizer.factors._validation import (
     compute_quantile_spread,
 )
 from optimizer.validation._config import CPCVConfig
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Config and result containers

@@ -35,6 +35,7 @@ Usage example::
 
 from __future__ import annotations
 
+import logging
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -48,6 +49,8 @@ from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.moments._hmm import HMMConfig, HMMResult
 from optimizer.optimization._config import RiskBudgetingConfig, RiskMeasureType
 from optimizer.optimization._factory import _RISK_MEASURE_MAP, build_risk_budgeting
+
+logger = logging.getLogger(__name__)
 
 # Minimum per-regime observations before falling back to full-sample risk.
 _MIN_REGIME_SAMPLES: int = 5

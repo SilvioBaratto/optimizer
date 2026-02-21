@@ -110,9 +110,7 @@ class TestApplyLognormalCorrection:
         naive_compound = np.exp(daily_mu.to_numpy() * horizon) - 1.0
         assert np.all(mu_t.to_numpy() > naive_compound)
 
-    def test_zero_variance_matches_naive_compound(
-        self, daily_mu: pd.Series
-    ) -> None:
+    def test_zero_variance_matches_naive_compound(self, daily_mu: pd.Series) -> None:
         """With zero covariance, correction = exp(mu*T) - 1 exactly."""
         horizon = 63
         zero_cov = pd.DataFrame(
@@ -131,16 +129,12 @@ class TestApplyLognormalCorrection:
 
         # Low vol
         mu_low = pd.Series([mu_val], index=["X"])
-        cov_low = pd.DataFrame(
-            [[0.15**2 / 252]], index=["X"], columns=["X"]
-        )
+        cov_low = pd.DataFrame([[0.15**2 / 252]], index=["X"], columns=["X"])
         mu_t_low, _ = apply_lognormal_correction(mu_low, cov_low, horizon=horizon)
 
         # High vol
         mu_high = pd.Series([mu_val], index=["X"])
-        cov_high = pd.DataFrame(
-            [[0.30**2 / 252]], index=["X"], columns=["X"]
-        )
+        cov_high = pd.DataFrame([[0.30**2 / 252]], index=["X"], columns=["X"])
         mu_t_high, _ = apply_lognormal_correction(mu_high, cov_high, horizon=horizon)
 
         assert float(mu_t_high.iloc[0]) > float(mu_t_low.iloc[0])

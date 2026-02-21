@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 
 from optimizer.universe._config import InvestabilityScreenConfig
 from optimizer.universe._screener import apply_investability_screens
+
+logger = logging.getLogger(__name__)
 
 
 def screen_universe(

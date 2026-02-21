@@ -1,0 +1,3 @@
+# synthetic
+
+::: optimizer.synthetic

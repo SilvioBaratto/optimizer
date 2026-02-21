@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 
 from optimizer.factors._config import SelectionConfig, SelectionMethod
+
+logger = logging.getLogger(__name__)
 
 
 def select_fixed_count(

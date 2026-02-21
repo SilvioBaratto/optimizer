@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import warnings
 from dataclasses import dataclass
 
@@ -10,6 +11,8 @@ import pandas as pd
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.rebalancing._rebalancer import compute_turnover
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)

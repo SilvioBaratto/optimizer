@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
@@ -10,6 +12,8 @@ from optimizer.universe._config import (
     HysteresisConfig,
     InvestabilityScreenConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def apply_screen(

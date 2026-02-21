@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from skfolio.pre_selection import (
     DropCorrelated,
     DropZeroVariance,
@@ -16,6 +18,8 @@ from optimizer.pre_selection._config import PreSelectionConfig
 from optimizer.preprocessing._imputation import SectorImputer
 from optimizer.preprocessing._outliers import OutlierTreater
 from optimizer.preprocessing._validation import DataValidator
+
+logger = logging.getLogger(__name__)
 
 
 def build_preselection_pipeline(

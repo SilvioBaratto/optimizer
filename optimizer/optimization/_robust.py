@@ -49,6 +49,7 @@ Usage example::
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -69,6 +70,8 @@ from optimizer.exceptions import ConfigurationError
 from optimizer.moments._factory import build_prior
 from optimizer.optimization._config import MeanRiskConfig
 from optimizer.optimization._factory import _OBJECTIVE_MAP, _RISK_MEASURE_MAP
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Bootstrap covariance uncertainty
@@ -374,9 +377,7 @@ def build_robust_mean_risk(
         config = RobustConfig()
 
     if config.kappa < 0:
-        raise ValueError(
-            f"kappa must be non-negative, got {config.kappa}"
-        )
+        raise ValueError(f"kappa must be non-negative, got {config.kappa}")
 
     mean_risk_cfg = config.mean_risk_config or MeanRiskConfig()
 

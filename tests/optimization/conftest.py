@@ -61,9 +61,7 @@ def make_hmm_result(
     if last_probs is not None:
         filtered[-1] = last_probs
 
-    filtered_df = pd.DataFrame(
-        filtered, index=dates, columns=list(range(n_states))
-    )
+    filtered_df = pd.DataFrame(filtered, index=dates, columns=list(range(n_states)))
     transition = np.full((n_states, n_states), 1.0 / n_states)
     means = pd.DataFrame(np.zeros((n_states, n_assets)), columns=tickers)
     covs = np.stack([np.eye(n_assets) * 1e-4] * n_states)

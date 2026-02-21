@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -10,6 +11,8 @@ import pandas as pd
 
 from optimizer.exceptions import DataError
 from optimizer.factors._config import FACTOR_GROUP_MAPPING, FactorValidationConfig
+
+logger = logging.getLogger(__name__)
 
 # Annualised long-short quintile spread benchmarks (low, high) per group.
 # Derived from academic literature (Fama-French, AQR, Novy-Marx).
@@ -637,9 +640,7 @@ def run_factor_validation(
                 group_name = _factor_to_group_name(factor_name)
                 bench = FACTOR_SPREAD_BENCHMARKS.get(group_name)
                 in_bench = (
-                    bench[0] <= abs(spread) <= bench[1]
-                    if bench is not None
-                    else False
+                    bench[0] <= abs(spread) <= bench[1] if bench is not None else False
                 )
                 report.quantile_spreads.append(
                     QuantileSpreadResult(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import warnings
 from dataclasses import dataclass
 
@@ -13,6 +14,8 @@ from sklearn.preprocessing import StandardScaler
 
 from optimizer.exceptions import DataError
 from optimizer.factors._validation import compute_vif
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass

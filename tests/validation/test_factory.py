@@ -164,9 +164,7 @@ class TestRunCrossValCPCV:
         pred = run_cross_val(EqualWeighted(), returns_df, cv=cv)
         assert len(pred) > 0
 
-    def test_cpcv_statistical_testing_preset(
-        self, returns_df: pd.DataFrame
-    ) -> None:
+    def test_cpcv_statistical_testing_preset(self, returns_df: pd.DataFrame) -> None:
         from skfolio.optimization import EqualWeighted
 
         cfg = CPCVConfig.for_statistical_testing()

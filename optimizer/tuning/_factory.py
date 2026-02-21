@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
@@ -9,6 +10,8 @@ from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from optimizer.scoring._factory import build_scorer
 from optimizer.tuning._config import GridSearchConfig, RandomizedSearchConfig
 from optimizer.validation._factory import build_walk_forward
+
+logger = logging.getLogger(__name__)
 
 
 def build_grid_search_cv(

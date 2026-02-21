@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -53,6 +54,8 @@ from optimizer.optimization._config import (
     RiskMeasureType,
     StackingConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Mapping dicts

@@ -12,6 +12,14 @@ requires-python = ">=3.10"
 authors = [
     {name = "Silvio Baratto"},
 ]
+
+[project.urls]
+Homepage = "https://github.com/SilvioBaratto/optimizer"
+Documentation = "https://silviobaratto.github.io/optimizer"
+Repository = "https://github.com/SilvioBaratto/optimizer"
+Issues = "https://github.com/SilvioBaratto/optimizer/issues"
+Changelog = "https://github.com/SilvioBaratto/optimizer/blob/main/CHANGELOG.md"
+
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Financial and Insurance Industry",
@@ -36,13 +44,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.4",
-    "pytest-cov>=4.0",
-    "pre-commit>=3.5",
-    "ruff>=0.1",
-    "mypy>=1.5",
+test = ["pytest>=7.4", "pytest-cov>=4.0", "hypothesis>=6.0"]
+lint = ["ruff>=0.1", "pip-audit>=2.6"]
+typecheck = ["mypy>=1.5", "pyright[nodejs]==1.1.398"]
+docs = [
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.24",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-literate-nav>=0.6",
 ]
+dmm = ["torch>=2.0", "pyro-ppl>=1.9"]
+dev = ["optimizer[test,lint,typecheck,docs]", "pre-commit>=3.5"]
 
 [project.scripts]
 optimizer = "cli:app"
@@ -62,6 +74,7 @@ select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "S", "RUF", "C4", "PTH"]
 ignore = ["RUF002", "RUF003"]  # allow unicode in docstrings/comments (mathematical notation)
 
 [tool.ruff.lint.per-file-ignores]
+"optimizer/__init__.py" = ["E402"]  # logging NullHandler must precede module imports
 "optimizer/**" = ["N803", "N806"]  # sklearn convention: X, y parameter names
 "tests/**" = ["N803", "N806", "S101"]
 
@@ -99,6 +112,66 @@ module = [
     "optimizer.rebalancing._rebalancer",
 ]
 warn_return_any = false
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.coverage.run]
+branch = true
+source = ["optimizer"]
+omit = ["optimizer/moments/_dmm.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.",
+    "@overload",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+
+[tool.pyright]
+pythonVersion = "3.10"
+pythonPlatform = "All"
+typeCheckingMode = "standard"
+include = ["optimizer", "examples"]
+exclude = [
+    "**/__pycache__",
+    "optimizer/moments/_dmm.py",
+]
+
+# Libraries with missing/incomplete stubs (sklearn, skfolio, hmmlearn, arch)
+reportMissingTypeStubs = false
+reportMissingImports = false
+
+# Unknown type propagation from pandas/numpy/sklearn/skfolio
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownParameterType = false
+reportUnknownLambdaType = false
+
+# Pandas/numpy operator and attribute false positives
+reportOperatorIssue = false
+reportAttributeAccessIssue = false
+reportIndexIssue = false
+
+# Demote to warning (catch real bugs, don't block on stub gaps)
+reportReturnType = "warning"
+reportCallIssue = "warning"
+reportArgumentType = "warning"
+
+# sklearn/skfolio base class overrides have incompatible signatures
+reportIncompatibleMethodOverride = false
+
+# pandas operations return overly broad union types (Scalar | Series | DataFrame)
+reportAssignmentType = "warning"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

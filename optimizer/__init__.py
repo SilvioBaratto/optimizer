@@ -41,6 +41,12 @@ pipeline
     End-to-end portfolio orchestration: prices → validated weights.
 """
 
+import logging
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
+logging.getLogger("optimizer").addHandler(logging.NullHandler())
+
 from optimizer.exceptions import (
     ConfigurationError,
     ConvergenceError,
@@ -59,4 +65,7 @@ __all__ = [
     "ValidationError",
 ]
 
-__version__ = "0.1.0"
+try:
+    __version__ = _pkg_version("optimizer")
+except PackageNotFoundError:
+    __version__ = "0.0.0.dev0"

@@ -166,9 +166,10 @@ class TestComputeSelectionTurnover:
         assert compute_selection_turnover(current, new, universe) == pytest.approx(0.4)
 
     def test_empty_universe_returns_zero(self) -> None:
-        assert compute_selection_turnover(
-            pd.Index(["A"]), pd.Index(["B"]), pd.Index([])
-        ) == 0.0
+        assert (
+            compute_selection_turnover(pd.Index(["A"]), pd.Index(["B"]), pd.Index([]))
+            == 0.0
+        )
 
     def test_return_turnover_flag(self, scores: pd.Series) -> None:
         config = SelectionConfig(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
 import numpy as np
@@ -46,6 +47,8 @@ from optimizer.universe._config import InvestabilityScreenConfig
 from optimizer.universe._factory import screen_universe
 from optimizer.validation._config import WalkForwardConfig
 from optimizer.validation._factory import build_walk_forward, run_cross_val
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Low-level composable functions
@@ -525,6 +528,7 @@ def run_full_pipeline_with_selection(
             and regime_config is not None
             and regime_config.enable
         )
+        group_weights: dict[str, float] | None = None
         if has_regime:
             if macro_data is None:  # pragma: no cover — guarded by has_regime
                 msg = "macro_data is required when regime_config is enabled"
@@ -569,7 +573,7 @@ def run_full_pipeline_with_selection(
             coverage,
             config=scoring_config,
             ic_history=ic_history,
-            group_weights=group_weights if has_regime else None,
+            group_weights=group_weights,
         )
 
         # 6. Select stocks

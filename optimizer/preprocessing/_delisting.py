@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 
 from optimizer.exceptions import DataError
+
+logger = logging.getLogger(__name__)
 
 
 def apply_delisting_returns(
@@ -38,9 +42,7 @@ def apply_delisting_returns(
 
     for ticker, delist_ret in delisting_returns.items():
         if ticker not in result.columns:
-            raise DataError(
-                f"Ticker {ticker!r} not found in returns columns"
-            )
+            raise DataError(f"Ticker {ticker!r} not found in returns columns")
 
         col = result[ticker]
         if col.isna().all():

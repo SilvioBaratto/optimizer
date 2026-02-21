@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -15,6 +16,8 @@ from skfolio.moments.covariance._base import BaseCovariance
 from skfolio.moments.expected_returns._base import BaseMu
 
 from optimizer.exceptions import ConvergenceError, DataError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -149,8 +152,7 @@ def fit_hmm(returns: pd.DataFrame, config: HMMConfig | None = None) -> HMMResult
     for t in range(1, T_len):
         for j in range(n_s):
             fwdlattice[t, j] = (
-                logsumexp(fwdlattice[t - 1] + log_transmat[:, j])
-                + framelogprob[t, j]
+                logsumexp(fwdlattice[t - 1] + log_transmat[:, j]) + framelogprob[t, j]
             )
     # Normalize rows in log space to get proper probabilities
     log_norm = logsumexp(fwdlattice, axis=1, keepdims=True)
@@ -243,9 +245,7 @@ def select_hmm_n_states(
         If no candidate succeeds.
     """
     if criterion not in ("aic", "bic"):
-        raise ValueError(
-            f"criterion must be 'aic' or 'bic', got {criterion!r}"
-        )
+        raise ValueError(f"criterion must be 'aic' or 'bic', got {criterion!r}")
 
     base_cfg = hmm_config if hmm_config is not None else HMMConfig()
     clean = returns.dropna()

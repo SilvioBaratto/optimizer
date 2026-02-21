@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from skfolio.moments import (
     OAS,
     DenoiseCovariance,
@@ -31,6 +33,8 @@ from optimizer.moments._config import (
     ShrinkageMethod,
 )
 from optimizer.moments._hmm import HMMBlendedCovariance, HMMBlendedMu
+
+logger = logging.getLogger(__name__)
 
 _SHRINKAGE_MAP: dict[ShrinkageMethod, ShrunkMuMethods] = {
     ShrinkageMethod.JAMES_STEIN: ShrunkMuMethods.JAMES_STEIN,

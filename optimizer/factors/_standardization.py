@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 from scipy import stats as sp_stats
@@ -10,6 +12,8 @@ from sklearn.preprocessing import StandardScaler
 
 from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.factors._config import StandardizationConfig, StandardizationMethod
+
+logger = logging.getLogger(__name__)
 
 
 def winsorize_cross_section(
@@ -255,8 +259,7 @@ def orthogonalize_factors(
     """
     if method != "pca":
         raise ConfigurationError(
-            f"Unsupported orthogonalization method {method!r}; "
-            "only 'pca' is supported"
+            f"Unsupported orthogonalization method {method!r}; only 'pca' is supported"
         )
 
     if factor_scores.shape[1] < 2:
