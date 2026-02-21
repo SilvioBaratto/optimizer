@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "optimizer"
+name = "portopt"
 version = "0.1.0"
 description = "Portfolio optimization library built on skfolio and scikit-learn"
 readme = "README.md"
@@ -53,7 +53,7 @@ docs = [
     "mkdocs-literate-nav>=0.6",
 ]
 dmm = ["torch>=2.0", "pyro-ppl>=1.9"]
-dev = ["optimizer[test,lint,typecheck,docs]", "pre-commit>=3.5"]
+dev = ["portopt[test,lint,typecheck,docs]", "pre-commit>=3.5"]
 
 [project.scripts]
 optimizer = "cli:app"
