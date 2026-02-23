@@ -1,0 +1,101 @@
+name: Theory Visualization / Numerical Example
+description: Track a TODO marker from the theory chapters (graph, diagram, or worked numerical example)
+labels: ["theory-docs"]
+body:
+  - type: dropdown
+    id: task-type
+    attributes:
+      label: Task Type
+      description: Is this a data visualization (chart/diagram) or a worked numerical example?
+      options:
+        - "GRAPH: data visualization"
+        - "EXAMPLE: worked numerical example"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: chapter
+    attributes:
+      label: Theory Chapter
+      description: Which theory chapter does this TODO belong to?
+      options:
+        - "00 — Stock Pre-Selection & Factor Research"
+        - "01 — Data Preparation & Universe Construction"
+        - "02 — Moment Estimation & Prior Construction"
+        - "03 — View Integration & Bayesian Updating"
+        - "04 — Risk Measures, Diversification & Hierarchical Methods"
+        - "05 — Portfolio Optimization & Robust Methods"
+        - "06 — Validation Pipeline"
+    validations:
+      required: true
+
+  - type: input
+    id: section-title
+    attributes:
+      label: Section Title
+      description: Title of the section or subsection where the TODO appears.
+      placeholder: "e.g. 2.3 Ledoit-Wolf Shrinkage Estimator"
+    validations:
+      required: true
+
+  - type: textarea
+    id: math-context
+    attributes:
+      label: Mathematical / Theoretical Context
+      description: |
+        Paste the TODO comment verbatim, plus nearby equations, definitions, or prose that
+        define what this figure or example is illustrating.
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation-spec
+    attributes:
+      label: Implementation Specification
+      description: |
+        Describe precisely what to produce:
+        - Chart type (line, bar, scatter, heatmap, histogram, dendrogram, …)
+        - Axes labels and units
+        - Data source (synthetic, real tickers, random seed)
+        - Expected shape of result / key values to highlight
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: code-modules
+    attributes:
+      label: Relevant Code Modules
+      description: |
+        List optimizer module paths, class names, and function names that generate or relate
+        to the data for this figure. Use format:
+        `optimizer/module/_file.py` — `ClassName` / `function()`
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: code-skeleton
+    attributes:
+      label: Code Skeleton (optional)
+      description: |
+        Optional: minimal Python snippet using the optimizer APIs to produce the required
+        data. Leave blank if the figure is purely schematic (matplotlib.patches only).
+      render: python
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: |
+        Checklist of what "done" means for this TODO. Typical items:
+        - [ ] Figure committed to `theory/figures/chXX/fig_YY_description.png`
+        - [ ] Numerical values match formulas stated in the chapter
+        - [ ] Code snippet runs without errors (`python -c "..."` or notebook cell)
+        - [ ] Figure referenced / embedded in the theory chapter Markdown
+      render: markdown
+    validations:
+      required: true
