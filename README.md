@@ -289,6 +289,10 @@ This software is provided for **educational and research purposes only**. It is 
 
 By using this software, you acknowledge that you have read and understood this disclaimer and agree to be bound by its terms.
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=SilvioBaratto/optimizer&type=Date)](https://star-history.com/#SilvioBaratto/optimizer&Date)
+
 ## License
 
 [BSD-3-Clause](LICENSE)
