@@ -6,8 +6,6 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy.orm import Session
-
 from app.repositories.yfinance_repository import YFinanceRepository
 from app.services.trading_calendar import has_sufficient_history
 from app.services.yfinance import YFinanceClient
@@ -56,9 +54,8 @@ def _is_fresh(
 class YFinanceDataService:
     """Fetches all yfinance data categories for a ticker and stores via repository."""
 
-    def __init__(self, session: Session, yf_client: YFinanceClient):
-        self.session = session
-        self.repo = YFinanceRepository(session)
+    def __init__(self, repo: YFinanceRepository, yf_client: YFinanceClient):
+        self.repo = repo
         self.yf_client = yf_client
 
     def fetch_and_store(

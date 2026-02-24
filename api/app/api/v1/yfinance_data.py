@@ -1,18 +1,13 @@
 """FastAPI router for yfinance data fetch and read endpoints."""
 
 import logging
-import threading
-import uuid as uuid_mod
 from datetime import date, datetime, timezone
-from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.database import database_manager, get_db
-from app.models.universe import Instrument
 from app.repositories.yfinance_repository import YFinanceRepository
 from app.schemas.yfinance_data import (
     AnalystPriceTargetResponse,
@@ -32,6 +27,7 @@ from app.schemas.yfinance_data import (
     YFinanceSingleFetchRequest,
     YFinanceSingleFetchResponse,
 )
+from app.services.background_job import BackgroundJobService
 from app.services.yfinance import YFinanceClient, get_yfinance_client
 from app.services.yfinance_data_service import YFinanceDataService
 
@@ -39,29 +35,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/yfinance-data", tags=["YFinance Data"])
 
-
-# ---------------------------------------------------------------------------
-# In-memory job store (same pattern as trading212.py)
-# ---------------------------------------------------------------------------
-
-_fetch_jobs: dict[str, dict[str, Any]] = {}
-_fetch_jobs_lock = threading.Lock()
-
-
-def _set_job(job_id: str, data: dict[str, Any]) -> None:
-    with _fetch_jobs_lock:
-        _fetch_jobs[job_id] = data
-
-
-def _get_job(job_id: str) -> dict[str, Any] | None:
-    with _fetch_jobs_lock:
-        return _fetch_jobs.get(job_id, {}).copy() if job_id in _fetch_jobs else None
-
-
-def _update_job(job_id: str, **kwargs: Any) -> None:
-    with _fetch_jobs_lock:
-        if job_id in _fetch_jobs:
-            _fetch_jobs[job_id].update(kwargs)
+# Shared job service instance for this router
+_job_service = BackgroundJobService()
 
 
 # ---------------------------------------------------------------------------
@@ -75,36 +50,27 @@ def _run_bulk_fetch(
     yf_client: YFinanceClient,
 ) -> None:
     """Execute bulk yfinance fetch in a background thread."""
-    _update_job(job_id, status="running")
+    _job_service.update_job(job_id, status="running")
 
     try:
         with database_manager.get_session() as session:
-            # Get all instruments with a yfinance_ticker (eager-load exchange)
-            instruments = (
-                session.execute(
-                    select(Instrument)
-                    .options(joinedload(Instrument.exchange))
-                    .where(Instrument.yfinance_ticker.isnot(None))
-                    .where(Instrument.yfinance_ticker != "")
-                )
-                .scalars()
-                .unique()
-                .all()
-            )
+            repo = YFinanceRepository(session)
+            instruments = repo.get_instruments_with_yfinance_ticker()
 
             total = len(instruments)
-            _update_job(job_id, total=total)
+            _job_service.update_job(job_id, total=total)
 
             all_errors: list[str] = []
             total_counts: dict[str, int] = {}
             total_skipped: int = 0
 
+            service = YFinanceDataService(repo, yf_client)
+
             for idx, instrument in enumerate(instruments, 1):
                 ticker = instrument.yfinance_ticker
-                _update_job(job_id, current=idx, current_ticker=ticker)
+                _job_service.update_job(job_id, current=idx, current_ticker=ticker)
 
                 try:
-                    service = YFinanceDataService(session, yf_client)
                     result = service.fetch_and_store(
                         instrument_id=instrument.id,
                         yfinance_ticker=ticker,
@@ -113,18 +79,12 @@ def _run_bulk_fetch(
                         exchange_name=instrument.exchange_name,
                     )
 
-                    # Accumulate counts
                     for k, v in result["counts"].items():
                         total_counts[k] = total_counts.get(k, 0) + v
-
-                    # Accumulate skipped categories
                     total_skipped += len(result.get("skipped", []))
-
-                    # Accumulate errors with ticker prefix
                     for err in result["errors"]:
                         all_errors.append(f"{ticker}: {err}")
 
-                    # Commit per ticker
                     session.commit()
 
                 except Exception as e:
@@ -132,7 +92,7 @@ def _run_bulk_fetch(
                     all_errors.append(f"{ticker}: {e}")
                     session.rollback()
 
-            _update_job(
+            _job_service.update_job(
                 job_id,
                 status="completed",
                 finished_at=datetime.now(timezone.utc).isoformat(),
@@ -148,7 +108,7 @@ def _run_bulk_fetch(
 
     except Exception as e:
         logger.error("Bulk fetch %s failed: %s", job_id, e)
-        _update_job(
+        _job_service.update_job(
             job_id,
             status="failed",
             finished_at=datetime.now(timezone.utc).isoformat(),
@@ -184,37 +144,18 @@ def start_bulk_fetch(
     yf_client: YFinanceClient = Depends(_get_yf_client),
 ):
     """Start a background job that fetches yfinance data for all instruments."""
-    # Reject if another job is already running
-    with _fetch_jobs_lock:
-        for job in _fetch_jobs.values():
-            if job.get("status") in ("pending", "running"):
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"A fetch job is already in progress (id={job['job_id']})",
-                )
+    running, running_id = _job_service.is_any_running()
+    if running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A fetch job is already in progress (id={running_id})",
+        )
 
-    job_id = str(uuid_mod.uuid4())
-    _set_job(
-        job_id,
-        {
-            "job_id": job_id,
-            "status": "pending",
-            "current": 0,
-            "total": 0,
-            "current_ticker": "",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "errors": [],
-            "result": None,
-            "error": None,
-        },
-    )
-
-    thread = threading.Thread(
+    job_id = _job_service.create_job(current_ticker="")
+    _job_service.start_background(
         target=_run_bulk_fetch,
         args=(job_id, request, yf_client),
-        daemon=True,
     )
-    thread.start()
 
     return YFinanceFetchJobResponse(
         job_id=job_id,
@@ -226,7 +167,7 @@ def start_bulk_fetch(
 @router.get("/fetch/{job_id}", response_model=YFinanceFetchProgress)
 def get_fetch_status(job_id: str):
     """Poll the status and progress of a bulk fetch job."""
-    job = _get_job(job_id)
+    job = _job_service.get_job(job_id)
     if job is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -258,23 +199,18 @@ def fetch_single_ticker(
     yfinance_ticker: str,
     request: YFinanceSingleFetchRequest = YFinanceSingleFetchRequest(),
     db: Session = Depends(get_db),
+    repo: YFinanceRepository = Depends(_get_repo),
     yf_client: YFinanceClient = Depends(_get_yf_client),
 ):
     """Synchronously fetch all yfinance data for a single ticker."""
-    # Find instrument by yfinance_ticker (eager-load exchange)
-    instrument = db.execute(
-        select(Instrument)
-        .options(joinedload(Instrument.exchange))
-        .where(Instrument.yfinance_ticker == yfinance_ticker)
-    ).scalar_one_or_none()
-
+    instrument = repo.get_instrument_by_yfinance_ticker(yfinance_ticker)
     if not instrument:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No instrument found with yfinance_ticker={yfinance_ticker!r}",
         )
 
-    service = YFinanceDataService(db, yf_client)
+    service = YFinanceDataService(repo, yf_client)
     result = service.fetch_and_store(
         instrument_id=instrument.id,
         yfinance_ticker=yfinance_ticker,

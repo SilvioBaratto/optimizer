@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.repositories.view_generation_repository import ViewGenerationRepository
 from app.services.view_generation import (
     GeneratedViews,
     fetch_factor_data,
@@ -92,6 +93,10 @@ class GenerateViewsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _get_view_repo(db: Session = Depends(get_db)) -> ViewGenerationRepository:
+    return ViewGenerationRepository(db)
+
+
 @router.post(
     "/generate",
     response_model=GenerateViewsResponse,
@@ -99,7 +104,7 @@ class GenerateViewsResponse(BaseModel):
 )
 def generate_bl_views(
     request: GenerateViewsRequest,
-    db: Session = Depends(get_db),
+    repo: ViewGenerationRepository = Depends(_get_view_repo),
 ) -> GenerateViewsResponse:
     """Fetch per-asset factor signals from the DB and use an LLM to generate
     structured Black-Litterman views.
@@ -117,7 +122,7 @@ def generate_bl_views(
 
     # 1. Fetch factor data from DB
     try:
-        factor_data = fetch_factor_data(db, tickers)
+        factor_data = fetch_factor_data(repo, tickers)
     except Exception as exc:
         logger.exception("DB fetch failed for tickers %s", tickers)
         raise HTTPException(

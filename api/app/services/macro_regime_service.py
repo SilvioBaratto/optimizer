@@ -3,8 +3,6 @@
 import logging
 from typing import Any
 
-from sqlalchemy.orm import Session
-
 from app.repositories.macro_regime_repository import MacroRegimeRepository
 from app.services.scrapers.ilsole_scraper import PORTFOLIO_COUNTRIES, IlSoleScraper
 from app.services.scrapers.tradingeconomics_scraper import (
@@ -17,11 +15,15 @@ logger = logging.getLogger(__name__)
 class MacroRegimeService:
     """Fetches macroeconomic data from scrapers and stores via repository."""
 
-    def __init__(self, session: Session):
-        self.session = session
-        self.repo = MacroRegimeRepository(session)
-        self.ilsole_scraper = IlSoleScraper()
-        self.te_scraper = TradingEconomicsIndicatorsScraper()
+    def __init__(
+        self,
+        repo: MacroRegimeRepository,
+        ilsole_scraper: IlSoleScraper | None = None,
+        te_scraper: TradingEconomicsIndicatorsScraper | None = None,
+    ):
+        self.repo = repo
+        self.ilsole_scraper = ilsole_scraper or IlSoleScraper()
+        self.te_scraper = te_scraper or TradingEconomicsIndicatorsScraper()
 
     def fetch_and_store(
         self,
@@ -61,13 +63,9 @@ class MacroRegimeService:
                 for err in result["errors"]:
                     all_errors.append(f"{country}: {err}")
 
-                # Commit per country
-                self.session.commit()
-
             except Exception as e:
                 logger.error("Failed to process country %s: %s", country, e)
                 all_errors.append(f"{country}: {e}")
-                self.session.rollback()
 
         return {"counts": total_counts, "errors": all_errors}
 
@@ -160,3 +158,8 @@ class MacroRegimeService:
             logger.warning("Failed Trading Economics for %s: %s", country, e)
 
         return {"counts": counts, "errors": errors}
+
+    @staticmethod
+    def get_portfolio_countries() -> list[str]:
+        """Return the default list of portfolio countries."""
+        return list(PORTFOLIO_COUNTRIES)

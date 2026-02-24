@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.base_job import AsyncJobCreateResponse, AsyncJobProgress
+
 # ---------------------------------------------------------------------------
 # Request schemas
 # ---------------------------------------------------------------------------
@@ -37,25 +39,14 @@ class YFinanceSingleFetchRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class YFinanceFetchJobResponse(BaseModel):
+class YFinanceFetchJobResponse(AsyncJobCreateResponse):
     """Returned when a bulk fetch job is created."""
 
-    job_id: str
-    status: str
-    message: str
 
-
-class YFinanceFetchProgress(BaseModel):
+class YFinanceFetchProgress(AsyncJobProgress):
     """Progress info for a bulk fetch job."""
 
-    job_id: str
-    status: str  # pending | running | completed | failed
-    current: int = 0
-    total: int = 0
     current_ticker: str = ""
-    errors: list[str] = Field(default_factory=list)
-    result: dict[str, Any] | None = None
-    error: str | None = None
 
 
 class YFinanceSingleFetchResponse(BaseModel):

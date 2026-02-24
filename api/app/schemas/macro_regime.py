@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.base_job import AsyncJobCreateResponse, AsyncJobProgress
+
 # ---------------------------------------------------------------------------
 # Request schemas
 # ---------------------------------------------------------------------------
@@ -24,25 +26,14 @@ class MacroFetchRequest(BaseModel):
     )
 
 
-class MacroFetchJobResponse(BaseModel):
+class MacroFetchJobResponse(AsyncJobCreateResponse):
     """Returned when a background macro fetch job is created."""
 
-    job_id: str
-    status: str
-    message: str
 
-
-class MacroFetchProgress(BaseModel):
+class MacroFetchProgress(AsyncJobProgress):
     """Progress info for a macro fetch background job."""
 
-    job_id: str
-    status: str  # pending | running | completed | failed
-    current: int = 0
-    total: int = 0
     current_country: str = ""
-    errors: list[str] = Field(default_factory=list)
-    result: dict[str, Any] | None = None
-    error: str | None = None
 
 
 # ---------------------------------------------------------------------------

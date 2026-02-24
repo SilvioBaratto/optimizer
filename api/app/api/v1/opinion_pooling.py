@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.repositories.view_generation_repository import ViewGenerationRepository
 from app.services.opinion_pooling import (
     ALL_PERSONAS,
     OpinionPoolResult,
@@ -122,7 +123,7 @@ def _parse_personas(persona_strs: list[str] | None) -> list[ExpertPersona]:
 def _resolve_ic_histories(
     ic_histories: list[ICHistory] | None,
     personas: list[ExpertPersona],
-) -> list[pd.Series] | None:
+) -> list | None:
     import pandas as pd
 
     if ic_histories is None:
@@ -142,6 +143,10 @@ def _resolve_ic_histories(
 # ---------------------------------------------------------------------------
 
 
+def _get_view_repo(db: Session = Depends(get_db)) -> ViewGenerationRepository:
+    return ViewGenerationRepository(db)
+
+
 @router.post(
     "/opinion-pool",
     response_model=OpinionPoolResponse,
@@ -149,7 +154,7 @@ def _resolve_ic_histories(
 )
 def generate_opinion_pool(
     request: OpinionPoolRequest,
-    db: Session = Depends(get_db),
+    repo: ViewGenerationRepository = Depends(_get_view_repo),
 ) -> OpinionPoolResponse:
     """Fetch per-asset factor data from the DB, run each LLM expert persona,
     compute IC-calibrated credibility weights, and combine via Opinion Pooling.
@@ -167,7 +172,7 @@ def generate_opinion_pool(
 
     # 1. Fetch factor data
     try:
-        factor_data = fetch_factor_data(db, tickers)
+        factor_data = fetch_factor_data(repo, tickers)
     except Exception as exc:
         logger.exception("DB fetch failed")
         raise HTTPException(

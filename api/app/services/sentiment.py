@@ -25,11 +25,8 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 from baml_client import b
 from baml_client.types import NewsArticle
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from app.models.universe import Instrument
-from app.models.yfinance_data import TickerNews
+from app.repositories.sentiment_repository import SentimentRepository
 
 logger = logging.getLogger(__name__)
 
@@ -122,22 +119,15 @@ def adjust_idzorek_alpha(
 # ---------------------------------------------------------------------------
 
 
-def _get_instrument_id(session: Session, ticker: str) -> object | None:
-    row = session.execute(
-        select(Instrument.id).where(Instrument.ticker == ticker)
-    ).scalar_one_or_none()
-    return row
-
-
 def fetch_news_sentiment(
-    session: Session,
+    repo: SentimentRepository,
     ticker: str,
     lookback_days: int = 30,
 ) -> pd.Series:
     """Fetch news from the DB for *ticker*, score via BAML, return a dated Series.
 
     Args:
-        session: Active SQLAlchemy session.
+        repo: Sentiment repository for DB access.
         ticker: Asset ticker (e.g. ``"AAPL"``).
         lookback_days: How many calendar days of news to include.
 
@@ -146,7 +136,7 @@ def fetch_news_sentiment(
         BAML-scored sentiment values in [-1, 1] as values.  Returns an
         empty Series if the ticker is unknown or has no stored news.
     """
-    instrument_id = _get_instrument_id(session, ticker)
+    instrument_id = repo.get_instrument_id_by_ticker(ticker)
     if instrument_id is None:
         logger.warning(
             "ticker %s not found in instruments table — no sentiment", ticker
@@ -154,19 +144,7 @@ def fetch_news_sentiment(
         return pd.Series(dtype=float)
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-    rows = (
-        session.execute(
-            select(TickerNews)
-            .where(
-                TickerNews.instrument_id == instrument_id,
-                TickerNews.title.isnot(None),
-                TickerNews.publish_time >= cutoff,
-            )
-            .order_by(TickerNews.publish_time.asc())
-        )
-        .scalars()
-        .all()
-    )
+    rows = repo.get_recent_news(instrument_id, cutoff)
 
     if not rows:
         logger.debug("No news found for %s in the last %d days", ticker, lookback_days)

@@ -1,10 +1,7 @@
 """FastAPI router for Trading212 universe endpoints."""
 
 import logging
-import threading
-import uuid
 from datetime import datetime, timezone
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -22,6 +19,7 @@ from app.schemas.trading212 import (
     UniverseBuildRequest,
     UniverseStatsResponse,
 )
+from app.services.background_job import BackgroundJobService
 from app.services.trading212.builder import BuildProgress, UniverseBuilder
 from app.services.trading212.cache.ticker_cache import TickerMappingCache
 from app.services.trading212.client import Trading212Client
@@ -40,29 +38,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/universe", tags=["Universe"])
 
-
-# ---------------------------------------------------------------------------
-# In-memory build job store
-# ---------------------------------------------------------------------------
-
-_build_jobs: dict[str, dict[str, Any]] = {}
-_build_jobs_lock = threading.Lock()
-
-
-def _set_job(build_id: str, data: dict[str, Any]) -> None:
-    with _build_jobs_lock:
-        _build_jobs[build_id] = data
-
-
-def _get_job(build_id: str) -> dict[str, Any] | None:
-    with _build_jobs_lock:
-        return _build_jobs.get(build_id, {}).copy() if build_id in _build_jobs else None
-
-
-def _update_job(build_id: str, **kwargs: Any) -> None:
-    with _build_jobs_lock:
-        if build_id in _build_jobs:
-            _build_jobs[build_id].update(kwargs)
+# Shared job service instance for this router
+_job_service = BackgroundJobService()
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +55,7 @@ def _run_build(
     cache: TickerMappingCache,
 ) -> None:
     """Execute universe build in a background thread with its own DB session."""
-    _update_job(build_id, status="running")
+    _job_service.update_job(build_id, status="running")
 
     try:
         with database_manager.get_session() as session:
@@ -94,7 +71,7 @@ def _run_build(
                 pipeline.add_filter(HistoricalDataFilter(config=config))
 
             def on_progress(p: BuildProgress) -> None:
-                _update_job(
+                _job_service.update_job(
                     build_id,
                     current=p.current,
                     total=p.total,
@@ -117,7 +94,7 @@ def _run_build(
             result = builder.build()
             session.commit()
 
-            _update_job(
+            _job_service.update_job(
                 build_id,
                 status="completed",
                 finished_at=datetime.now(timezone.utc).isoformat(),
@@ -138,7 +115,7 @@ def _run_build(
 
     except Exception as e:
         logger.error("Build %s failed: %s", build_id, e)
-        _update_job(
+        _job_service.update_job(
             build_id,
             status="failed",
             finished_at=datetime.now(timezone.utc).isoformat(),
@@ -219,40 +196,28 @@ def build_universe(
     client: Trading212Client = Depends(get_trading212_client),
     cache: TickerMappingCache = Depends(get_ticker_cache),
 ):
-    """Start a universe build in the background. Returns a build ID to poll for progress."""
-    # Reject if another build is already running
-    with _build_jobs_lock:
-        for job in _build_jobs.values():
-            if job.get("status") in ("pending", "running"):
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"A build is already in progress (id={job['build_id']})",
-                )
+    """Start a universe build in the background.
 
-    build_id = str(uuid.uuid4())
-    _set_job(
-        build_id,
-        {
-            "build_id": build_id,
-            "status": "pending",
-            "current": 0,
-            "total": 0,
-            "current_exchange": "",
-            "current_stock": "",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "result": None,
-            "error": None,
-        },
+    Returns a build ID to poll for progress.
+    """
+    running, running_id = _job_service.is_any_running()
+    if running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A build is already in progress (id={running_id})",
+        )
+
+    build_id = _job_service.create_job(
+        current_exchange="",
+        current_stock="",
     )
-
-    thread = threading.Thread(
+    _job_service.start_background(
         target=_run_build,
         args=(build_id, request, config, client, cache),
-        daemon=True,
     )
-    thread.start()
 
     return BuildJobResponse(
+        job_id=build_id,
         build_id=build_id,
         status="pending",
         message="Build started. Poll GET /universe/build/{build_id} for progress.",
@@ -262,7 +227,7 @@ def build_universe(
 @router.get("/build/{build_id}", response_model=BuildProgressResponse)
 def get_build_status(build_id: str):
     """Poll the status and progress of a universe build."""
-    job = _get_job(build_id)
+    job = _job_service.get_job(build_id)
     if job is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -274,7 +239,8 @@ def get_build_status(build_id: str):
         result = BuildResultResponse(**job["result"])
 
     return BuildProgressResponse(
-        build_id=job["build_id"],
+        job_id=job["job_id"],
+        build_id=job["job_id"],
         status=job["status"],
         current=job.get("current", 0),
         total=job.get("total", 0),

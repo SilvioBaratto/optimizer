@@ -11,16 +11,13 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import date, timedelta
 
 import numpy as np
 from baml_client import b
 from baml_client.types import AssetFactorData, AssetView, ViewOutput
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from app.models.universe import Instrument
-from app.models.yfinance_data import PriceHistory, TickerProfile
+from app.models.yfinance_data import TickerProfile
+from app.repositories.view_generation_repository import ViewGenerationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -67,33 +64,19 @@ class GeneratedViews:
 # ---------------------------------------------------------------------------
 
 
-def _get_instrument_by_ticker(session: Session, ticker: str) -> Instrument | None:
-    return session.execute(
-        select(Instrument).where(Instrument.ticker == ticker)
-    ).scalar_one_or_none()
+def _get_instrument_by_ticker(
+    repo: ViewGenerationRepository, ticker: str
+):
+    return repo.get_instrument_by_ticker(ticker)
 
 
 def _fetch_price_history_closes(
-    session: Session,
+    repo: ViewGenerationRepository,
     instrument_id,
     lookback_days: int = 260,
 ) -> list[float]:
     """Return close prices in ascending date order."""
-    cutoff = date.today() - timedelta(days=lookback_days)
-    rows = (
-        session.execute(
-            select(PriceHistory.close)
-            .where(
-                PriceHistory.instrument_id == instrument_id,
-                PriceHistory.date >= cutoff,
-                PriceHistory.close.isnot(None),
-            )
-            .order_by(PriceHistory.date.asc())
-        )
-        .scalars()
-        .all()
-    )
-    return [float(c) for c in rows if c is not None]
+    return repo.get_close_prices(instrument_id, lookback_days=lookback_days)
 
 
 def _compute_momentum(
@@ -146,20 +129,18 @@ def _safe_float(v) -> float | None:
 
 
 def _build_factor_data(
-    session: Session,
+    repo: ViewGenerationRepository,
     ticker: str,
 ) -> AssetFactorData | None:
     """Assemble per-asset factor data from DB for a single ticker."""
-    instrument = _get_instrument_by_ticker(session, ticker)
+    instrument = _get_instrument_by_ticker(repo, ticker)
     if instrument is None:
         logger.warning("Ticker %s not found in instruments table", ticker)
         return None
 
-    profile: TickerProfile | None = session.execute(
-        select(TickerProfile).where(TickerProfile.instrument_id == instrument.id)
-    ).scalar_one_or_none()
+    profile: TickerProfile | None = repo.get_ticker_profile(instrument.id)
 
-    closes = _fetch_price_history_closes(session, instrument.id)
+    closes = _fetch_price_history_closes(repo, instrument.id)
     mom_12_1m, mom_1m = _compute_momentum(closes)
     rsi = _compute_rsi(closes)
 
@@ -275,7 +256,7 @@ def _validate_idzorek_alphas(
 
 
 def fetch_factor_data(
-    session: Session,
+    repo: ViewGenerationRepository,
     tickers: list[str],
 ) -> list[AssetFactorData]:
     """Fetch per-asset factor data from the DB for each ticker.
@@ -284,7 +265,7 @@ def fetch_factor_data(
     """
     result: list[AssetFactorData] = []
     for ticker in tickers:
-        fd = _build_factor_data(session, ticker)
+        fd = _build_factor_data(repo, ticker)
         if fd is not None:
             result.append(fd)
     return result

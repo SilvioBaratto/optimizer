@@ -7,13 +7,12 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-_SENTINEL_DATE = date(1970, 1, 1)
-
 import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
+from app.models.universe import Instrument
 from app.models.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
@@ -29,6 +28,8 @@ from app.models.yfinance_data import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SENTINEL_DATE = date(1970, 1, 1)
 
 
 def _safe_val(v: Any) -> Any:
@@ -726,3 +727,32 @@ class YFinanceRepository:
             result[f"{category}_updated_at"] = val
 
         return result
+
+    # ------------------------------------------------------------------
+    # Instrument queries (used by yfinance_data endpoint)
+    # ------------------------------------------------------------------
+
+    def get_instruments_with_yfinance_ticker(self) -> Sequence[Instrument]:
+        """Return all instruments that have a non-empty yfinance_ticker, with exchange eager-loaded."""
+        return (
+            self.session.execute(
+                select(Instrument)
+                .options(joinedload(Instrument.exchange))
+                .where(Instrument.yfinance_ticker.isnot(None))
+                .where(Instrument.yfinance_ticker != "")
+            )
+            .scalars()
+            .unique()
+            .all()
+        )
+
+    def get_instrument_by_yfinance_ticker(self, yfinance_ticker: str) -> Instrument | None:
+        """Return an instrument by its yfinance_ticker, with exchange eager-loaded."""
+        return (
+            self.session.execute(
+                select(Instrument)
+                .options(joinedload(Instrument.exchange))
+                .where(Instrument.yfinance_ticker == yfinance_ticker)
+            )
+            .scalar_one_or_none()
+        )

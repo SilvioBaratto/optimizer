@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.base_job import AsyncJobCreateResponse, AsyncJobProgress
+
 
 class UniverseBuildRequest(BaseModel):
     """Request to trigger a universe build."""
@@ -67,23 +69,17 @@ class BuildResultResponse(BaseModel):
     errors: list[str] = Field(default_factory=list, description="Error messages")
 
 
-class BuildJobResponse(BaseModel):
+class BuildJobResponse(AsyncJobCreateResponse):
     build_id: str = Field(..., description="Unique build job ID")
-    status: str = Field(..., description="pending | running | completed | failed")
-    message: str = Field("", description="Status message")
 
 
-class BuildProgressResponse(BaseModel):
+class BuildProgressResponse(AsyncJobProgress):
     build_id: str = Field(..., description="Unique build job ID")
-    status: str = Field(..., description="pending | running | completed | failed")
-    current: int = Field(0, description="Instruments processed so far")
-    total: int = Field(0, description="Total instruments to process")
     current_exchange: str = Field("", description="Exchange currently being processed")
     current_stock: str = Field("", description="Stock currently being processed")
     result: BuildResultResponse | None = Field(
         None, description="Final result (when completed)"
     )
-    error: str | None = Field(None, description="Error message (when failed)")
 
 
 class CacheStatsResponse(BaseModel):
