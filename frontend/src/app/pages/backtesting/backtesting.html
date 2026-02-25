@@ -1,0 +1,484 @@
+<div class="flex-1 overflow-y-auto p-6 space-y-6">
+
+  <!-- Page Header — always visible -->
+  <app-page-header
+    title="Backtesting Lab"
+    subtitle="Walk-forward historical performance simulation and analysis">
+    <div actions class="flex items-center gap-2">
+      <span class="inline-flex items-center gap-1.5 text-data-xs text-text-tertiary bg-surface-inset px-2.5 py-1 rounded-full">
+        <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+        {{ config.startDate }} – {{ config.endDate }}
+      </span>
+      <span class="text-data-xs text-text-tertiary bg-surface-inset px-2.5 py-1 rounded-full font-mono">
+        {{ config.benchmark }}
+      </span>
+      <button (click)="openReportModal()" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+        </svg>
+        Export Report
+      </button>
+    </div>
+  </app-page-header>
+
+  @if (isLoading()) {
+    <!-- Loading skeleton -->
+    <div class="space-y-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        @for (i of [1,2,3,4]; track i) {
+          <div class="h-24 skeleton rounded-lg"></div>
+        }
+      </div>
+      <!-- Tab group skeleton -->
+      <div class="flex gap-2 border-b border-border pb-2">
+        @for (i of [1,2,3,4,5,6,7]; track i) {
+          <div class="h-8 w-24 skeleton rounded-md"></div>
+        }
+      </div>
+      <!-- Equity curve skeleton -->
+      <div class="h-96 skeleton rounded-lg"></div>
+      <!-- Underwater chart skeleton -->
+      <div class="h-44 skeleton rounded-lg"></div>
+      <!-- Metrics table skeleton -->
+      <div class="h-64 skeleton rounded-lg"></div>
+    </div>
+  } @else if (hasError()) {
+    <!-- Error state -->
+    <div class="flex flex-col items-center justify-center py-20 px-4">
+      <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+      </svg>
+      <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
+      <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
+      <button (click)="retry()" class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
+        Try Again
+      </button>
+    </div>
+  } @else {
+
+  <!-- KPI Stat Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+    <app-stat-card
+      label="Total Return"
+      [value]="formatPct(result.metrics.totalReturn)"
+      subtitle="vs {{ formatPct(0.482) }} benchmark"
+      [delta]="result.metrics.totalReturn - 0.482"
+      [trend]="result.metrics.totalReturn >= 0.482 ? 'up' : 'down'"
+      deltaLabel="vs SPY" />
+
+    <app-stat-card
+      label="Sharpe Ratio"
+      [value]="formatRatio(result.metrics.sharpe)"
+      subtitle="Sortino: {{ formatRatio(result.metrics.sortino) }}"
+      [delta]="result.metrics.sharpe - 0.471"
+      [trend]="result.metrics.sharpe >= 0.471 ? 'up' : 'down'"
+      deltaLabel="vs SPY" />
+
+    <app-stat-card
+      label="Max Drawdown"
+      [value]="formatPct(result.metrics.maxDrawdown)"
+      subtitle="Calmar: {{ formatRatio(result.metrics.calmar) }}"
+      [delta]="result.metrics.maxDrawdown - (-0.247)"
+      [trend]="result.metrics.maxDrawdown > -0.247 ? 'up' : 'down'"
+      deltaLabel="vs SPY" />
+
+    <app-stat-card
+      label="Information Ratio"
+      [value]="formatRatio(result.metrics.informationRatio)"
+      subtitle="TE: {{ formatPct(result.metrics.trackingError) }}"
+      [delta]="result.metrics.informationRatio"
+      [trend]="result.metrics.informationRatio > 0 ? 'up' : 'down'"
+      deltaLabel="vs benchmark" />
+  </div>
+
+  <!-- Tab Group -->
+  <app-tab-group
+    [tabs]="tabs()"
+    [activeTab]="activeTab()"
+    (tabChange)="onTabChange($event)" />
+
+  <!-- ── Tab: Overview ──────────────────────────────────────────────────── -->
+  @if (activeTab() === 'overview') {
+    <div class="space-y-4">
+
+      <!-- Config Summary -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Backtest Configuration</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div>
+            <p class="text-xs text-text-tertiary">Start Date</p>
+            <p class="font-mono text-data-sm text-text mt-0.5">{{ config.startDate }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-text-tertiary">End Date</p>
+            <p class="font-mono text-data-sm text-text mt-0.5">{{ config.endDate }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-text-tertiary">Initial Capital</p>
+            <p class="font-mono text-data-sm text-text mt-0.5">{{ formatCurrency(config.initialCapital) }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-text-tertiary">Rebalancing</p>
+            <p class="font-mono text-data-sm text-text mt-0.5 capitalize">{{ config.rebalanceFrequency }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-text-tertiary">Transaction Costs</p>
+            <p class="font-mono text-data-sm text-text mt-0.5">{{ config.transactionCostBps }} bps</p>
+          </div>
+          <div>
+            <p class="text-xs text-text-tertiary">Benchmark</p>
+            <p class="font-mono text-data-sm text-text mt-0.5">{{ config.benchmark }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Equity Curve -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-data-lg font-medium text-text">Equity Curve</h2>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="px-2.5 py-1 text-xs rounded transition-colors"
+              [class]="logScale() ? 'bg-accent text-white' : 'bg-surface-inset text-text-secondary hover:text-text'"
+              (click)="toggleLogScale()">
+              Log
+            </button>
+          </div>
+        </div>
+        <app-chart-toolbar>
+          <div #equityChart class="w-full" style="height: 360px;"></div>
+        </app-chart-toolbar>
+      </div>
+
+      <!-- Underwater / Drawdown Chart -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h2 class="text-data-lg font-medium text-text mb-3">Underwater Plot</h2>
+        <app-chart-toolbar>
+          <div #underwaterChart class="w-full" style="height: 160px;"></div>
+        </app-chart-toolbar>
+      </div>
+
+    </div>
+  }
+
+  <!-- ── Tab: Metrics ───────────────────────────────────────────────────── -->
+  @if (activeTab() === 'metrics') {
+    <div class="bg-surface-raised border border-border rounded-lg">
+      <div class="p-4 border-b border-border">
+        <h2 class="text-data-lg font-medium text-text">Performance Metrics</h2>
+        <p class="text-data-xs text-text-tertiary mt-0.5">Portfolio vs Benchmark ({{ config.benchmark }}) — {{ config.startDate }} to {{ config.endDate }}</p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-data-sm">
+          <thead>
+            <tr class="text-text-secondary border-b border-border bg-surface-inset">
+              <th class="py-2.5 px-4 text-left font-medium">Metric</th>
+              <th class="py-2.5 px-4 text-right font-medium">Portfolio</th>
+              <th class="py-2.5 px-4 text-right font-medium">Benchmark (SPY)</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of metricsTableRows(); track row.metric) {
+              <tr class="border-b border-border-muted last:border-0 hover:bg-surface-inset/50 transition-colors">
+                <td class="py-2.5 px-4 text-text-secondary">{{ row.metric }}</td>
+                <td class="py-2.5 px-4 text-right font-mono tabular-nums" [class]="signClass(row.portfolioRaw)">
+                  {{ row.portfolio }}
+                </td>
+                <td class="py-2.5 px-4 text-right font-mono tabular-nums text-text-secondary">
+                  {{ row.benchmark }}
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+
+  <!-- ── Tab: Monthly Returns ───────────────────────────────────────────── -->
+  @if (activeTab() === 'monthly') {
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h2 class="text-data-lg font-medium text-text mb-4">Monthly Returns Heatmap</h2>
+      <app-chart-toolbar>
+        <app-echarts-calendar-heatmap
+          [years]="monthlyHeatmapYears()"
+          [months]="monthlyHeatmapMonths()"
+          [data]="monthlyHeatmapData()"
+          [height]="220" />
+      </app-chart-toolbar>
+    </div>
+  }
+
+  <!-- ── Tab: Drawdowns ─────────────────────────────────────────────────── -->
+  @if (activeTab() === 'drawdowns') {
+    <div class="space-y-4">
+
+      <!-- Top Drawdowns Table -->
+      <div class="bg-surface-raised border border-border rounded-lg">
+        <div class="p-4 border-b border-border">
+          <h2 class="text-data-lg font-medium text-text">Top 10 Drawdowns</h2>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-data-sm">
+            <thead>
+              <tr class="text-text-secondary border-b border-border bg-surface-inset">
+                <th class="py-2.5 px-3 text-right font-medium w-8">#</th>
+                <th class="py-2.5 px-3 text-left font-medium">Start</th>
+                <th class="py-2.5 px-3 text-left font-medium">Trough</th>
+                <th class="py-2.5 px-3 text-left font-medium">End</th>
+                <th class="py-2.5 px-3 text-right font-medium">Depth</th>
+                <th class="py-2.5 px-3 text-right font-medium">Duration (d)</th>
+                <th class="py-2.5 px-3 text-right font-medium">Recovery (d)</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of drawdownTableRows(); track row.rank) {
+                <tr class="border-b border-border-muted last:border-0 hover:bg-surface-inset/50 transition-colors">
+                  <td class="py-2 px-3 text-right text-text-tertiary font-mono">{{ row.rank }}</td>
+                  <td class="py-2 px-3 font-mono text-text-secondary">{{ row.start }}</td>
+                  <td class="py-2 px-3 font-mono text-text-secondary">{{ row.trough }}</td>
+                  <td class="py-2 px-3 font-mono"
+                      [class]="row.end === 'Ongoing' ? 'text-warning' : 'text-text-secondary'">
+                    {{ row.end }}
+                  </td>
+                  <td class="py-2 px-3 text-right font-mono tabular-nums text-loss font-semibold">
+                    {{ formatPct(row.depth) }}
+                  </td>
+                  <td class="py-2 px-3 text-right font-mono tabular-nums text-text">{{ row.duration }}</td>
+                  <td class="py-2 px-3 text-right font-mono tabular-nums text-text">{{ row.recovery }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Drawdown Depth Histogram -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h2 class="text-data-lg font-medium text-text mb-3">Drawdown Depth Distribution</h2>
+        <app-chart-toolbar>
+          <app-echarts-histogram
+            [values]="drawdownDepthValues()"
+            [bins]="8"
+            [height]="240" />
+        </app-chart-toolbar>
+      </div>
+
+    </div>
+  }
+
+  <!-- ── Tab: Rolling Metrics ───────────────────────────────────────────── -->
+  @if (activeTab() === 'rolling') {
+    <div class="space-y-4">
+
+      <!-- Window Selector -->
+      <div class="flex items-center gap-2">
+        <span class="text-data-xs text-text-tertiary font-medium uppercase tracking-wide">Window:</span>
+        <div class="flex rounded overflow-hidden border border-border">
+          <button
+            type="button"
+            class="px-3 py-1.5 text-data-xs transition-colors"
+            [class]="rollingWindow() === '1Y' ? 'bg-accent text-white font-medium' : 'bg-surface-raised text-text-secondary hover:text-text'"
+            (click)="setRollingWindow('1Y')">1Y</button>
+          <button
+            type="button"
+            class="px-3 py-1.5 text-data-xs transition-colors border-l border-border"
+            [class]="rollingWindow() === '3Y' ? 'bg-accent text-white font-medium' : 'bg-surface-raised text-text-secondary hover:text-text'"
+            (click)="setRollingWindow('3Y')">3Y</button>
+        </div>
+      </div>
+
+      <!-- Rolling Sharpe -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Rolling Sharpe Ratio (252d)</h2>
+        <app-chart-toolbar>
+          <div #rollingSharpeChart class="w-full" style="height: 200px;"></div>
+        </app-chart-toolbar>
+      </div>
+
+      <!-- Rolling Volatility -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Rolling Annualized Volatility (252d)</h2>
+        <app-chart-toolbar>
+          <div #rollingVolChart class="w-full" style="height: 200px;"></div>
+        </app-chart-toolbar>
+      </div>
+
+      <!-- Rolling Beta -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Rolling Beta vs {{ config.benchmark }} (252d)</h2>
+        <app-chart-toolbar>
+          <div #rollingBetaChart class="w-full" style="height: 200px;"></div>
+        </app-chart-toolbar>
+      </div>
+
+    </div>
+  }
+
+  <!-- ── Tab: Distribution ──────────────────────────────────────────────── -->
+  @if (activeTab() === 'distribution') {
+    <div class="space-y-4">
+
+      <!-- Stats Summary Row -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div class="bg-surface-raised border border-border rounded-lg p-3">
+          <p class="text-xs text-text-tertiary uppercase tracking-wide font-medium">Mean</p>
+          <p class="mt-1 font-mono tabular-nums text-data-lg font-semibold" [class]="signClass(distributionStats().mean)">
+            {{ formatPct(distributionStats().mean) }}
+          </p>
+          <p class="text-xs text-text-tertiary mt-0.5">Daily avg</p>
+        </div>
+        <div class="bg-surface-raised border border-border rounded-lg p-3">
+          <p class="text-xs text-text-tertiary uppercase tracking-wide font-medium">Median</p>
+          <p class="mt-1 font-mono tabular-nums text-data-lg font-semibold" [class]="signClass(distributionStats().median)">
+            {{ formatPct(distributionStats().median) }}
+          </p>
+          <p class="text-xs text-text-tertiary mt-0.5">50th percentile</p>
+        </div>
+        <div class="bg-surface-raised border border-border rounded-lg p-3">
+          <p class="text-xs text-text-tertiary uppercase tracking-wide font-medium">Std Dev</p>
+          <p class="mt-1 font-mono tabular-nums text-data-lg font-semibold text-text">
+            {{ formatPct(distributionStats().std) }}
+          </p>
+          <p class="text-xs text-text-tertiary mt-0.5">Daily vol</p>
+        </div>
+        <div class="bg-surface-raised border border-border rounded-lg p-3">
+          <p class="text-xs text-text-tertiary uppercase tracking-wide font-medium">Skewness</p>
+          <p class="mt-1 font-mono tabular-nums text-data-lg font-semibold" [class]="signClass(distributionStats().skewness)">
+            {{ formatRatio(distributionStats().skewness) }}
+          </p>
+          <p class="text-xs text-text-tertiary mt-0.5">Asymmetry</p>
+        </div>
+        <div class="bg-surface-raised border border-border rounded-lg p-3">
+          <p class="text-xs text-text-tertiary uppercase tracking-wide font-medium">Kurtosis</p>
+          <p class="mt-1 font-mono tabular-nums text-data-lg font-semibold text-text">
+            {{ formatRatio(distributionStats().kurtosis) }}
+          </p>
+          <p class="text-xs text-text-tertiary mt-0.5">Excess</p>
+        </div>
+        <div class="bg-surface-raised border border-border rounded-lg p-3">
+          <p class="text-xs text-text-tertiary uppercase tracking-wide font-medium">JB Stat</p>
+          <p class="mt-1 font-mono tabular-nums text-data-lg font-semibold text-text">
+            {{ formatRatio(distributionStats().jbStat) }}
+          </p>
+          <p class="text-xs text-text-tertiary mt-0.5">Normality test</p>
+        </div>
+      </div>
+
+      <!-- Return Histogram + QQ Plot side by side -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        <!-- Return Distribution Histogram -->
+        <div class="bg-surface-raised border border-border rounded-lg p-4">
+          <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Return Distribution</h2>
+          <app-chart-toolbar>
+            <app-echarts-histogram
+              [values]="distributionFullValues()"
+              [overlayNormal]="true"
+              [height]="280" />
+          </app-chart-toolbar>
+        </div>
+
+        <!-- QQ Plot -->
+        <div class="bg-surface-raised border border-border rounded-lg p-4">
+          <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Normal QQ Plot</h2>
+          <app-chart-toolbar>
+            <div #qqChart class="w-full" style="height: 280px;"></div>
+          </app-chart-toolbar>
+        </div>
+
+      </div>
+    </div>
+  }
+
+  <!-- ── Tab: Style Analysis ────────────────────────────────────────────── -->
+  @if (activeTab() === 'style') {
+    <div class="space-y-4">
+
+      <!-- Factor Loadings Bar Chart + Table -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        <!-- Bar Chart -->
+        <div class="bg-surface-raised border border-border rounded-lg p-4">
+          <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Factor Loadings</h2>
+          <app-chart-toolbar>
+            <app-echarts-bar [data]="factorBarData()" [height]="260" />
+          </app-chart-toolbar>
+        </div>
+
+        <!-- Factor Table -->
+        <div class="bg-surface-raised border border-border rounded-lg">
+          <div class="p-4 border-b border-border">
+            <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide">Factor Regression Results</h2>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-data-sm">
+              <thead>
+                <tr class="text-text-secondary border-b border-border bg-surface-inset">
+                  <th class="py-2.5 px-4 text-left font-medium">Factor</th>
+                  <th class="py-2.5 px-3 text-right font-medium">Loading</th>
+                  <th class="py-2.5 px-3 text-right font-medium">t-Stat</th>
+                  <th class="py-2.5 px-3 text-right font-medium">p-Value</th>
+                  <th class="py-2.5 px-3 text-left font-medium">Sig.</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of factorTableRows(); track row.factor) {
+                  <tr class="border-b border-border-muted last:border-0 hover:bg-surface-inset/50 transition-colors">
+                    <td class="py-2.5 px-4 text-text">{{ row.factor }}</td>
+                    <td class="py-2.5 px-3 text-right font-mono tabular-nums" [class]="signClass(row.loading)">
+                      {{ formatRatio(row.loading) }}
+                    </td>
+                    <td class="py-2.5 px-3 text-right font-mono tabular-nums" [class]="signClass(row.tStat)">
+                      {{ formatRatio(row.tStat) }}
+                    </td>
+                    <td class="py-2.5 px-3 text-right font-mono tabular-nums text-text-secondary">
+                      {{ row.pValue < 0.0001 ? '< 0.0001' : formatRatio(row.pValue, 4) }}
+                    </td>
+                    <td class="py-2.5 px-3">
+                      <span class="inline-block font-mono text-xs px-1.5 py-0.5 rounded"
+                            [class]="sigBadgeClass(row.significance)">
+                        {{ row.significance }}
+                      </span>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Rolling Factor Exposure Stacked Area -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide">Rolling Factor Exposures</h2>
+          <div class="flex rounded overflow-hidden border border-border">
+            <button
+              type="button"
+              class="px-3 py-1.5 text-data-xs transition-colors"
+              [class]="styleWindow() === '1Y' ? 'bg-accent text-white font-medium' : 'bg-surface-raised text-text-secondary hover:text-text'"
+              (click)="setStyleWindow('1Y')">1Y</button>
+            <button
+              type="button"
+              class="px-3 py-1.5 text-data-xs transition-colors border-l border-border"
+              [class]="styleWindow() === '3Y' ? 'bg-accent text-white font-medium' : 'bg-surface-raised text-text-secondary hover:text-text'"
+              (click)="setStyleWindow('3Y')">3Y</button>
+          </div>
+        </div>
+        <app-chart-toolbar>
+          <app-echarts-stacked-area
+            [labels]="styleLabels()"
+            [series]="rollingExposureSeries()"
+            [height]="280" />
+        </app-chart-toolbar>
+      </div>
+
+    </div>
+  }
+
+  } <!-- end @else -->
+
+</div>

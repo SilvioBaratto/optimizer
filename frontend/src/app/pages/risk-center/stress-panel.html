@@ -1,0 +1,60 @@
+<div class="space-y-6">
+  <!-- Scenario Cards Grid -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    @for (scenario of scenarios(); track scenario.id) {
+      <button
+        class="text-left bg-surface-raised border rounded-lg p-4 transition-all hover:shadow-sm"
+        [class]="selectedScenarioId() === scenario.id
+          ? 'border-accent ring-1 ring-accent/30'
+          : 'border-border hover:border-text-tertiary'"
+        (click)="selectScenario(scenario.id)"
+      >
+        <p class="text-data-sm font-medium text-text truncate">{{ scenario.name }}</p>
+        <p class="mt-1 text-2xl font-semibold font-mono tabular-nums text-loss">
+          {{ (scenario.portfolioImpact * 100).toFixed(1) }}%
+        </p>
+        <p class="mt-1 text-data-xs text-text-tertiary line-clamp-2">{{ scenario.description }}</p>
+      </button>
+    }
+  </div>
+
+  <!-- Selected Scenario Detail -->
+  @if (selectedScenario(); as scenario) {
+    <div class="space-y-4">
+      <h3 class="text-data-sm font-medium text-text">{{ scenario.name }}</h3>
+
+      <!-- Impact Summary -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <app-stat-card label="Portfolio Impact" [value]="impactStr()" />
+        <app-stat-card label="Benchmark Impact" [value]="benchmarkStr()" />
+        <app-stat-card label="Worst Asset" [value]="worstAssetStr()" />
+      </div>
+
+      <!-- Waterfall Chart -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h3 class="text-data-sm font-medium text-text mb-3">Sector Loss Decomposition</h3>
+        <app-chart-toolbar [showDataTable]="false">
+          <app-echarts-waterfall
+            [categories]="waterfallCategories()"
+            [values]="waterfallValues()"
+            [height]="280"
+          />
+        </app-chart-toolbar>
+      </div>
+    </div>
+  }
+
+  <!-- Comparison Table -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">All Scenarios</h3>
+    <app-data-table
+      [columns]="comparisonColumns"
+      [rows]="comparisonRows()"
+      [total]="comparisonRows().length"
+      [pageSize]="10"
+      [dense]="true"
+      [showExport]="true"
+      exportFilename="stress-scenarios"
+    />
+  </div>
+</div>

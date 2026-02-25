@@ -1,0 +1,98 @@
+<div class="space-y-6">
+  <!-- Limits Table -->
+  <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
+    <div class="px-4 py-3 border-b border-border flex items-center justify-between">
+      <h3 class="text-data-sm font-medium text-text">Risk Limits</h3>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-data-sm">
+        <thead>
+          <tr class="border-b border-border bg-surface-inset">
+            <th class="px-4 py-2 text-left font-medium text-text-secondary">Name</th>
+            <th class="px-4 py-2 text-left font-medium text-text-secondary">Metric</th>
+            <th class="px-4 py-2 text-right font-medium text-text-secondary">Limit</th>
+            <th class="px-4 py-2 text-right font-medium text-text-secondary">Current</th>
+            <th class="px-4 py-2 font-medium text-text-secondary" style="min-width: 120px">Utilization</th>
+            <th class="px-4 py-2 text-center font-medium text-text-secondary">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (limit of limits(); track limit.id) {
+            <tr class="border-b border-border last:border-0 hover:bg-surface-inset/50 transition-colors">
+              <td class="px-4 py-2.5 text-text font-medium">{{ limit.name }}</td>
+              <td class="px-4 py-2.5 text-text-secondary font-mono text-data-xs">{{ limit.metric }}</td>
+              <td class="px-4 py-2.5 text-right text-text font-mono tabular-nums">{{ formatLimitValue(limit) }}</td>
+              <td class="px-4 py-2.5 text-right text-text font-mono tabular-nums">{{ formatCurrentValue(limit) }}</td>
+              <td class="px-4 py-2.5">
+                <div class="flex items-center gap-2">
+                  <div class="flex-1 h-1.5 bg-surface-inset rounded-full overflow-hidden">
+                    <div
+                      class="h-full rounded-full transition-all"
+                      [class]="getBarColorClass(limit.status)"
+                      [style.width.%]="getUtilization(limit)"
+                    ></div>
+                  </div>
+                  <span class="text-data-xs text-text-tertiary font-mono tabular-nums w-10 text-right">
+                    {{ getUtilization(limit) | number:'1.0-0' }}%
+                  </span>
+                </div>
+              </td>
+              <td class="px-4 py-2.5 text-center">
+                <span
+                  class="inline-flex items-center px-2 py-0.5 rounded-full text-data-xs font-medium capitalize"
+                  [class]="getBadgeClasses(limit.status)"
+                >
+                  {{ limit.status }}
+                </span>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Divider -->
+  <hr class="border-border" />
+
+  <!-- Alert History -->
+  <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
+    <div class="px-4 py-3 border-b border-border flex items-center justify-between">
+      <h3 class="text-data-sm font-medium text-text">Alert History</h3>
+      @if (unackedCount() > 0) {
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-data-xs font-medium bg-loss/10 text-loss">
+          {{ unackedCount() }} unacknowledged
+        </span>
+      }
+    </div>
+    <div class="divide-y divide-border">
+      @for (alert of sortedAlerts(); track alert.id) {
+        <div class="px-4 py-3 flex items-start gap-3" [class]="alert.acknowledged ? 'opacity-60' : ''">
+          <!-- Severity dot -->
+          <div class="mt-1.5 w-2 h-2 rounded-full shrink-0" [class]="getSeverityDotClass(alert.severity)"></div>
+
+          <!-- Content -->
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <p class="text-data-sm font-medium text-text">{{ alert.title }}</p>
+              <span class="text-data-xs text-text-tertiary">{{ formatTimestamp(alert.timestamp) }}</span>
+            </div>
+            <p class="mt-0.5 text-data-xs text-text-secondary">{{ alert.message }}</p>
+          </div>
+
+          <!-- Acknowledge Button -->
+          @if (!alert.acknowledged) {
+            <button
+              class="shrink-0 px-2.5 py-1 text-data-xs font-medium text-text-secondary bg-surface-inset hover:bg-border rounded-md transition-colors"
+              (click)="onAcknowledge(alert.id)"
+            >
+              Acknowledge
+            </button>
+          } @else {
+            <span class="shrink-0 text-data-xs text-text-tertiary">Acknowledged</span>
+          }
+        </div>
+      }
+    </div>
+  </div>
+</div>

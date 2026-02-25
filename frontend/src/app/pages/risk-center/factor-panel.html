@@ -1,0 +1,39 @@
+<div class="space-y-6">
+  <!-- Charts Row -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Factor Exposure Bar -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">Factor Exposures</h3>
+      <app-chart-toolbar [showDataTable]="false">
+        <app-echarts-bar [data]="barData()" [height]="280" />
+      </app-chart-toolbar>
+    </div>
+
+    <!-- Risk Contribution Donut -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">Risk Contribution</h3>
+      <app-chart-toolbar [showDataTable]="false">
+        <app-echarts-donut [segments]="donutData()" [height]="280" />
+      </app-chart-toolbar>
+    </div>
+  </div>
+
+  <!-- Specific Risk -->
+  <div class="max-w-xs">
+    <app-stat-card label="Specific (Idiosyncratic) Risk" [value]="specificRiskStr()" subtitle="Not explained by factors" />
+  </div>
+
+  <!-- Full Factor Table -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Factor Details</h3>
+    <app-data-table
+      [columns]="tableColumns"
+      [rows]="tableRows()"
+      [total]="tableRows().length"
+      [pageSize]="10"
+      [dense]="true"
+      [showExport]="true"
+      exportFilename="factor-exposures"
+    />
+  </div>
+</div>

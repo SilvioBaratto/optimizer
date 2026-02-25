@@ -9,13 +9,15 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
+import { CHART_EXPORTABLE, type ChartExportable } from '../charts/chart-export.token';
 
 @Component({
   selector: 'app-echarts-heatmap',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div #container class="w-full" [style.height.px]="height()"></div>`,
+  providers: [{ provide: CHART_EXPORTABLE, useExisting: EchartsHeatmapComponent }],
 })
-export class EchartsHeatmapComponent implements OnDestroy {
+export class EchartsHeatmapComponent implements OnDestroy, ChartExportable {
   assets = input<string[]>([]);
   matrix = input<number[][]>([]);
   height = input(340);
@@ -46,7 +48,7 @@ export class EchartsHeatmapComponent implements OnDestroy {
     use([HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent, CanvasRenderer]);
 
     const el = this.container().nativeElement;
-    this.chart = init(el, undefined, { renderer: 'canvas' });
+    this.chart = init(el, 'portfolio', { renderer: 'canvas' });
     this.chart.setOption(this.buildOption(this.assets(), this.matrix()));
 
     this.ro = new ResizeObserver(() => this.chart?.resize());
@@ -62,35 +64,25 @@ export class EchartsHeatmapComponent implements OnDestroy {
     }
 
     return {
-      backgroundColor: 'transparent',
       tooltip: {
         position: 'top',
         formatter: (params: unknown) => {
           const p = params as { value: [number, number, number] };
           const col = assets[p.value[0]];
           const row = assets[p.value[1]];
-          return `${row} × ${col}<br/>${p.value[2].toFixed(2)}`;
+          return `${row} \u00d7 ${col}<br/>${p.value[2].toFixed(2)}`;
         },
-        backgroundColor: '#ffffff',
-        borderColor: '#e4e4e7',
-        borderWidth: 1,
-        textStyle: { color: '#18181b', fontSize: 12 },
       },
       grid: { left: 60, right: 80, top: 10, bottom: 60 },
       xAxis: {
         type: 'category',
         data: assets,
-        axisLabel: { color: '#71717a', fontSize: 10, rotate: 45 },
-        axisLine: { lineStyle: { color: '#e4e4e7' } },
-        axisTick: { show: false },
+        axisLabel: { rotate: 45 },
         splitArea: { show: true, areaStyle: { color: ['#fafafa', '#ffffff'] } },
       },
       yAxis: {
         type: 'category',
         data: assets,
-        axisLabel: { color: '#71717a', fontSize: 10 },
-        axisLine: { lineStyle: { color: '#e4e4e7' } },
-        axisTick: { show: false },
         splitArea: { show: true, areaStyle: { color: ['#fafafa', '#ffffff'] } },
       },
       visualMap: {
@@ -102,10 +94,6 @@ export class EchartsHeatmapComponent implements OnDestroy {
         top: 'middle',
         itemHeight: 160,
         text: ['1', '-1'],
-        textStyle: { color: '#71717a', fontSize: 10 },
-        inRange: {
-          color: ['#2563eb', '#ffffff', '#dc2626'],
-        },
       },
       series: [
         {
@@ -124,6 +112,10 @@ export class EchartsHeatmapComponent implements OnDestroy {
         },
       ],
     };
+  }
+
+  getChartInstance(): EChartsType | undefined {
+    return this.chart;
   }
 
   ngOnDestroy() {

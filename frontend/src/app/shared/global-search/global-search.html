@@ -1,0 +1,55 @@
+<!-- Backdrop -->
+<div class="fixed inset-0 z-[300] bg-black/40"></div>
+
+<!-- Search panel -->
+<div class="fixed inset-0 z-[310] flex items-start justify-center pt-[15vh] px-4">
+  <div class="w-full max-w-lg bg-surface-raised border border-border rounded-xl shadow-lg overflow-hidden">
+    <!-- Search input -->
+    <div class="flex items-center gap-3 px-4 py-3 border-b border-border">
+      <svg class="w-5 h-5 text-text-tertiary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+      </svg>
+      <input #searchInput
+             type="text"
+             placeholder="Search pages..."
+             [value]="query()"
+             (input)="onQueryChange($any($event.target).value)"
+             class="flex-1 bg-transparent text-sm text-text placeholder:text-text-tertiary outline-none" />
+      <kbd class="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono text-text-tertiary bg-surface border border-border-muted rounded">ESC</kbd>
+    </div>
+
+    <!-- Results -->
+    <div class="max-h-80 overflow-y-auto py-2">
+      @if (filteredResults().length === 0) {
+        <p class="px-4 py-6 text-center text-sm text-text-tertiary">No results found</p>
+      } @else {
+        @for (group of groupedResults(); track group.category) {
+          <div class="px-3 pt-2 pb-1">
+            <p class="text-[10px] font-medium text-text-tertiary uppercase tracking-wider">{{ group.category }}</p>
+          </div>
+          @for (item of group.items; track item.route) {
+            <button (click)="selectResult(item)"
+                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-left transition-colors"
+                    [class.bg-accent/10]="getFlatIndex(item) === activeIndex()"
+                    [class.text-accent]="getFlatIndex(item) === activeIndex()"
+                    [class.text-text]="getFlatIndex(item) !== activeIndex()">
+              <span class="flex-1">{{ item.label }}</span>
+              @if (getFlatIndex(item) === activeIndex()) {
+                <kbd class="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono text-text-tertiary bg-surface border border-border-muted rounded">&#x23CE;</kbd>
+              }
+            </button>
+          }
+        }
+      }
+    </div>
+
+    <!-- Footer -->
+    <div class="flex items-center justify-between px-4 py-2 border-t border-border text-[10px] text-text-tertiary">
+      <div class="flex items-center gap-3">
+        <span><kbd class="font-mono">&#x2191;&#x2193;</kbd> Navigate</span>
+        <span><kbd class="font-mono">&#x23CE;</kbd> Select</span>
+        <span><kbd class="font-mono">ESC</kbd> Close</span>
+      </div>
+    </div>
+  </div>
+</div>

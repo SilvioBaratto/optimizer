@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 import { BarData } from '../bar-chart/bar-chart';
+import { CHART_EXPORTABLE, type ChartExportable } from '../charts/chart-export.token';
 
 export type { BarData };
 
@@ -17,8 +18,9 @@ export type { BarData };
   selector: 'app-echarts-bar',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div #container class="w-full" [style.height.px]="height()"></div>`,
+  providers: [{ provide: CHART_EXPORTABLE, useExisting: EchartsBarComponent }],
 })
-export class EchartsBarComponent implements OnDestroy {
+export class EchartsBarComponent implements OnDestroy, ChartExportable {
   data = input<BarData[]>([]);
   height = input(180);
 
@@ -47,7 +49,7 @@ export class EchartsBarComponent implements OnDestroy {
     use([BarChart, GridComponent, TooltipComponent, MarkLineComponent, CanvasRenderer]);
 
     const el = this.container().nativeElement;
-    this.chart = init(el, undefined, { renderer: 'canvas' });
+    this.chart = init(el, 'portfolio', { renderer: 'canvas' });
     this.chart.setOption(this.buildOption(this.data()));
 
     this.ro = new ResizeObserver(() => this.chart?.resize());
@@ -55,8 +57,12 @@ export class EchartsBarComponent implements OnDestroy {
   }
 
   private buildOption(bars: BarData[]): EChartsCoreOption {
+    const style = getComputedStyle(document.documentElement);
+    const gainColor = style.getPropertyValue('--color-gain').trim();
+    const lossColor = style.getPropertyValue('--color-loss').trim();
+    const borderColor = style.getPropertyValue('--color-border').trim();
+
     const labels = bars.map(b => {
-      // Format "2024-03" → "Mar '24"
       const parts = b.label.split('-');
       if (parts.length === 2) {
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -67,45 +73,34 @@ export class EchartsBarComponent implements OnDestroy {
       return b.label;
     });
     const values = bars.map(b => +(b.value * 100).toFixed(2));
-    const colors = values.map(v => (v >= 0 ? '#16a34a' : '#dc2626'));
 
     return {
-      backgroundColor: 'transparent',
       tooltip: {
-        trigger: 'axis',
         formatter: (params: unknown) => {
           const p = (params as Array<{ name: string; value: number }>)[0];
           return `${p.name}: ${p.value >= 0 ? '+' : ''}${p.value.toFixed(2)}%`;
         },
-        backgroundColor: '#ffffff',
-        borderColor: '#e4e4e7',
-        borderWidth: 1,
-        textStyle: { color: '#18181b', fontSize: 12 },
       },
       grid: { left: 40, right: 10, top: 10, bottom: 50 },
       xAxis: {
         type: 'category',
         data: labels,
-        axisLabel: { color: '#71717a', fontSize: 10, rotate: 45 },
-        axisLine: { lineStyle: { color: '#e4e4e7' } },
-        axisTick: { show: false },
+        axisLabel: { rotate: 45 },
       },
       yAxis: {
         type: 'value',
         axisLabel: {
-          color: '#71717a',
-          fontSize: 10,
           formatter: (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`,
         },
-        splitLine: { lineStyle: { color: '#f4f4f5' } },
-        axisLine: { show: false },
       },
       series: [
         {
           type: 'bar',
-          data: values.map((v, i) => ({
+          data: values.map(v => ({
             value: v,
-            itemStyle: { color: colors[i], borderRadius: [2, 2, 0, 0] as [number, number, number, number],
+            itemStyle: {
+              color: v >= 0 ? gainColor : lossColor,
+              borderRadius: [2, 2, 0, 0] as [number, number, number, number],
             },
           })),
           barMaxWidth: 24,
@@ -113,12 +108,16 @@ export class EchartsBarComponent implements OnDestroy {
             silent: true,
             symbol: 'none',
             data: [{ yAxis: 0 }],
-            lineStyle: { color: '#e4e4e7', width: 1 },
+            lineStyle: { color: borderColor, width: 1 },
             label: { show: false },
           },
         },
       ],
     };
+  }
+
+  getChartInstance(): EChartsType | undefined {
+    return this.chart;
   }
 
   ngOnDestroy() {

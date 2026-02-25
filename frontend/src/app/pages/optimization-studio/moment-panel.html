@@ -1,0 +1,60 @@
+<div class="space-y-5">
+  <!-- Estimator Config -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-4">
+    <h3 class="text-sm font-semibold text-text">Moment Estimation</h3>
+
+    <!-- Mu Estimator -->
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <label for="muEstimator" class="text-xs font-medium text-text-secondary">Expected Returns Estimator</label>
+        <app-help-tooltip
+          text="The estimator for the expected return vector (mu). Shrinkage methods reduce estimation error. Equilibrium uses CAPM market-implied returns. HMM Blended weights estimates by regime probabilities." />
+      </div>
+      <select
+        id="muEstimator"
+        [ngModel]="muEstimator()"
+        (ngModelChange)="setMuEstimator($event)"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
+        @for (opt of muEstimatorOptions; track opt) {
+          <option [value]="opt">{{ muEstimatorLabels[opt] }}</option>
+        }
+      </select>
+    </div>
+
+    <!-- Cov Estimator -->
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <label for="covEstimator" class="text-xs font-medium text-text-secondary">Covariance Estimator</label>
+        <app-help-tooltip
+          text="The estimator for the covariance matrix (Sigma). Ledoit-Wolf provides analytical shrinkage. Denoised uses Random Matrix Theory to filter noise eigenvalues. HMM Blended uses the law of total variance across regimes." />
+      </div>
+      <select
+        id="covEstimator"
+        [ngModel]="covEstimator()"
+        (ngModelChange)="setCovEstimator($event)"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
+        @for (opt of covEstimatorOptions; track opt) {
+          <option [value]="opt">{{ covEstimatorLabels[opt] }}</option>
+        }
+      </select>
+    </div>
+  </div>
+
+  <!-- Expected Returns Preview -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <div class="flex items-center gap-2 mb-3">
+      <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide">Expected Returns</h4>
+      <app-help-tooltip text="Annualized expected returns for each asset based on the selected mu estimator. Values above zero indicate positive expected alpha." />
+    </div>
+    <app-echarts-bar [data]="expectedReturnsBarData()" [height]="160" />
+  </div>
+
+  <!-- Correlation Heatmap Preview -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <div class="flex items-center gap-2 mb-3">
+      <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide">Correlation Matrix (Top 10 Assets)</h4>
+      <app-help-tooltip text="Pairwise correlation matrix derived from the selected covariance estimator. Values near 1 indicate high positive correlation; values near -1 indicate inverse relationship." />
+    </div>
+    <app-echarts-heatmap [assets]="heatmapAssets()" [matrix]="heatmapMatrix()" [height]="300" />
+  </div>
+</div>

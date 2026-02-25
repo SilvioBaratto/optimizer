@@ -1,0 +1,130 @@
+<div class="space-y-5">
+  <!-- Objective and Risk Measure -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-4">
+    <h3 class="text-sm font-semibold text-text">Optimizer Configuration</h3>
+
+    <!-- Objective Function -->
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <label for="objective" class="text-xs font-medium text-text-secondary">Objective Function</label>
+        <app-help-tooltip
+          text="The optimization objective. Max Sharpe maximizes risk-adjusted return. Risk Parity equalizes risk contributions. HRP/HERC/NCO are hierarchical clustering methods that require no expected returns." />
+      </div>
+      <select
+        id="objective"
+        [ngModel]="objective()"
+        (ngModelChange)="setObjective($event)"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
+        @for (opt of objectiveFunctions; track opt) {
+          <option [value]="opt">{{ objectiveLabels[opt] }}</option>
+        }
+      </select>
+    </div>
+
+    <!-- Risk Measure -->
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <label for="riskMeasure" class="text-xs font-medium text-text-secondary">Risk Measure</label>
+        <app-help-tooltip
+          text="The risk measure used in the objective or constraints. CVaR (Expected Shortfall) captures tail risk. Drawdown measures capture path-dependent risk. Variance is the classical Markowitz measure." />
+      </div>
+      <select
+        id="riskMeasure"
+        [ngModel]="riskMeasure()"
+        (ngModelChange)="setRiskMeasure($event)"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
+        @for (rm of riskMeasures; track rm) {
+          <option [value]="rm">{{ riskMeasureLabels[rm] }}</option>
+        }
+      </select>
+    </div>
+
+    <!-- Risk Aversion -->
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <label for="riskAversion" class="text-xs font-medium text-text-secondary">Risk Aversion (lambda)</label>
+          <app-help-tooltip text="Controls the return-risk tradeoff in mean-risk objectives. Higher values penalize risk more heavily, resulting in more conservative portfolios." />
+        </div>
+        <span class="text-xs font-mono text-accent">{{ riskAversion() }}</span>
+      </div>
+      <input
+        id="riskAversion"
+        type="range"
+        min="0.1"
+        max="5.0"
+        step="0.1"
+        [ngModel]="riskAversion()"
+        (ngModelChange)="riskAversion.set(+$event)"
+        class="w-full accent-accent" />
+      <div class="flex justify-between mt-1">
+        <span class="text-[10px] text-text-tertiary">Aggressive (0.1)</span>
+        <span class="text-[10px] text-text-tertiary">Conservative (5.0)</span>
+      </div>
+    </div>
+
+    <!-- CVaR Beta (conditional) -->
+    @if (showCvarBeta()) {
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <label for="cvarBeta" class="text-xs font-medium text-text-secondary">CVaR Beta</label>
+          <app-help-tooltip text="Confidence level for CVaR/EVaR calculation. Beta=0.95 means we measure the expected loss in the worst 5% of scenarios." />
+        </div>
+        <input
+          id="cvarBeta"
+          type="number"
+          min="0.90"
+          max="0.99"
+          step="0.01"
+          [ngModel]="cvarBeta()"
+          (ngModelChange)="cvarBeta.set(+$event)"
+          class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+      </div>
+    }
+
+    <!-- Robust Kappa (conditional) -->
+    @if (showRobustKappa()) {
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <label for="robustKappa" class="text-xs font-medium text-text-secondary">Robust Kappa</label>
+          <app-help-tooltip text="Uncertainty radius for robust optimization. kappa=0 recovers standard MeanRisk. Higher values create larger ellipsoidal uncertainty sets around the estimated mu, yielding more conservative portfolios." />
+        </div>
+        <input
+          id="robustKappa"
+          type="number"
+          min="0"
+          max="3"
+          step="0.1"
+          [ngModel]="robustKappa()"
+          (ngModelChange)="robustKappa.set(+$event)"
+          class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+      </div>
+    }
+  </div>
+
+  <!-- Active Constraints -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <div class="flex items-center gap-2 mb-3">
+      <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide">Active Constraints</h4>
+      <app-help-tooltip text="Constraints applied to the optimization problem. These define the feasible set of portfolio weights." />
+    </div>
+    <ul class="space-y-1.5">
+      @for (constraint of activeConstraints; track constraint) {
+        <li class="flex items-center gap-2 text-xs text-text">
+          <span class="w-1.5 h-1.5 rounded-full bg-gain flex-shrink-0"></span>
+          {{ constraint }}
+        </li>
+      }
+    </ul>
+  </div>
+
+  <!-- Run Button -->
+  <div class="flex justify-end">
+    <button
+      type="button"
+      (click)="runOptimization.emit()"
+      class="px-6 py-2.5 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors">
+      Run Optimization
+    </button>
+  </div>
+</div>

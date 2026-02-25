@@ -1,0 +1,41 @@
+<div class="space-y-6">
+  <!-- KPI Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <app-stat-card label="HHI" [value]="hhiStr()" subtitle="Herfindahl-Hirschman Index" />
+    <app-stat-card label="Effective Bets" [value]="effectiveBets()" subtitle="1 / HHI" />
+    <app-stat-card label="Top-5 Weight" [value]="top5Weight()" subtitle="Concentration in top holdings" />
+  </div>
+
+  <!-- Charts Row -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Cumulative Weight -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">Top-N Cumulative Weight</h3>
+      <app-chart-toolbar [showDataTable]="false">
+        <app-echarts-bar [data]="topNData()" [height]="280" />
+      </app-chart-toolbar>
+    </div>
+
+    <!-- Risk Contribution -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">Risk Contribution by Holding</h3>
+      <app-chart-toolbar [showDataTable]="false">
+        <app-echarts-bar [data]="riskContributionData()" [height]="280" />
+      </app-chart-toolbar>
+    </div>
+  </div>
+
+  <!-- Full Holdings Table -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Holdings Detail</h3>
+    <app-data-table
+      [columns]="tableColumns"
+      [rows]="tableRows()"
+      [total]="tableRows().length"
+      [pageSize]="20"
+      [dense]="true"
+      [showExport]="true"
+      exportFilename="concentration-metrics"
+    />
+  </div>
+</div>

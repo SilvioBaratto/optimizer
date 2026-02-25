@@ -1,0 +1,118 @@
+<div class="flex-1 overflow-y-auto p-6">
+  <!-- Page Header — always visible -->
+  <app-page-header title="Risk Center" subtitle="Portfolio risk monitoring and analytics">
+  <div actions>
+    <button (click)="openReportModal()" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+      </svg>
+      Export Report
+    </button>
+  </div>
+</app-page-header>
+
+  @if (isLoading()) {
+    <!-- Loading skeleton -->
+    <div class="space-y-6 mt-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        @for (i of [1,2,3,4,5]; track i) {
+          <div class="h-24 skeleton rounded-lg"></div>
+        }
+      </div>
+      <!-- Tab group skeleton -->
+      <div class="flex gap-2 border-b border-border pb-2">
+        @for (i of [1,2,3,4,5,6,7]; track i) {
+          <div class="h-8 w-24 skeleton rounded-md"></div>
+        }
+      </div>
+      <!-- Chart area skeleton -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="h-72 skeleton rounded-lg"></div>
+        <div class="h-72 skeleton rounded-lg"></div>
+      </div>
+    </div>
+  } @else if (hasError()) {
+    <!-- Error state -->
+    <div class="flex flex-col items-center justify-center py-20 px-4">
+      <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+      </svg>
+      <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
+      <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
+      <button (click)="retry()" class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
+        Try Again
+      </button>
+    </div>
+  } @else {
+
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6 mt-6">
+      <app-stat-card label="VaR 95%" [value]="kpiVar95()" subtitle="1-day Historical" />
+      <app-stat-card label="VaR 99%" [value]="kpiVar99()" subtitle="1-day Historical" />
+      <app-stat-card label="CVaR 95%" [value]="kpiCvar()" subtitle="Expected Shortfall" />
+      <app-stat-card label="Volatility" [value]="kpiVol()" subtitle="Annualized" />
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <p class="text-xs font-medium text-text-secondary uppercase tracking-wide">Risk Budget</p>
+        <app-echarts-gauge
+          [value]="riskBudgetUsed()"
+          [min]="0"
+          [max]="100"
+          [thresholds]="gaugeThresholds"
+          label="% Used"
+          [height]="100"
+        />
+      </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <app-tab-group [tabs]="tabs()" [activeTab]="activeTab()" (tabChange)="activeTab.set($event)" />
+
+    <!-- Tab Content -->
+    <div class="mt-6">
+      @if (activeTab() === 'var') {
+        <app-var-panel
+          [varResults]="varResults()"
+          [selectedMethod]="varMethod()"
+          [selectedConfidence]="varConfidence()"
+          (methodChange)="varMethod.set($event)"
+          (confidenceChange)="varConfidence.set($event)"
+        />
+      }
+
+      @if (activeTab() === 'stress') {
+        <app-stress-panel [scenarios]="stressScenarios" />
+      }
+
+      @if (activeTab() === 'correlation') {
+        <app-correlation-panel
+          [correlationData]="correlationData"
+          [method]="correlationMethod()"
+          (methodChange)="correlationMethod.set($event)"
+        />
+      }
+
+      @if (activeTab() === 'factor') {
+        <app-factor-panel [exposures]="factorExposures" />
+      }
+
+      @if (activeTab() === 'concentration') {
+        <app-concentration-panel [metrics]="concentration" />
+      }
+
+      @if (activeTab() === 'liquidity') {
+        <app-liquidity-panel [metrics]="liquidity" />
+      }
+
+      @if (activeTab() === 'limits') {
+        <app-limits-panel
+          [limits]="limits()"
+          [alerts]="alerts()"
+          (acknowledgeAlert)="onAcknowledgeAlert($event)"
+          (addLimit)="onAddLimit($event)"
+          (editLimit)="onEditLimit($event)"
+        />
+      }
+    </div>
+
+  } <!-- end @else -->
+</div>

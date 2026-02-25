@@ -1,0 +1,30 @@
+<div class="space-y-6">
+  <!-- KPI Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <app-stat-card label="Total Liquidation Cost" [value]="totalCost()" subtitle="Estimated cost to exit" />
+    <app-stat-card label="Max Days to Liquidate" [value]="maxDays()" subtitle="Slowest position" />
+    <app-stat-card label="Weighted Avg Days" [value]="weightedAvgDays()" subtitle="Weight-adjusted average" />
+  </div>
+
+  <!-- Bucket Distribution -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Liquidity Bucket Distribution</h3>
+    <app-chart-toolbar [showDataTable]="false">
+      <app-echarts-bar [data]="bucketDistribution()" [height]="240" />
+    </app-chart-toolbar>
+  </div>
+
+  <!-- Detailed Table -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Liquidity by Holding</h3>
+    <app-data-table
+      [columns]="tableColumns"
+      [rows]="tableRows()"
+      [total]="tableRows().length"
+      [pageSize]="15"
+      [dense]="true"
+      [showExport]="true"
+      exportFilename="liquidity-metrics"
+    />
+  </div>
+</div>

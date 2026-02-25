@@ -1,0 +1,32 @@
+<div class="bg-surface-raised border border-border rounded-lg p-4">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-sm font-medium text-text">Pipeline</h2>
+    <span class="text-xs text-text-tertiary">{{ completedCount() }} / {{ totalCount() }} steps complete</span>
+  </div>
+
+  <div class="flex items-center gap-2 overflow-x-auto pb-2">
+    @for (node of nodes(); track node.id; let isFirst = $first) {
+      @if (!isFirst) {
+        <div class="w-6 h-px bg-border flex-shrink-0"></div>
+      }
+
+      <button
+        type="button"
+        (click)="nodeSelect.emit(node.id)"
+        [class]="cardClass(node.id)"
+        [attr.aria-pressed]="node.id === activeNode()">
+        <div class="text-xs font-medium text-text truncate">{{ node.label }}</div>
+        <div class="mt-1.5 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full flex-shrink-0" [class]="statusColor(node.status)"></span>
+          <span class="text-[10px] text-text-tertiary">{{ statusLabel(node.status) }}</span>
+        </div>
+        @if (node.duration_ms !== undefined) {
+          <div class="mt-1 text-[10px] text-accent font-mono">{{ formatDuration(node.duration_ms) }}</div>
+        }
+        @if (node.detail) {
+          <div class="mt-0.5 text-[10px] text-text-tertiary truncate" [title]="node.detail">{{ node.detail }}</div>
+        }
+      </button>
+    }
+  </div>
+</div>

@@ -1,0 +1,94 @@
+<div class="space-y-4">
+
+  <!-- Toolbar: Presets + Search + Filter -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+      <!-- Preset Buttons -->
+      <div class="flex flex-wrap gap-2">
+        <span class="text-data-xs text-text-secondary self-center font-medium">Presets:</span>
+        <button
+          (click)="applyPreset('sp500')"
+          class="px-3 py-1.5 text-data-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset hover:text-text transition-colors">
+          S&amp;P 500 Core
+        </button>
+        <button
+          (click)="applyPreset('msci')"
+          class="px-3 py-1.5 text-data-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset hover:text-text transition-colors">
+          MSCI World
+        </button>
+        <button
+          (click)="applyPreset('sector_etfs')"
+          class="px-3 py-1.5 text-data-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset hover:text-text transition-colors">
+          Sector ETFs
+        </button>
+      </div>
+
+      <!-- Selected Count -->
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 text-data-xs text-text-secondary bg-surface-inset px-3 py-1.5 rounded-full border border-border">
+          <span class="w-1.5 h-1.5 rounded-full bg-accent"></span>
+          {{ selectedCount() }} selected
+        </span>
+      </div>
+    </div>
+
+    <!-- Search + Sector Filter Row -->
+    <div class="mt-3 flex flex-col gap-2 sm:flex-row">
+
+      <!-- Search Input -->
+      <div class="relative flex-1">
+        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-tertiary pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+        </svg>
+        <input
+          type="text"
+          [ngModel]="searchTerm()"
+          (ngModelChange)="searchTerm.set($event)"
+          placeholder="Search ticker or name..."
+          class="w-full pl-9 pr-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors" />
+      </div>
+
+      <!-- Sector Filter -->
+      <div class="flex items-center gap-2">
+        <label class="text-data-xs text-text-secondary whitespace-nowrap">Sector:</label>
+        <select
+          [ngModel]="filterSector()"
+          (ngModelChange)="filterSector.set($event)"
+          class="px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors">
+          @for (sector of uniqueSectors(); track sector) {
+            <option [value]="sector">{{ sector === 'all' ? 'All Sectors' : sector }}</option>
+          }
+        </select>
+      </div>
+
+      <!-- Select / Deselect All -->
+      <div class="flex gap-2">
+        <button
+          (click)="selectAll()"
+          class="px-3 py-2 text-data-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset hover:text-text transition-colors whitespace-nowrap">
+          Select All
+        </button>
+        <button
+          (click)="deselectAll()"
+          class="px-3 py-2 text-data-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset hover:text-text transition-colors whitespace-nowrap">
+          Deselect All
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Universe Table -->
+  <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
+    <app-data-table
+      [columns]="tableColumns"
+      [rows]="tableRows()"
+      [total]="filteredTickers().length"
+      [pageSize]="20"
+      [dense]="true"
+      [stickyHeader]="true"
+      [showExport]="true"
+      exportFilename="universe" />
+  </div>
+
+</div>

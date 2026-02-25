@@ -1,0 +1,60 @@
+<div class="space-y-5">
+  <!-- View Framework Selector -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <div class="flex items-center gap-2 mb-3">
+      <h3 class="text-sm font-semibold text-text">View Framework</h3>
+      <app-help-tooltip text="Select a Bayesian view framework to incorporate analyst views into the prior distribution. Black-Litterman blends views with equilibrium returns. Entropy Pooling tilts the full distribution." />
+    </div>
+    <div class="flex gap-3 flex-wrap">
+      @for (option of viewFrameworkOptions; track option) {
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input
+            type="radio"
+            name="viewFramework"
+            [value]="option"
+            [checked]="selectedViewFramework() === option"
+            (change)="setViewFramework(option)"
+            class="accent-accent" />
+          <span class="text-xs text-text">{{ viewFrameworkLabels[option] }}</span>
+        </label>
+      }
+    </div>
+  </div>
+
+  <!-- View Builder Table -->
+  @if (selectedViewFramework() !== 'none') {
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide">Active Views</h4>
+          <app-help-tooltip text="Each view expresses a belief about expected returns. Absolute views set a target return for an asset. Relative views express a return differential between two assets." />
+        </div>
+        <button
+          type="button"
+          (click)="addView()"
+          class="px-3 py-1.5 text-xs font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+          + Add View
+        </button>
+      </div>
+      <app-data-table
+        [columns]="viewTableColumns"
+        [rows]="viewTableRows()"
+        [total]="viewTableRows().length"
+        [dense]="true" />
+    </div>
+  }
+
+  <!-- Prior vs Posterior Returns -->
+  @if (selectedViewFramework() !== 'none') {
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide mb-3">Prior Returns</h4>
+        <app-echarts-bar [data]="priorBarData()" [height]="160" />
+      </div>
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide mb-3">Posterior Returns</h4>
+        <app-echarts-bar [data]="posteriorBarData()" [height]="160" />
+      </div>
+    </div>
+  }
+</div>

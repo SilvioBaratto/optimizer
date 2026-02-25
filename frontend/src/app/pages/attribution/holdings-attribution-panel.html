@@ -1,0 +1,48 @@
+<div class="space-y-6">
+  <!-- View Controls -->
+  <div class="flex items-center gap-4">
+    <div class="flex items-center gap-1 bg-surface-inset rounded-lg p-1">
+      @for (mode of viewModes; track mode.value) {
+        <button
+          type="button"
+          class="px-3 py-1.5 text-data-sm rounded-md transition-colors"
+          [class]="viewMode() === mode.value ? 'bg-surface-raised text-text font-medium shadow-sm' : 'text-text-secondary hover:text-text'"
+          (click)="viewMode.set(mode.value)"
+        >
+          {{ mode.label }}
+        </button>
+      }
+    </div>
+    <label class="flex items-center gap-2 text-data-sm text-text-secondary cursor-pointer">
+      <input
+        type="checkbox"
+        [checked]="groupBySector()"
+        (change)="groupBySector.set(!groupBySector())"
+        class="accent-[var(--color-chart-1)]"
+      />
+      Group by sector
+    </label>
+  </div>
+
+  <!-- Holdings Table -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Holdings Attribution</h3>
+    <app-data-table
+      [columns]="holdingsTableColumns"
+      [rows]="filteredRows()"
+      [total]="filteredRows().length"
+      [pageSize]="15"
+      [dense]="true"
+      [showExport]="true"
+      exportFilename="holdings-attribution"
+    />
+  </div>
+
+  <!-- Weight vs Return Scatter -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Weight vs Return (bubble = contribution)</h3>
+    <app-chart-toolbar [showDataTable]="false">
+      <div #scatterChart class="w-full" style="height: 360px;"></div>
+    </app-chart-toolbar>
+  </div>
+</div>

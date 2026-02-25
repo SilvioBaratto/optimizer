@@ -1,11 +1,7 @@
-import { Component, computed, input, output, ChangeDetectionStrategy } from '@angular/core';
+import { Component, computed, input, output, inject, ChangeDetectionStrategy } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
-
-interface NavItem {
-  name: string;
-  route: string;
-  icon: 'dashboard' | 'universe' | 'data' | 'optimize' | 'macro';
-}
+import { NAV_GROUPS, NavGroup } from './nav-data';
+import { BreakpointService } from '../../services/breakpoint.service';
 
 @Component({
   selector: 'app-sidebar',
@@ -15,20 +11,20 @@ interface NavItem {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SidebarComponent {
-  isOpen = input<boolean>(false);
-  isMobile = input<boolean>(false);
+  readonly isOpen = input<boolean>(false);
+  readonly isMobile = input<boolean>(false);
 
-  closeSidebar = output<void>();
+  readonly closeSidebar = output<void>();
 
-  navItems: NavItem[] = [
-    { name: 'Dashboard', route: '/', icon: 'dashboard' },
-    { name: 'Universe', route: '/universe', icon: 'universe' },
-    { name: 'Data', route: '/data', icon: 'data' },
-    { name: 'Optimizer', route: '/optimize', icon: 'optimize' },
-    { name: 'Macro', route: '/macro', icon: 'macro' },
-  ];
+  readonly navGroups: NavGroup[] = NAV_GROUPS;
 
-  showSidebar = computed(() => !this.isMobile() || this.isOpen());
+  private readonly breakpoint = inject(BreakpointService);
+
+  // Sidebar is permanently visible on desktop (xl+).
+  // On mobile and tablet it acts as a drawer, visible only when explicitly opened.
+  readonly showSidebar = computed(
+    () => (!this.breakpoint.isMobile() && !this.breakpoint.isTablet()) || this.isOpen(),
+  );
 
   onNavClick() {
     this.closeSidebar.emit();

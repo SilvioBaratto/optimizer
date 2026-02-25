@@ -1,0 +1,41 @@
+<div class="space-y-6">
+  <!-- Drift Table -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Asset Drift Report</h3>
+    <app-data-table
+      [columns]="driftColumns"
+      [rows]="driftRows()"
+      [total]="driftRows().length"
+      [pageSize]="15"
+      [dense]="true"
+      [showExport]="true"
+      exportFilename="drift-report"
+    />
+  </div>
+
+  <!-- Current vs Target Bar Chart -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Current vs Target Weights</h3>
+    <app-chart-toolbar [showDataTable]="false">
+      <div #driftChart class="w-full" style="height: 280px"></div>
+    </app-chart-toolbar>
+  </div>
+
+  <!-- Trigger Status -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Trigger Status</h3>
+    <div class="flex items-center gap-3">
+      @if (hasBreaches()) {
+        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-data-sm font-medium bg-red-500/15 text-red-400">
+          <span class="w-2 h-2 rounded-full bg-red-400 animate-pulse"></span>
+          {{ breachedCount() }} asset{{ breachedCount() === 1 ? '' : 's' }} breached — rebalancing recommended
+        </span>
+      } @else {
+        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-data-sm font-medium bg-emerald-500/15 text-emerald-400">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          All assets within threshold — no rebalancing required
+        </span>
+      }
+    </div>
+  </div>
+</div>

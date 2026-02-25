@@ -1,0 +1,94 @@
+<div class="space-y-6">
+
+  <!-- Sliders -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+    <!-- Partial Rebalance -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <label class="block text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
+        Partial Rebalance
+      </label>
+      <input
+        type="range"
+        min="0"
+        max="100"
+        step="5"
+        [value]="partialRebalPct()"
+        (input)="onPartialRebalChange($event)"
+        class="w-full accent-[var(--color-chart-1)]"
+      />
+      <p class="mt-1 text-sm font-mono text-text">{{ partialRebalPct() }}%</p>
+    </div>
+
+    <!-- Threshold Override -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <label class="block text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
+        Threshold Override
+      </label>
+      <input
+        type="range"
+        min="50"
+        max="500"
+        step="10"
+        [value]="thresholdOverride()"
+        (input)="onThresholdOverrideChange($event)"
+        class="w-full accent-[var(--color-chart-1)]"
+      />
+      <p class="mt-1 text-sm font-mono text-text">{{ thresholdOverride() }} bps</p>
+    </div>
+
+    <!-- Cost Multiplier -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <label class="block text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
+        Cost Multiplier
+      </label>
+      <input
+        type="range"
+        min="50"
+        max="200"
+        step="5"
+        [value]="costMultiplier()"
+        (input)="onCostMultiplierChange($event)"
+        class="w-full accent-[var(--color-chart-1)]"
+      />
+      <p class="mt-1 text-sm font-mono text-text">{{ costMultiplier() }}%</p>
+    </div>
+
+  </div>
+
+  <!-- Scenario KPI Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+    <app-stat-card
+      label="Adjusted Turnover"
+      [value]="adjustedTurnover()"
+      subtitle="After partial rebalance"
+    />
+    <app-stat-card
+      label="Adjusted Cost"
+      [value]="adjustedCost()"
+      subtitle="After partial + cost scaling"
+    />
+    <app-stat-card
+      label="Remaining Drift"
+      [value]="remainingDrift()"
+      subtitle="Estimated post-rebalance drift"
+    />
+    <app-stat-card
+      label="Trades Affected"
+      [value]="tradesAffected()"
+      subtitle="Orders at current percentage"
+    />
+  </div>
+
+  <!-- Threshold Sensitivity -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <p class="text-data-sm font-medium text-text mb-3">
+      Threshold Sensitivity — Assets Exceeding Drift Threshold
+    </p>
+    <app-echarts-bar
+      [data]="thresholdSensitivityData()"
+      [height]="220"
+    />
+  </div>
+
+</div>

@@ -1,0 +1,34 @@
+<div class="space-y-6">
+  <!-- Method Toggle -->
+  <div class="flex items-center gap-1 bg-surface-inset rounded-lg p-1 w-fit">
+    @for (m of methods; track m.value) {
+      <button
+        class="px-3 py-1.5 text-data-sm rounded-md transition-colors"
+        [class]="method() === m.value
+          ? 'bg-surface-raised text-text font-medium shadow-sm'
+          : 'text-text-secondary hover:text-text'"
+        (click)="methodChange.emit(m.value)"
+      >
+        {{ m.label }}
+      </button>
+    }
+  </div>
+
+  <!-- Correlation Heatmap -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Correlation Matrix</h3>
+    <app-chart-toolbar [showDataTable]="false">
+      <app-echarts-heatmap
+        [assets]="correlationData().assets"
+        [matrix]="correlationData().matrix"
+        [height]="500"
+      />
+    </app-chart-toolbar>
+  </div>
+
+  <!-- Rolling Correlation -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Rolling 60-Day Correlation</h3>
+    <div #rollingChart class="w-full" style="height: 260px"></div>
+  </div>
+</div>

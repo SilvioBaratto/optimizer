@@ -225,7 +225,7 @@ export const MOCK_STRATEGIES: StrategyInfo[] = [
 
 // ── Portfolio Result ──
 
-const WEIGHT_DATA: Array<{ ticker: string; name: string; sector: string; weight: number }> = [
+export const WEIGHT_DATA: Array<{ ticker: string; name: string; sector: string; weight: number }> = [
   { ticker: 'AAPL', name: 'Apple Inc.', sector: 'Technology', weight: 0.042 },
   { ticker: 'MSFT', name: 'Microsoft Corp.', sector: 'Technology', weight: 0.038 },
   { ticker: 'GOOGL', name: 'Alphabet Inc.', sector: 'Technology', weight: 0.031 },

@@ -9,13 +9,15 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
+import { CHART_EXPORTABLE, type ChartExportable } from '../charts/chart-export.token';
 
 @Component({
   selector: 'app-echarts-line',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div #container class="w-full" [style.height.px]="height()"></div>`,
+  providers: [{ provide: CHART_EXPORTABLE, useExisting: EchartsLineComponent }],
 })
-export class EchartsLineComponent implements OnDestroy {
+export class EchartsLineComponent implements OnDestroy, ChartExportable {
   labels = input<string[]>([]);
   values = input<number[]>([]);
   height = input(220);
@@ -46,7 +48,7 @@ export class EchartsLineComponent implements OnDestroy {
     use([LineChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
     const el = this.container().nativeElement;
-    this.chart = init(el, undefined, { renderer: 'canvas' });
+    this.chart = init(el, 'portfolio', { renderer: 'canvas' });
     this.chart.setOption(this.buildOption(this.labels(), this.values()));
 
     this.ro = new ResizeObserver(() => this.chart?.resize());
@@ -56,47 +58,32 @@ export class EchartsLineComponent implements OnDestroy {
   private buildOption(labels: string[], values: number[]): EChartsCoreOption {
     const yLabel = this.yAxisLabel();
     const area = this.areaFill();
+    const chartColor = getComputedStyle(document.documentElement).getPropertyValue('--color-chart-1').trim();
 
     return {
-      backgroundColor: 'transparent',
       tooltip: {
-        trigger: 'axis',
         formatter: (params: unknown) => {
           const p = (params as Array<{ name: string; value: number }>)[0];
           return `${p.name}: ${p.value.toFixed(2)}%`;
         },
-        backgroundColor: '#ffffff',
-        borderColor: '#e4e4e7',
-        borderWidth: 1,
-        textStyle: { color: '#18181b', fontSize: 12 },
       },
       grid: { left: 50, right: 16, top: 16, bottom: 32 },
       xAxis: {
         type: 'category',
         data: labels,
-        axisLabel: { color: '#71717a', fontSize: 11 },
-        axisLine: { lineStyle: { color: '#e4e4e7' } },
-        axisTick: { show: false },
       },
       yAxis: {
         type: 'value',
         name: yLabel || undefined,
-        nameTextStyle: { color: '#71717a', fontSize: 10 },
+        nameTextStyle: { fontSize: 10 },
         axisLabel: {
-          color: '#71717a',
-          fontSize: 10,
           formatter: (v: number) => `${v.toFixed(2)}%`,
         },
-        splitLine: { lineStyle: { color: '#f4f4f5' } },
-        axisLine: { show: false },
       },
       series: [
         {
           type: 'line',
           data: values,
-          smooth: true,
-          lineStyle: { color: '#18181b', width: 2 },
-          itemStyle: { color: '#18181b' },
           symbol: 'circle',
           symbolSize: 5,
           areaStyle: area
@@ -105,8 +92,8 @@ export class EchartsLineComponent implements OnDestroy {
                   type: 'linear',
                   x: 0, y: 0, x2: 0, y2: 1,
                   colorStops: [
-                    { offset: 0, color: 'rgba(24,24,27,0.12)' },
-                    { offset: 1, color: 'rgba(24,24,27,0)' },
+                    { offset: 0, color: `${chartColor}1f` },
+                    { offset: 1, color: `${chartColor}00` },
                   ],
                 },
               }
@@ -114,6 +101,10 @@ export class EchartsLineComponent implements OnDestroy {
         },
       ],
     };
+  }
+
+  getChartInstance(): EChartsType | undefined {
+    return this.chart;
   }
 
   ngOnDestroy() {

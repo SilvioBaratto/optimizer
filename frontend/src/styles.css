@@ -1,41 +1,282 @@
 @import 'tailwindcss';
 
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* ------------------------------------------------------------------ */
+  /* Typography                                                           */
+  /* ------------------------------------------------------------------ */
 
-  /* Surface colors */
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  --font-heading: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Data-dense type scale (12px–36px) */
+  --text-data-xs: 0.75rem;    /* 12px — micro labels, axis ticks          */
+  --text-data-sm: 0.8125rem;  /* 13px — table cells, secondary metadata   */
+  --text-data-md: 0.875rem;   /* 14px — body data, tooltips               */
+  --text-data-lg: 0.9375rem;  /* 15px — emphasized data, column headers   */
+  --text-body: 0.875rem;      /* 14px — standard body text                */
+  --text-body-lg: 1rem;       /* 16px — larger body, sub-headings         */
+  --text-label: 0.75rem;      /* 12px — form labels, badge text           */
+  --text-heading-sm: 1.125rem; /* 18px — card headings                    */
+  --text-heading-md: 1.25rem;  /* 20px — section headings                 */
+  --text-heading-lg: 1.5rem;   /* 24px — page headings                    */
+  --text-heading-xl: 2.25rem;  /* 36px — hero headings                    */
+  --text-nav: 0.8125rem;      /* 13px — navigation items                  */
+
+  /* ------------------------------------------------------------------ */
+  /* Surface colors (existing, unchanged)                                */
+  /* ------------------------------------------------------------------ */
+
   --color-surface: #fafafa;
   --color-surface-raised: #ffffff;
   --color-surface-inset: #f4f4f5;
 
-  /* Border */
+  /* ------------------------------------------------------------------ */
+  /* Border (existing, unchanged)                                        */
+  /* ------------------------------------------------------------------ */
+
   --color-border: #e4e4e7;
   --color-border-muted: #f4f4f5;
 
-  /* Text */
+  /* ------------------------------------------------------------------ */
+  /* Text (existing, unchanged)                                          */
+  /* ------------------------------------------------------------------ */
+
   --color-text: #18181b;
   --color-text-secondary: #71717a;
   --color-text-tertiary: #a1a1aa;
 
-  /* Accent (dark zinc) */
+  /* ------------------------------------------------------------------ */
+  /* Accent (existing, unchanged)                                        */
+  /* ------------------------------------------------------------------ */
+
   --color-accent: #27272a;
   --color-accent-hover: #3f3f46;
 
-  /* Semantic */
+  /* ------------------------------------------------------------------ */
+  /* Semantic (existing, unchanged)                                      */
+  /* ------------------------------------------------------------------ */
+
   --color-danger: #dc2626;
   --color-success: #16a34a;
   --color-warning: #d97706;
   --color-info: #2563eb;
+
+  /* ------------------------------------------------------------------ */
+  /* Financial data colors                                               */
+  /* ------------------------------------------------------------------ */
+
+  /* Gain — green, equity-terminal convention */
+  --color-gain: #22863a;
+  --color-gain-bg: #dcfce7;
+  --color-gain-muted: #4ade80;
+
+  /* Loss — red, equity-terminal convention */
+  --color-loss: #cb2431;
+  --color-loss-bg: #fee2e2;
+  --color-loss-muted: #f87171;
+
+  /* Flat — neutral, no directional signal */
+  --color-flat: #71717a;
+  --color-flat-bg: #f4f4f5;
+  --color-flat-muted: #a1a1aa;
+
+  /* ------------------------------------------------------------------ */
+  /* Chart series palette (8-color, desaturated, distinguishable)       */
+  /* ------------------------------------------------------------------ */
+
+  --color-chart-1: #4477AA;  /* steel blue       — primary series        */
+  --color-chart-2: #EE6677;  /* muted coral-red  — Tol qualitative       */
+  --color-chart-3: #228833;  /* forest green     — colorblind-safe       */
+  --color-chart-4: #CCBB44;  /* olive gold                               */
+  --color-chart-5: #66CCEE;  /* cyan                                     */
+  --color-chart-6: #AA3377;  /* plum purple                              */
+  --color-chart-7: #BBBBBB;  /* medium gray      — benchmark/reference   */
+  --color-chart-8: #EE8866;  /* salmon/tan                               */
+
+  /* ------------------------------------------------------------------ */
+  /* Diverging heatmap palette (deep-red → neutral → deep-green, 7 stops) */
+  /* ------------------------------------------------------------------ */
+
+  --color-heatmap-1: #B2182B;  /* deep red         — strong negative      */
+  --color-heatmap-2: #D6604D;  /* muted red        — moderate negative    */
+  --color-heatmap-3: #F4A582;  /* salmon           — weak negative        */
+  --color-heatmap-4: #9E9E9E;  /* medium gray      — neutral/zero        */
+  --color-heatmap-5: #A6DBA0;  /* light green      — weak positive       */
+  --color-heatmap-6: #5AAE61;  /* medium green     — moderate positive   */
+  --color-heatmap-7: #1B7837;  /* deep green       — strong positive     */
+
+  /* ------------------------------------------------------------------ */
+  /* Regime colors                                                       */
+  /* ------------------------------------------------------------------ */
+
+  --color-regime-bull: #15803d;     /* bull market — confident green  */
+  --color-regime-bull-bg: #dcfce7;
+  --color-regime-bear: #b45309;     /* bear market — amber warning    */
+  --color-regime-bear-bg: #fef3c7;
+  --color-regime-crisis: #b91c1c;   /* crisis — urgent red            */
+  --color-regime-crisis-bg: #fee2e2;
+  --color-regime-neutral: #52525b;  /* neutral / transitional         */
+  --color-regime-neutral-bg: #f4f4f5;
+
+  /* ------------------------------------------------------------------ */
+  /* Agent identity colors                                               */
+  /* ------------------------------------------------------------------ */
+
+  --color-agent-cio: #1d4ed8;       /* CIO — blue, authority          */
+  --color-agent-cio-bg: #dbeafe;
+  --color-agent-pm: #00838f;        /* PM — teal, execution           */
+  --color-agent-pm-bg: #e0f2f1;
+  --color-agent-analyst: #c2410c;   /* Analyst — orange, research     */
+  --color-agent-analyst-bg: #ffedd5;
+  --color-agent-risk: #6a1b9a;      /* Risk — purple, distinct        */
+  --color-agent-risk-bg: #f3e5f5;
+
+  /* ------------------------------------------------------------------ */
+  /* Severity scale (5 levels)                                          */
+  /* ------------------------------------------------------------------ */
+
+  --color-severity-critical: #7f1d1d;   /* critical — darkest red     */
+  --color-severity-critical-bg: #fee2e2;
+  --color-severity-high: #b91c1c;       /* high — strong red          */
+  --color-severity-high-bg: #fecaca;
+  --color-severity-medium: #d97706;     /* medium — amber             */
+  --color-severity-medium-bg: #fef3c7;
+  --color-severity-low: #15803d;        /* low — green                */
+  --color-severity-low-bg: #dcfce7;
+  --color-severity-info: #2563eb;       /* info — blue                */
+  --color-severity-info-bg: #dbeafe;
+
+  /* ------------------------------------------------------------------ */
+  /* Dense spacing tokens for tables                                    */
+  /* ------------------------------------------------------------------ */
+
+  --spacing-cell-x: 0.5rem;    /* 8px  — horizontal cell padding  */
+  --spacing-cell-y: 0.25rem;   /* 4px  — vertical cell padding    */
+
+  /* ------------------------------------------------------------------ */
+  /* Shadow scale                                                        */
+  /* ------------------------------------------------------------------ */
+
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.07), 0 1px 2px -1px rgb(0 0 0 / 0.07);
+  --shadow-card-hover: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.08);
+  --shadow-dropdown: 0 4px 12px 0 rgb(0 0 0 / 0.10), 0 2px 4px -1px rgb(0 0 0 / 0.06);
+  --shadow-modal: 0 20px 40px -8px rgb(0 0 0 / 0.18), 0 8px 16px -4px rgb(0 0 0 / 0.10);
+
+  /* ------------------------------------------------------------------ */
+  /* Z-index scale                                                       */
+  /* ------------------------------------------------------------------ */
+
+  --z-sidebar: 100;
+  --z-dropdown: 200;
+  --z-modal-backdrop: 300;
+  --z-modal: 310;
+  --z-toast: 400;
+
+  /* ------------------------------------------------------------------ */
+  /* Chart height tokens                                                 */
+  /* ------------------------------------------------------------------ */
+
+  --height-chart-sm: 180px;
+  --height-chart-md: 280px;
+  --height-chart-lg: 400px;
+  --height-chart-xl: 520px;
 }
 
-/* Base styles */
+/* -------------------------------------------------------------------- */
+/* Transition duration tokens (outside @theme — plain CSS custom props) */
+/* -------------------------------------------------------------------- */
+
+:root {
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+}
+
+/* -------------------------------------------------------------------- */
+/* Base styles                                                           */
+/* -------------------------------------------------------------------- */
+
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 *:focus-visible {
-  outline: 2px solid #a1a1aa;
+  outline: 2px solid #71717a;
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* -------------------------------------------------------------------- */
+/* Utility: hide scrollbar                                               */
+/* -------------------------------------------------------------------- */
+
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+/* -------------------------------------------------------------------- */
+/* Card hover effect                                                     */
+/* -------------------------------------------------------------------- */
+
+.card-hover {
+  transition: box-shadow var(--duration-normal) ease;
+}
+.card-hover:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* -------------------------------------------------------------------- */
+/* Reveal animation                                                      */
+/* -------------------------------------------------------------------- */
+
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.reveal {
+  animation: reveal var(--duration-normal) ease-out forwards;
+}
+
+/* -------------------------------------------------------------------- */
+/* Skeleton loading animation                                            */
+/* -------------------------------------------------------------------- */
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--color-surface-inset) 25%, var(--color-border-muted) 50%, var(--color-surface-inset) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+/* -------------------------------------------------------------------- */
+/* Touch targets for mobile                                              */
+/* -------------------------------------------------------------------- */
+
+@media (max-width: 767px) {
+  button,
+  [role="button"],
+  a[routerLink] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* -------------------------------------------------------------------- */
+/* Reduced motion                                                        */
+/* -------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

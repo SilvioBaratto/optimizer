@@ -1,0 +1,68 @@
+<div class="flex-1 overflow-y-auto p-6">
+  <app-page-header title="Attribution" subtitle="Performance attribution and decomposition">
+  <div actions>
+    <button (click)="openReportModal()" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+      </svg>
+      Export Report
+    </button>
+  </div>
+</app-page-header>
+
+  @if (isLoading()) {
+    <!-- Loading skeleton -->
+    <div class="space-y-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        @for (i of [1,2,3,4]; track i) {
+          <div class="h-24 skeleton rounded-lg"></div>
+        }
+      </div>
+      <div class="h-10 skeleton rounded-lg w-full max-w-md"></div>
+      <div class="h-64 skeleton rounded-lg"></div>
+      <div class="h-48 skeleton rounded-lg"></div>
+    </div>
+  } @else if (hasError()) {
+    <!-- Error state -->
+    <div class="flex flex-col items-center justify-center py-20 px-4">
+      <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+      </svg>
+      <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
+      <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
+      <button (click)="retry()" class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors">
+        Try Again
+      </button>
+    </div>
+  } @else {
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      <app-stat-card label="Total Active Return" [value]="kpiTotalActive()" subtitle="Portfolio vs Benchmark" />
+      <app-stat-card label="Allocation Effect" [value]="kpiAllocation()" subtitle="Weight positioning" />
+      <app-stat-card label="Selection Effect" [value]="kpiSelection()" subtitle="Stock selection" />
+      <app-stat-card label="Interaction Effect" [value]="kpiInteraction()" subtitle="Allocation × Selection" />
+    </div>
+
+    <!-- Tab Navigation -->
+    <app-tab-group [tabs]="tabs" [activeTab]="activeTab()" (tabChange)="activeTab.set($event)" />
+
+    <!-- Tab Content -->
+    <div class="mt-6">
+      @if (activeTab() === 'brinson') {
+        <app-brinson-panel [attribution]="brinson" />
+      }
+
+      @if (activeTab() === 'saa-taa') {
+        <app-saa-taa-panel [multiLevel]="multiLevel" />
+      }
+
+      @if (activeTab() === 'factor') {
+        <app-factor-attribution-panel [factors]="factorAttribution" />
+      }
+
+      @if (activeTab() === 'holdings') {
+        <app-holdings-attribution-panel [holdings]="holdingsAttribution" />
+      }
+    </div>
+  }
+</div>

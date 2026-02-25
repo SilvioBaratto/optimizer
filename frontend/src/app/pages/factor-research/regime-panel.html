@@ -1,0 +1,44 @@
+<div class="space-y-6">
+
+  <!-- Section 1: Regime Probability Stacked Area -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">HMM Regime Probabilities Over Time</h3>
+    <app-chart-toolbar [showDataTable]="false">
+      <app-echarts-stacked-area
+        [labels]="areaLabels()"
+        [series]="areaSeries()"
+        [height]="400"
+      />
+    </app-chart-toolbar>
+  </div>
+
+  <!-- Section 2 + 3: Transition Matrix & Stats Table -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+    <!-- Transition Matrix -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">Regime Transition Matrix</h3>
+      <app-chart-toolbar [showDataTable]="false">
+        <app-echarts-heatmap
+          [assets]="stateLabels"
+          [matrix]="transitionMatrix()"
+          [height]="280"
+        />
+      </app-chart-toolbar>
+    </div>
+
+    <!-- Regime Stats Table -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">Regime Statistics</h3>
+      <app-data-table
+        [columns]="regimeStatsColumns"
+        [rows]="regimeStatsRows()"
+        [total]="regimeStatsRows().length"
+        [pageSize]="10"
+        [dense]="true"
+      />
+    </div>
+
+  </div>
+
+</div>

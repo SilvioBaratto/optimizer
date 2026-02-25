@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 import { PieSegment } from '../pie-chart/pie-chart';
+import { CHART_EXPORTABLE, type ChartExportable } from '../charts/chart-export.token';
 
 export type { PieSegment };
 
@@ -17,8 +18,9 @@ export type { PieSegment };
   selector: 'app-echarts-donut',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div #container class="w-full" [style.height.px]="height()"></div>`,
+  providers: [{ provide: CHART_EXPORTABLE, useExisting: EchartsDonutComponent }],
 })
-export class EchartsDonutComponent implements OnDestroy {
+export class EchartsDonutComponent implements OnDestroy, ChartExportable {
   segments = input<PieSegment[]>([]);
   height = input(280);
 
@@ -45,7 +47,7 @@ export class EchartsDonutComponent implements OnDestroy {
     use([PieChart, TooltipComponent, LegendComponent, CanvasRenderer]);
 
     const el = this.container().nativeElement;
-    this.chart = init(el, undefined, { renderer: 'canvas' });
+    this.chart = init(el, 'portfolio', { renderer: 'canvas' });
     this.chart.setOption(this.buildOption(this.segments()));
 
     this.ro = new ResizeObserver(() => this.chart?.resize());
@@ -54,22 +56,14 @@ export class EchartsDonutComponent implements OnDestroy {
 
   private buildOption(segs: PieSegment[]): EChartsCoreOption {
     return {
-      backgroundColor: 'transparent',
       tooltip: {
         trigger: 'item',
         formatter: '{b}: {d}%',
-        backgroundColor: '#ffffff',
-        borderColor: '#e4e4e7',
-        borderWidth: 1,
-        textStyle: { color: '#18181b', fontSize: 12 },
       },
       legend: {
         orient: 'vertical',
         right: 0,
         top: 'middle',
-        textStyle: { color: '#71717a', fontSize: 11 },
-        itemWidth: 10,
-        itemHeight: 10,
         formatter: (name: string) => {
           const seg = segs.find(s => s.label === name);
           if (!seg) return name;
@@ -84,13 +78,13 @@ export class EchartsDonutComponent implements OnDestroy {
           radius: ['40%', '70%'],
           center: ['35%', '50%'],
           data: segs.map(s => ({ name: s.label, value: s.value, itemStyle: { color: s.color } })),
-          label: { show: false },
-          emphasis: {
-            itemStyle: { shadowBlur: 6, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.15)' },
-          },
         },
       ],
     };
+  }
+
+  getChartInstance(): EChartsType | undefined {
+    return this.chart;
   }
 
   ngOnDestroy() {

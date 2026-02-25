@@ -1,0 +1,67 @@
+<div class="space-y-6">
+  <!-- Controls -->
+  <div class="flex flex-wrap items-center gap-4">
+    <div class="flex items-center gap-1 bg-surface-inset rounded-lg p-1">
+      @for (m of methods; track m.value) {
+        <button
+          class="px-3 py-1.5 text-data-sm rounded-md transition-colors"
+          [class]="selectedMethod() === m.value
+            ? 'bg-surface-raised text-text font-medium shadow-sm'
+            : 'text-text-secondary hover:text-text'"
+          (click)="methodChange.emit(m.value)"
+        >
+          {{ m.label }}
+        </button>
+      }
+    </div>
+    <div class="flex items-center gap-1 bg-surface-inset rounded-lg p-1">
+      @for (c of confidenceLevels; track c) {
+        <button
+          class="px-3 py-1.5 text-data-sm rounded-md transition-colors"
+          [class]="selectedConfidence() === c
+            ? 'bg-surface-raised text-text font-medium shadow-sm'
+            : 'text-text-secondary hover:text-text'"
+          (click)="confidenceChange.emit(c)"
+        >
+          {{ c * 100 }}%
+        </button>
+      }
+    </div>
+  </div>
+
+  <!-- Summary Stats -->
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <app-stat-card label="VaR (Dollar)" [value]="varDollarStr()" subtitle="At-risk amount" />
+    <app-stat-card label="CVaR (Dollar)" [value]="cvarDollarStr()" subtitle="Expected shortfall" />
+    <app-stat-card label="VaR / AUM" [value]="varAumRatio()" subtitle="Risk-to-value ratio" />
+  </div>
+
+  <!-- Charts Row -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- VaR Breakdown by Asset -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">VaR Breakdown by Asset</h3>
+      <app-chart-toolbar [showDataTable]="false">
+        <app-echarts-bar [data]="breakdownData()" [height]="240" />
+      </app-chart-toolbar>
+    </div>
+
+    <!-- VaR Comparison Table -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">VaR Method Comparison</h3>
+      <app-data-table
+        [columns]="comparisonColumns"
+        [rows]="comparisonRows()"
+        [total]="comparisonRows().length"
+        [pageSize]="10"
+        [dense]="true"
+      />
+    </div>
+  </div>
+
+  <!-- VaR Over Time -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">VaR Over Time</h3>
+    <div #varTimeChart class="w-full" style="height: 260px"></div>
+  </div>
+</div>

@@ -1,0 +1,35 @@
+<div class="space-y-6">
+  <!-- Multi-level Contribution Waterfall -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Contribution Waterfall</h3>
+    <app-chart-toolbar [showDataTable]="false">
+      <app-echarts-waterfall
+        [categories]="waterfallCategories()"
+        [values]="waterfallValues()"
+        [height]="260"
+      />
+    </app-chart-toolbar>
+  </div>
+
+  <!-- Contribution Summary Table -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Contribution Summary</h3>
+    <app-data-table
+      [columns]="summaryTableColumns"
+      [rows]="summaryTableRows()"
+      [total]="summaryTableRows().length"
+      [pageSize]="15"
+      [dense]="true"
+      [showExport]="true"
+      exportFilename="saa-taa-attribution"
+    />
+  </div>
+
+  <!-- Weight vs Return Grouped Bar Chart -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Weight vs Return</h3>
+    <app-chart-toolbar [showDataTable]="false">
+      <div #groupedBarChart class="w-full" style="height: 260px;"></div>
+    </app-chart-toolbar>
+  </div>
+</div>

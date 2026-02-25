@@ -1,0 +1,220 @@
+<div class="space-y-4">
+
+  <!-- IPS Preset Buttons -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Load IPS Preset</h3>
+    <div class="flex flex-wrap gap-2">
+      @for (preset of presets; track preset.name) {
+        <button
+          (click)="loadPreset(preset)"
+          class="px-4 py-2 text-data-sm font-medium rounded-lg border transition-colors"
+          [class]="ips().name === preset.name
+            ? 'border-accent bg-accent text-white'
+            : 'border-border text-text-secondary hover:bg-surface-inset hover:text-text'">
+          {{ preset.name }}
+        </button>
+      }
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    <!-- Left Column: Objective + Risk Tolerance + Horizon -->
+    <div class="space-y-4">
+
+      <!-- Optimization Objective -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h3 class="text-data-sm font-medium text-text mb-3">Optimization Objective</h3>
+        <div class="grid grid-cols-2 gap-2">
+          @for (opt of objectiveOptions; track opt.value) {
+            <button
+              (click)="objective.set(opt.value)"
+              class="px-3 py-2.5 text-data-xs font-medium rounded-md border text-left transition-colors"
+              [class]="objective() === opt.value
+                ? 'border-accent bg-accent/5 text-text font-semibold'
+                : 'border-border text-text-secondary hover:bg-surface-inset hover:text-text'">
+              {{ opt.label }}
+            </button>
+          }
+        </div>
+      </div>
+
+      <!-- Risk Tolerance Slider -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-data-sm font-medium text-text">Risk Tolerance</h3>
+          <span
+            class="inline-flex items-center px-2.5 py-1 rounded-full text-label font-semibold capitalize border"
+            [class]="riskProfileColorClass()">
+            {{ riskProfileLabel() }}
+          </span>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          [ngModel]="riskSlider()"
+          (ngModelChange)="onRiskSliderChange($event)"
+          class="w-full h-2 appearance-none rounded-full bg-surface-inset accent-accent cursor-pointer" />
+        <div class="flex justify-between mt-1.5">
+          <span class="text-data-xs text-text-tertiary">Conservative</span>
+          <span class="text-data-xs text-text-tertiary">Moderate</span>
+          <span class="text-data-xs text-text-tertiary">Aggressive</span>
+        </div>
+      </div>
+
+      <!-- Time Horizon -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h3 class="text-data-sm font-medium text-text mb-3">Time Horizon</h3>
+        <div class="flex gap-2">
+          @for (horizon of timeHorizons; track horizon) {
+            <button
+              (click)="timeHorizon.set(horizon)"
+              class="flex-1 py-2 text-data-sm font-medium rounded-md border text-center transition-colors"
+              [class]="timeHorizon() === horizon
+                ? 'border-accent bg-accent text-white'
+                : 'border-border text-text-secondary hover:bg-surface-inset hover:text-text'">
+              {{ horizon }}
+            </button>
+          }
+        </div>
+      </div>
+
+      <!-- Benchmark -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h3 class="text-data-sm font-medium text-text mb-3">Benchmark</h3>
+        <select
+          [ngModel]="benchmark()"
+          (ngModelChange)="benchmark.set($event)"
+          class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors">
+          @for (opt of benchmarkOptions; track opt.value) {
+            <option [value]="opt.value">{{ opt.label }}</option>
+          }
+        </select>
+      </div>
+
+    </div>
+
+    <!-- Right Column: Targets + Rebalancing -->
+    <div class="space-y-4">
+
+      <!-- Target Metrics -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h3 class="text-data-sm font-medium text-text mb-3">Portfolio Targets</h3>
+        <div class="space-y-3">
+
+          <!-- Target Return -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-data-xs font-medium text-text-secondary">Target Return (Annual)</label>
+              <span class="text-data-xs font-mono text-text">{{ (ips().targetReturn * 100).toFixed(1) }}%</span>
+            </div>
+            <input
+              type="range"
+              min="2"
+              max="30"
+              step="0.5"
+              [ngModel]="+(ips().targetReturn * 100).toFixed(1)"
+              (ngModelChange)="onTargetReturnChange($event)"
+              class="w-full h-2 appearance-none rounded-full bg-surface-inset accent-accent cursor-pointer" />
+            <div class="flex justify-between mt-1">
+              <span class="text-data-xs text-text-tertiary">2%</span>
+              <span class="text-data-xs text-text-tertiary">30%</span>
+            </div>
+          </div>
+
+          <!-- Max Volatility -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-data-xs font-medium text-text-secondary">Max Volatility (Annual)</label>
+              <span class="text-data-xs font-mono text-text">{{ (ips().maxVolatility * 100).toFixed(1) }}%</span>
+            </div>
+            <input
+              type="range"
+              min="3"
+              max="40"
+              step="0.5"
+              [ngModel]="+(ips().maxVolatility * 100).toFixed(1)"
+              (ngModelChange)="onMaxVolChange($event)"
+              class="w-full h-2 appearance-none rounded-full bg-surface-inset accent-accent cursor-pointer" />
+            <div class="flex justify-between mt-1">
+              <span class="text-data-xs text-text-tertiary">3%</span>
+              <span class="text-data-xs text-text-tertiary">40%</span>
+            </div>
+          </div>
+
+          <!-- Max Drawdown -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-data-xs font-medium text-text-secondary">Max Drawdown</label>
+              <span class="text-data-xs font-mono text-loss">{{ (ips().maxDrawdown * 100).toFixed(1) }}%</span>
+            </div>
+            <input
+              type="range"
+              min="3"
+              max="50"
+              step="0.5"
+              [ngModel]="+(Math.abs(ips().maxDrawdown) * 100).toFixed(1)"
+              (ngModelChange)="onMaxDrawdownChange($event)"
+              class="w-full h-2 appearance-none rounded-full bg-surface-inset accent-loss cursor-pointer" />
+            <div class="flex justify-between mt-1">
+              <span class="text-data-xs text-text-tertiary">-3%</span>
+              <span class="text-data-xs text-text-tertiary">-50%</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Rebalancing Frequency -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h3 class="text-data-sm font-medium text-text mb-3">Rebalancing Frequency</h3>
+        <select
+          [ngModel]="ips().rebalanceFrequency"
+          (ngModelChange)="onRebalanceChange($event)"
+          class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors">
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+          <option value="semi_annual">Semi-Annual</option>
+          <option value="annual">Annual</option>
+        </select>
+        <p class="mt-2 text-data-xs text-text-tertiary">
+          @switch (ips().rebalanceFrequency) {
+            @case ('monthly') { Portfolio reviewed and rebalanced every month. }
+            @case ('quarterly') { Portfolio reviewed and rebalanced every quarter. }
+            @case ('semi_annual') { Portfolio reviewed and rebalanced every 6 months. }
+            @case ('annual') { Portfolio reviewed and rebalanced once per year. }
+          }
+        </p>
+      </div>
+
+      <!-- IPS Name -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <label class="block text-data-xs font-medium text-text-secondary mb-1.5">IPS Name</label>
+        <input
+          type="text"
+          [ngModel]="ips().name"
+          (ngModelChange)="ipsChange.emit({ ...ips(), name: $event })"
+          class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
+          placeholder="e.g. Balanced Growth" />
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Summary Cards -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h3 class="text-data-sm font-medium text-text mb-3">Portfolio Summary</h3>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <app-stat-card label="Asset Count" [value]="summaryAssetCount()" subtitle="Selected positions" />
+      <app-stat-card
+        label="Total Weight"
+        [value]="summaryTotalWeight()"
+        [subtitle]="(totalWeight() >= 0.99 && totalWeight() <= 1.01) ? 'Fully allocated' : 'Adjust weights'" />
+      <app-stat-card label="Target Return" [value]="summaryTargetReturn()" subtitle="Annual target" />
+      <app-stat-card label="Max Volatility" [value]="summaryMaxVol()" subtitle="Annual constraint" />
+    </div>
+  </div>
+
+</div>

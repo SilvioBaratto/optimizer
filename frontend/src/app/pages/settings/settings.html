@@ -1,0 +1,375 @@
+<div class="flex-1 overflow-y-auto p-6">
+  <!-- Header -->
+  <app-page-header title="Settings" subtitle="Application configuration and preferences" />
+
+  @if (isLoading()) {
+    <!-- Loading skeleton -->
+    <div class="space-y-6">
+      <div class="h-10 skeleton rounded-lg w-full max-w-md"></div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="h-64 skeleton rounded-lg"></div>
+        <div class="h-64 skeleton rounded-lg"></div>
+      </div>
+      <div class="h-48 skeleton rounded-lg"></div>
+      <div class="h-32 skeleton rounded-lg"></div>
+    </div>
+  } @else if (hasError()) {
+    <!-- Error state -->
+    <div class="flex flex-col items-center justify-center py-20 px-4">
+      <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+      </svg>
+      <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
+      <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
+      <button (click)="retry()" class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors">
+        Try Again
+      </button>
+    </div>
+  } @else {
+    <!-- Tabs -->
+    <app-tab-group [tabs]="tabs" [activeTab]="activeTab()" (tabChange)="onTabChange($event)" />
+
+    <div class="mt-6">
+      <!-- ═══ DATA MANAGEMENT TAB ═══ -->
+      @if (activeTab() === 'data') {
+        <!-- Data Sources Table -->
+        <div class="mb-6">
+          <h3 class="text-data-sm font-medium text-text mb-3">Data Sources</h3>
+          <app-data-table
+            [columns]="dataSourceColumns"
+            [rows]="dataSourceRows"
+            [total]="dataSourceRows.length"
+            [pageSize]="10"
+            [showExport]="true"
+            exportFilename="data-sources" />
+        </div>
+
+        <!-- CSV Upload Dropzone (mock UI) -->
+        <div class="bg-surface-raised border border-border rounded-lg p-6 mb-6">
+          <h3 class="text-data-sm font-medium text-text mb-3">Import Data</h3>
+          <div class="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-accent/50 transition-colors cursor-pointer">
+            <svg class="mx-auto w-10 h-10 text-text-tertiary mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+            </svg>
+            <p class="text-data-sm text-text-secondary">Drop CSV or Excel files here</p>
+            <p class="text-label text-text-tertiary mt-1">Supports .csv, .xlsx, .xls formats</p>
+          </div>
+        </div>
+
+        <!-- Cache Management -->
+        <div class="bg-surface-raised border border-border rounded-lg p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-data-sm font-medium text-text">Cache Management</h3>
+              <p class="text-data-xs text-text-secondary mt-0.5">Clear cached price data and computed results</p>
+            </div>
+            <button
+              type="button"
+              class="px-4 py-2 rounded-lg text-data-xs font-medium transition-colors"
+              [class]="cacheCleared() ? 'bg-gain/15 text-gain' : 'bg-loss/15 text-loss hover:bg-loss/25'"
+              (click)="clearCache()">
+              {{ cacheCleared() ? 'Cleared' : 'Clear Cache' }}
+            </button>
+          </div>
+        </div>
+      }
+
+      <!-- ═══ PREFERENCES TAB ═══ -->
+      @if (activeTab() === 'preferences') {
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- General Preferences -->
+          <div class="bg-surface-raised border border-border rounded-lg p-4">
+            <h3 class="text-data-sm font-medium text-text mb-4">General</h3>
+            <div class="space-y-4">
+              <!-- Benchmark -->
+              <div>
+                <label class="block text-data-xs text-text-secondary mb-1">Default Benchmark</label>
+                <select
+                  class="w-full px-3 py-2 bg-surface-inset border border-border rounded-lg text-data-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                  [ngModel]="preferences().defaultBenchmark"
+                  (ngModelChange)="updatePreference('defaultBenchmark', $event)">
+                  <option value="SPY">SPY (S&P 500)</option>
+                  <option value="QQQ">QQQ (Nasdaq 100)</option>
+                  <option value="IWM">IWM (Russell 2000)</option>
+                  <option value="VTI">VTI (Total Market)</option>
+                  <option value="AGG">AGG (US Aggregate Bond)</option>
+                </select>
+              </div>
+
+              <!-- Refresh Interval -->
+              <div>
+                <label class="block text-data-xs text-text-secondary mb-1">Auto-Refresh Interval</label>
+                <select
+                  class="w-full px-3 py-2 bg-surface-inset border border-border rounded-lg text-data-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                  [ngModel]="preferences().autoRefreshInterval"
+                  (ngModelChange)="updatePreference('autoRefreshInterval', +$event)">
+                  <option [value]="15">15 seconds</option>
+                  <option [value]="30">30 seconds</option>
+                  <option [value]="60">1 minute</option>
+                  <option [value]="300">5 minutes</option>
+                  <option [value]="0">Disabled</option>
+                </select>
+              </div>
+
+              <!-- Currency -->
+              <div>
+                <label class="block text-data-xs text-text-secondary mb-1">Currency</label>
+                <select
+                  class="w-full px-3 py-2 bg-surface-inset border border-border rounded-lg text-data-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                  [ngModel]="preferences().currency"
+                  (ngModelChange)="updatePreference('currency', $event)">
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="CHF">CHF</option>
+                </select>
+              </div>
+
+              <!-- Date Format -->
+              <div>
+                <label class="block text-data-xs text-text-secondary mb-1">Date Format</label>
+                <select
+                  class="w-full px-3 py-2 bg-surface-inset border border-border rounded-lg text-data-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                  [ngModel]="preferences().dateFormat"
+                  (ngModelChange)="updatePreference('dateFormat', $event)">
+                  <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                  <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                  <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                </select>
+              </div>
+
+              <!-- Decimal Places -->
+              <div>
+                <label class="block text-data-xs text-text-secondary mb-1">Decimal Places</label>
+                <select
+                  class="w-full px-3 py-2 bg-surface-inset border border-border rounded-lg text-data-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                  [ngModel]="preferences().decimalPlaces"
+                  (ngModelChange)="updatePreference('decimalPlaces', +$event)">
+                  <option [value]="2">2</option>
+                  <option [value]="3">3</option>
+                  <option [value]="4">4</option>
+                </select>
+              </div>
+
+              <!-- Notifications Toggle -->
+              <div class="flex items-center justify-between">
+                <span class="text-data-xs text-text-secondary">Notifications</span>
+                <button
+                  type="button"
+                  class="relative w-10 h-5 rounded-full transition-colors"
+                  [class]="preferences().notificationsEnabled ? 'bg-accent' : 'bg-surface-inset'"
+                  (click)="updatePreference('notificationsEnabled', !preferences().notificationsEnabled)">
+                  <span class="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform"
+                        [class]="preferences().notificationsEnabled ? 'left-5.5' : 'left-0.5'"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Color Scheme Picker -->
+          <div class="bg-surface-raised border border-border rounded-lg p-4">
+            <h3 class="text-data-sm font-medium text-text mb-4">Chart Color Scheme</h3>
+            <div class="space-y-3">
+              @for (scheme of colorSchemes; track scheme.id) {
+                <button
+                  type="button"
+                  class="w-full flex items-center gap-3 p-3 rounded-lg border transition-colors"
+                  [class]="selectedColorScheme() === scheme.id ? 'border-accent bg-accent/5' : 'border-border hover:border-border-muted'"
+                  (click)="selectedColorScheme.set(scheme.id)">
+                  <div class="flex gap-1">
+                    @for (color of scheme.colors; track color) {
+                      <div class="w-5 h-5 rounded-full" [style.backgroundColor]="color"></div>
+                    }
+                  </div>
+                  <span class="text-data-xs text-text">{{ scheme.label }}</span>
+                  @if (selectedColorScheme() === scheme.id) {
+                    <svg class="ml-auto w-4 h-4 text-accent" fill="currentColor" viewBox="0 0 20 20">
+                      <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clip-rule="evenodd" />
+                    </svg>
+                  }
+                </button>
+              }
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- ═══ API & INTEGRATIONS TAB ═══ -->
+      @if (activeTab() === 'api') {
+        <!-- API Key Cards -->
+        <div class="mb-6">
+          <h3 class="text-data-sm font-medium text-text mb-3">API Keys</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            @for (key of apiKeys; track key.id) {
+              <div class="bg-surface-raised border border-border rounded-lg p-4">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-data-sm font-medium text-text">{{ key.name }}</span>
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-label font-medium capitalize"
+                        [class]="getApiStatusClass(key.status)">
+                    {{ key.status }}
+                  </span>
+                </div>
+                <div class="flex items-center gap-2 mb-2">
+                  <code class="flex-1 px-2 py-1 bg-surface-inset rounded text-data-xs font-mono text-text-secondary">
+                    {{ isKeyRevealed(key.id) ? 'sk-xxxx-xxxx-xxxx-' + key.maskedKey.slice(-4) : key.maskedKey }}
+                  </code>
+                  <button
+                    type="button"
+                    class="p-1.5 rounded text-text-secondary hover:text-text hover:bg-surface-inset transition-colors"
+                    (click)="toggleKeyReveal(key.id)">
+                    @if (isKeyRevealed(key.id)) {
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+                      </svg>
+                    } @else {
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                      </svg>
+                    }
+                  </button>
+                </div>
+                <div class="text-label text-text-tertiary">
+                  Validated: {{ key.lastValidated | date:'medium' }}
+                  @if (key.expiresAt) {
+                    <span class="ml-2">Expires: {{ key.expiresAt | date:'mediumDate' }}</span>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- MCP Server Status -->
+        <div class="mb-6">
+          <h3 class="text-data-sm font-medium text-text mb-3">MCP Servers</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            @for (server of mcpServers; track server.name) {
+              <div class="bg-surface-raised border border-border rounded-lg p-4">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="w-2 h-2 rounded-full" [class]="getMcpStatusClass(server.status)"
+                        [class.animate-pulse]="server.status === 'online'"></span>
+                  <span class="text-data-sm font-medium text-text">{{ server.name }}</span>
+                </div>
+                <p class="text-label text-text-tertiary font-mono mb-1">{{ server.endpoint }}</p>
+                <div class="flex items-center justify-between text-label">
+                  <span class="capitalize" [class]="server.status === 'online' ? 'text-gain' : server.status === 'degraded' ? 'text-warning' : 'text-loss'">
+                    {{ server.status }}
+                  </span>
+                  <span class="font-mono text-text-secondary">{{ server.latencyMs }}ms</span>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- Export Settings -->
+        <div class="bg-surface-raised border border-border rounded-lg p-4">
+          <h3 class="text-data-sm font-medium text-text mb-4">Export Settings</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-data-xs">
+            <div>
+              <label class="block text-text-secondary mb-1">PDF Page Size</label>
+              <select class="w-full px-3 py-2 bg-surface-inset border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                      [ngModel]="exportSettings().pdfPageSize"
+                      (ngModelChange)="updateExport('pdfPageSize', $event)">
+                <option value="A4">A4</option>
+                <option value="Letter">Letter</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-text-secondary mb-1">PDF Orientation</label>
+              <select class="w-full px-3 py-2 bg-surface-inset border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                      [ngModel]="exportSettings().pdfOrientation"
+                      (ngModelChange)="updateExport('pdfOrientation', $event)">
+                <option value="portrait">Portrait</option>
+                <option value="landscape">Landscape</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-text-secondary mb-1">CSV Delimiter</label>
+              <select class="w-full px-3 py-2 bg-surface-inset border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                      [ngModel]="exportSettings().csvDelimiter"
+                      (ngModelChange)="updateExport('csvDelimiter', $event)">
+                <option value=",">Comma (,)</option>
+                <option value=";">Semicolon (;)</option>
+                <option value="&#9;">Tab</option>
+              </select>
+            </div>
+            <div class="flex items-center gap-2 pt-5">
+              <input type="checkbox" id="excelCharts"
+                     class="w-4 h-4 rounded border-border text-accent focus:ring-accent"
+                     [checked]="exportSettings().excelIncludeCharts"
+                     (change)="toggleExcelCharts()" />
+              <label for="excelCharts" class="text-text-secondary">Include charts in Excel exports</label>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- ═══ SYSTEM TAB ═══ -->
+      @if (activeTab() === 'system') {
+        <!-- System Stats -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+          <app-stat-card label="Version" [value]="systemInfo.version" subtitle="Optimizer Platform" />
+          <app-stat-card label="Python" [value]="systemInfo.pythonVersion" subtitle="Runtime version" />
+          <app-stat-card label="Database" [value]="systemInfo.databaseVersion" [subtitle]="systemInfo.databaseSize" />
+          <app-stat-card label="Uptime" [value]="systemInfo.uptime" [subtitle]="'Last migration: ' + (systemInfo.lastMigration | date:'mediumDate')" />
+        </div>
+
+        <!-- Gauges -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          <div class="bg-surface-raised border border-border rounded-lg p-4">
+            <h3 class="text-data-sm font-medium text-text mb-2 text-center">CPU Usage</h3>
+            <app-echarts-gauge
+              [value]="systemInfo.cpuUsage * 100"
+              [min]="0"
+              [max]="100"
+              [thresholds]="cpuThresholds"
+              label="%"
+              [height]="160" />
+          </div>
+          <div class="bg-surface-raised border border-border rounded-lg p-4">
+            <h3 class="text-data-sm font-medium text-text mb-2 text-center">Memory Usage</h3>
+            <app-echarts-gauge
+              [value]="systemInfo.memoryUsage * 100"
+              [min]="0"
+              [max]="100"
+              [thresholds]="memThresholds"
+              label="%"
+              [height]="160" />
+          </div>
+        </div>
+
+        <!-- Log Viewer -->
+        <div class="bg-surface-inset border border-border rounded-lg">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-border">
+            <h3 class="text-data-sm font-medium text-text">System Logs</h3>
+            <div class="flex items-center gap-1">
+              @for (opt of logFilterOptions; track opt.value) {
+                <button
+                  type="button"
+                  class="px-2.5 py-1 rounded text-label transition-colors"
+                  [class]="logLevelFilter() === opt.value
+                    ? 'bg-accent/15 text-accent font-medium'
+                    : 'text-text-tertiary hover:text-text'"
+                  (click)="logLevelFilter.set(opt.value)">
+                  {{ opt.label }}
+                </button>
+              }
+            </div>
+          </div>
+          <div class="max-h-[400px] overflow-y-auto p-2">
+            @for (log of filteredLogs(); track log.timestamp + log.message) {
+              <div class="flex gap-3 px-2 py-1 font-mono text-label hover:bg-surface-raised/30 rounded">
+                <span class="shrink-0 text-text-tertiary">{{ log.timestamp | date:'HH:mm:ss' }}</span>
+                <span class="shrink-0 w-12 uppercase font-medium" [class]="getLogLevelClass(log.level)">{{ log.level }}</span>
+                <span class="shrink-0 text-text-secondary w-24 truncate">{{ log.source }}</span>
+                <span class="text-text-secondary">{{ log.message }}</span>
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+</div>

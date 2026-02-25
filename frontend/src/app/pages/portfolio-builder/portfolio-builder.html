@@ -1,0 +1,87 @@
+<div class="flex-1 overflow-y-auto p-6">
+
+  <!-- Page Header — always visible -->
+  <app-page-header
+    title="Portfolio Builder"
+    subtitle="Construct and manage investment portfolios">
+    <div actions class="flex gap-2">
+      <button class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+        Import CSV
+      </button>
+      <button class="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors">
+        Save Portfolio
+      </button>
+    </div>
+  </app-page-header>
+
+  @if (isLoading()) {
+    <!-- Loading skeleton -->
+    <div class="mt-6 space-y-4">
+      <!-- Tab group skeleton -->
+      <div class="flex gap-2 border-b border-border pb-2">
+        @for (i of [1,2,3]; track i) {
+          <div class="h-8 w-32 skeleton rounded-md"></div>
+        }
+      </div>
+      <!-- Content area skeleton -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-2 h-96 skeleton rounded-lg"></div>
+        <div class="space-y-3">
+          <div class="h-12 skeleton rounded-lg"></div>
+          <div class="h-12 skeleton rounded-lg"></div>
+          <div class="h-12 skeleton rounded-lg"></div>
+          <div class="h-12 skeleton rounded-lg"></div>
+        </div>
+      </div>
+    </div>
+  } @else if (hasError()) {
+    <!-- Error state -->
+    <div class="flex flex-col items-center justify-center py-20 px-4">
+      <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+      </svg>
+      <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
+      <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
+      <button (click)="retry()" class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
+        Try Again
+      </button>
+    </div>
+  } @else {
+
+    <!-- Tab Navigation -->
+    <app-tab-group
+      [tabs]="tabs"
+      [activeTab]="activeTab()"
+      (tabChange)="activeTab.set($event)" />
+
+    <!-- Tab Content -->
+    <div class="mt-6">
+      @switch (activeTab()) {
+
+        @case ('universe') {
+          <app-universe-panel
+            [tickers]="selectedTickers()"
+            (tickersChange)="onTickersChange($event)" />
+        }
+
+        @case ('weights') {
+          <app-weight-panel
+            [tickers]="selectedTickers()"
+            [constraints]="constraints()"
+            (constraintsChange)="onConstraintsChange($event)" />
+        }
+
+        @case ('ips') {
+          <app-ips-panel
+            [ips]="ips()"
+            [tickerCount]="selectedCount()"
+            [totalWeight]="totalWeight()"
+            (ipsChange)="onIpsChange($event)" />
+        }
+
+      }
+    </div>
+
+  } <!-- end @else -->
+
+</div>
