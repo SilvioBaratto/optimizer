@@ -2,7 +2,8 @@
   <!-- Header -->
   <app-page-header title="AI Control Room" subtitle="AI agent monitoring and orchestration">
     <div actions class="flex items-center gap-2">
-      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-data-xs font-medium bg-gain/15 text-gain">
+      <span
+        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-data-xs font-medium bg-gain/15 text-gain">
         <span class="w-1.5 h-1.5 rounded-full bg-gain animate-pulse"></span>
         Live
       </span>
@@ -10,395 +11,156 @@
   </app-page-header>
 
   @if (isLoading()) {
-    <!-- Loading skeleton -->
-    <div class="space-y-6">
-      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        @for (i of [1,2,3,4]; track i) {
-          <div class="h-24 skeleton rounded-lg"></div>
-        }
-      </div>
-      <div class="h-10 skeleton rounded-lg w-full max-w-md"></div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        @for (i of [1,2,3,4]; track i) {
-          <div class="h-32 skeleton rounded-lg"></div>
-        }
-      </div>
-      <div class="h-80 skeleton rounded-lg"></div>
+  <!-- Loading skeleton -->
+  <div class="space-y-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      @for (i of [1,2,3,4]; track i) {
+      <div class="h-24 skeleton rounded-lg"></div>
+      }
     </div>
+    <div class="h-10 skeleton rounded-lg w-full max-w-md"></div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      @for (i of [1,2,3,4]; track i) {
+      <div class="h-32 skeleton rounded-lg"></div>
+      }
+    </div>
+    <div class="h-80 skeleton rounded-lg"></div>
+  </div>
   } @else if (hasError()) {
-    <!-- Error state -->
-    <div class="flex flex-col items-center justify-center py-20 px-4">
-      <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-      </svg>
-      <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
-      <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
-      <button (click)="retry()" class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors">
-        Try Again
-      </button>
-    </div>
+  <!-- Error state -->
+  <div class="flex flex-col items-center justify-center py-20 px-4">
+    <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+      <path stroke-linecap="round" stroke-linejoin="round"
+        d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+    </svg>
+    <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
+    <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
+    <button (click)="retry()"
+      class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors">
+      Try Again
+    </button>
+  </div>
   } @else {
-    <!-- KPI Row -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-      <app-stat-card label="Decisions Today" [value]="totalDecisionsToday()" subtitle="Across all agents" />
-      <app-stat-card label="Active Agents" [value]="activeAgentCount() + ' / ' + agents.length" subtitle="Currently running" />
-      <app-stat-card label="Avg Confidence" [value]="avgConfidence()" subtitle="Weighted by decisions" />
-      <app-stat-card label="AI Fund NAV" [value]="fundNav()" subtitle="Total AUM" />
+  <!-- KPI Row -->
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+    <app-stat-card label="Decisions Today" [value]="totalDecisionsToday()" subtitle="Across all agents" />
+    <app-stat-card label="Active Agents" [value]="activeAgentCount() + ' / ' + agents.length"
+      subtitle="Currently running" />
+    <app-stat-card label="Avg Confidence" [value]="avgConfidence()" subtitle="Weighted by decisions" />
+  </div>
+
+  <!-- Tabs -->
+  <app-tab-group [tabs]="tabs()" [activeTab]="activeTab()" (tabChange)="onTabChange($event)" />
+
+  <div class="mt-6">
+    <!-- ═══ OVERVIEW TAB ═══ -->
+    @if (activeTab() === 'overview') {
+    <!-- Agent Status Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      @for (agent of agents; track agent.id) {
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full" [class]="getStatusDotClass(agent.status)"></span>
+            <span class="text-data-sm font-medium text-text">{{ agent.name }}</span>
+          </div>
+          <span class="text-label text-text-tertiary capitalize">{{ agent.status }}</span>
+        </div>
+        <p class="text-data-xs text-text-secondary mb-3 line-clamp-1">{{ agent.lastAction }}</p>
+        <!-- Confidence bar -->
+        <div class="mb-2">
+          <div class="flex items-center justify-between text-label text-text-tertiary mb-1">
+            <span>Confidence</span>
+            <span class="font-mono">{{ (agent.confidence * 100).toFixed(0) }}%</span>
+          </div>
+          <div class="h-1.5 bg-surface-inset rounded-full overflow-hidden">
+            <div class="h-full rounded-full bg-accent transition-all" [style.width.%]="agent.confidence * 100"></div>
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-label">
+          <span class="text-text-tertiary">Decisions today</span>
+          <span class="font-mono text-text">{{ agent.decisionsToday }}</span>
+        </div>
+      </div>
+      }
     </div>
 
-    <!-- Tabs -->
-    <app-tab-group [tabs]="tabs()" [activeTab]="activeTab()" (tabChange)="onTabChange($event)" />
-
-    <div class="mt-6">
-      <!-- ═══ OVERVIEW TAB ═══ -->
-      @if (activeTab() === 'overview') {
-        <!-- Agent Status Cards -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          @for (agent of agents; track agent.id) {
-            <div class="bg-surface-raised border border-border rounded-lg p-4">
-              <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-2">
-                  <span class="w-2 h-2 rounded-full" [class]="getStatusDotClass(agent.status)"></span>
-                  <span class="text-data-sm font-medium text-text">{{ agent.name }}</span>
-                </div>
-                <span class="text-label text-text-tertiary capitalize">{{ agent.status }}</span>
-              </div>
-              <p class="text-data-xs text-text-secondary mb-3 line-clamp-1">{{ agent.lastAction }}</p>
-              <!-- Confidence bar -->
-              <div class="mb-2">
-                <div class="flex items-center justify-between text-label text-text-tertiary mb-1">
-                  <span>Confidence</span>
-                  <span class="font-mono">{{ (agent.confidence * 100).toFixed(0) }}%</span>
-                </div>
-                <div class="h-1.5 bg-surface-inset rounded-full overflow-hidden">
-                  <div class="h-full rounded-full bg-accent transition-all" [style.width.%]="agent.confidence * 100"></div>
-                </div>
-              </div>
-              <div class="flex items-center justify-between text-label">
-                <span class="text-text-tertiary">Decisions today</span>
-                <span class="font-mono text-text">{{ agent.decisionsToday }}</span>
-              </div>
-            </div>
+    <!-- Decision Feed -->
+    <div class="bg-surface-inset border border-border rounded-lg">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-border">
+        <h3 class="text-data-sm font-medium text-text">Decision Feed</h3>
+        <div class="flex items-center gap-1">
+          @for (opt of feedFilterOptions; track opt.value) {
+          <button type="button" class="px-2.5 py-1 rounded text-label transition-colors" [class]="feedFilter() === opt.value
+                    ? 'bg-accent/15 text-accent font-medium'
+                    : 'text-text-tertiary hover:text-text'" (click)="feedFilter.set(opt.value)">
+            {{ opt.label }}
+          </button>
           }
         </div>
-
-        <!-- Decision Feed -->
-        <div class="bg-surface-inset border border-border rounded-lg">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-border">
-            <h3 class="text-data-sm font-medium text-text">Decision Feed</h3>
-            <div class="flex items-center gap-1">
-              @for (opt of feedFilterOptions; track opt.value) {
-                <button
-                  type="button"
-                  class="px-2.5 py-1 rounded text-label transition-colors"
-                  [class]="feedFilter() === opt.value
-                    ? 'bg-accent/15 text-accent font-medium'
-                    : 'text-text-tertiary hover:text-text'"
-                  (click)="feedFilter.set(opt.value)">
-                  {{ opt.label }}
-                </button>
-              }
-            </div>
-          </div>
-          <div class="max-h-[480px] overflow-y-auto">
-            @for (decision of filteredFeed(); track decision.id) {
-              <div
-                class="px-4 py-3 border-b border-border/50 hover:bg-surface-raised/50 cursor-pointer transition-colors"
-                (click)="toggleDecision(decision.id)">
-                <div class="flex items-start gap-3">
-                  <!-- Agent badge -->
-                  <span
-                    class="shrink-0 mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-label font-medium"
-                    [style.color]="getAgentColorVar(decision.agent)"
-                    [style.backgroundColor]="getAgentBgVar(decision.agent)">
-                    {{ getAgentLabel(decision.agent) }}
-                  </span>
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="text-data-sm text-text font-medium truncate">{{ decision.title }}</span>
-                      <span class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-label font-medium"
-                            [class]="getOutcomeBadge(decision.outcome).colorClass">
-                        {{ getOutcomeBadge(decision.outcome).value }}
-                      </span>
-                    </div>
-                    <div class="flex items-center gap-3 mt-1">
-                      <span class="font-mono text-label text-text-tertiary">{{ decision.timestamp | date:'MMM d, HH:mm' }}</span>
-                      <span class="inline-flex items-center px-1.5 py-0.5 rounded text-label"
-                            [class]="getTypeBadge(decision.type).colorClass">
-                        {{ getTypeBadge(decision.type).value }}
-                      </span>
-                      <span class="font-mono text-label text-text-tertiary">{{ (decision.confidence * 100).toFixed(0) }}%</span>
-                    </div>
-                    @if (isExpanded(decision.id)) {
-                      <div class="mt-2 p-3 bg-surface-raised rounded border border-border/50">
-                        <p class="text-data-xs text-text-secondary leading-relaxed">{{ decision.reasoning }}</p>
-                        @if (decision.impact) {
-                          <p class="mt-1.5 text-label text-text-tertiary">Impact: {{ decision.impact }}</p>
-                        }
-                      </div>
-                    }
-                  </div>
-                </div>
-              </div>
-            }
-          </div>
-        </div>
-      }
-
-      <!-- ═══ PORTFOLIO TAB ═══ -->
-      @if (activeTab() === 'portfolio') {
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <!-- Donut chart -->
-          <div class="bg-surface-raised border border-border rounded-lg p-4">
-            <h3 class="text-data-sm font-medium text-text mb-3">Holdings Allocation</h3>
-            <app-echarts-donut [segments]="holdingsDonutSegments()" [height]="240" />
-          </div>
-
-          <!-- Signals -->
-          <div class="bg-surface-raised border border-border rounded-lg p-4">
-            <h3 class="text-data-sm font-medium text-text mb-3">AI Signals</h3>
-            <div class="space-y-4">
-              @for (signal of fund.signals; track signal.name) {
-                <div>
-                  <div class="flex items-center justify-between mb-1">
-                    <span class="text-data-xs text-text-secondary">{{ signal.name }}</span>
-                    <span class="text-label font-medium capitalize"
-                          [class]="signal.label === 'bullish' ? 'text-gain' : signal.label === 'bearish' ? 'text-loss' : 'text-text-tertiary'">
-                      {{ signal.label }}
-                    </span>
-                  </div>
-                  <!-- Signal bar: centered at 0, extends left (bearish) or right (bullish) -->
-                  <div class="relative h-2 bg-surface-inset rounded-full overflow-hidden">
-                    <div class="absolute top-0 h-full rounded-full transition-all"
-                         [class]="getSignalColor(signal.label)"
-                         [style]="getSignalPosition(signal.value)"
-                         [style.width]="getSignalBarWidth(signal.value)">
-                    </div>
-                  </div>
-                  <p class="mt-0.5 text-label text-text-tertiary">{{ signal.description }}</p>
-                </div>
-              }
-            </div>
-          </div>
-
-          <!-- Risk Status -->
-          <div class="bg-surface-raised border border-border rounded-lg p-4">
-            <h3 class="text-data-sm font-medium text-text mb-3">Risk Limits</h3>
-            <div class="space-y-3">
-              @for (risk of fund.riskStatuses; track risk.metric) {
-                <div>
-                  <div class="flex items-center justify-between mb-1">
-                    <span class="text-data-xs text-text-secondary">{{ risk.metric }}</span>
-                    <span class="font-mono text-label"
-                          [class]="risk.status === 'ok' ? 'text-gain' : risk.status === 'warning' ? 'text-warning' : 'text-loss'">
-                      {{ (risk.utilization * 100).toFixed(0) }}%
-                    </span>
-                  </div>
-                  <div class="h-1.5 bg-surface-inset rounded-full overflow-hidden">
-                    <div class="h-full rounded-full transition-all"
-                         [class]="getRiskBarClass(risk.status)"
-                         [style.width]="getRiskBarWidth(risk.utilization)">
-                    </div>
-                  </div>
-                </div>
-              }
-            </div>
-          </div>
-        </div>
-
-        <!-- Holdings Table -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4">
-          <h3 class="text-data-sm font-medium text-text mb-3">Fund Holdings</h3>
-          <div class="overflow-x-auto">
-            <table class="w-full text-data-xs">
-              <thead>
-                <tr class="border-b border-border">
-                  <th class="text-left py-2 px-2 text-text-secondary font-medium">Ticker</th>
-                  <th class="text-left py-2 px-2 text-text-secondary font-medium">Sector</th>
-                  <th class="text-right py-2 px-2 text-text-secondary font-medium">Weight</th>
-                  <th class="text-right py-2 px-2 text-text-secondary font-medium">SAA Target</th>
-                  <th class="text-right py-2 px-2 text-text-secondary font-medium">TAA Tilt</th>
-                  <th class="text-right py-2 px-2 text-text-secondary font-medium">MTD</th>
-                  <th class="text-right py-2 px-2 text-text-secondary font-medium">YTD</th>
-                  <th class="text-left py-2 px-2 text-text-secondary font-medium">TAA Reasoning</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (h of fund.holdings; track h.ticker) {
-                  <tr class="border-b border-border/50 hover:bg-surface-inset/50">
-                    <td class="py-2 px-2 font-mono font-medium text-text">{{ h.ticker }}</td>
-                    <td class="py-2 px-2 text-text-secondary">{{ h.sector }}</td>
-                    <td class="py-2 px-2 text-right font-mono text-text">{{ formatPercent(h.weight) }}</td>
-                    <td class="py-2 px-2 text-right font-mono text-text-secondary">{{ formatPercent(h.saaTarget) }}</td>
-                    <td class="py-2 px-2 text-right font-mono" [class]="h.taaTilt > 0 ? 'text-gain' : h.taaTilt < 0 ? 'text-loss' : 'text-text-tertiary'">
-                      {{ h.taaTilt > 0 ? '+' : '' }}{{ formatPercent(h.taaTilt) }}
-                    </td>
-                    <td class="py-2 px-2 text-right font-mono" [class]="h.returnMtd > 0 ? 'text-gain' : h.returnMtd < 0 ? 'text-loss' : 'text-flat'">
-                      {{ formatPercent(h.returnMtd) }}
-                    </td>
-                    <td class="py-2 px-2 text-right font-mono" [class]="h.returnYtd > 0 ? 'text-gain' : h.returnYtd < 0 ? 'text-loss' : 'text-flat'">
-                      {{ formatPercent(h.returnYtd) }}
-                    </td>
-                    <td class="py-2 px-2 text-text-tertiary text-label max-w-[200px] truncate">{{ h.taaReasoning }}</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        </div>
-      }
-
-      <!-- ═══ HISTORY TAB ═══ -->
-      @if (activeTab() === 'history') {
-        <app-data-table
-          [columns]="historyColumns"
-          [rows]="historyRows()"
-          [total]="historyRows().length"
-          [pageSize]="15"
-          [showExport]="true"
-          exportFilename="ai-decisions"
-          [stickyHeader]="true" />
-      }
-
-      <!-- ═══ AGENTS TAB ═══ -->
-      @if (activeTab() === 'agents') {
-        <!-- Workflow Pipeline -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4 mb-6">
-          <h3 class="text-data-sm font-medium text-text mb-4">Orchestration Pipeline</h3>
-          <div class="flex items-center gap-0 overflow-x-auto pb-2">
-            @for (step of workflow; track step.step; let i = $index; let last = $last) {
-              <div class="flex items-center shrink-0">
-                <div class="flex flex-col items-center gap-1.5">
-                  <div class="w-10 h-10 rounded-full flex items-center justify-center text-data-xs font-medium"
-                       [class]="getWorkflowStepStatusClass(step.status)">
-                    {{ i + 1 }}
-                  </div>
-                  <span class="text-label text-text-secondary whitespace-nowrap">{{ step.label }}</span>
-                  @if (step.detail) {
-                    <span class="text-label text-text-tertiary whitespace-nowrap max-w-[100px] truncate">{{ step.detail }}</span>
-                  }
-                </div>
-                @if (!last) {
-                  <div class="w-8 h-0.5 mx-1 mt-[-20px]" [class]="getWorkflowConnectorClass(step.status)"></div>
-                }
-              </div>
-            }
-          </div>
-        </div>
-
-        <!-- Veto Log -->
-        <div class="mb-6">
-          <h3 class="text-data-sm font-medium text-text mb-3">Veto Log</h3>
-          <app-data-table
-            [columns]="vetoColumns"
-            [rows]="vetoRows()"
-            [total]="vetoRows().length"
-            [pageSize]="10"
-            [dense]="true"
-            [showExport]="true"
-            exportFilename="veto-log" />
-        </div>
-
-        <!-- Agent Config Cards -->
-        <h3 class="text-data-sm font-medium text-text mb-3">Agent Configuration</h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          @for (config of agentConfigs; track config.role) {
-            <div class="bg-surface-raised border border-border rounded-lg p-4">
-              <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-2">
-                  <span class="w-2 h-2 rounded-full"
-                        [style.backgroundColor]="getAgentColorVar(config.role)"></span>
-                  <span class="text-data-sm font-medium text-text">{{ config.name }}</span>
-                </div>
-                <span class="text-label px-2 py-0.5 rounded capitalize"
-                      [class]="config.autonomyLevel === 'full' ? 'bg-gain/15 text-gain' : config.autonomyLevel === 'supervised' ? 'bg-accent/15 text-accent' : 'bg-surface-inset text-text-tertiary'">
-                  {{ config.autonomyLevel }}
+      </div>
+      <div class="max-h-120 overflow-y-auto">
+        @for (decision of filteredFeed(); track decision.id) {
+        <div class="px-4 py-3 border-b border-border/50 hover:bg-surface-raised/50 cursor-pointer transition-colors"
+          (click)="toggleDecision(decision.id)">
+          <div class="flex items-start gap-3">
+            <!-- Agent badge -->
+            <span class="shrink-0 mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-label font-medium"
+              [style.color]="getAgentColorVar(decision.agent)" [style.backgroundColor]="getAgentBgVar(decision.agent)">
+              {{ getAgentLabel(decision.agent) }}
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-data-sm text-text font-medium truncate">{{ decision.title }}</span>
+                <span class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-label font-medium"
+                  [class]="getOutcomeBadge(decision.outcome).colorClass">
+                  {{ getOutcomeBadge(decision.outcome).value }}
                 </span>
               </div>
-              <div class="space-y-2 text-data-xs">
-                <div class="flex justify-between">
-                  <span class="text-text-secondary">LLM Model</span>
-                  <span class="font-mono text-text">{{ config.llmModel }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-text-secondary">Temperature</span>
-                  <span class="font-mono text-text">{{ config.temperature }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-text-secondary">Frequency</span>
-                  <span class="text-text">{{ config.frequency }}</span>
-                </div>
-                <div>
-                  <div class="flex justify-between mb-1">
-                    <span class="text-text-secondary">Cost Budget</span>
-                    <span class="font-mono text-text">${{ config.costUsedToday.toFixed(2) }} / ${{ config.costBudgetDaily.toFixed(2) }}</span>
-                  </div>
-                  <div class="h-1.5 bg-surface-inset rounded-full overflow-hidden">
-                    <div class="h-full rounded-full transition-all"
-                         [class]="getCostPercentage(config.costUsedToday, config.costBudgetDaily) > 80 ? 'bg-warning' : 'bg-accent'"
-                         [style.width.%]="getCostPercentage(config.costUsedToday, config.costBudgetDaily)">
-                    </div>
-                  </div>
-                </div>
+              <div class="flex items-center gap-3 mt-1">
+                <span class="font-mono text-label text-text-tertiary">{{ decision.timestamp | date:'MMM d, HH:mm'
+                  }}</span>
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-label"
+                  [class]="getTypeBadge(decision.type).colorClass">
+                  {{ getTypeBadge(decision.type).value }}
+                </span>
+                <span class="font-mono text-label text-text-tertiary">{{ (decision.confidence * 100).toFixed(0)
+                  }}%</span>
               </div>
-            </div>
-          }
-        </div>
-
-        <!-- Orchestration Settings -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4">
-          <h3 class="text-data-sm font-medium text-text mb-3">Orchestration Settings</h3>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-data-xs">
-            <div>
-              <span class="text-text-secondary block mb-1">Veto System</span>
-              <span class="font-medium" [class]="orchestration.vetoEnabled ? 'text-gain' : 'text-loss'">
-                {{ orchestration.vetoEnabled ? 'Enabled' : 'Disabled' }}
-              </span>
-            </div>
-            <div>
-              <span class="text-text-secondary block mb-1">Conflict Resolution</span>
-              <span class="font-medium text-text capitalize">{{ orchestration.conflictResolution.replace('_', ' ') }}</span>
-            </div>
-            <div>
-              <span class="text-text-secondary block mb-1">Max Latency</span>
-              <span class="font-mono font-medium text-text">{{ orchestration.maxLatencyMs.toLocaleString() }}ms</span>
+              @if (isExpanded(decision.id)) {
+              <div class="mt-2 p-3 bg-surface-raised rounded border border-border/50">
+                <p class="text-data-xs text-text-secondary leading-relaxed">{{ decision.reasoning }}</p>
+                @if (decision.impact) {
+                <p class="mt-1.5 text-label text-text-tertiary">Impact: {{ decision.impact }}</p>
+                }
+              </div>
+              }
             </div>
           </div>
         </div>
-      }
-
-      <!-- ═══ COMPARE TAB ═══ -->
-      @if (activeTab() === 'compare') {
-        <!-- Metrics comparison -->
-        <div class="mb-6">
-          <h3 class="text-data-sm font-medium text-text mb-3">Performance Comparison</h3>
-          <app-data-table
-            [columns]="comparisonColumns"
-            [rows]="comparisonRows()"
-            [total]="comparisonRows().length"
-            [pageSize]="20"
-            [dense]="true"
-            [showCopy]="true" />
-        </div>
-
-        <!-- Equity Curve -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4 mb-6">
-          <h3 class="text-data-sm font-medium text-text mb-3">Equity Curve (Indexed to 100)</h3>
-          <div #equityChart class="w-full" style="height: 320px"></div>
-        </div>
-
-        <!-- Decision Divergences -->
-        <div>
-          <h3 class="text-data-sm font-medium text-text mb-3">Decision Divergences</h3>
-          <app-data-table
-            [columns]="divergenceColumns"
-            [rows]="divergenceRows()"
-            [total]="divergenceRows().length"
-            [pageSize]="15"
-            [showExport]="true"
-            exportFilename="decision-divergences" />
-        </div>
-      }
+        }
+      </div>
     </div>
+    }
+
+    <!-- ═══ HISTORY TAB ═══ -->
+    @if (activeTab() === 'history') {
+    <app-data-table [columns]="historyColumns" [rows]="historyRows()" [total]="historyRows().length" [pageSize]="15"
+      [showExport]="true" exportFilename="ai-decisions" [stickyHeader]="true" />
+    }
+
+    <!-- ═══ AGENTS TAB ═══ -->
+    @if (activeTab() === 'agents') {
+
+    <!-- Veto Log -->
+    <div class="mb-6">
+      <h3 class="text-data-sm font-medium text-text mb-3">Veto Log</h3>
+      <app-data-table [columns]="vetoColumns" [rows]="vetoRows()" [total]="vetoRows().length" [pageSize]="10"
+        [dense]="true" [showExport]="true" exportFilename="veto-log" />
+    </div>
+
+    }
+
+  </div>
   }
 </div>

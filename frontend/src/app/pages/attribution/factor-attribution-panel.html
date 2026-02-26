@@ -1,32 +1,24 @@
 <div class="space-y-6">
   <!-- KPI Summary Cards -->
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+  <div class="grid grid-cols-3 gap-3 sm:gap-4">
     <app-stat-card label="R-Squared" [value]="kpiRSquared()" subtitle="Factor explanatory power" />
     <app-stat-card label="Specific Return" [value]="kpiSpecificReturn()" subtitle="Residual / idiosyncratic" />
-    <app-stat-card label="Total Factor Contribution" [value]="kpiTotalFactorContribution()" subtitle="Sum of all factor contributions" />
+    <app-stat-card label="Total Factor Contribution" [value]="kpiTotalFactorContribution()"
+      subtitle="Sum of all factor contributions" />
   </div>
 
   <!-- Factor Contribution Table -->
   <div class="bg-surface-raised border border-border rounded-lg p-4">
     <h3 class="text-data-sm font-medium text-text mb-3">Factor Contribution Detail</h3>
-    <app-data-table
-      [columns]="factorTableColumns"
-      [rows]="factorTableRows()"
-      [total]="factorTableRows().length"
-      [pageSize]="15"
-      [dense]="true"
-    />
+    <app-data-table [columns]="factorTableColumns" [rows]="factorTableRows()" [total]="factorTableRows().length"
+      [pageSize]="15" [dense]="true" />
   </div>
 
   <!-- Rolling Contribution Stacked Area -->
   <div class="bg-surface-raised border border-border rounded-lg p-4">
     <h3 class="text-data-sm font-medium text-text mb-3">Rolling Factor Contribution (12M)</h3>
     <app-chart-toolbar [showDataTable]="false">
-      <app-echarts-stacked-area
-        [labels]="rollingLabels"
-        [series]="rollingAreaSeries()"
-        [height]="320"
-      />
+      <app-echarts-stacked-area [labels]="rollingLabels" [series]="rollingAreaSeries()" [height]="320" />
     </app-chart-toolbar>
   </div>
 </div>

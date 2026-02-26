@@ -3,37 +3,25 @@
   <div class="bg-surface-raised border border-border rounded-lg p-4">
     <h3 class="text-data-sm font-medium text-text mb-3">Effect Summary</h3>
     <app-chart-toolbar [showDataTable]="false">
-      <app-echarts-waterfall
-        [categories]="waterfallCategories()"
-        [values]="waterfallValues()"
-        [height]="260"
-      />
+      <app-echarts-waterfall [categories]="waterfallCategories()" [values]="waterfallValues()" [height]="260" />
     </app-chart-toolbar>
   </div>
 
   <!-- Sector Detail Table -->
   <div class="bg-surface-raised border border-border rounded-lg p-4">
-    <h3 class="text-data-sm font-medium text-text mb-3">Sector Attribution Detail</h3>
-    <app-data-table
-      [columns]="sectorTableColumns"
-      [rows]="sectorTableRows()"
-      [total]="sectorTableRows().length"
-      [pageSize]="15"
-      [dense]="true"
-      [showExport]="true"
-      exportFilename="brinson-attribution"
-    />
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-data-sm font-medium text-text">Sector Attribution Detail</h3>
+      <span class="text-xs text-text-tertiary sm:hidden">Swipe to see more &rarr;</span>
+    </div>
+    <app-data-table [columns]="sectorTableColumns" [rows]="sectorTableRows()" [total]="sectorTableRows().length"
+      [pageSize]="15" [dense]="true" [showExport]="true" [stickyFirstColumn]="true" exportFilename="brinson-attribution" />
   </div>
 
   <!-- Cumulative Attribution Stacked Area -->
   <div class="bg-surface-raised border border-border rounded-lg p-4">
     <h3 class="text-data-sm font-medium text-text mb-3">Cumulative Attribution by Sector</h3>
     <app-chart-toolbar [showDataTable]="false">
-      <app-echarts-stacked-area
-        [labels]="cumulativeAreaLabels()"
-        [series]="cumulativeAreaSeries()"
-        [height]="320"
-      />
+      <app-echarts-stacked-area [labels]="cumulativeAreaLabels()" [series]="cumulativeAreaSeries()" [height]="320" />
     </app-chart-toolbar>
   </div>
 </div>

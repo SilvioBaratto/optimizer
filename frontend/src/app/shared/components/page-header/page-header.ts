@@ -14,7 +14,7 @@ import { Component, input, computed, ChangeDetectionStrategy } from '@angular/co
           <p class="text-data-xs text-text-tertiary mt-0.5">Updated {{ relativeTime() }}</p>
         }
       </div>
-      <div class="flex items-center gap-2 mt-2 sm:mt-0">
+      <div class="flex flex-wrap items-center gap-2 mt-2 sm:mt-0">
         <ng-content select="[actions]" />
       </div>
     </header>

@@ -4,7 +4,7 @@ import { ExportReportModalComponent } from '../../shared/modal/export-report-mod
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
-import { EchartsGaugeComponent } from '../../shared/echarts-gauge/echarts-gauge';
+
 import { FormatService } from '../../services/format.service';
 import { MockFetchService } from '../../services/mock-fetch.service';
 import { VarPanelComponent } from './var-panel';
@@ -32,7 +32,7 @@ import type { VaRMethod, RiskAlert, RiskLimit } from '../../models/risk.model';
     PageHeaderComponent,
     TabGroupComponent,
     StatCardComponent,
-    EchartsGaugeComponent,
+
     VarPanelComponent,
     StressPanelComponent,
     CorrelationPanelComponent,
@@ -108,22 +108,11 @@ export class RiskCenterComponent {
     MOCK_VAR_RESULTS.filter(r => r.method === this.varMethod()),
   );
 
-  kpiVar95 = computed(() => this.fmt.formatCurrency(this.activeVarResult().varDollar));
-  kpiVar99 = computed(() => this.fmt.formatCurrency(this.var99Result().varDollar));
-  kpiCvar = computed(() => this.fmt.formatCurrency(this.activeVarResult().cvarDollar));
+  kpiVar95 = computed(() => this.fmt.formatCurrencyCompact(this.activeVarResult().varDollar));
+  kpiVar99 = computed(() => this.fmt.formatCurrencyCompact(this.var99Result().varDollar));
+  kpiCvar = computed(() => this.fmt.formatCurrencyCompact(this.activeVarResult().cvarDollar));
   kpiVol = computed(() => this.fmt.formatPercent(0.142));
 
-  riskBudgetUsed = computed(() => {
-    const current = this.activeVarResult().var;
-    const limit = 0.025;
-    return Math.round((Math.abs(current) / limit) * 100);
-  });
-
-  gaugeThresholds = [
-    { value: 60, color: 'var(--color-gain)' },
-    { value: 80, color: 'var(--color-chart-4)' },
-    { value: 100, color: 'var(--color-loss)' },
-  ];
 
   alertBadge = computed(() => {
     const unacked = this.alerts().filter(a => !a.acknowledged).length;

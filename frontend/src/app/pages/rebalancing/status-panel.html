@@ -26,12 +26,12 @@
     <h3 class="text-data-sm font-medium text-text mb-3">Trigger Status</h3>
     <div class="flex items-center gap-3">
       @if (hasBreaches()) {
-        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-data-sm font-medium bg-red-500/15 text-red-400">
-          <span class="w-2 h-2 rounded-full bg-red-400 animate-pulse"></span>
+        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-data-sm font-medium bg-red-500/15 text-red-600 dark:text-red-400">
+          <span class="w-2 h-2 rounded-full bg-red-400 animate-pulse motion-reduce:animate-none"></span>
           {{ breachedCount() }} asset{{ breachedCount() === 1 ? '' : 's' }} breached — rebalancing recommended
         </span>
       } @else {
-        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-data-sm font-medium bg-emerald-500/15 text-emerald-400">
+        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-data-sm font-medium bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
           <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
           All assets within threshold — no rebalancing required
         </span>

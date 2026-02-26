@@ -26,7 +26,7 @@
     </div>
   } @else {
     <!-- KPI Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+    <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
       <app-stat-card label="Max Drift" [value]="kpiMaxDrift()" subtitle="Largest absolute deviation" />
       <app-stat-card label="Breached Assets" [value]="kpiBreachedAssets()" subtitle="Above threshold" />
       <app-stat-card label="Active Policy" [value]="kpiActivePolicy()" subtitle="Current rebalancing rule" />

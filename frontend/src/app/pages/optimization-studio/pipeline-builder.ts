@@ -12,7 +12,7 @@ export class PipelineBuilderComponent {
 
   nodeSelect = output<string>();
 
-  completedCount = computed(() => this.nodes().filter(n => n.status === 'completed').length);
+  completedCount = computed(() => this.nodes().filter((n) => n.status === 'completed').length);
   totalCount = computed(() => this.nodes().length);
 
   statusColor(status: PipelineNodeStatus): string {
@@ -36,15 +36,10 @@ export class PipelineBuilderComponent {
   }
 
   cardClass(nodeId: string): string {
-    const base = 'flex-shrink-0 w-36 p-3 rounded-lg border transition-all cursor-pointer text-left';
+    const base = 'shrink-0 w-40 sm:w-44 p-3 rounded-lg border transition-all cursor-pointer text-left snap-start';
     return nodeId === this.activeNode()
       ? `${base} border-accent bg-accent/5`
       : `${base} border-border bg-surface-raised hover:border-border-muted`;
   }
 
-  formatDuration(ms: number | undefined): string {
-    if (ms === undefined) return '';
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  }
 }

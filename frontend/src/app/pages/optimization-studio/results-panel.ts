@@ -24,6 +24,11 @@ export class ResultsPanelComponent {
     return optimal ? { x: optimal.risk, y: optimal.return, label: optimal.label } : null;
   });
 
+  readonly highlightedPoints = computed<ScatterPoint[]>(() => {
+    const minVar = MOCK_EFFICIENT_FRONTIER_POINTS.find(p => p.label === 'Min Variance');
+    return minVar ? [{ x: minVar.risk, y: minVar.return, label: minVar.label }] : [];
+  });
+
   readonly bestStrategy = computed(() =>
     MOCK_STRATEGY_COMPARISONS.reduce((best, s) =>
       s.sharpe > best.sharpe ? s : best,
@@ -36,8 +41,8 @@ export class ResultsPanelComponent {
     return [
       { label: 'Sharpe Ratio', value: best.sharpe.toFixed(3), trend: 'up' as const },
       { label: 'Annual Return', value: `${(best.annualizedReturn * 100).toFixed(1)}%`, trend: 'up' as const },
-      { label: 'Annual Vol', value: `${(best.annualizedVol * 100).toFixed(1)}%`, trend: 'down' as const },
-      { label: 'Max Drawdown', value: `${(best.maxDrawdown * 100).toFixed(1)}%`, trend: 'down' as const },
+      { label: 'Annual Vol', value: `${(best.annualizedVol * 100).toFixed(1)}%`, trend: 'flat' as const },
+      { label: 'Max Drawdown', value: `${(best.maxDrawdown * 100).toFixed(1)}%`, trend: 'flat' as const },
     ];
   });
 

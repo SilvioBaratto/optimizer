@@ -26,6 +26,7 @@ export interface ScatterPoint {
 export class EchartsScatterComponent implements OnDestroy, ChartExportable {
   frontierPoints = input<ScatterPoint[]>([]);
   optimalPoint = input<ScatterPoint | null>(null);
+  highlightedPoints = input<ScatterPoint[]>([]);
   height = input(280);
 
   private readonly container = viewChild.required<ElementRef<HTMLElement>>('container');
@@ -36,8 +37,10 @@ export class EchartsScatterComponent implements OnDestroy, ChartExportable {
     afterNextRender(() => this.initChart());
     effect(() => {
       const pts = this.frontierPoints();
+      const highlighted = this.highlightedPoints();
+      const optimal = this.optimalPoint();
       if (this.chart && pts.length > 0) {
-        this.chart.setOption(this.buildOption(pts, this.optimalPoint()));
+        this.chart.setOption(this.buildOption(pts, optimal, highlighted));
       }
     });
   }
@@ -54,16 +57,21 @@ export class EchartsScatterComponent implements OnDestroy, ChartExportable {
 
     const el = this.container().nativeElement;
     this.chart = init(el, 'portfolio', { renderer: 'canvas' });
-    this.chart.setOption(this.buildOption(this.frontierPoints(), this.optimalPoint()));
+    this.chart.setOption(this.buildOption(this.frontierPoints(), this.optimalPoint(), this.highlightedPoints()));
 
     this.ro = new ResizeObserver(() => this.chart?.resize());
     this.ro.observe(el);
   }
 
-  private buildOption(pts: ScatterPoint[], optimal: ScatterPoint | null): EChartsCoreOption {
+  private buildOption(
+    pts: ScatterPoint[],
+    optimal: ScatterPoint | null,
+    highlighted: ScatterPoint[],
+  ): EChartsCoreOption {
     const style = getComputedStyle(document.documentElement);
     const chart7 = style.getPropertyValue('--color-chart-7').trim();
     const chart1 = style.getPropertyValue('--color-chart-1').trim();
+    const chart3 = style.getPropertyValue('--color-chart-3').trim();
     const textColor = style.getPropertyValue('--color-text').trim();
 
     const frontierData = pts.map(p => [+(p.x * 100).toFixed(3), +(p.y * 100).toFixed(3)]);
@@ -75,33 +83,33 @@ export class EchartsScatterComponent implements OnDestroy, ChartExportable {
         type: 'line',
         data: frontierData,
         smooth: true,
-        lineStyle: { color: chart7, width: 1.5 },
+        lineStyle: { color: chart7, width: 2 },
         itemStyle: { color: chart7 },
         symbol: 'none',
         z: 1,
       },
-      {
-        name: 'Frontier Points',
-        type: 'scatter',
-        data: frontierData,
-        symbolSize: 5,
-        itemStyle: { color: chart7, opacity: 0.7 },
-        z: 2,
-      },
     ];
 
-    if (optimal) {
+    const colors = [chart1, chart3];
+    const allPoints = [
+      ...(optimal ? [optimal] : []),
+      ...highlighted,
+    ];
+
+    for (let i = 0; i < allPoints.length; i++) {
+      const pt = allPoints[i];
+      const color = colors[i % colors.length];
       series.push({
-        name: 'Optimal Portfolio',
+        name: pt.label ?? `Portfolio ${i + 1}`,
         type: 'scatter',
-        data: [[+(optimal.x * 100).toFixed(3), +(optimal.y * 100).toFixed(3)]],
-        symbolSize: 14,
-        itemStyle: { color: chart1, borderColor: '#ffffff', borderWidth: 2 },
+        data: [[+(pt.x * 100).toFixed(3), +(pt.y * 100).toFixed(3)]],
+        symbolSize: 12,
+        itemStyle: { color, borderColor: '#ffffff', borderWidth: 2 },
         z: 10,
         label: {
           show: true,
-          formatter: optimal.label ?? 'Optimal',
-          position: 'top',
+          formatter: pt.label ?? '',
+          position: i === 0 ? 'top' : 'right',
           color: textColor,
           fontSize: 11,
           fontWeight: 'bold',
@@ -110,10 +118,7 @@ export class EchartsScatterComponent implements OnDestroy, ChartExportable {
     }
 
     return {
-      legend: {
-        bottom: 0,
-        data: ['Frontier Points', 'Optimal Portfolio'],
-      },
+      legend: { show: false },
       tooltip: {
         trigger: 'item',
         formatter: (params: unknown) => {
@@ -121,7 +126,7 @@ export class EchartsScatterComponent implements OnDestroy, ChartExportable {
           return `${p.seriesName}<br/>Risk: ${p.value[0].toFixed(2)}%<br/>Return: ${p.value[1].toFixed(2)}%`;
         },
       },
-      grid: { left: 50, right: 16, top: 16, bottom: 40 },
+      grid: { left: 50, right: 16, top: 24, bottom: 24 },
       xAxis: {
         type: 'value',
         name: 'Risk (\u03c3 %)',

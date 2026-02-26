@@ -81,7 +81,7 @@ export class EchartsBarComponent implements OnDestroy, ChartExportable {
           return `${p.name}: ${p.value >= 0 ? '+' : ''}${p.value.toFixed(2)}%`;
         },
       },
-      grid: { left: 40, right: 10, top: 10, bottom: 50 },
+      grid: { left: 10, right: 10, top: 10, bottom: 10, containLabel: true },
       xAxis: {
         type: 'category',
         data: labels,

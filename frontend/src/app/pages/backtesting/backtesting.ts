@@ -68,6 +68,19 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   readonly styleWindow = signal<'1Y' | '3Y'>('1Y');
   readonly logScale = signal(false);
 
+  // ── Backtest configuration (user-selectable) ─────────────────────────────
+  readonly selectedBenchmark = signal('SPY');
+  readonly selectedStartDate = signal('2021-03-01');
+  readonly selectedEndDate = signal('2026-02-25');
+
+  readonly benchmarks = [
+    { label: 'SPY', value: 'SPY' },
+    { label: 'MSCI World (URTH)', value: 'URTH' },
+    { label: '60/40 Balanced (VBINX)', value: 'VBINX' },
+    { label: 'QQQ', value: 'QQQ' },
+    { label: 'IWM', value: 'IWM' },
+  ];
+
   // ── Static data ────────────────────────────────────────────────────────────
   readonly config = MOCK_BACKTEST_CONFIG;
   readonly result = MOCK_BACKTEST_RESULT;
@@ -281,7 +294,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   // ── Rolling factor exposure stacked area (uses styleWindow) ──────────────
   readonly rollingExposureSeries = computed<AreaSeries[]>(() => {
     const chartColors = Array.from({ length: 6 }, (_, i) =>
-      `var(--color-chart-${i + 1})`
+      readCssVar(`--color-chart-${i + 1}`)
     );
     return this.result.factorLoadings.map((f, i) => ({
       name: f.factor,
@@ -324,13 +337,23 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   constructor() {
     this.loadData();
 
-    // Init overview charts when containers appear in DOM (after loading state resolves)
-    effect(() => {
+    // Init/dispose overview charts when containers appear/disappear (tab or loading change)
+    effect((onCleanup) => {
       const eqEl = this.equityContainer();
       const uwEl = this.underwaterContainer();
       if (eqEl && uwEl && !this.equityChart) {
         void this.initOverviewCharts();
       }
+      onCleanup(() => {
+        this.equityRo?.disconnect();
+        this.equityChart?.dispose();
+        this.equityChart = undefined;
+        this.equityRo = undefined;
+        this.underwaterRo?.disconnect();
+        this.underwaterChart?.dispose();
+        this.underwaterChart = undefined;
+        this.underwaterRo = undefined;
+      });
     });
 
     // Re-render equity chart on log scale toggle
@@ -341,14 +364,42 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
       }
     });
 
-    // Lazy-init charts when their tab becomes active
-    effect(() => {
-      const tab = this.activeTab();
-      if (tab === 'rolling') {
-        setTimeout(() => void this.initRollingCharts(), 0);
-      } else if (tab === 'distribution') {
-        setTimeout(() => void this.initQQChart(), 0);
+    // Init/dispose rolling charts when their tab becomes active/inactive
+    effect((onCleanup) => {
+      const sharpeEl = this.rollingSharpeContainer();
+      const volEl = this.rollingVolContainer();
+      const betaEl = this.rollingBetaContainer();
+      if (sharpeEl && volEl && betaEl && !this.rollingSharpeChart) {
+        void this.initRollingCharts();
       }
+      onCleanup(() => {
+        this.rollingSharpeRo?.disconnect();
+        this.rollingSharpeChart?.dispose();
+        this.rollingSharpeChart = undefined;
+        this.rollingSharpeRo = undefined;
+        this.rollingVolRo?.disconnect();
+        this.rollingVolChart?.dispose();
+        this.rollingVolChart = undefined;
+        this.rollingVolRo = undefined;
+        this.rollingBetaRo?.disconnect();
+        this.rollingBetaChart?.dispose();
+        this.rollingBetaChart = undefined;
+        this.rollingBetaRo = undefined;
+      });
+    });
+
+    // Init/dispose QQ chart when distribution tab becomes active/inactive
+    effect((onCleanup) => {
+      const qqEl = this.qqContainer();
+      if (qqEl && !this.qqChart) {
+        void this.initQQChart();
+      }
+      onCleanup(() => {
+        this.qqRo?.disconnect();
+        this.qqChart?.dispose();
+        this.qqChart = undefined;
+        this.qqRo = undefined;
+      });
     });
 
     // Update rolling charts when window changes
@@ -424,7 +475,6 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   // ── Chart initializers (lazy, safe for @if blocks) ────────────────────────
   private async initRollingCharts() {
-    if (this.rollingSharpeChart) return;
     await this.loadEcharts();
     const labels = this.rollingLabels();
     await this.initChartInstance(this.rollingSharpeContainer, c => { this.rollingSharpeChart = c; c.setOption(this.buildRollingOption('Sharpe Ratio', labels, this.rollingSharpeValues(), '--color-chart-1')); }, r => this.rollingSharpeRo = r);
@@ -439,7 +489,6 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   }
 
   private async initQQChart() {
-    if (this.qqChart) return;
     await this.loadEcharts();
     this.initChartInstance(this.qqContainer, c => { this.qqChart = c; c.setOption(this.buildQQOption()); }, r => this.qqRo = r);
   }
@@ -471,13 +520,20 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
         top: 0,
         right: 0,
       },
-      grid: { left: 55, right: 16, top: 28, bottom: 36 },
+      grid: {
+        left: window.innerWidth < 640 ? 40 : 55,
+        right: 16,
+        top: 28,
+        bottom: window.innerWidth < 640 ? 50 : 36,
+      },
       xAxis: {
         type: 'category',
         data: labels,
         axisLabel: {
           formatter: (v: string) => v.slice(0, 7),
-          interval: Math.floor(labels.length / 6),
+          interval: Math.floor(labels.length / (window.innerWidth < 640 ? 3 : 6)),
+          rotate: window.innerWidth < 640 ? 30 : 0,
+          fontSize: window.innerWidth < 640 ? 10 : 12,
         },
       },
       yAxis: {
@@ -524,13 +580,20 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
           return `${ps[0].axisValueLabel}<br/>${(ps[0].value ?? 0).toFixed(2)}%`;
         },
       },
-      grid: { left: 55, right: 16, top: 10, bottom: 30 },
+      grid: {
+        left: window.innerWidth < 640 ? 40 : 55,
+        right: 16,
+        top: 10,
+        bottom: window.innerWidth < 640 ? 44 : 30,
+      },
       xAxis: {
         type: 'category',
         data: labels,
         axisLabel: {
           formatter: (v: string) => v.slice(0, 7),
-          interval: Math.floor(labels.length / 6),
+          interval: Math.floor(labels.length / (window.innerWidth < 640 ? 3 : 6)),
+          rotate: window.innerWidth < 640 ? 30 : 0,
+          fontSize: window.innerWidth < 640 ? 10 : 12,
         },
       },
       yAxis: {
@@ -573,13 +636,20 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
           return `${ps[0].axisValueLabel}<br/>${name}: ${fmt}`;
         },
       },
-      grid: { left: 50, right: 16, top: 10, bottom: 30 },
+      grid: {
+        left: window.innerWidth < 640 ? 40 : 50,
+        right: 16,
+        top: 10,
+        bottom: window.innerWidth < 640 ? 44 : 30,
+      },
       xAxis: {
         type: 'category',
         data: labels,
         axisLabel: {
           formatter: (v: string) => v.slice(0, 7),
-          interval: Math.floor(labels.length / 6),
+          interval: Math.floor(labels.length / (window.innerWidth < 640 ? 3 : 6)),
+          rotate: window.innerWidth < 640 ? 30 : 0,
+          fontSize: window.innerWidth < 640 ? 10 : 12,
         },
       },
       yAxis: {
@@ -615,6 +685,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     const { points, refLine } = this.qqPlotData();
     const chart1 = readCssVar('--color-chart-1');
     const chart7 = readCssVar('--color-chart-7');
+    const textSecondary = readCssVar('--color-text-secondary');
 
     return {
       tooltip: {
@@ -625,29 +696,31 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
           return `Theoretical: ${p.value[0].toFixed(3)}%<br/>Sample: ${p.value[1].toFixed(3)}%`;
         },
       },
-      legend: { data: ['Returns', '45° Reference'], bottom: 0 },
-      grid: { left: 55, right: 16, top: 10, bottom: 40 },
+      legend: { show: false },
+      grid: { left: 16, right: 16, top: 20, bottom: 36, containLabel: true },
       xAxis: {
         type: 'value',
-        name: 'Theoretical (%)',
+        name: 'Theoretical Quantile (%)',
         nameLocation: 'middle',
-        nameGap: 25,
-        axisLabel: { formatter: (v: number) => `${v.toFixed(1)}%` },
+        nameGap: 28,
+        nameTextStyle: { fontSize: 11, color: textSecondary },
+        axisLabel: { fontSize: 11, formatter: (v: number) => `${v.toFixed(1)}%` },
       },
       yAxis: {
         type: 'value',
-        name: 'Sample (%)',
+        name: 'Sample Quantile (%)',
         nameLocation: 'middle',
-        nameGap: 40,
-        axisLabel: { formatter: (v: number) => `${v.toFixed(1)}%` },
+        nameGap: 45,
+        nameTextStyle: { fontSize: 11, color: textSecondary },
+        axisLabel: { fontSize: 11, formatter: (v: number) => `${v.toFixed(1)}%` },
       },
       series: [
         {
           name: 'Returns',
           type: 'scatter',
           data: points,
-          symbolSize: 4,
-          itemStyle: { color: chart1, opacity: 0.6 },
+          symbolSize: 5,
+          itemStyle: { color: chart1, opacity: 0.7 },
         },
         {
           name: '45° Reference',
@@ -664,6 +737,18 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   // ── ChartExportable (delegates to equity chart) ────────────────────────────
   getChartInstance(): EChartsType | undefined {
     return this.equityChart;
+  }
+
+  onBenchmarkChange(event: Event): void {
+    this.selectedBenchmark.set((event.target as HTMLSelectElement).value);
+  }
+
+  onStartDateChange(event: Event): void {
+    this.selectedStartDate.set((event.target as HTMLInputElement).value);
+  }
+
+  onEndDateChange(event: Event): void {
+    this.selectedEndDate.set((event.target as HTMLInputElement).value);
   }
 
   openReportModal(): void {

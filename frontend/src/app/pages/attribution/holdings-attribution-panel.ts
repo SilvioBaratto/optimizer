@@ -85,7 +85,7 @@ export class HoldingsAttributionPanelComponent implements OnDestroy {
   });
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const container = this.scatterContainer();
       const data = this.holdings();
       if (container && !this.chart && data.length > 0) {
@@ -93,6 +93,12 @@ export class HoldingsAttributionPanelComponent implements OnDestroy {
       } else if (this.chart && data.length > 0) {
         this.chart.setOption(this.buildScatterOption(data));
       }
+      onCleanup(() => {
+        this.ro?.disconnect();
+        this.chart?.dispose();
+        this.chart = undefined;
+        this.ro = undefined;
+      });
     });
   }
 
@@ -141,12 +147,12 @@ export class HoldingsAttributionPanelComponent implements OnDestroy {
           ].join('<br/>');
         },
       },
-      grid: { left: 56, right: 24, top: 16, bottom: 48 },
+      grid: { left: 56, right: 24, top: 16, bottom: 72 },
       xAxis: {
         type: 'value',
         name: 'Weight (%)',
         nameLocation: 'middle',
-        nameGap: 32,
+        nameGap: 28,
         axisLabel: { formatter: (v: number) => `${v.toFixed(1)}%` },
       },
       yAxis: {
@@ -159,6 +165,9 @@ export class HoldingsAttributionPanelComponent implements OnDestroy {
       legend: {
         data: ['Positive', 'Negative'],
         bottom: 0,
+        itemGap: 24,
+        icon: 'circle',
+        textStyle: { fontSize: 12 },
       },
       series: [
         {

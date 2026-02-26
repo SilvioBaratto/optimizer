@@ -4,29 +4,28 @@
     <span class="text-xs text-text-tertiary">{{ completedCount() }} / {{ totalCount() }} steps complete</span>
   </div>
 
-  <div class="flex items-center gap-2 overflow-x-auto pb-2">
+  <div class="relative">
+    <div class="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-surface-raised to-transparent z-10 lg:hidden"></div>
+    <div class="flex items-center gap-3 overflow-x-auto pb-2 scroll-smooth snap-x">
     @for (node of nodes(); track node.id; let isFirst = $first) {
-      @if (!isFirst) {
-        <div class="w-6 h-px bg-border flex-shrink-0"></div>
-      }
-
-      <button
-        type="button"
-        (click)="nodeSelect.emit(node.id)"
-        [class]="cardClass(node.id)"
-        [attr.aria-pressed]="node.id === activeNode()">
-        <div class="text-xs font-medium text-text truncate">{{ node.label }}</div>
-        <div class="mt-1.5 flex items-center gap-1.5">
-          <span class="w-2 h-2 rounded-full flex-shrink-0" [class]="statusColor(node.status)"></span>
-          <span class="text-[10px] text-text-tertiary">{{ statusLabel(node.status) }}</span>
-        </div>
-        @if (node.duration_ms !== undefined) {
-          <div class="mt-1 text-[10px] text-accent font-mono">{{ formatDuration(node.duration_ms) }}</div>
-        }
-        @if (node.detail) {
-          <div class="mt-0.5 text-[10px] text-text-tertiary truncate" [title]="node.detail">{{ node.detail }}</div>
-        }
-      </button>
+    @if (!isFirst) {
+    <div class="w-6 h-px bg-border shrink-0"></div>
     }
+
+    <button type="button" (click)="nodeSelect.emit(node.id)" [class]="cardClass(node.id)"
+      [attr.aria-pressed]="node.id === activeNode()">
+      <div class="text-xs font-medium text-text truncate">{{ node.label }}</div>
+      <div class="mt-1.5 flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full shrink-0" [class]="statusColor(node.status)"></span>
+        <span class="text-xs text-text-tertiary">{{ statusLabel(node.status) }}</span>
+      </div>
+      <div class="mt-1 text-xs text-text-tertiary truncate"
+           [class.invisible]="!node.detail"
+           [title]="node.detail || ''"
+           [innerHTML]="node.detail || '&nbsp;'">
+      </div>
+    </button>
+    }
+    </div>
   </div>
 </div>

@@ -1,5 +1,6 @@
 import {
   Component,
+  inject,
   input,
   output,
   signal,
@@ -9,6 +10,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { UniverseTicker } from '../../models/portfolio-builder.model';
+import { FormatService } from '../../services/format.service';
 
 @Component({
   selector: 'app-universe-panel',
@@ -17,6 +19,8 @@ import { UniverseTicker } from '../../models/portfolio-builder.model';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UniversePanelComponent {
+  private readonly fmt = inject(FormatService);
+
   tickers = input.required<UniverseTicker[]>();
   tickersChange = output<UniverseTicker[]>();
 
@@ -54,7 +58,8 @@ export class UniversePanelComponent {
       label: 'Market Cap',
       sortable: true,
       align: 'right',
-      type: 'currency',
+      format: (val: unknown) =>
+        typeof val === 'number' ? this.fmt.formatCurrencyCompact(val) : '--',
     },
     {
       key: 'weight',
@@ -86,11 +91,11 @@ export class UniversePanelComponent {
     })),
   );
 
-  applyPreset(preset: 'sp500' | 'msci' | 'sector_etfs') {
+  applyPreset(preset: 'sp500' | 'msci' | 'sector_leaders') {
     const limits: Record<typeof preset, number> = {
       sp500: 30,
       msci: 50,
-      sector_etfs: 15,
+      sector_leaders: 15,
     };
     const limit = limits[preset];
     const updated = this.tickers().map((t, i) => ({

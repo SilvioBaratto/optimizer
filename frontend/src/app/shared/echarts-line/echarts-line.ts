@@ -23,6 +23,7 @@ export class EchartsLineComponent implements OnDestroy, ChartExportable {
   height = input(220);
   yAxisLabel = input('');
   areaFill = input(false);
+  yAxisPrefix = input('');
 
   private readonly container = viewChild.required<ElementRef<HTMLElement>>('container');
   private chart?: EChartsType;
@@ -58,13 +59,17 @@ export class EchartsLineComponent implements OnDestroy, ChartExportable {
   private buildOption(labels: string[], values: number[]): EChartsCoreOption {
     const yLabel = this.yAxisLabel();
     const area = this.areaFill();
+    const prefix = this.yAxisPrefix();
     const chartColor = getComputedStyle(document.documentElement).getPropertyValue('--color-chart-1').trim();
+
+    const formatValue = (v: number) =>
+      prefix ? `${prefix}${v.toFixed(2)}` : `${v.toFixed(2)}%`;
 
     return {
       tooltip: {
         formatter: (params: unknown) => {
           const p = (params as Array<{ name: string; value: number }>)[0];
-          return `${p.name}: ${p.value.toFixed(2)}%`;
+          return `${p.name}: ${formatValue(p.value)}`;
         },
       },
       grid: { left: 50, right: 16, top: 16, bottom: 32 },
@@ -77,7 +82,7 @@ export class EchartsLineComponent implements OnDestroy, ChartExportable {
         name: yLabel || undefined,
         nameTextStyle: { fontSize: 10 },
         axisLabel: {
-          formatter: (v: number) => `${v.toFixed(2)}%`,
+          formatter: (v: number) => formatValue(v),
         },
       },
       series: [

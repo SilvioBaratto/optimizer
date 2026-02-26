@@ -5,21 +5,18 @@
     <h3 class="text-data-sm font-medium text-text mb-3">Filter by Factor Group</h3>
     <div class="flex flex-wrap gap-2">
       @for (group of availableGroups(); track group) {
-        <button
-          class="px-3 py-1 text-xs rounded-full border transition-colors"
-          [class]="isGroupActive(group) ? 'bg-[var(--color-chart-1)]/15 border-[var(--color-chart-1)] text-[var(--color-chart-1)]' : 'border-border text-text-secondary hover:text-text'"
-          (click)="toggleGroup(group)"
-        >
-          {{ group.replace('_', ' ') }}
-        </button>
+      <button class="px-3 py-1 text-xs rounded-full border transition-colors"
+        [class]="isGroupActive(group) ? 'bg-chart-1/15 border-chart-1 text-chart-1' : 'border-border text-text-secondary hover:text-text'"
+        (click)="toggleGroup(group)">
+        {{ group.replace('_', ' ') }}
+      </button>
       }
       @if (activeFilters().length > 0) {
-        <button
-          class="px-3 py-1 text-xs rounded-full border border-border text-text-secondary hover:text-text transition-colors"
-          (click)="activeFilters.set([])"
-        >
-          Clear all
-        </button>
+      <button
+        class="px-3 py-1 text-xs rounded-full border border-border text-text-secondary hover:text-text transition-colors"
+        (click)="activeFilters.set([])">
+        Clear all
+      </button>
       }
     </div>
   </div>
@@ -30,24 +27,14 @@
       Factor Screening Results
       <span class="text-text-secondary font-normal ml-1">({{ filteredReports().length }} factors)</span>
     </h3>
-    <app-data-table
-      [columns]="icColumns"
-      [rows]="tableRows()"
-      [total]="tableRows().length"
-      [pageSize]="20"
-      [dense]="true"
-      [showExport]="true"
-      exportFilename="factor-screener"
-    />
+    <app-data-table [columns]="icColumns" [rows]="tableRows()" [total]="tableRows().length" [pageSize]="20"
+      [dense]="true" [showExport]="true" exportFilename="factor-screener" />
   </div>
 
   <!-- IC vs ICIR Scatter -->
   <div class="bg-surface-raised border border-border rounded-lg p-4">
     <h3 class="text-data-sm font-medium text-text mb-3">IC vs ICIR</h3>
-    <app-echarts-scatter
-      [frontierPoints]="scatterPoints()"
-      [height]="320"
-    />
+    <app-echarts-scatter [frontierPoints]="scatterPoints()" [height]="320" />
   </div>
 
 </div>

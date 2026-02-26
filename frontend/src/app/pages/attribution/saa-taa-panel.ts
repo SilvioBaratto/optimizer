@@ -51,7 +51,7 @@ export class SaaTaaPanelComponent implements OnDestroy {
   );
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const container = this.groupedBarContainer();
       const data = this.multiLevel();
       if (container && !this.chart && data.length > 0) {
@@ -59,6 +59,12 @@ export class SaaTaaPanelComponent implements OnDestroy {
       } else if (this.chart && data.length > 0) {
         this.chart.setOption(this.buildGroupedBarOption(data));
       }
+      onCleanup(() => {
+        this.ro?.disconnect();
+        this.chart?.dispose();
+        this.chart = undefined;
+        this.ro = undefined;
+      });
     });
   }
 

@@ -3,21 +3,33 @@ import { Component, input, computed, ChangeDetectionStrategy } from '@angular/co
 @Component({
   selector: 'app-stat-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    class: 'block min-w-0',
+  },
   template: `
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <p class="text-xs font-medium text-text-secondary uppercase tracking-wide">{{ label() }}</p>
-      <p class="mt-1 text-2xl font-semibold text-text font-mono tabular-nums">{{ value() }}</p>
+    <div class="h-full flex flex-col bg-surface-raised border border-border rounded-lg p-3 sm:p-4">
+      <p class="text-xs font-medium text-text-secondary uppercase tracking-wide truncate" [title]="label()">
+        {{ label() }}
+      </p>
+      <p class="mt-1 font-semibold text-text truncate"
+         [class]="valueSizeClass() + (isNumericValue() ? ' font-mono tabular-nums' : '')"
+         [title]="'' + value()">
+        {{ value() }}
+      </p>
       @if (subtitle()) {
-        <p class="mt-0.5 text-xs text-text-tertiary">{{ subtitle() }}</p>
+        <p class="mt-0.5 text-xs text-text-tertiary truncate" [title]="subtitle()">{{ subtitle() }}</p>
       }
+
+      <div class="mt-auto"></div>
+
       @if (sparklineData().length > 1) {
-        <svg class="mt-2 w-full h-12" viewBox="0 0 100 48" preserveAspectRatio="none">
+        <svg class="mt-2 w-full h-12 shrink-0" viewBox="0 0 100 48" preserveAspectRatio="none">
           <path [attr.d]="sparklinePath()" fill="none" [class]="sparklineStrokeClass()" stroke-width="1.5" />
         </svg>
       }
       @if (delta() !== null) {
-        <div class="mt-2 flex items-center gap-1.5 text-xs">
-          <span [class]="deltaColorClass()">
+        <div class="mt-2 flex items-baseline gap-1 text-xs shrink-0 flex-wrap">
+          <span [class]="deltaColorClass() + ' whitespace-nowrap'">
             @if (trend() === 'up') { &#9650; }
             @else if (trend() === 'down') { &#9660; }
             @else { &#9644; }
@@ -37,6 +49,15 @@ export class StatCardComponent {
   delta = input<number | null>(null);
   trend = input<'up' | 'down' | 'flat'>('flat');
   deltaLabel = input<string>('vs prior period');
+
+  isNumericValue = computed(() => /^[\d$%.,\-+\s]+$/.test(String(this.value())));
+
+  valueSizeClass = computed(() => {
+    const len = String(this.value()).length;
+    if (len > 14) return 'text-lg';
+    if (len > 10) return 'text-xl';
+    return 'text-2xl';
+  });
 
   sparklinePath = computed(() => {
     const data = this.sparklineData();

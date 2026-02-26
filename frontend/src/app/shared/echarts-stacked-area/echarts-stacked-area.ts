@@ -70,11 +70,35 @@ export class EchartsStackedAreaComponent implements OnDestroy, ChartExportable {
     return {
       tooltip: {
         trigger: 'axis',
+        axisPointer: { type: 'cross' },
+        formatter: (params: unknown) => {
+          const ps = params as Array<{
+            seriesName: string;
+            value: number;
+            axisValueLabel: string;
+            color: string;
+          }>;
+          if (!Array.isArray(ps) || !ps.length) return '';
+          let html = `<div style="font-size:12px"><b>${ps[0].axisValueLabel}</b>`;
+          for (const p of ps) {
+            html += `<br/><span style="color:${p.color}">&#9679;</span> ${p.seriesName}: ${p.value.toFixed(3)}`;
+          }
+          return html + '</div>';
+        },
       },
       legend: {
         bottom: 0,
+        type: 'scroll',
+        textStyle: {
+          fontSize: window.innerWidth < 640 ? 10 : 12,
+        },
       },
-      grid: { left: 50, right: 16, top: 16, bottom: 40 },
+      grid: {
+        left: window.innerWidth < 640 ? 40 : 50,
+        right: 16,
+        top: 16,
+        bottom: window.innerWidth < 640 ? 70 : 40,
+      },
       xAxis: {
         type: 'category',
         boundaryGap: false,

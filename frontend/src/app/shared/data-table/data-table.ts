@@ -33,6 +33,7 @@ export class DataTableComponent {
   clickable = input(false);
   dense = input(false);
   stickyHeader = input(false);
+  stickyFirstColumn = input(false);
   showExport = input(false);
   showCopy = input(false);
   exportFilename = input('export');

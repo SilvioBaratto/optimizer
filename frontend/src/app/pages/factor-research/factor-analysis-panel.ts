@@ -115,7 +115,7 @@ export class FactorAnalysisPanelComponent implements OnDestroy {
   );
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const container = this.lineChartContainer();
       const fr = this.factorReturns();
       if (container && !this.lineChart && fr.length > 0) {
@@ -123,6 +123,12 @@ export class FactorAnalysisPanelComponent implements OnDestroy {
       } else if (this.lineChart && fr.length > 0) {
         this.lineChart.setOption(this.buildLineOption(fr));
       }
+      onCleanup(() => {
+        this.lineRo?.disconnect();
+        this.lineChart?.dispose();
+        this.lineChart = undefined;
+        this.lineRo = undefined;
+      });
     });
   }
 

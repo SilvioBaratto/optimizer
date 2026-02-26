@@ -82,27 +82,41 @@ export class EchartsSunburstComponent implements OnDestroy, ChartExportable {
       tooltip: {
         trigger: 'item',
         formatter: (params: unknown) => {
-          const p = params as { name: string; value: number };
-          return `${p.name}: ${p.value}`;
+          const p = params as { name: string; value: number; treePathInfo: Array<{ name: string; value: number }> };
+          const root = p.treePathInfo?.[0];
+          const pct = root && root.value > 0 ? ((p.value / root.value) * 100).toFixed(1) : p.value.toFixed(1);
+          return `<b>${p.name}</b><br/>${pct}%`;
         },
       },
       series: [
         {
           type: 'sunburst',
           data: colorize(data, 0),
-          radius: ['15%', '90%'],
+          radius: ['20%', '85%'],
+          sort: undefined,
           label: {
-            rotate: 'radial',
+            rotate: 0,
             fontSize: 10,
+            overflow: 'truncate',
+            ellipsis: '..',
           },
           emphasis: {
             focus: 'ancestor',
           },
           levels: [
             {},
-            { r0: '15%', r: '45%', label: { fontSize: 11 } },
-            { r0: '45%', r: '70%', label: { fontSize: 9 } },
-            { r0: '70%', r: '90%', label: { fontSize: 8 } },
+            {
+              r0: '20%', r: '50%',
+              label: { fontSize: 11, fontWeight: 600, padding: 2 },
+            },
+            {
+              r0: '50%', r: '75%',
+              label: { fontSize: 9, padding: 1 },
+            },
+            {
+              r0: '75%', r: '85%',
+              label: { show: false },
+            },
           ],
         },
       ],

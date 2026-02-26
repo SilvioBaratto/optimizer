@@ -65,7 +65,7 @@ export class StatusPanelComponent implements OnDestroy {
   hasBreaches = computed(() => this.breachedCount() > 0);
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const container = this.chartContainer();
       const entries = this.driftEntries();
       if (container && !this.chart && entries.length > 0) {
@@ -73,6 +73,12 @@ export class StatusPanelComponent implements OnDestroy {
       } else if (this.chart && entries.length > 0) {
         this.chart.setOption(this.buildGroupedBarOption(entries));
       }
+      onCleanup(() => {
+        this.ro?.disconnect();
+        this.chart?.dispose();
+        this.chart = undefined;
+        this.ro = undefined;
+      });
     });
   }
 
@@ -114,11 +120,11 @@ export class StatusPanelComponent implements OnDestroy {
         },
       },
       legend: { data: ['Current Weight', 'Target Weight'], top: 0 },
-      grid: { left: 50, right: 16, top: 36, bottom: 40 },
+      grid: { left: 50, right: 16, top: 36, bottom: categories.length > 8 ? 60 : 40 },
       xAxis: {
         type: 'category',
         data: categories,
-        axisLabel: { rotate: categories.length > 8 ? 45 : 0 },
+        axisLabel: { rotate: categories.length > 8 ? 45 : 0, fontSize: 11 },
       },
       yAxis: {
         type: 'value',

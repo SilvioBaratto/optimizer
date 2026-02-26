@@ -1,66 +1,57 @@
 <div class="space-y-6">
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
     @for (policy of policies(); track policy.id) {
-      <div
-        class="bg-surface-raised border border-border rounded-lg p-5 flex flex-col"
-        [class]="policy.active ? 'ring-2 ring-[var(--color-chart-1)]' : ''"
-      >
-        <!-- Header -->
-        <div class="flex items-start justify-between gap-2 mb-3">
-          <h3 class="text-data-sm font-semibold text-text leading-snug">{{ policy.name }}</h3>
-          <span
-            class="inline-block shrink-0 text-xs px-2 py-0.5 rounded-full font-medium"
-            [class]="getPolicyBadge(policy.trigger).colorClass"
-          >
-            {{ getPolicyBadge(policy.trigger).label }}
-          </span>
-        </div>
-
-        <!-- Settings Summary -->
-        <dl class="space-y-1.5 mb-4 flex-1">
-          @if (policy.frequency) {
-            <div class="flex justify-between text-data-sm">
-              <dt class="text-text-secondary">Frequency</dt>
-              <dd class="text-text font-medium capitalize">{{ policy.frequency }}</dd>
-            </div>
-          }
-          @if (policy.thresholdAbsolute != null) {
-            <div class="flex justify-between text-data-sm">
-              <dt class="text-text-secondary">Abs. Threshold</dt>
-              <dd class="text-text font-medium">{{ (policy.thresholdAbsolute * 100).toFixed(1) }}%</dd>
-            </div>
-          }
-          @if (policy.thresholdRelative != null) {
-            <div class="flex justify-between text-data-sm">
-              <dt class="text-text-secondary">Rel. Threshold</dt>
-              <dd class="text-text font-medium">{{ (policy.thresholdRelative * 100).toFixed(0) }}%</dd>
-            </div>
-          }
-          <div class="flex justify-between text-data-sm">
-            <dt class="text-text-secondary">Cost Budget</dt>
-            <dd class="text-text font-medium">{{ policy.costBudgetBps }} bps</dd>
-          </div>
-        </dl>
-
-        <!-- Activate Button -->
-        @if (policy.active) {
-          <button
-            type="button"
-            disabled
-            class="mt-auto w-full py-2 text-sm rounded-lg font-medium bg-[var(--color-chart-1)]/20 text-[var(--color-chart-1)] cursor-default"
-          >
-            Active
-          </button>
-        } @else {
-          <button
-            type="button"
-            class="mt-auto w-full py-2 text-sm rounded-lg font-medium bg-surface-inset text-text-secondary hover:bg-[var(--color-chart-1)]/15 hover:text-[var(--color-chart-1)] transition-colors"
-            (click)="activatePolicy.emit(policy.id)"
-          >
-            Activate
-          </button>
-        }
+    <div class="bg-surface-raised border border-border rounded-lg p-5 flex flex-col"
+      [class]="policy.active ? 'ring-2 ring-chart-1' : ''">
+      <!-- Header -->
+      <div class="flex items-start justify-between gap-2 mb-3">
+        <h3 class="text-data-sm font-semibold text-text leading-snug">{{ policy.name }}</h3>
+        <span class="inline-block shrink-0 text-xs px-2 py-0.5 rounded-full font-medium"
+          [class]="getPolicyBadge(policy.trigger).colorClass">
+          {{ getPolicyBadge(policy.trigger).label }}
+        </span>
       </div>
+
+      <!-- Settings Summary -->
+      <dl class="space-y-1.5 mb-4 flex-1">
+        @if (policy.frequency) {
+        <div class="flex justify-between text-data-sm">
+          <dt class="text-text-secondary">Frequency</dt>
+          <dd class="text-text font-medium capitalize">{{ policy.frequency }}</dd>
+        </div>
+        }
+        @if (policy.thresholdAbsolute != null) {
+        <div class="flex justify-between text-data-sm">
+          <dt class="text-text-secondary">Abs. Threshold</dt>
+          <dd class="text-text font-medium">{{ (policy.thresholdAbsolute * 100).toFixed(1) }}%</dd>
+        </div>
+        }
+        @if (policy.thresholdRelative != null) {
+        <div class="flex justify-between text-data-sm">
+          <dt class="text-text-secondary">Rel. Threshold</dt>
+          <dd class="text-text font-medium">{{ (policy.thresholdRelative * 100).toFixed(0) }}%</dd>
+        </div>
+        }
+        <div class="flex justify-between text-data-sm">
+          <dt class="text-text-secondary">Cost Budget</dt>
+          <dd class="text-text font-medium">{{ policy.costBudgetBps }} bps</dd>
+        </div>
+      </dl>
+
+      <!-- Activate Button -->
+      @if (policy.active) {
+      <button type="button" disabled
+        class="mt-auto w-full py-2 text-sm rounded-lg font-medium bg-chart-1/20 text-chart-1 cursor-default">
+        Active
+      </button>
+      } @else {
+      <button type="button"
+        class="mt-auto w-full py-2 text-sm rounded-lg font-medium bg-surface-inset text-text-secondary hover:bg-chart-1/15 hover:text-chart-1 focus:ring-2 focus:ring-chart-1 focus:ring-offset-2 focus:outline-none transition-colors"
+        (click)="activatePolicy.emit(policy.id)">
+        Activate
+      </button>
+      }
+    </div>
     }
   </div>
 </div>

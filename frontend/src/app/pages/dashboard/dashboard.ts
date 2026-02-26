@@ -15,7 +15,6 @@ import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { EchartsSunburstComponent, SunburstNode } from '../../shared/echarts-sunburst/echarts-sunburst';
 import { FormatService } from '../../services/format.service';
-import { PortfolioContextService } from '../../services/portfolio-context.service';
 import { MockFetchService } from '../../services/mock-fetch.service';
 import { readCssVar } from '../../shared/charts/echarts-theme';
 import { DashboardKPI, ActivityType, MarketRegime } from '../../models/dashboard.model';
@@ -40,7 +39,6 @@ import {
 })
 export class DashboardComponent implements OnDestroy {
   readonly fmt = inject(FormatService);
-  private readonly ctx = inject(PortfolioContextService);
   private readonly modalService = inject(ModalService);
   private readonly mockFetch = inject(MockFetchService);
 
@@ -61,14 +59,42 @@ export class DashboardComponent implements OnDestroy {
   readonly allocationData = signal<SunburstNode[]>(MOCK_ALLOCATION_SUNBURST);
   readonly driftTable = signal(MOCK_DRIFT_TABLE);
 
+  // Allocation legend — sector summaries for the right-side legend
+  readonly allocationSectors = computed(() => {
+    const data = this.allocationData();
+    const total = data.reduce((sum, s) => sum + (s.value ?? 0), 0);
+    return data
+      .map((sector, i) => ({
+        name: sector.name,
+        weight: (sector.value ?? 0) / total,
+        holdings: sector.children?.length ?? 0,
+        colorIndex: i,
+      }))
+      .sort((a, b) => b.weight - a.weight);
+  });
+  readonly allocationTotalHoldings = computed(() =>
+    this.allocationData().reduce((sum, s) => sum + (s.children?.length ?? 0), 0)
+  );
+
   // #155 — Activity Feed + Market Context
   readonly activityFeed = signal(MOCK_ACTIVITY_FEED);
   readonly marketContext = signal(MOCK_MARKET_CONTEXT);
   readonly regimeInfo = signal(MOCK_REGIME_INFO);
   readonly assetClassReturns = signal(MOCK_ASSET_CLASS_RETURNS);
 
+  // Macro stat-card helpers — VIX is inverted (lower = better)
+  readonly macroVixDelta = computed(() => this.marketContext().vixChange / this.marketContext().vix);
+  readonly macroVixTrend = computed((): 'up' | 'down' | 'flat' =>
+    this.marketContext().vixChange < 0 ? 'up' : this.marketContext().vixChange > 0 ? 'down' : 'flat');
+  readonly macroYieldDelta = computed(() => this.marketContext().yieldChange / 100);
+  readonly macroYieldTrend = computed((): 'up' | 'down' | 'flat' =>
+    this.marketContext().yieldChange < 0 ? 'down' : this.marketContext().yieldChange > 0 ? 'up' : 'flat');
+  readonly macroUsdDelta = computed(() => this.marketContext().usdChange / this.marketContext().usdIndex);
+  readonly macroUsdTrend = computed((): 'up' | 'down' | 'flat' =>
+    this.marketContext().usdChange > 0 ? 'up' : this.marketContext().usdChange < 0 ? 'down' : 'flat');
+
   readonly subtitle = computed(() => {
-    const navStr = this.fmt.formatCurrency(this.nav);
+    const navStr = this.fmt.formatCurrencyCompact(this.nav);
     const changeStr = this.fmt.formatPercent(this.dailyChange);
     return `NAV ${navStr}  |  ${this.dailyChange >= 0 ? '+' : ''}${changeStr} today`;
   });
@@ -80,11 +106,17 @@ export class DashboardComponent implements OnDestroy {
 
   constructor() {
     this.loadData();
-    effect(() => {
+    effect((onCleanup) => {
       const el = this.equityCurveContainer();
       if (el && !this.equityChart) {
         void this.initEquityCurveChart();
       }
+      onCleanup(() => {
+        this.equityRo?.disconnect();
+        this.equityChart?.dispose();
+        this.equityChart = undefined;
+        this.equityRo = undefined;
+      });
     });
   }
 
@@ -113,12 +145,17 @@ export class DashboardComponent implements OnDestroy {
       this.assetClassReturns.set(data.assetClassReturns);
       this.isLoading.set(false);
 
-      let idx = 0;
-      const interval = setInterval(() => {
-        idx++;
-        this.revealIndex.set(idx);
-        if (idx >= 10) clearInterval(interval);
-      }, 50);
+      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (prefersReducedMotion) {
+        this.revealIndex.set(10);
+      } else {
+        let idx = 0;
+        const interval = setInterval(() => {
+          idx++;
+          this.revealIndex.set(idx);
+          if (idx >= 10) clearInterval(interval);
+        }, 50);
+      }
     }).catch((err: Error) => {
       this.hasError.set(true);
       this.errorMessage.set(err.message);
@@ -133,7 +170,7 @@ export class DashboardComponent implements OnDestroy {
   formatKpiValue(kpi: DashboardKPI): string {
     switch (kpi.format) {
       case 'percent': return this.fmt.formatPercent(kpi.value);
-      case 'currency': return this.fmt.formatCurrency(kpi.value);
+      case 'currency': return this.fmt.formatCurrencyCompact(kpi.value);
       case 'ratio': return this.fmt.formatRatio(kpi.value);
       default: return kpi.value.toLocaleString();
     }
@@ -286,6 +323,7 @@ export class DashboardComponent implements OnDestroy {
         axisLabel: {
           formatter: (v: string) => v.slice(0, 7),
           interval: Math.floor(dates.length / 6),
+          hideOverlap: true,
         },
       },
       yAxis: {

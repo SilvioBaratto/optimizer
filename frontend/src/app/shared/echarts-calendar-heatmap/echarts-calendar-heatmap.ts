@@ -22,7 +22,7 @@ export class EchartsCalendarHeatmapComponent implements OnDestroy, ChartExportab
   years = input<string[]>([]);
   months = input<string[]>([]);
   data = input<number[][]>([]);
-  height = input(220);
+  height = input(320);
 
   private readonly container = viewChild.required<ElementRef<HTMLElement>>('container');
   private chart?: EChartsType;
@@ -35,7 +35,7 @@ export class EchartsCalendarHeatmapComponent implements OnDestroy, ChartExportab
       const m = this.months();
       const d = this.data();
       if (this.chart && y.length > 0 && m.length > 0) {
-        this.chart.setOption(this.buildOption(y, m, d));
+        this.chart.setOption(this.buildOption(y, m, d), { notMerge: true });
       }
     });
   }
@@ -52,7 +52,7 @@ export class EchartsCalendarHeatmapComponent implements OnDestroy, ChartExportab
 
     const el = this.container().nativeElement;
     this.chart = init(el, 'portfolio', { renderer: 'canvas' });
-    this.chart.setOption(this.buildOption(this.years(), this.months(), this.data()));
+    this.chart.setOption(this.buildOption(this.years(), this.months(), this.data()), { notMerge: true });
 
     this.ro = new ResizeObserver(() => this.chart?.resize());
     this.ro.observe(el);
@@ -77,62 +77,83 @@ export class EchartsCalendarHeatmapComponent implements OnDestroy, ChartExportab
 
     if (absMax === 0) absMax = 0.01;
 
+    const textColor = readCssVar('--color-text');
+    const textSecondary = readCssVar('--color-text-secondary');
+    const bgColor = readCssVar('--color-background');
+
     return {
       tooltip: {
-        position: 'top',
+        trigger: 'item',
+        axisPointer: { type: 'none' },
+        confine: true,
         formatter: (params: unknown) => {
-          const p = params as { value: [number, number, number] };
-          const year = years[p.value[1]];
-          const month = months[p.value[0]];
-          const val = p.value[2];
+          const raw = Array.isArray(params) ? params[0] : params;
+          const p = raw as { value: [number, number, number]; data: [number, number, number] };
+          const tuple = p.value ?? p.data;
+          if (!tuple) return '';
+          const year = years[tuple[1]];
+          const month = months[tuple[0]];
+          const val = tuple[2];
+          if (val === 0) return '';
           const pct = (val * 100).toFixed(1);
           const sign = val >= 0 ? '+' : '';
-          return `${month} ${year}<br/>${sign}${pct}%`;
+          return `<b>${month} ${year}</b><br/>${sign}${pct}%`;
         },
       },
-      grid: { left: 60, right: 80, top: 10, bottom: 30 },
+      grid: { left: 70, right: 20, top: 20, bottom: 40 },
       xAxis: {
         type: 'category',
         data: months,
         position: 'bottom',
         splitArea: { show: false },
+        axisLabel: { fontSize: 12, color: textSecondary, margin: 12 },
+        axisTick: { show: false },
+        axisLine: { show: false },
       },
       yAxis: {
         type: 'category',
         data: years,
         splitArea: { show: false },
+        axisLabel: { fontSize: 12, fontWeight: 600, color: textColor, margin: 14 },
+        axisTick: { show: false },
+        axisLine: { show: false },
       },
       visualMap: {
+        show: false,
         min: -absMax,
         max: absMax,
-        calculable: true,
-        orient: 'vertical',
-        right: 0,
-        top: 'middle',
-        itemHeight: 120,
         inRange: { color: heatmapColors },
-        text: [
-          `+${(absMax * 100).toFixed(0)}%`,
-          `-${(absMax * 100).toFixed(0)}%`,
-        ],
       },
       series: [
         {
           type: 'heatmap',
           data: tuples,
+          itemStyle: {
+            borderWidth: 2,
+            borderColor: bgColor,
+            borderRadius: 3,
+          },
           label: {
             show: true,
-            fontSize: 9,
+            fontSize: 11,
+            fontWeight: 500,
+            color: '#1f2937',
             formatter: (params: unknown) => {
               const p = params as { value: [number, number, number] };
               const val = p.value[2];
+              if (val === 0) return '';
               const pct = (val * 100).toFixed(1);
               const sign = val >= 0 ? '+' : '';
               return `${sign}${pct}%`;
             },
           },
           emphasis: {
-            itemStyle: { shadowBlur: 6, shadowColor: 'rgba(0,0,0,0.2)' },
+            itemStyle: {
+              shadowBlur: 8,
+              shadowColor: 'rgba(0,0,0,0.25)',
+              borderColor: textColor,
+              borderWidth: 2,
+            },
           },
         },
       ],

@@ -60,19 +60,27 @@ export const MOCK_VIEW_FORMATIONS: ViewFormation[] = [
 export const MOCK_EFFICIENT_FRONTIER_POINTS: EfficientFrontierPoint[] = (() => {
   const rng = seededRandom(55);
   const points: EfficientFrontierPoint[] = [];
+  // Parametric hyperbola: realistic concave "bullet" shape
+  // Min-variance at sigma~8%, return~5.5%; curve steepens left, flattens right
+  const sigmaMin = 0.08;
+  const retAtMin = 0.055;
   for (let i = 0; i < 50; i++) {
-    const risk = 0.05 + (i / 49) * 0.20;
-    const ret = 0.03 + 0.52 * Math.sqrt(risk) + (rng() - 0.5) * 0.003;
-    const sharpe = ret / risk;
+    const t = i / 49; // 0..1
+    const sigma = sigmaMin + t * 0.17; // 8% to 25%
+    // Hyperbolic upper branch: steep initial rise, diminishing returns
+    const ret = retAtMin + 0.38 * Math.sqrt(sigma - sigmaMin + 0.001)
+      - 0.6 * (sigma - sigmaMin) + (rng() - 0.5) * 0.001;
+    const sharpe = ret / sigma;
     points.push({
-      risk: Math.round(risk * 10000) / 10000,
+      risk: Math.round(sigma * 10000) / 10000,
       return: Math.round(ret * 10000) / 10000,
       sharpe: Math.round(sharpe * 1000) / 1000,
     });
   }
-  // Mark optimal point
+  // Mark key portfolios
   const optimal = points.reduce((best, p) => (p.sharpe > best.sharpe ? p : best), points[0]);
   optimal.label = 'Max Sharpe';
+  points[0].label = 'Min Variance';
   return points;
 })();
 

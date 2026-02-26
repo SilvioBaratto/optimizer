@@ -99,10 +99,17 @@ export class EchartsHistogramComponent implements OnDestroy, ChartExportable {
       {
         type: 'bar',
         data: counts,
-        barWidth: '90%',
+        barWidth: '85%',
         itemStyle: {
-          color: `${chartColor}cc`,
-          borderRadius: [2, 2, 0, 0],
+          color: chartColor,
+          borderRadius: [3, 3, 0, 0],
+        },
+        emphasis: {
+          itemStyle: {
+            color: chartColor,
+            shadowBlur: 4,
+            shadowColor: 'rgba(0,0,0,0.15)',
+          },
         },
       },
     ];
@@ -137,16 +144,38 @@ export class EchartsHistogramComponent implements OnDestroy, ChartExportable {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
       },
-      grid: { left: 50, right: 10, top: 10, bottom: 30 },
+      grid: { left: 55, right: 16, top: 20, bottom: 36, containLabel: true },
       xAxis: {
         type: 'category',
         data: binLabels,
-        axisLabel: { rotate: 45, fontSize: 9 },
+        axisLabel: {
+          fontSize: 11,
+          rotate: 0,
+          interval: 'auto',
+          formatter: (value: string) => {
+            const num = parseFloat(value);
+            return isNaN(num) ? value : num.toFixed(2);
+          },
+        },
+        axisTick: { alignWithLabel: true },
+        name: 'Return',
+        nameLocation: 'middle',
+        nameGap: 28,
+        nameTextStyle: {
+          fontSize: 11,
+          color: readCssVar('--color-text-secondary'),
+        },
       },
       yAxis: {
         type: 'value',
-        name: 'Count',
-        nameTextStyle: { fontSize: 10 },
+        name: 'Frequency',
+        nameLocation: 'middle',
+        nameGap: 40,
+        nameTextStyle: {
+          fontSize: 11,
+          color: readCssVar('--color-text-secondary'),
+        },
+        splitNumber: 4,
       },
       series,
     };

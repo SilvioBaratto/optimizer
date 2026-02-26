@@ -89,6 +89,12 @@ export class WeightPanelComponent {
       : (ticker_data?.weight ?? 0);
   }
 
+  parseWeight(raw: string): number {
+    const cleaned = raw.replace(',', '.').replace(/[^0-9.]/g, '');
+    const parsed = parseFloat(cleaned);
+    return isNaN(parsed) ? 0 : parsed / 100;
+  }
+
   setWeight(ticker: string, value: number) {
     this.weights.update((w) => ({ ...w, [ticker]: value }));
   }

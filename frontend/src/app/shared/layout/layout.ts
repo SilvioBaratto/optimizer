@@ -2,7 +2,6 @@ import { Component, signal, computed, inject, ChangeDetectionStrategy } from '@a
 import { Router, RouterOutlet } from '@angular/router';
 import { trigger, transition, style, animate } from '@angular/animations';
 import { SidebarComponent } from '../sidebar/sidebar';
-import { ContextBarComponent } from '../components/context-bar/context-bar';
 import { ToastContainerComponent } from '../notification/toast-container';
 import { ModalContainerComponent } from '../modal/modal-container';
 import { GlobalSearchComponent } from '../global-search/global-search';
@@ -35,7 +34,6 @@ const PAGE_ROUTES = [
   imports: [
     RouterOutlet,
     SidebarComponent,
-    ContextBarComponent,
     ToastContainerComponent,
     ModalContainerComponent,
     GlobalSearchComponent,

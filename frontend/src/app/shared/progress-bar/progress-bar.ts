@@ -13,9 +13,10 @@ import { Component, input, computed, ChangeDetectionStrategy } from '@angular/co
         <div class="h-full bg-accent rounded-full transition-all duration-300"
              [style.width.%]="pct()"></div>
       </div>
-      @if (detail()) {
-        <p class="mt-1 text-xs text-text-tertiary">{{ detail() }}</p>
-      }
+      <p class="mt-1 text-xs text-text-tertiary"
+         [class.invisible]="!detail()"
+         [innerHTML]="detail() || '&nbsp;'">
+      </p>
     </div>
   `,
 })

@@ -1,17 +1,18 @@
 <div class="flex-1 overflow-y-auto p-6 space-y-6">
 
   <!-- 1. Page Header — always visible -->
-  <app-page-header
-    [title]="portfolioName"
-    [subtitle]="subtitle()">
+  <app-page-header [title]="portfolioName" [subtitle]="subtitle()">
     <div actions class="flex items-center gap-2">
-      <span class="inline-flex items-center gap-1.5 text-data-xs text-text-tertiary bg-surface-inset px-2.5 py-1 rounded-full">
+      <span
+        class="inline-flex items-center gap-1.5 text-data-xs text-text-tertiary bg-surface-inset px-2.5 py-1 rounded-full">
         <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
         Last rebalanced 2d ago
       </span>
-      <button (click)="openReportModal()" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
+      <button (click)="openReportModal()"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
         </svg>
         Export Report
       </button>
@@ -20,295 +21,260 @@
 
   <!-- Loading skeleton -->
   @if (isLoading()) {
-    <div class="space-y-6">
-      <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
-        @for (i of [1,2,3,4,5,6,7]; track i) {
-          <div class="h-24 skeleton rounded-lg"></div>
-        }
-      </div>
-      <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div class="lg:col-span-3 h-96 skeleton rounded-lg"></div>
-        <div class="lg:col-span-2 space-y-4">
-          <div class="h-44 skeleton rounded-lg"></div>
-          <div class="h-44 skeleton rounded-lg"></div>
-        </div>
-      </div>
-      <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div class="lg:col-span-3 h-80 skeleton rounded-lg"></div>
-        <div class="lg:col-span-2 space-y-4">
-          <div class="h-36 skeleton rounded-lg"></div>
-          <div class="h-36 skeleton rounded-lg"></div>
-        </div>
-      </div>
+  <div class="space-y-6">
+    <div class="grid grid-cols-2 sm:grid-cols-4 2xl:grid-cols-7 gap-3">
+      @for (i of [1,2,3,4,5,6,7]; track i) {
+      <div class="h-24 skeleton rounded-lg"></div>
+      }
     </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="h-96 skeleton rounded-lg"></div>
+      <div class="h-96 skeleton rounded-lg"></div>
+    </div>
+    <div class="h-48 skeleton rounded-lg"></div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="h-80 skeleton rounded-lg"></div>
+      <div class="h-80 skeleton rounded-lg"></div>
+    </div>
+  </div>
   } @else if (hasError()) {
-    <!-- Error state -->
-    <div class="flex flex-col items-center justify-center py-20 px-4">
-      <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-      </svg>
-      <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
-      <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
-      <button (click)="retry()" class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
-        Try Again
-      </button>
-    </div>
+  <!-- Error state -->
+  <div class="flex flex-col items-center justify-center py-20 px-4">
+    <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+      <path stroke-linecap="round" stroke-linejoin="round"
+        d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+    </svg>
+    <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
+    <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
+    <button (click)="retry()"
+      class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
+      Try Again
+    </button>
+  </div>
   } @else {
 
   <!-- 2. KPI Strip -->
   @if (revealIndex() >= 1) {
-    <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3 reveal">
-      @for (kpi of kpis(); track kpi.label) {
-        <app-stat-card
-          [label]="kpi.label"
-          [value]="formatKpiValue(kpi)"
-          [sparklineData]="kpi.sparkline"
-          [delta]="kpiDelta(kpi)"
-          [trend]="kpiTrend(kpi)"
-          [deltaLabel]="kpi.changeLabel" />
-      }
-    </div>
+  <div class="grid grid-cols-2 sm:grid-cols-4 2xl:grid-cols-7 gap-3 reveal">
+    @for (kpi of kpis(); track kpi.label) {
+    <app-stat-card [label]="kpi.label" [value]="formatKpiValue(kpi)" [sparklineData]="kpi.sparkline"
+      [delta]="kpiDelta(kpi)" [trend]="kpiTrend(kpi)" [deltaLabel]="kpi.changeLabel" />
+    }
+  </div>
   }
 
-  <!-- 3. Equity Curve + Allocation (2-col grid) -->
+  <!-- 3. Equity Curve + Allocation (equal 2-col grid) -->
   @if (revealIndex() >= 2) {
-    <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 reveal">
-      <!-- Left: Equity Curve (3/5) -->
-      <div class="lg:col-span-3 bg-surface-raised border border-border rounded-lg p-4">
-        <h2 class="text-data-lg font-medium text-text mb-3">Portfolio Performance</h2>
-        <div #equityCurve class="w-full" style="height: 340px;"></div>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 reveal">
+    <!-- Left: Equity Curve -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h2 class="text-data-lg font-medium text-text mb-3">Portfolio Performance</h2>
+      <div #equityCurve class="w-full" style="height: 320px;"></div>
+    </div>
+
+    <!-- Right: Asset Allocation — chart + sector legend -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4 flex flex-col">
+      <div class="flex items-baseline justify-between mb-3">
+        <h2 class="text-data-lg font-medium text-text">Asset Allocation</h2>
+        <span class="text-data-xs text-text-tertiary">{{ allocationTotalHoldings() }} holdings</span>
       </div>
-
-      <!-- Right: Sunburst + Drift (2/5) -->
-      <div class="lg:col-span-2 space-y-4">
-        <!-- Sunburst -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4">
-          <h2 class="text-data-lg font-medium text-text mb-2">Asset Allocation</h2>
-          <app-echarts-sunburst [data]="allocationData()" [height]="240" />
+      <div class="grid grid-cols-1 sm:grid-cols-[1fr_minmax(10rem,14rem)] gap-4 flex-1 min-h-0">
+        <!-- Sunburst chart -->
+        <div class="min-h-0">
+          <app-echarts-sunburst [data]="allocationData()" [height]="320" />
         </div>
-
-        <!-- Drift Table -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4">
-          <h2 class="text-data-lg font-medium text-text mb-2">Target vs Actual</h2>
-          <div class="overflow-x-auto">
-            <table class="w-full text-data-sm">
-              <thead>
-                <tr class="text-text-secondary text-left border-b border-border-muted">
-                  <th class="py-1.5 pr-2 font-medium">Ticker</th>
-                  <th class="py-1.5 px-2 font-medium text-right">Target</th>
-                  <th class="py-1.5 px-2 font-medium text-right">Actual</th>
-                  <th class="py-1.5 pl-2 font-medium text-right">Drift</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (row of driftTable(); track row.ticker) {
-                  <tr class="border-b border-border-muted last:border-0">
-                    <td class="py-1.5 pr-2 font-mono text-text">{{ row.ticker }}</td>
-                    <td class="py-1.5 px-2 text-right font-mono tabular-nums text-text-secondary">{{ fmt.formatPercent(row.target) }}</td>
-                    <td class="py-1.5 px-2 text-right font-mono tabular-nums text-text-secondary">{{ fmt.formatPercent(row.actual) }}</td>
-                    <td class="py-1.5 pl-2 text-right font-mono tabular-nums"
-                        [class]="row.breached ? 'text-loss font-semibold' : (row.drift >= 0 ? 'text-gain' : 'text-text-secondary')">
-                      {{ row.drift >= 0 ? '+' : '' }}{{ fmt.formatPercent(row.drift) }}
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
+        <!-- Sector legend -->
+        <div class="flex flex-col justify-center gap-2.5">
+          @for (sector of allocationSectors(); track sector.name) {
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full shrink-0" aria-hidden="true"
+              [style.background-color]="'var(--color-chart-' + (sector.colorIndex + 1) + ')'"></span>
+            <span class="text-data-sm text-text truncate flex-1">{{ sector.name }}</span>
+            <span class="text-data-xs font-mono tabular-nums text-text-secondary shrink-0">{{
+              fmt.formatPercent(sector.weight, 1) }}</span>
           </div>
+          }
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- 3b. Drift Table (full width) -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4 reveal">
+    <h2 class="text-data-lg font-medium text-text mb-2">Target vs Actual</h2>
+    <div class="overflow-x-auto">
+      <table class="w-full text-data-sm">
+        <thead>
+          <tr class="text-text-secondary text-left border-b border-border-muted">
+            <th class="py-1.5 pr-2 font-medium">Ticker</th>
+            <th class="py-1.5 px-2 font-medium text-right">Target</th>
+            <th class="py-1.5 px-2 font-medium text-right">Actual</th>
+            <th class="py-1.5 pl-2 font-medium text-right">Drift</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of driftTable(); track row.ticker) {
+          <tr class="border-b border-border-muted last:border-0">
+            <td class="py-1.5 pr-2 font-mono text-text">{{ row.ticker }}</td>
+            <td class="py-1.5 px-2 text-right font-mono tabular-nums text-text-secondary">{{
+              fmt.formatPercent(row.target) }}</td>
+            <td class="py-1.5 px-2 text-right font-mono tabular-nums text-text-secondary">{{
+              fmt.formatPercent(row.actual) }}</td>
+            <td class="py-1.5 pl-2 text-right font-mono tabular-nums"
+              [class]="row.breached ? 'text-loss font-semibold' : (row.drift >= 0 ? 'text-gain' : 'text-text-secondary')">
+              {{ row.drift >= 0 ? '+' : '' }}{{ fmt.formatPercent(row.drift) }}
+            </td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
   }
 
   <!-- 4. Activity + Market Context (2-col grid) -->
   @if (revealIndex() >= 3) {
-    <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 reveal">
-      <!-- Left: Activity Feed (3/5) -->
-      <div class="lg:col-span-3 bg-surface-raised border border-border rounded-lg p-4">
-        <h2 class="text-data-lg font-medium text-text mb-3">Recent Activity</h2>
-        <div class="max-h-96 overflow-y-auto space-y-0.5 pr-1">
-          @for (item of activityFeed(); track item.id) {
-            <div class="flex items-start gap-3 py-2.5 border-b border-border-muted last:border-0">
-              <div class="mt-1.5 flex-shrink-0">
-                <span class="block w-2.5 h-2.5 rounded-full" [class]="activityDotClass(item.type)"></span>
+  <div class="grid grid-cols-1 lg:grid-cols-2 items-start gap-4 reveal">
+    <!-- Left: Activity Feed — height matches right column -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4 flex flex-col max-h-80 lg:max-h-112">
+      <h2 class="text-data-lg font-medium text-text mb-3 shrink-0">Recent Activity</h2>
+      <div class="flex-1 min-h-0 overflow-y-auto space-y-0.5 pr-1">
+        @for (item of activityFeed(); track item.id) {
+        <div class="flex items-start gap-3 py-2.5 border-b border-border-muted last:border-0">
+          <div class="mt-1.5 shrink-0">
+            <span class="block w-2.5 h-2.5 rounded-full" [class]="activityDotClass(item.type)"></span>
+          </div>
+          <div class="min-w-0 flex-1">
+            <p class="text-data-sm font-medium text-text">{{ item.title }}</p>
+            <p class="text-data-xs text-text-tertiary mt-0.5 truncate">{{ item.description }}</p>
+          </div>
+          <span class="text-data-xs text-text-tertiary whitespace-nowrap shrink-0">{{ relativeTime(item.timestamp)
+            }}</span>
+        </div>
+        }
+      </div>
+    </div>
+
+    <!-- Right: Macro Snapshot + Market Regime stacked -->
+    <div class="space-y-4">
+      <!-- Macro Indicators -->
+      <div class="grid grid-cols-2 gap-3">
+        <app-stat-card label="VIX" [value]="marketContext().vix" [delta]="macroVixDelta()" [trend]="macroVixTrend()"
+          deltaLabel="today" />
+        <app-stat-card label="S&P 500" [value]="fmt.formatPercent(marketContext().sp500Return)"
+          [delta]="marketContext().sp500Return"
+          [trend]="marketContext().sp500Return >= 0 ? 'up' : 'down'" deltaLabel="today" />
+        <app-stat-card label="10Y Yield" [value]="marketContext().tenYearYield + '%'" [delta]="macroYieldDelta()"
+          [trend]="macroYieldTrend()" deltaLabel="today" />
+        <app-stat-card label="USD Index" [value]="marketContext().usdIndex" [delta]="macroUsdDelta()"
+          [trend]="macroUsdTrend()" deltaLabel="today" />
+      </div>
+
+      <!-- Market Regime -->
+      <div class="bg-surface-raised border border-border rounded-lg p-4">
+        <h2 class="text-data-lg font-medium text-text mb-3">Market Regime</h2>
+        <div class="flex items-center gap-3 mb-3">
+          <span class="px-3 py-1 rounded-full text-data-sm font-semibold capitalize"
+            [class]="regimeColorClass(regimeInfo().current)">
+            {{ regimeInfo().current }}
+          </span>
+          <span class="text-data-sm text-text-secondary font-mono">{{ fmt.formatPercent(regimeInfo().probability, 0) }}
+            confidence</span>
+        </div>
+        <div class="space-y-1.5">
+          @for (state of regimeInfo().hmmStates; track state.regime) {
+          <div class="flex items-center gap-2">
+            <span class="text-data-xs text-text-secondary capitalize w-16">{{ state.regime }}</span>
+            <div class="flex-1 bg-surface-inset rounded-full h-2 overflow-hidden">
+              <div class="h-full rounded-full transition-all" [class]="regimeBarColor(state.regime)"
+                [style.width.%]="state.probability * 100">
               </div>
-              <div class="min-w-0 flex-1">
-                <p class="text-data-sm font-medium text-text">{{ item.title }}</p>
-                <p class="text-data-xs text-text-tertiary mt-0.5 truncate">{{ item.description }}</p>
-              </div>
-              <span class="text-data-xs text-text-tertiary whitespace-nowrap flex-shrink-0">{{ relativeTime(item.timestamp) }}</span>
             </div>
+            <span class="text-data-xs font-mono text-text-tertiary w-10 text-right">{{ (state.probability *
+              100).toFixed(0) }}%</span>
+          </div>
           }
         </div>
       </div>
-
-      <!-- Right: Market Context (2/5) -->
-      <div class="lg:col-span-2 space-y-4">
-        <!-- Regime Badge -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4">
-          <h2 class="text-data-lg font-medium text-text mb-3">Market Regime</h2>
-          <div class="flex items-center gap-3 mb-3">
-            <span class="px-3 py-1 rounded-full text-data-sm font-semibold capitalize" [class]="regimeColorClass(regimeInfo().current)">
-              {{ regimeInfo().current }}
-            </span>
-            <span class="text-data-sm text-text-secondary font-mono">{{ fmt.formatPercent(regimeInfo().probability, 0) }} confidence</span>
-          </div>
-          <!-- HMM Probability Bars -->
-          <div class="space-y-1.5">
-            @for (state of regimeInfo().hmmStates; track state.regime) {
-              <div class="flex items-center gap-2">
-                <span class="text-data-xs text-text-secondary capitalize w-16">{{ state.regime }}</span>
-                <div class="flex-1 bg-surface-inset rounded-full h-2 overflow-hidden">
-                  <div class="h-full rounded-full transition-all"
-                       [class]="regimeBarColor(state.regime)"
-                       [style.width.%]="state.probability * 100">
-                  </div>
-                </div>
-                <span class="text-data-xs font-mono text-text-tertiary w-10 text-right">{{ (state.probability * 100).toFixed(0) }}%</span>
-              </div>
-            }
-          </div>
-        </div>
-
-        <!-- Macro Indicators -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4">
-          <h2 class="text-data-lg font-medium text-text mb-3">Macro Snapshot</h2>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <p class="text-data-xs text-text-tertiary">VIX</p>
-              <p class="text-data-lg font-mono font-semibold text-text">{{ marketContext().vix }}</p>
-              <p class="text-data-xs font-mono" [class]="marketContext().vixChange < 0 ? 'text-gain' : 'text-loss'">
-                {{ marketContext().vixChange > 0 ? '+' : '' }}{{ marketContext().vixChange }}
-              </p>
-            </div>
-            <div>
-              <p class="text-data-xs text-text-tertiary">S&P 500</p>
-              <p class="text-data-lg font-mono font-semibold" [class]="marketContext().sp500Return >= 0 ? 'text-gain' : 'text-loss'">
-                {{ fmt.formatPercent(marketContext().sp500Return) }}
-              </p>
-              <p class="text-data-xs text-text-tertiary">today</p>
-            </div>
-            <div>
-              <p class="text-data-xs text-text-tertiary">10Y Yield</p>
-              <p class="text-data-lg font-mono font-semibold text-text">{{ marketContext().tenYearYield }}%</p>
-              <p class="text-data-xs font-mono" [class]="marketContext().yieldChange < 0 ? 'text-gain' : 'text-loss'">
-                {{ marketContext().yieldChange > 0 ? '+' : '' }}{{ marketContext().yieldChange }} bps
-              </p>
-            </div>
-            <div>
-              <p class="text-data-xs text-text-tertiary">USD Index</p>
-              <p class="text-data-lg font-mono font-semibold text-text">{{ marketContext().usdIndex }}</p>
-              <p class="text-data-xs font-mono" [class]="marketContext().usdChange < 0 ? 'text-loss' : 'text-gain'">
-                {{ marketContext().usdChange > 0 ? '+' : '' }}{{ marketContext().usdChange }}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Asset Class Returns -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4">
-          <h2 class="text-data-lg font-medium text-text mb-2">Asset Class Returns</h2>
-          <div class="overflow-x-auto">
-            <table class="w-full text-data-xs">
-              <thead>
-                <tr class="text-text-secondary border-b border-border-muted">
-                  <th class="py-1.5 pr-2 text-left font-medium">Class</th>
-                  <th class="py-1.5 px-1 text-right font-medium">1D</th>
-                  <th class="py-1.5 px-1 text-right font-medium">1W</th>
-                  <th class="py-1.5 px-1 text-right font-medium">1M</th>
-                  <th class="py-1.5 pl-1 text-right font-medium">YTD</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (row of assetClassReturns(); track row.name) {
-                  <tr class="border-b border-border-muted last:border-0">
-                    <td class="py-1.5 pr-2 text-text-secondary whitespace-nowrap">{{ row.name }}</td>
-                    <td class="py-1 px-1 text-right font-mono rounded-sm" [attr.style]="returnCellBg(row['1D'])">
-                      {{ fmt.formatPercent(row['1D'], 1) }}
-                    </td>
-                    <td class="py-1 px-1 text-right font-mono rounded-sm" [attr.style]="returnCellBg(row['1W'])">
-                      {{ fmt.formatPercent(row['1W'], 1) }}
-                    </td>
-                    <td class="py-1 px-1 text-right font-mono rounded-sm" [attr.style]="returnCellBg(row['1M'])">
-                      {{ fmt.formatPercent(row['1M'], 1) }}
-                    </td>
-                    <td class="py-1 pl-1 text-right font-mono rounded-sm" [attr.style]="returnCellBg(row['YTD'])">
-                      {{ fmt.formatPercent(row['YTD'], 1) }}
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
     </div>
+  </div>
   }
 
   <!-- 5. Quick Actions -->
   @if (revealIndex() >= 4) {
-    <div class="reveal">
-      <h2 class="text-data-sm font-medium text-text-secondary mb-3">Quick Actions</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <a routerLink="/optimization-studio" class="block bg-surface-raised border border-border rounded-lg p-4 hover:border-accent transition-colors group">
-          <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-md bg-surface-inset flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" />
-              </svg>
-            </div>
-            <div>
-              <p class="text-data-sm font-medium text-text">Run Optimization</p>
-              <p class="text-data-xs text-text-tertiary">Build and backtest portfolios</p>
-            </div>
+  <div class="reveal">
+    <h2 class="text-data-sm font-medium text-text-secondary mb-3">Quick Actions</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <a routerLink="/optimization-studio"
+        class="block bg-surface-raised border border-border rounded-lg p-4 hover:border-accent transition-colors group">
+        <div class="flex items-center gap-3">
+          <div
+            class="w-8 h-8 rounded-md bg-surface-inset flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" />
+            </svg>
           </div>
-        </a>
+          <div>
+            <p class="text-data-sm font-medium text-text">Run Optimization</p>
+            <p class="text-data-xs text-text-tertiary">Build and backtest portfolios</p>
+          </div>
+        </div>
+      </a>
 
-        <a routerLink="/rebalancing" class="block bg-surface-raised border border-border rounded-lg p-4 hover:border-accent transition-colors group">
-          <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-md bg-surface-inset flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
-              </svg>
-            </div>
-            <div>
-              <p class="text-data-sm font-medium text-text">Check Rebalancing</p>
-              <p class="text-data-xs text-text-tertiary">Review drift and rebalance triggers</p>
-            </div>
+      <a routerLink="/rebalancing"
+        class="block bg-surface-raised border border-border rounded-lg p-4 hover:border-accent transition-colors group">
+        <div class="flex items-center gap-3">
+          <div
+            class="w-8 h-8 rounded-md bg-surface-inset flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
+            </svg>
           </div>
-        </a>
+          <div>
+            <p class="text-data-sm font-medium text-text">Check Rebalancing</p>
+            <p class="text-data-xs text-text-tertiary">Review drift and rebalance triggers</p>
+          </div>
+        </div>
+      </a>
 
-        <a routerLink="/risk-center" class="block bg-surface-raised border border-border rounded-lg p-4 hover:border-accent transition-colors group">
-          <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-md bg-surface-inset flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126Z" />
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 15.75h.007v.008H12v-.008Z" />
-              </svg>
-            </div>
-            <div>
-              <p class="text-data-sm font-medium text-text">Risk Report</p>
-              <p class="text-data-xs text-text-tertiary">VaR, stress tests, and exposures</p>
-            </div>
+      <a routerLink="/risk-center"
+        class="block bg-surface-raised border border-border rounded-lg p-4 hover:border-accent transition-colors group">
+        <div class="flex items-center gap-3">
+          <div
+            class="w-8 h-8 rounded-md bg-surface-inset flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126Z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 15.75h.007v.008H12v-.008Z" />
+            </svg>
           </div>
-        </a>
+          <div>
+            <p class="text-data-sm font-medium text-text">Risk Report</p>
+            <p class="text-data-xs text-text-tertiary">VaR, stress tests, and exposures</p>
+          </div>
+        </div>
+      </a>
 
-        <a routerLink="/ai-control-room" class="block bg-surface-raised border border-border rounded-lg p-4 hover:border-accent transition-colors group">
-          <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-md bg-surface-inset flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456Z" />
-              </svg>
-            </div>
-            <div>
-              <p class="text-data-sm font-medium text-text">Compare with AI</p>
-              <p class="text-data-xs text-text-tertiary">AI agent decisions and analysis</p>
-            </div>
+      <a routerLink="/ai-control-room"
+        class="block bg-surface-raised border border-border rounded-lg p-4 hover:border-accent transition-colors group">
+        <div class="flex items-center gap-3">
+          <div
+            class="w-8 h-8 rounded-md bg-surface-inset flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456Z" />
+            </svg>
           </div>
-        </a>
-      </div>
+          <div>
+            <p class="text-data-sm font-medium text-text">Compare with AI</p>
+            <p class="text-data-xs text-text-tertiary">AI agent decisions and analysis</p>
+          </div>
+        </div>
+      </a>
     </div>
+  </div>
   }
 
   } <!-- end @else -->

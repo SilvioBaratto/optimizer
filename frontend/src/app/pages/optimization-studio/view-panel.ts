@@ -30,8 +30,8 @@ export class ViewPanelComponent {
 
   readonly viewTableColumns: TableColumn[] = [
     { key: 'type', label: 'Type', type: 'badge', badgeMap: {
-      absolute: { value: 'Absolute', colorClass: 'inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-accent/10 text-accent' },
-      relative: { value: 'Relative', colorClass: 'inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-text-tertiary/10 text-text-secondary' },
+      absolute: { value: 'Absolute', colorClass: 'inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-accent/10 text-accent' },
+      relative: { value: 'Relative', colorClass: 'inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-text-tertiary/10 text-text-secondary' },
     }},
     { key: 'assetsDisplay', label: 'Assets' },
     { key: 'valueDisplay', label: 'Value (%)', align: 'right' },

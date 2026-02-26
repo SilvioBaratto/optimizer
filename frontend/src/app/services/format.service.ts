@@ -26,6 +26,16 @@ export class FormatService {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value);
   }
 
+  formatCurrencyCompact(value: number | null | undefined, currency = 'USD'): string {
+    if (value == null || isNaN(value)) return '--';
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      notation: 'compact',
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
+
   formatBps(value: number | null | undefined): string {
     if (value == null || isNaN(value)) return '--';
     return `${Math.round(value * 10000)} bps`;

@@ -44,7 +44,7 @@ export const MOCK_DASHBOARD_KPIS: DashboardKPI[] = [
     sparkline: generateSparkline(1, 30),
   },
   {
-    label: 'Annualized Return',
+    label: 'Ann. Return',
     value: 0.0982,
     format: 'percent',
     change: 0.004,
@@ -148,38 +148,64 @@ export const MOCK_REGIME_INFO: RegimeInfo = {
 
 export const MOCK_ALLOCATION_SUNBURST: AllocationNode[] = [
   {
-    name: 'Equities',
-    value: 76.0,
+    name: 'Technology',
+    value: 28.5,
     children: [
-      { name: 'Technology', value: 20.5 },
-      { name: 'Healthcare', value: 14.0 },
-      { name: 'Financial Svcs', value: 12.5 },
-      { name: 'Industrials', value: 10.5 },
-      { name: 'Consumer Def.', value: 9.5 },
-      { name: 'Consumer Cyc.', value: 8.5 },
+      { name: 'AAPL', value: 8.2 },
+      { name: 'MSFT', value: 7.8 },
+      { name: 'NVDA', value: 6.5 },
+      { name: 'META', value: 3.5 },
+      { name: 'AVGO', value: 2.5 },
     ],
   },
   {
-    name: 'Fixed Income',
-    value: 12.0,
+    name: 'Healthcare',
+    value: 18.0,
     children: [
-      { name: 'US Treasury', value: 5.0 },
-      { name: 'IG Corporate', value: 4.0 },
-      { name: 'TIPS', value: 3.0 },
+      { name: 'JNJ', value: 5.2 },
+      { name: 'UNH', value: 4.8 },
+      { name: 'LLY', value: 4.5 },
+      { name: 'PFE', value: 3.5 },
     ],
   },
   {
-    name: 'Alternatives',
-    value: 8.0,
+    name: 'Financials',
+    value: 16.5,
     children: [
-      { name: 'Commodities', value: 3.0 },
-      { name: 'Real Estate', value: 3.0 },
-      { name: 'Gold', value: 2.0 },
+      { name: 'JPM', value: 5.5 },
+      { name: 'BAC', value: 4.0 },
+      { name: 'GS', value: 3.8 },
+      { name: 'BLK', value: 3.2 },
     ],
   },
   {
-    name: 'Cash',
-    value: 4.0,
+    name: 'Industrials',
+    value: 13.0,
+    children: [
+      { name: 'CAT', value: 4.2 },
+      { name: 'HON', value: 3.5 },
+      { name: 'UNP', value: 2.8 },
+      { name: 'GE', value: 2.5 },
+    ],
+  },
+  {
+    name: 'Consumer',
+    value: 14.0,
+    children: [
+      { name: 'AMZN', value: 5.0 },
+      { name: 'PG', value: 3.5 },
+      { name: 'KO', value: 3.0 },
+      { name: 'COST', value: 2.5 },
+    ],
+  },
+  {
+    name: 'Energy',
+    value: 10.0,
+    children: [
+      { name: 'XOM', value: 4.5 },
+      { name: 'CVX', value: 3.5 },
+      { name: 'COP', value: 2.0 },
+    ],
   },
 ];
 
@@ -188,16 +214,18 @@ export const MOCK_ALLOCATION_SUNBURST: AllocationNode[] = [
 const rng = seededRandom(77);
 
 export const MOCK_DRIFT_TABLE: DriftEntry[] = [
-  { ticker: 'AAPL', name: 'Apple Inc.', target: 0.042, actual: 0.048, drift: 0.006, breached: true },
-  { ticker: 'MSFT', name: 'Microsoft Corp.', target: 0.038, actual: 0.041, drift: 0.003, breached: false },
-  { ticker: 'NVDA', name: 'NVIDIA Corp.', target: 0.025, actual: 0.032, drift: 0.007, breached: true },
-  { ticker: 'GOOGL', name: 'Alphabet Inc.', target: 0.031, actual: 0.029, drift: -0.002, breached: false },
-  { ticker: 'AMZN', name: 'Amazon.com Inc.', target: 0.028, actual: 0.026, drift: -0.002, breached: false },
-  { ticker: 'JPM', name: 'JPMorgan Chase', target: 0.020, actual: 0.022, drift: 0.002, breached: false },
-  { ticker: 'META', name: 'Meta Platforms', target: 0.022, actual: 0.019, drift: -0.003, breached: false },
-  { ticker: 'JNJ', name: 'Johnson & Johnson', target: 0.018, actual: 0.016, drift: -0.002, breached: false },
-  { ticker: 'XOM', name: 'Exxon Mobil', target: 0.013, actual: 0.018, drift: 0.005, breached: true },
-  { ticker: 'TSLA', name: 'Tesla Inc.', target: 0.013, actual: 0.010, drift: -0.003, breached: false },
+  { ticker: 'AAPL', name: 'Apple Inc.', target: 0.082, actual: 0.089, drift: 0.007, breached: true },
+  { ticker: 'MSFT', name: 'Microsoft Corp.', target: 0.078, actual: 0.081, drift: 0.003, breached: false },
+  { ticker: 'NVDA', name: 'NVIDIA Corp.', target: 0.065, actual: 0.073, drift: 0.008, breached: true },
+  { ticker: 'JPM', name: 'JPMorgan Chase', target: 0.055, actual: 0.058, drift: 0.003, breached: false },
+  { ticker: 'JNJ', name: 'Johnson & Johnson', target: 0.052, actual: 0.048, drift: -0.004, breached: false },
+  { ticker: 'AMZN', name: 'Amazon.com Inc.', target: 0.050, actual: 0.053, drift: 0.003, breached: false },
+  { ticker: 'UNH', name: 'UnitedHealth Group', target: 0.048, actual: 0.044, drift: -0.004, breached: false },
+  { ticker: 'XOM', name: 'Exxon Mobil', target: 0.045, actual: 0.051, drift: 0.006, breached: true },
+  { ticker: 'LLY', name: 'Eli Lilly', target: 0.045, actual: 0.042, drift: -0.003, breached: false },
+  { ticker: 'CAT', name: 'Caterpillar Inc.', target: 0.042, actual: 0.039, drift: -0.003, breached: false },
+  { ticker: 'META', name: 'Meta Platforms', target: 0.035, actual: 0.032, drift: -0.003, breached: false },
+  { ticker: 'BAC', name: 'Bank of America', target: 0.040, actual: 0.037, drift: -0.003, breached: false },
 ].map(d => ({ ...d, _sort: Math.abs(d.drift) }))
   .sort((a, b) => b._sort - a._sort)
   .map(({ _sort, ...rest }) => rest);
@@ -205,12 +233,10 @@ export const MOCK_DRIFT_TABLE: DriftEntry[] = [
 // ── Asset Class Returns ──
 
 export const MOCK_ASSET_CLASS_RETURNS: AssetClassReturn[] = [
-  { name: 'US Equities',    '1D': 0.0082, '1W': 0.0214, '1M': 0.0345, 'YTD': 0.0612 },
-  { name: 'Intl Equities',  '1D': 0.0041, '1W': 0.0098, '1M': 0.0178, 'YTD': 0.0289 },
-  { name: 'EM Equities',    '1D': -0.0023, '1W': -0.0051, '1M': 0.0124, 'YTD': 0.0198 },
-  { name: 'Fixed Income',   '1D': 0.0008, '1W': 0.0032, '1M': -0.0045, 'YTD': -0.0112 },
-  { name: 'Commodities',    '1D': -0.0045, '1W': -0.0128, '1M': 0.0256, 'YTD': 0.0489 },
-  { name: 'Gold',           '1D': 0.0032, '1W': 0.0078, '1M': 0.0312, 'YTD': 0.0534 },
-  { name: 'Real Estate',    '1D': -0.0012, '1W': 0.0045, '1M': -0.0089, 'YTD': -0.0234 },
-  { name: 'Crypto',         '1D': 0.0234, '1W': 0.0567, '1M': 0.1245, 'YTD': 0.2156 },
+  { name: 'Technology',     '1D': 0.0082, '1W': 0.0214, '1M': 0.0345, 'YTD': 0.0612 },
+  { name: 'Healthcare',     '1D': 0.0041, '1W': 0.0098, '1M': 0.0178, 'YTD': 0.0289 },
+  { name: 'Financials',     '1D': -0.0023, '1W': 0.0051, '1M': 0.0124, 'YTD': 0.0198 },
+  { name: 'Industrials',    '1D': 0.0008, '1W': 0.0032, '1M': -0.0045, 'YTD': 0.0112 },
+  { name: 'Consumer',       '1D': -0.0012, '1W': 0.0045, '1M': -0.0089, 'YTD': 0.0156 },
+  { name: 'Energy',         '1D': -0.0045, '1W': -0.0128, '1M': 0.0256, 'YTD': 0.0489 },
 ];

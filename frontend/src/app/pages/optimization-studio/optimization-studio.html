@@ -1,122 +1,117 @@
 <div class="flex-1 overflow-y-auto p-6">
   <!-- Page Header — always visible -->
-  <app-page-header
-    title="Optimization Studio"
-    subtitle="Build and run portfolio optimization pipelines">
-    <div actions class="flex gap-2">
-      <button
-        type="button"
-        class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors">
-        Load Pipeline
-      </button>
-      <button
-        type="button"
-        class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors">
-        Save Pipeline
-      </button>
-      <button (click)="openReportModal()" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-        </svg>
-        Export Report
-      </button>
-      <button
-        type="button"
-        (click)="onRunPipeline()"
-        [disabled]="isRunning()"
-        class="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+  <app-page-header title="Optimization Studio" subtitle="Build and run portfolio optimization pipelines">
+    <div actions class="flex flex-wrap items-center gap-2">
+      <!-- Secondary actions: hidden on mobile/tablet, visible md+ -->
+      <div class="hidden md:flex items-center gap-2">
+        <button type="button"
+          class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+          Load Pipeline
+        </button>
+        <button type="button"
+          class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+          Save Pipeline
+        </button>
+        <button (click)="openReportModal()"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          </svg>
+          Export Report
+        </button>
+      </div>
+      <!-- Primary action: always visible, full-width on mobile -->
+      <button type="button" (click)="onRunPipeline()" [disabled]="isRunning()"
+        class="w-full md:w-auto px-4 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
         @if (isRunning()) {
-          Running...
+        Running...
         } @else {
-          Run Pipeline
+        Run Pipeline
         }
       </button>
     </div>
   </app-page-header>
 
   @if (isLoading()) {
-    <!-- Loading skeleton -->
-    <div class="mt-6 space-y-4">
-      <!-- Pipeline steps skeleton -->
-      <div class="flex items-center gap-3 overflow-x-auto pb-2">
-        @for (i of [1,2,3,4,5,6,7]; track i) {
-          <div class="flex-shrink-0 w-32 h-20 skeleton rounded-lg"></div>
-          @if (i < 7) {
-            <div class="w-6 h-0.5 skeleton flex-shrink-0"></div>
-          }
-        }
-      </div>
-      <!-- Config panel skeleton -->
-      <div class="h-64 skeleton rounded-lg"></div>
-      <!-- Results skeleton -->
-      <div class="h-80 skeleton rounded-lg"></div>
+  <!-- Loading skeleton -->
+  <div class="mt-6 space-y-4">
+    <!-- Pipeline steps skeleton -->
+    <div class="flex items-center gap-3 overflow-x-auto pb-2">
+      @for (i of [1,2,3,4,5,6,7]; track i) {
+      <div class="shrink-0 w-32 h-20 skeleton rounded-lg"></div>
+      @if (i < 7) { <div class="w-6 h-0.5 skeleton shrink-0">
     </div>
-  } @else if (hasError()) {
-    <!-- Error state -->
-    <div class="flex flex-col items-center justify-center py-20 px-4">
-      <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-      </svg>
-      <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
-      <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
-      <button (click)="retry()" class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
-        Try Again
-      </button>
-    </div>
-  } @else {
-
-    <!-- Run Progress -->
-    @if (isRunning()) {
-      <div class="mb-4">
-        <app-progress-bar
-          label="Running pipeline"
-          [current]="runProgress()"
-          [total]="100"
-          detail="Executing optimization steps..." />
-      </div>
     }
-
-    <!-- Pipeline Builder -->
-    <app-pipeline-builder
-      [nodes]="pipelineNodes()"
-      [activeNode]="activeNode()"
-      (nodeSelect)="onNodeSelect($event)" />
-
-    <!-- Active Node Config Panel -->
-    @if (activeNode()) {
-      <div class="mt-6">
-        @switch (activeNode()) {
-          @case ('p2') {
-            <app-preprocessing-panel />
-          }
-          @case ('p3') {
-            <app-moment-panel />
-          }
-          @case ('p4') {
-            <app-view-panel />
-          }
-          @case ('p5') {
-            <app-optimizer-panel />
-          }
-          @case ('p6') {
-            <app-results-panel />
-          }
-          @case ('p7') {
-            <app-results-panel />
-          }
-          @default {
-            <app-results-panel />
-          }
-        }
-      </div>
     }
+  </div>
+  <!-- Config panel skeleton -->
+  <div class="h-64 skeleton rounded-lg"></div>
+  <!-- Results skeleton -->
+  <div class="h-80 skeleton rounded-lg"></div>
+</div>
+} @else if (hasError()) {
+<!-- Error state -->
+<div class="flex flex-col items-center justify-center py-20 px-4">
+  <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round"
+      d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+  </svg>
+  <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
+  <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
+  <button (click)="retry()"
+    class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
+    Try Again
+  </button>
+</div>
+} @else {
 
-    <!-- Results always visible when no node selected -->
-    @if (!activeNode()) {
-      <div class="mt-6">
-        <app-results-panel />
-      </div>
-    }
+<!-- Run Progress -->
+@if (isRunning()) {
+<div class="mb-4">
+  <app-progress-bar label="Running pipeline" [current]="runProgress()" [total]="100"
+    detail="Executing optimization steps..." />
+</div>
+}
 
-  } <!-- end @else -->
+<!-- Pipeline Builder -->
+<app-pipeline-builder [nodes]="pipelineNodes()" [activeNode]="activeNode()" (nodeSelect)="onNodeSelect($event)" />
+
+<!-- Active Node Config Panel -->
+@if (activeNode()) {
+<div class="mt-6">
+  @switch (activeNode()) {
+  @case ('p2') {
+  <app-preprocessing-panel />
+  }
+  @case ('p3') {
+  <app-moment-panel />
+  }
+  @case ('p4') {
+  <app-view-panel />
+  }
+  @case ('p5') {
+  <app-optimizer-panel />
+  }
+  @case ('p6') {
+  <app-results-panel />
+  }
+  @case ('p7') {
+  <app-results-panel />
+  }
+  @default {
+  <app-results-panel />
+  }
+  }
+</div>
+}
+
+<!-- Results always visible when no node selected -->
+@if (!activeNode()) {
+<div class="mt-6">
+  <app-results-panel />
+</div>
+}
+
+} <!-- end @else -->
 </div>
