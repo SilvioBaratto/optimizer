@@ -56,12 +56,12 @@ export class VarPanelComponent implements OnDestroy {
 
   varDollarStr = computed(() => {
     const r = this.activeResult();
-    return r ? this.fmt.formatCurrency(r.varDollar) : '--';
+    return r ? this.fmt.formatCurrencyCompact(r.varDollar) : '--';
   });
 
   cvarDollarStr = computed(() => {
     const r = this.activeResult();
-    return r ? this.fmt.formatCurrency(r.cvarDollar) : '--';
+    return r ? this.fmt.formatCurrencyCompact(r.cvarDollar) : '--';
   });
 
   varAumRatio = computed(() => {
@@ -99,7 +99,7 @@ export class VarPanelComponent implements OnDestroy {
   private readonly varTimeSeries = generateDailyTimeSeries('2025-06-01', 180, -0.02, 0.16, -0.018, 99);
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const container = this.chartContainer();
       this.selectedMethod();
       this.selectedConfidence();
@@ -108,6 +108,12 @@ export class VarPanelComponent implements OnDestroy {
       } else if (this.chart) {
         this.chart.setOption(this.buildTimeSeriesOption());
       }
+      onCleanup(() => {
+        this.ro?.disconnect();
+        this.chart?.dispose();
+        this.chart = undefined;
+        this.ro = undefined;
+      });
     });
   }
 
@@ -126,7 +132,10 @@ export class VarPanelComponent implements OnDestroy {
     this.chart = init(el, 'portfolio', { renderer: 'canvas' });
     this.chart.setOption(this.buildTimeSeriesOption());
 
-    this.ro = new ResizeObserver(() => this.chart?.resize());
+    this.ro = new ResizeObserver(() => {
+      this.chart?.resize();
+      this.chart?.setOption(this.buildTimeSeriesOption());
+    });
     this.ro.observe(el);
   }
 
@@ -139,6 +148,9 @@ export class VarPanelComponent implements OnDestroy {
     const values = this.varTimeSeries.map(p => +(p.value * 100).toFixed(4));
     const threshold = -(this.selectedConfidence() === 0.99 ? 3.2 : 1.8);
 
+    const containerWidth = this.chartContainer()?.nativeElement.clientWidth ?? 800;
+    const isNarrow = containerWidth < 500;
+
     return {
       tooltip: {
         trigger: 'axis',
@@ -147,7 +159,7 @@ export class VarPanelComponent implements OnDestroy {
           return `${p.name}: ${p.value.toFixed(4)}%`;
         },
       },
-      grid: { left: 50, right: 16, top: 16, bottom: 32 },
+      grid: { left: isNarrow ? 40 : 50, right: 16, top: 16, bottom: isNarrow ? 48 : 32 },
       xAxis: { type: 'category', data: labels },
       yAxis: {
         type: 'value',

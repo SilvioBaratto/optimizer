@@ -40,18 +40,21 @@ export class EchartsHeatmapComponent implements OnDestroy, ChartExportable {
   private async initChart() {
     const { init, use } = await import('echarts/core');
     const { HeatmapChart } = await import('echarts/charts');
-    const { GridComponent, TooltipComponent, VisualMapComponent } = await import(
+    const { GridComponent, TooltipComponent, VisualMapComponent, DataZoomComponent } = await import(
       'echarts/components'
     );
     const { CanvasRenderer } = await import('echarts/renderers');
 
-    use([HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent, CanvasRenderer]);
+    use([HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent, DataZoomComponent, CanvasRenderer]);
 
     const el = this.container().nativeElement;
     this.chart = init(el, 'portfolio', { renderer: 'canvas' });
     this.chart.setOption(this.buildOption(this.assets(), this.matrix()));
 
-    this.ro = new ResizeObserver(() => this.chart?.resize());
+    this.ro = new ResizeObserver(() => {
+      this.chart?.resize();
+      this.chart?.setOption(this.buildOption(this.assets(), this.matrix()));
+    });
     this.ro.observe(el);
   }
 
@@ -63,36 +66,72 @@ export class EchartsHeatmapComponent implements OnDestroy, ChartExportable {
       }
     }
 
+    const containerWidth = this.container().nativeElement.clientWidth;
+    const isNarrow = containerWidth < 500;
+    const useDataZoom = isNarrow && assets.length > 10;
+    // Show ~10 columns at a time on narrow screens via dataZoom
+    const zoomEnd = useDataZoom ? Math.min(100, (10 / assets.length) * 100) : 100;
+
     return {
       tooltip: {
-        position: 'top',
+        trigger: 'item',
+        axisPointer: { type: 'none' },
+        confine: true,
         formatter: (params: unknown) => {
-          const p = params as { value: [number, number, number] };
-          const col = assets[p.value[0]];
-          const row = assets[p.value[1]];
-          return `${row} \u00d7 ${col}<br/>${p.value[2].toFixed(2)}`;
+          const raw = Array.isArray(params) ? params[0] : params;
+          const p = raw as { value: [number, number, number]; data: [number, number, number] };
+          const tuple = p.value ?? p.data;
+          if (!tuple) return '';
+          const col = assets[tuple[0]];
+          const row = assets[tuple[1]];
+          return `<b>${row} \u00d7 ${col}</b><br/>${tuple[2].toFixed(2)}`;
         },
       },
-      grid: { left: 60, right: 80, top: 10, bottom: 60 },
+      grid: {
+        left: isNarrow ? 40 : 60,
+        right: isNarrow ? 16 : 80,
+        top: 10,
+        bottom: useDataZoom ? 80 : (isNarrow ? 40 : 60),
+      },
       xAxis: {
         type: 'category',
         data: assets,
-        axisLabel: { rotate: 45 },
+        axisLabel: { rotate: 45, fontSize: isNarrow ? 9 : 12 },
         splitArea: { show: true, areaStyle: { color: ['#fafafa', '#ffffff'] } },
       },
       yAxis: {
         type: 'category',
         data: assets,
+        axisLabel: { fontSize: isNarrow ? 9 : 12 },
         splitArea: { show: true, areaStyle: { color: ['#fafafa', '#ffffff'] } },
       },
+      ...(useDataZoom ? {
+        dataZoom: [
+          {
+            type: 'slider',
+            xAxisIndex: 0,
+            start: 0,
+            end: zoomEnd,
+            bottom: 40,
+            height: 20,
+            borderColor: 'transparent',
+          },
+          {
+            type: 'inside',
+            xAxisIndex: 0,
+            start: 0,
+            end: zoomEnd,
+          },
+        ],
+      } : {}),
       visualMap: {
         min: -1,
         max: 1,
         calculable: true,
-        orient: 'vertical',
-        right: 0,
-        top: 'middle',
-        itemHeight: 160,
+        orient: isNarrow ? 'horizontal' as const : 'vertical' as const,
+        ...(isNarrow
+          ? { left: 'center', bottom: useDataZoom ? 10 : 0, itemWidth: 12, itemHeight: 100 }
+          : { right: 0, top: 'middle', itemHeight: 160 }),
         text: ['1', '-1'],
       },
       series: [

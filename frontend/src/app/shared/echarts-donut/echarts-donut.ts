@@ -50,20 +50,28 @@ export class EchartsDonutComponent implements OnDestroy, ChartExportable {
     this.chart = init(el, 'portfolio', { renderer: 'canvas' });
     this.chart.setOption(this.buildOption(this.segments()));
 
-    this.ro = new ResizeObserver(() => this.chart?.resize());
+    this.ro = new ResizeObserver(() => {
+      this.chart?.resize();
+      this.chart?.setOption(this.buildOption(this.segments()));
+    });
     this.ro.observe(el);
   }
 
   private buildOption(segs: PieSegment[]): EChartsCoreOption {
+    const containerWidth = this.container().nativeElement.clientWidth;
+    const isNarrow = containerWidth < 500;
+
     return {
       tooltip: {
         trigger: 'item',
         formatter: '{b}: {d}%',
       },
       legend: {
-        orient: 'vertical',
-        right: 0,
-        top: 'middle',
+        orient: isNarrow ? 'horizontal' as const : 'vertical' as const,
+        ...(isNarrow
+          ? { left: 'center', bottom: 0 }
+          : { right: 0, top: 'middle' }),
+        textStyle: { fontSize: isNarrow ? 11 : 12 },
         formatter: (name: string) => {
           const seg = segs.find(s => s.label === name);
           if (!seg) return name;
@@ -75,9 +83,10 @@ export class EchartsDonutComponent implements OnDestroy, ChartExportable {
       series: [
         {
           type: 'pie',
-          radius: ['40%', '70%'],
-          center: ['35%', '50%'],
+          radius: isNarrow ? ['30%', '55%'] : ['40%', '70%'],
+          center: isNarrow ? ['50%', '40%'] : ['35%', '50%'],
           data: segs.map(s => ({ name: s.label, value: s.value, itemStyle: { color: s.color } })),
+          label: { show: isNarrow, position: 'outside', formatter: '{d}%', fontSize: 10 },
         },
       ],
     };

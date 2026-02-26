@@ -46,22 +46,11 @@
   } @else {
 
     <!-- KPI Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6 mt-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 mt-6">
       <app-stat-card label="VaR 95%" [value]="kpiVar95()" subtitle="1-day Historical" />
       <app-stat-card label="VaR 99%" [value]="kpiVar99()" subtitle="1-day Historical" />
       <app-stat-card label="CVaR 95%" [value]="kpiCvar()" subtitle="Expected Shortfall" />
       <app-stat-card label="Volatility" [value]="kpiVol()" subtitle="Annualized" />
-      <div class="bg-surface-raised border border-border rounded-lg p-4">
-        <p class="text-xs font-medium text-text-secondary uppercase tracking-wide">Risk Budget</p>
-        <app-echarts-gauge
-          [value]="riskBudgetUsed()"
-          [min]="0"
-          [max]="100"
-          [thresholds]="gaugeThresholds"
-          label="% Used"
-          [height]="100"
-        />
-      </div>
     </div>
 
     <!-- Tab Navigation -->

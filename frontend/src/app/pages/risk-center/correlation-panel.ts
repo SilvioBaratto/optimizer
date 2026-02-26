@@ -39,11 +39,17 @@ export class CorrelationPanelComponent implements OnDestroy {
   private readonly rollingCorr2 = generateDailyTimeSeries('2025-06-01', 180, 0, 0.04, 0.30, 202);
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const container = this.rollingContainer();
       if (container && !this.chart) {
         void this.initChart();
       }
+      onCleanup(() => {
+        this.ro?.disconnect();
+        this.chart?.dispose();
+        this.chart = undefined;
+        this.ro = undefined;
+      });
     });
   }
 
@@ -62,7 +68,10 @@ export class CorrelationPanelComponent implements OnDestroy {
     this.chart = init(el, 'portfolio', { renderer: 'canvas' });
     this.chart.setOption(this.buildOption());
 
-    this.ro = new ResizeObserver(() => this.chart?.resize());
+    this.ro = new ResizeObserver(() => {
+      this.chart?.resize();
+      this.chart?.setOption(this.buildOption());
+    });
     this.ro.observe(el);
   }
 
@@ -71,10 +80,13 @@ export class CorrelationPanelComponent implements OnDestroy {
     const color1 = style.getPropertyValue('--color-chart-1').trim();
     const color2 = style.getPropertyValue('--color-chart-3').trim();
 
+    const containerWidth = this.rollingContainer()?.nativeElement.clientWidth ?? 800;
+    const isNarrow = containerWidth < 500;
+
     return {
       tooltip: { trigger: 'axis' },
-      legend: { data: ['Avg Pairwise Corr', 'AAPL-MSFT Corr'], bottom: 0 },
-      grid: { left: 50, right: 16, top: 16, bottom: 40 },
+      legend: { data: ['Avg Pairwise Corr', 'AAPL-MSFT Corr'], bottom: 0, textStyle: { fontSize: isNarrow ? 10 : 12 } },
+      grid: { left: isNarrow ? 40 : 50, right: 16, top: 16, bottom: isNarrow ? 50 : 40 },
       xAxis: { type: 'category', data: this.rollingCorr1.map(p => p.date) },
       yAxis: {
         type: 'value',

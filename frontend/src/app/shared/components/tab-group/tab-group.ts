@@ -10,29 +10,32 @@ export interface Tab {
   selector: 'app-tab-group',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="overflow-x-auto scrollbar-hide border-b border-border"
-         role="tablist"
-         (keydown)="onKeydown($event)">
-      <div class="flex gap-0 min-w-max">
-        @for (tab of tabs(); track tab.id) {
-          <button
-            #tabBtn
-            role="tab"
-            [attr.aria-selected]="tab.id === activeTab()"
-            [attr.tabindex]="tab.id === activeTab() ? 0 : -1"
-            class="px-3 py-2 text-data-sm whitespace-nowrap transition-colors border-b-2 -mb-px"
-            [class]="tab.id === activeTab()
-              ? 'border-accent text-text font-medium'
-              : 'border-transparent text-text-secondary hover:text-text hover:border-border'"
-            (click)="tabChange.emit(tab.id)">
-            {{ tab.label }}
-            @if (tab.badge != null) {
-              <span class="ml-1.5 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-label bg-surface-inset">
-                {{ tab.badge }}
-              </span>
-            }
-          </button>
-        }
+    <div class="relative border-b border-border mb-6">
+      <div class="pointer-events-none absolute inset-y-0 right-0 w-8 bg-linear-to-l from-surface to-transparent z-10 md:hidden"></div>
+      <div class="overflow-x-auto scrollbar-hide"
+           role="tablist"
+           (keydown)="onKeydown($event)">
+        <div class="flex gap-0 min-w-max">
+          @for (tab of tabs(); track tab.id) {
+            <button
+              #tabBtn
+              role="tab"
+              [attr.aria-selected]="tab.id === activeTab()"
+              [attr.tabindex]="tab.id === activeTab() ? 0 : -1"
+              class="inline-flex items-center px-3 py-2 text-data-sm whitespace-nowrap transition-colors border-b-2 -mb-px"
+              [class]="tab.id === activeTab()
+                ? 'border-accent text-text font-medium'
+                : 'border-transparent text-text-secondary hover:text-text hover:border-border'"
+              (click)="onTabClick(tab.id, $index)">
+              <span>{{ tab.label }}</span>
+              @if (tab.badge != null) {
+                <span class="ml-1.5 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-label bg-surface-inset">
+                  {{ tab.badge }}
+                </span>
+              }
+            </button>
+          }
+        </div>
       </div>
     </div>
   `,
@@ -43,6 +46,11 @@ export class TabGroupComponent {
   tabChange = output<string>();
 
   private readonly tabButtons = viewChildren<ElementRef<HTMLButtonElement>>('tabBtn');
+
+  onTabClick(tabId: string, index: number): void {
+    this.tabChange.emit(tabId);
+    this.scrollTabIntoView(index);
+  }
 
   onKeydown(event: KeyboardEvent): void {
     const allTabs = this.tabs();
@@ -67,6 +75,12 @@ export class TabGroupComponent {
       this.tabChange.emit(nextTab.id);
       const btns = this.tabButtons();
       btns[next]?.nativeElement.focus();
+      this.scrollTabIntoView(next);
     }
+  }
+
+  private scrollTabIntoView(index: number): void {
+    const btns = this.tabButtons();
+    btns[index]?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   }
 }

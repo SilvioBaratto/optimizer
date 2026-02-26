@@ -9,7 +9,7 @@
           : 'border-border hover:border-text-tertiary'"
         (click)="selectScenario(scenario.id)"
       >
-        <p class="text-data-sm font-medium text-text truncate">{{ scenario.name }}</p>
+        <p class="text-data-sm font-medium text-text sm:truncate" [title]="scenario.name">{{ scenario.name }}</p>
         <p class="mt-1 text-2xl font-semibold font-mono tabular-nums text-loss">
           {{ (scenario.portfolioImpact * 100).toFixed(1) }}%
         </p>
