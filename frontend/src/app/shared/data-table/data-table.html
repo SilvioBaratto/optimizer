@@ -37,6 +37,8 @@
               [class.left-0]="$first && stickyFirstColumn()"
               [class.z-20]="$first && stickyFirstColumn()"
               [class.bg-surface-raised]="$first && stickyFirstColumn()"
+              [class.hidden]="col.hiddenOnMobile"
+              [class.sm:table-cell]="col.hiddenOnMobile"
               (click)="onSort(col)">
             <span class="inline-flex items-center gap-1">
               {{ col.label }}
@@ -96,7 +98,9 @@
                   [class.sticky]="$first && stickyFirstColumn()"
                   [class.left-0]="$first && stickyFirstColumn()"
                   [class.z-10]="$first && stickyFirstColumn()"
-                  [class.bg-surface-raised]="$first && stickyFirstColumn()">
+                  [class.bg-surface-raised]="$first && stickyFirstColumn()"
+                  [class.hidden]="col.hiddenOnMobile"
+                  [class.sm:table-cell]="col.hiddenOnMobile">
                 @if (col.type === 'badge' && col.badgeMap) {
                   <span class="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full"
                         [class]="getBadgeClasses(row, col)">

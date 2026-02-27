@@ -14,6 +14,7 @@ export interface TableColumn {
   badgeMap?: Record<string, { value: string; colorClass: string }>;
   currency?: string;
   dateFormat?: 'medium' | 'short' | 'iso';
+  hiddenOnMobile?: boolean;
 }
 
 const NUMERIC_TYPES = new Set(['number', 'percentage', 'currency', 'bps', 'ratio']);

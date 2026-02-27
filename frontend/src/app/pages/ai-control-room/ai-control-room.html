@@ -1,4 +1,4 @@
-<div class="flex-1 overflow-y-auto p-6">
+<div class="p-4 sm:p-6">
   <!-- Header -->
   <app-page-header title="AI Control Room" subtitle="AI agent monitoring and orchestration">
     <div actions class="flex items-center gap-2">
@@ -87,7 +87,7 @@
 
     <!-- Decision Feed -->
     <div class="bg-surface-inset border border-border rounded-lg">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-border">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-3 border-b border-border">
         <h3 class="text-data-sm font-medium text-text">Decision Feed</h3>
         <div class="flex items-center gap-1">
           @for (opt of feedFilterOptions; track opt.value) {
@@ -99,7 +99,7 @@
           }
         </div>
       </div>
-      <div class="max-h-120 overflow-y-auto">
+      <div class="sm:max-h-120 sm:overflow-y-auto">
         @for (decision of filteredFeed(); track decision.id) {
         <div class="px-4 py-3 border-b border-border/50 hover:bg-surface-raised/50 cursor-pointer transition-colors"
           (click)="toggleDecision(decision.id)">
@@ -117,7 +117,7 @@
                   {{ getOutcomeBadge(decision.outcome).value }}
                 </span>
               </div>
-              <div class="flex items-center gap-3 mt-1">
+              <div class="flex items-center gap-2 sm:gap-3 mt-1 flex-wrap">
                 <span class="font-mono text-label text-text-tertiary">{{ decision.timestamp | date:'MMM d, HH:mm'
                   }}</span>
                 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-label"

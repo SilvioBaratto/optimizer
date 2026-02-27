@@ -118,8 +118,8 @@ export class AiControlRoomComponent {
   readonly historyColumns: TableColumn[] = [
     { key: 'timestamp', label: 'Time', sortable: true, type: 'date', dateFormat: 'medium' },
     { key: 'agent', label: 'Agent', sortable: true, type: 'badge', badgeMap: Object.fromEntries(Object.entries(AGENT_COLOR_MAP).map(([k, v]) => [k, { value: v.label, colorClass: `bg-[${v.var}]/15 text-[var(${v.var})]` }])) },
-    { key: 'type', label: 'Type', sortable: true, type: 'badge', badgeMap: TYPE_BADGE },
-    { key: 'title', label: 'Decision', sortable: true },
+    { key: 'type', label: 'Type', sortable: true, type: 'badge', badgeMap: TYPE_BADGE, hiddenOnMobile: true },
+    { key: 'title', label: 'Decision', sortable: true, hiddenOnMobile: true },
     { key: 'outcome', label: 'Outcome', sortable: true, type: 'badge', badgeMap: OUTCOME_BADGE },
     { key: 'confidence', label: 'Confidence', sortable: true, type: 'percentage', align: 'right' },
   ];
@@ -140,8 +140,8 @@ export class AiControlRoomComponent {
     { key: 'timestamp', label: 'Time', sortable: true, type: 'date', dateFormat: 'medium' },
     { key: 'vetoAgent', label: 'Veto By', sortable: true, type: 'badge', badgeMap: Object.fromEntries(Object.entries(AGENT_COLOR_MAP).map(([k, v]) => [k, { value: v.label, colorClass: `bg-[${v.var}]/15 text-[var(${v.var})]` }])) },
     { key: 'targetAgent', label: 'Target', sortable: true, type: 'badge', badgeMap: Object.fromEntries(Object.entries(AGENT_COLOR_MAP).map(([k, v]) => [k, { value: v.label, colorClass: `bg-[${v.var}]/15 text-[var(${v.var})]` }])) },
-    { key: 'action', label: 'Action', sortable: true },
-    { key: 'reason', label: 'Reason', sortable: false },
+    { key: 'action', label: 'Action', sortable: true, hiddenOnMobile: true },
+    { key: 'reason', label: 'Reason', sortable: false, hiddenOnMobile: true },
     { key: 'overridden', label: 'Status', sortable: true, type: 'badge', badgeMap: { true: { value: 'Overridden', colorClass: 'bg-warning/15 text-warning' }, false: { value: 'Enforced', colorClass: 'bg-gain/15 text-gain' } } },
   ];
 
