@@ -57,7 +57,7 @@ export class TaaPanelComponent implements OnDestroy {
       factor: s.factor.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()),
       currentWeight: s.currentWeight,
       tiltedWeight: s.tiltedWeight,
-      deltaBps: (s.tiltedWeight - s.currentWeight) * 10000,
+      deltaBps: s.tiltedWeight - s.currentWeight,
       tiltReason: s.tiltReason,
       regime: s.regime,
     }) as Record<string, unknown>),
@@ -99,7 +99,10 @@ export class TaaPanelComponent implements OnDestroy {
     this.barChart = init(el, 'portfolio', { renderer: 'canvas' });
     this.barChart.setOption(this.buildBarOption(this.signals()));
 
-    this.barRo = new ResizeObserver(() => this.barChart?.resize());
+    this.barRo = new ResizeObserver(() => {
+      this.barChart?.resize();
+      this.barChart?.setOption(this.buildBarOption(this.signals()));
+    });
     this.barRo.observe(el);
   }
 
@@ -118,13 +121,19 @@ export class TaaPanelComponent implements OnDestroy {
     this.lineChart = init(el, 'portfolio', { renderer: 'canvas' });
     this.lineChart.setOption(this.buildLineOption(this.factorReturns()));
 
-    this.lineRo = new ResizeObserver(() => this.lineChart?.resize());
+    this.lineRo = new ResizeObserver(() => {
+      this.lineChart?.resize();
+      this.lineChart?.setOption(this.buildLineOption(this.factorReturns()));
+    });
     this.lineRo.observe(el);
   }
 
   private buildBarOption(signals: TAASignal[]): EChartsCoreOption {
     const color1 = readCssVar('--color-chart-1');
     const color2 = readCssVar('--color-chart-3');
+
+    const containerWidth = this.barChartContainer()?.nativeElement.clientWidth ?? 600;
+    const isNarrow = containerWidth < 500;
 
     const labels = signals.map(s =>
       s.factor.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()),
@@ -133,7 +142,7 @@ export class TaaPanelComponent implements OnDestroy {
     return {
       tooltip: { trigger: 'axis' },
       legend: { bottom: 0, data: ['Current', 'Tilted'] },
-      grid: { left: 60, right: 16, top: 16, bottom: 48 },
+      grid: { left: isNarrow ? 40 : 60, right: 16, top: 16, bottom: 48 },
       xAxis: {
         type: 'category',
         data: labels,
@@ -141,7 +150,7 @@ export class TaaPanelComponent implements OnDestroy {
       },
       yAxis: {
         type: 'value',
-        axisLabel: { formatter: (v: number) => `${(v * 100).toFixed(0)}%` },
+        axisLabel: { formatter: (v: number) => `${v.toFixed(1)}%` },
       },
       series: [
         {
@@ -196,7 +205,12 @@ export class TaaPanelComponent implements OnDestroy {
         },
       },
       legend: { bottom: 0, type: 'scroll' },
-      grid: { left: 50, right: 16, top: 16, bottom: 56 },
+      grid: {
+        left: (this.lineChartContainer()?.nativeElement.clientWidth ?? 600) < 500 ? 40 : 50,
+        right: 16,
+        top: 16,
+        bottom: 56,
+      },
       xAxis: {
         type: 'category',
         data: labels,

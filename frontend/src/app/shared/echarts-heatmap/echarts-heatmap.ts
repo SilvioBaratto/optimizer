@@ -69,6 +69,10 @@ export class EchartsHeatmapComponent implements OnDestroy, ChartExportable {
     const containerWidth = this.container().nativeElement.clientWidth;
     const isNarrow = containerWidth < 500;
     const useDataZoom = isNarrow && assets.length > 10;
+
+    const longestLabel = assets.reduce((max, a) => a.length > max.length ? a : max, '');
+    const labelPx = longestLabel.length * (isNarrow ? 6 : 8) + 12;
+    const gridLeft = Math.max(isNarrow ? 40 : 60, labelPx);
     // Show ~10 columns at a time on narrow screens via dataZoom
     const zoomEnd = useDataZoom ? Math.min(100, (10 / assets.length) * 100) : 100;
 
@@ -88,7 +92,7 @@ export class EchartsHeatmapComponent implements OnDestroy, ChartExportable {
         },
       },
       grid: {
-        left: isNarrow ? 40 : 60,
+        left: gridLeft,
         right: isNarrow ? 16 : 80,
         top: 10,
         bottom: useDataZoom ? 80 : (isNarrow ? 40 : 60),

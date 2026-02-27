@@ -15,7 +15,7 @@ export interface Tab {
       <div class="overflow-x-auto scrollbar-hide"
            role="tablist"
            (keydown)="onKeydown($event)">
-        <div class="flex gap-0 min-w-max">
+        <div class="flex gap-0 min-w-max px-0.5">
           @for (tab of tabs(); track tab.id) {
             <button
               #tabBtn

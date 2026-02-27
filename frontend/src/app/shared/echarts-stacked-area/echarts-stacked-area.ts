@@ -58,7 +58,10 @@ export class EchartsStackedAreaComponent implements OnDestroy, ChartExportable {
     this.chart = init(el, 'portfolio', { renderer: 'canvas' });
     this.chart.setOption(this.buildOption(this.labels(), this.series()));
 
-    this.ro = new ResizeObserver(() => this.chart?.resize());
+    this.ro = new ResizeObserver(() => {
+      this.chart?.resize();
+      this.chart?.setOption(this.buildOption(this.labels(), this.series()));
+    });
     this.ro.observe(el);
   }
 
@@ -66,6 +69,9 @@ export class EchartsStackedAreaComponent implements OnDestroy, ChartExportable {
     const chartColors = Array.from({ length: 8 }, (_, i) =>
       readCssVar(`--color-chart-${i + 1}`)
     );
+
+    const containerWidth = this.container().nativeElement.clientWidth;
+    const isNarrow = containerWidth < 500;
 
     return {
       tooltip: {
@@ -90,14 +96,14 @@ export class EchartsStackedAreaComponent implements OnDestroy, ChartExportable {
         bottom: 0,
         type: 'scroll',
         textStyle: {
-          fontSize: window.innerWidth < 640 ? 10 : 12,
+          fontSize: isNarrow ? 10 : 12,
         },
       },
       grid: {
-        left: window.innerWidth < 640 ? 40 : 50,
+        left: isNarrow ? 40 : 50,
         right: 16,
         top: 16,
-        bottom: window.innerWidth < 640 ? 70 : 40,
+        bottom: isNarrow ? 70 : 40,
       },
       xAxis: {
         type: 'category',

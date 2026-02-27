@@ -28,7 +28,7 @@
       <span class="text-text-secondary font-normal ml-1">({{ filteredReports().length }} factors)</span>
     </h3>
     <app-data-table [columns]="icColumns" [rows]="tableRows()" [total]="tableRows().length" [pageSize]="20"
-      [dense]="true" [showExport]="true" exportFilename="factor-screener" />
+      [dense]="true" [showExport]="true" exportFilename="factor-screener" [stickyFirstColumn]="true" />
   </div>
 
   <!-- IC vs ICIR Scatter -->

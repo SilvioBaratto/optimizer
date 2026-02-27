@@ -4,7 +4,7 @@
   <div class="bg-surface-raised border border-border rounded-lg p-4">
     <h3 class="text-data-sm font-medium text-text mb-3">Multi-Factor Cumulative Returns</h3>
     <app-chart-toolbar>
-      <div #lineChart class="w-full" style="height: 360px"></div>
+      <div #lineChart class="w-full h-[300px] sm:h-[360px]"></div>
     </app-chart-toolbar>
   </div>
 
@@ -31,6 +31,7 @@
       [dense]="true"
       [showExport]="true"
       exportFilename="factor-ic-report"
+      [stickyFirstColumn]="true"
     />
   </div>
 
