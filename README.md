@@ -5,9 +5,12 @@
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 [![codecov](https://codecov.io/gh/SilvioBaratto/optimizer/branch/main/graph/badge.svg)](https://codecov.io/gh/SilvioBaratto/optimizer)
 [![Docs](https://img.shields.io/badge/docs-silviobaratto.github.io%2Foptimizer-blue)](https://silviobaratto.github.io/optimizer)
+[![Live Demo](https://img.shields.io/badge/demo-optimizer.silviobaratto.com-purple)](https://optimizer.silviobaratto.com)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-green)
 
 Quantitative portfolio construction and optimization platform built on [skfolio](https://skfolio.org/) and scikit-learn. Every component follows the **frozen-config + factory** pattern and composes in standard sklearn pipelines.
+
+**[Live Dashboard](https://optimizer.silviobaratto.com)** | **[Documentation](https://silviobaratto.github.io/optimizer)** | **[PyPI](https://pypi.org/project/portopt/)**
 
 ## Installation
 
@@ -200,6 +203,7 @@ optimizer/            Pure-Python library (DB-agnostic, sklearn/skfolio-based)
   synthetic/          Vine copula scenario generation + stress testing
   universe/           Investability screening with hysteresis
 
+frontend/             Angular 21 dashboard (optimizer.silviobaratto.com)
 api/                  FastAPI backend (PostgreSQL, BAML, Trading 212)
 cli/                  Typer CLI (data fetching, universe management)
 tests/                Test suite (93%+ coverage)
@@ -230,6 +234,23 @@ Full documentation with conceptual guides, configuration references, and code ex
 
 **[silviobaratto.github.io/optimizer](https://silviobaratto.github.io/optimizer)**
 
+## Web Dashboard
+
+Interactive dashboard for portfolio management, optimization, and risk analysis:
+
+**[optimizer.silviobaratto.com](https://optimizer.silviobaratto.com)**
+
+Built with Angular 21, Tailwind CSS v4, and ECharts. Features include:
+- **Dashboard** -- portfolio overview with real-time performance metrics
+- **Portfolio Builder** -- construct portfolios with drag-and-drop asset selection
+- **Optimization Studio** -- configure and run optimization pipelines visually
+- **Risk Center** -- correlation matrices, factor decomposition, risk contribution analysis
+- **Factor Research** -- regime detection, TAA signals, factor validation
+- **AI Control Room** -- AI agent monitoring, decision history, and veto controls
+- **Backtesting** -- historical performance analysis with walk-forward validation
+- **Attribution** -- return and risk attribution across factors and sectors
+- **Rebalancing** -- calendar, threshold, and hybrid rebalancing management
+
 ## Development
 
 ```bash
@@ -245,13 +266,17 @@ ruff check optimizer/ tests/
 mypy optimizer/
 ```
 
-## API + CLI
+## Frontend + API + CLI
 
-The project also includes a FastAPI backend and Typer CLI for data management and portfolio operations:
+The project includes an Angular dashboard ([optimizer.silviobaratto.com](https://optimizer.silviobaratto.com)), a FastAPI backend, and a Typer CLI:
 
 ```bash
 # Start PostgreSQL
 docker compose up -d
+
+# Frontend
+cd frontend && npm install --legacy-peer-deps
+ng serve                          # http://localhost:4200
 
 # API
 cd api && pip install -r requirements.txt

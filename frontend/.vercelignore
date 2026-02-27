@@ -1,0 +1,7 @@
+node_modules
+dist
+.angular
+coverage
+*.log
+Dockerfile
+nginx.conf

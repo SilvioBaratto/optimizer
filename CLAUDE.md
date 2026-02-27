@@ -17,6 +17,7 @@ Portfolio optimizer platform with a FastAPI backend (synchronous SQLAlchemy + Po
 
 - **`optimizer/`** — Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based)
 - **`api/`** — FastAPI application (app factory in `api/app/main.py`, runs on port 8000)
+- **`frontend/`** — Angular 21 dashboard (standalone components, signals, Tailwind CSS v4, ECharts)
 - **`cli/`** — Typer CLI (`cli/__init__.py` creates the app, entry via `python -m cli`)
 - **`theory/`** — LaTeX/Markdown theoretical documentation (not code)
 
@@ -40,6 +41,12 @@ cd api && pip install -r requirements.txt
 alembic upgrade head              # Run migrations
 uvicorn app.main:app --reload     # Start dev server on :8000
 cd api && pytest                  # API tests
+
+# Frontend
+cd frontend && npm install --legacy-peer-deps
+cd frontend && ng serve           # Dev server on :4200
+cd frontend && ng build           # Production build
+cd frontend && ng test            # Unit tests
 
 # CLI
 python -m cli --help              # Show all commands
@@ -147,6 +154,25 @@ Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`
   - `run_full_pipeline(prices, optimizer, ...)` — single entry point: prices → returns → pipeline → backtest → weights → rebalancing. Accepts `cv_config`, `previous_weights`, `rebalancing_config` (threshold or hybrid), `current_date`, `last_review_date`, `y_prices`, `sector_mapping`, `n_jobs`
   - `run_full_pipeline_with_selection(...)` — extends with upstream stock selection: fundamentals → investability screening → factor computation → standardization → regime tilts → composite scoring → stock selection → `run_full_pipeline`. When `fundamentals=None`, skips all selection and delegates directly
   - `optimize()`, `backtest()`, `tune_and_optimize()` — lower-level composable functions
+
+### Frontend (`frontend/`)
+
+Angular 21 single-page dashboard with Tailwind CSS v4 and ECharts for data visualization. Deployed to Vercel.
+
+**Pages**: `dashboard`, `portfolio-builder`, `optimization-studio`, `risk-center`, `factor-research`, `ai-control-room`, `backtesting`, `attribution`, `rebalancing`, `settings`
+
+**Conventions**:
+- All components are standalone (Angular 21 default — do NOT set `standalone: true` in decorators)
+- Use `ChangeDetectionStrategy.OnPush` on all components
+- Use signal-based `input()` / `output()` instead of decorators, `computed()` for derived state
+- Use `inject()` instead of constructor injection
+- Use native control flow (`@if`, `@for`, `@switch`) instead of structural directives
+- Reactive forms over template-driven forms
+- Use `class` bindings instead of `ngClass`, `style` bindings instead of `ngStyle`
+- Shared reusable components in `shared/` (e.g. `echarts-heatmap`, `echarts-donut`, `tab-group`)
+- Services in `services/` with `providedIn: 'root'` for singletons
+- Models/interfaces in `models/`
+- `--legacy-peer-deps` required for `npm install` due to dependency conflicts
 
 ### Key conventions
 
