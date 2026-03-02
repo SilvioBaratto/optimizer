@@ -13,6 +13,12 @@ COUNTRY_MAPPING = {
     "France": "france",
     "UK": "united-kingdom",
     "Japan": "japan",
+    # Emerging markets
+    "China": "china",
+    "India": "india",
+    "Brazil": "brazil",
+    "South Korea": "south-korea",
+    "Mexico": "mexico",
 }
 
 # Country code to full name mapping (for industrial production page)
@@ -22,6 +28,11 @@ COUNTRY_NAME_MAPPING = {
     "France": "France",
     "UK": "United Kingdom",
     "Japan": "Japan",
+    "China": "China",
+    "India": "India",
+    "Brazil": "Brazil",
+    "South Korea": "South Korea",
+    "Mexico": "Mexico",
 }
 
 # Indicator name variations (Trading Economics uses different naming conventions)

@@ -278,6 +278,40 @@ class MeanRiskConfig:
         )
 
     @classmethod
+    def for_max_sharpe_diversified(cls) -> MeanRiskConfig:
+        """Maximum Sharpe with diversification constraints.
+
+        Targets the Sharpe ratio while using L2 regularisation and
+        a per-asset weight cap to enforce diversification and keep
+        volatility stable.  Uses ShrunkMu + DenoiseCovariance for
+        robust moment estimates.
+        """
+        return cls(
+            objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
+            risk_measure=RiskMeasureType.VARIANCE,
+            max_weights=0.10,
+            l2_coef=0.05,
+            prior_config=MomentEstimationConfig.for_shrunk_denoised(),
+        )
+
+    @classmethod
+    def for_concentrated_sharpe(cls) -> MeanRiskConfig:
+        """Max Sharpe for concentrated portfolios (15-30 stocks).
+
+        Uses ``min_weights=0.01`` to ensure all selected stocks get a
+        meaningful allocation and ``max_weights=0.10`` to cap individual
+        positions.  L2 regularisation pushes toward equal-weight.
+        """
+        return cls(
+            objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
+            risk_measure=RiskMeasureType.VARIANCE,
+            min_weights=0.01,
+            max_weights=0.10,
+            l2_coef=0.05,
+            prior_config=MomentEstimationConfig.for_shrunk_denoised(),
+        )
+
+    @classmethod
     def for_max_utility(cls, risk_aversion: float = 1.0) -> MeanRiskConfig:
         """Maximum utility portfolio."""
         return cls(

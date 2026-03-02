@@ -1,7 +1,7 @@
 """FastAPI router for macroeconomic regime data fetch and read endpoints."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -12,6 +12,8 @@ from app.schemas.macro_regime import (
     BondYieldResponse,
     CountryMacroSummary,
     EconomicIndicatorResponse,
+    FredFetchRequest,
+    FredObservationResponse,
     MacroFetchJobResponse,
     MacroFetchProgress,
     MacroFetchRequest,
@@ -246,3 +248,108 @@ def get_bond_yields(
 ):
     """List all bond yields, optionally filtered by country."""
     return repo.get_bond_yields(country=country)
+
+
+# ---------------------------------------------------------------------------
+# FRED time-series endpoints
+# ---------------------------------------------------------------------------
+
+_fred_job_service = BackgroundJobService()
+
+
+def _run_fred_fetch(job_id: str, request: FredFetchRequest) -> None:
+    """Execute FRED fetch in a background thread."""
+    _fred_job_service.update_job(job_id, status="running")
+    try:
+        with database_manager.get_session() as session:
+            repo = MacroRegimeRepository(session)
+            service = MacroRegimeService(repo)
+            result = service.fetch_fred_series(
+                series_ids=request.series_ids,
+                incremental=request.incremental,
+            )
+            session.commit()
+            _fred_job_service.update_job(
+                job_id,
+                status="completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                errors=result.get("errors", []),
+                result=result.get("counts", {}),
+            )
+    except Exception as exc:
+        logger.error("FRED fetch %s failed: %s", job_id, exc)
+        _fred_job_service.update_job(
+            job_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=str(exc),
+        )
+
+
+@router.post(
+    "/fred/fetch",
+    response_model=MacroFetchJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_fred_fetch(request: FredFetchRequest = FredFetchRequest()):
+    """Start a background job that fetches FRED time-series observations."""
+    running, running_id = _fred_job_service.is_any_running()
+    if running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A FRED fetch job is already running (id={running_id})",
+        )
+
+    job_id = _fred_job_service.create_job()
+    _fred_job_service.start_background(
+        target=_run_fred_fetch,
+        args=(job_id, request),
+    )
+
+    return MacroFetchJobResponse(
+        job_id=job_id,
+        status="pending",
+        message="FRED fetch started. Poll GET /macro-data/fred/fetch/{job_id}.",
+    )
+
+
+@router.get("/fred/fetch/{job_id}", response_model=MacroFetchProgress)
+def get_fred_fetch_status(job_id: str):
+    """Poll the status of a FRED fetch background job."""
+    job = _fred_job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    return MacroFetchProgress(
+        job_id=job["job_id"],
+        status=job["status"],
+        current=job.get("current", 0),
+        total=job.get("total", 0),
+        current_country=job.get("current_country", ""),
+        errors=job.get("errors", []),
+        result=job.get("result"),
+        error=job.get("error"),
+    )
+
+
+@router.get(
+    "/fred/series",
+    response_model=list[FredObservationResponse],
+)
+def get_fred_observations(
+    series_id: str | None = Query(default=None, description="Filter by series ID"),
+    start_date: date | None = Query(default=None, description="Start date YYYY-MM-DD"),
+    end_date: date | None = Query(default=None, description="End date YYYY-MM-DD"),
+    limit: int = Query(default=500, le=10_000, description="Max rows to return"),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Query stored FRED observations with optional filters."""
+    obs = repo.get_fred_observations(
+        series_id=series_id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return list(obs)[:limit]

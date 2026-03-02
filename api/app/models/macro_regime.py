@@ -107,3 +107,25 @@ class BondYield(BaseModel):
     month_change: Mapped[float | None] = mapped_column(Float, nullable=True)
     year_change: Mapped[float | None] = mapped_column(Float, nullable=True)
     reference_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+
+
+class FredObservation(BaseModel):
+    """FRED time-series observation: one row per (series_id, date).
+
+    Stores daily spread/yield observations from the St. Louis FRED
+    REST API.  Unique on ``(series_id, date)`` so repeated fetches
+    safely upsert without duplication.
+    """
+
+    __tablename__ = "fred_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "series_id", "date", name="uq_fred_observation_series_date"
+        ),
+        Index("ix_fred_observations_series_id", "series_id"),
+        Index("ix_fred_observations_date", "date"),
+    )
+
+    series_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)

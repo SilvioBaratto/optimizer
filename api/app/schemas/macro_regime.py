@@ -24,6 +24,23 @@ class MacroFetchRequest(BaseModel):
         default=True,
         description="Whether to include bond yield data from Trading Economics.",
     )
+    include_fred: bool = Field(
+        default=True,
+        description="Whether to fetch FRED time-series data during bulk fetch.",
+    )
+
+
+class FredFetchRequest(BaseModel):
+    """Request body for FRED time-series fetch."""
+
+    series_ids: list[str] | None = Field(
+        default=None,
+        description="FRED series IDs to fetch. None means all configured series.",
+    )
+    incremental: bool = Field(
+        default=True,
+        description="When True, only fetch observations newer than last stored date.",
+    )
 
 
 class MacroFetchJobResponse(AsyncJobCreateResponse):
@@ -95,6 +112,17 @@ class BondYieldResponse(BaseModel):
     month_change: float | None = None
     year_change: float | None = None
     reference_date: date | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class FredObservationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    series_id: str
+    date: date
+    value: float | None = None
     created_at: datetime
     updated_at: datetime
 

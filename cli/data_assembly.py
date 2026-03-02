@@ -8,6 +8,7 @@ reshapes ORM rows into the exact DataFrame shapes that
 
 from __future__ import annotations
 
+import datetime
 import logging
 import sys
 from decimal import Decimal
@@ -25,7 +26,7 @@ if str(_api_path) not in sys.path:
     sys.path.insert(0, str(_api_path))
 
 from app.database import DatabaseManager
-from app.models.macro_regime import BondYield, EconomicIndicator
+from app.models.macro_regime import BondYield, EconomicIndicator, FredObservation
 from app.models.universe import Instrument
 from app.models.yfinance_data import (
     AnalystRecommendation,
@@ -521,6 +522,11 @@ def assemble_fundamentals(
     # (different exchanges).  Keep the first (typically most complete).
     df = df[~df.index.duplicated(keep="first")]
 
+    # book_value from yfinance (bookValue) is per-share.  Scale to total
+    # book equity so that book_to_price = book_value / market_cap is correct.
+    if "book_value" in df.columns and "shares_outstanding" in df.columns:
+        df["book_value"] = df["book_value"] * df["shares_outstanding"]
+
     # Enrich with data from FinancialStatement EAV table
     ticker_map = _build_ticker_map(session)
     df = _enrich_from_financial_statements(session, df, ticker_map)
@@ -669,23 +675,25 @@ def assemble_insider_data(session: Session) -> pd.DataFrame:
 
 def assemble_macro_data(
     session: Session,
-    country: str = "United States",
+    country: str = "USA",
 ) -> pd.DataFrame:
     """Build macro DataFrame for regime classification.
 
     The regime classifier expects ``gdp_growth`` and/or ``yield_spread``
-    columns.
+    columns.  The returned DataFrame is indexed by a ``DatetimeIndex``
+    (derived from the most recent ``reference_date`` or bond date) so
+    that the pipeline can apply point-in-time lag filtering.
 
     Parameters
     ----------
     country : str
-        Country to pull macro indicators for.
+        Country code as stored in the DB (e.g. ``"USA"``, ``"Germany"``).
 
     Returns
     -------
     pd.DataFrame
-        Single-row (or multi-row) DataFrame with ``gdp_growth`` and
-        ``yield_spread`` columns.
+        Single-row DataFrame with ``gdp_growth`` and ``yield_spread``
+        columns, indexed by date.
     """
     # GDP growth from EconomicIndicator (IlSole)
     indicators = (
@@ -697,34 +705,42 @@ def assemble_macro_data(
     )
 
     gdp_growth: float | None = None
-    st_rate: float | None = None
-    lt_rate: float | None = None
+    ref_date: datetime.date | None = None
 
     for ind in indicators:
         if ind.gdp_growth_qq is not None:
             gdp_growth = float(ind.gdp_growth_qq)
-        if ind.st_rate is not None:
-            st_rate = float(ind.st_rate)
-        if ind.lt_rate is not None:
-            lt_rate = float(ind.lt_rate)
+        if ind.reference_date is not None:
+            ref_date = ind.reference_date
 
-    # Yield spread from bond yields if not available from indicators
+    # Yield spread from bond yields (10Y - 2Y).  Bond yields provide
+    # maturity-specific data, so we always prefer them over the generic
+    # st_rate / lt_rate columns in economic_indicators which may carry
+    # the same value for both tenors.
+    bonds = (
+        session.execute(select(BondYield).where(BondYield.country == country))
+        .scalars()
+        .all()
+    )
+
+    bond_map: dict[str, float] = {}
+    bond_ref_date: datetime.date | None = None
+    for bond in bonds:
+        if bond.yield_value is not None:
+            bond_map[bond.maturity] = float(bond.yield_value)
+        if bond.reference_date is not None:
+            bond_ref_date = bond.reference_date
+
+    lt_rate = bond_map.get("10Y")
+    st_rate = bond_map.get("2Y")
+
+    # Fall back to economic_indicators rates only when bond data missing
     if lt_rate is None or st_rate is None:
-        bonds = (
-            session.execute(select(BondYield).where(BondYield.country == country))
-            .scalars()
-            .all()
-        )
-
-        bond_map: dict[str, float] = {}
-        for bond in bonds:
-            if bond.yield_value is not None:
-                bond_map[bond.maturity] = float(bond.yield_value)
-
-        if lt_rate is None:
-            lt_rate = bond_map.get("10Y")
-        if st_rate is None:
-            st_rate = bond_map.get("2Y")
+        for ind in indicators:
+            if lt_rate is None and ind.lt_rate is not None:
+                lt_rate = float(ind.lt_rate)
+            if st_rate is None and ind.st_rate is not None:
+                st_rate = float(ind.st_rate)
 
     yield_spread: float | None = None
     if lt_rate is not None and st_rate is not None:
@@ -735,7 +751,83 @@ def assemble_macro_data(
         "yield_spread": yield_spread,
     }
 
-    return pd.DataFrame([macro_row])
+    # Build a DatetimeIndex from the best available date
+    best_date = ref_date or bond_ref_date or datetime.date.today()
+    index = pd.DatetimeIndex([pd.Timestamp(best_date)])
+
+    return pd.DataFrame([macro_row], index=index)
+
+
+# ---------------------------------------------------------------------------
+# FRED time-series assembly
+# ---------------------------------------------------------------------------
+
+FRED_SERIES_IDS: list[str] = [
+    "BAMLH0A0HYM2",
+    "BAMLC0A0CM",
+    "T10Y2Y",
+    "BAA10Y",
+]
+
+
+def assemble_fred_series(
+    session: Session,
+    series_ids: list[str] | None = None,
+    start_date: datetime.date | None = None,
+) -> pd.DataFrame:
+    """Build a ``dates x series_id`` DataFrame of FRED observations.
+
+    Parameters
+    ----------
+    session : Session
+        Active SQLAlchemy session.
+    series_ids : list[str] | None
+        Series to include. ``None`` uses ``FRED_SERIES_IDS``.
+    start_date : datetime.date | None
+        Optional lower bound on observation date.
+
+    Returns
+    -------
+    pd.DataFrame
+        Index = ``pd.DatetimeIndex`` (daily), columns = FRED series IDs.
+        Values are floats; missing observations are NaN (not forward-filled).
+    """
+    ids = series_ids if series_ids is not None else FRED_SERIES_IDS
+
+    stmt = select(
+        FredObservation.series_id,
+        FredObservation.date,
+        FredObservation.value,
+    ).where(FredObservation.series_id.in_(ids))
+
+    if start_date is not None:
+        stmt = stmt.where(FredObservation.date >= start_date)
+
+    stmt = stmt.order_by(FredObservation.date)
+    rows = session.execute(stmt).all()
+
+    if not rows:
+        return pd.DataFrame(columns=ids)
+
+    records = [
+        {
+            "date": pd.Timestamp(row_date),
+            "series_id": sid,
+            "value": float(val) if val is not None else np.nan,
+        }
+        for sid, row_date, val in rows
+    ]
+
+    df = pd.DataFrame(records)
+    pivoted = df.pivot_table(
+        index="date",
+        columns="series_id",
+        values="value",
+        aggfunc="first",
+    )
+    pivoted.index = pd.DatetimeIndex(pivoted.index)
+    pivoted.columns.name = None
+    return pivoted.sort_index()
 
 
 # ---------------------------------------------------------------------------
@@ -764,6 +856,8 @@ class DataAssembly:
         Rows with ticker/shares/transaction_type.
     macro_data : pd.DataFrame
         gdp_growth and yield_spread.
+    fred_data : pd.DataFrame
+        FRED time-series (dates x series_ids).
     include_delisted : bool
         Whether delisted instruments are included in ``prices``.
     """
@@ -778,6 +872,7 @@ class DataAssembly:
         analyst_data: pd.DataFrame,
         insider_data: pd.DataFrame,
         macro_data: pd.DataFrame,
+        fred_data: pd.DataFrame | None = None,
         include_delisted: bool = True,
     ) -> None:
         self.prices = prices
@@ -788,6 +883,7 @@ class DataAssembly:
         self.analyst_data = analyst_data
         self.insider_data = insider_data
         self.macro_data = macro_data
+        self.fred_data = fred_data if fred_data is not None else pd.DataFrame()
         self.include_delisted = include_delisted
 
     @property
@@ -808,12 +904,13 @@ class DataAssembly:
             "insider_records": len(self.insider_data),
             "sectors": len(set(self.sector_mapping.values())),
             "has_macro": len(self.macro_data) > 0,
+            "fred_observations": len(self.fred_data),
         }
 
 
 def assemble_all(
     db_manager: DatabaseManager,
-    macro_country: str = "United States",
+    macro_country: str = "USA",
     include_delisted: bool = True,
 ) -> DataAssembly:
     """Query the database and assemble all DataFrames.
@@ -856,6 +953,9 @@ def assemble_all(
         logger.info("Assembling macro data...")
         macro_data = assemble_macro_data(session, country=macro_country)
 
+        logger.info("Assembling FRED time-series data...")
+        fred_data = assemble_fred_series(session)
+
     return DataAssembly(
         prices=prices,
         volumes=volumes,
@@ -865,5 +965,6 @@ def assemble_all(
         analyst_data=analyst_data,
         insider_data=insider_data,
         macro_data=macro_data,
+        fred_data=fred_data,
         include_delisted=include_delisted,
     )

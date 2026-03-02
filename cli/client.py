@@ -262,6 +262,37 @@ class ApiClient:
     def get_bond_yields(self, country: str | None = None) -> list[dict[str, Any]]:
         return self._get("/macro-data/bond-yields", country=country)
 
+    # FRED time-series
+
+    def start_fred_fetch(
+        self,
+        series_ids: list[str] | None = None,
+        incremental: bool = True,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"incremental": incremental}
+        if series_ids:
+            body["series_ids"] = series_ids
+        return self._post("/macro-data/fred/fetch", json=body)
+
+    def get_fred_fetch_status(self, job_id: str) -> dict[str, Any]:
+        return self._get(f"/macro-data/fred/fetch/{job_id}")
+
+    def get_fred_observations(
+        self,
+        series_id: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"limit": limit}
+        if series_id:
+            params["series_id"] = series_id
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return self._get("/macro-data/fred/series", **params)
+
     # ------------------------------------------------------------------
     # Database management endpoints
     # ------------------------------------------------------------------

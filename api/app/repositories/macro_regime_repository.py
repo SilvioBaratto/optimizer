@@ -1,10 +1,12 @@
 """Repository for macro regime data access with PostgreSQL upsert support."""
 
+import datetime
 import logging
 import uuid
 from collections.abc import Sequence
 from typing import Any
 
+from sqlalchemy import func as sa_func
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
@@ -12,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.models.macro_regime import (
     BondYield,
     EconomicIndicator,
+    FredObservation,
     TradingEconomicsIndicator,
 )
 from app.utils.date_parsing import parse_reference_date
@@ -244,6 +247,70 @@ class MacroRegimeRepository:
             stmt = stmt.where(BondYield.country == country)
         stmt = stmt.order_by(BondYield.country, BondYield.maturity)
         return self.session.execute(stmt).scalars().all()
+
+    # ------------------------------------------------------------------
+    # FRED Observations
+    # ------------------------------------------------------------------
+
+    def upsert_fred_observations(
+        self,
+        series_id: str,
+        observations: list[dict[str, Any]],
+    ) -> int:
+        """Bulk upsert FRED observations for a single series.
+
+        Args:
+            series_id: FRED series identifier (e.g. ``"BAMLH0A0HYM2"``).
+            observations: List of ``{"date": datetime.date, "value": float|None}``.
+
+        Returns:
+            Number of rows processed.
+        """
+        if not observations:
+            return 0
+
+        rows: list[dict[str, Any]] = [
+            {
+                "id": uuid.uuid4(),
+                "series_id": series_id,
+                "date": obs["date"],
+                "value": obs.get("value"),
+            }
+            for obs in observations
+        ]
+
+        return self._upsert(
+            FredObservation,
+            rows,
+            constraint_name="uq_fred_observation_series_date",
+            update_columns=["value"],
+        )
+
+    def get_fred_observations(
+        self,
+        series_id: str | None = None,
+        start_date: datetime.date | None = None,
+        end_date: datetime.date | None = None,
+    ) -> Sequence[FredObservation]:
+        """Query FRED observations with optional filters."""
+        stmt = select(FredObservation)
+        if series_id:
+            stmt = stmt.where(FredObservation.series_id == series_id)
+        if start_date:
+            stmt = stmt.where(FredObservation.date >= start_date)
+        if end_date:
+            stmt = stmt.where(FredObservation.date <= end_date)
+        stmt = stmt.order_by(FredObservation.series_id, FredObservation.date)
+        return self.session.execute(stmt).scalars().all()
+
+    def get_fred_latest_date(self, series_id: str) -> datetime.date | None:
+        """Return the most recent stored observation date for a series."""
+        result = self.session.execute(
+            select(sa_func.max(FredObservation.date)).where(
+                FredObservation.series_id == series_id
+            )
+        ).scalar()
+        return result
 
     # ------------------------------------------------------------------
     # Country Summary

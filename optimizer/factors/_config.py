@@ -390,6 +390,21 @@ class SelectionConfig:
         )
 
     @classmethod
+    def for_top_20(cls) -> SelectionConfig:
+        """Select top 20 stocks — concentrated diversified portfolio.
+
+        Uses relaxed sector tolerance (10%) because at 20 stocks each
+        addition/removal changes sector weight by ~5%.  Buffer of 3 stocks
+        (15%) reduces unnecessary turnover.
+        """
+        return cls(
+            target_count=20,
+            buffer_fraction=0.15,
+            sector_balance=True,
+            sector_tolerance=0.10,
+        )
+
+    @classmethod
     def for_concentrated(cls) -> SelectionConfig:
         """Concentrated portfolio of top 30 stocks."""
         return cls(target_count=30, buffer_fraction=0.15)

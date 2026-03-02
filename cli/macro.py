@@ -213,3 +213,61 @@ def bond_yields(
         ],
         title="Bond Yields",
     )
+
+
+# ------------------------------------------------------------------
+# FRED time-series
+# ------------------------------------------------------------------
+
+
+@macro_app.command("fetch-fred")
+def fetch_fred(
+    ctx: typer.Context,
+    series: list[str] | None = typer.Option(
+        None, help="FRED series IDs. Repeat for multiple (default: all configured)."
+    ),
+    full: bool = typer.Option(
+        False, "--full", help="Full history fetch. Default is incremental."
+    ),
+) -> None:
+    """Fetch FRED credit/yield spread time series and store in DB."""
+    client = _client(ctx)
+    job = client.start_fred_fetch(
+        series_ids=series or None,
+        incremental=not full,
+    )
+    job_id = job["job_id"]
+    success_panel(f"FRED fetch started: {job_id}")
+
+    result = progress_loop(lambda: client.get_fred_fetch_status(job_id))
+
+    if result.get("status") == "failed":
+        error_panel(f"FRED fetch failed: {result.get('error', 'unknown')}")
+        raise typer.Exit(code=1)
+
+    fetch_result = result.get("result", {})
+    if fetch_result:
+        dict_table(fetch_result, title="FRED Fetch Result (series_id: rows_upserted)")
+    success_panel("FRED fetch completed.")
+
+
+@macro_app.command("fred-series")
+def fred_series_cmd(
+    ctx: typer.Context,
+    series_id: str | None = typer.Option(None, help="Filter by series ID"),
+    start_date: str | None = typer.Option(None, help="Start date YYYY-MM-DD"),
+    end_date: str | None = typer.Option(None, help="End date YYYY-MM-DD"),
+    limit: int = typer.Option(20, help="Max rows to display"),
+) -> None:
+    """List stored FRED observations."""
+    rows = _client(ctx).get_fred_observations(
+        series_id=series_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+    list_table(
+        rows,
+        columns=["series_id", "date", "value"],
+        title="FRED Observations",
+    )

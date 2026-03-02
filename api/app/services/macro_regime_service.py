@@ -1,9 +1,11 @@
 """Service layer orchestrating macro regime data fetching and storage."""
 
+import datetime
 import logging
 from typing import Any
 
 from app.repositories.macro_regime_repository import MacroRegimeRepository
+from app.services.scrapers.fred_scraper import FRED_SERIES, FredScraper
 from app.services.scrapers.ilsole_scraper import PORTFOLIO_COUNTRIES, IlSoleScraper
 from app.services.scrapers.tradingeconomics_scraper import (
     TradingEconomicsIndicatorsScraper,
@@ -20,10 +22,24 @@ class MacroRegimeService:
         repo: MacroRegimeRepository,
         ilsole_scraper: IlSoleScraper | None = None,
         te_scraper: TradingEconomicsIndicatorsScraper | None = None,
+        fred_scraper: FredScraper | None = None,
     ):
         self.repo = repo
         self.ilsole_scraper = ilsole_scraper or IlSoleScraper()
         self.te_scraper = te_scraper or TradingEconomicsIndicatorsScraper()
+        self._fred_scraper = fred_scraper
+
+    @property
+    def fred_scraper(self) -> FredScraper | None:
+        """Lazy-construct FredScraper from settings when first accessed."""
+        if self._fred_scraper is None:
+            from app.config import settings
+
+            key = settings.fred_api_key
+            if not key:
+                return None
+            self._fred_scraper = FredScraper(api_key=key)
+        return self._fred_scraper
 
     def fetch_and_store(
         self,
@@ -156,6 +172,71 @@ class MacroRegimeService:
             counts.setdefault("te_indicators", 0)
             counts.setdefault("bond_yields", 0)
             logger.warning("Failed Trading Economics for %s: %s", country, e)
+
+        return {"counts": counts, "errors": errors}
+
+    def fetch_fred_series(
+        self,
+        series_ids: list[str] | None = None,
+        incremental: bool = True,
+    ) -> dict[str, Any]:
+        """Fetch FRED time-series observations and store in DB.
+
+        Args:
+            series_ids: Series to fetch. ``None`` means all ``FRED_SERIES`` keys.
+            incremental: When ``True``, fetch only observations newer than last stored.
+
+        Returns:
+            Dict with ``"counts"`` and ``"errors"`` keys.
+        """
+        scraper = self.fred_scraper
+        if scraper is None:
+            return {
+                "counts": {},
+                "errors": ["FRED_API_KEY not configured in .env"],
+            }
+
+        ids = series_ids if series_ids is not None else list(FRED_SERIES.keys())
+        counts: dict[str, int] = {}
+        errors: list[str] = []
+
+        for series_id in ids:
+            try:
+                start_date: str | None = None
+                if incremental:
+                    latest = self.repo.get_fred_latest_date(series_id)
+                    if latest is not None:
+                        start_date = (
+                            latest + datetime.timedelta(days=1)
+                        ).isoformat()
+
+                result = scraper.get_series_observations(
+                    series_id, start_date=start_date
+                )
+
+                if result["status"] == "success":
+                    observations = result.get("observations", [])
+                    n = self.repo.upsert_fred_observations(series_id, observations)
+                    counts[series_id] = n
+                    logger.info(
+                        "FRED %s: upserted %d observations (start_date=%s)",
+                        series_id,
+                        n,
+                        start_date,
+                    )
+                else:
+                    counts[series_id] = 0
+                    errors.append(f"{series_id}: {result.get('error', 'unknown')}")
+                    logger.warning(
+                        "FRED fetch failed for %s: %s",
+                        series_id,
+                        result.get("error"),
+                    )
+
+            except Exception as exc:
+                counts[series_id] = 0
+                errors.append(f"{series_id}: {exc}")
+                logger.error("FRED fetch exception for %s: %s", series_id, exc)
 
         return {"counts": counts, "errors": errors}
 

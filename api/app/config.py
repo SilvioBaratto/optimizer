@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     trading_212_api_key: str = Field(default="", alias="TRADING_212_API_KEY")
     trading_212_mode: str = Field(default="live", alias="TRADING_212_MODE")
 
+    # FRED API
+    fred_api_key: str = Field(default="", alias="FRED_API_KEY")
+
     # Performance
     connection_timeout: int = Field(default=10)
     read_timeout: int = Field(default=30)
