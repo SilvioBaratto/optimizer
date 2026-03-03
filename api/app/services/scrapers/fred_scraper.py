@@ -1,7 +1,8 @@
 """FRED (Federal Reserve Economic Data) REST API client.
 
-Fetches daily time-series observations for credit spreads and yield
-spreads via the public FRED API (api.stlouisfed.org).
+Fetches time-series observations for credit spreads, yield spreads,
+volatility indices, business cycle indicators, and recession
+probabilities via the public FRED API (api.stlouisfed.org).
 """
 
 import logging
@@ -12,12 +13,47 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
 # Series IDs tracked for the macroeconomic analysis pipeline.
-FRED_SERIES: dict[str, str] = {
+# Grouped by purpose so downstream consumers can pull subsets if needed.
+# ---------------------------------------------------------------------------
+
+# Credit & yield spreads (daily)
+FRED_SPREAD_SERIES: dict[str, str] = {
     "BAMLH0A0HYM2": "ICE BofA US High Yield OAS",
     "BAMLC0A0CM": "ICE BofA US Corporate IG OAS",
     "T10Y2Y": "10Y-2Y Treasury Constant Maturity Spread",
     "BAA10Y": "Moody's Seasoned Baa Corporate Bond vs 10Y Treasury",
+}
+
+# Volatility (daily)
+FRED_VOLATILITY_SERIES: dict[str, str] = {
+    "VIXCLS": "CBOE Volatility Index (VIX) Daily Close",
+}
+
+# OECD Composite Leading Indicators — amplitude adjusted (monthly)
+# CLI > 100 and rising → expansion; > 100 and falling → slowdown;
+# < 100 and falling → contraction; < 100 and rising → recovery.
+FRED_CLI_SERIES: dict[str, str] = {
+    "USALOLITOAASTSAM": "OECD CLI Amplitude Adjusted - USA",
+    "DEULOLITOAASTSAM": "OECD CLI Amplitude Adjusted - Germany",
+    "FRALOLITOAASTSAM": "OECD CLI Amplitude Adjusted - France",
+    "GBRLOLITOAASTSAM": "OECD CLI Amplitude Adjusted - UK",
+}
+
+# US recession / business cycle indicators (monthly/quarterly)
+FRED_RECESSION_SERIES: dict[str, str] = {
+    "RECPROUSM156N": "Smoothed US Recession Probability (%)",
+    "JHGDPBRINDX": "GDP-Based Recession Indicator Index",
+    "USREC": "NBER Recession Indicator (0=expansion, 1=recession)",
+}
+
+# Combined registry used by default fetch operations.
+FRED_SERIES: dict[str, str] = {
+    **FRED_SPREAD_SERIES,
+    **FRED_VOLATILITY_SERIES,
+    **FRED_CLI_SERIES,
+    **FRED_RECESSION_SERIES,
 }
 
 _FRED_BASE_URL = "https://api.stlouisfed.org/fred"

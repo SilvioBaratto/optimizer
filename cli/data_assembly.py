@@ -26,7 +26,15 @@ if str(_api_path) not in sys.path:
     sys.path.insert(0, str(_api_path))
 
 from app.database import DatabaseManager
-from app.models.macro_regime import BondYield, EconomicIndicator, FredObservation
+from app.models.macro_regime import (
+    BondYield,
+    BondYieldObservation,
+    EconomicIndicator,
+    EconomicIndicatorObservation,
+    FredObservation,
+    TradingEconomicsIndicator,
+    TradingEconomicsObservation,
+)
 from app.models.universe import Instrument
 from app.models.yfinance_data import (
     AnalystRecommendation,
@@ -695,28 +703,28 @@ def assemble_macro_data(
         Single-row DataFrame with ``gdp_growth`` and ``yield_spread``
         columns, indexed by date.
     """
-    # GDP growth from EconomicIndicator (IlSole)
-    indicators = (
-        session.execute(
-            select(EconomicIndicator).where(EconomicIndicator.country == country)
+    # GDP growth from TradingEconomics
+    te_gdp = session.execute(
+        select(TradingEconomicsIndicator).where(
+            TradingEconomicsIndicator.country == country,
+            TradingEconomicsIndicator.indicator_key == "GDP Growth Rate",
         )
-        .scalars()
-        .all()
-    )
+    ).scalar_one_or_none()
 
     gdp_growth: float | None = None
+    if te_gdp is not None and te_gdp.value is not None:
+        gdp_growth = float(te_gdp.value)
+
+    # Reference date from EconomicIndicator forecast row
+    forecast_row = session.execute(
+        select(EconomicIndicator).where(EconomicIndicator.country == country)
+    ).scalar_one_or_none()
+
     ref_date: datetime.date | None = None
+    if forecast_row is not None and forecast_row.reference_date is not None:
+        ref_date = forecast_row.reference_date
 
-    for ind in indicators:
-        if ind.gdp_growth_qq is not None:
-            gdp_growth = float(ind.gdp_growth_qq)
-        if ind.reference_date is not None:
-            ref_date = ind.reference_date
-
-    # Yield spread from bond yields (10Y - 2Y).  Bond yields provide
-    # maturity-specific data, so we always prefer them over the generic
-    # st_rate / lt_rate columns in economic_indicators which may carry
-    # the same value for both tenors.
+    # Yield spread from bond yields (10Y - 2Y)
     bonds = (
         session.execute(select(BondYield).where(BondYield.country == country))
         .scalars()
@@ -731,18 +739,9 @@ def assemble_macro_data(
         if bond.reference_date is not None:
             bond_ref_date = bond.reference_date
 
+    yield_spread: float | None = None
     lt_rate = bond_map.get("10Y")
     st_rate = bond_map.get("2Y")
-
-    # Fall back to economic_indicators rates only when bond data missing
-    if lt_rate is None or st_rate is None:
-        for ind in indicators:
-            if lt_rate is None and ind.lt_rate is not None:
-                lt_rate = float(ind.lt_rate)
-            if st_rate is None and ind.st_rate is not None:
-                st_rate = float(ind.st_rate)
-
-    yield_spread: float | None = None
     if lt_rate is not None and st_rate is not None:
         yield_spread = lt_rate - st_rate
 
@@ -751,11 +750,151 @@ def assemble_macro_data(
         "yield_spread": yield_spread,
     }
 
-    # Build a DatetimeIndex from the best available date
+    # Try time-series first — if observation tables have multi-day history,
+    # return that instead of the single-row snapshot.
+    ts = assemble_macro_timeseries(session, country=country)
+    if len(ts) >= 2:
+        return ts
+
+    # Fallback: single-row snapshot from latest-value tables.
     best_date = ref_date or bond_ref_date or datetime.date.today()
     index = pd.DatetimeIndex([pd.Timestamp(best_date)])
 
     return pd.DataFrame([macro_row], index=index)
+
+
+def assemble_macro_timeseries(
+    session: Session,
+    country: str = "USA",
+    start_date: datetime.date | None = None,
+    end_date: datetime.date | None = None,
+) -> pd.DataFrame:
+    """Build a multi-row macro DataFrame from observation tables.
+
+    Queries ``trading_economics_observations`` for GDP Growth Rate,
+    ``bond_yield_observations`` for the 10Y-2Y yield spread, and
+    ``economic_indicator_observations`` for IlSole forecast columns,
+    producing a ``dates × indicators`` DataFrame suitable for the
+    regime classifier's ``rolling(4)`` window.
+
+    Parameters
+    ----------
+    session : Session
+        Active SQLAlchemy session.
+    country : str
+        Country code as stored in the DB.
+    start_date, end_date : datetime.date | None
+        Optional date bounds.
+
+    Returns
+    -------
+    pd.DataFrame
+        Index = ``pd.DatetimeIndex``, columns include ``gdp_growth``,
+        ``yield_spread``, and IlSole forecast columns when available.
+        May be empty if observation tables have no data yet.
+    """
+    # GDP growth from TE observations
+    gdp_stmt = (
+        select(
+            TradingEconomicsObservation.date,
+            TradingEconomicsObservation.value,
+        )
+        .where(TradingEconomicsObservation.country == country)
+        .where(TradingEconomicsObservation.indicator_key == "GDP Growth Rate")
+    )
+    if start_date:
+        gdp_stmt = gdp_stmt.where(TradingEconomicsObservation.date >= start_date)
+    if end_date:
+        gdp_stmt = gdp_stmt.where(TradingEconomicsObservation.date <= end_date)
+    gdp_stmt = gdp_stmt.order_by(TradingEconomicsObservation.date)
+    gdp_rows = session.execute(gdp_stmt).all()
+
+    # Bond yields from observations (10Y and 2Y)
+    bond_stmt = (
+        select(
+            BondYieldObservation.date,
+            BondYieldObservation.maturity,
+            BondYieldObservation.yield_value,
+        )
+        .where(BondYieldObservation.country == country)
+        .where(BondYieldObservation.maturity.in_(["10Y", "2Y"]))
+    )
+    if start_date:
+        bond_stmt = bond_stmt.where(BondYieldObservation.date >= start_date)
+    if end_date:
+        bond_stmt = bond_stmt.where(BondYieldObservation.date <= end_date)
+    bond_stmt = bond_stmt.order_by(BondYieldObservation.date)
+    bond_rows = session.execute(bond_stmt).all()
+
+    # IlSole forecast observations
+    _ILSOLE_COLS = [
+        "last_inflation", "inflation_6m", "inflation_10y_avg",
+        "gdp_growth_6m", "earnings_12m", "eps_expected_12m",
+        "peg_ratio", "lt_rate_forecast",
+    ]
+    ilsole_stmt = select(
+        EconomicIndicatorObservation.date,
+        *[getattr(EconomicIndicatorObservation, c) for c in _ILSOLE_COLS],
+    ).where(EconomicIndicatorObservation.country == country)
+    if start_date:
+        ilsole_stmt = ilsole_stmt.where(
+            EconomicIndicatorObservation.date >= start_date
+        )
+    if end_date:
+        ilsole_stmt = ilsole_stmt.where(
+            EconomicIndicatorObservation.date <= end_date
+        )
+    ilsole_stmt = ilsole_stmt.order_by(EconomicIndicatorObservation.date)
+    ilsole_rows = session.execute(ilsole_stmt).all()
+
+    # Build GDP series
+    gdp_series = pd.Series(
+        {pd.Timestamp(d): float(v) for d, v in gdp_rows if v is not None},
+        dtype=float,
+        name="gdp_growth",
+    )
+
+    # Build yield spread series (10Y - 2Y)
+    bond_10y: dict[pd.Timestamp, float] = {}
+    bond_2y: dict[pd.Timestamp, float] = {}
+    for d, maturity, val in bond_rows:
+        if val is None:
+            continue
+        ts = pd.Timestamp(d)
+        if maturity == "10Y":
+            bond_10y[ts] = float(val)
+        elif maturity == "2Y":
+            bond_2y[ts] = float(val)
+
+    spread_dates = sorted(set(bond_10y.keys()) & set(bond_2y.keys()))
+    spread_series = pd.Series(
+        {d: bond_10y[d] - bond_2y[d] for d in spread_dates},
+        dtype=float,
+        name="yield_spread",
+    )
+
+    # Build IlSole forecast series dict
+    ilsole_data: dict[str, dict[pd.Timestamp, float]] = {c: {} for c in _ILSOLE_COLS}
+    for row in ilsole_rows:
+        ts = pd.Timestamp(row[0])
+        for i, col in enumerate(_ILSOLE_COLS):
+            val = row[i + 1]
+            if val is not None:
+                ilsole_data[col][ts] = float(val)
+
+    # Combine all series into DataFrame
+    all_series: dict[str, pd.Series] = {
+        "gdp_growth": gdp_series,
+        "yield_spread": spread_series,
+    }
+    for col in _ILSOLE_COLS:
+        if ilsole_data[col]:
+            all_series[col] = pd.Series(ilsole_data[col], dtype=float, name=col)
+
+    df = pd.DataFrame(all_series)
+    df.index = pd.DatetimeIndex(df.index)
+    df = df.sort_index()
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -763,10 +902,22 @@ def assemble_macro_data(
 # ---------------------------------------------------------------------------
 
 FRED_SERIES_IDS: list[str] = [
+    # Credit & yield spreads (daily)
     "BAMLH0A0HYM2",
     "BAMLC0A0CM",
     "T10Y2Y",
     "BAA10Y",
+    # Volatility (daily)
+    "VIXCLS",
+    # OECD CLI — amplitude adjusted (monthly)
+    "USALOLITOAASTSAM",
+    "DEULOLITOAASTSAM",
+    "FRALOLITOAASTSAM",
+    "GBRLOLITOAASTSAM",
+    # US recession indicators (monthly/quarterly)
+    "RECPROUSM156N",
+    "JHGDPBRINDX",
+    "USREC",
 ]
 
 

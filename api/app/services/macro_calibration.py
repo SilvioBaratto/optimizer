@@ -69,6 +69,9 @@ _KEY_TE_INDICATORS = {
     "Unemployment Rate",
     "Inflation Rate",
     "GDP Growth Rate",
+    "Industrial Production",
+    "Government Debt to GDP",
+    "Government Budget",
     "Leading Economic Index",
     "Credit Default Swaps",
     "Government Bond 10Y",
@@ -83,35 +86,18 @@ def _build_macro_summary(
     """Assemble a compact textual macro summary for the LLM from DB rows."""
     lines: list[str] = [f"Country/Region: {country}"]
 
-    # Economic indicators (IlSole24Ore)
+    # IlSole24Ore forecasts (unique consensus data not in TE)
     indicators = repo.get_economic_indicators(country=country)
     for ind in indicators:
-        if ind.source == "ilsole_real":
-            parts: list[str] = []
-            if ind.gdp_growth_qq is not None:
-                parts.append(f"GDP QQ: {ind.gdp_growth_qq:.2f}%")
-            if ind.unemployment is not None:
-                parts.append(f"Unemployment: {ind.unemployment:.1f}%")
-            if ind.consumer_prices is not None:
-                parts.append(f"CPI: {ind.consumer_prices:.1f}%")
-            if ind.industrial_production is not None:
-                parts.append(f"Industrial production: {ind.industrial_production:.1f}%")
-            if ind.st_rate is not None:
-                parts.append(f"Short-term rate: {ind.st_rate:.2f}%")
-            if ind.lt_rate is not None:
-                parts.append(f"Long-term rate: {ind.lt_rate:.2f}%")
-            if parts:
-                lines.append("Economic indicators: " + ", ".join(parts))
-        elif ind.source == "ilsole_forecast":
-            parts = []
-            if ind.gdp_growth_6m is not None:
-                parts.append(f"GDP 6m forecast: {ind.gdp_growth_6m:.2f}%")
-            if ind.inflation_6m is not None:
-                parts.append(f"Inflation 6m forecast: {ind.inflation_6m:.1f}%")
-            if ind.earnings_12m is not None:
-                parts.append(f"Earnings 12m forecast: {ind.earnings_12m:.1f}%")
-            if parts:
-                lines.append("Forecasts: " + ", ".join(parts))
+        parts: list[str] = []
+        if ind.gdp_growth_6m is not None:
+            parts.append(f"GDP 6m forecast: {ind.gdp_growth_6m:.2f}%")
+        if ind.inflation_6m is not None:
+            parts.append(f"Inflation 6m forecast: {ind.inflation_6m:.1f}%")
+        if ind.earnings_12m is not None:
+            parts.append(f"Earnings 12m forecast: {ind.earnings_12m:.1f}%")
+        if parts:
+            lines.append("Forecasts: " + ", ".join(parts))
 
     # Trading Economics indicators (PMI, unemployment, CPI, etc.)
     te_rows = repo.get_te_indicators(country=country)

@@ -224,7 +224,6 @@ class IlSoleScraper:
                 "earnings_12m": self._safe_float(cells.get("ConsensoUtili")),
                 "eps_expected_12m": self._safe_float(cells.get("ConsensoEps")),
                 "peg_ratio": self._safe_float(cells.get("ConsensoPeg")),
-                "st_rate_forecast": self._safe_float(cells.get("ConsensoTassiBreve")),
                 "lt_rate_forecast": self._safe_float(cells.get("ConsensoTassiLungo")),
                 "reference_date": cells.get("DataRiferimento"),
                 "timestamp": datetime.now().isoformat(),

@@ -1,5 +1,5 @@
 # Build stage
-FROM python:3.12-slim as builder
+FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
@@ -9,9 +9,14 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install dependencies
-COPY requirements.txt .
+# Copy and install API requirements
+COPY api/requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Copy and install the optimizer library from project root
+COPY pyproject.toml README.md ./
+COPY optimizer/ optimizer/
+RUN pip install --no-cache-dir --user -e .
 
 # Runtime stage
 FROM python:3.12-slim
@@ -29,15 +34,20 @@ RUN useradd -m -u 1000 appuser
 # Copy Python dependencies from builder to appuser's home
 COPY --from=builder /root/.local /home/appuser/.local
 
+# Copy optimizer library (needed for editable install)
+COPY --from=builder /app/optimizer /app/optimizer
+COPY --from=builder /app/pyproject.toml /app/pyproject.toml
+
 # Copy application code
-COPY . .
+COPY api/ ./api/
 
 # Generate BAML client (before changing to non-root user)
 ENV PYTHONPATH=/home/appuser/.local/lib/python3.12/site-packages
+WORKDIR /app/api
 RUN /home/appuser/.local/bin/baml-cli generate
 
 # Copy and make entrypoint script executable
-COPY entrypoint.sh /entrypoint.sh
+COPY api/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Change ownership

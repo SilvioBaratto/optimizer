@@ -1,0 +1,13 @@
+node_modules/
+.angular/
+dist/
+.git/
+.gitignore
+.vscode/
+.idea/
+*.md
+.env
+.env.*
+coverage/
+e2e/
+.editorconfig

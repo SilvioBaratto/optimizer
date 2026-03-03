@@ -37,6 +37,7 @@ COUNTRY_NAME_MAPPING = {
 
 # Indicator name variations (Trading Economics uses different naming conventions)
 INDICATOR_PATTERNS = {
+    # --- GDP & Growth ---
     "gdp_growth_rate": [
         "GDP Growth Rate",
     ],
@@ -44,47 +45,154 @@ INDICATOR_PATTERNS = {
         "GDP Annual Growth Rate",
         "GDP YoY",
     ],
+    "full_year_gdp_growth": [
+        "Full Year GDP Growth",
+    ],
+    "monthly_gdp_mom": [
+        "Monthly GDP MoM",
+    ],
+    "monthly_gdp_yoy": [
+        "Monthly GDP YoY",
+    ],
+    # --- Labour Market ---
     "unemployment_rate": [
         "Unemployment Rate",
     ],
+    "non_farm_payrolls": [
+        "Non Farm Payrolls",
+    ],
+    "initial_jobless_claims": [
+        "Initial Jobless Claims",
+    ],
+    "continuing_jobless_claims": [
+        "Continuing Jobless Claims",
+    ],
+    "employment_change": [
+        "Employment Change",
+    ],
+    # --- Prices ---
     "inflation_rate": [
         "Inflation Rate",
     ],
     "inflation_rate_mom": [
         "Inflation Rate MoM",
     ],
-    "industrial_production": [
-        "Industrial Production",
+    "core_inflation": [
+        "Core Inflation Rate",
     ],
+    # --- Monetary Policy ---
+    "interest_rate": [
+        "Interest Rate",
+    ],
+    # --- Business Cycle / PMI ---
     "manufacturing_pmi": [
         "Manufacturing PMI",
     ],
     "services_pmi": [
         "Services PMI",
     ],
-    "interest_rate": [
-        "Interest Rate",
+    "composite_pmi": [
+        "Composite PMI",
     ],
-    "government_debt_gdp": [
-        "Government Debt to GDP",
+    "non_manufacturing_pmi": [
+        "Non Manufacturing PMI",
     ],
-    "budget_balance_gdp": [
-        "Government Budget",
+    "construction_pmi": [
+        "Construction PMI",
     ],
-    "consumer_confidence": [
-        "Consumer Confidence",
-    ],
+    # --- Business Surveys (country-specific) ---
     "business_confidence": [
         "Business Confidence",
     ],
-    "core_inflation": [
-        "Core Inflation Rate",
+    "zew_economic_sentiment": [
+        "ZEW Economic Sentiment Index",
+    ],
+    "zew_current_conditions": [
+        "ZEW Current Conditions",
+    ],
+    "ifo_current_conditions": [
+        "Ifo Current Conditions",
+    ],
+    "ifo_expectations": [
+        "Ifo Expectations",
+    ],
+    "business_climate_indicator": [
+        "Business Climate Indicator",
+    ],
+    "nfib_business_optimism": [
+        "NFIB Business Optimism Index",
+    ],
+    # --- Consumer ---
+    "consumer_confidence": [
+        "Consumer Confidence",
+    ],
+    "michigan_consumer_expectations": [
+        "Michigan Consumer Expectations",
     ],
     "retail_sales_mom": [
         "Retail Sales MoM",
     ],
     "retail_sales_yoy": [
         "Retail Sales YoY",
+    ],
+    "personal_savings": [
+        "Personal Savings",
+    ],
+    # --- Production & Output ---
+    "industrial_production": [
+        "Industrial Production",
+    ],
+    "industrial_production_mom": [
+        "Industrial Production Mom",
+    ],
+    "manufacturing_production": [
+        "Manufacturing Production",
+    ],
+    "capacity_utilization": [
+        "Capacity Utilization",
+    ],
+    "factory_orders": [
+        "Factory Orders",
+    ],
+    "durable_goods_orders": [
+        "Durable Goods Orders",
+    ],
+    # --- Leading Indicators ---
+    "leading_economic_index": [
+        "Leading Economic Index",
+    ],
+    "composite_leading_indicator": [
+        "Composite Leading Indicator",
+    ],
+    "chicago_fed_national_activity": [
+        "Chicago Fed National Activity Index",
+    ],
+    # --- Regional US Manufacturing (for cross-validation) ---
+    "ny_empire_state_manufacturing": [
+        "NY Empire State Manufacturing Index",
+    ],
+    "philly_fed_manufacturing": [
+        "Philadelphia Fed Manufacturing Index",
+    ],
+    "dallas_fed_manufacturing": [
+        "Dallas Fed Manufacturing Index",
+    ],
+    # --- ISM Sub-Components ---
+    "ism_manufacturing_new_orders": [
+        "ISM Manufacturing New Orders",
+    ],
+    "ism_manufacturing_prices": [
+        "ISM Manufacturing Prices",
+    ],
+    "ism_manufacturing_employment": [
+        "ISM Manufacturing Employment",
+    ],
+    # --- Fiscal & External ---
+    "government_debt_gdp": [
+        "Government Debt to GDP",
+    ],
+    "budget_balance_gdp": [
+        "Government Budget",
     ],
     "current_account": [
         "Current Account",
@@ -94,9 +202,6 @@ INDICATOR_PATTERNS = {
     ],
     "trade_balance": [
         "Balance of Trade",
-    ],
-    "composite_pmi": [
-        "Composite PMI",
     ],
 }
 

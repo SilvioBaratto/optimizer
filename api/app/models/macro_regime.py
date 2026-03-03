@@ -16,34 +16,19 @@ from app.models.base import BaseModel
 
 class EconomicIndicator(BaseModel):
     """
-    IlSole24Ore real indicators and forecasts per country snapshot.
+    IlSole24Ore consensus forecasts per country snapshot.
 
-    Each row represents either a real-indicator or forecast scrape
-    for a given country, identified by the (country, source) pair.
+    One row per country, storing forecast data from IlSole24Ore.
+    Real macroeconomic indicators are sourced from TradingEconomics instead.
     """
 
     __tablename__ = "economic_indicators"
     __table_args__ = (
-        UniqueConstraint(
-            "country", "source", name="uq_economic_indicator_country_source"
-        ),
+        UniqueConstraint("country", name="uq_economic_indicator_country"),
         Index("ix_economic_indicators_country", "country"),
     )
 
     country: Mapped[str] = mapped_column(String(100), nullable=False)
-    source: Mapped[str] = mapped_column(
-        String(50), nullable=False
-    )  # "ilsole_real" | "ilsole_forecast"
-
-    # Real indicator columns (from get_real_indicators)
-    gdp_growth_qq: Mapped[float | None] = mapped_column(Float, nullable=True)
-    industrial_production: Mapped[float | None] = mapped_column(Float, nullable=True)
-    unemployment: Mapped[float | None] = mapped_column(Float, nullable=True)
-    consumer_prices: Mapped[float | None] = mapped_column(Float, nullable=True)
-    deficit: Mapped[float | None] = mapped_column(Float, nullable=True)
-    debt: Mapped[float | None] = mapped_column(Float, nullable=True)
-    st_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
-    lt_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Forecast columns (from get_forecasts)
     last_inflation: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -53,10 +38,41 @@ class EconomicIndicator(BaseModel):
     earnings_12m: Mapped[float | None] = mapped_column(Float, nullable=True)
     eps_expected_12m: Mapped[float | None] = mapped_column(Float, nullable=True)
     peg_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
-    st_rate_forecast: Mapped[float | None] = mapped_column(Float, nullable=True)
     lt_rate_forecast: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Reference date (e.g. first day of the reference month)
+    reference_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+
+
+class EconomicIndicatorObservation(BaseModel):
+    """IlSole24Ore forecast time-series: one row per (country, date).
+
+    Wide-format snapshot preserving all 8 forecast columns per country
+    per day, so that daily fetches accumulate history instead of
+    overwriting the single ``economic_indicators`` row.
+    """
+
+    __tablename__ = "economic_indicator_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "country", "date",
+            name="uq_econ_obs_country_date",
+        ),
+        Index("ix_econ_observations_country", "country"),
+        Index("ix_econ_observations_date", "date"),
+    )
+
+    country: Mapped[str] = mapped_column(String(100), nullable=False)
+    date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+
+    last_inflation: Mapped[float | None] = mapped_column(Float, nullable=True)
+    inflation_6m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    inflation_10y_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gdp_growth_6m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    earnings_12m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eps_expected_12m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    peg_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lt_rate_forecast: Mapped[float | None] = mapped_column(Float, nullable=True)
     reference_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
 
 
@@ -107,6 +123,52 @@ class BondYield(BaseModel):
     month_change: Mapped[float | None] = mapped_column(Float, nullable=True)
     year_change: Mapped[float | None] = mapped_column(Float, nullable=True)
     reference_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+
+
+class TradingEconomicsObservation(BaseModel):
+    """Trading Economics time-series observation: one row per (country, indicator_key, date).
+
+    Accumulates daily snapshots so that regime classifiers can access
+    historical indicator values instead of only the latest overwritten row.
+    """
+
+    __tablename__ = "trading_economics_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "country", "indicator_key", "date",
+            name="uq_te_obs_country_key_date",
+        ),
+        Index("ix_te_observations_country", "country"),
+        Index("ix_te_observations_date", "date"),
+    )
+
+    country: Mapped[str] = mapped_column(String(100), nullable=False)
+    indicator_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class BondYieldObservation(BaseModel):
+    """Bond yield time-series observation: one row per (country, maturity, date).
+
+    Accumulates daily yield snapshots so the yield curve history is
+    preserved across daily fetches.
+    """
+
+    __tablename__ = "bond_yield_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "country", "maturity", "date",
+            name="uq_bond_obs_country_mat_date",
+        ),
+        Index("ix_bond_observations_country", "country"),
+        Index("ix_bond_observations_date", "date"),
+    )
+
+    country: Mapped[str] = mapped_column(String(100), nullable=False)
+    maturity: Mapped[str] = mapped_column(String(10), nullable=False)
+    date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    yield_value: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class FredObservation(BaseModel):

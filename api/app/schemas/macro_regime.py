@@ -63,15 +63,6 @@ class EconomicIndicatorResponse(BaseModel):
 
     id: uuid.UUID
     country: str
-    source: str
-    gdp_growth_qq: float | None = None
-    industrial_production: float | None = None
-    unemployment: float | None = None
-    consumer_prices: float | None = None
-    deficit: float | None = None
-    debt: float | None = None
-    st_rate: float | None = None
-    lt_rate: float | None = None
     last_inflation: float | None = None
     inflation_6m: float | None = None
     inflation_10y_avg: float | None = None
@@ -79,7 +70,6 @@ class EconomicIndicatorResponse(BaseModel):
     earnings_12m: float | None = None
     eps_expected_12m: float | None = None
     peg_ratio: float | None = None
-    st_rate_forecast: float | None = None
     lt_rate_forecast: float | None = None
     reference_date: date | None = None
     created_at: datetime
@@ -123,6 +113,49 @@ class FredObservationResponse(BaseModel):
     series_id: str
     date: date
     value: float | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class EconomicIndicatorObservationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    country: str
+    date: date
+    last_inflation: float | None = None
+    inflation_6m: float | None = None
+    inflation_10y_avg: float | None = None
+    gdp_growth_6m: float | None = None
+    earnings_12m: float | None = None
+    eps_expected_12m: float | None = None
+    peg_ratio: float | None = None
+    lt_rate_forecast: float | None = None
+    reference_date: date | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TradingEconomicsObservationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    country: str
+    indicator_key: str
+    date: date
+    value: float | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class BondYieldObservationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    country: str
+    maturity: str
+    date: date
+    yield_value: float | None = None
     created_at: datetime
     updated_at: datetime
 

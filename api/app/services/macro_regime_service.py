@@ -60,10 +60,12 @@ class MacroRegimeService:
             countries = list(PORTFOLIO_COUNTRIES)
 
         total_counts: dict[str, int] = {
-            "ilsole_real": 0,
             "ilsole_forecast": 0,
+            "ilsole_observations": 0,
             "te_indicators": 0,
+            "te_observations": 0,
             "bond_yields": 0,
+            "bond_yield_observations": 0,
         }
         all_errors: list[str] = []
 
@@ -99,36 +101,30 @@ class MacroRegimeService:
         counts: dict[str, int] = {}
         errors: list[str] = []
 
-        # 1. IlSole real indicators
-        try:
-            real_data = self.ilsole_scraper.get_real_indicators(country)
-            if real_data:
-                counts["ilsole_real"] = self.repo.upsert_economic_indicator(
-                    country=country,
-                    source="ilsole_real",
-                    data=real_data,
-                )
-            else:
-                counts["ilsole_real"] = 0
-                logger.info("No IlSole real indicators for %s", country)
-        except Exception as e:
-            errors.append(f"ilsole_real: {e}")
-            logger.warning("Failed IlSole real indicators for %s: %s", country, e)
-
-        # 2. IlSole forecasts
+        # 1. IlSole forecasts (real indicators sourced from TradingEconomics)
+        today = datetime.date.today()
         try:
             forecast_data = self.ilsole_scraper.get_forecasts(country)
             if forecast_data:
                 counts["ilsole_forecast"] = self.repo.upsert_economic_indicator(
                     country=country,
-                    source="ilsole_forecast",
                     data=forecast_data,
+                )
+                # Also write to time-series observation table
+                counts["ilsole_observations"] = (
+                    self.repo.upsert_economic_indicator_observation(
+                        country=country,
+                        snapshot_date=today,
+                        data=forecast_data,
+                    )
                 )
             else:
                 counts["ilsole_forecast"] = 0
+                counts["ilsole_observations"] = 0
                 logger.info("No IlSole forecasts for %s", country)
         except Exception as e:
             errors.append(f"ilsole_forecast: {e}")
+            counts.setdefault("ilsole_observations", 0)
             logger.warning("Failed IlSole forecasts for %s: %s", country, e)
 
         # 3. Trading Economics indicators (+ bonds)
@@ -138,17 +134,25 @@ class MacroRegimeService:
             )
 
             if te_data.get("status") == "success":
-                # Store indicators
+                # Store indicators (latest-snapshot table)
                 indicators = te_data.get("indicators", {})
                 if indicators:
                     counts["te_indicators"] = self.repo.upsert_te_indicators(
                         country=country,
                         indicators_dict=indicators,
                     )
+                    # Also write to time-series observation table
+                    n_obs = self.repo.upsert_te_observations(
+                        country=country,
+                        snapshot_date=today,
+                        indicators_dict=indicators,
+                    )
+                    counts["te_observations"] = n_obs
                 else:
                     counts["te_indicators"] = 0
+                    counts["te_observations"] = 0
 
-                # Store bond yields
+                # Store bond yields (latest-snapshot table)
                 if include_bonds:
                     bond_yields = te_data.get("bond_yields", {})
                     if bond_yields:
@@ -156,13 +160,24 @@ class MacroRegimeService:
                             country=country,
                             yields_dict=bond_yields,
                         )
+                        # Also write to time-series observation table
+                        n_bond_obs = self.repo.upsert_bond_yield_observations(
+                            country=country,
+                            snapshot_date=today,
+                            yields_dict=bond_yields,
+                        )
+                        counts["bond_yield_observations"] = n_bond_obs
                     else:
                         counts["bond_yields"] = 0
+                        counts["bond_yield_observations"] = 0
                 else:
                     counts["bond_yields"] = 0
+                    counts["bond_yield_observations"] = 0
             else:
                 counts["te_indicators"] = 0
+                counts["te_observations"] = 0
                 counts["bond_yields"] = 0
+                counts["bond_yield_observations"] = 0
                 te_error = te_data.get("error", "Unknown error")
                 errors.append(f"trading_economics: {te_error}")
                 logger.warning("Trading Economics failed for %s: %s", country, te_error)
@@ -170,7 +185,9 @@ class MacroRegimeService:
         except Exception as e:
             errors.append(f"trading_economics: {e}")
             counts.setdefault("te_indicators", 0)
+            counts.setdefault("te_observations", 0)
             counts.setdefault("bond_yields", 0)
+            counts.setdefault("bond_yield_observations", 0)
             logger.warning("Failed Trading Economics for %s: %s", country, e)
 
         return {"counts": counts, "errors": errors}

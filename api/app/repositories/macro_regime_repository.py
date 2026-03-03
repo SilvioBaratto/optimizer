@@ -13,9 +13,12 @@ from sqlalchemy.orm import Session
 
 from app.models.macro_regime import (
     BondYield,
+    BondYieldObservation,
     EconomicIndicator,
+    EconomicIndicatorObservation,
     FredObservation,
     TradingEconomicsIndicator,
+    TradingEconomicsObservation,
 )
 from app.utils.date_parsing import parse_reference_date
 
@@ -71,16 +74,14 @@ class MacroRegimeRepository:
     def upsert_economic_indicator(
         self,
         country: str,
-        source: str,
         data: dict[str, Any],
     ) -> int:
         """
-        Upsert a single economic indicator row for a country+source pair.
+        Upsert a single economic indicator (forecast) row for a country.
 
         Args:
             country: Country name (e.g. "USA", "Germany")
-            source: "ilsole_real" or "ilsole_forecast"
-            data: Dict of column values from the scraper
+            data: Dict of forecast column values from the scraper
 
         Returns:
             Number of rows processed (always 1 on success, 0 if data is empty).
@@ -91,42 +92,21 @@ class MacroRegimeRepository:
         row: dict[str, Any] = {
             "id": uuid.uuid4(),
             "country": country,
-            "source": source,
+            "last_inflation": data.get("last_inflation"),
+            "inflation_6m": data.get("inflation_6m"),
+            "inflation_10y_avg": data.get("inflation_10y_avg"),
+            "gdp_growth_6m": data.get("gdp_growth_6m"),
+            "earnings_12m": data.get("earnings_12m"),
+            "eps_expected_12m": data.get("eps_expected_12m"),
+            "peg_ratio": data.get("peg_ratio"),
+            "lt_rate_forecast": data.get("lt_rate_forecast"),
+            "reference_date": parse_reference_date(data.get("reference_date")),
         }
-
-        if source == "ilsole_real":
-            row.update(
-                {
-                    "gdp_growth_qq": data.get("gdp_growth_qq"),
-                    "industrial_production": data.get("industrial_production"),
-                    "unemployment": data.get("unemployment"),
-                    "consumer_prices": data.get("consumer_prices"),
-                    "deficit": data.get("deficit"),
-                    "debt": data.get("debt"),
-                    "st_rate": data.get("st_rate"),
-                    "lt_rate": data.get("lt_rate"),
-                }
-            )
-        elif source == "ilsole_forecast":
-            row.update(
-                {
-                    "last_inflation": data.get("last_inflation"),
-                    "inflation_6m": data.get("inflation_6m"),
-                    "inflation_10y_avg": data.get("inflation_10y_avg"),
-                    "gdp_growth_6m": data.get("gdp_growth_6m"),
-                    "earnings_12m": data.get("earnings_12m"),
-                    "eps_expected_12m": data.get("eps_expected_12m"),
-                    "peg_ratio": data.get("peg_ratio"),
-                    "st_rate_forecast": data.get("st_rate_forecast"),
-                    "lt_rate_forecast": data.get("lt_rate_forecast"),
-                    "reference_date": parse_reference_date(data.get("reference_date")),
-                }
-            )
 
         return self._upsert(
             EconomicIndicator,
             [row],
-            constraint_name="uq_economic_indicator_country_source",
+            constraint_name="uq_economic_indicator_country",
         )
 
     def get_economic_indicators(
@@ -136,7 +116,78 @@ class MacroRegimeRepository:
         stmt = select(EconomicIndicator)
         if country:
             stmt = stmt.where(EconomicIndicator.country == country)
-        stmt = stmt.order_by(EconomicIndicator.country, EconomicIndicator.source)
+        stmt = stmt.order_by(EconomicIndicator.country)
+        return self.session.execute(stmt).scalars().all()
+
+    # ------------------------------------------------------------------
+    # Economic Indicator Observations (time-series)
+    # ------------------------------------------------------------------
+
+    _ECON_OBS_COLUMNS = [
+        "last_inflation", "inflation_6m", "inflation_10y_avg",
+        "gdp_growth_6m", "earnings_12m", "eps_expected_12m",
+        "peg_ratio", "lt_rate_forecast", "reference_date",
+    ]
+
+    def upsert_economic_indicator_observation(
+        self,
+        country: str,
+        snapshot_date: datetime.date,
+        data: dict[str, Any],
+    ) -> int:
+        """Upsert an IlSole forecast observation row for a country on a given date.
+
+        Args:
+            country: Country name.
+            snapshot_date: The date this snapshot was taken.
+            data: Dict of forecast column values from the scraper.
+
+        Returns:
+            Number of rows processed (1 on success, 0 if data is empty).
+        """
+        if not data:
+            return 0
+
+        row: dict[str, Any] = {
+            "id": uuid.uuid4(),
+            "country": country,
+            "date": snapshot_date,
+            "last_inflation": data.get("last_inflation"),
+            "inflation_6m": data.get("inflation_6m"),
+            "inflation_10y_avg": data.get("inflation_10y_avg"),
+            "gdp_growth_6m": data.get("gdp_growth_6m"),
+            "earnings_12m": data.get("earnings_12m"),
+            "eps_expected_12m": data.get("eps_expected_12m"),
+            "peg_ratio": data.get("peg_ratio"),
+            "lt_rate_forecast": data.get("lt_rate_forecast"),
+            "reference_date": parse_reference_date(data.get("reference_date")),
+        }
+
+        return self._upsert(
+            EconomicIndicatorObservation,
+            [row],
+            constraint_name="uq_econ_obs_country_date",
+            update_columns=self._ECON_OBS_COLUMNS,
+        )
+
+    def get_economic_indicator_observations(
+        self,
+        country: str | None = None,
+        start_date: datetime.date | None = None,
+        end_date: datetime.date | None = None,
+    ) -> Sequence[EconomicIndicatorObservation]:
+        """Query IlSole forecast time-series observations."""
+        stmt = select(EconomicIndicatorObservation)
+        if country:
+            stmt = stmt.where(EconomicIndicatorObservation.country == country)
+        if start_date:
+            stmt = stmt.where(EconomicIndicatorObservation.date >= start_date)
+        if end_date:
+            stmt = stmt.where(EconomicIndicatorObservation.date <= end_date)
+        stmt = stmt.order_by(
+            EconomicIndicatorObservation.country,
+            EconomicIndicatorObservation.date,
+        )
         return self.session.execute(stmt).scalars().all()
 
     # ------------------------------------------------------------------
@@ -246,6 +297,146 @@ class MacroRegimeRepository:
         if country:
             stmt = stmt.where(BondYield.country == country)
         stmt = stmt.order_by(BondYield.country, BondYield.maturity)
+        return self.session.execute(stmt).scalars().all()
+
+    # ------------------------------------------------------------------
+    # Trading Economics Observations (time-series)
+    # ------------------------------------------------------------------
+
+    def upsert_te_observations(
+        self,
+        country: str,
+        snapshot_date: datetime.date,
+        indicators_dict: dict[str, dict[str, Any]],
+    ) -> int:
+        """Bulk upsert TE observation rows for a country on a given date.
+
+        Args:
+            country: Country name (e.g. "USA").
+            snapshot_date: The date this snapshot was taken.
+            indicators_dict: Dict of indicator_key -> {value, ...}.
+
+        Returns:
+            Number of rows processed.
+        """
+        if not indicators_dict:
+            return 0
+
+        rows: list[dict[str, Any]] = []
+        for indicator_key, indicator_data in indicators_dict.items():
+            value = indicator_data.get("value")
+            if value is None:
+                continue
+            rows.append(
+                {
+                    "id": uuid.uuid4(),
+                    "country": country,
+                    "indicator_key": indicator_key,
+                    "date": snapshot_date,
+                    "value": value,
+                }
+            )
+
+        return self._upsert(
+            TradingEconomicsObservation,
+            rows,
+            constraint_name="uq_te_obs_country_key_date",
+            update_columns=["value"],
+        )
+
+    def get_te_observations(
+        self,
+        country: str | None = None,
+        indicator_keys: list[str] | None = None,
+        start_date: datetime.date | None = None,
+        end_date: datetime.date | None = None,
+    ) -> Sequence[TradingEconomicsObservation]:
+        """Query TE time-series observations with optional filters."""
+        stmt = select(TradingEconomicsObservation)
+        if country:
+            stmt = stmt.where(TradingEconomicsObservation.country == country)
+        if indicator_keys:
+            stmt = stmt.where(
+                TradingEconomicsObservation.indicator_key.in_(indicator_keys)
+            )
+        if start_date:
+            stmt = stmt.where(TradingEconomicsObservation.date >= start_date)
+        if end_date:
+            stmt = stmt.where(TradingEconomicsObservation.date <= end_date)
+        stmt = stmt.order_by(
+            TradingEconomicsObservation.country,
+            TradingEconomicsObservation.indicator_key,
+            TradingEconomicsObservation.date,
+        )
+        return self.session.execute(stmt).scalars().all()
+
+    # ------------------------------------------------------------------
+    # Bond Yield Observations (time-series)
+    # ------------------------------------------------------------------
+
+    def upsert_bond_yield_observations(
+        self,
+        country: str,
+        snapshot_date: datetime.date,
+        yields_dict: dict[str, dict[str, Any]],
+    ) -> int:
+        """Bulk upsert bond yield observation rows for a country on a given date.
+
+        Args:
+            country: Country name (e.g. "USA").
+            snapshot_date: The date this snapshot was taken.
+            yields_dict: Dict of maturity -> {yield, ...}.
+
+        Returns:
+            Number of rows processed.
+        """
+        if not yields_dict:
+            return 0
+
+        rows: list[dict[str, Any]] = []
+        for maturity, yield_data in yields_dict.items():
+            yield_val = yield_data.get("yield")
+            if yield_val is None:
+                continue
+            rows.append(
+                {
+                    "id": uuid.uuid4(),
+                    "country": country,
+                    "maturity": maturity,
+                    "date": snapshot_date,
+                    "yield_value": yield_val,
+                }
+            )
+
+        return self._upsert(
+            BondYieldObservation,
+            rows,
+            constraint_name="uq_bond_obs_country_mat_date",
+            update_columns=["yield_value"],
+        )
+
+    def get_bond_yield_observations(
+        self,
+        country: str | None = None,
+        maturities: list[str] | None = None,
+        start_date: datetime.date | None = None,
+        end_date: datetime.date | None = None,
+    ) -> Sequence[BondYieldObservation]:
+        """Query bond yield time-series observations with optional filters."""
+        stmt = select(BondYieldObservation)
+        if country:
+            stmt = stmt.where(BondYieldObservation.country == country)
+        if maturities:
+            stmt = stmt.where(BondYieldObservation.maturity.in_(maturities))
+        if start_date:
+            stmt = stmt.where(BondYieldObservation.date >= start_date)
+        if end_date:
+            stmt = stmt.where(BondYieldObservation.date <= end_date)
+        stmt = stmt.order_by(
+            BondYieldObservation.country,
+            BondYieldObservation.maturity,
+            BondYieldObservation.date,
+        )
         return self.session.execute(stmt).scalars().all()
 
     # ------------------------------------------------------------------
