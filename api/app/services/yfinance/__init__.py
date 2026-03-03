@@ -16,7 +16,14 @@ from .market import (
     SectorIndustryClient,
     StreamingClient,
 )
-from .news import ArticleResult, ArticleScraper, CountryNewsFetcher, NewsClient
+from .news import (
+    ArticleResult,
+    ArticleScraper,
+    CountryNewsFetcher,
+    MacroNewsFetcher,
+    MacroTheme,
+    NewsClient,
+)
 from .protocols import (
     AnalysisClientProtocol,
     ArticleScraperProtocol,
@@ -93,6 +100,8 @@ __all__ = [
     "ArticleScraper",
     "ArticleResult",
     "CountryNewsFetcher",
+    "MacroNewsFetcher",
+    "MacroTheme",
     # Utilities
     "retry_with_backoff",
     "is_rate_limit_error",

@@ -216,6 +216,55 @@ def bond_yields(
 
 
 # ------------------------------------------------------------------
+# Macro news
+# ------------------------------------------------------------------
+
+
+@macro_app.command("news-fetch")
+def news_fetch(
+    ctx: typer.Context,
+    max_articles: int = typer.Option(100, help="Max articles to fetch"),
+    full_content: bool = typer.Option(
+        False, "--full-content", help="Scrape full article content",
+    ),
+) -> None:
+    """Fetch macro-themed news from yfinance and store in DB."""
+    client = _client(ctx)
+    job = client.start_macro_news_fetch(
+        max_articles=max_articles,
+        fetch_full_content=full_content,
+    )
+    job_id = job["job_id"]
+    success_panel(f"Macro news fetch started: {job_id}")
+
+    result = progress_loop(lambda: client.get_macro_news_fetch_status(job_id))
+
+    if result.get("status") == "failed":
+        error_panel(f"News fetch failed: {result.get('error', 'unknown')}")
+        raise typer.Exit(code=1)
+
+    fetch_result = result.get("result", {})
+    if fetch_result:
+        dict_table(fetch_result, title="Macro News Fetch Result")
+    success_panel("Macro news fetch completed.")
+
+
+@macro_app.command("news")
+def news(
+    ctx: typer.Context,
+    theme: str | None = typer.Option(None, help="Filter by macro theme"),
+    limit: int = typer.Option(20, help="Max rows to display"),
+) -> None:
+    """List stored macro news articles."""
+    rows = _client(ctx).get_macro_news(theme=theme, limit=limit)
+    list_table(
+        rows,
+        columns=["title", "publisher", "themes", "publish_time", "source_ticker"],
+        title="Macro News",
+    )
+
+
+# ------------------------------------------------------------------
 # FRED time-series
 # ------------------------------------------------------------------
 

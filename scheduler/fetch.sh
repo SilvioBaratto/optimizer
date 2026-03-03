@@ -35,11 +35,17 @@ echo "--- macro fetch ---"
 python -m cli --base-url "$API_URL" macro fetch
 MACRO_EXIT=$?
 
+# Run macro news fetch (accumulates history — no deletion, upsert deduplicates)
+echo "--- macro news fetch ---"
+python -m cli --base-url "$API_URL" macro news-fetch --max-articles 30 --full-content
+NEWS_EXIT=$?
+
 # Summary
 echo "=== Fetch summary ==="
 echo "  yfinance: $([ $YFINANCE_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $YFINANCE_EXIT)")"
 echo "  macro:    $([ $MACRO_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $MACRO_EXIT)")"
+echo "  news:     $([ $NEWS_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $NEWS_EXIT)")"
 echo "=== Data fetch finished at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ==="
 
-# Exit with failure if either fetch failed
-[ $YFINANCE_EXIT -eq 0 ] && [ $MACRO_EXIT -eq 0 ]
+# Exit with failure if any fetch failed
+[ $YFINANCE_EXIT -eq 0 ] && [ $MACRO_EXIT -eq 0 ] && [ $NEWS_EXIT -eq 0 ]

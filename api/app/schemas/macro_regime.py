@@ -160,6 +160,37 @@ class BondYieldObservationResponse(BaseModel):
     updated_at: datetime
 
 
+class MacroNewsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    news_id: str
+    title: str | None = None
+    publisher: str | None = None
+    link: str | None = None
+    publish_time: datetime | None = None
+    source_ticker: str | None = None
+    source_query: str | None = None
+    themes: str | None = None
+    snippet: str | None = None
+    full_content: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MacroNewsFetchRequest(BaseModel):
+    """Request body for macro news fetch."""
+
+    fetch_full_content: bool = Field(
+        default=False,
+        description="Whether to scrape full article content.",
+    )
+    max_articles: int = Field(
+        default=100,
+        description="Maximum number of articles to fetch.",
+    )
+
+
 class CountryMacroSummary(BaseModel):
     """Aggregated macro data for a single country."""
 

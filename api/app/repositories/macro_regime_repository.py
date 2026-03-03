@@ -17,6 +17,7 @@ from app.models.macro_regime import (
     EconomicIndicator,
     EconomicIndicatorObservation,
     FredObservation,
+    MacroNews,
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
 )
@@ -502,6 +503,45 @@ class MacroRegimeRepository:
             )
         ).scalar()
         return result
+
+    # ------------------------------------------------------------------
+    # Macro News
+    # ------------------------------------------------------------------
+
+    def upsert_macro_news(self, rows: list[dict[str, Any]]) -> int:
+        """Bulk upsert macro news rows. Deduplicates on ``news_id``."""
+        return self._upsert(
+            MacroNews,
+            rows,
+            constraint_name="uq_macro_news_id",
+        )
+
+    def get_macro_news(
+        self,
+        theme: str | None = None,
+        start_date: datetime.datetime | None = None,
+        end_date: datetime.datetime | None = None,
+        limit: int = 50,
+    ) -> Sequence[MacroNews]:
+        """Query stored macro news with optional theme/date filters."""
+        stmt = select(MacroNews)
+        if theme:
+            stmt = stmt.where(MacroNews.themes.contains(theme))
+        if start_date:
+            stmt = stmt.where(MacroNews.publish_time >= start_date)
+        if end_date:
+            stmt = stmt.where(MacroNews.publish_time <= end_date)
+        stmt = stmt.order_by(MacroNews.publish_time.desc()).limit(limit)
+        return self.session.execute(stmt).scalars().all()
+
+    def delete_old_macro_news(self, before_date: datetime.datetime) -> int:
+        """Delete macro news older than the given date. Returns count deleted."""
+        stmt = select(MacroNews).where(MacroNews.publish_time < before_date)
+        rows = self.session.execute(stmt).scalars().all()
+        count = len(rows)
+        for row in rows:
+            self.session.delete(row)
+        return count
 
     # ------------------------------------------------------------------
     # Country Summary

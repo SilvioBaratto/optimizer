@@ -4,9 +4,11 @@ import datetime
 
 from sqlalchemy import (
     Date,
+    DateTime,
     Float,
     Index,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -191,3 +193,30 @@ class FredObservation(BaseModel):
     series_id: Mapped[str] = mapped_column(String(50), nullable=False)
     date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     value: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class MacroNews(BaseModel):
+    """Macro-themed news articles from yfinance ticker feeds and search queries.
+
+    One row per unique article (deduplicated by ``news_id``).
+    """
+
+    __tablename__ = "macro_news"
+    __table_args__ = (
+        UniqueConstraint("news_id", name="uq_macro_news_id"),
+        Index("ix_macro_news_publish_time", "publish_time"),
+        Index("ix_macro_news_themes", "themes"),
+    )
+
+    news_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publisher: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publish_time: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    source_ticker: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    source_query: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    themes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
+    full_content: Mapped[str | None] = mapped_column(Text, nullable=True)

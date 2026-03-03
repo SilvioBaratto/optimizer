@@ -436,6 +436,12 @@ class TradingEconomicsIndicatorsScraper:
 
                         bond_name = bond_link.get_text(strip=True)
 
+                        # Skip inflation-protected securities (TIPS) —
+                        # they appear after nominals with the same maturity
+                        # key and would overwrite the correct nominal yield.
+                        if "TIPS" in bond_name.upper():
+                            continue
+
                         # Extract maturity (e.g., "10Y" from "France 10Y")
                         maturity_match = re.search(r"(\d+Y|1M|3M|6M|52W)", bond_name)
                         if not maturity_match:

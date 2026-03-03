@@ -262,6 +262,29 @@ class ApiClient:
     def get_bond_yields(self, country: str | None = None) -> list[dict[str, Any]]:
         return self._get("/macro-data/bond-yields", country=country)
 
+    # Macro news
+
+    def start_macro_news_fetch(
+        self,
+        max_articles: int = 100,
+        fetch_full_content: bool = False,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "max_articles": max_articles,
+            "fetch_full_content": fetch_full_content,
+        }
+        return self._post("/macro-data/news/fetch", json=body)
+
+    def get_macro_news_fetch_status(self, job_id: str) -> dict[str, Any]:
+        return self._get(f"/macro-data/news/fetch/{job_id}")
+
+    def get_macro_news(
+        self,
+        theme: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        return self._get("/macro-data/news", theme=theme, limit=limit)
+
     # FRED time-series
 
     def start_fred_fetch(

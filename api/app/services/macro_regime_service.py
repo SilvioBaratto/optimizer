@@ -257,6 +257,78 @@ class MacroRegimeService:
 
         return {"counts": counts, "errors": errors}
 
+    def fetch_macro_news(
+        self,
+        max_articles: int = 100,
+        fetch_full_content: bool = False,
+    ) -> dict[str, Any]:
+        """Fetch macro-themed news from yfinance and store in DB.
+
+        Returns:
+            Dict with ``"count"`` and ``"errors"`` keys.
+        """
+        import uuid
+
+        from app.services.yfinance import get_yfinance_client
+        from app.services.yfinance.news.macro_news import MacroNewsFetcher
+
+        errors: list[str] = []
+        try:
+            yf_client = get_yfinance_client()
+            search_client = yf_client.search
+
+            scraper = None
+            if fetch_full_content:
+                from app.services.yfinance.news.scraper import ArticleScraper
+
+                scraper = ArticleScraper(delay=0.5)
+
+            fetcher = MacroNewsFetcher(
+                yf_client=yf_client,
+                search_client=search_client,
+                scraper=scraper,
+            )
+            articles = fetcher.fetch_all(
+                max_articles=max_articles,
+                fetch_full_content=fetch_full_content,
+            )
+        except Exception as exc:
+            logger.error("MacroNewsFetcher.fetch_all failed: %s", exc)
+            return {"count": 0, "errors": [str(exc)]}
+
+        rows: list[dict[str, Any]] = []
+        for article in articles:
+            pub_time = None
+            if article.get("publish_time"):
+                import contextlib
+
+                with contextlib.suppress(ValueError, TypeError):
+                    pub_time = datetime.datetime.fromisoformat(
+                        article["publish_time"],
+                    )
+
+            rows.append({
+                "id": uuid.uuid4(),
+                "news_id": article["news_id"],
+                "title": article.get("title"),
+                "publisher": article.get("publisher"),
+                "link": article.get("link"),
+                "publish_time": pub_time,
+                "source_ticker": article.get("source_ticker"),
+                "source_query": article.get("source_query"),
+                "themes": article.get("themes"),
+                "snippet": article.get("snippet"),
+                "full_content": article.get("full_content"),
+            })
+
+        try:
+            count = self.repo.upsert_macro_news(rows)
+        except Exception as exc:
+            logger.error("upsert_macro_news failed: %s", exc)
+            return {"count": 0, "errors": [str(exc)]}
+
+        return {"count": count, "errors": errors}
+
     @staticmethod
     def get_portfolio_countries() -> list[str]:
         """Return the default list of portfolio countries."""

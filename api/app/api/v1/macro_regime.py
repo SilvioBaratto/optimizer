@@ -17,6 +17,8 @@ from app.schemas.macro_regime import (
     MacroFetchJobResponse,
     MacroFetchProgress,
     MacroFetchRequest,
+    MacroNewsFetchRequest,
+    MacroNewsResponse,
     TradingEconomicsIndicatorResponse,
 )
 from app.services.background_job import BackgroundJobService
@@ -353,3 +355,127 @@ def get_fred_observations(
         end_date=end_date,
     )
     return list(obs)[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Macro news endpoints
+# ---------------------------------------------------------------------------
+
+_news_job_service = BackgroundJobService()
+
+
+def _run_macro_news_fetch(job_id: str, request: MacroNewsFetchRequest) -> None:
+    """Execute macro news fetch in a background thread."""
+    _news_job_service.update_job(job_id, status="running")
+    try:
+        with database_manager.get_session() as session:
+            repo = MacroRegimeRepository(session)
+            service = MacroRegimeService(repo)
+            result = service.fetch_macro_news(
+                max_articles=request.max_articles,
+                fetch_full_content=request.fetch_full_content,
+            )
+            session.commit()
+            _news_job_service.update_job(
+                job_id,
+                status="completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                errors=result.get("errors", []),
+                result={"articles_stored": result.get("count", 0)},
+            )
+    except Exception as exc:
+        logger.error("Macro news fetch %s failed: %s", job_id, exc)
+        _news_job_service.update_job(
+            job_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=str(exc),
+        )
+
+
+@router.post(
+    "/news/fetch",
+    response_model=MacroFetchJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_macro_news_fetch(
+    request: MacroNewsFetchRequest = MacroNewsFetchRequest(),
+):
+    """Start a background job to fetch macro-themed news from yfinance."""
+    running, running_id = _news_job_service.is_any_running()
+    if running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A macro news fetch job is already running (id={running_id})",
+        )
+
+    job_id = _news_job_service.create_job()
+    _news_job_service.start_background(
+        target=_run_macro_news_fetch,
+        args=(job_id, request),
+    )
+
+    return MacroFetchJobResponse(
+        job_id=job_id,
+        status="pending",
+        message="Macro news fetch started. Poll GET /macro-data/news/fetch/{job_id}.",
+    )
+
+
+@router.get("/news/fetch/{job_id}", response_model=MacroFetchProgress)
+def get_macro_news_fetch_status(job_id: str):
+    """Poll the status of a macro news fetch background job."""
+    job = _news_job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    return MacroFetchProgress(
+        job_id=job["job_id"],
+        status=job["status"],
+        current=job.get("current", 0),
+        total=job.get("total", 0),
+        current_country=job.get("current_country", ""),
+        errors=job.get("errors", []),
+        result=job.get("result"),
+        error=job.get("error"),
+    )
+
+
+@router.get(
+    "/news",
+    response_model=list[MacroNewsResponse],
+)
+def get_macro_news(
+    theme: str | None = Query(default=None, description="Filter by macro theme"),
+    start_date: date | None = Query(default=None, description="Start date YYYY-MM-DD"),
+    end_date: date | None = Query(default=None, description="End date YYYY-MM-DD"),
+    limit: int = Query(default=50, le=500, description="Max rows to return"),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Query stored macro news with optional theme and date filters."""
+    from datetime import datetime as dt
+    from datetime import time
+
+    start_dt = dt.combine(start_date, time.min) if start_date else None
+    end_dt = dt.combine(end_date, time.max) if end_date else None
+
+    return repo.get_macro_news(
+        theme=theme,
+        start_date=start_dt,
+        end_date=end_dt,
+        limit=limit,
+    )
+
+
+@router.get("/news/themes")
+def get_macro_news_themes():
+    """Return available macro theme enum values."""
+    from app.services.yfinance.news.macro_news import MacroTheme
+
+    return [
+        {"value": t.value, "label": t.value.replace("_", " ").title()}
+        for t in MacroTheme
+    ]
