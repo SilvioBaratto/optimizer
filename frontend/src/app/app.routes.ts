@@ -46,6 +46,11 @@ export const routes: Routes = [
         title: 'Attribution',
       },
       {
+        path: 'macro-intelligence',
+        loadComponent: () => import('./pages/macro-intelligence/macro-intelligence').then((m) => m.MacroIntelligenceComponent),
+        title: 'Macro Intelligence',
+      },
+      {
         path: 'ai-control-room',
         loadComponent: () => import('./pages/ai-control-room/ai-control-room').then((m) => m.AiControlRoomComponent),
         title: 'AI Control Room',

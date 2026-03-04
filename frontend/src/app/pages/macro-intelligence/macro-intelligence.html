@@ -1,0 +1,355 @@
+<div class="p-4 sm:p-6">
+  <!-- Header -->
+  <app-page-header title="Macro Intelligence" subtitle="Daily macro regime briefing and decision support">
+    <div actions class="flex items-center gap-2">
+      <span
+        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-data-xs font-medium bg-accent/15 text-accent">
+        <span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse motion-reduce:animate-none"></span>
+        Live
+      </span>
+    </div>
+  </app-page-header>
+
+  @if (isLoading()) {
+  <!-- Loading skeleton -->
+  <div class="space-y-6">
+    <div class="h-28 skeleton rounded-lg"></div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      @for (i of [1,2,3,4]; track i) {
+      <div class="h-32 skeleton rounded-lg"></div>
+      }
+    </div>
+    <div class="h-80 skeleton rounded-lg"></div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="h-64 skeleton rounded-lg"></div>
+      <div class="h-64 skeleton rounded-lg"></div>
+    </div>
+    <div class="h-80 skeleton rounded-lg"></div>
+  </div>
+  } @else if (hasError()) {
+  <!-- Error state -->
+  <div class="flex flex-col items-center justify-center py-20 px-4">
+    <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+      <path stroke-linecap="round" stroke-linejoin="round"
+        d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+    </svg>
+    <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
+    <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
+    <button (click)="retry()"
+      class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors">
+      Try Again
+    </button>
+  </div>
+  } @else {
+
+  <!-- ═══ BAND A: Regime Command Bar ═══ -->
+  <div class="mb-6 bg-surface-raised border border-border rounded-lg p-4 sm:p-5">
+    <div class="flex flex-col lg:flex-row lg:items-center gap-4">
+      <!-- Left: Composite score + sub-scores -->
+      <div class="flex items-center gap-4 shrink-0">
+        <div class="text-center">
+          <p class="text-label font-mono text-text-tertiary uppercase tracking-wide">S<sub>t</sub></p>
+          <p class="text-xl font-semibold font-mono tabular-nums" [class]="getScoreClass(compositeScore())">
+            {{ getScoreSign(compositeScore()) }}
+          </p>
+        </div>
+        <div class="h-8 w-px bg-border-muted"></div>
+        <div class="flex flex-col gap-0.5">
+          <span class="text-label font-mono text-text-tertiary">
+            PMI <span [class]="getScoreClass(pmiScore())">{{ getScoreSign(pmiScore()) }}</span>
+          </span>
+          <span class="text-label font-mono text-text-tertiary">
+            2s10s <span [class]="getScoreClass(spreadScore())">{{ getScoreSign(spreadScore()) }}</span>
+          </span>
+          <span class="text-label font-mono text-text-tertiary">
+            HY <span [class]="getScoreClass(hyScore())">{{ getScoreSign(hyScore()) }}</span>
+          </span>
+        </div>
+      </div>
+
+      <div class="h-px lg:h-8 lg:w-px bg-border-muted"></div>
+
+      <!-- Center: Phase + confidence + rationale -->
+      <div class="flex flex-col items-start gap-1.5 flex-1 min-w-0">
+        <div class="flex items-center gap-3">
+          <span class="inline-flex items-center gap-1.5 text-data-sm font-mono uppercase tracking-wide text-text">
+            <span class="w-1.5 h-1.5 rounded-full" [class]="regimeDotClass()"></span>
+            {{ currentPhaseLabel() }}
+          </span>
+          @if (macroCalibration(); as cal) {
+          <span class="text-data-xs text-text-tertiary font-mono">
+            conf {{ (cal.confidence * 100).toFixed(0) }}%
+          </span>
+          }
+        </div>
+        @if (macroCalibration(); as cal) {
+        <p class="text-data-xs text-text-tertiary font-mono leading-snug">
+          {{ cal.rationale }}
+        </p>
+        }
+      </div>
+
+      <div class="h-px lg:h-8 lg:w-px bg-border-muted"></div>
+
+      <!-- Right: BL params -->
+      @if (macroCalibration(); as cal) {
+      <div class="flex gap-4 shrink-0">
+        <div class="text-center">
+          <p class="text-label text-text-tertiary font-mono">&delta;</p>
+          <p class="text-data-sm font-mono font-semibold text-text tabular-nums">{{ cal.delta.toFixed(2) }}</p>
+        </div>
+        <div class="text-center">
+          <p class="text-label text-text-tertiary font-mono">&tau;</p>
+          <p class="text-data-sm font-mono font-semibold text-text tabular-nums">{{ cal.tau.toFixed(3) }}</p>
+        </div>
+      </div>
+      }
+    </div>
+  </div>
+
+  <!-- ═══ BAND B: Indicator Strip ═══ -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+    <app-stat-card label="ISM PMI" [value]="latestPmi().toFixed(1)" subtitle="Manufacturing"
+      [sparklineData]="pmiSparkline()" [delta]="pmiDelta()" [trend]="getTrend(pmiDelta())" deltaLabel="30d change" />
+    <app-stat-card label="2s10s Spread" [value]="(latestSpread() * 100).toFixed(0) + 'bp'" subtitle="Yield curve"
+      [sparklineData]="spreadSparkline()" [delta]="spreadDelta()" [trend]="getTrend(spreadDelta())"
+      deltaLabel="30d change" />
+    <app-stat-card label="HY OAS" [value]="latestHyOas().toFixed(0) + 'bp'" subtitle="Credit spreads"
+      [sparklineData]="hyOasSparkline()" [delta]="hyOasDelta()" [trend]="getTrend(-hyOasDelta())"
+      deltaLabel="30d change" />
+    <app-stat-card label="VIX" [value]="latestVix().toFixed(1)" subtitle="Volatility index"
+      [sparklineData]="vixSparkline()" [delta]="vixDelta()" [trend]="getTrend(-vixDelta())" deltaLabel="30d change" />
+  </div>
+
+  <!-- ═══ BAND C: Time-Series Charts ═══ -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4 mb-6">
+    <app-tab-group [tabs]="chartTabs()" [activeTab]="activeChartTab()" (tabChange)="onChartTabChange($event)" />
+
+    <!-- Country toggle for yield curve -->
+    @if (activeChartTab() === 'yield-curve') {
+    <div class="flex items-center gap-1 mb-3">
+      @for (c of countryData(); track c.country_code) {
+      <button type="button" class="px-2.5 py-1 rounded text-label transition-colors" [class]="selectedCountry() === c.country_code
+              ? 'bg-accent/15 text-accent font-medium'
+              : 'text-text-tertiary hover:text-text'" (click)="selectCountry(c.country_code)">
+        {{ c.country_code }}
+      </button>
+      }
+    </div>
+    }
+
+    <div #chartContainer class="w-full" style="height: 300px;" role="img" aria-label="Macro time-series chart"></div>
+  </div>
+
+  <!-- ═══ BAND D: Country Panel ═══ -->
+  <div class="mb-6">
+    <h3 class="text-data-sm font-medium text-text mb-3">Country Overview</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      @for (c of countryData(); track c.country_code) {
+      <button type="button" [attr.aria-label]="'Select ' + c.country + ' (' + c.country_code + ')'"
+        class="bg-surface-raised border rounded-lg p-3 text-left transition-colors" [class]="selectedCountry() === c.country_code
+            ? 'border-accent ring-1 ring-accent/30'
+            : 'border-border hover:border-text-tertiary'" (click)="selectCountry(c.country_code)">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-data-sm font-medium text-text">{{ c.country }}</span>
+          <span class="text-label text-text-tertiary font-mono">{{ c.country_code }}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-label">
+          <div class="flex justify-between">
+            <span class="text-text-tertiary">GDP</span>
+            <span class="font-mono text-text">{{ c.gdp_growth.toFixed(1) }}%</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-text-tertiary">CPI</span>
+            <span class="font-mono text-text">{{ c.inflation.toFixed(1) }}%</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-text-tertiary">Unemp</span>
+            <span class="font-mono text-text">{{ c.unemployment.toFixed(1) }}%</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-text-tertiary">Rate</span>
+            <span class="font-mono text-text">{{ c.interest_rate.toFixed(2) }}%</span>
+          </div>
+        </div>
+        <!-- Mini yield sparkline -->
+        <div class="mt-2 flex items-center gap-2">
+          <span class="text-label text-text-tertiary">10Y</span>
+          <svg class="flex-1 h-6" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true" role="img">
+            @if (c.yield_sparkline.length > 1) {
+            <path [attr.d]="buildMiniSparkline(c.yield_sparkline)" fill="none" class="stroke-accent"
+              stroke-width="1.5" />
+            }
+          </svg>
+          <span class="text-label font-mono text-text">{{ c.yield_10y.toFixed(2) }}%</span>
+        </div>
+        <div class="mt-1 flex items-center justify-between text-label">
+          <span class="text-text-tertiary">2s10s</span>
+          <span class="font-mono" [class]="c.yield_spread_bps >= 0 ? 'text-gain' : 'text-loss'">
+            {{ c.yield_spread_bps > 0 ? '+' : '' }}{{ c.yield_spread_bps }}bp
+          </span>
+        </div>
+      </button>
+      }
+    </div>
+  </div>
+
+  <!-- ═══ BAND D2: Sector Rotation Matrix (full-width) ═══ -->
+  <div class="mb-6">
+    <h3 class="text-data-sm font-medium text-text mb-3">Sector Rotation Matrix</h3>
+    <div class="bg-surface-raised border border-border rounded-lg overflow-x-auto">
+      <table class="w-full text-label">
+        <thead>
+          <tr class="border-b border-border">
+            <th class="text-left px-3 py-2 text-text-secondary font-medium">Sector</th>
+            @for (phase of phaseColumns; track phase) {
+            <th class="text-center px-2 py-2 font-medium" [class]="currentPhase() === phase
+                    ? 'text-accent bg-accent/5 border-x border-accent/20'
+                    : 'text-text-secondary'">
+              {{ getPhaseLabel(phase) }}
+            </th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of sectorTable; track row.sector) {
+          <tr class="border-b border-border/50">
+            <td class="px-3 py-1.5 text-text whitespace-nowrap">{{ row.sector }}</td>
+            @for (phase of phaseColumns; track phase) {
+            <td class="text-center px-2 py-1.5"
+              [class]="currentPhase() === phase ? 'bg-accent/5 border-x border-accent/20' : ''">
+              <span [class]="getStanceClass(row.phases[phase])">{{ row.phases[phase] }}</span>
+            </td>
+            }
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <!-- Recommendation summary -->
+    <div class="mt-3 p-3 bg-surface-inset border border-border rounded-lg text-data-xs text-text-secondary">
+      <span class="font-medium text-text">Recommendation:</span>
+      Overweight: <span class="text-gain font-medium">{{ overweightSectors().join(', ') }}</span>.
+      Underweight: <span class="text-loss font-medium">{{ underweightSectors().join(', ') }}</span>.
+    </div>
+  </div>
+
+  <!-- ═══ BAND E: AI Intelligence ═══ -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <app-tab-group [tabs]="intelTabs()" [activeTab]="activeIntelTab()" (tabChange)="onIntelTabChange($event)" />
+
+    <!-- Tab 1: Macro Brief -->
+    @if (activeIntelTab() === 'macro-brief') {
+    @if (macroCalibration(); as cal) {
+    <div class="space-y-4">
+      <!-- Full rationale -->
+      <div>
+        <h4 class="text-data-sm font-medium text-text mb-2">AI Regime Analysis</h4>
+        <p class="text-data-xs text-text-secondary leading-relaxed whitespace-pre-line">{{ cal.rationale }}</p>
+      </div>
+
+      <!-- BL Config Card -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="bg-surface-inset border border-border rounded-lg p-3">
+          <p class="text-label text-text-tertiary mb-1">Risk Aversion (&delta;)</p>
+          <p class="text-xl font-mono font-semibold text-text">{{ cal.delta.toFixed(2) }}</p>
+          <p class="text-label text-text-tertiary mt-1">Higher = more conservative</p>
+        </div>
+        <div class="bg-surface-inset border border-border rounded-lg p-3">
+          <p class="text-label text-text-tertiary mb-1">View Uncertainty (&tau;)</p>
+          <p class="text-xl font-mono font-semibold text-text">{{ cal.tau.toFixed(3) }}</p>
+          <p class="text-label text-text-tertiary mt-1">Lower = stronger views</p>
+        </div>
+        <div class="bg-surface-inset border border-border rounded-lg p-3">
+          <p class="text-label text-text-tertiary mb-1">Confidence</p>
+          <p class="text-xl font-mono font-semibold text-text">{{ (cal.confidence * 100).toFixed(0) }}%</p>
+          <div class="mt-1 h-1.5 bg-surface rounded-full overflow-hidden">
+            <div class="h-full rounded-full bg-accent" [style.width.%]="cal.confidence * 100"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Source Data (collapsible) -->
+      <details class="group">
+        <summary class="text-data-xs text-accent cursor-pointer hover:underline">Source Data</summary>
+        <div class="mt-2 bg-surface-inset border border-border rounded-lg overflow-x-auto">
+          <table class="w-full text-label">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left px-3 py-2 text-text-secondary font-medium">Indicator</th>
+                <th class="text-left px-3 py-2 text-text-secondary font-medium">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of parseMacroSummary(cal.macro_summary); track row.label) {
+              <tr class="border-b border-border/50">
+                <td class="px-3 py-1.5 text-text-tertiary whitespace-nowrap">{{ row.label }}</td>
+                <td class="px-3 py-1.5 font-mono text-text">{{ row.value }}</td>
+              </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+    }
+    }
+
+    <!-- Tab 2: Themed News -->
+    @if (activeIntelTab() === 'themed-news') {
+    <!-- Theme filter pills -->
+    <div class="flex flex-wrap gap-1.5 mb-4">
+      <button type="button" class="px-2.5 py-1 rounded-full text-label transition-colors" [class]="selectedNewsTheme() === null
+            ? 'bg-accent/15 text-accent font-medium'
+            : 'bg-surface-inset text-text-tertiary hover:text-text'" (click)="selectNewsTheme(null)">
+        All
+      </button>
+      @for (theme of newsThemes(); track theme.id) {
+      <button type="button" class="px-2.5 py-1 rounded-full text-label transition-colors" [class]="selectedNewsTheme() === theme.id
+              ? 'bg-accent/15 text-accent font-medium'
+              : 'bg-surface-inset text-text-tertiary hover:text-text'" (click)="selectNewsTheme(theme.id)">
+        {{ theme.label }}
+        <span class="ml-1 opacity-60">{{ theme.count }}</span>
+      </button>
+      }
+    </div>
+
+    <!-- Article list -->
+    <div class="bg-surface-raised border border-border rounded-lg overflow-hidden" tabindex="0" role="region"
+      aria-label="News articles">
+      <div class="max-h-120 overflow-y-auto divide-y divide-border/50">
+        @for (article of filteredNews(); track article.id) {
+        <div class="flex items-stretch">
+          <!-- Source column (fixed width, left-aligned) -->
+          <div class="w-28 shrink-0 px-3 py-3 flex flex-col justify-start border-r border-border/50">
+            <span class="text-label font-medium text-text-secondary truncate">{{ article.publisher }}</span>
+            <span class="text-label text-text-tertiary font-mono mt-1">{{ relativeTime(article.published_at) }}</span>
+          </div>
+          <!-- Content column -->
+          <div class="flex-1 min-w-0 px-3 py-3">
+            <div class="flex items-center gap-2">
+              <a [href]="article.url" target="_blank" rel="noopener"
+                class="text-data-sm font-medium text-text hover:text-accent transition-colors truncate">
+                {{ article.headline }}
+              </a>
+              <span
+                class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-label bg-accent/10 text-accent font-mono">
+                {{ article.theme }}
+              </span>
+            </div>
+            <p class="text-data-xs text-text-secondary mt-1 line-clamp-2">{{ article.snippet }}</p>
+          </div>
+        </div>
+        }
+        @if (filteredNews().length === 0) {
+        <div class="py-8 text-center text-data-xs text-text-tertiary">
+          No articles for this theme.
+        </div>
+        }
+      </div>
+    </div>
+    }
+  </div>
+
+  }
+</div>

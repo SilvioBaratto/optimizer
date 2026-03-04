@@ -8,6 +8,7 @@ export type NavIcon =
   | 'arrows-right-left'
   | 'chart-bar-square'
   | 'cpu-chip'
+  | 'globe-alt'
   | 'cog-6-tooth';
 
 export interface NavItem {
@@ -44,6 +45,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'Risk Center', route: '/risk-center', icon: 'shield-exclamation' },
       { name: 'Factor & Research', route: '/factor-research', icon: 'beaker' },
+      { name: 'Macro Intelligence', route: '/macro-intelligence', icon: 'globe-alt' },
     ],
   },
   {
