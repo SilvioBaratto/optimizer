@@ -18,7 +18,7 @@ function ScoreNewsSentiment(
   ticker: string,
   articles: NewsArticle[]
 ) -> NewsSentimentOutput {
-  client CustomSonnet45
+  client Tier1
   prompt #"
     You are a financial analyst scoring news sentiment for {{ ticker }}.
 

@@ -15,7 +15,7 @@ function GenerateExpertView(
   assets: AssetFactorData[],
   persona: ExpertPersona
 ) -> ViewOutput {
-  client CustomSonnet45
+  client Tier2
   prompt #"
     You are an investment expert generating Black-Litterman views.
     Your persona and investment philosophy: {{ persona }}
@@ -51,7 +51,7 @@ function GenerateExpertView(
     - idzorek_alphas must contain an entry for every asset in views[].
 
     Asset data:
-    {{ assets }}
+    {{ assets|format(type="toon", delimiter="pipe") }}
 
     {{ ctx.output_format }}
   "#
@@ -60,7 +60,7 @@ function GenerateExpertView(
 // Convenience wrappers for each persona (for simpler BAML client calls)
 
 function GenerateValueView(assets: AssetFactorData[]) -> ViewOutput {
-  client CustomSonnet45
+  client Tier2
   prompt #"
     You are a VALUE INVESTOR generating Black-Litterman views.
 
@@ -76,14 +76,14 @@ function GenerateValueView(assets: AssetFactorData[]) -> ViewOutput {
     idzorek_alphas must cover all assets in views[].
 
     Asset data:
-    {{ assets }}
+    {{ assets|format(type="toon", delimiter="pipe") }}
 
     {{ ctx.output_format }}
   "#
 }
 
 function GenerateMomentumView(assets: AssetFactorData[]) -> ViewOutput {
-  client CustomOpus45
+  client Tier2
   prompt #"
     You are a MOMENTUM TRADER generating Black-Litterman views.
 
@@ -99,14 +99,14 @@ function GenerateMomentumView(assets: AssetFactorData[]) -> ViewOutput {
     idzorek_alphas must cover all assets in views[].
 
     Asset data:
-    {{ assets }}
+    {{ assets|format(type="toon", delimiter="pipe") }}
 
     {{ ctx.output_format }}
   "#
 }
 
 function GenerateMacroView(assets: AssetFactorData[]) -> ViewOutput {
-  client CustomSonnet45
+  client Tier2
   prompt #"
     You are a MACRO ANALYST generating Black-Litterman views.
 
@@ -123,7 +123,7 @@ function GenerateMacroView(assets: AssetFactorData[]) -> ViewOutput {
     idzorek_alphas must cover all assets in views[].
 
     Asset data:
-    {{ assets }}
+    {{ assets|format(type="toon", delimiter="pipe") }}
 
     {{ ctx.output_format }}
   "#

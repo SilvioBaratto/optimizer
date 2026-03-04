@@ -48,7 +48,7 @@ class ViewOutput {
 }
 
 function GenerateViews(assets: AssetFactorData[]) -> ViewOutput {
-  client CustomSonnet45
+  client Tier3
   prompt #"
     You are a quantitative portfolio manager constructing Black-Litterman views from
     multi-factor asset data. Your task is to generate a set of high-conviction views
@@ -73,7 +73,7 @@ function GenerateViews(assets: AssetFactorData[]) -> ViewOutput {
     - Target upside > 0.15 → strong analyst bullish signal
 
     Asset data:
-    {{ assets }}
+    {{ assets|format(type="toon", delimiter="pipe") }}
 
     {{ ctx.output_format }}
   "#

@@ -1,5 +1,6 @@
 """Test endpoints for API demonstration"""
 
+import asyncio
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
@@ -15,6 +16,7 @@ from app.schemas import (
     SuccessResponse,
     utc_now,
 )
+from baml_client import b
 
 router = APIRouter(prefix="/test", tags=["Test"])
 
@@ -70,6 +72,26 @@ async def echo_post(request: EchoRequest):
     return EchoResponse(
         echo=request.message, received_at=utc_now(), metadata=request.metadata
     )
+
+
+# ===========================
+# BAML Endpoints
+# ===========================
+
+
+@router.get("/baml", response_model=MessageResponse)
+async def baml_test():
+    """
+    Call the BAML Test() function and return its response.
+
+    Invokes an LLM via the configured AzureOpenAIGpt5 client to verify
+    that the BAML integration is working end-to-end.
+
+    Returns:
+        {"message": "<LLM response>"}
+    """
+    result = await asyncio.to_thread(b.Test)
+    return {"message": result}
 
 
 # ===========================

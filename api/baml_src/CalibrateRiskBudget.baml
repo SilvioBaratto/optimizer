@@ -16,7 +16,7 @@ function CalibrateRiskBudget(
   sector_universe: string[],
   asset_sector_map: map<string, string>
 ) -> RiskBudgetOutput {
-  client CustomSonnet45
+  client Tier2
   prompt #"
     You are a quantitative risk manager translating a qualitative sector outlook
     into a precise risk budget vector for a risk-parity portfolio.

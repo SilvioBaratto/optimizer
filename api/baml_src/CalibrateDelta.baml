@@ -7,7 +7,7 @@ class DeltaCalibration {
 }
 
 function CalibrateDelta(macro_text: string) -> DeltaCalibration {
-  client CustomSonnet45
+  client Tier1
   prompt #"
     You are a quantitative portfolio strategist. Your task is to calibrate the
     Black-Litterman risk aversion scalar (delta) based on a macro regime description.

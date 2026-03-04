@@ -11,7 +11,7 @@ class MacroRegimeCalibration {
 }
 
 function ClassifyMacroRegime(macro_summary: string) -> MacroRegimeCalibration {
-  client CustomSonnet45
+  client Tier2
   prompt #"
     You are a macro strategist calibrating Black-Litterman portfolio model parameters.
     Classify the current business cycle phase and return appropriate δ (delta) and τ (tau).

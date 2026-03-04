@@ -25,7 +25,7 @@ function SelectCovRegime(
   avg_sentiment_score: float,
   realized_vol_30d: float
 ) -> CovRegimeSelection {
-  client CustomSonnet45
+  client Tier2
   prompt #"
     You are a quantitative risk model specialist. Select the most appropriate covariance
     estimator for portfolio construction given current market conditions.

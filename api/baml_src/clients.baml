@@ -1,80 +1,120 @@
 // Learn more about clients at https://docs.boundaryml.com/docs/snippets/clients/overview
 
-// Using the new OpenAI Responses API for enhanced formatting
-client<llm> CustomGPT5 {
+// ============================================================
+// Base LLM Clients
+// ============================================================
+
+client<llm> GPT5 {
   provider openai
   options {
-    model "gpt-5.2"
+    model "gpt-5.1"
     api_key env.OPENAI_API_KEY
   }
 }
 
-client<llm> Gemini {
+client<llm> GPT5Mini {
+  provider openai
+  options {
+    model "gpt-5-mini"
+    api_key env.OPENAI_API_KEY
+  }
+}
+
+client<llm> Gemini3 {
   provider google-ai
   options {
-    model "gemini-3-pro-preview"
+    model "gemini-3.1-pro-preview"
     api_key env.GOOGLE_API_KEY
     generationConfig {
-      maxOutputTokens 16000
+      maxOutputTokens 8000
     }
   }
 }
 
-// Claude Opus 4.5 - Most capable model (released Nov 2025)
-client<llm> CustomOpus45 {
+client<llm> Opus46 {
   provider anthropic
+  retry_policy Exponential
   options {
-    model "claude-opus-4-5-20251101"
+    model "claude-opus-4-6"
     api_key env.ANTHROPIC_API_KEY
-    max_tokens 16000
+    max_tokens 8000
   }
 }
 
-// Claude Sonnet 4.5 - Best coding model and strongest for complex agents (released Sep 2025)
-client<llm> CustomSonnet45 {
+client<llm> Sonnet46 {
   provider anthropic
   options {
-    model "claude-sonnet-4-5-20250929"
+    model "claude-sonnet-4-6"
     api_key env.ANTHROPIC_API_KEY
-    max_tokens 16000
+    max_tokens 8000
   }
 }
 
-client<llm> AzureOpenAIGpt5 {
+client<llm> AzureOpenAIGPT5 {
   provider azure-openai
   options {
     resource_name env.AZURE_OPENAI_RESOURCE_NAME
-    deployment_id env.AZURE_OPENAI_GPT5_DEPLOYMENT_ID
+    deployment_id "gpt-5.2"
     api_version env.AZURE_OPENAI_API_VERSION
     api_key env.AZURE_OPENAI_KEY
     max_tokens null
-    }
+  }
 }
 
-// Main Ollama client for Briscola
-// Uses OLLAMA_BASE_URL env var in Docker, defaults to localhost
 client<llm> Ollama {
   provider "openai-generic"
   retry_policy Constant
   options {
     base_url env.OLLAMA_BASE_URL ?? "http://localhost:11434/v1"
     model qwen3:4b
-    // Optimize for speed
     temperature 0.3
     max_tokens 100
   }
 }
 
-// https://docs.boundaryml.com/docs/snippets/clients/fallback
-client<llm> OpenaiFallback {
+// ============================================================
+// Tier 1 — Simple/classification tasks (cheapest)
+// Used by: ScoreNewsSentiment, CalibrateDelta, SelectCovRegime,
+//          AdaptFactorWeights, Test
+// ============================================================
+client<llm> Tier1 {
   provider fallback
+  retry_policy Constant
   options {
-    // This will try the clients in order until one succeeds
-    strategy [CustomGPT5, AzureOpenAIGpt5]
+    strategy [GPT5Mini, Sonnet46]
   }
 }
 
-// https://docs.boundaryml.com/docs/snippets/clients/retry
+// ============================================================
+// Tier 2 — Moderate reasoning (mid-cost)
+// Used by: ClassifyMacroRegime, CalibrateRiskBudget,
+//          GenerateValueView, GenerateMomentumView,
+//          GenerateMacroView, GenerateExpertView
+// ============================================================
+client<llm> Tier2 {
+  provider fallback
+  retry_policy Exponential
+  options {
+    strategy [Sonnet46, GPT5]
+  }
+}
+
+// ============================================================
+// Tier 3 — Complex multi-step reasoning (highest quality)
+// Used by: GenerateViews, DesignStressScenarios
+// ============================================================
+client<llm> Tier3 {
+  provider fallback
+  retry_policy Exponential
+  options {
+    strategy [Opus46, GPT5]
+  }
+}
+
+// ============================================================
+// Retry Policies
+// ============================================================
+
 retry_policy Constant {
   max_retries 3
   strategy {

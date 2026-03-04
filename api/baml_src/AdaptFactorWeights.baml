@@ -15,7 +15,7 @@ class FactorWeightAdaptation {
 }
 
 function AdaptFactorWeights(macro_indicators: string, factor_groups: string[]) -> FactorWeightAdaptation {
-  client CustomSonnet45
+  client Tier1
   prompt #"
     You are a quantitative macro strategist. Based on the macro indicators provided,
     classify the current business cycle phase and recommend factor weight multipliers.
