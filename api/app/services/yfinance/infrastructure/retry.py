@@ -73,7 +73,7 @@ def retry_with_backoff(
     base_delay:
         Base delay in seconds for the exponential-jitter formula.
         Actual sleep = uniform(0, min(max_delay, base_delay * 2**attempt)).
-        Defaults to 2.0 s → [0–2 s, 0–4 s, 0–8 s, …] up to max_delay.
+        Defaults to 2.0 s → [0-2 s, 0-4 s, 0-8 s, …] up to max_delay.
     max_delay:
         Maximum sleep cap in seconds. Defaults to 120 s.
     is_valid:

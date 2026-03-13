@@ -286,7 +286,7 @@ class IlSoleScraper:
                 # Check if string contains only dashes/hyphens (various unicode variants)
                 # Remove all spaces and check if what remains is only dash-like characters
                 value_no_spaces = value.replace(" ", "")
-                if value_no_spaces and all(c in "-–—−" for c in value_no_spaces):
+                if value_no_spaces and all(c in "--—−" for c in value_no_spaces):
                     # Only dashes (ASCII hyphen, en dash, em dash, minus sign)
                     return None
 

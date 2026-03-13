@@ -11,20 +11,20 @@ class MacroRegimeCalibration {
 }
 
 function ClassifyMacroRegime(macro_summary: string) -> MacroRegimeCalibration {
-  client Tier2
+  client Model
   prompt #"
     You are a macro strategist calibrating Black-Litterman portfolio model parameters.
     Classify the current business cycle phase and return appropriate δ (delta) and τ (tau).
 
     Phase definitions and parameter guidelines:
     - EARLY_EXPANSION: GDP recovering, unemployment falling, PMI >50 and rising, yield curve steepening.
-      → delta: 2.0–2.5, tau: 0.05 (moderate risk aversion, significant view weighting)
+      → delta: 2.0-2.5, tau: 0.05 (moderate risk aversion, significant view weighting)
     - MID_EXPANSION: Solid GDP growth, low unemployment, PMI >55, credit spreads tight.
-      → delta: 2.5–3.0, tau: 0.025 (moderate risk aversion, balanced view weighting)
+      → delta: 2.5-3.0, tau: 0.025 (moderate risk aversion, balanced view weighting)
     - LATE_EXPANSION: Growth slowing, PMI plateauing/falling, yield curve flattening, inflation elevated.
-      → delta: 3.0–4.0, tau: 0.01 (elevated risk aversion, low view weighting — trust equilibrium more)
+      → delta: 3.0-4.0, tau: 0.01 (elevated risk aversion, low view weighting — trust equilibrium more)
     - RECESSION: GDP contracting, unemployment rising, PMI <50, yield curve inverted or credit spreads wide.
-      → delta: 4.0–6.0, tau: 0.05 (high risk aversion, significant view weighting — views signal turning point)
+      → delta: 4.0-6.0, tau: 0.05 (high risk aversion, significant view weighting — views signal turning point)
 
     Hard constraints:
     - delta MUST be in [1.0, 10.0]

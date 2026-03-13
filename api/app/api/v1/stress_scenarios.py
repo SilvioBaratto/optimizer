@@ -40,7 +40,7 @@ class StressScenarioRequest(BaseModel):
         default=3,
         ge=1,
         le=10,
-        description="Number of distinct stress scenarios to generate (1–10).",
+        description="Number of distinct stress scenarios to generate (1-10).",
     )
 
     @field_validator("current_portfolio")

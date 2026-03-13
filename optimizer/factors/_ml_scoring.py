@@ -69,7 +69,7 @@ def fit_gbt_composite(
     forward_returns : pd.Series
         Forward return per ticker for the training period.
     max_depth : int
-        Maximum depth of individual regression trees (3–5 recommended to
+        Maximum depth of individual regression trees (3-5 recommended to
         limit extrapolation and retain interpretability).
     n_estimators : int
         Number of boosting rounds.

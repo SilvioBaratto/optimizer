@@ -48,7 +48,7 @@ class ViewOutput {
 }
 
 function GenerateViews(assets: AssetFactorData[]) -> ViewOutput {
-  client Tier3
+  client Model
   prompt #"
     You are a quantitative portfolio manager constructing Black-Litterman views from
     multi-factor asset data. Your task is to generate a set of high-conviction views

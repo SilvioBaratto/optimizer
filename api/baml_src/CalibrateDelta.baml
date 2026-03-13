@@ -7,15 +7,15 @@ class DeltaCalibration {
 }
 
 function CalibrateDelta(macro_text: string) -> DeltaCalibration {
-  client Tier1
+  client Model
   prompt #"
     You are a quantitative portfolio strategist. Your task is to calibrate the
     Black-Litterman risk aversion scalar (delta) based on a macro regime description.
 
     Guidelines:
-    - delta = 1.0–3.0: benign / expansionary environment (equities favoured, low uncertainty)
-    - delta = 3.0–6.0: neutral / mixed signals (balanced positioning)
-    - delta = 6.0–10.0: recessionary / high-uncertainty environment (defensive positioning)
+    - delta = 1.0-3.0: benign / expansionary environment (equities favoured, low uncertainty)
+    - delta = 3.0-6.0: neutral / mixed signals (balanced positioning)
+    - delta = 6.0-10.0: recessionary / high-uncertainty environment (defensive positioning)
 
     Macro context:
     {{ macro_text }}

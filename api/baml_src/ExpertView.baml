@@ -15,7 +15,7 @@ function GenerateExpertView(
   assets: AssetFactorData[],
   persona: ExpertPersona
 ) -> ViewOutput {
-  client Tier2
+  client Model
   prompt #"
     You are an investment expert generating Black-Litterman views.
     Your persona and investment philosophy: {{ persona }}
@@ -60,7 +60,7 @@ function GenerateExpertView(
 // Convenience wrappers for each persona (for simpler BAML client calls)
 
 function GenerateValueView(assets: AssetFactorData[]) -> ViewOutput {
-  client Tier2
+  client Model
   prompt #"
     You are a VALUE INVESTOR generating Black-Litterman views.
 
@@ -71,7 +71,7 @@ function GenerateValueView(assets: AssetFactorData[]) -> ViewOutput {
     - Ignore momentum and growth signals
 
     direction = +1 (bullish) or -1 (bearish).
-    magnitude_bps = expected annual excess return in basis points (50–500).
+    magnitude_bps = expected annual excess return in basis points (50-500).
     confidence ∈ (0, 1).
     idzorek_alphas must cover all assets in views[].
 
@@ -83,7 +83,7 @@ function GenerateValueView(assets: AssetFactorData[]) -> ViewOutput {
 }
 
 function GenerateMomentumView(assets: AssetFactorData[]) -> ViewOutput {
-  client Tier2
+  client Model
   prompt #"
     You are a MOMENTUM TRADER generating Black-Litterman views.
 
@@ -94,7 +94,7 @@ function GenerateMomentumView(assets: AssetFactorData[]) -> ViewOutput {
     - Ignore valuation (P/E, P/B are noise)
 
     direction = +1 (bullish) or -1 (bearish).
-    magnitude_bps = expected annual excess return in basis points (50–500).
+    magnitude_bps = expected annual excess return in basis points (50-500).
     confidence ∈ (0, 1).
     idzorek_alphas must cover all assets in views[].
 
@@ -106,7 +106,7 @@ function GenerateMomentumView(assets: AssetFactorData[]) -> ViewOutput {
 }
 
 function GenerateMacroView(assets: AssetFactorData[]) -> ViewOutput {
-  client Tier2
+  client Model
   prompt #"
     You are a MACRO ANALYST generating Black-Litterman views.
 
@@ -118,7 +118,7 @@ function GenerateMacroView(assets: AssetFactorData[]) -> ViewOutput {
     - Ignore price momentum and short-term technicals
 
     direction = +1 (bullish) or -1 (bearish).
-    magnitude_bps = expected annual excess return in basis points (50–500).
+    magnitude_bps = expected annual excess return in basis points (50-500).
     confidence ∈ (0, 1).
     idzorek_alphas must cover all assets in views[].
 

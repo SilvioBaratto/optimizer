@@ -341,7 +341,7 @@ def build_robust_mean_risk(
     bootstrap (``cov_uncertainty_method="bootstrap"``, default) or the
     analytic formula (``cov_uncertainty_method="empirical"``).
 
-    Kappa–confidence_level mapping
+    Kappa-confidence_level mapping
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     At fit time, ``n_assets`` is known and the conversion is::
 

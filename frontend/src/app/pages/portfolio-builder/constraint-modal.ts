@@ -1,9 +1,4 @@
-import {
-  Component,
-  input,
-  inject,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { Component, input, inject, ChangeDetectionStrategy } from '@angular/core';
 import { ReactiveFormsModule, FormGroup, FormControl, Validators } from '@angular/forms';
 import { ModalService } from '../../shared/modal/modal.service';
 import { Constraint, ConstraintType } from '../../models/portfolio-builder.model';
@@ -19,13 +14,15 @@ interface ConstraintTypeOption {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-4">
-
       <!-- Constraint Type -->
       <div>
-        <label class="block text-data-xs font-medium text-text-secondary mb-1">Constraint Type</label>
+        <label class="block text-data-xs font-medium text-text-secondary mb-1"
+          >Constraint Type</label
+        >
         <select
           formControlName="type"
-          class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors">
+          class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
+        >
           @for (opt of constraintTypes; track opt.value) {
             <option [value]="opt.value">{{ opt.label }}</option>
           }
@@ -39,7 +36,8 @@ interface ConstraintTypeOption {
           type="text"
           formControlName="label"
           placeholder="e.g. Max single position weight"
-          class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors" />
+          class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
+        />
         @if (form.get('label')?.invalid && form.get('label')?.touched) {
           <p class="mt-1 text-data-xs text-danger">Label is required.</p>
         }
@@ -49,7 +47,7 @@ interface ConstraintTypeOption {
       @if (showMinMax()) {
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-data-xs font-medium text-text-secondary mb-1">Min (0–1)</label>
+            <label class="block text-data-xs font-medium text-text-secondary mb-1">Min (0-1)</label>
             <input
               type="number"
               formControlName="min"
@@ -57,10 +55,11 @@ interface ConstraintTypeOption {
               min="0"
               max="1"
               placeholder="0.00"
-              class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors" />
+              class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
+            />
           </div>
           <div>
-            <label class="block text-data-xs font-medium text-text-secondary mb-1">Max (0–1)</label>
+            <label class="block text-data-xs font-medium text-text-secondary mb-1">Max (0-1)</label>
             <input
               type="number"
               formControlName="max"
@@ -68,7 +67,8 @@ interface ConstraintTypeOption {
               min="0"
               max="1"
               placeholder="0.10"
-              class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors" />
+              class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
+            />
           </div>
         </div>
       }
@@ -78,9 +78,15 @@ interface ConstraintTypeOption {
         <div>
           <label class="block text-data-xs font-medium text-text-secondary mb-1">
             @switch (form.get('type')?.value) {
-              @case ('cardinality') { Min Positions }
-              @case ('turnover') { Max Turnover (0–1) }
-              @default { Value }
+              @case ('cardinality') {
+                Min Positions
+              }
+              @case ('turnover') {
+                Max Turnover (0-1)
+              }
+              @default {
+                Value
+              }
             }
           </label>
           <input
@@ -89,19 +95,23 @@ interface ConstraintTypeOption {
             step="0.01"
             min="0"
             placeholder="0.00"
-            class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors" />
+            class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
+          />
         </div>
       }
 
       <!-- Target (optional: for sector_bounds) -->
       @if (showTarget()) {
         <div>
-          <label class="block text-data-xs font-medium text-text-secondary mb-1">Target Sector (optional)</label>
+          <label class="block text-data-xs font-medium text-text-secondary mb-1"
+            >Target Sector (optional)</label
+          >
           <input
             type="text"
             formControlName="target"
             placeholder="e.g. Technology (leave blank for all)"
-            class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors" />
+            class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text placeholder-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
+          />
         </div>
       }
 
@@ -110,17 +120,18 @@ interface ConstraintTypeOption {
         <button
           type="button"
           (click)="onCancel()"
-          class="px-4 py-2 text-data-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+          class="px-4 py-2 text-data-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors"
+        >
           Cancel
         </button>
         <button
           type="submit"
           [disabled]="form.invalid"
-          class="px-4 py-2 text-data-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          class="px-4 py-2 text-data-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
           Add Constraint
         </button>
       </div>
-
     </form>
   `,
 })
@@ -140,7 +151,10 @@ export class ConstraintModalComponent {
 
   form = new FormGroup({
     type: new FormControl<ConstraintType>('weight_bounds', { nonNullable: true }),
-    label: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.minLength(1)] }),
+    label: new FormControl('', {
+      nonNullable: true,
+      validators: [Validators.required, Validators.minLength(1)],
+    }),
     min: new FormControl<number | null>(null),
     max: new FormControl<number | null>(null),
     value: new FormControl<number | null>(null),

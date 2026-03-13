@@ -18,7 +18,7 @@ function ScoreNewsSentiment(
   ticker: string,
   articles: NewsArticle[]
 ) -> NewsSentimentOutput {
-  client Tier1
+  client Model
   prompt #"
     You are a financial analyst scoring news sentiment for {{ ticker }}.
 

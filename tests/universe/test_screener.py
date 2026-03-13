@@ -301,7 +301,7 @@ def _make_exchange_fundamentals(
 
 class TestComputeExchangeMcapPercentileThresholds:
     def test_returns_correct_percentile_per_exchange(self) -> None:
-        # 10 stocks on NYSE with mcaps 100–1000 (step 100)
+        # 10 stocks on NYSE with mcaps 100-1000 (step 100)
         tickers = [f"T{i}" for i in range(10)]
         mcaps = pd.Series(
             [100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0],
@@ -532,7 +532,7 @@ class TestMcapPercentileScreenInApplyInvestabilityScreens:
         n_days = 300
         dates = pd.bdate_range("2023-01-01", periods=n_days)
 
-        # 11 stocks: "EXACT" at 250M, 10 bigger stocks at 300M–1200M
+        # 11 stocks: "EXACT" at 250M, 10 bigger stocks at 300M-1200M
         tickers = ["EXACT"] + [f"BIG{i}" for i in range(10)]
         mcaps = [250e6] + [300e6 + i * 100e6 for i in range(10)]
         # With 11 values, 10th percentile = index 1.0 = value[1] = 300M

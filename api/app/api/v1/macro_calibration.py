@@ -92,10 +92,10 @@ def get_macro_calibration(
     **Phase → parameter mapping:**
     | Phase            | δ        | τ      |
     |------------------|----------|--------|
-    | EARLY_EXPANSION  | 2.0–2.5  | 0.05   |
-    | MID_EXPANSION    | 2.5–3.0  | 0.025  |
-    | LATE_EXPANSION   | 3.0–4.0  | 0.01   |
-    | RECESSION        | 4.0–6.0  | 0.05   |
+    | EARLY_EXPANSION  | 2.0-2.5  | 0.05   |
+    | MID_EXPANSION    | 2.5-3.0  | 0.025  |
+    | LATE_EXPANSION   | 3.0-4.0  | 0.01   |
+    | RECESSION        | 4.0-6.0  | 0.05   |
     """
     try:
         result: CalibrationResult = classify_macro_regime(

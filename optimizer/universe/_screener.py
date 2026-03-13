@@ -180,7 +180,7 @@ def compute_exchange_mcap_percentile_thresholds(
     exchange_mapping : pd.Series
         Exchange labels indexed by ticker.
     percentile : float
-        Percentile to compute on a 0–1 scale (e.g. 0.10 for the 10th
+        Percentile to compute on a 0-1 scale (e.g. 0.10 for the 10th
         percentile).
     min_exchange_size : int
         Minimum number of stocks an exchange must have before the

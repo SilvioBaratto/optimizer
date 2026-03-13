@@ -22,7 +22,7 @@ function DesignStressScenarios(
   macro_context: string,
   n_scenarios: int
 ) -> StressScenario[] {
-  client Tier3
+  client Model
   prompt #"
     You are a senior risk manager designing forward-looking stress scenarios for a
     portfolio of the following assets: {{ tickers | join(", ") }}.

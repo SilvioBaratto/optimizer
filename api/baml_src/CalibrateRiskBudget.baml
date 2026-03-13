@@ -16,7 +16,7 @@ function CalibrateRiskBudget(
   sector_universe: string[],
   asset_sector_map: map<string, string>
 ) -> RiskBudgetOutput {
-  client Tier2
+  client Model
   prompt #"
     You are a quantitative risk manager translating a qualitative sector outlook
     into a precise risk budget vector for a risk-parity portfolio.
@@ -24,9 +24,7 @@ function CalibrateRiskBudget(
     Sector universe: {{ sector_universe | join(", ") }}
 
     Asset-to-sector mapping:
-    {% for asset, sector in asset_sector_map %}
-    - {{ asset }}: {{ sector }}
-    {% endfor %}
+    {{ asset_sector_map }}
 
     Analyst sector outlook:
     {{ sector_outlook }}

@@ -184,7 +184,7 @@ def setup_documentation_endpoints(app: FastAPI) -> None:
         """Swagger UI - open access for local development"""
         return get_swagger_ui_html(
             openapi_url="/openapi.json",
-            title=f"{app.title} – API Documentation",
+            title=f"{app.title} - API Documentation",
             swagger_js_url="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js",
             swagger_css_url="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css",
         )
@@ -194,7 +194,7 @@ def setup_documentation_endpoints(app: FastAPI) -> None:
         """ReDoc UI - open access for local development"""
         return get_redoc_html(
             openapi_url="/openapi.json",
-            title=f"{app.title} – API Documentation",
+            title=f"{app.title} - API Documentation",
             redoc_js_url="https://unpkg.com/redoc@2.1.0/bundles/redoc.standalone.js",
         )
 

@@ -1,5 +1,5 @@
 function Test() -> string {
-  client Tier1
+  client Model
   prompt #"
     Say hello world in Italian.
 
