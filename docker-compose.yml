@@ -41,6 +41,8 @@ services:
     container_name: optimizer_api
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/optimizer_db
+      OLLAMA_BASE_URL: https://ollama.com/v1
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       TRADING_212_API_KEY: ${TRADING_212_API_KEY:-}
       FRED_API_KEY: ${FRED_API_KEY:-}
       TRADING_ECONOMICS_API_KEY: ${TRADING_ECONOMICS_API_KEY:-}
