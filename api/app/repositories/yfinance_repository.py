@@ -9,10 +9,10 @@ from uuid import UUID
 
 import pandas as pd
 from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.universe import Instrument
+from app.repositories.base import RepositoryBase
 from app.models.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
@@ -101,47 +101,11 @@ def _safe_date(v: Any) -> date | None:
     return None
 
 
-class YFinanceRepository:
+class YFinanceRepository(RepositoryBase):
     """Sync repository for yfinance data. Uses PostgreSQL ON CONFLICT upsert."""
 
     def __init__(self, session: Session):
-        self.session = session
-
-    # ------------------------------------------------------------------
-    # Generic upsert helper
-    # ------------------------------------------------------------------
-
-    def _upsert(
-        self,
-        model: type,
-        rows: list[dict[str, Any]],
-        constraint_name: str,
-        update_columns: list[str] | None = None,
-    ) -> int:
-        """Insert rows with ON CONFLICT DO UPDATE. Returns count of rows processed."""
-        if not rows:
-            return 0
-
-        stmt = pg_insert(model.__table__).values(rows)
-
-        if update_columns:
-            update_dict = {col: stmt.excluded[col] for col in update_columns}
-        else:
-            # Update all columns except the primary key and created_at
-            exclude = {"id", "created_at"}
-            update_dict = {
-                col.name: stmt.excluded[col.name]
-                for col in model.__table__.columns
-                if col.name not in exclude
-            }
-
-        stmt = stmt.on_conflict_do_update(
-            constraint=constraint_name,
-            set_=update_dict,
-        )
-
-        self.session.execute(stmt)
-        return len(rows)
+        super().__init__(session)
 
     # ------------------------------------------------------------------
     # Ticker Profile

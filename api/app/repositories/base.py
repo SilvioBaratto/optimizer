@@ -9,6 +9,7 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.base import Base
@@ -18,7 +19,46 @@ CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
 UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
 
 
-class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
+class RepositoryBase:
+    """Minimal base for all repositories. Provides session and shared upsert."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def _upsert(
+        self,
+        model: type,
+        rows: list[dict[str, Any]],
+        constraint_name: str,
+        update_columns: list[str] | None = None,
+    ) -> int:
+        """Insert rows with ON CONFLICT DO UPDATE. Returns count of rows processed."""
+        if not rows:
+            return 0
+
+        stmt = pg_insert(model.__table__).values(rows)
+
+        if update_columns:
+            update_dict = {col: stmt.excluded[col] for col in update_columns}
+        else:
+            # Update all columns except the primary key and created_at
+            exclude = {"id", "created_at"}
+            update_dict = {
+                col.name: stmt.excluded[col.name]
+                for col in model.__table__.columns
+                if col.name not in exclude
+            }
+
+        stmt = stmt.on_conflict_do_update(
+            constraint=constraint_name,
+            set_=update_dict,
+        )
+
+        self.session.execute(stmt)
+        return len(rows)
+
+
+class BaseRepository(RepositoryBase, Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     """Generic repository with synchronous CRUD operations.
 
     Type Parameters:
@@ -34,8 +74,8 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     """
 
     def __init__(self, model: type[ModelType], session: Session):
+        super().__init__(session)
         self.model = model
-        self.session = session
 
     def get(self, id: Any) -> ModelType | None:
         id_column = self.model.id

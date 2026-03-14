@@ -8,7 +8,6 @@ from typing import Any
 
 from sqlalchemy import func as sa_func
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.macro_regime import (
@@ -21,52 +20,17 @@ from app.models.macro_regime import (
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
 )
+from app.repositories.base import RepositoryBase
 from app.utils.date_parsing import parse_reference_date
 
 logger = logging.getLogger(__name__)
 
 
-class MacroRegimeRepository:
+class MacroRegimeRepository(RepositoryBase):
     """Sync repository for macro regime data. Uses PostgreSQL ON CONFLICT upsert."""
 
     def __init__(self, session: Session):
-        self.session = session
-
-    # ------------------------------------------------------------------
-    # Generic upsert helper (mirrors YFinanceRepository._upsert)
-    # ------------------------------------------------------------------
-
-    def _upsert(
-        self,
-        model: type,
-        rows: list[dict[str, Any]],
-        constraint_name: str,
-        update_columns: list[str] | None = None,
-    ) -> int:
-        """Insert rows with ON CONFLICT DO UPDATE. Returns count of rows processed."""
-        if not rows:
-            return 0
-
-        stmt = pg_insert(model.__table__).values(rows)
-
-        if update_columns:
-            update_dict = {col: stmt.excluded[col] for col in update_columns}
-        else:
-            # Update all columns except the primary key and created_at
-            exclude = {"id", "created_at"}
-            update_dict = {
-                col.name: stmt.excluded[col.name]
-                for col in model.__table__.columns
-                if col.name not in exclude
-            }
-
-        stmt = stmt.on_conflict_do_update(
-            constraint=constraint_name,
-            set_=update_dict,
-        )
-
-        self.session.execute(stmt)
-        return len(rows)
+        super().__init__(session)
 
     # ------------------------------------------------------------------
     # Economic Indicators (IlSole24Ore)

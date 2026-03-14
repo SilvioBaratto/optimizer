@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.models.macro_regime import MacroNews
 from app.models.universe import Instrument
 from app.models.yfinance_data import TickerNews, TickerProfile
+from app.repositories.base import RepositoryBase
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +36,11 @@ for _etf, _sector in _ETF_TO_SECTOR.items():
     _SECTOR_TO_ETFS.setdefault(_sector, set()).add(_etf)
 
 
-class SentimentRepository:
+class SentimentRepository(RepositoryBase):
     """Sync repository for instrument lookups and news retrieval."""
 
     def __init__(self, session: Session) -> None:
-        self.session = session
+        super().__init__(session)
 
     def get_instrument_id_by_ticker(self, ticker: str) -> UUID | None:
         """Return the instrument UUID for *ticker*, or ``None``."""

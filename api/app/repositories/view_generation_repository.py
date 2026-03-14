@@ -10,15 +10,16 @@ from sqlalchemy.orm import Session
 
 from app.models.universe import Instrument
 from app.models.yfinance_data import PriceHistory, TickerProfile
+from app.repositories.base import RepositoryBase
 
 logger = logging.getLogger(__name__)
 
 
-class ViewGenerationRepository:
+class ViewGenerationRepository(RepositoryBase):
     """Sync repository for instrument, price, and profile lookups."""
 
     def __init__(self, session: Session) -> None:
-        self.session = session
+        super().__init__(session)
 
     def get_instrument_by_ticker(self, ticker: str) -> Instrument | None:
         """Return the :class:`Instrument` for *ticker*, or ``None``."""

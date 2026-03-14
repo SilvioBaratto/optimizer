@@ -12,6 +12,8 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.repositories.base import RepositoryBase
+
 logger = logging.getLogger(__name__)
 
 # Tables managed by the application (derived from models)
@@ -37,11 +39,11 @@ APP_TABLES: list[str] = [
 _ALLOWED_TABLES: frozenset[str] = frozenset(APP_TABLES)
 
 
-class DatabaseAdminRepository:
+class DatabaseAdminRepository(RepositoryBase):
     """Sync repository for database introspection and truncation."""
 
     def __init__(self, session: Session) -> None:
-        self.session = session
+        super().__init__(session)
 
     def check_health(self) -> tuple[bool, float]:
         """Run ``SELECT 1`` and return ``(healthy, latency_ms)``."""

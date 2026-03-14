@@ -11,13 +11,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.universe import Exchange, Instrument
+from app.repositories.base import RepositoryBase
 
 logger = logging.getLogger(__name__)
 
 
-class UniverseRepository:
+class UniverseRepository(RepositoryBase):
     def __init__(self, session: Session):
-        self.session = session
+        super().__init__(session)
 
     def save_exchange(self, exchange_data: dict[str, Any]) -> Exchange:
         name = exchange_data.get("name", "")
