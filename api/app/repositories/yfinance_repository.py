@@ -635,37 +635,87 @@ class YFinanceRepository:
     # ------------------------------------------------------------------
 
     def upsert_news(self, instrument_id: UUID, articles: list[dict[str, Any]]) -> int:
-        """Upsert news articles from yf.Ticker.news list of dicts."""
+        """Upsert news articles from yf.Ticker.news list of dicts.
+
+        Handles both old yfinance format (flat dict with ``uuid``, ``title``,
+        ``providerPublishTime``) and new format (nested ``content`` dict with
+        ``pubDate`` ISO 8601 string).
+        """
+        # Look up instrument name once for all articles
+        ticker_name = self.session.execute(
+            select(Instrument.name).where(Instrument.id == instrument_id)
+        ).scalar_one_or_none()
+
         rows = []
         for article in articles:
-            news_uuid = _safe_str(article.get("uuid"), 200)
+            # New format nests data under "content"; old format is flat
+            content = article.get("content", article)
+
+            # UUID: new format uses top-level "id", old uses "uuid"
+            news_uuid = _safe_str(
+                article.get("id") or article.get("uuid"), 200
+            )
             if not news_uuid:
                 continue
 
-            # Extract publish time - yfinance stores as epoch or nested
-            publish_time = None
-            pt = article.get("providerPublishTime")
-            if pt is not None:
-                try:
-                    publish_time = datetime.fromtimestamp(int(pt))
-                except (ValueError, TypeError, OSError):
-                    pass
+            # Title
+            title = _safe_str(content.get("title") or article.get("title"))
 
-            # Extract related tickers
-            related = article.get("relatedTickers")
+            # Publisher: new format nests under provider dict
+            provider = content.get("provider")
+            if isinstance(provider, dict):
+                publisher = _safe_str(provider.get("displayName", ""), 500)
+            else:
+                publisher = _safe_str(article.get("publisher"), 500)
+
+            # Link: new format uses canonicalUrl or previewUrl
+            canonical = content.get("canonicalUrl")
+            if isinstance(canonical, dict):
+                link = _safe_str(canonical.get("url", ""))
+            else:
+                link = _safe_str(
+                    content.get("previewUrl") or article.get("link")
+                )
+
+            # Publish time: new format is ISO 8601, old is epoch int
+            publish_time = None
+            pub_date_str = content.get("pubDate")
+            if pub_date_str and isinstance(pub_date_str, str):
+                try:
+                    from dateutil import parser as dateutil_parser
+
+                    publish_time = dateutil_parser.isoparse(pub_date_str)
+                    # Strip tz for consistency with TickerNews column type
+                    publish_time = publish_time.replace(tzinfo=None)
+                except (ValueError, TypeError):
+                    pass
+            if publish_time is None:
+                pt = article.get("providerPublishTime")
+                if pt is not None:
+                    try:
+                        publish_time = datetime.fromtimestamp(int(pt))
+                    except (ValueError, TypeError, OSError):
+                        pass
+
+            # News type
+            news_type = _safe_str(
+                content.get("contentType") or article.get("type"), 100
+            )
+
+            # Full content (scraped upstream by NewsClient if available)
+            full_content = article.get("full_content")
 
             rows.append(
                 {
                     "instrument_id": instrument_id,
                     "news_uuid": news_uuid,
-                    "title": _safe_str(article.get("title")),
-                    "publisher": _safe_str(article.get("publisher"), 500),
-                    "link": _safe_str(article.get("link")),
+                    "title": title,
+                    "publisher": publisher,
+                    "link": link,
                     "publish_time": publish_time,
-                    "news_type": _safe_str(article.get("type"), 100),
-                    "related_tickers": ",".join(related)
-                    if isinstance(related, list)
-                    else None,
+                    "news_type": news_type,
+                    "ticker_name": _safe_str(ticker_name, 500),
+                    "full_content": full_content,
                 }
             )
 

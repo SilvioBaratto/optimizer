@@ -443,10 +443,26 @@ class YFinanceDataService:
                     "Failed insider transactions for %s: %s", yfinance_ticker, e
                 )
 
-        # 11. News (always fetched — small payload, yfinance returns recent items only)
+        # 11. News (always fetched with full article content scraped)
         try:
             news_list = ticker.news
             if news_list:
+                from app.services.yfinance.news.scraper import ArticleScraper
+
+                scraper = ArticleScraper(delay=0.5)
+                for article in news_list:
+                    content = article.get("content", article)
+                    canonical = content.get("canonicalUrl")
+                    link = (
+                        canonical.get("url", "")
+                        if isinstance(canonical, dict)
+                        else content.get("previewUrl")
+                        or article.get("link")
+                    )
+                    if link:
+                        result = scraper.fetch(link)
+                        if result["success"] and result["content"]:
+                            article["full_content"] = result["content"]
                 counts["news"] = self.repo.upsert_news(instrument_id, news_list)
             else:
                 counts["news"] = 0

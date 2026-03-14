@@ -490,9 +490,7 @@ class MacroNewsFetcher:
             "snippet": snippet,
         }
 
-        if fetch_full_content and self.scraper is not None:
-            if not link:
-                return None
+        if fetch_full_content and self.scraper is not None and link:
             content_result = self.scraper.fetch(link)
             if (
                 content_result["success"]
@@ -500,7 +498,5 @@ class MacroNewsFetcher:
                 and len(content_result["content"]) >= 200
             ):
                 article["full_content"] = content_result["content"]
-            else:
-                return None
 
         return article

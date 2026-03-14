@@ -4,9 +4,9 @@
 
 class RiskBudgetOutput {
   sector_budgets map<string, float>
-    @description("Sector name → risk budget weight. All values are non-negative and sum to 1.0.")
+    @description("Sector name → relative risk budget weight. All values are non-negative. Higher = more risk budget.")
   asset_budgets map<string, float>
-    @description("Asset ticker → risk budget weight. Derived from sector_budgets by equal-weighting assets within each sector. Values are non-negative and sum to 1.0.")
+    @description("Asset ticker → relative risk budget weight. All values are non-negative. Higher = more risk budget.")
   rationale string
     @description("2-4 sentence explanation of the budget allocation rationale.")
 }
@@ -30,20 +30,16 @@ function CalibrateRiskBudget(
     {{ sector_outlook }}
 
     Instructions:
-    1. Assign a risk budget weight to each sector in the universe based on the outlook.
-       - Sectors described as "overweight", "positive", "bullish", or "favoured"
-         receive HIGHER budget weights (they are allowed to take more risk).
-       - Sectors described as "underweight", "negative", "bearish", or "avoid"
-         receive LOWER budget weights.
-       - Neutral sectors receive weights proportional to 1/N (equal budget baseline).
+    1. Assign a relative risk budget weight to each sector based on the outlook.
+       - "overweight" / "bullish" sectors get HIGHER weights.
+       - "underweight" / "bearish" sectors get LOWER weights.
+       - Neutral sectors get moderate weights.
     2. sector_budgets must cover ALL sectors in the sector universe.
-    3. All sector budget values must be non-negative.
-    4. sector_budgets must sum to exactly 1.0.
-    5. For asset_budgets: distribute each sector's budget equally among all assets
-       mapped to that sector (asset_budget = sector_budget / n_assets_in_sector).
-    6. asset_budgets must cover ALL assets in asset_sector_map.
-    7. asset_budgets must also sum to exactly 1.0.
-    8. Write a brief rationale explaining your allocation choices.
+    3. All values must be non-negative.
+    4. For asset_budgets: give each asset a weight reflecting its sector's budget.
+       Assets in the same sector should have similar weights.
+    5. asset_budgets must cover ALL assets in asset_sector_map.
+    6. Write a brief rationale explaining your allocation choices.
 
     {{ ctx.output_format }}
   "#

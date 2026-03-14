@@ -422,4 +422,5 @@ class TickerNews(BaseModel):
     link: Mapped[str | None] = mapped_column(Text, nullable=True)
     publish_time: Mapped[datetime.datetime | None] = mapped_column(nullable=True)
     news_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    related_tickers: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ticker_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    full_content: Mapped[str | None] = mapped_column(Text, nullable=True)

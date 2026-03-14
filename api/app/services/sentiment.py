@@ -147,6 +147,10 @@ def fetch_news_sentiment(
     rows = repo.get_recent_news(instrument_id, cutoff)
 
     if not rows:
+        logger.debug("No ticker_news for %s, trying macro_news fallback", ticker)
+        rows = repo.get_macro_news_fallback(ticker, cutoff)
+
+    if not rows:
         logger.debug("No news found for %s in the last %d days", ticker, lookback_days)
         return pd.Series(dtype=float)
 

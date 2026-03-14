@@ -2,9 +2,9 @@
 
 import uuid
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.base_job import AsyncJobCreateResponse, AsyncJobProgress
 
@@ -264,13 +264,7 @@ class TickerNewsResponse(BaseModel):
     link: str | None = None
     publish_time: datetime | None = None
     news_type: str | None = None
-    related_tickers: list[str] | None = None
+    ticker_name: str | None = None
+    full_content: str | None = None
     created_at: datetime
     updated_at: datetime
-
-    @field_validator("related_tickers", mode="before")
-    @classmethod
-    def _parse_related_tickers(cls, v: Any) -> list[str] | None:
-        if isinstance(v, str):
-            return [t.strip() for t in v.split(",") if t.strip()]
-        return v

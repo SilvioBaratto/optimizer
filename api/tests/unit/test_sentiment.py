@@ -201,23 +201,30 @@ class TestFetchNewsSentiment:
         row.publish_time = _now() - timedelta(days=age_days)
         return row
 
-    def test_unknown_ticker_returns_empty_series(self) -> None:
-        session = MagicMock()
-        session.execute.return_value.scalar_one_or_none.return_value = None
+    def _make_repo(
+        self,
+        instrument_id: uuid.UUID | None,
+        news_rows: list | None = None,
+    ) -> MagicMock:
+        """Build a mock SentimentRepository with configured return values."""
+        repo = MagicMock()
+        repo.get_instrument_id_by_ticker.return_value = instrument_id
+        repo.get_recent_news.return_value = news_rows if news_rows is not None else []
+        repo.get_macro_news_fallback.return_value = []
+        return repo
 
-        result = fetch_news_sentiment(session, "UNKN")
+    def test_unknown_ticker_returns_empty_series(self) -> None:
+        repo = self._make_repo(instrument_id=None)
+
+        result = fetch_news_sentiment(repo, "UNKN")
 
         assert isinstance(result, pd.Series)
         assert result.empty
 
     def test_no_news_returns_empty_series(self) -> None:
-        session = MagicMock()
-        instrument_id = uuid.uuid4()
-        # First call returns instrument id; second returns empty news list
-        session.execute.return_value.scalar_one_or_none.return_value = instrument_id
-        session.execute.return_value.scalars.return_value.all.return_value = []
+        repo = self._make_repo(instrument_id=uuid.uuid4(), news_rows=[])
 
-        result = fetch_news_sentiment(session, "AAPL")
+        result = fetch_news_sentiment(repo, "AAPL")
 
         assert isinstance(result, pd.Series)
         assert result.empty
@@ -229,21 +236,13 @@ class TestFetchNewsSentiment:
             reasoning="test",
         )
 
-        session = MagicMock()
-        instrument_id = uuid.uuid4()
-
         rows = [
             self._make_news_row("Apple reports record earnings", age_days=1.0),
             self._make_news_row("Apple faces antitrust probe", age_days=3.0),
         ]
+        repo = self._make_repo(instrument_id=uuid.uuid4(), news_rows=rows)
 
-        # Simulate two execute() calls: first for instrument, second for news
-        mock_exec = MagicMock()
-        mock_exec.scalar_one_or_none.return_value = instrument_id
-        mock_exec.scalars.return_value.all.return_value = rows
-        session.execute.return_value = mock_exec
-
-        result = fetch_news_sentiment(session, "AAPL", lookback_days=30)
+        result = fetch_news_sentiment(repo, "AAPL", lookback_days=30)
 
         assert isinstance(result, pd.Series)
         assert len(result) == 2
@@ -258,19 +257,13 @@ class TestFetchNewsSentiment:
             reasoning="test",
         )
 
-        session = MagicMock()
-        instrument_id = uuid.uuid4()
         rows = [
             self._make_news_row("Article 1", age_days=1.0),
             self._make_news_row("Article 2", age_days=2.0),
         ]
+        repo = self._make_repo(instrument_id=uuid.uuid4(), news_rows=rows)
 
-        mock_exec = MagicMock()
-        mock_exec.scalar_one_or_none.return_value = instrument_id
-        mock_exec.scalars.return_value.all.return_value = rows
-        session.execute.return_value = mock_exec
-
-        result = fetch_news_sentiment(session, "AAPL")
+        result = fetch_news_sentiment(repo, "AAPL")
 
         assert len(result) == 2
         assert result.iloc[0] == pytest.approx(0.5)
@@ -284,16 +277,10 @@ class TestFetchNewsSentiment:
             reasoning="test",
         )
 
-        session = MagicMock()
-        instrument_id = uuid.uuid4()
         rows = [self._make_news_row("Article 1", age_days=1.0)]
+        repo = self._make_repo(instrument_id=uuid.uuid4(), news_rows=rows)
 
-        mock_exec = MagicMock()
-        mock_exec.scalar_one_or_none.return_value = instrument_id
-        mock_exec.scalars.return_value.all.return_value = rows
-        session.execute.return_value = mock_exec
-
-        result = fetch_news_sentiment(session, "AAPL")
+        result = fetch_news_sentiment(repo, "AAPL")
 
         assert len(result) == 1
         assert result.iloc[0] == pytest.approx(0.5)
@@ -303,16 +290,10 @@ class TestFetchNewsSentiment:
         """If BAML call throws, return empty Series gracefully."""
         mock_score.side_effect = RuntimeError("LLM timeout")
 
-        session = MagicMock()
-        instrument_id = uuid.uuid4()
         rows = [self._make_news_row("Some news", age_days=1.0)]
+        repo = self._make_repo(instrument_id=uuid.uuid4(), news_rows=rows)
 
-        mock_exec = MagicMock()
-        mock_exec.scalar_one_or_none.return_value = instrument_id
-        mock_exec.scalars.return_value.all.return_value = rows
-        session.execute.return_value = mock_exec
-
-        result = fetch_news_sentiment(session, "AAPL")
+        result = fetch_news_sentiment(repo, "AAPL")
 
         assert result.empty
 
@@ -324,22 +305,34 @@ class TestFetchNewsSentiment:
             reasoning="test",
         )
 
-        session = MagicMock()
-        instrument_id = uuid.uuid4()
-
         row = MagicMock()
         row.title = "Some news"
         row.publish_time = None  # NULL in DB
 
-        mock_exec = MagicMock()
-        mock_exec.scalar_one_or_none.return_value = instrument_id
-        mock_exec.scalars.return_value.all.return_value = [row]
-        session.execute.return_value = mock_exec
+        repo = self._make_repo(instrument_id=uuid.uuid4(), news_rows=[row])
 
-        result = fetch_news_sentiment(session, "AAPL")
+        result = fetch_news_sentiment(repo, "AAPL")
 
         assert len(result) == 1
         assert result.iloc[0] == pytest.approx(0.5)
+
+    @patch("app.services.sentiment.b.ScoreNewsSentiment")
+    def test_macro_news_fallback_used(self, mock_score: MagicMock) -> None:
+        """When ticker_news is empty, macro_news fallback provides articles."""
+        mock_score.return_value = NewsSentimentOutput(
+            scores=[0.6],
+            reasoning="macro fallback",
+        )
+
+        macro_row = self._make_news_row("Tech sector rallies on AI momentum", age_days=2.0)
+        repo = self._make_repo(instrument_id=uuid.uuid4(), news_rows=[])
+        repo.get_macro_news_fallback.return_value = [macro_row]
+
+        result = fetch_news_sentiment(repo, "AAPL")
+
+        assert len(result) == 1
+        assert result.iloc[0] == pytest.approx(0.6)
+        repo.get_macro_news_fallback.assert_called_once()
 
 
 # ===========================================================================

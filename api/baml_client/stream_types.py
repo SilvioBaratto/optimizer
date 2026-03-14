@@ -63,7 +63,7 @@ class DeltaCalibration(BaseModel):
 
 class FactorWeightAdaptation(BaseModel):
     phase: typing.Optional[types.BusinessCyclePhase] = Field(default=None, description='Detected business cycle phase.')
-    weights: typing.Dict[str, float] = Field(description='Factor group -> weight multiplier. Multipliers sum to the number of factor groups.')
+    weights: typing.Dict[str, float] = Field(description='Factor group -> relative weight multiplier. Higher = overweight, lower = underweight.')
     rationale: typing.Optional[str] = Field(default=None, description='Brief explanation of the phase classification and weight adjustments.')
 
 class MacroRegimeCalibration(BaseModel):
@@ -81,8 +81,8 @@ class NewsSentimentOutput(BaseModel):
     reasoning: typing.Optional[str] = Field(default=None, description='Brief overall summary of the sentiment assessment.')
 
 class RiskBudgetOutput(BaseModel):
-    sector_budgets: typing.Dict[str, float] = Field(description='Sector name → risk budget weight. All values are non-negative and sum to 1.0.')
-    asset_budgets: typing.Dict[str, float] = Field(description='Asset ticker → risk budget weight. Derived from sector_budgets by equal-weighting assets within each sector. Values are non-negative and sum to 1.0.')
+    sector_budgets: typing.Dict[str, float] = Field(description='Sector name → relative risk budget weight. All values are non-negative. Higher = more risk budget.')
+    asset_budgets: typing.Dict[str, float] = Field(description='Asset ticker → relative risk budget weight. All values are non-negative. Higher = more risk budget.')
     rationale: typing.Optional[str] = Field(default=None, description='2-4 sentence explanation of the budget allocation rationale.')
 
 class StressScenario(BaseModel):

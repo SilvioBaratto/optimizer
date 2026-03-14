@@ -63,19 +63,23 @@ class CalibrationResult:
 
 # TE indicator keys considered most relevant for cycle classification
 _KEY_TE_INDICATORS = {
-    "Manufacturing PMI",
-    "Services PMI",
-    "Composite PMI",
-    "Unemployment Rate",
-    "Inflation Rate",
-    "GDP Growth Rate",
-    "Industrial Production",
-    "Government Debt to GDP",
-    "Government Budget",
-    "Leading Economic Index",
-    "Credit Default Swaps",
-    "Government Bond 10Y",
-    "Government Bond 2Y",
+    "manufacturing_pmi",
+    "services_pmi",
+    "composite_pmi",
+    "unemployment_rate",
+    "inflation_rate",
+    "gdp_growth_rate",
+    "industrial_production",
+    "government_debt_gdp",
+    "budget_balance_gdp",
+    "leading_economic_index",
+    "interest_rate",
+    "core_inflation",
+    "consumer_confidence",
+    "business_confidence",
+    "non_farm_payrolls",
+    "initial_jobless_claims",
+    "ism_manufacturing_new_orders",
 }
 
 
@@ -105,7 +109,8 @@ def _build_macro_summary(
     for row in te_rows:
         if row.indicator_key in _KEY_TE_INDICATORS and row.value is not None:
             unit = f" {row.unit}" if row.unit else ""
-            te_parts.append(f"{row.indicator_key}: {row.value:.2f}{unit}")
+            label = row.raw_name if row.raw_name else row.indicator_key
+            te_parts.append(f"{label}: {row.value:.2f}{unit}")
     if te_parts:
         lines.append("Trading Economics: " + "; ".join(te_parts))
 

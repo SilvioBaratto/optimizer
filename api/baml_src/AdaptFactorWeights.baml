@@ -10,7 +10,7 @@ enum BusinessCyclePhase {
 
 class FactorWeightAdaptation {
   phase BusinessCyclePhase @description("Detected business cycle phase.")
-  weights map<string, float> @description("Factor group -> weight multiplier. Multipliers sum to the number of factor groups.")
+  weights map<string, float> @description("Factor group -> relative weight multiplier. Higher = overweight, lower = underweight.")
   rationale string @description("Brief explanation of the phase classification and weight adjustments.")
 }
 
@@ -26,8 +26,7 @@ function AdaptFactorWeights(macro_indicators: string, factor_groups: string[]) -
     - LATE_EXPANSION: favour low-volatility (USMV), dividend (DVY); underweight momentum
     - RECESSION: favour value (VLUE), quality (QUAL); underweight momentum (MTUM)
 
-    Important constraint: the multipliers MUST sum exactly to {{ factor_groups | length }}.
-    Each multiplier must be positive (minimum 0.1).
+    Each multiplier must be positive (minimum 0.1). Higher values = overweight, lower = underweight.
 
     Macro indicators:
     {{ macro_indicators }}
