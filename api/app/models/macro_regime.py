@@ -142,6 +142,7 @@ class TradingEconomicsObservation(BaseModel):
         ),
         Index("ix_te_observations_country", "country"),
         Index("ix_te_observations_date", "date"),
+        Index("ix_te_obs_country_key_date", "country", "indicator_key", "date"),
     )
 
     country: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -165,6 +166,7 @@ class BondYieldObservation(BaseModel):
         ),
         Index("ix_bond_observations_country", "country"),
         Index("ix_bond_observations_date", "date"),
+        Index("ix_bond_obs_country_maturity_date", "country", "maturity", "date"),
     )
 
     country: Mapped[str] = mapped_column(String(100), nullable=False)

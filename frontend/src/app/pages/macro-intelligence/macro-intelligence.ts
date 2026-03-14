@@ -4,17 +4,21 @@ import {
   computed,
   inject,
   ChangeDetectionStrategy,
+  DestroyRef,
   ElementRef,
   viewChild,
   effect,
   OnDestroy,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { finalize } from 'rxjs';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { MockFetchService } from '../../services/mock-fetch.service';
 import { MacroIntelligenceService } from '../../services/macro-intelligence.service';
 import { SECTOR_ROTATION_TABLE } from '../../mocks/macro-intelligence-mocks';
+import { PHASE_DEFAULTS, COMPOSITE_SCORE_THRESHOLDS, COMPOSITE_CHART_AXIS } from '../../constants/macro-intelligence.constants';
 import type {
   MacroCalibrationResponse,
   FredObservationPoint,
@@ -25,6 +29,7 @@ import type {
   BusinessCyclePhase,
   MacroRegimeLabel,
   SectorRotationStance,
+  CompositeScorePoint,
 } from '../../models/macro-intelligence.model';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 
@@ -51,9 +56,11 @@ const PHASE_LABELS: Record<BusinessCyclePhase, string> = {
 export class MacroIntelligenceComponent implements OnDestroy {
   private readonly macroService = inject(MacroIntelligenceService);
   private readonly mockFetch = inject(MockFetchService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // ── Loading ──
   readonly isLoading = signal(true);
+  readonly isRefreshing = signal(false);
   readonly hasError = signal(false);
   readonly errorMessage = signal('');
 
@@ -69,7 +76,7 @@ export class MacroIntelligenceComponent implements OnDestroy {
   readonly bondYields1YAgo = signal<BondYieldSnapshot[]>([]);
   readonly newsThemes = signal<MacroNewsTheme[]>([]);
   readonly newsItems = signal<MacroNewsItem[]>([]);
-  readonly compositeHistory = signal<{ month: string; score: number }[]>([]);
+  readonly compositeHistory = signal<CompositeScorePoint[]>([]);
 
   // ── UI state ──
   readonly selectedCountry = signal('US');
@@ -100,8 +107,8 @@ export class MacroIntelligenceComponent implements OnDestroy {
     const data = this.fredPmi();
     if (!data.length) return 0;
     const latest = data[data.length - 1].value;
-    if (latest > 52) return 1;
-    if (latest < 48) return -1;
+    if (latest > COMPOSITE_SCORE_THRESHOLDS.PMI_BULL) return 1;
+    if (latest < COMPOSITE_SCORE_THRESHOLDS.PMI_BEAR) return -1;
     return 0;
   });
 
@@ -109,8 +116,8 @@ export class MacroIntelligenceComponent implements OnDestroy {
     const data = this.fredYieldSpread();
     if (!data.length) return 0;
     const latest = data[data.length - 1].value;
-    if (latest > 1.0) return 1;
-    if (latest < 0) return -1;
+    if (latest > COMPOSITE_SCORE_THRESHOLDS.YIELD_SPREAD_BULL) return 1;
+    if (latest < COMPOSITE_SCORE_THRESHOLDS.YIELD_SPREAD_BEAR) return -1;
     return 0;
   });
 
@@ -118,8 +125,8 @@ export class MacroIntelligenceComponent implements OnDestroy {
     const data = this.fredHyOas();
     if (!data.length) return 0;
     const latest = data[data.length - 1].value;
-    if (latest < 350) return 1;
-    if (latest > 500) return -1;
+    if (latest < COMPOSITE_SCORE_THRESHOLDS.HY_OAS_BULL) return 1;
+    if (latest > COMPOSITE_SCORE_THRESHOLDS.HY_OAS_BEAR) return -1;
     return 0;
   });
 
@@ -129,8 +136,8 @@ export class MacroIntelligenceComponent implements OnDestroy {
 
   readonly regimeLabel = computed<MacroRegimeLabel>(() => {
     const s = this.compositeScore();
-    if (s >= 2) return 'Expansionary';
-    if (s <= -2) return 'Contractionary';
+    if (s >= COMPOSITE_CHART_AXIS.BULL_THRESHOLD) return 'Expansionary';
+    if (s <= COMPOSITE_CHART_AXIS.BEAR_THRESHOLD) return 'Contractionary';
     return 'Transitional';
   });
 
@@ -172,9 +179,27 @@ export class MacroIntelligenceComponent implements OnDestroy {
   readonly hyOasDelta = computed(() => this.computeDelta(this.fredHyOas(), 30));
   readonly vixDelta = computed(() => this.computeDelta(this.fredVix(), 30));
 
+  // ── Computed: Effective calibration (fallback when LLM unavailable) ──
+  readonly effectiveCalibration = computed<MacroCalibrationResponse>(() => {
+    const cal = this.macroCalibration();
+    if (cal !== null) return cal;
+
+    const phase = this.phaseFromCompositeScore(this.compositeScore());
+    const defaults = PHASE_DEFAULTS[phase];
+    return {
+      phase,
+      delta: defaults.delta,
+      tau: defaults.tau,
+      confidence: 0,
+      rationale: 'LLM unavailable — using phase defaults',
+      macro_summary: '',
+      timestamp: new Date().toISOString(),
+    };
+  });
+
   // ── Computed: Sector recommendations ──
   readonly currentPhase = computed<BusinessCyclePhase>(() =>
-    this.macroCalibration()?.phase ?? 'MID_EXPANSION'
+    this.effectiveCalibration().phase
   );
 
   readonly currentPhaseLabel = computed(() => PHASE_LABELS[this.currentPhase()]);
@@ -238,7 +263,10 @@ export class MacroIntelligenceComponent implements OnDestroy {
     this.hasError.set(false);
 
     const subs = [
-      this.macroService.getMacroCalibration().subscribe(d => this.macroCalibration.set(d)),
+      this.macroService.getMacroCalibration().subscribe({
+        next: d => this.macroCalibration.set(d),
+        error: () => this.macroCalibration.set(null),
+      }),
       this.macroService.getFredPmi().subscribe(d => this.fredPmi.set(d)),
       this.macroService.getFredYieldSpread().subscribe(d => this.fredYieldSpread.set(d)),
       this.macroService.getFredHyOas().subscribe(d => this.fredHyOas.set(d)),
@@ -255,6 +283,22 @@ export class MacroIntelligenceComponent implements OnDestroy {
 
   retry(): void {
     this.loadData();
+  }
+
+  refreshData(): void {
+    if (this.isRefreshing()) return;
+    this.isRefreshing.set(true);
+
+    this.macroService.triggerRefresh().pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.isRefreshing.set(false)),
+    ).subscribe({
+      next: () => this.loadData(),
+      error: (err) => {
+        console.error('Refresh failed', err);
+        this.loadData();
+      },
+    });
   }
 
   // ── Chart ──
@@ -349,8 +393,8 @@ export class MacroIntelligenceComponent implements OnDestroy {
             silent: true,
             symbol: 'none',
             data: [
-              { yAxis: 350, lineStyle: { color: '#22c55e', type: 'dashed' }, label: { formatter: '350 (Bull)', position: 'insideEndTop' } },
-              { yAxis: 500, lineStyle: { color: '#ef4444', type: 'dashed' }, label: { formatter: '500 (Bear)', position: 'insideEndTop' } },
+              { yAxis: COMPOSITE_SCORE_THRESHOLDS.HY_OAS_BULL, lineStyle: { color: '#22c55e', type: 'dashed' }, label: { formatter: `${COMPOSITE_SCORE_THRESHOLDS.HY_OAS_BULL} (Bull)`, position: 'insideEndTop' } },
+              { yAxis: COMPOSITE_SCORE_THRESHOLDS.HY_OAS_BEAR, lineStyle: { color: '#ef4444', type: 'dashed' }, label: { formatter: `${COMPOSITE_SCORE_THRESHOLDS.HY_OAS_BEAR} (Bear)`, position: 'insideEndTop' } },
             ],
           },
         },
@@ -382,14 +426,14 @@ export class MacroIntelligenceComponent implements OnDestroy {
         data: history.map(h => h.month),
         axisLabel: { rotate: 45 },
       },
-      yAxis: { type: 'value', min: -3, max: 3 },
+      yAxis: { type: 'value', min: COMPOSITE_CHART_AXIS.MIN, max: COMPOSITE_CHART_AXIS.MAX },
       series: [
         {
           type: 'bar',
           data: history.map(h => ({
             value: h.score,
             itemStyle: {
-              color: h.score >= 2 ? '#22c55e' : h.score <= -2 ? '#ef4444' : '#f59e0b',
+              color: h.score >= COMPOSITE_CHART_AXIS.BULL_THRESHOLD ? '#22c55e' : h.score <= COMPOSITE_CHART_AXIS.BEAR_THRESHOLD ? '#ef4444' : '#f59e0b',
               borderRadius: [2, 2, 0, 0] as [number, number, number, number],
             },
           })),
@@ -455,6 +499,7 @@ export class MacroIntelligenceComponent implements OnDestroy {
   }
 
   parseMacroSummary(summary: string): { label: string; value: string }[] {
+    if (!summary.trim()) return [];
     return summary.split('|').map(segment => {
       const trimmed = segment.trim();
       const colonIdx = trimmed.indexOf(':');
@@ -478,6 +523,13 @@ export class MacroIntelligenceComponent implements OnDestroy {
         return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
       })
       .join(' ');
+  }
+
+  private phaseFromCompositeScore(score: number): BusinessCyclePhase {
+    if (score >= COMPOSITE_CHART_AXIS.BULL_THRESHOLD) return 'EARLY_EXPANSION';
+    if (score >= 0) return 'MID_EXPANSION';
+    if (score >= COMPOSITE_CHART_AXIS.BEAR_THRESHOLD + 1) return 'LATE_EXPANSION';
+    return 'CONTRACTION';
   }
 
   private computeDelta(data: FredObservationPoint[], lookback: number): number {

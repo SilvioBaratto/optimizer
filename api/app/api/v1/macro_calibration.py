@@ -70,7 +70,7 @@ class MacroCalibrationResponse(BaseModel):
 )
 def get_macro_calibration(
     country: str = Query(
-        default="United States",
+        default="USA",
         description="Country/region to fetch macro indicators for.",
     ),
     macro_text: str | None = Query(

@@ -7,6 +7,7 @@ import type {
   CountryMacroData,
   BondYieldSnapshot,
   BusinessCyclePhase,
+  CompositeScorePoint,
 } from '../models/macro-intelligence.model';
 
 // ── Macro Calibration (from /api/v1/views/macro-calibration) ──
@@ -49,10 +50,10 @@ function generateFredSeries(
   return points;
 }
 
-export const MOCK_FRED_PMI: FredObservationPoint[] = generateFredSeries(51, 1.2, 0.02, 520, '2024-03-01');
-export const MOCK_FRED_YIELD_SPREAD: FredObservationPoint[] = generateFredSeries(0.2, 0.15, 0.003, 90, '2025-12-01');
-export const MOCK_FRED_HY_OAS: FredObservationPoint[] = generateFredSeries(400, 20, -0.5, 90, '2025-12-01');
-export const MOCK_FRED_VIX: FredObservationPoint[] = generateFredSeries(16, 3, -0.02, 90, '2025-12-01');
+export const MOCK_FRED_PMI: FredObservationPoint[] = generateFredSeries(51, 1.2, 0.02, 744, '2024-03-01');
+export const MOCK_FRED_YIELD_SPREAD: FredObservationPoint[] = generateFredSeries(0.2, 0.15, 0.003, 105, '2025-12-01');
+export const MOCK_FRED_HY_OAS: FredObservationPoint[] = generateFredSeries(400, 20, -0.5, 105, '2025-12-01');
+export const MOCK_FRED_VIX: FredObservationPoint[] = generateFredSeries(16, 3, -0.02, 105, '2025-12-01');
 
 // ── Country Macro Data ──
 
@@ -215,11 +216,11 @@ export const MOCK_BOND_YIELDS_1Y_AGO: BondYieldSnapshot[] = [
 
 // ── FRED Credit Spread Series (for Band C Tab 2) ──
 
-export const MOCK_FRED_IG_OAS: FredObservationPoint[] = generateFredSeries(95, 8, -0.1, 90, '2025-12-01');
+export const MOCK_FRED_IG_OAS: FredObservationPoint[] = generateFredSeries(95, 8, -0.1, 105, '2025-12-01');
 
 // ── Composite Score History (monthly S_t over 24 months) ──
 
-export const MOCK_COMPOSITE_HISTORY: { month: string; score: number }[] = [
+export const MOCK_COMPOSITE_HISTORY: CompositeScorePoint[] = [
   { month: '2024-04', score: 1 }, { month: '2024-05', score: 2 }, { month: '2024-06', score: 2 },
   { month: '2024-07', score: 1 }, { month: '2024-08', score: 0 }, { month: '2024-09', score: -1 },
   { month: '2024-10', score: -2 }, { month: '2024-11', score: -1 }, { month: '2024-12', score: 0 },

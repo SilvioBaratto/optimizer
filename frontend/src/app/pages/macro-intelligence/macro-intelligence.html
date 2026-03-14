@@ -2,6 +2,30 @@
   <!-- Header -->
   <app-page-header title="Macro Intelligence" subtitle="Daily macro regime briefing and decision support">
     <div actions class="flex items-center gap-2">
+      <button
+        type="button"
+        (click)="refreshData()"
+        [disabled]="isRefreshing()"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-data-xs font-medium
+               bg-surface-raised border border-border text-text-secondary
+               hover:border-text-tertiary hover:text-text transition-colors
+               disabled:opacity-50 disabled:cursor-not-allowed"
+        [attr.aria-label]="isRefreshing() ? 'Refreshing data...' : 'Refresh macro data'">
+        @if (isRefreshing()) {
+          <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+          Refreshing...
+        } @else {
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/>
+          </svg>
+          Refresh Data
+        }
+      </button>
       <span
         class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-data-xs font-medium bg-accent/15 text-accent">
         <span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse motion-reduce:animate-none"></span>
@@ -76,34 +100,28 @@
             <span class="w-1.5 h-1.5 rounded-full" [class]="regimeDotClass()"></span>
             {{ currentPhaseLabel() }}
           </span>
-          @if (macroCalibration(); as cal) {
           <span class="text-data-xs text-text-tertiary font-mono">
-            conf {{ (cal.confidence * 100).toFixed(0) }}%
+            conf {{ (effectiveCalibration().confidence * 100).toFixed(0) }}%
           </span>
-          }
         </div>
-        @if (macroCalibration(); as cal) {
         <p class="text-data-xs text-text-tertiary font-mono leading-snug">
-          {{ cal.rationale }}
+          {{ effectiveCalibration().rationale }}
         </p>
-        }
       </div>
 
       <div class="h-px lg:h-8 lg:w-px bg-border-muted"></div>
 
       <!-- Right: BL params -->
-      @if (macroCalibration(); as cal) {
       <div class="flex gap-4 shrink-0">
         <div class="text-center">
           <p class="text-label text-text-tertiary font-mono">&delta;</p>
-          <p class="text-data-sm font-mono font-semibold text-text tabular-nums">{{ cal.delta.toFixed(2) }}</p>
+          <p class="text-data-sm font-mono font-semibold text-text tabular-nums">{{ effectiveCalibration().delta.toFixed(2) }}</p>
         </div>
         <div class="text-center">
           <p class="text-label text-text-tertiary font-mono">&tau;</p>
-          <p class="text-data-sm font-mono font-semibold text-text tabular-nums">{{ cal.tau.toFixed(3) }}</p>
+          <p class="text-data-sm font-mono font-semibold text-text tabular-nums">{{ effectiveCalibration().tau.toFixed(3) }}</p>
         </div>
       </div>
-      }
     </div>
   </div>
 
@@ -240,7 +258,15 @@
 
     <!-- Tab 1: Macro Brief -->
     @if (activeIntelTab() === 'macro-brief') {
-    @if (macroCalibration(); as cal) {
+    @if (effectiveCalibration(); as cal) {
+    @if (macroCalibration() === null) {
+    <div class="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-warning/10 border border-warning/30 text-data-xs text-warning">
+      <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+      </svg>
+      LLM unavailable — calibration values are phase defaults, not AI-generated.
+    </div>
+    }
     <div class="space-y-4">
       <!-- Full rationale -->
       <div>

@@ -11,6 +11,7 @@ from app.repositories.macro_regime_repository import MacroRegimeRepository
 from app.schemas.macro_regime import (
     BondYieldResponse,
     CountryMacroSummary,
+    EconomicIndicatorObservationResponse,
     EconomicIndicatorResponse,
     FredFetchRequest,
     FredObservationResponse,
@@ -20,6 +21,7 @@ from app.schemas.macro_regime import (
     MacroNewsFetchRequest,
     MacroNewsResponse,
     TradingEconomicsIndicatorResponse,
+    TradingEconomicsObservationResponse,
 )
 from app.services.background_job import BackgroundJobService
 from app.services.macro_regime_service import MacroRegimeService
@@ -27,6 +29,17 @@ from app.services.macro_regime_service import MacroRegimeService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/macro-data", tags=["Macro Data"])
+
+_FORECAST_COLUMNS: frozenset[str] = frozenset({
+    "last_inflation",
+    "inflation_6m",
+    "inflation_10y_avg",
+    "gdp_growth_6m",
+    "earnings_12m",
+    "eps_expected_12m",
+    "peg_ratio",
+    "lt_rate_forecast",
+})
 
 # Shared job service instance for this router
 _job_service = BackgroundJobService()
@@ -349,12 +362,125 @@ def get_fred_observations(
     repo: MacroRegimeRepository = Depends(_get_repo),
 ):
     """Query stored FRED observations with optional filters."""
-    obs = repo.get_fred_observations(
+    if series_id is not None:
+        from app.services.scrapers.fred_scraper import FRED_SERIES
+
+        if series_id not in FRED_SERIES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Unknown FRED series_id: '{series_id}'. "
+                    f"Valid IDs: {sorted(FRED_SERIES)}"
+                ),
+            )
+    return repo.get_fred_observations(
         series_id=series_id,
         start_date=start_date,
         end_date=end_date,
+        limit=limit,
     )
-    return list(obs)[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Trading Economics time-series endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/te-observations",
+    response_model=list[TradingEconomicsObservationResponse],
+)
+def get_te_observations(
+    country: str | None = Query(default=None, description="Filter by country (e.g. USA, UK)"),
+    indicator_keys: list[str] | None = Query(
+        default=None, description="Filter by indicator keys (e.g. manufacturing_pmi)"
+    ),
+    start_date: date | None = Query(default=None, description="Start date YYYY-MM-DD"),
+    end_date: date | None = Query(default=None, description="End date YYYY-MM-DD"),
+    limit: int = Query(default=500, le=10_000, description="Max rows to return"),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Query stored Trading Economics observations with optional filters."""
+    rows = repo.get_te_observations(
+        country=country,
+        indicator_keys=indicator_keys,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return rows[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Economic indicator observations time-series endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/economic-indicator-observations",
+    response_model=list[EconomicIndicatorObservationResponse],
+)
+def get_economic_indicator_observations(
+    country: str | None = Query(
+        default=None, description="Filter by country (e.g. USA, UK)"
+    ),
+    start_date: date | None = Query(
+        default=None, description="Start date YYYY-MM-DD"
+    ),
+    end_date: date | None = Query(default=None, description="End date YYYY-MM-DD"),
+    limit: int = Query(default=500, le=10_000, description="Max rows to return"),
+    columns: list[str] | None = Query(
+        default=None,
+        description=(
+            "Forecast columns to include in each row. Allowed values: "
+            "last_inflation, inflation_6m, inflation_10y_avg, gdp_growth_6m, "
+            "earnings_12m, eps_expected_12m, peg_ratio, lt_rate_forecast. "
+            "Omit this parameter to return all columns."
+        ),
+    ),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Query IlSole24Ore forecast observations with optional column filter.
+
+    Use the ``columns`` parameter to select a subset of the 8 forecast
+    columns per row.  Identity fields (id, country, date, reference_date,
+    created_at, updated_at) are always included.
+    """
+    if columns:
+        invalid = set(columns) - _FORECAST_COLUMNS
+        if invalid:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Unknown column(s): {sorted(invalid)}. "
+                    f"Allowed: {sorted(_FORECAST_COLUMNS)}"
+                ),
+            )
+
+    rows = repo.get_economic_indicator_observations(
+        country=country,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    rows = list(rows)[:limit]
+
+    if not columns:
+        return rows
+
+    requested: set[str] = set(columns)
+    result = []
+    for row in rows:
+        row_dict: dict = {
+            "id": row.id,
+            "country": row.country,
+            "date": row.date,
+            "reference_date": row.reference_date,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+        for col in requested:
+            row_dict[col] = getattr(row, col)
+        result.append(row_dict)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -479,3 +605,48 @@ def get_macro_news_themes():
         {"value": t.value, "label": t.value.replace("_", " ").title()}
         for t in MacroTheme
     ]
+
+
+# ---------------------------------------------------------------------------
+# FRED catalog endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get("/fred/catalog")
+def get_fred_catalog():
+    """Return the static FRED series registry with group metadata."""
+    from app.services.scrapers.fred_scraper import (
+        FRED_CLI_SERIES,
+        FRED_RECESSION_SERIES,
+        FRED_SERIES,
+        FRED_SPREAD_SERIES,
+        FRED_VOLATILITY_SERIES,
+    )
+
+    group_map: dict[str, str] = {}
+    for sid in FRED_SPREAD_SERIES:
+        group_map[sid] = "spreads"
+    for sid in FRED_VOLATILITY_SERIES:
+        group_map[sid] = "volatility"
+    for sid in FRED_CLI_SERIES:
+        group_map[sid] = "cli"
+    for sid in FRED_RECESSION_SERIES:
+        group_map[sid] = "recession"
+
+    return [
+        {"series_id": sid, "description": desc, "group": group_map.get(sid, "other")}
+        for sid, desc in FRED_SERIES.items()
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Distinct countries endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get("/countries", response_model=list[str])
+def get_distinct_countries(
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Return a sorted deduplicated list of all countries with stored macro data."""
+    return repo.get_distinct_countries()

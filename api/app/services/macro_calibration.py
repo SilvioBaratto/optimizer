@@ -156,7 +156,7 @@ def _clamp_confidence(value: float) -> float:
 
 def classify_macro_regime(
     session: Session,
-    country: str = "United States",
+    country: str = "USA",
     macro_summary_override: str | None = None,
 ) -> CalibrationResult:
     """Classify business cycle phase and return calibrated (δ, τ) for Black-Litterman.

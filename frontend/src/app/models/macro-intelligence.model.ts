@@ -68,6 +68,12 @@ export interface BondYieldSnapshot {
   curve: BondYieldCurvePoint[];
 }
 
+export interface CompositeScorePoint {
+  month: string;
+  /** Integer score on the [-3, +3] discrete scale. */
+  score: number;
+}
+
 export interface IndicatorCardConfig {
   label: string;
   seriesId: string;
@@ -76,4 +82,20 @@ export interface IndicatorCardConfig {
   bullAbove: boolean;
   unit: string;
   sparklineDays: number;
+}
+
+export interface MacroJobCreateResponse {
+  job_id: string;
+  status: string;
+  message: string;
+}
+
+export interface MacroJobProgress {
+  job_id: string;
+  status: string;
+  current: number;
+  total: number;
+  errors: string[];
+  result: unknown | null;
+  error: string | null;
 }

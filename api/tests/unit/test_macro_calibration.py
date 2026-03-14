@@ -430,11 +430,11 @@ class TestMacroCalibrationEndpoint:
 
         assert resp.status_code == 502
 
-    def test_default_country_is_united_states(self, client: TestClient) -> None:
+    def test_default_country_is_usa(self, client: TestClient) -> None:
         mock_result = self._make_service_result()
         captured: dict = {}
 
-        def _capture(session, country="United States", macro_summary_override=None):
+        def _capture(session, country="USA", macro_summary_override=None):
             captured["country"] = country
             return mock_result
 
@@ -442,7 +442,7 @@ class TestMacroCalibrationEndpoint:
             resp = client.get(URL, params={"macro_text": "GDP: 2.5%."})
 
         assert resp.status_code == 200
-        assert captured["country"] == "United States"
+        assert captured["country"] == "USA"
 
     def test_custom_country_passed_through(self, client: TestClient) -> None:
         mock_result = self._make_service_result()
