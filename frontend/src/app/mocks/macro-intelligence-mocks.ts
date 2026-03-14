@@ -58,7 +58,7 @@ export const MOCK_FRED_VIX: FredObservationPoint[] = generateFredSeries(16, 3, -
 
 export const MOCK_COUNTRY_DATA: CountryMacroData[] = [
   {
-    country: 'United States',
+    country: 'USA',
     country_code: 'US',
     gdp_growth: 2.8,
     inflation: 2.4,
@@ -94,7 +94,7 @@ export const MOCK_COUNTRY_DATA: CountryMacroData[] = [
     yield_sparkline: [3.0, 3.05, 3.1, 3.08, 3.12, 3.18, 3.15, 3.2, 3.17, 3.14, 3.12, 3.15],
   },
   {
-    country: 'United Kingdom',
+    country: 'UK',
     country_code: 'GB',
     gdp_growth: 1.1,
     inflation: 2.6,
