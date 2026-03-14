@@ -15,9 +15,8 @@ import { finalize } from 'rxjs';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
-import { MockFetchService } from '../../services/mock-fetch.service';
 import { MacroIntelligenceService } from '../../services/macro-intelligence.service';
-import { SECTOR_ROTATION_TABLE } from '../../mocks/macro-intelligence-mocks';
+import { SECTOR_ROTATION_TABLE } from '../../constants/macro-intelligence.constants';
 import { PHASE_DEFAULTS, COMPOSITE_SCORE_THRESHOLDS, COMPOSITE_CHART_AXIS } from '../../constants/macro-intelligence.constants';
 import type {
   MacroCalibrationResponse,
@@ -55,7 +54,6 @@ const PHASE_LABELS: Record<BusinessCyclePhase, string> = {
 })
 export class MacroIntelligenceComponent implements OnDestroy {
   private readonly macroService = inject(MacroIntelligenceService);
-  private readonly mockFetch = inject(MockFetchService);
   private readonly destroyRef = inject(DestroyRef);
 
   // ── Loading ──
@@ -194,6 +192,15 @@ export class MacroIntelligenceComponent implements OnDestroy {
       rationale: 'LLM unavailable — using phase defaults',
       macro_summary: '',
       timestamp: new Date().toISOString(),
+      bl_config: {
+        views: [],
+        tau: defaults.tau,
+        prior_config: {
+          mu_estimator: 'equilibrium',
+          risk_aversion: defaults.delta,
+          cov_estimator: 'ledoit_wolf',
+        },
+      },
     };
   });
 

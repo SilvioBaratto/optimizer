@@ -13,6 +13,7 @@ Endpoints covered:
   GET /api/v1/macro-data/fred/catalog                       -- get_fred_catalog
   GET /api/v1/macro-data/countries                          -- get_distinct_countries
   GET /api/v1/macro-data/economic-indicator-observations    -- get_economic_indicator_observations
+  GET /api/v1/macro-data/bond-yield-observations            -- get_bond_yield_observations
 """
 
 from __future__ import annotations
@@ -111,6 +112,22 @@ def _make_econ_obs(
     obj.peg_ratio = 1.8
     obj.lt_rate_forecast = 4.2
     obj.reference_date = datetime.date(2024, 1, 1)
+    obj.created_at = datetime.datetime(2024, 1, 15, 12, 0, tzinfo=datetime.timezone.utc)
+    obj.updated_at = datetime.datetime(2024, 1, 15, 12, 0, tzinfo=datetime.timezone.utc)
+    return obj
+
+
+def _make_bond_yield_obs(
+    country: str = "USA",
+    maturity: str = "10Y",
+    yield_value: float = 4.25,
+) -> MagicMock:
+    obj = MagicMock()
+    obj.id = uuid.uuid4()
+    obj.country = country
+    obj.maturity = maturity
+    obj.date = datetime.date(2024, 1, 15)
+    obj.yield_value = yield_value
     obj.created_at = datetime.datetime(2024, 1, 15, 12, 0, tzinfo=datetime.timezone.utc)
     obj.updated_at = datetime.datetime(2024, 1, 15, 12, 0, tzinfo=datetime.timezone.utc)
     return obj
@@ -728,3 +745,98 @@ class TestGetEconomicIndicatorObservations:
         assert item["country"] == "USA"
         assert item["date"] == "2024-03-01"
         assert item["last_inflation"] == pytest.approx(3.1)
+
+
+# ===========================================================================
+# GET /api/v1/macro-data/bond-yield-observations
+# ===========================================================================
+
+
+class TestGetBondYieldObservations:
+    URL = f"{BASE_URL}/bond-yield-observations"
+
+    def test_no_filters_returns_all(self, client: TestClient) -> None:
+        obs = [
+            _make_bond_yield_obs("USA", "10Y"),
+            _make_bond_yield_obs("UK", "2Y", 4.85),
+        ]
+        mock_repo = _make_mock_repo(get_bond_yield_observations=obs)
+        with _patch_repo(mock_repo):
+            resp = client.get(self.URL)
+        assert resp.status_code == 200
+        assert len(resp.json()) == 2
+
+    def test_country_filter_forwarded(self, client: TestClient) -> None:
+        mock_repo = _make_mock_repo(
+            get_bond_yield_observations=[_make_bond_yield_obs("USA")]
+        )
+        with _patch_repo(mock_repo):
+            client.get(self.URL, params={"country": "USA"})
+        call_kw = mock_repo.get_bond_yield_observations.call_args.kwargs
+        assert call_kw["country"] == "USA"
+
+    def test_maturities_filter_forwarded(self, client: TestClient) -> None:
+        mock_repo = _make_mock_repo()
+        with _patch_repo(mock_repo):
+            client.get(self.URL, params={"maturities": ["2Y", "10Y"]})
+        call_kw = mock_repo.get_bond_yield_observations.call_args.kwargs
+        assert call_kw["maturities"] == ["2Y", "10Y"]
+
+    def test_date_range_forwarded(self, client: TestClient) -> None:
+        mock_repo = _make_mock_repo()
+        with _patch_repo(mock_repo):
+            client.get(
+                self.URL,
+                params={"start_date": "2024-01-01", "end_date": "2024-03-31"},
+            )
+        call_kw = mock_repo.get_bond_yield_observations.call_args.kwargs
+        assert call_kw["start_date"] == datetime.date(2024, 1, 1)
+        assert call_kw["end_date"] == datetime.date(2024, 3, 31)
+
+    def test_limit_slices_result(self, client: TestClient) -> None:
+        obs_list = [_make_bond_yield_obs("USA", f"{i}Y") for i in range(10)]
+        mock_repo = _make_mock_repo(get_bond_yield_observations=obs_list)
+        with _patch_repo(mock_repo):
+            resp = client.get(self.URL, params={"limit": 3})
+        assert len(resp.json()) == 3
+
+    def test_default_limit_is_500(self, client: TestClient) -> None:
+        obs_list = [_make_bond_yield_obs("USA") for _ in range(5)]
+        mock_repo = _make_mock_repo(get_bond_yield_observations=obs_list)
+        with _patch_repo(mock_repo):
+            resp = client.get(self.URL)
+        assert len(resp.json()) == 5
+
+    def test_response_contains_correct_fields(self, client: TestClient) -> None:
+        obs = _make_bond_yield_obs("USA", "10Y", 4.25)
+        mock_repo = _make_mock_repo(get_bond_yield_observations=[obs])
+        with _patch_repo(mock_repo):
+            resp = client.get(self.URL)
+        item = resp.json()[0]
+        assert item["country"] == "USA"
+        assert item["maturity"] == "10Y"
+        assert item["date"] == "2024-01-15"
+        assert item["yield_value"] == pytest.approx(4.25)
+
+    def test_empty_result_returns_empty_list(self, client: TestClient) -> None:
+        mock_repo = _make_mock_repo(get_bond_yield_observations=[])
+        with _patch_repo(mock_repo):
+            resp = client.get(self.URL)
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_no_country_filter_passes_none_to_repo(self, client: TestClient) -> None:
+        mock_repo = _make_mock_repo()
+        with _patch_repo(mock_repo):
+            client.get(self.URL)
+        call_kw = mock_repo.get_bond_yield_observations.call_args.kwargs
+        assert call_kw["country"] is None
+
+    def test_no_maturities_filter_passes_none_to_repo(
+        self, client: TestClient
+    ) -> None:
+        mock_repo = _make_mock_repo()
+        with _patch_repo(mock_repo):
+            client.get(self.URL)
+        call_kw = mock_repo.get_bond_yield_observations.call_args.kwargs
+        assert call_kw["maturities"] is None

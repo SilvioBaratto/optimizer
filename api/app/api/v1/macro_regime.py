@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.database import database_manager, get_db
 from app.repositories.macro_regime_repository import MacroRegimeRepository
 from app.schemas.macro_regime import (
+    BondYieldObservationResponse,
     BondYieldResponse,
     CountryMacroSummary,
     EconomicIndicatorObservationResponse,
@@ -404,6 +405,30 @@ def get_te_observations(
     rows = repo.get_te_observations(
         country=country,
         indicator_keys=indicator_keys,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return rows[:limit]
+
+
+@router.get(
+    "/bond-yield-observations",
+    response_model=list[BondYieldObservationResponse],
+)
+def get_bond_yield_observations(
+    country: str | None = Query(default=None, description="Filter by country (e.g. USA, UK)"),
+    maturities: list[str] | None = Query(
+        default=None, description="Filter by maturities (e.g. 2Y, 10Y)"
+    ),
+    start_date: date | None = Query(default=None, description="Start date YYYY-MM-DD"),
+    end_date: date | None = Query(default=None, description="End date YYYY-MM-DD"),
+    limit: int = Query(default=500, le=10_000, description="Max rows to return"),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Query stored bond yield observations with optional filters."""
+    rows = repo.get_bond_yield_observations(
+        country=country,
+        maturities=maturities,
         start_date=start_date,
         end_date=end_date,
     )
