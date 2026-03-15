@@ -1,4 +1,5 @@
 import { Component, signal, computed, inject, ChangeDetectionStrategy } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
@@ -21,6 +22,7 @@ import type { RebalancingPolicy } from '../../models/rebalancing.model';
 @Component({
   selector: 'app-rebalancing',
   imports: [
+    LucideAngularModule,
     PageHeaderComponent,
     TabGroupComponent,
     StatCardComponent,

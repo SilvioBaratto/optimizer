@@ -10,6 +10,7 @@ import {
   effect,
   OnDestroy,
 } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { finalize } from 'rxjs';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
@@ -46,6 +47,7 @@ const PHASE_LABELS: Record<BusinessCyclePhase, string> = {
 @Component({
   selector: 'app-macro-intelligence',
   imports: [
+    LucideAngularModule,
     PageHeaderComponent,
     TabGroupComponent,
     StatCardComponent,

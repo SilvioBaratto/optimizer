@@ -9,6 +9,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { LucideAngularModule } from 'lucide-angular';
 import { GlobalSearchService } from './global-search.service';
 import { NAV_GROUPS } from '../sidebar/nav-data';
 
@@ -20,6 +21,7 @@ interface SearchResult {
 
 @Component({
   selector: 'app-global-search',
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './global-search.html',
   host: {

@@ -1,5 +1,6 @@
 import { Component, input, output, computed, signal, inject, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { LucideAngularModule } from 'lucide-angular';
 import { FormatService } from '../../services/format.service';
 
 export interface TableColumn {
@@ -21,7 +22,7 @@ const NUMERIC_TYPES = new Set(['number', 'percentage', 'currency', 'bps', 'ratio
 
 @Component({
   selector: 'app-data-table',
-  imports: [FormsModule],
+  imports: [FormsModule, LucideAngularModule],
   templateUrl: './data-table.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

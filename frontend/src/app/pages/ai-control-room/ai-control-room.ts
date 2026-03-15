@@ -6,6 +6,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { LucideAngularModule } from 'lucide-angular';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
@@ -53,6 +54,7 @@ const TYPE_BADGE: Record<string, { value: string; colorClass: string }> = {
 @Component({
   selector: 'app-ai-control-room',
   imports: [
+    LucideAngularModule,
     DatePipe,
     PageHeaderComponent,
     TabGroupComponent,

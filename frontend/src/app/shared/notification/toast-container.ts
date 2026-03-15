@@ -1,8 +1,10 @@
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import { NotificationService, NotificationLevel } from './notification.service';
 
 @Component({
   selector: 'app-toast-container',
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div role="status" aria-live="polite" aria-atomic="false" class="fixed bottom-4 right-4 z-[var(--z-toast,400)] flex flex-col gap-2 w-80">
@@ -13,9 +15,7 @@ import { NotificationService, NotificationLevel } from './notification.service';
           <button (click)="notificationService.dismiss(toast.id)"
                   class="shrink-0 p-0.5 text-text-tertiary hover:text-text transition-colors"
                   aria-label="Dismiss">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <i-lucide name="x" />
           </button>
         </div>
       }

@@ -9,12 +9,14 @@ import {
   ChangeDetectionStrategy,
   AfterViewChecked,
 } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import { ModalService } from './modal.service';
 
 const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
 @Component({
   selector: 'app-modal-container',
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '(document:keydown.escape)': 'modalService.close()',
@@ -39,9 +41,7 @@ const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea, input, se
               <button (click)="modalService.close()"
                       class="p-1 text-text-tertiary hover:text-text rounded transition-colors"
                       aria-label="Close">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <i-lucide name="x" [size]="20" />
               </button>
             </div>
           }

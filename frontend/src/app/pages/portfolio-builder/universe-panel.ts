@@ -8,13 +8,14 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { LucideAngularModule } from 'lucide-angular';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { UniverseTicker } from '../../models/portfolio-builder.model';
 import { FormatService } from '../../services/format.service';
 
 @Component({
   selector: 'app-universe-panel',
-  imports: [FormsModule, DataTableComponent],
+  imports: [FormsModule, DataTableComponent, LucideAngularModule],
   templateUrl: './universe-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

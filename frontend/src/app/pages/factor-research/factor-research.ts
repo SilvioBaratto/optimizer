@@ -1,4 +1,5 @@
 import { Component, signal, computed, inject, ChangeDetectionStrategy } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
@@ -20,6 +21,7 @@ import {
 @Component({
   selector: 'app-factor-research',
   imports: [
+    LucideAngularModule,
     PageHeaderComponent,
     TabGroupComponent,
     StatCardComponent,

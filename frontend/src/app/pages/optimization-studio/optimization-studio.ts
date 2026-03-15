@@ -1,4 +1,5 @@
 import { Component, signal, inject, ChangeDetectionStrategy } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import { ModalService } from '../../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../../shared/modal/export-report-modal';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
@@ -16,6 +17,7 @@ import { MOCK_PIPELINE_NODES } from '../../mocks/optimization-mocks';
 @Component({
   selector: 'app-optimization-studio',
   imports: [
+    LucideAngularModule,
     PageHeaderComponent,
     ProgressBarComponent,
     PipelineBuilderComponent,

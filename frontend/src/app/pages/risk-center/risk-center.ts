@@ -1,4 +1,5 @@
 import { Component, signal, computed, inject, ChangeDetectionStrategy } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import { ModalService } from '../../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../../shared/modal/export-report-modal';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
@@ -29,6 +30,7 @@ import type { VaRMethod, RiskAlert, RiskLimit } from '../../models/risk.model';
 @Component({
   selector: 'app-risk-center',
   imports: [
+    LucideAngularModule,
     PageHeaderComponent,
     TabGroupComponent,
     StatCardComponent,

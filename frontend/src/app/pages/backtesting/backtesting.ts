@@ -9,6 +9,7 @@ import {
   OnDestroy,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
@@ -37,6 +38,7 @@ interface MetricsRow {
 @Component({
   selector: 'app-backtesting',
   imports: [
+    LucideAngularModule,
     PageHeaderComponent,
     TabGroupComponent,
     StatCardComponent,

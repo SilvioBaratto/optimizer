@@ -1,6 +1,7 @@
 import { Component, signal, computed, inject, ChangeDetectionStrategy } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
 import { trigger, transition, style, animate } from '@angular/animations';
+import { LucideAngularModule } from 'lucide-angular';
 import { SidebarComponent } from '../sidebar/sidebar';
 import { ToastContainerComponent } from '../notification/toast-container';
 import { ModalContainerComponent } from '../modal/modal-container';
@@ -33,6 +34,7 @@ const PAGE_ROUTES = [
   selector: 'app-layout',
   imports: [
     RouterOutlet,
+    LucideAngularModule,
     SidebarComponent,
     ToastContainerComponent,
     ModalContainerComponent,

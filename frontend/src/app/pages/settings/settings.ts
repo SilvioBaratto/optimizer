@@ -7,6 +7,7 @@ import {
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
+import { LucideAngularModule } from 'lucide-angular';
 import { MockFetchService } from '../../services/mock-fetch.service';
 import { NotificationService } from '../../shared/notification/notification.service';
 import { MOCK_DATA_SOURCES } from '../../mocks/settings-mocks';
@@ -17,6 +18,7 @@ import { MOCK_DATA_SOURCES } from '../../mocks/settings-mocks';
     PageHeaderComponent,
     TabGroupComponent,
     DataTableComponent,
+    LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './settings.html',

@@ -16,10 +16,7 @@
   } @else if (hasError()) {
   <!-- Error state -->
   <div class="flex flex-col items-center justify-center py-20 px-4">
-    <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-      <path stroke-linecap="round" stroke-linejoin="round"
-        d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-    </svg>
+    <i-lucide name="triangle-alert" [size]="48" class="text-loss mb-4" />
     <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
     <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
     <button (click)="retry()"
@@ -48,11 +45,7 @@
       <h3 class="text-data-sm font-medium text-text mb-3">Import Data</h3>
       <div
         class="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-accent/50 transition-colors cursor-pointer">
-        <svg class="mx-auto w-10 h-10 text-text-tertiary mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round"
-            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-        </svg>
+        <i-lucide name="upload" [size]="40" class="mx-auto text-text-tertiary mb-3" />
         <p class="text-data-sm text-text-secondary">Drop CSV or Excel files here</p>
         <p class="text-label text-text-tertiary mt-1">Supports .csv, .xlsx, .xls formats</p>
       </div>

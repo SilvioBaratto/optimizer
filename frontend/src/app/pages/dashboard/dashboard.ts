@@ -10,6 +10,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { LucideAngularModule } from 'lucide-angular';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
@@ -33,7 +34,7 @@ import {
 
 @Component({
   selector: 'app-dashboard',
-  imports: [RouterLink, StatCardComponent, PageHeaderComponent, EchartsSunburstComponent],
+  imports: [RouterLink, LucideAngularModule, StatCardComponent, PageHeaderComponent, EchartsSunburstComponent],
   templateUrl: './dashboard.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

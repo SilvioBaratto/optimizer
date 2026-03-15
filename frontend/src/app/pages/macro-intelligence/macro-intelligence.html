@@ -12,17 +12,10 @@
                disabled:opacity-50 disabled:cursor-not-allowed"
         [attr.aria-label]="isRefreshing() ? 'Refreshing data...' : 'Refresh macro data'">
         @if (isRefreshing()) {
-          <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-            <path class="opacity-75" fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-          </svg>
+          <i-lucide name="loader-2" [size]="14" class="animate-spin" />
           Refreshing...
         } @else {
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round"
-              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/>
-          </svg>
+          <i-lucide name="refresh-cw" [size]="14" />
           Refresh Data
         }
       </button>
@@ -53,10 +46,7 @@
   } @else if (hasError()) {
   <!-- Error state -->
   <div class="flex flex-col items-center justify-center py-20 px-4">
-    <svg class="w-12 h-12 text-loss mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-      <path stroke-linecap="round" stroke-linejoin="round"
-        d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-    </svg>
+    <i-lucide name="triangle-alert" [size]="48" class="text-loss mb-4" />
     <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
     <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
     <button (click)="retry()"
@@ -261,9 +251,7 @@
     @if (effectiveCalibration(); as cal) {
     @if (macroCalibration() === null) {
     <div class="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-warning/10 border border-warning/30 text-data-xs text-warning">
-      <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" aria-hidden="true">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
-      </svg>
+      <i-lucide name="info" [size]="14" class="shrink-0" />
       LLM unavailable — calibration values are phase defaults, not AI-generated.
     </div>
     }

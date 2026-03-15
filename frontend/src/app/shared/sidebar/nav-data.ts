@@ -1,15 +1,15 @@
 export type NavIcon =
-  | 'dashboard'
+  | 'layout-dashboard'
   | 'briefcase'
-  | 'chart-pie'
+  | 'pie-chart'
   | 'clock'
-  | 'shield-exclamation'
-  | 'beaker'
-  | 'arrows-right-left'
-  | 'chart-bar-square'
-  | 'cpu-chip'
-  | 'globe-alt'
-  | 'cog-6-tooth';
+  | 'shield-alert'
+  | 'flask-conical'
+  | 'arrow-left-right'
+  | 'bar-chart-3'
+  | 'cpu'
+  | 'globe'
+  | 'settings';
 
 export interface NavItem {
   name: string;
@@ -27,37 +27,37 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Portfolio',
     items: [
-      { name: 'Dashboard', route: '/', icon: 'dashboard' },
+      { name: 'Dashboard', route: '/', icon: 'layout-dashboard' },
       { name: 'Portfolio Builder', route: '/portfolio-builder', icon: 'briefcase' },
-      { name: 'Rebalancing', route: '/rebalancing', icon: 'arrows-right-left' },
+      { name: 'Rebalancing', route: '/rebalancing', icon: 'arrow-left-right' },
     ],
   },
   {
     label: 'Analysis',
     items: [
-      { name: 'Optimization Studio', route: '/optimization-studio', icon: 'chart-pie' },
+      { name: 'Optimization Studio', route: '/optimization-studio', icon: 'pie-chart' },
       { name: 'Backtesting Lab', route: '/backtesting', icon: 'clock' },
-      { name: 'Performance Attribution', route: '/attribution', icon: 'chart-bar-square' },
+      { name: 'Performance Attribution', route: '/attribution', icon: 'bar-chart-3' },
     ],
   },
   {
     label: 'Risk & Research',
     items: [
-      { name: 'Risk Center', route: '/risk-center', icon: 'shield-exclamation' },
-      { name: 'Factor & Research', route: '/factor-research', icon: 'beaker' },
-      { name: 'Macro Intelligence', route: '/macro-intelligence', icon: 'globe-alt' },
+      { name: 'Risk Center', route: '/risk-center', icon: 'shield-alert' },
+      { name: 'Factor & Research', route: '/factor-research', icon: 'flask-conical' },
+      { name: 'Macro Intelligence', route: '/macro-intelligence', icon: 'globe' },
     ],
   },
   {
     label: 'AI',
     items: [
-      { name: 'AI Control Room', route: '/ai-control-room', icon: 'cpu-chip' },
+      { name: 'AI Control Room', route: '/ai-control-room', icon: 'cpu' },
     ],
   },
   {
     label: 'Settings',
     items: [
-      { name: 'Settings', route: '/settings', icon: 'cog-6-tooth' },
+      { name: 'Settings', route: '/settings', icon: 'settings' },
     ],
     pinBottom: true,
   },

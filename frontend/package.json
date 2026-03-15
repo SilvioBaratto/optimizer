@@ -31,6 +31,7 @@
     "@angular/router": "^21.1.0",
     "echarts": "^5",
     "lightweight-charts": "^5",
+    "lucide-angular": "^0.577.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },

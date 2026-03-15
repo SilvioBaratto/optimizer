@@ -8,6 +8,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { LucideAngularModule } from 'lucide-angular';
 import { ModalService } from '../../shared/modal/modal.service';
 import { Constraint, UniverseTicker } from '../../models/portfolio-builder.model';
 import { ConstraintModalComponent } from './constraint-modal';
@@ -33,7 +34,7 @@ const SECTOR_COLORS: Record<string, string> = {
 
 @Component({
   selector: 'app-weight-panel',
-  imports: [FormsModule],
+  imports: [FormsModule, LucideAngularModule],
   templateUrl: './weight-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

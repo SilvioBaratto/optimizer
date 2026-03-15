@@ -12,6 +12,7 @@ import { WeightPanelComponent } from './weight-panel';
 import { IpsPanelComponent } from './ips-panel';
 import { MockFetchService } from '../../services/mock-fetch.service';
 import { UniverseTicker, Constraint, IPS } from '../../models/portfolio-builder.model';
+import { LucideAngularModule } from 'lucide-angular';
 import {
   MOCK_UNIVERSE_TICKERS,
   MOCK_CONSTRAINTS_MODERATE,
@@ -20,7 +21,7 @@ import {
 
 @Component({
   selector: 'app-portfolio-builder',
-  imports: [PageHeaderComponent, TabGroupComponent, UniversePanelComponent, WeightPanelComponent, IpsPanelComponent],
+  imports: [PageHeaderComponent, TabGroupComponent, UniversePanelComponent, WeightPanelComponent, IpsPanelComponent, LucideAngularModule],
   templateUrl: './portfolio-builder.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
