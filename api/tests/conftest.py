@@ -13,7 +13,7 @@ from app.database import get_db
 from app.main import app
 from app.models.base import Base
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -41,17 +41,29 @@ def db_session(test_engine) -> Generator[Session, None, None]:
     """
     Create a new database session for each test function.
 
-    Rolls back after each test for isolation.
+    Uses SQLAlchemy's SAVEPOINT pattern so that ``session.commit()``
+    inside tests only releases the savepoint — the outer transaction
+    is rolled back on teardown, keeping the shared in-memory DB clean.
     """
+    connection = test_engine.connect()
+    transaction = connection.begin()
     TestingSessionLocal = sessionmaker(
-        autocommit=False, autoflush=False, bind=test_engine
+        autocommit=False, autoflush=False, bind=connection
     )
     session = TestingSessionLocal()
+    session.begin_nested()
+
+    @event.listens_for(session, "after_transaction_end")
+    def restart_savepoint(sess, trans):
+        if trans.nested and not trans._parent.nested:
+            sess.begin_nested()
+
     try:
         yield session
     finally:
-        session.rollback()
         session.close()
+        transaction.rollback()
+        connection.close()
 
 
 @pytest.fixture(scope="function")

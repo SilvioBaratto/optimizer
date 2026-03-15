@@ -262,6 +262,20 @@ class BamlSyncClient:
                 "news_headlines": news_headlines,"avg_sentiment_score": avg_sentiment_score,"realized_vol_30d": realized_vol_30d,
             })
             return typing.cast(types.CovRegimeSelection, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    def SummarizeCountryNews(self, country: str,news_text: str,
+        baml_options: BamlCallOptions = {},
+    ) -> types.CountryNewsSummary:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            __stream__ = self.stream.SummarizeCountryNews(country=country,news_text=news_text,
+                baml_options=baml_options)
+            return __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="SummarizeCountryNews", args={
+                "country": country,"news_text": news_text,
+            })
+            return typing.cast(types.CountryNewsSummary, __result__.cast_to(types, types, stream_types, False, __runtime__))
     def Test(self, 
         baml_options: BamlCallOptions = {},
     ) -> str:
@@ -429,6 +443,18 @@ class BamlStreamClient:
           lambda x: typing.cast(types.CovRegimeSelection, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
+    def SummarizeCountryNews(self, country: str,news_text: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlSyncStream[stream_types.CountryNewsSummary, types.CountryNewsSummary]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="SummarizeCountryNews", args={
+            "country": country,"news_text": news_text,
+        })
+        return baml_py.BamlSyncStream[stream_types.CountryNewsSummary, types.CountryNewsSummary](
+          __result__,
+          lambda x: typing.cast(stream_types.CountryNewsSummary, x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(types.CountryNewsSummary, x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
     def Test(self, 
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[str, str]:
@@ -533,6 +559,13 @@ class BamlHttpRequestClient:
             "news_headlines": news_headlines,"avg_sentiment_score": avg_sentiment_score,"realized_vol_30d": realized_vol_30d,
         }, mode="request")
         return __result__
+    def SummarizeCountryNews(self, country: str,news_text: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="SummarizeCountryNews", args={
+            "country": country,"news_text": news_text,
+        }, mode="request")
+        return __result__
     def Test(self, 
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
@@ -630,6 +663,13 @@ class BamlHttpStreamRequestClient:
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="SelectCovRegime", args={
             "news_headlines": news_headlines,"avg_sentiment_score": avg_sentiment_score,"realized_vol_30d": realized_vol_30d,
+        }, mode="stream")
+        return __result__
+    def SummarizeCountryNews(self, country: str,news_text: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="SummarizeCountryNews", args={
+            "country": country,"news_text": news_text,
         }, mode="stream")
         return __result__
     def Test(self, 

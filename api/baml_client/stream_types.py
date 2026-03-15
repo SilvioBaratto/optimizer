@@ -23,7 +23,7 @@ class StreamState(BaseModel, typing.Generic[StreamStateValueT]):
     value: StreamStateValueT
     state: typing_extensions.Literal["Pending", "Incomplete", "Complete"]
 # #########################################################################
-# Generated classes (11)
+# Generated classes (12)
 # #########################################################################
 
 class AssetFactorData(BaseModel):
@@ -51,6 +51,11 @@ class AssetView(BaseModel):
     magnitude_bps: typing.Optional[float] = Field(default=None, description='Expected annual excess return in basis points (e.g. 200 = 2% p.a.). Always positive; sign is captured by direction.')
     confidence: typing.Optional[float] = Field(default=None, description='View confidence in (0, 1). Higher = more certain. Maps to Idzorek alpha_k.')
     reasoning: typing.Optional[str] = Field(default=None, description='One-sentence explanation referencing the factor evidence.')
+
+class CountryNewsSummary(BaseModel):
+    summary: typing.Optional[str] = Field(default=None, description='Concise macro summary (3-5 sentences) of the day\'s news for the country. Cover key economic events, policy signals, market reactions, and forward implications. Focus on market-moving themes only.')
+    sentiment: typing.Optional[types.SentimentLabel] = Field(default=None, description='Overall macro sentiment derived from the news.')
+    sentiment_score: typing.Optional[float] = Field(default=None, description='Numeric sentiment score in [-1.0, 1.0]. +1.0 = strongly bullish, -1.0 = strongly bearish, 0.0 = neutral.')
 
 class CovRegimeSelection(BaseModel):
     estimator: typing.Optional[types.CovEstimatorChoice] = Field(default=None, description='Recommended covariance estimator for current conditions.')

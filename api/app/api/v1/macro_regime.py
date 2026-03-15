@@ -21,6 +21,10 @@ from app.schemas.macro_regime import (
     MacroFetchRequest,
     MacroNewsFetchRequest,
     MacroNewsResponse,
+    MacroNewsSummarizeJobResponse,
+    MacroNewsSummarizeProgress,
+    MacroNewsSummarizeRequest,
+    MacroNewsSummaryResponse,
     TradingEconomicsIndicatorResponse,
     TradingEconomicsObservationResponse,
 )
@@ -675,3 +679,131 @@ def get_distinct_countries(
 ):
     """Return a sorted deduplicated list of all countries with stored macro data."""
     return repo.get_distinct_countries()
+
+
+# ---------------------------------------------------------------------------
+# News summary endpoints
+# ---------------------------------------------------------------------------
+
+_summarize_job_service = BackgroundJobService()
+
+
+def _run_news_summarize(job_id: str, request: MacroNewsSummarizeRequest) -> None:
+    """Execute news summarization in a background thread."""
+    from app.services.macro_news_summary import generate_country_summaries
+
+    _summarize_job_service.update_job(job_id, status="running")
+    try:
+        with database_manager.get_session() as session:
+            results = generate_country_summaries(
+                session,
+                force_refresh=request.force_refresh,
+                countries=request.countries,
+            )
+            session.commit()
+            _summarize_job_service.update_job(
+                job_id,
+                status="completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                current=len(results),
+                total=len(results),
+                result={
+                    "countries_summarized": len(results),
+                    "countries": [r.country for r in results],
+                },
+            )
+            logger.info("News summarize %s completed: %d countries", job_id, len(results))
+    except Exception as exc:
+        logger.error("News summarize %s failed: %s", job_id, exc)
+        _summarize_job_service.update_job(
+            job_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=str(exc),
+        )
+
+
+@router.post(
+    "/news/summarize",
+    response_model=MacroNewsSummarizeJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_news_summarize(
+    request: MacroNewsSummarizeRequest = MacroNewsSummarizeRequest(),
+):
+    """Start a background job to generate daily news summaries per country."""
+    running, running_id = _summarize_job_service.is_any_running()
+    if running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A news summarize job is already running (id={running_id})",
+        )
+
+    job_id = _summarize_job_service.create_job(current_country="")
+    _summarize_job_service.start_background(
+        target=_run_news_summarize,
+        args=(job_id, request),
+    )
+
+    return MacroNewsSummarizeJobResponse(
+        job_id=job_id,
+        status="pending",
+        message="News summarize started. Poll GET /macro-data/news/summarize/{job_id}.",
+    )
+
+
+@router.get("/news/summarize/{job_id}", response_model=MacroNewsSummarizeProgress)
+def get_news_summarize_status(job_id: str):
+    """Poll the status of a news summarize background job."""
+    job = _summarize_job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    return MacroNewsSummarizeProgress(
+        job_id=job["job_id"],
+        status=job["status"],
+        current=job.get("current", 0),
+        total=job.get("total", 0),
+        current_country=job.get("current_country", ""),
+        errors=job.get("errors", []),
+        result=job.get("result"),
+        error=job.get("error"),
+    )
+
+
+@router.get(
+    "/news/summaries",
+    response_model=list[MacroNewsSummaryResponse],
+)
+def get_all_news_summaries(
+    summary_date: date | None = Query(
+        default=None, description="Filter by summary date YYYY-MM-DD"
+    ),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """List all daily news summaries, optionally filtered by date."""
+    return repo.get_all_news_summaries(summary_date=summary_date)
+
+
+@router.get(
+    "/news/summaries/{country}",
+    response_model=MacroNewsSummaryResponse,
+)
+def get_country_news_summary(
+    country: str,
+    summary_date: date | None = Query(
+        default=None, description="Filter by summary date YYYY-MM-DD"
+    ),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Get the news summary for a specific country."""
+    result = repo.get_macro_news_summary(country, summary_date)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No news summary found for country '{country}'",
+        )
+    return result

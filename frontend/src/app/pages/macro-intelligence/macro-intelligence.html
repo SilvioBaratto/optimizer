@@ -375,6 +375,45 @@
       </div>
     </div>
     }
+
+    <!-- Tab 3: Country Summary -->
+    @if (activeIntelTab() === 'country-summary') {
+    @if (countrySummaries().length === 0) {
+    <div class="py-8 text-center text-data-xs text-text-tertiary">
+      No country summaries available. Run a refresh to generate them.
+    </div>
+    } @else {
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      @for (c of countryData(); track c.country_code) {
+        @let s = getCountrySummaryFor(c.country_code);
+        <div class="bg-surface-inset border border-border rounded-lg p-3 flex flex-col gap-2">
+          <!-- Header -->
+          <div class="flex items-center justify-between">
+            <span class="text-data-sm font-medium text-text">{{ c.country }}</span>
+            @if (s) {
+            <span class="px-2 py-0.5 rounded-full text-label font-medium" [class]="getSentimentClass(s.sentiment)">
+              {{ getSentimentLabel(s.sentiment) }}
+            </span>
+            }
+          </div>
+
+          @if (s) {
+          <!-- Summary -->
+          <p class="text-data-xs text-text-secondary leading-relaxed">{{ s.summary ?? 'No summary available.' }}</p>
+
+          <!-- Footer -->
+          <div class="flex items-center justify-between text-label text-text-tertiary font-mono mt-auto pt-1 border-t border-border/50">
+            <span>{{ s.article_count ?? 0 }} articles</span>
+            <span>{{ s.summary_date }}</span>
+          </div>
+          } @else {
+          <p class="text-data-xs text-text-tertiary italic">No summary for this country.</p>
+          }
+        </div>
+      }
+    </div>
+    }
+    }
   </div>
 
   }

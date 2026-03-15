@@ -87,32 +87,40 @@ def _build_macro_summary(
     repo: MacroRegimeRepository,
     country: str,
 ) -> str:
-    """Assemble a compact textual macro summary for the LLM from DB rows."""
-    lines: list[str] = [f"Country/Region: {country}"]
+    """Assemble a markdown-formatted macro summary for the LLM from DB rows."""
+    sections: list[str] = [f"## {country}"]
 
     # IlSole24Ore forecasts (unique consensus data not in TE)
     indicators = repo.get_economic_indicators(country=country)
+    forecast_rows: list[tuple[str, str]] = []
     for ind in indicators:
-        parts: list[str] = []
         if ind.gdp_growth_6m is not None:
-            parts.append(f"GDP 6m forecast: {ind.gdp_growth_6m:.2f}%")
+            forecast_rows.append(("GDP 6m forecast", f"{ind.gdp_growth_6m:.2f}%"))
         if ind.inflation_6m is not None:
-            parts.append(f"Inflation 6m forecast: {ind.inflation_6m:.1f}%")
+            forecast_rows.append(("Inflation 6m forecast", f"{ind.inflation_6m:.1f}%"))
         if ind.earnings_12m is not None:
-            parts.append(f"Earnings 12m forecast: {ind.earnings_12m:.1f}%")
-        if parts:
-            lines.append("Forecasts: " + ", ".join(parts))
+            forecast_rows.append(("Earnings 12m forecast", f"{ind.earnings_12m:.1f}%"))
+    if forecast_rows:
+        sections.append("### Consensus Forecasts")
+        sections.append("| Indicator | Value |")
+        sections.append("|-----------|-------|")
+        for label, value in forecast_rows:
+            sections.append(f"| {label} | {value} |")
 
     # Trading Economics indicators (PMI, unemployment, CPI, etc.)
     te_rows = repo.get_te_indicators(country=country)
-    te_parts: list[str] = []
+    te_table: list[tuple[str, str, str]] = []
     for row in te_rows:
         if row.indicator_key in _KEY_TE_INDICATORS and row.value is not None:
-            unit = f" {row.unit}" if row.unit else ""
-            label = row.raw_name if row.raw_name else row.indicator_key
-            te_parts.append(f"{label}: {row.value:.2f}{unit}")
-    if te_parts:
-        lines.append("Trading Economics: " + "; ".join(te_parts))
+            label = (row.raw_name if row.raw_name else row.indicator_key).replace("|", "\\|")
+            unit = row.unit if row.unit else ""
+            te_table.append((label, f"{row.value:.2f}", unit))
+    if te_table:
+        sections.append("### Economic Indicators")
+        sections.append("| Indicator | Value | Unit |")
+        sections.append("|-----------|------:|------|")
+        for label, value, unit in te_table:
+            sections.append(f"| {label} | {value} | {unit} |")
 
     # Bond yields — compute 10Y-2Y spread if available
     bond_yields = repo.get_bond_yields(country=country)
@@ -121,15 +129,33 @@ def _build_macro_summary(
         if bond.yield_value is not None:
             yield_map[bond.maturity] = bond.yield_value
     if yield_map:
-        yield_parts = [f"{m}: {v:.2f}%" for m, v in sorted(yield_map.items())]
-        lines.append("Bond yields: " + ", ".join(yield_parts))
+        sections.append("### Bond Yields")
+        sections.append("| Maturity | Yield |")
+        sections.append("|----------|------:|")
+        for m in sorted(yield_map):
+            sections.append(f"| {m} | {yield_map[m]:.2f}% |")
         if "10Y" in yield_map and "2Y" in yield_map:
             spread = yield_map["10Y"] - yield_map["2Y"]
-            lines.append(
-                f"10Y-2Y spread: {spread:+.2f}% ({'steepening' if spread > 0 else 'inverted'})"
-            )
+            signal = "steepening" if spread > 0 else "inverted"
+            sections.append(f"10Y-2Y spread: **{spread:+.2f}%** ({signal})")
 
-    return "\n".join(lines) if len(lines) > 1 else ""
+    # News summary — latest AI-generated sentiment signal (optional)
+    news_summary = repo.get_macro_news_summary(country)
+    if news_summary is not None and (
+        news_summary.sentiment is not None or news_summary.summary is not None
+    ):
+        sections.append("### Recent News Summary")
+        if news_summary.sentiment is not None:
+            score_part = (
+                f" (score: {news_summary.sentiment_score:.2f})"
+                if news_summary.sentiment_score is not None
+                else ""
+            )
+            sections.append(f"Sentiment: {news_summary.sentiment}{score_part}")
+        if news_summary.summary:
+            sections.append(news_summary.summary)
+
+    return "\n".join(sections) if len(sections) > 1 else ""
 
 
 # ---------------------------------------------------------------------------
@@ -158,14 +184,20 @@ def classify_macro_regime(
     session: Session,
     country: str = "USA",
     macro_summary_override: str | None = None,
+    force_refresh: bool = False,
 ) -> CalibrationResult:
     """Classify business cycle phase and return calibrated (δ, τ) for Black-Litterman.
+
+    By default, returns the cached calibration from the ``macro_calibrations``
+    table if one exists.  Set ``force_refresh=True`` to invoke the LLM and
+    persist the fresh result.
 
     Args:
         session: Active SQLAlchemy session.
         country: Country/region name to fetch macro data for.
         macro_summary_override: If provided, skip DB fetch and use this text directly.
             Useful for testing or when passing externally sourced macro context.
+        force_refresh: When True, bypass the cache and call the LLM.
 
     Returns:
         :class:`CalibrationResult` with clamped ``delta``, ``tau``, phase, confidence,
@@ -176,6 +208,21 @@ def classify_macro_regime(
     """
     repo = MacroRegimeRepository(session)
 
+    # ── Return cached result if available ──
+    if not force_refresh and macro_summary_override is None:
+        cached = repo.get_macro_calibration(country)
+        if cached is not None:
+            logger.info("Returning cached calibration for country=%s", country)
+            return CalibrationResult(
+                phase=BusinessCyclePhase(cached.phase),
+                delta=cached.delta,
+                tau=cached.tau,
+                confidence=cached.confidence,
+                rationale=cached.rationale or "",
+                macro_summary=cached.macro_summary or "",
+            )
+
+    # ── Build macro summary ──
     if macro_summary_override is not None:
         macro_summary = macro_summary_override
     else:
@@ -186,6 +233,7 @@ def classify_macro_regime(
                 "Fetch macro data first via POST /api/v1/macro-data/fetch."
             )
 
+    # ── Call LLM ──
     raw: MacroRegimeCalibration = b.ClassifyMacroRegime(macro_summary=macro_summary)
 
     delta = _clamp_delta(raw.delta)
@@ -201,7 +249,7 @@ def classify_macro_regime(
             tau,
         )
 
-    return CalibrationResult(
+    result = CalibrationResult(
         phase=raw.phase,
         delta=delta,
         tau=tau,
@@ -209,6 +257,26 @@ def classify_macro_regime(
         rationale=raw.rationale,
         macro_summary=macro_summary,
     )
+
+    # ── Persist to DB (only for non-override requests) ──
+    if macro_summary_override is None:
+        try:
+            repo.upsert_macro_calibration(
+                country=country,
+                data={
+                    "phase": raw.phase.value,
+                    "delta": delta,
+                    "tau": tau,
+                    "confidence": confidence,
+                    "rationale": raw.rationale,
+                    "macro_summary": macro_summary,
+                },
+            )
+            logger.info("Persisted calibration for country=%s phase=%s", country, raw.phase.value)
+        except Exception:
+            logger.exception("Failed to persist calibration for country=%s (non-fatal)", country)
+
+    return result
 
 
 def build_bl_config_from_calibration(

@@ -238,6 +238,14 @@ class SuccessResponse(BaseModel):
     data: Any | None = None
 
 
+# Import macro regime schemas
+from app.schemas.macro_regime import (
+    MacroNewsSummarizeJobResponse,
+    MacroNewsSummarizeProgress,
+    MacroNewsSummarizeRequest,
+    MacroNewsSummaryResponse,
+)
+
 # Import trading212 schemas
 from app.schemas.trading212 import (
     BuildJobResponse,
@@ -294,6 +302,10 @@ __all__ = [
     "ItemListResponse",
     "ItemResponse",
     "ItemUpdate",
+    "MacroNewsSummarizeJobResponse",
+    "MacroNewsSummarizeProgress",
+    "MacroNewsSummarizeRequest",
+    "MacroNewsSummaryResponse",
     "MessageResponse",
     "MutualFundHolderResponse",
     "PriceHistoryResponse",

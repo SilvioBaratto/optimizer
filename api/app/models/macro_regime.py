@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -222,3 +223,52 @@ class MacroNews(BaseModel):
     themes: Mapped[str | None] = mapped_column(Text, nullable=True)
     snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
     full_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MacroCalibration(BaseModel):
+    """Cached LLM macro regime calibration per country.
+
+    One row per country, storing the most recent BAML ``ClassifyMacroRegime``
+    result so the LLM is not invoked on every page load.  Re-generated when
+    underlying macro data changes (via Refresh Data).
+    """
+
+    __tablename__ = "macro_calibrations"
+    __table_args__ = (
+        UniqueConstraint("country", name="uq_macro_calibration_country"),
+        Index("ix_macro_calibrations_country", "country"),
+    )
+
+    country: Mapped[str] = mapped_column(String(100), nullable=False)
+    phase: Mapped[str] = mapped_column(String(50), nullable=False)
+    delta: Mapped[float] = mapped_column(Float, nullable=False)
+    tau: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    macro_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MacroNewsSummary(BaseModel):
+    """Daily country-level news summary aggregated from MacroNews articles.
+
+    One row per (country, summary_date), storing AI-generated summaries,
+    sentiment analysis, and key themes extracted from the day's news.
+    """
+
+    __tablename__ = "macro_news_summaries"
+    __table_args__ = (
+        UniqueConstraint(
+            "country", "summary_date",
+            name="uq_macro_news_summary_country_date",
+        ),
+        Index("ix_macro_news_summaries_country", "country"),
+        Index("ix_macro_news_summaries_summary_date", "summary_date"),
+    )
+
+    country: Mapped[str] = mapped_column(String(100), nullable=False)
+    summary_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sentiment: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    sentiment_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    article_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    news_summary: Mapped[str | None] = mapped_column(Text, nullable=True)

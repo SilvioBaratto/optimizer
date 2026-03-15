@@ -16,7 +16,9 @@ from app.models.macro_regime import (
     EconomicIndicator,
     EconomicIndicatorObservation,
     FredObservation,
+    MacroCalibration,
     MacroNews,
+    MacroNewsSummary,
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
 )
@@ -524,6 +526,84 @@ class MacroRegimeRepository(RepositoryBase):
         return count
 
     # ------------------------------------------------------------------
+    # Macro News Summaries (AI-generated daily country summaries)
+    # ------------------------------------------------------------------
+
+    def upsert_macro_news_summary(
+        self,
+        country: str,
+        summary_date: datetime.date,
+        data: dict[str, Any],
+    ) -> int:
+        """Insert or update the daily news summary for a country on a given date.
+
+        Args:
+            country: Country name (e.g. "USA").
+            summary_date: The date this summary covers.
+            data: Dict of summary column values (summary, key_themes, etc.).
+
+        Returns:
+            Number of rows processed (always 1).
+        """
+        row: dict[str, Any] = {
+            "id": uuid.uuid4(),
+            "country": country,
+            "summary_date": summary_date,
+            "updated_at": datetime.datetime.now(datetime.timezone.utc),
+            **data,
+        }
+        return self._upsert(
+            MacroNewsSummary,
+            [row],
+            constraint_name="uq_macro_news_summary_country_date",
+            update_columns=[
+                "summary",
+                "sentiment",
+                "sentiment_score",
+                "article_count",
+                "news_summary",
+                "updated_at",
+            ],
+        )
+
+    def get_macro_news_summary(
+        self,
+        country: str,
+        summary_date: datetime.date | None = None,
+    ) -> MacroNewsSummary | None:
+        """Return the latest (or date-specific) news summary for a country, or None."""
+        stmt = select(MacroNewsSummary).where(MacroNewsSummary.country == country)
+        if summary_date is not None:
+            stmt = stmt.where(MacroNewsSummary.summary_date == summary_date)
+        else:
+            stmt = stmt.order_by(MacroNewsSummary.summary_date.desc())
+        return self.session.execute(stmt).scalars().first()
+
+    def get_all_news_summaries(
+        self,
+        summary_date: datetime.date | None = None,
+    ) -> Sequence[MacroNewsSummary]:
+        """Return news summaries for all countries, optionally filtered to a single date."""
+        stmt = select(MacroNewsSummary)
+        if summary_date is not None:
+            stmt = stmt.where(MacroNewsSummary.summary_date == summary_date)
+        stmt = stmt.order_by(
+            MacroNewsSummary.country,
+            MacroNewsSummary.summary_date.desc(),
+        )
+        return self.session.execute(stmt).scalars().all()
+
+    def delete_old_news_summaries(self, before_date: datetime.date) -> int:
+        """Delete news summaries with summary_date before the cutoff. Returns count deleted."""
+        stmt = select(MacroNewsSummary).where(
+            MacroNewsSummary.summary_date < before_date
+        )
+        rows = self.session.execute(stmt).scalars().all()
+        for row in rows:
+            self.session.delete(row)
+        return len(rows)
+
+    # ------------------------------------------------------------------
     # Country Summary
     # ------------------------------------------------------------------
 
@@ -539,6 +619,44 @@ class MacroRegimeRepository(RepositoryBase):
             "te_indicators": self.get_te_indicators(country=country),
             "bond_yields": self.get_bond_yields(country=country),
         }
+
+    # ------------------------------------------------------------------
+    # Macro Calibrations (cached LLM results)
+    # ------------------------------------------------------------------
+
+    def upsert_macro_calibration(
+        self,
+        country: str,
+        data: dict[str, Any],
+    ) -> int:
+        """Insert or update the cached macro calibration for a country.
+
+        Args:
+            country: Country name (e.g. "USA").
+            data: Dict of calibration column values (phase, delta, tau, etc.).
+
+        Returns:
+            Number of rows processed (always 1).
+        """
+        row: dict[str, Any] = {
+            "id": uuid.uuid4(),
+            "country": country,
+            **data,
+        }
+        return self._upsert(
+            MacroCalibration,
+            [row],
+            constraint_name="uq_macro_calibration_country",
+        )
+
+    def get_macro_calibration(self, country: str) -> MacroCalibration | None:
+        """Return the cached calibration for a country, or None."""
+        stmt = select(MacroCalibration).where(MacroCalibration.country == country)
+        return self.session.execute(stmt).scalar_one_or_none()
+
+    # ------------------------------------------------------------------
+    # Aggregate helpers
+    # ------------------------------------------------------------------
 
     def get_distinct_countries(self) -> list[str]:
         """Return a deduplicated sorted list of all countries with stored data."""

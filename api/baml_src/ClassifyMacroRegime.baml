@@ -31,7 +31,8 @@ function ClassifyMacroRegime(macro_summary: string) -> MacroRegimeCalibration {
     - tau MUST be in [0.001, 0.1]
     - confidence MUST be in [0.0, 1.0]
 
-    Macro indicators summary:
+    Macro indicators:
+
     {{ macro_summary }}
 
     {{ ctx.output_format }}

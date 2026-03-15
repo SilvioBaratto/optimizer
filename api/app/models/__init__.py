@@ -7,6 +7,9 @@ from app.models.base import (
 from app.models.macro_regime import (
     BondYield,
     EconomicIndicator,
+    MacroCalibration,
+    MacroNews,
+    MacroNewsSummary,
     TradingEconomicsIndicator,
 )
 from app.models.universe import Exchange, Instrument
@@ -33,6 +36,9 @@ __all__ = [
     "Dividend",
     "EconomicIndicator",
     "Exchange",
+    "MacroCalibration",
+    "MacroNews",
+    "MacroNewsSummary",
     "FinancialStatement",
     "InsiderTransaction",
     "InstitutionalHolder",

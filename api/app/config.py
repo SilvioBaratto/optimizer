@@ -73,6 +73,16 @@ class Settings(BaseSettings):
     # FRED API
     fred_api_key: str = Field(default="", alias="FRED_API_KEY")
 
+    # News Summary Scheduler
+    news_summary_refresh_interval_minutes: int = Field(
+        default=30,
+        alias="NEWS_SUMMARY_REFRESH_INTERVAL_MINUTES",
+    )
+
+    @property
+    def news_summary_refresh_interval_seconds(self) -> int:
+        return self.news_summary_refresh_interval_minutes * 60
+
     # Performance
     connection_timeout: int = Field(default=10)
     read_timeout: int = Field(default=30)

@@ -14,9 +14,11 @@ import type {
   MacroJobProgress,
   CompositeScorePoint,
   BusinessCyclePhase,
+  MacroNewsSummaryResponse,
 } from '../models/macro-intelligence.model';
 import {
   COUNTRY_CODE_MAP,
+  COUNTRY_NAME_MAP,
   DB_COUNTRIES,
   COMPOSITE_SCORE_THRESHOLDS,
 } from '../constants/macro-intelligence.constants';
@@ -128,10 +130,12 @@ export class MacroIntelligenceService {
 
   // ── Macro calibration ──
 
-  getMacroCalibration(): Observable<MacroCalibrationResponse | null> {
+  getMacroCalibration(forceRefresh = false): Observable<MacroCalibrationResponse | null> {
+    const params: Record<string, string> = { country: 'USA' };
+    if (forceRefresh) params['force_refresh'] = 'true';
     return this.http.get<ApiMacroCalibration>(
       `${this.apiBase}views/macro-calibration`,
-      { params: { country: 'USA' } },
+      { params },
     ).pipe(
       map(raw => {
         const normalized = raw.phase === 'RECESSION' ? 'CONTRACTION' : raw.phase;
@@ -304,6 +308,25 @@ export class MacroIntelligenceService {
     );
   }
 
+  // ── News summaries ──
+
+  getCountrySummaries(): Observable<MacroNewsSummaryResponse[]> {
+    return this.http.get<MacroNewsSummaryResponse[]>(
+      `${this.apiBase}macro-data/news/summaries`,
+    ).pipe(
+      catchError(() => of([])),
+    );
+  }
+
+  getCountrySummary(countryCode: string): Observable<MacroNewsSummaryResponse | null> {
+    const dbName = COUNTRY_NAME_MAP[countryCode] ?? countryCode;
+    return this.http.get<MacroNewsSummaryResponse>(
+      `${this.apiBase}macro-data/news/summaries/${dbName}`,
+    ).pipe(
+      catchError(() => of(null)),
+    );
+  }
+
   // ── Composite history (computed client-side) ──
 
   getCompositeHistory(): Observable<CompositeScorePoint[]> {
@@ -337,6 +360,7 @@ export class MacroIntelligenceService {
   // ── Refresh (already wired to real API) ──
 
   triggerRefresh(): Observable<void> {
+    // Phase 1: parallel data fetch
     const jobPaths = [
       'macro-data/fetch',
       'macro-data/fred/fetch',
@@ -364,6 +388,19 @@ export class MacroIntelligenceService {
         if (polls$.length === 0) return of(undefined as void);
         return forkJoin(polls$).pipe(map(() => undefined as void));
       }),
+      // Phase 2: summarize news (non-blocking — errors swallowed)
+      switchMap(() =>
+        this.http.post<MacroJobCreateResponse>(`${this.apiBase}macro-data/news/summarize`, {}).pipe(
+          switchMap(r =>
+            interval(3000).pipe(
+              switchMap(() => this.http.get<MacroJobProgress>(`${this.apiBase}macro-data/news/summarize/${r.job_id}`)),
+              takeWhile(p => !this.isTerminalStatus(p.status), true),
+            ),
+          ),
+          catchError(() => of(undefined)),
+          map(() => undefined as void),
+        ),
+      ),
     );
   }
 

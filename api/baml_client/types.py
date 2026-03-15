@@ -37,7 +37,7 @@ def get_checks(checks: typing.Dict[CheckName, Check]) -> typing.List[Check]:
 def all_succeeded(checks: typing.Dict[CheckName, Check]) -> bool:
     return all(check.status == "succeeded" for check in get_checks(checks))
 # #########################################################################
-# Generated enums (3)
+# Generated enums (4)
 # #########################################################################
 
 class BusinessCyclePhase(str, Enum):
@@ -63,8 +63,14 @@ class ExpertPersona(str, Enum):
     MOMENTUM_TRADER = "MOMENTUM_TRADER"
     MACRO_ANALYST = "MACRO_ANALYST"
 
+class SentimentLabel(str, Enum):
+    BULLISH = "BULLISH"
+    BEARISH = "BEARISH"
+    NEUTRAL = "NEUTRAL"
+    MIXED = "MIXED"
+
 # #########################################################################
-# Generated classes (11)
+# Generated classes (12)
 # #########################################################################
 
 class AssetFactorData(BaseModel):
@@ -92,6 +98,11 @@ class AssetView(BaseModel):
     magnitude_bps: float = Field(description='Expected annual excess return in basis points (e.g. 200 = 2% p.a.). Always positive; sign is captured by direction.')
     confidence: float = Field(description='View confidence in (0, 1). Higher = more certain. Maps to Idzorek alpha_k.')
     reasoning: str = Field(description='One-sentence explanation referencing the factor evidence.')
+
+class CountryNewsSummary(BaseModel):
+    summary: str = Field(description='Concise macro summary (3-5 sentences) of the day\'s news for the country. Cover key economic events, policy signals, market reactions, and forward implications. Focus on market-moving themes only.')
+    sentiment: SentimentLabel = Field(description='Overall macro sentiment derived from the news.')
+    sentiment_score: float = Field(description='Numeric sentiment score in [-1.0, 1.0]. +1.0 = strongly bullish, -1.0 = strongly bearish, 0.0 = neutral.')
 
 class CovRegimeSelection(BaseModel):
     estimator: CovEstimatorChoice = Field(description='Recommended covariance estimator for current conditions.')

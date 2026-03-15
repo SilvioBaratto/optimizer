@@ -187,9 +187,11 @@ class TestClassifyMacroRegime:
 
         mock_session = MagicMock()
         mock_repo = MagicMock()
+        mock_repo.get_macro_calibration.return_value = None
         mock_repo.get_economic_indicators.return_value = []
         mock_repo.get_te_indicators.return_value = []
         mock_repo.get_bond_yields.return_value = []
+        mock_repo.get_macro_news_summary.return_value = None
 
         with (
             patch(
@@ -434,7 +436,7 @@ class TestMacroCalibrationEndpoint:
         mock_result = self._make_service_result()
         captured: dict = {}
 
-        def _capture(session, country="USA", macro_summary_override=None):
+        def _capture(session, country="USA", macro_summary_override=None, force_refresh=False):
             captured["country"] = country
             return mock_result
 
@@ -448,7 +450,7 @@ class TestMacroCalibrationEndpoint:
         mock_result = self._make_service_result()
         captured: dict = {}
 
-        def _capture(session, country="United States", macro_summary_override=None):
+        def _capture(session, country="United States", macro_summary_override=None, force_refresh=False):
             captured["country"] = country
             return mock_result
 
@@ -469,3 +471,129 @@ class TestMacroCalibrationEndpoint:
 
             assert resp.status_code == 200
             assert resp.json()["phase"] == phase.value
+
+
+# ---------------------------------------------------------------------------
+# Service layer — _build_macro_summary news injection
+# ---------------------------------------------------------------------------
+
+
+class TestBuildMacroSummaryNewsInjection:
+    """Tests that _build_macro_summary correctly appends the Recent News Summary section."""
+
+    @staticmethod
+    def _make_repo(
+        sentiment: str | None = "BULLISH",
+        sentiment_score: float | None = 0.72,
+        summary: str | None = "Markets are pricing in a soft landing scenario.",
+    ) -> MagicMock:
+        mock_repo = MagicMock()
+        mock_repo.get_economic_indicators.return_value = []
+        mock_repo.get_te_indicators.return_value = []
+        mock_repo.get_bond_yields.return_value = []
+        news = MagicMock()
+        news.sentiment = sentiment
+        news.sentiment_score = sentiment_score
+        news.summary = summary
+        mock_repo.get_macro_news_summary.return_value = news
+        return mock_repo
+
+    @staticmethod
+    def _add_te_row(mock_repo: MagicMock) -> None:
+        """Add a TE indicator so sections > 1 (function returns non-empty)."""
+        te_row = MagicMock()
+        te_row.indicator_key = "manufacturing_pmi"
+        te_row.value = 54.2
+        te_row.raw_name = "Manufacturing PMI"
+        te_row.unit = "index"
+        mock_repo.get_te_indicators.return_value = [te_row]
+
+    def test_news_section_appended_when_data_present(self) -> None:
+        from app.services.macro_calibration import _build_macro_summary
+
+        mock_repo = self._make_repo()
+        self._add_te_row(mock_repo)
+
+        result = _build_macro_summary(mock_repo, "USA")
+
+        assert "### Recent News Summary" in result
+        assert "Sentiment: BULLISH" in result
+        assert "score: 0.72" in result
+        assert "Markets are pricing in a soft landing scenario." in result
+
+    def test_news_section_omitted_when_no_summary_row(self) -> None:
+        from app.services.macro_calibration import _build_macro_summary
+
+        mock_repo = self._make_repo()
+        mock_repo.get_macro_news_summary.return_value = None
+        self._add_te_row(mock_repo)
+
+        result = _build_macro_summary(mock_repo, "USA")
+
+        assert "### Recent News Summary" not in result
+
+    def test_news_section_omitted_when_both_fields_none(self) -> None:
+        from app.services.macro_calibration import _build_macro_summary
+
+        mock_repo = self._make_repo(sentiment=None, summary=None)
+        self._add_te_row(mock_repo)
+
+        result = _build_macro_summary(mock_repo, "USA")
+
+        assert "### Recent News Summary" not in result
+
+    def test_sentiment_score_omitted_when_none(self) -> None:
+        from app.services.macro_calibration import _build_macro_summary
+
+        mock_repo = self._make_repo(sentiment_score=None)
+        self._add_te_row(mock_repo)
+
+        result = _build_macro_summary(mock_repo, "USA")
+
+        assert "Sentiment: BULLISH" in result
+        assert "score:" not in result
+
+    def test_summary_text_omitted_when_none(self) -> None:
+        from app.services.macro_calibration import _build_macro_summary
+
+        mock_repo = self._make_repo(summary=None)
+        self._add_te_row(mock_repo)
+
+        result = _build_macro_summary(mock_repo, "USA")
+
+        assert "### Recent News Summary" in result
+        assert "Sentiment: BULLISH" in result
+        assert "Markets" not in result
+
+    def test_news_section_shown_when_only_summary_text_present(self) -> None:
+        """sentiment=None but summary='text' -> section still appears with summary."""
+        from app.services.macro_calibration import _build_macro_summary
+
+        mock_repo = self._make_repo(sentiment=None, summary="Soft landing expected.")
+        self._add_te_row(mock_repo)
+
+        result = _build_macro_summary(mock_repo, "USA")
+
+        assert "### Recent News Summary" in result
+        assert "Soft landing expected." in result
+        assert "Sentiment:" not in result
+
+    def test_news_not_injected_when_override_active(self) -> None:
+        """macro_summary_override bypasses _build_macro_summary entirely."""
+        from app.services.macro_calibration import classify_macro_regime
+
+        mock_session = MagicMock()
+        mock_raw = _make_calibration()
+
+        with patch(
+            "app.services.macro_calibration.b.ClassifyMacroRegime",
+            return_value=mock_raw,
+        ) as mock_llm:
+            result = classify_macro_regime(
+                mock_session, macro_summary_override="Custom override text."
+            )
+
+        assert result.macro_summary == "Custom override text."
+        assert "### Recent News Summary" not in result.macro_summary
+        call_kwargs = mock_llm.call_args
+        assert call_kwargs.kwargs["macro_summary"] == "Custom override text."

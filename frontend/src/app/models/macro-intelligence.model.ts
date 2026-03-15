@@ -193,3 +193,15 @@ export interface MacroJobProgress {
   result: unknown | null;
   error: string | null;
 }
+
+export interface MacroNewsSummaryResponse {
+  id: string;
+  country: string;
+  summary_date: string;
+  summary: string | null;
+  sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'MIXED' | null;
+  sentiment_score: number | null;
+  article_count: number | null;
+  created_at: string;
+  updated_at: string;
+}

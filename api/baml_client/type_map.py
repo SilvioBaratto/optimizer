@@ -22,6 +22,9 @@ type_map = {
     "types.AssetView": types.AssetView,
     "stream_types.AssetView": stream_types.AssetView,
 
+    "types.CountryNewsSummary": types.CountryNewsSummary,
+    "stream_types.CountryNewsSummary": stream_types.CountryNewsSummary,
+
     "types.CovRegimeSelection": types.CovRegimeSelection,
     "stream_types.CovRegimeSelection": stream_types.CovRegimeSelection,
 
@@ -55,5 +58,7 @@ type_map = {
     "types.CovEstimatorChoice": types.CovEstimatorChoice,
 
     "types.ExpertPersona": types.ExpertPersona,
+
+    "types.SentimentLabel": types.SentimentLabel,
 
 }

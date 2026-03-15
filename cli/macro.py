@@ -265,6 +265,42 @@ def news(
 
 
 # ------------------------------------------------------------------
+# news summarize
+# ------------------------------------------------------------------
+
+
+@macro_app.command("summarize")
+def summarize(
+    ctx: typer.Context,
+    country: list[str] | None = typer.Option(
+        None, help="Country name(s) to summarize. Repeat for multiple. Default: all."
+    ),
+    force_refresh: bool = typer.Option(
+        False, "--force-refresh", help="Bypass daily cache and re-invoke the LLM."
+    ),
+) -> None:
+    """Generate AI news summaries for macro countries via BAML LLM."""
+    client = _client(ctx)
+    job = client.start_news_summarize(
+        countries=country or None,
+        force_refresh=force_refresh,
+    )
+    job_id = job["job_id"]
+    success_panel(f"News summarize started: {job_id}")
+
+    result = progress_loop(lambda: client.get_news_summarize_status(job_id))
+
+    if result.get("status") == "failed":
+        error_panel(f"Summarize failed: {result.get('error', 'unknown')}")
+        raise typer.Exit(code=1)
+
+    fetch_result = result.get("result", {})
+    if fetch_result:
+        dict_table(fetch_result, title="News Summarize Result")
+    success_panel("News summarize completed.")
+
+
+# ------------------------------------------------------------------
 # FRED time-series
 # ------------------------------------------------------------------
 

@@ -16,7 +16,7 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { MacroIntelligenceService } from '../../services/macro-intelligence.service';
-import { SECTOR_ROTATION_TABLE } from '../../constants/macro-intelligence.constants';
+import { SECTOR_ROTATION_TABLE, COUNTRY_NAME_MAP } from '../../constants/macro-intelligence.constants';
 import { PHASE_DEFAULTS, COMPOSITE_SCORE_THRESHOLDS, COMPOSITE_CHART_AXIS } from '../../constants/macro-intelligence.constants';
 import type {
   MacroCalibrationResponse,
@@ -25,6 +25,7 @@ import type {
   BondYieldSnapshot,
   MacroNewsItem,
   MacroNewsTheme,
+  MacroNewsSummaryResponse,
   BusinessCyclePhase,
   MacroRegimeLabel,
   SectorRotationStance,
@@ -33,7 +34,7 @@ import type {
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 
 type ChartTab = 'yield-curve' | 'credit-spreads' | 'composite-history';
-type IntelTab = 'macro-brief' | 'themed-news';
+type IntelTab = 'macro-brief' | 'themed-news' | 'country-summary';
 
 const PHASE_LABELS: Record<BusinessCyclePhase, string> = {
   EARLY_EXPANSION: 'Early Expansion',
@@ -75,6 +76,7 @@ export class MacroIntelligenceComponent implements OnDestroy {
   readonly newsThemes = signal<MacroNewsTheme[]>([]);
   readonly newsItems = signal<MacroNewsItem[]>([]);
   readonly compositeHistory = signal<CompositeScorePoint[]>([]);
+  readonly countrySummaries = signal<MacroNewsSummaryResponse[]>([]);
 
   // ── UI state ──
   readonly selectedCountry = signal('US');
@@ -98,6 +100,7 @@ export class MacroIntelligenceComponent implements OnDestroy {
   readonly intelTabs = computed<Tab[]>(() => [
     { id: 'macro-brief', label: 'Macro Brief' },
     { id: 'themed-news', label: 'Themed News', badge: this.newsItems().length },
+    { id: 'country-summary', label: 'Country Summary', badge: this.countrySummaries().length },
   ]);
 
   // ── Computed: S_t composite score ──
@@ -265,12 +268,22 @@ export class MacroIntelligenceComponent implements OnDestroy {
   }
 
   // ── Data loading ──
-  loadData(): void {
-    this.isLoading.set(true);
+  loadData(showSkeleton = true, forceRefreshCalibration = false): void {
+    if (showSkeleton) {
+      this.isLoading.set(true);
+      // Chart container will be destroyed by @if — clean up stale instance
+      if (this.chartInitialized) {
+        this.chartRo?.disconnect();
+        this.chart?.dispose();
+        this.chart = undefined;
+        this.chartRo = undefined;
+        this.chartInitialized = false;
+      }
+    }
     this.hasError.set(false);
 
     const subs = [
-      this.macroService.getMacroCalibration().subscribe({
+      this.macroService.getMacroCalibration(forceRefreshCalibration).subscribe({
         next: d => this.macroCalibration.set(d),
         error: () => this.macroCalibration.set(null),
       }),
@@ -285,6 +298,7 @@ export class MacroIntelligenceComponent implements OnDestroy {
       this.macroService.getNewsThemes().subscribe(d => this.newsThemes.set(d)),
       this.macroService.getNews().subscribe(d => { this.newsItems.set(d); this.isLoading.set(false); }),
       this.macroService.getCompositeHistory().subscribe(d => this.compositeHistory.set(d)),
+      this.macroService.getCountrySummaries().subscribe(d => this.countrySummaries.set(d)),
     ];
   }
 
@@ -300,10 +314,10 @@ export class MacroIntelligenceComponent implements OnDestroy {
       takeUntilDestroyed(this.destroyRef),
       finalize(() => this.isRefreshing.set(false)),
     ).subscribe({
-      next: () => this.loadData(),
+      next: () => this.loadData(false, true),
       error: (err) => {
         console.error('Refresh failed', err);
-        this.loadData();
+        this.loadData(false, true);
       },
     });
   }
@@ -530,6 +544,24 @@ export class MacroIntelligenceComponent implements OnDestroy {
         return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
       })
       .join(' ');
+  }
+
+  getSentimentClass(sentiment: string | null): string {
+    switch (sentiment) {
+      case 'BULLISH': return 'text-gain bg-gain/10';
+      case 'BEARISH': return 'text-loss bg-loss/10';
+      case 'MIXED': return 'text-warning bg-warning/10';
+      default: return 'text-text-tertiary bg-surface-inset';
+    }
+  }
+
+  getSentimentLabel(sentiment: string | null): string {
+    return sentiment ?? 'No data';
+  }
+
+  getCountrySummaryFor(countryCode: string): MacroNewsSummaryResponse | undefined {
+    const dbName = COUNTRY_NAME_MAP[countryCode];
+    return this.countrySummaries().find(s => s.country === dbName);
   }
 
   private phaseFromCompositeScore(score: number): BusinessCyclePhase {

@@ -24,6 +24,7 @@ from app.exceptions import setup_exception_handlers
 from app.middleware.logging import LoggingMiddleware
 from app.middleware.rate_limiting import RateLimitingMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
+from app.services.news_summary_scheduler import MacroNewsSummaryScheduler
 
 # Configure structured logging
 logging.basicConfig(
@@ -35,6 +36,10 @@ logging.basicConfig(
     ),
 )
 logger = logging.getLogger(__name__)
+
+_scheduler = MacroNewsSummaryScheduler(
+    interval_seconds=settings.news_summary_refresh_interval_seconds,
+)
 
 
 @asynccontextmanager
@@ -62,6 +67,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Database health check failed but continuing startup: {e}")
 
+        _scheduler.start()
+        logger.info(
+            "News summary scheduler started (interval=%ds)",
+            settings.news_summary_refresh_interval_seconds,
+        )
+
         logger.info(f"{settings.project_name} startup complete")
         yield
 
@@ -77,6 +88,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"Shutting down {settings.project_name}...")
 
     try:
+        _scheduler.stop()
+        logger.info("News summary scheduler stopped")
         close_db()
         logger.info("Application shutdown complete")
     except Exception as e:

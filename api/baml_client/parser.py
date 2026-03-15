@@ -95,6 +95,12 @@ class LlmResponseParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SelectCovRegime", llm_response=llm_response, mode="request")
         return typing.cast(types.CovRegimeSelection, __result__)
 
+    def SummarizeCountryNews(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> types.CountryNewsSummary:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeCountryNews", llm_response=llm_response, mode="request")
+        return typing.cast(types.CountryNewsSummary, __result__)
+
     def Test(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> str:
@@ -180,6 +186,12 @@ class LlmStreamParser:
     ) -> stream_types.CovRegimeSelection:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SelectCovRegime", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.CovRegimeSelection, __result__)
+
+    def SummarizeCountryNews(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> stream_types.CountryNewsSummary:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeCountryNews", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.CountryNewsSummary, __result__)
 
     def Test(
         self, llm_response: str, baml_options: BamlCallOptions = {},

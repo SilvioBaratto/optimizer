@@ -80,10 +80,20 @@ def get_macro_calibration(
             "If provided, DB fetch is skipped and this text is passed directly to the LLM."
         ),
     ),
+    force_refresh: bool = Query(
+        default=False,
+        description=(
+            "Bypass cached calibration and invoke the LLM. "
+            "The fresh result is persisted to the ``macro_calibrations`` table."
+        ),
+    ),
     db: Session = Depends(get_db),
 ) -> MacroCalibrationResponse:
     """Fetch recent macro indicators from the DB, classify the business cycle phase
     via an LLM, and return calibrated (δ, τ) ready for ``BlackLittermanConfig``.
+
+    By default returns the cached result from ``macro_calibrations``.
+    Pass ``force_refresh=true`` to re-run the LLM (e.g. after a data refresh).
 
     **Parameter ranges enforced:**
     - ``delta`` ∈ [1.0, 10.0]
@@ -102,6 +112,7 @@ def get_macro_calibration(
             session=db,
             country=country,
             macro_summary_override=macro_text,
+            force_refresh=force_refresh,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -114,6 +125,8 @@ def get_macro_calibration(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"LLM call failed: {exc}",
         ) from exc
+
+    db.commit()
 
     return MacroCalibrationResponse(
         phase=result.phase.value,

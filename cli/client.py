@@ -285,6 +285,21 @@ class ApiClient:
     ) -> list[dict[str, Any]]:
         return self._get("/macro-data/news", theme=theme, limit=limit)
 
+    # News summarize
+
+    def start_news_summarize(
+        self,
+        countries: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"force_refresh": force_refresh}
+        if countries:
+            body["countries"] = countries
+        return self._post("/macro-data/news/summarize", json=body)
+
+    def get_news_summarize_status(self, job_id: str) -> dict[str, Any]:
+        return self._get(f"/macro-data/news/summarize/{job_id}")
+
     # FRED time-series
 
     def start_fred_fetch(

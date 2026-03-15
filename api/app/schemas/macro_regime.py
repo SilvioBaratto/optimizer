@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -189,6 +189,45 @@ class MacroNewsFetchRequest(BaseModel):
         default=100,
         description="Maximum number of articles to fetch.",
     )
+
+
+class MacroNewsSummarizeRequest(BaseModel):
+    """Request body for news summary generation."""
+
+    countries: list[str] | None = Field(
+        default=None,
+        description="Countries to summarize. None means all mapped countries.",
+    )
+    force_refresh: bool = Field(
+        default=False,
+        description="Bypass the daily cache and re-invoke the LLM for all countries.",
+    )
+
+
+class MacroNewsSummarizeJobResponse(AsyncJobCreateResponse):
+    """Returned when a background news summarize job is created."""
+
+
+class MacroNewsSummarizeProgress(AsyncJobProgress):
+    """Progress info for a news summarize background job."""
+
+    current_country: str = ""
+
+
+class MacroNewsSummaryResponse(BaseModel):
+    """Response for a single daily country news summary."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    country: str
+    summary_date: date
+    summary: str | None = None
+    sentiment: Literal["BULLISH", "BEARISH", "NEUTRAL", "MIXED"] | None = None
+    sentiment_score: float | None = None
+    article_count: int | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class CountryMacroSummary(BaseModel):
