@@ -21,27 +21,42 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # 1. Drop redundant indexes (keep one of each after rename)
-    op.drop_index("idx_exchange_id", table_name="exchanges")
-    op.drop_index("ix_exchanges_exchange_id", table_name="exchanges")
-    op.drop_index("idx_exchange_name", table_name="exchanges")
-    op.drop_index("ix_exchanges_exchange_name", table_name="exchanges")
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    cols = {c["name"] for c in inspector.get_columns("exchanges")}
+    indexes = {idx["name"] for idx in inspector.get_indexes("exchanges")}
+
+    # If exchanges already has ORM schema (name, t212_id), skip everything.
+    if "name" in cols and "exchange_name" not in cols:
+        return
+
+    # 1. Drop redundant indexes (only if they exist)
+    for idx in (
+        "idx_exchange_id",
+        "ix_exchanges_exchange_id",
+        "idx_exchange_name",
+        "ix_exchanges_exchange_name",
+    ):
+        if idx in indexes:
+            op.drop_index(idx, table_name="exchanges")
 
     # 2. Rename columns to match ORM
-    op.alter_column(
-        "exchanges",
-        "exchange_name",
-        new_column_name="name",
-        existing_type=sa.String(255),
-        existing_nullable=False,
-    )
-    op.alter_column(
-        "exchanges",
-        "exchange_id",
-        new_column_name="t212_id",
-        existing_type=sa.Integer(),
-        existing_nullable=False,
-    )
+    if "exchange_name" in cols:
+        op.alter_column(
+            "exchanges",
+            "exchange_name",
+            new_column_name="name",
+            existing_type=sa.String(255),
+            existing_nullable=False,
+        )
+    if "exchange_id" in cols:
+        op.alter_column(
+            "exchanges",
+            "exchange_id",
+            new_column_name="t212_id",
+            existing_type=sa.Integer(),
+            existing_nullable=False,
+        )
 
     # 3. Make t212_id nullable (ORM: Optional[int])
     op.alter_column(
@@ -51,12 +66,19 @@ def upgrade() -> None:
         nullable=True,
     )
 
-    # 4. Drop columns not in ORM (BaseModel already provides updated_at)
-    op.drop_column("exchanges", "is_active")
-    op.drop_column("exchanges", "last_updated")
+    # 4. Drop columns not in ORM
+    for col in ("is_active", "last_updated"):
+        if col in cols:
+            op.drop_column("exchanges", col)
 
-    # 5. Recreate unique constraint and index on name
-    op.create_unique_constraint("uq_exchanges_name", "exchanges", ["name"])
+    # 5. Recreate unique constraint on name (skip if already present)
+    uqs = {
+        c["name"]
+        for c in inspector.get_unique_constraints("exchanges")
+        if c["name"]
+    }
+    if "uq_exchanges_name" not in uqs:
+        op.create_unique_constraint("uq_exchanges_name", "exchanges", ["name"])
 
 
 def downgrade() -> None:

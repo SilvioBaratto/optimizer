@@ -41,8 +41,9 @@ services:
     container_name: optimizer_api
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/optimizer_db
-      OLLAMA_BASE_URL: https://ollama.com/v1
+      OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.5:4b}
       TRADING_212_API_KEY: ${TRADING_212_API_KEY:-}
       FRED_API_KEY: ${FRED_API_KEY:-}
       TRADING_ECONOMICS_API_KEY: ${TRADING_ECONOMICS_API_KEY:-}
@@ -52,6 +53,11 @@ services:
       OPENAI_API_VERSION: ${OPENAI_API_VERSION:-}
       OPENAI_GPT4O_DEPLOYMENT_ID: ${OPENAI_GPT4O_DEPLOYMENT_ID:-}
       OPENAI_GPT5_DEPLOYMENT_ID: ${OPENAI_GPT5_DEPLOYMENT_ID:-}
+      SCHEDULER_DAILY_PIPELINE_CRON: ${SCHEDULER_DAILY_PIPELINE_CRON:-0 7 * * *}
+      SCHEDULER_MIDDAY_NEWS_CRON: ${SCHEDULER_MIDDAY_NEWS_CRON:-0 14 * * *}
+      SCHEDULER_WEEKLY_REFETCH_CRON: ${SCHEDULER_WEEKLY_REFETCH_CRON:-0 3 * * 0}
+      SCHEDULER_FRED_MONTHLY_CRON: ${SCHEDULER_FRED_MONTHLY_CRON:-0 8 1 * *}
+      SCHEDULER_NEWS_REFRESH_INTERVAL_MIN: ${SCHEDULER_NEWS_REFRESH_INTERVAL_MIN:-30}
     ports:
       - "8005:8000"
     depends_on:
@@ -84,22 +90,6 @@ services:
       timeout: 3s
       start_period: 10s
       retries: 3
-    networks:
-      - optimizer_network
-
-  # Scheduler - Daily data fetches via supercronic
-  scheduler:
-    build:
-      context: .
-      dockerfile: scheduler/Dockerfile
-    container_name: optimizer_scheduler
-    init: true
-    environment:
-      OPTIMIZER_API_URL: http://api:8000
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
     networks:
       - optimizer_network
 

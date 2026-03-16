@@ -1,7 +1,7 @@
 #!/bin/sh
-# Daily data fetch script — called by supercronic at 7:00 AM UTC.
-# Uses curl + jq to trigger API endpoints and poll for completion.
-# No Python required.
+# Full data re-fetch: universe + yfinance + macro + FRED + news.
+# Run from host: OPTIMIZER_API_URL=http://localhost:8005 ./scheduler/refetch_all.sh
+# Run from Docker: docker exec optimizer_scheduler /app/refetch_all.sh
 #
 # NOTE: set -e is intentionally absent. We capture per-step exit codes and
 # implement explicit dependency enforcement. set -e would abort the script on
@@ -11,10 +11,10 @@ API_URL="${OPTIMIZER_API_URL:-http://api:8000}"
 API_PREFIX="${API_URL}/api/v1"
 MAX_RETRIES=30
 RETRY_INTERVAL=10
-POLL_INTERVAL=2
+POLL_INTERVAL=5
 MAX_POLL_SECONDS="${MAX_POLL_SECONDS:-21600}"
 
-echo "=== Data fetch started at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ==="
+echo "=== Full re-fetch started at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ==="
 
 # ── Wait for API health ──────────────────────────────────────────
 echo "Waiting for API at ${API_URL}/health ..."
@@ -32,17 +32,14 @@ for i in $(seq 1 "$MAX_RETRIES"); do
 done
 
 # ── fire_and_poll ────────────────────────────────────────────────
-# Usage: fire_and_poll <label> <endpoint> <json_body>
-# POSTs to <endpoint>, extracts job_id, polls <endpoint>/<job_id>
-# until status is "completed" or "failed", with timeout.
 fire_and_poll() {
     label="$1"
     endpoint="$2"
     body="$3"
 
+    echo ""
     echo "--- ${label}: starting ---"
 
-    # Capture both response body and HTTP status code
     response=$(curl -s -w '\n%{http_code}' -X POST \
         -H 'Content-Type: application/json' \
         -d "${body}" \
@@ -51,7 +48,7 @@ fire_and_poll() {
     http_code=$(echo "$response" | tail -1)
     body_resp=$(echo "$response" | sed '$d')
 
-    # Handle 409 — job already running: extract UUID and poll it
+    # 409 = job already running — extract existing job_id and poll it
     if [ "$http_code" = "409" ]; then
         job_id=$(echo "$body_resp" | jq -r '.detail // ""' | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
         if [ -n "$job_id" ]; then
@@ -61,7 +58,7 @@ fire_and_poll() {
             return 1
         fi
     elif [ "$http_code" -ge 200 ] 2>/dev/null && [ "$http_code" -lt 300 ] 2>/dev/null; then
-        job_id=$(echo "$body_resp" | jq -r '.job_id // empty')
+        job_id=$(echo "$body_resp" | jq -r '.job_id // .build_id // empty')
         if [ -z "$job_id" ]; then
             echo "${label}: no job_id returned — assuming synchronous completion."
             echo "${label}: response=$(echo "$body_resp" | jq -c '.' 2>/dev/null || echo "$body_resp")"
@@ -85,8 +82,8 @@ fire_and_poll() {
         fi
         poll_resp=$(curl -sf "${API_PREFIX}${endpoint}/${job_id}" 2>/dev/null || echo '{}')
         status=$(echo "$poll_resp" | jq -r '.status // "unknown"')
-        current=$(echo "$poll_resp" | jq -r '.current // 0')
-        total=$(echo "$poll_resp" | jq -r '.total // 0')
+        current=$(echo "$poll_resp" | jq -r '.current // .progress.completed // 0')
+        total=$(echo "$poll_resp" | jq -r '.total // .progress.total // 0')
 
         case "$status" in
             completed)
@@ -105,8 +102,11 @@ fire_and_poll() {
     done
 }
 
-# ── Trigger fetches with dependency enforcement ──────────────────
-# yfinance and macro are independent — both always run
+# ── Trigger fetches with dependency enforcement ───────────────────
+# universe, yfinance, macro, and fred are all independent — always run.
+
+fire_and_poll "universe" "/universe/build" '{}'
+UNIVERSE_EXIT=$?
 
 fire_and_poll "yfinance" "/yfinance-data/fetch" \
     '{"max_workers":4,"period":"5y","mode":"incremental"}'
@@ -115,6 +115,10 @@ YFINANCE_EXIT=$?
 fire_and_poll "macro" "/macro-data/fetch" \
     '{"countries":null,"include_bonds":true}'
 MACRO_EXIT=$?
+
+fire_and_poll "fred" "/macro-data/fred/fetch" \
+    '{"incremental":false}'
+FRED_EXIT=$?
 
 # news depends on yfinance (needs price/ticker data to exist)
 if [ $YFINANCE_EXIT -eq 0 ]; then
@@ -147,14 +151,18 @@ else
 fi
 
 # ── Summary ──────────────────────────────────────────────────────
-echo "=== Fetch summary ==="
+echo ""
+echo "=== Re-fetch summary ==="
+echo "  universe:   $([ $UNIVERSE_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $UNIVERSE_EXIT)")"
 echo "  yfinance:   $([ $YFINANCE_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $YFINANCE_EXIT)")"
 echo "  macro:      $([ $MACRO_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $MACRO_EXIT)")"
+echo "  fred:       $([ $FRED_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $FRED_EXIT)")"
 echo "  news:       $([ $NEWS_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $NEWS_EXIT)")"
 echo "  summarize:  $([ $SUMMARIZE_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $SUMMARIZE_EXIT)")"
 echo "  calibrate:  $([ $CALIBRATE_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $CALIBRATE_EXIT)")"
-echo "=== Data fetch finished at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ==="
+echo "=== Re-fetch finished at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ==="
 
 # Exit with failure if any fetch failed
-[ $YFINANCE_EXIT -eq 0 ] && [ $MACRO_EXIT -eq 0 ] && \
-[ $NEWS_EXIT -eq 0 ] && [ $SUMMARIZE_EXIT -eq 0 ] && [ $CALIBRATE_EXIT -eq 0 ]
+[ $UNIVERSE_EXIT -eq 0 ] && [ $YFINANCE_EXIT -eq 0 ] && \
+[ $MACRO_EXIT -eq 0 ] && [ $FRED_EXIT -eq 0 ] && [ $NEWS_EXIT -eq 0 ] && \
+[ $SUMMARIZE_EXIT -eq 0 ] && [ $CALIBRATE_EXIT -eq 0 ]

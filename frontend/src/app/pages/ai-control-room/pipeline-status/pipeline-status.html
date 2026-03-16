@@ -1,0 +1,103 @@
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <h3 class="text-data-sm font-medium text-text">Pipeline Health</h3>
+    @if (lastPolled()) {
+    <span class="text-xs text-text-tertiary">Updated {{ relativeTime(lastPolled()!) }}</span>
+    }
+  </div>
+
+  @if (isLoading()) {
+  <!-- Loading skeleton -->
+  <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
+    @for (i of [1,2,3,4]; track i) {
+    <div class="h-28 skeleton rounded-lg"></div>
+    }
+  </div>
+  } @else {
+  <!-- Band A: Domain Health Grid -->
+  <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
+    @for (d of domainStatuses(); track d.meta.domain) {
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <i-lucide [name]="d.meta.icon" [size]="16" class="text-text-secondary" />
+          <span class="text-data-xs font-medium text-text">{{ d.meta.label }}</span>
+        </div>
+        <app-freshness-indicator [level]="d.freshness" [ageLabel]="ageString(d)" />
+      </div>
+      @if (d.lastSuccess) {
+      <div class="space-y-1.5">
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-text-tertiary">Last run</span>
+          <span class="font-mono text-text-secondary">{{ d.lastSuccess.finished_at | date:'MMM d, HH:mm' }}</span>
+        </div>
+        @if (d.lastSuccess.duration_seconds != null) {
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-text-tertiary">Duration</span>
+          <span class="font-mono text-text-secondary">{{ durationString(d.lastSuccess.duration_seconds) }}</span>
+        </div>
+        }
+        @if (d.lastSuccess.errors_count > 0) {
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-text-tertiary">Warnings</span>
+          <span class="font-mono text-warning">{{ d.lastSuccess.errors_count }}</span>
+        </div>
+        }
+      </div>
+      } @else {
+      <p class="text-xs text-text-tertiary">No completed runs</p>
+      }
+    </div>
+    }
+  </div>
+
+  <!-- Band B: Running Jobs -->
+  @if (hasRunning()) {
+  <div class="bg-surface-raised border border-border rounded-lg p-4">
+    <h4 class="text-data-xs font-medium text-text mb-3">Running Jobs</h4>
+    <div class="space-y-3">
+      @for (j of runningJobs(); track j.id) {
+      <app-progress-bar
+        [label]="j.domain"
+        [current]="j.current"
+        [total]="j.total"
+        [detail]="j.status === 'pending' ? 'Queued...' : j.current + ' / ' + j.total + ' items'" />
+      }
+    </div>
+  </div>
+  }
+
+  <!-- Band C: Recent Failures -->
+  @if (hasFailures()) {
+  <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
+    <div class="px-4 py-3 border-b border-border">
+      <h4 class="text-data-xs font-medium text-text">Recent Failures</h4>
+    </div>
+    <div class="divide-y divide-border/50">
+      @for (j of failedJobs(); track j.id) {
+      <div class="px-4 py-3 bg-loss/5">
+        <div class="flex items-center justify-between mb-1">
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded text-label font-medium bg-loss/15 text-loss">
+            {{ j.domain }}
+          </span>
+          <span class="font-mono text-xs text-text-tertiary">{{ j.started_at | date:'MMM d, HH:mm' }}</span>
+        </div>
+        @if (j.error) {
+        <p class="text-xs font-mono text-loss/80 line-clamp-2 mt-1">{{ errorExcerpt(j.error) }}</p>
+        }
+      </div>
+      }
+    </div>
+  </div>
+  }
+
+  <!-- Poll error banner -->
+  @if (pollError()) {
+  <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-warning/10 border border-warning/20">
+    <i-lucide name="triangle-alert" [size]="14" class="text-warning shrink-0" />
+    <span class="text-xs text-warning">Failed to refresh pipeline status</span>
+  </div>
+  }
+  }
+</div>

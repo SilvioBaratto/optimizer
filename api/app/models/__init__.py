@@ -1,3 +1,4 @@
+from app.models.background_job import BackgroundJob
 from app.models.base import (
     Base,
     BaseModel,
@@ -30,6 +31,7 @@ from app.models.yfinance_data import (
 __all__ = [
     "AnalystPriceTarget",
     "AnalystRecommendation",
+    "BackgroundJob",
     "Base",
     "BaseModel",
     "BondYield",

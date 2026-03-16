@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
+from app.api.v1.metrics import router as metrics_router
 from app.api.v1.router import api_router
 from app.config import settings
 from app.database import close_db, database_manager, init_db
@@ -24,7 +25,7 @@ from app.exceptions import setup_exception_handlers
 from app.middleware.logging import LoggingMiddleware
 from app.middleware.rate_limiting import RateLimitingMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
-from app.services.news_summary_scheduler import MacroNewsSummaryScheduler
+from app.services.scheduler import create_scheduler
 
 # Configure structured logging
 logging.basicConfig(
@@ -37,16 +38,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-_scheduler = MacroNewsSummaryScheduler(
-    interval_seconds=settings.news_summary_refresh_interval_seconds,
-)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     FastAPI lifespan context manager for startup and shutdown events.
     """
+    scheduler = None
+
     # Startup
     logger.info(f"Starting {settings.project_name}...")
     logger.info(f"Environment: {settings.environment}")
@@ -67,10 +65,17 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Database health check failed but continuing startup: {e}")
 
-        _scheduler.start()
+        # Start APScheduler (replaces supercronic + MacroNewsSummaryScheduler)
+        scheduler = create_scheduler()
+        scheduler.start()
         logger.info(
-            "News summary scheduler started (interval=%ds)",
-            settings.news_summary_refresh_interval_seconds,
+            "APScheduler started — daily=%s, midday_news=%s, "
+            "weekly=%s, fred=%s, news_refresh=%dmin",
+            settings.scheduler_daily_pipeline_cron,
+            settings.scheduler_midday_news_cron,
+            settings.scheduler_weekly_refetch_cron,
+            settings.scheduler_fred_monthly_cron,
+            settings.scheduler_news_refresh_interval_minutes,
         )
 
         logger.info(f"{settings.project_name} startup complete")
@@ -88,8 +93,9 @@ async def lifespan(app: FastAPI):
     logger.info(f"Shutting down {settings.project_name}...")
 
     try:
-        _scheduler.stop()
-        logger.info("News summary scheduler stopped")
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
+            logger.info("APScheduler stopped")
         close_db()
         logger.info("Application shutdown complete")
     except Exception as e:
@@ -159,10 +165,22 @@ def create_application() -> FastAPI:
     # Add health check endpoints
     setup_health_endpoints(app)
 
+    # Add Prometheus metrics endpoint
+    setup_metrics_endpoint(app)
+
     # Setup documentation endpoints based on environment
     setup_documentation_endpoints(app)
 
     return app
+
+
+def setup_metrics_endpoint(app: FastAPI) -> None:
+    """Conditionally mount the Prometheus /metrics endpoint."""
+    if not settings.enable_metrics:
+        logger.info("Prometheus metrics disabled (enable_metrics=False)")
+        return
+    app.include_router(metrics_router, prefix="")
+    logger.info("Prometheus metrics endpoint registered at %s", settings.metrics_path)
 
 
 def setup_health_endpoints(app: FastAPI) -> None:

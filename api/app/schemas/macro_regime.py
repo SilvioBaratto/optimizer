@@ -230,6 +230,29 @@ class MacroNewsSummaryResponse(BaseModel):
     updated_at: datetime
 
 
+class MacroCalibrateBatchRequest(BaseModel):
+    """Request body for batch macro calibration."""
+
+    countries: list[str] | None = Field(
+        default=None,
+        description="Countries to calibrate. None means all portfolio countries.",
+    )
+    force_refresh: bool = Field(
+        default=True,
+        description="Bypass cached calibration and re-invoke the LLM.",
+    )
+
+
+class MacroCalibrateBatchJobResponse(AsyncJobCreateResponse):
+    """Returned when a background batch calibration job is created."""
+
+
+class MacroCalibrateBatchProgress(AsyncJobProgress):
+    """Progress info for a batch calibration background job."""
+
+    current_country: str = ""
+
+
 class CountryMacroSummary(BaseModel):
     """Aggregated macro data for a single country."""
 

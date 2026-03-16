@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
-import time
+import logging
 from datetime import datetime
 
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+
+from app.services.infrastructure import (
+    CircuitBreaker,
+    RateLimiter,
+    retry_with_backoff,
+)
+from app.services.infrastructure.retry import is_transient_network_error
+
+logger = logging.getLogger(__name__)
+
+_ilsole_circuit_breaker = CircuitBreaker(
+    service_name="IlSole24Ore", max_attempts=5
+)
+_ilsole_rate_limiter = RateLimiter(delay=0.5)
 
 
 class IlSoleScraper:
@@ -98,13 +112,22 @@ class IlSoleScraper:
         )
 
     def _fetch_page(self, endpoint: str) -> BeautifulSoup | None:
-        try:
-            url = f"{self.BASE_URL}/{endpoint}"
+        url = f"{self.BASE_URL}/{endpoint}"
+
+        def _action() -> BeautifulSoup:
+            _ilsole_circuit_breaker.check()
+            _ilsole_rate_limiter.acquire(endpoint)
             response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
             return BeautifulSoup(response.content, "html.parser")
-        except Exception:
-            return None
+
+        return retry_with_backoff(
+            _action,
+            max_retries=3,
+            is_rate_limit_error=is_transient_network_error,
+            on_rate_limit=_ilsole_circuit_breaker.trigger,
+            on_success=lambda _: _ilsole_circuit_breaker.reset(),
+        )
 
     def get_real_indicators(self, country: str = "USA") -> dict | None:
         soup = self._fetch_page("indicatori-reali")
@@ -270,7 +293,7 @@ class IlSoleScraper:
         for country in countries:
             data = self.get_country_data(country)
             results[country] = data
-            time.sleep(0.5)  # Be polite to server
+            # Rate limiting handled by _ilsole_rate_limiter inside _fetch_page
 
         return results
 

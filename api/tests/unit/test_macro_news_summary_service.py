@@ -13,8 +13,10 @@ from app.services.macro_news_summary import (
     QUERY_COUNTRY_MAP,
     TICKER_COUNTRY_MAP,
     _clamp_sentiment_score,
+    _find_countries_with_new_articles,
     _format_articles,
     _get_countries_for_article,
+    _is_morning_pipeline_complete,
     _validate_llm_output,
     generate_country_summaries,
 )
@@ -594,3 +596,113 @@ class TestGenerateCountrySummaries:
 
         countries = [r.country for r in results]
         assert countries == sorted(countries)
+
+
+# ---------------------------------------------------------------------------
+# _find_countries_with_new_articles (migrated from news_summary_scheduler)
+# ---------------------------------------------------------------------------
+
+_REFRESH_NOW = datetime(2026, 3, 15, 12, 0, tzinfo=timezone.utc)
+_REFRESH_TODAY = _REFRESH_NOW.date()
+
+
+def _make_simple_article(
+    source_ticker: str | None = None,
+    source_query: str | None = None,
+) -> MacroNews:
+    article = MagicMock(spec=MacroNews)
+    article.source_ticker = source_ticker
+    article.source_query = source_query
+    return article
+
+
+class TestFindCountriesWithNewArticles:
+    def test_empty_articles_returns_empty(self) -> None:
+        repo = MagicMock()
+        repo.get_macro_news.return_value = []
+        assert _find_countries_with_new_articles(repo, _REFRESH_NOW) == []
+
+    def test_ticker_articles_mapped_to_countries(self) -> None:
+        repo = MagicMock()
+        repo.get_macro_news.return_value = [
+            _make_simple_article(source_ticker="^GSPC"),
+            _make_simple_article(source_ticker="^FTSE"),
+        ]
+        result = _find_countries_with_new_articles(repo, _REFRESH_NOW)
+        assert "UK" in result
+        assert "USA" in result
+
+    def test_global_tickers_excluded(self) -> None:
+        repo = MagicMock()
+        repo.get_macro_news.return_value = [
+            _make_simple_article(source_ticker="EEM"),
+            _make_simple_article(source_ticker="DX-Y.NYB"),
+            _make_simple_article(source_ticker="GC=F"),
+        ]
+        assert _find_countries_with_new_articles(repo, _REFRESH_NOW) == []
+
+    def test_query_articles_mapped_to_countries(self) -> None:
+        repo = MagicMock()
+        repo.get_macro_news.return_value = [
+            _make_simple_article(source_query="ECB interest rate decision"),
+        ]
+        result = _find_countries_with_new_articles(repo, _REFRESH_NOW)
+        assert "France" in result
+        assert "Germany" in result
+
+    def test_global_queries_excluded(self) -> None:
+        repo = MagicMock()
+        repo.get_macro_news.return_value = [
+            _make_simple_article(source_query="emerging markets capital flows"),
+        ]
+        assert _find_countries_with_new_articles(repo, _REFRESH_NOW) == []
+
+    def test_results_sorted_alphabetically(self) -> None:
+        repo = MagicMock()
+        repo.get_macro_news.return_value = [
+            _make_simple_article(source_ticker="^FTSE"),
+            _make_simple_article(source_ticker="^GSPC"),
+            _make_simple_article(source_ticker="^GDAXI"),
+        ]
+        result = _find_countries_with_new_articles(repo, _REFRESH_NOW)
+        assert result == sorted(result)
+
+    def test_deduplicates_countries(self) -> None:
+        repo = MagicMock()
+        repo.get_macro_news.return_value = [
+            _make_simple_article(source_ticker="^GSPC"),
+            _make_simple_article(source_ticker="^TNX"),
+            _make_simple_article(source_ticker="XLF"),
+        ]
+        result = _find_countries_with_new_articles(repo, _REFRESH_NOW)
+        assert result.count("USA") == 1
+
+    def test_passes_since_as_start_date(self) -> None:
+        repo = MagicMock()
+        repo.get_macro_news.return_value = []
+        since = datetime(2026, 3, 15, 11, 0, tzinfo=timezone.utc)
+        _find_countries_with_new_articles(repo, since)
+        repo.get_macro_news.assert_called_once_with(start_date=since, limit=500)
+
+
+# ---------------------------------------------------------------------------
+# _is_morning_pipeline_complete (migrated from news_summary_scheduler)
+# ---------------------------------------------------------------------------
+
+
+class TestMorningPipelineGuard:
+    def test_returns_false_when_no_summaries_today(self) -> None:
+        repo = MagicMock()
+        repo.get_all_news_summaries.return_value = []
+        assert _is_morning_pipeline_complete(repo, _REFRESH_TODAY) is False
+
+    def test_returns_true_when_summary_exists_today(self) -> None:
+        repo = MagicMock()
+        repo.get_all_news_summaries.return_value = [MagicMock()]
+        assert _is_morning_pipeline_complete(repo, _REFRESH_TODAY) is True
+
+    def test_passes_today_as_summary_date_filter(self) -> None:
+        repo = MagicMock()
+        repo.get_all_news_summaries.return_value = []
+        _is_morning_pipeline_complete(repo, _REFRESH_TODAY)
+        repo.get_all_news_summaries.assert_called_once_with(summary_date=_REFRESH_TODAY)

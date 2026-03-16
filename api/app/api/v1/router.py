@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.database import router as database_router
+from app.api.v1.jobs import router as jobs_router
 from app.api.v1.llm_moments import router as llm_moments_router
 from app.api.v1.macro_calibration import router as macro_calibration_router
 from app.api.v1.macro_regime import router as macro_regime_router
@@ -29,3 +30,4 @@ api_router.include_router(macro_calibration_router)
 api_router.include_router(opinion_pooling_router)
 api_router.include_router(stress_scenarios_router)
 api_router.include_router(risk_budget_router)
+api_router.include_router(jobs_router)

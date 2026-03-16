@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
+import logging
 import re
-import time
 from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
+
+from app.services.infrastructure import (
+    CircuitBreaker,
+    RateLimiter,
+    retry_with_backoff,
+)
+from app.services.infrastructure.retry import is_transient_network_error
+
+logger = logging.getLogger(__name__)
+
+_te_circuit_breaker = CircuitBreaker(
+    service_name="Trading Economics", max_attempts=5
+)
+_te_rate_limiter = RateLimiter(delay=1.5)
 
 # Country code mapping to Trading Economics URL slugs
 COUNTRY_MAPPING = {
@@ -238,10 +252,29 @@ class TradingEconomicsIndicatorsScraper:
         country_slug = COUNTRY_MAPPING[country]
         url = f"{self.BASE_URL}/{country_slug}/indicators"
 
-        try:
-            response = self.session.get(url, timeout=self.timeout)
-            response.raise_for_status()
+        def _fetch() -> requests.Response:
+            _te_circuit_breaker.check()
+            _te_rate_limiter.acquire(url)
+            resp = self.session.get(url, timeout=self.timeout)
+            resp.raise_for_status()
+            return resp
 
+        response = retry_with_backoff(
+            _fetch,
+            max_retries=3,
+            is_rate_limit_error=is_transient_network_error,
+            on_rate_limit=_te_circuit_breaker.trigger,
+            on_success=lambda _: _te_circuit_breaker.reset(),
+        )
+        if response is None:
+            return {
+                "country": country,
+                "status": "error",
+                "timestamp": datetime.now().isoformat(),
+                "error": "Fetch failed after retries",
+            }
+
+        try:
             soup = BeautifulSoup(response.content, "html.parser")
             indicators = self._parse_indicators_table(soup)
 
@@ -266,13 +299,6 @@ class TradingEconomicsIndicatorsScraper:
 
             return result
 
-        except requests.RequestException as e:
-            return {
-                "country": country,
-                "status": "error",
-                "timestamp": datetime.now().isoformat(),
-                "error": f"HTTP request failed: {e!s}",
-            }
         except Exception as e:
             return {
                 "country": country,
@@ -381,10 +407,28 @@ class TradingEconomicsIndicatorsScraper:
         country_slug = COUNTRY_MAPPING[country]
         url = f"{self.BASE_URL}/{country_slug}/government-bond-yield"
 
-        try:
-            response = self.session.get(url, timeout=self.timeout)
-            response.raise_for_status()
+        def _fetch() -> requests.Response:
+            _te_circuit_breaker.check()
+            _te_rate_limiter.acquire(url)
+            resp = self.session.get(url, timeout=self.timeout)
+            resp.raise_for_status()
+            return resp
 
+        response = retry_with_backoff(
+            _fetch,
+            max_retries=3,
+            is_rate_limit_error=is_transient_network_error,
+            on_rate_limit=_te_circuit_breaker.trigger,
+            on_success=lambda _: _te_circuit_breaker.reset(),
+        )
+        if response is None:
+            return {
+                "status": "error",
+                "country": country,
+                "error": "Fetch failed after retries",
+            }
+
+        try:
             soup = BeautifulSoup(response.content, "html.parser")
             yields = self._parse_bond_yields_table(soup, country)
 
@@ -396,12 +440,6 @@ class TradingEconomicsIndicatorsScraper:
                 "timestamp": datetime.now().isoformat(),
             }
 
-        except requests.RequestException as e:
-            return {
-                "status": "error",
-                "country": country,
-                "error": f"HTTP request failed: {e!s}",
-            }
         except Exception as e:
             return {
                 "status": "error",
@@ -504,10 +542,24 @@ class TradingEconomicsIndicatorsScraper:
     def get_industrial_production_all(self) -> dict:
         url = f"{self.BASE_URL}/country-list/industrial-production"
 
-        try:
-            response = self.session.get(url, timeout=self.timeout)
-            response.raise_for_status()
+        def _fetch() -> requests.Response:
+            _te_circuit_breaker.check()
+            _te_rate_limiter.acquire(url)
+            resp = self.session.get(url, timeout=self.timeout)
+            resp.raise_for_status()
+            return resp
 
+        response = retry_with_backoff(
+            _fetch,
+            max_retries=3,
+            is_rate_limit_error=is_transient_network_error,
+            on_rate_limit=_te_circuit_breaker.trigger,
+            on_success=lambda _: _te_circuit_breaker.reset(),
+        )
+        if response is None:
+            return {"status": "error", "error": "Fetch failed after retries"}
+
+        try:
             soup = BeautifulSoup(response.content, "html.parser")
             production_data = self._parse_industrial_production_table(soup)
 
@@ -518,18 +570,30 @@ class TradingEconomicsIndicatorsScraper:
                 "timestamp": datetime.now().isoformat(),
             }
 
-        except requests.RequestException as e:
-            return {"status": "error", "error": f"HTTP request failed: {e!s}"}
         except Exception as e:
             return {"status": "error", "error": f"Parsing failed: {e!s}"}
 
     def get_capacity_utilization_all(self) -> dict:
         url = f"{self.BASE_URL}/country-list/capacity-utilization?continent=g20"
 
-        try:
-            response = self.session.get(url, timeout=self.timeout)
-            response.raise_for_status()
+        def _fetch() -> requests.Response:
+            _te_circuit_breaker.check()
+            _te_rate_limiter.acquire(url)
+            resp = self.session.get(url, timeout=self.timeout)
+            resp.raise_for_status()
+            return resp
 
+        response = retry_with_backoff(
+            _fetch,
+            max_retries=3,
+            is_rate_limit_error=is_transient_network_error,
+            on_rate_limit=_te_circuit_breaker.trigger,
+            on_success=lambda _: _te_circuit_breaker.reset(),
+        )
+        if response is None:
+            return {"status": "error", "error": "Fetch failed after retries"}
+
+        try:
             soup = BeautifulSoup(response.content, "html.parser")
             capacity_data = self._parse_capacity_utilization_table(soup)
 
@@ -540,8 +604,6 @@ class TradingEconomicsIndicatorsScraper:
                 "timestamp": datetime.now().isoformat(),
             }
 
-        except requests.RequestException as e:
-            return {"status": "error", "error": f"HTTP request failed: {e!s}"}
         except Exception as e:
             return {"status": "error", "error": f"Parsing failed: {e!s}"}
 
@@ -700,9 +762,7 @@ class TradingEconomicsIndicatorsScraper:
                         capacity_utilization_data[country_full_name]
                     )
 
-            # Rate limiting: delay between requests (except for last)
-            if i < len(countries) - 1:
-                time.sleep(self.rate_limit_delay)
+            # Rate limiting handled by _te_rate_limiter inside fetch calls
 
         return results
 

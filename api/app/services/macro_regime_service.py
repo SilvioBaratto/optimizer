@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 from app.repositories.macro_regime_repository import MacroRegimeRepository
+from app.services._progress import ProgressCallback, _noop
 from app.services.scrapers.fred_scraper import FRED_SERIES, FredScraper
 from app.services.scrapers.ilsole_scraper import PORTFOLIO_COUNTRIES, IlSoleScraper
 from app.services.scrapers.tradingeconomics_scraper import (
@@ -333,3 +334,159 @@ class MacroRegimeService:
     def get_portfolio_countries() -> list[str]:
         """Return the default list of portfolio countries."""
         return list(PORTFOLIO_COUNTRIES)
+
+
+# ---------------------------------------------------------------------------
+# Standalone bulk functions (callable from routes and scheduler)
+# ---------------------------------------------------------------------------
+
+
+def run_bulk_macro_fetch(
+    request: Any,
+    *,
+    on_progress: ProgressCallback = _noop,
+) -> dict[str, Any]:
+    """Execute bulk macro data fetch for all portfolio countries.
+
+    Args:
+        request: ``MacroFetchRequest`` with ``countries`` and ``include_bonds``.
+        on_progress: Optional callback for progress updates.
+
+    Returns:
+        Result dict with ``countries_processed``, ``counts``, ``error_count``.
+    """
+    from app.database import database_manager
+
+    with database_manager.get_session() as session:
+        repo = MacroRegimeRepository(session)
+        service = MacroRegimeService(repo)
+
+        countries = (
+            request.countries
+            if request.countries
+            else MacroRegimeService.get_portfolio_countries()
+        )
+        total = len(countries)
+        on_progress(total=total)
+
+        all_errors: list[str] = []
+        total_counts: dict[str, int] = {}
+
+        for idx, country in enumerate(countries, 1):
+            on_progress(current=idx, current_country=country)
+
+            try:
+                result = service.fetch_country(
+                    country, include_bonds=request.include_bonds
+                )
+
+                for k, v in result["counts"].items():
+                    total_counts[k] = total_counts.get(k, 0) + v
+                for err in result["errors"]:
+                    all_errors.append(f"{country}: {err}")
+
+                session.commit()
+
+            except Exception as e:
+                logger.error("Failed to process %s: %s", country, e)
+                all_errors.append(f"{country}: {e}")
+                session.rollback()
+
+        result_dict = {
+            "countries_processed": total,
+            "counts": total_counts,
+            "error_count": len(all_errors),
+        }
+        on_progress(
+            status="completed",
+            finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            errors=all_errors,
+            result=result_dict,
+        )
+        logger.info("Bulk macro fetch completed: %d countries", total)
+
+    return result_dict
+
+
+def run_bulk_fred_fetch(
+    request: Any,
+    *,
+    on_progress: ProgressCallback = _noop,
+) -> dict[str, Any]:
+    """Execute bulk FRED time-series fetch.
+
+    Args:
+        request: ``FredFetchRequest`` with ``series_ids`` and ``incremental``.
+        on_progress: Optional callback for progress updates.
+
+    Returns:
+        Result dict with ``series_fetched`` and ``error_count``.
+    """
+    from app.database import database_manager
+
+    with database_manager.get_session() as session:
+        repo = MacroRegimeRepository(session)
+        service = MacroRegimeService(repo)
+
+        result = service.fetch_fred_series(
+            series_ids=request.series_ids,
+            incremental=request.incremental,
+        )
+        session.commit()
+
+        counts = result.get("counts", {})
+        errors = result.get("errors", [])
+        result_dict = {
+            "series_fetched": sum(counts.values()),
+            "error_count": len(errors),
+        }
+        on_progress(
+            status="completed",
+            finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            errors=errors,
+            result=result_dict,
+        )
+        logger.info(
+            "Bulk FRED fetch completed: %d observations across %d series",
+            result_dict["series_fetched"],
+            len(counts),
+        )
+
+    return result_dict
+
+
+def run_macro_news_fetch(
+    request: Any,
+    *,
+    on_progress: ProgressCallback = _noop,
+) -> dict[str, Any]:
+    """Execute macro news fetch in the service layer.
+
+    Args:
+        request: ``MacroNewsFetchRequest`` with ``max_articles`` and ``fetch_full_content``.
+        on_progress: Optional callback for progress updates.
+
+    Returns:
+        Result dict with ``articles_stored`` and ``errors``.
+    """
+    from app.database import database_manager
+
+    with database_manager.get_session() as session:
+        repo = MacroRegimeRepository(session)
+        service = MacroRegimeService(repo)
+        result = service.fetch_macro_news(
+            max_articles=request.max_articles,
+            fetch_full_content=request.fetch_full_content,
+        )
+        session.commit()
+
+        result_dict = {"articles_stored": result.get("count", 0)}
+        on_progress(
+            status="completed",
+            finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            errors=result.get("errors", []),
+            result=result_dict,
+        )
+        logger.info("Macro news fetch completed: %d articles", result.get("count", 0))
+
+    return result_dict

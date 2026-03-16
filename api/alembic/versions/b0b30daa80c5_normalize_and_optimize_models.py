@@ -109,63 +109,56 @@ def upgrade() -> None:
     )
 
     # ----------------------------------------------------------------
-    # 9. Add country indexes on macro tables
+    # 9-11. Macro table modifications (indexes, scraped_at, reference_date)
+    #
+    # These tables were supposed to be created by ecf0a9a2bfdc but that
+    # migration was never filled in.  Migration a1b2c3d4e5f6 later
+    # drops and recreates them from scratch.  Guard each section so
+    # this migration is idempotent on both fresh and existing databases.
     # ----------------------------------------------------------------
-    op.create_index(
-        "ix_economic_indicators_country", "economic_indicators", ["country"]
-    )
-    op.create_index(
-        "ix_trading_economics_indicators_country",
-        "trading_economics_indicators",
-        ["country"],
-    )
-    op.create_index("ix_bond_yields_country", "bond_yields", ["country"])
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    existing_tables = set(inspector.get_table_names())
 
-    # ----------------------------------------------------------------
-    # 10. Remove scraped_at from all 3 macro tables
-    # ----------------------------------------------------------------
-    op.drop_column("economic_indicators", "scraped_at")
-    op.drop_column("trading_economics_indicators", "scraped_at")
-    op.drop_column("bond_yields", "scraped_at")
+    macro_tables = ("economic_indicators", "trading_economics_indicators", "bond_yields")
 
-    # ----------------------------------------------------------------
-    # 11. Change reference_date from VARCHAR(100) to Date
-    #     Use USING clause to convert existing string values.
-    #     Existing values are like "Dec 2024" — we parse via SQL:
-    #       to_date('Dec 2024', 'Mon YYYY')
-    #     NULLs and empty strings are kept as NULL.
-    # ----------------------------------------------------------------
-    # economic_indicators.reference_date
-    op.execute(
-        "UPDATE economic_indicators "
-        "SET reference_date = NULL "
-        "WHERE reference_date IS NOT NULL AND TRIM(reference_date) = ''"
-    )
-    op.execute(
-        "ALTER TABLE economic_indicators "
-        "ALTER COLUMN reference_date TYPE date "
-        "USING CASE "
-        "  WHEN reference_date IS NULL THEN NULL "
-        "  WHEN TRIM(reference_date) = '' THEN NULL "
-        "  ELSE to_date(reference_date, 'Mon YYYY') "
-        "END"
-    )
+    # 9. Add country indexes
+    for tbl in macro_tables:
+        if tbl in existing_tables:
+            op.create_index(f"ix_{tbl}_country", tbl, ["country"])
 
-    # bond_yields.reference_date
-    op.execute(
-        "UPDATE bond_yields "
-        "SET reference_date = NULL "
-        "WHERE reference_date IS NOT NULL AND TRIM(reference_date) = ''"
-    )
-    op.execute(
-        "ALTER TABLE bond_yields "
-        "ALTER COLUMN reference_date TYPE date "
-        "USING CASE "
-        "  WHEN reference_date IS NULL THEN NULL "
-        "  WHEN TRIM(reference_date) = '' THEN NULL "
-        "  ELSE to_date(reference_date, 'Mon YYYY') "
-        "END"
-    )
+    # 10. Remove scraped_at
+    for tbl in macro_tables:
+        if tbl in existing_tables:
+            cols = {c["name"] for c in inspector.get_columns(tbl)}
+            if "scraped_at" in cols:
+                op.drop_column(tbl, "scraped_at")
+
+    # 11. Change reference_date VARCHAR → Date
+    for tbl in ("economic_indicators", "bond_yields"):
+        if tbl in existing_tables:
+            cols = {c["name"] for c in inspector.get_columns(tbl)}
+            if "reference_date" in cols:
+                col_type = next(
+                    c["type"] for c in inspector.get_columns(tbl)
+                    if c["name"] == "reference_date"
+                )
+                if isinstance(col_type, sa.types.String):
+                    op.execute(
+                        f"UPDATE {tbl} "
+                        "SET reference_date = NULL "
+                        "WHERE reference_date IS NOT NULL "
+                        "AND TRIM(reference_date) = ''"
+                    )
+                    op.execute(
+                        f"ALTER TABLE {tbl} "
+                        "ALTER COLUMN reference_date TYPE date "
+                        "USING CASE "
+                        "  WHEN reference_date IS NULL THEN NULL "
+                        "  WHEN TRIM(reference_date) = '' THEN NULL "
+                        "  ELSE to_date(reference_date, 'Mon YYYY') "
+                        "END"
+                    )
 
     # ----------------------------------------------------------------
     # 12. Make insider_transactions.start_date NOT NULL

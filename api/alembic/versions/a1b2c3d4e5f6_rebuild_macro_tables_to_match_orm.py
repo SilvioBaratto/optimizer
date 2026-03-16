@@ -24,22 +24,27 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    existing = set(inspector.get_table_names())
+
     # Drop FK from country_regime_assessments → economic_indicators first
-    op.drop_constraint(
-        "country_regime_assessments_economic_indicators_id_fkey",
-        "country_regime_assessments",
-        type_="foreignkey",
-    )
+    if "country_regime_assessments" in existing:
+        op.drop_constraint(
+            "country_regime_assessments_economic_indicators_id_fkey",
+            "country_regime_assessments",
+            type_="foreignkey",
+        )
 
-    # Drop old economic_indicators (schema mismatch with ORM)
-    op.drop_table("economic_indicators")
-
-    # Drop old trading_economics_indicators (has snapshot_id FK, wrong schema)
-    op.drop_table("trading_economics_indicators")
-
-    # Drop orphaned tables that no longer have ORM models
-    op.drop_table("trading_economics_bond_yields")
-    op.drop_table("trading_economics_snapshots")
+    # Drop old tables if they exist
+    for tbl in (
+        "economic_indicators",
+        "trading_economics_indicators",
+        "trading_economics_bond_yields",
+        "trading_economics_snapshots",
+    ):
+        if tbl in existing:
+            op.drop_table(tbl)
 
     # Recreate economic_indicators to match ORM
     op.create_table(
@@ -119,14 +124,17 @@ def upgrade() -> None:
     )
 
     # Re-add FK from country_regime_assessments → economic_indicators
-    op.create_foreign_key(
-        "country_regime_assessments_economic_indicators_id_fkey",
-        "country_regime_assessments",
-        "economic_indicators",
-        ["economic_indicators_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
+    # (only if the table exists — it was removed in later migrations)
+    existing_after = set(sa.inspect(conn).get_table_names())
+    if "country_regime_assessments" in existing_after:
+        op.create_foreign_key(
+            "country_regime_assessments_economic_indicators_id_fkey",
+            "country_regime_assessments",
+            "economic_indicators",
+            ["economic_indicators_id"],
+            ["id"],
+            ondelete="RESTRICT",
+        )
 
 
 def downgrade() -> None:

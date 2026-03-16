@@ -12,6 +12,7 @@ import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-gr
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { MockFetchService } from '../../services/mock-fetch.service';
+import { PipelineStatusComponent } from './pipeline-status/pipeline-status';
 import type { AgentRole } from '../../models/ai-control.model';
 import {
   MOCK_AGENT_STATUSES,
@@ -19,7 +20,7 @@ import {
   MOCK_VETO_LOG,
 } from '../../mocks/ai-control-mocks';
 
-type ControlTab = 'overview' | 'history' | 'agents';
+type ControlTab = 'overview' | 'history' | 'agents' | 'pipeline';
 
 const AGENT_COLOR_MAP: Record<AgentRole, { var: string; bgVar: string; label: string }> = {
   portfolio_manager: { var: '--color-agent-pm', bgVar: '--color-agent-pm-bg', label: 'PM' },
@@ -60,6 +61,7 @@ const TYPE_BADGE: Record<string, { value: string; colorClass: string }> = {
     TabGroupComponent,
     StatCardComponent,
     DataTableComponent,
+    PipelineStatusComponent,
   ],
   templateUrl: './ai-control-room.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -87,6 +89,7 @@ export class AiControlRoomComponent {
     { id: 'overview', label: 'Overview' },
     { id: 'history', label: 'History', badge: this.feed.length },
     { id: 'agents', label: 'Agents' },
+    { id: 'pipeline', label: 'Pipeline' },
   ]);
 
   // ── Top-level stats ──

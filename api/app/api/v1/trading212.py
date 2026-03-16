@@ -19,7 +19,7 @@ from app.schemas.trading212 import (
     UniverseBuildRequest,
     UniverseStatsResponse,
 )
-from app.services.background_job import BackgroundJobService
+from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.trading212.builder import BuildProgress, UniverseBuilder
 from app.services.trading212.cache.ticker_cache import TickerMappingCache
 from app.services.trading212.client import Trading212Client
@@ -39,7 +39,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/universe", tags=["Universe"])
 
 # Shared job service instance for this router
-_job_service = BackgroundJobService()
+_job_service = BackgroundJobService(
+    job_type="universe_build",
+    session_factory=database_manager.get_session,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -200,17 +203,17 @@ def build_universe(
 
     Returns a build ID to poll for progress.
     """
-    running, running_id = _job_service.is_any_running()
-    if running:
+    try:
+        build_id = _job_service.create_job(
+            current_exchange="",
+            current_stock="",
+        )
+    except JobAlreadyRunningError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"A build is already in progress (id={running_id})",
-        )
+            detail=str(exc),
+        ) from exc
 
-    build_id = _job_service.create_job(
-        current_exchange="",
-        current_stock="",
-    )
     _job_service.start_background(
         target=_run_build,
         args=(build_id, request, config, client, cache),

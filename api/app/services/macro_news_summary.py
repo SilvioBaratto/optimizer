@@ -16,7 +16,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 from baml_client import b
 from baml_client.types import CountryNewsSummary
@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.models.macro_regime import MacroNews
 from app.repositories.macro_regime_repository import MacroRegimeRepository
+from app.services._progress import ProgressCallback, _noop
 
 logger = logging.getLogger(__name__)
 
@@ -324,4 +325,112 @@ def generate_country_summaries(
         len(results),
         len(articles),
     )
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Incremental refresh helpers (used by scheduler)
+# ---------------------------------------------------------------------------
+
+CountryOutcome = Literal["updated", "skipped", "error"]
+
+
+def _find_countries_with_new_articles(
+    repo: MacroRegimeRepository,
+    since: datetime,
+) -> list[str]:
+    """Return country names that have at least one new article since *since*."""
+    articles = repo.get_macro_news(start_date=since, limit=500)
+    countries: set[str] = set()
+
+    for article in articles:
+        if article.source_ticker and article.source_ticker in TICKER_COUNTRY_MAP:
+            country = TICKER_COUNTRY_MAP[article.source_ticker]
+            if country != _GLOBAL:
+                countries.add(country)
+        elif article.source_query and article.source_query in QUERY_COUNTRY_MAP:
+            for c in QUERY_COUNTRY_MAP[article.source_query]:
+                if c != _GLOBAL:
+                    countries.add(c)
+
+    return sorted(countries)
+
+
+def _is_morning_pipeline_complete(
+    repo: MacroRegimeRepository,
+    today: date,
+) -> bool:
+    """Return True if at least one MacroNewsSummary row exists for today."""
+    summaries = repo.get_all_news_summaries(summary_date=today)
+    return len(summaries) > 0
+
+
+def _summarize_country_safe(
+    session: Session,
+    country: str,
+) -> CountryOutcome:
+    """Summarize a single country with error isolation.
+
+    Returns "updated", "skipped", or "error".
+    """
+    try:
+        results = generate_country_summaries(
+            session,
+            force_refresh=True,
+            countries=[country],
+        )
+        session.commit()
+        return "updated" if results else "skipped"
+    except Exception:
+        logger.exception(
+            "Scheduler: summarization failed for country=%s (non-fatal)", country,
+        )
+        try:
+            session.rollback()
+        except Exception:
+            logger.exception("Scheduler: rollback failed for country=%s", country)
+        return "error"
+
+
+# ---------------------------------------------------------------------------
+# Standalone summarize (callable from routes and scheduler)
+# ---------------------------------------------------------------------------
+
+
+def run_news_summarize(
+    request: Any,
+    *,
+    on_progress: ProgressCallback = _noop,
+) -> list[CountrySummaryResult]:
+    """Execute news summarization in the service layer.
+
+    Args:
+        request: ``MacroNewsSummarizeRequest`` with ``force_refresh`` and ``countries``.
+        on_progress: Optional callback for progress updates.
+
+    Returns:
+        List of ``CountrySummaryResult`` for each summarized country.
+    """
+    from app.database import database_manager
+
+    with database_manager.get_session() as session:
+        results = generate_country_summaries(
+            session,
+            force_refresh=request.force_refresh,
+            countries=request.countries,
+        )
+        session.commit()
+
+        on_progress(
+            status="completed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            current=len(results),
+            total=len(results),
+            result={
+                "countries_summarized": len(results),
+                "countries": [r.country for r in results],
+            },
+        )
+        logger.info("News summarize completed: %d countries", len(results))
+
     return results

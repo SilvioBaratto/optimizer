@@ -49,7 +49,14 @@ def _make_summary_row(
 
 class TestStartNewsSummarize:
     def test_returns_202_with_job_id(self, client: TestClient) -> None:
-        resp = client.post(_SUMMARIZE_POST)
+        job_id = str(uuid.uuid4())
+        with patch(
+            "app.api.v1.macro_regime._summarize_job_service.create_job",
+            return_value=job_id,
+        ), patch(
+            "app.api.v1.macro_regime._summarize_job_service.start_background",
+        ):
+            resp = client.post(_SUMMARIZE_POST)
 
         assert resp.status_code == 202
         data = resp.json()
@@ -57,19 +64,28 @@ class TestStartNewsSummarize:
         assert data["status"] == "pending"
 
     def test_returns_409_when_already_running(self, client: TestClient) -> None:
+        from app.services.background_job import JobAlreadyRunningError
+
         with patch(
-            "app.api.v1.macro_regime._summarize_job_service.is_any_running",
-            return_value=(True, "existing-id"),
+            "app.api.v1.macro_regime._summarize_job_service.create_job",
+            side_effect=JobAlreadyRunningError("existing-id"),
         ):
             resp = client.post(_SUMMARIZE_POST)
 
         assert resp.status_code == 409
         body = resp.json()
         message = body.get("detail", "") or body.get("error", {}).get("message", "")
-        assert "already running" in message
+        assert "already in progress" in message
 
     def test_accepts_force_refresh_param(self, client: TestClient) -> None:
-        resp = client.post(_SUMMARIZE_POST, json={"force_refresh": True})
+        job_id = str(uuid.uuid4())
+        with patch(
+            "app.api.v1.macro_regime._summarize_job_service.create_job",
+            return_value=job_id,
+        ), patch(
+            "app.api.v1.macro_regime._summarize_job_service.start_background",
+        ):
+            resp = client.post(_SUMMARIZE_POST, json={"force_refresh": True})
 
         assert resp.status_code == 202
 
@@ -85,11 +101,31 @@ class TestGetNewsSummarizeStatus:
         assert resp.status_code == 404
 
     def test_returns_progress_for_known_job(self, client: TestClient) -> None:
-        # First create a job so we get a valid job_id
-        post_resp = client.post(_SUMMARIZE_POST)
-        job_id = post_resp.json()["job_id"]
+        job_id = str(uuid.uuid4())
+        # Create a job and then poll it
+        with patch(
+            "app.api.v1.macro_regime._summarize_job_service.create_job",
+            return_value=job_id,
+        ), patch(
+            "app.api.v1.macro_regime._summarize_job_service.start_background",
+        ):
+            post_resp = client.post(_SUMMARIZE_POST)
+        assert post_resp.status_code == 202
 
-        resp = client.get(f"{_SUMMARIZE_POST}/{job_id}")
+        with patch(
+            "app.api.v1.macro_regime._summarize_job_service.get_job",
+            return_value={
+                "job_id": job_id,
+                "status": "running",
+                "current": 1,
+                "total": 5,
+                "current_country": "USA",
+                "errors": [],
+                "result": None,
+                "error": None,
+            },
+        ):
+            resp = client.get(f"{_SUMMARIZE_POST}/{job_id}")
         assert resp.status_code == 200
         data = resp.json()
         assert data["job_id"] == job_id

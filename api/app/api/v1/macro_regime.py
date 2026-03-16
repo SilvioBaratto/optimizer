@@ -28,8 +28,15 @@ from app.schemas.macro_regime import (
     TradingEconomicsIndicatorResponse,
     TradingEconomicsObservationResponse,
 )
-from app.services.background_job import BackgroundJobService
-from app.services.macro_regime_service import MacroRegimeService
+from app.services._progress import make_progress
+from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
+from app.services.macro_news_summary import run_news_summarize
+from app.services.macro_regime_service import (
+    MacroRegimeService,
+    run_bulk_fred_fetch,
+    run_bulk_macro_fetch,
+    run_macro_news_fetch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +54,10 @@ _FORECAST_COLUMNS: frozenset[str] = frozenset({
 })
 
 # Shared job service instance for this router
-_job_service = BackgroundJobService()
+_job_service = BackgroundJobService(
+    job_type="macro_fetch",
+    session_factory=database_manager.get_session,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -59,58 +69,13 @@ def _run_bulk_fetch(
     job_id: str,
     request: MacroFetchRequest,
 ) -> None:
-    """Execute bulk macro data fetch in a background thread."""
+    """Thin wrapper managing job lifecycle around the service function."""
     _job_service.update_job(job_id, status="running")
-
     try:
-        with database_manager.get_session() as session:
-            repo = MacroRegimeRepository(session)
-            service = MacroRegimeService(repo)
-
-            countries = (
-                request.countries
-                if request.countries
-                else MacroRegimeService.get_portfolio_countries()
-            )
-            total = len(countries)
-            _job_service.update_job(job_id, total=total)
-
-            all_errors: list[str] = []
-            total_counts: dict[str, int] = {}
-
-            for idx, country in enumerate(countries, 1):
-                _job_service.update_job(job_id, current=idx, current_country=country)
-
-                try:
-                    result = service.fetch_country(
-                        country, include_bonds=request.include_bonds
-                    )
-
-                    for k, v in result["counts"].items():
-                        total_counts[k] = total_counts.get(k, 0) + v
-                    for err in result["errors"]:
-                        all_errors.append(f"{country}: {err}")
-
-                    session.commit()
-
-                except Exception as e:
-                    logger.error("Failed to process %s: %s", country, e)
-                    all_errors.append(f"{country}: {e}")
-                    session.rollback()
-
-            _job_service.update_job(
-                job_id,
-                status="completed",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-                errors=all_errors,
-                result={
-                    "countries_processed": total,
-                    "counts": total_counts,
-                    "error_count": len(all_errors),
-                },
-            )
-            logger.info("Macro fetch %s completed: %d countries", job_id, total)
-
+        run_bulk_macro_fetch(
+            request,
+            on_progress=make_progress(job_id, _job_service),
+        )
     except Exception as e:
         logger.error("Macro fetch %s failed: %s", job_id, e)
         _job_service.update_job(
@@ -144,14 +109,13 @@ def start_bulk_fetch(
     request: MacroFetchRequest = MacroFetchRequest(),
 ):
     """Start a background job that fetches macro data for all portfolio countries."""
-    running, running_id = _job_service.is_any_running()
-    if running:
+    try:
+        job_id = _job_service.create_job(current_country="")
+    except JobAlreadyRunningError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"A macro fetch job is already in progress (id={running_id})",
-        )
-
-    job_id = _job_service.create_job(current_country="")
+            detail=str(exc),
+        ) from exc
     _job_service.start_background(
         target=_run_bulk_fetch,
         args=(job_id, request),
@@ -274,28 +238,20 @@ def get_bond_yields(
 # FRED time-series endpoints
 # ---------------------------------------------------------------------------
 
-_fred_job_service = BackgroundJobService()
+_fred_job_service = BackgroundJobService(
+    job_type="fred_fetch",
+    session_factory=database_manager.get_session,
+)
 
 
 def _run_fred_fetch(job_id: str, request: FredFetchRequest) -> None:
-    """Execute FRED fetch in a background thread."""
+    """Thin wrapper managing job lifecycle around the service function."""
     _fred_job_service.update_job(job_id, status="running")
     try:
-        with database_manager.get_session() as session:
-            repo = MacroRegimeRepository(session)
-            service = MacroRegimeService(repo)
-            result = service.fetch_fred_series(
-                series_ids=request.series_ids,
-                incremental=request.incremental,
-            )
-            session.commit()
-            _fred_job_service.update_job(
-                job_id,
-                status="completed",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-                errors=result.get("errors", []),
-                result=result.get("counts", {}),
-            )
+        run_bulk_fred_fetch(
+            request,
+            on_progress=make_progress(job_id, _fred_job_service),
+        )
     except Exception as exc:
         logger.error("FRED fetch %s failed: %s", job_id, exc)
         _fred_job_service.update_job(
@@ -313,14 +269,13 @@ def _run_fred_fetch(job_id: str, request: FredFetchRequest) -> None:
 )
 def start_fred_fetch(request: FredFetchRequest = FredFetchRequest()):
     """Start a background job that fetches FRED time-series observations."""
-    running, running_id = _fred_job_service.is_any_running()
-    if running:
+    try:
+        job_id = _fred_job_service.create_job()
+    except JobAlreadyRunningError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"A FRED fetch job is already running (id={running_id})",
-        )
-
-    job_id = _fred_job_service.create_job()
+            detail=str(exc),
+        ) from exc
     _fred_job_service.start_background(
         target=_run_fred_fetch,
         args=(job_id, request),
@@ -516,28 +471,20 @@ def get_economic_indicator_observations(
 # Macro news endpoints
 # ---------------------------------------------------------------------------
 
-_news_job_service = BackgroundJobService()
+_news_job_service = BackgroundJobService(
+    job_type="macro_news_fetch",
+    session_factory=database_manager.get_session,
+)
 
 
 def _run_macro_news_fetch(job_id: str, request: MacroNewsFetchRequest) -> None:
-    """Execute macro news fetch in a background thread."""
+    """Thin wrapper managing job lifecycle around the service function."""
     _news_job_service.update_job(job_id, status="running")
     try:
-        with database_manager.get_session() as session:
-            repo = MacroRegimeRepository(session)
-            service = MacroRegimeService(repo)
-            result = service.fetch_macro_news(
-                max_articles=request.max_articles,
-                fetch_full_content=request.fetch_full_content,
-            )
-            session.commit()
-            _news_job_service.update_job(
-                job_id,
-                status="completed",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-                errors=result.get("errors", []),
-                result={"articles_stored": result.get("count", 0)},
-            )
+        run_macro_news_fetch(
+            request,
+            on_progress=make_progress(job_id, _news_job_service),
+        )
     except Exception as exc:
         logger.error("Macro news fetch %s failed: %s", job_id, exc)
         _news_job_service.update_job(
@@ -557,14 +504,13 @@ def start_macro_news_fetch(
     request: MacroNewsFetchRequest = MacroNewsFetchRequest(),
 ):
     """Start a background job to fetch macro-themed news from yfinance."""
-    running, running_id = _news_job_service.is_any_running()
-    if running:
+    try:
+        job_id = _news_job_service.create_job()
+    except JobAlreadyRunningError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"A macro news fetch job is already running (id={running_id})",
-        )
-
-    job_id = _news_job_service.create_job()
+            detail=str(exc),
+        ) from exc
     _news_job_service.start_background(
         target=_run_macro_news_fetch,
         args=(job_id, request),
@@ -685,34 +631,20 @@ def get_distinct_countries(
 # News summary endpoints
 # ---------------------------------------------------------------------------
 
-_summarize_job_service = BackgroundJobService()
+_summarize_job_service = BackgroundJobService(
+    job_type="news_summarize",
+    session_factory=database_manager.get_session,
+)
 
 
 def _run_news_summarize(job_id: str, request: MacroNewsSummarizeRequest) -> None:
-    """Execute news summarization in a background thread."""
-    from app.services.macro_news_summary import generate_country_summaries
-
+    """Thin wrapper managing job lifecycle around the service function."""
     _summarize_job_service.update_job(job_id, status="running")
     try:
-        with database_manager.get_session() as session:
-            results = generate_country_summaries(
-                session,
-                force_refresh=request.force_refresh,
-                countries=request.countries,
-            )
-            session.commit()
-            _summarize_job_service.update_job(
-                job_id,
-                status="completed",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-                current=len(results),
-                total=len(results),
-                result={
-                    "countries_summarized": len(results),
-                    "countries": [r.country for r in results],
-                },
-            )
-            logger.info("News summarize %s completed: %d countries", job_id, len(results))
+        run_news_summarize(
+            request,
+            on_progress=make_progress(job_id, _summarize_job_service),
+        )
     except Exception as exc:
         logger.error("News summarize %s failed: %s", job_id, exc)
         _summarize_job_service.update_job(
@@ -732,14 +664,13 @@ def start_news_summarize(
     request: MacroNewsSummarizeRequest = MacroNewsSummarizeRequest(),
 ):
     """Start a background job to generate daily news summaries per country."""
-    running, running_id = _summarize_job_service.is_any_running()
-    if running:
+    try:
+        job_id = _summarize_job_service.create_job(current_country="")
+    except JobAlreadyRunningError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"A news summarize job is already running (id={running_id})",
-        )
-
-    job_id = _summarize_job_service.create_job(current_country="")
+            detail=str(exc),
+        ) from exc
     _summarize_job_service.start_background(
         target=_run_news_summarize,
         args=(job_id, request),

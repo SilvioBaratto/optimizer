@@ -17,7 +17,10 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.drop_column("economic_indicators", "st_rate_forecast")
+    conn = op.get_bind()
+    cols = {c["name"] for c in sa.inspect(conn).get_columns("economic_indicators")}
+    if "st_rate_forecast" in cols:
+        op.drop_column("economic_indicators", "st_rate_forecast")
 
 
 def downgrade() -> None:

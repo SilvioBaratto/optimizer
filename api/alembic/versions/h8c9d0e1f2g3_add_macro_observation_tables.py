@@ -73,25 +73,30 @@ def upgrade() -> None:
     op.create_index("ix_bond_observations_country", "bond_yield_observations", ["country"])
     op.create_index("ix_bond_observations_date", "bond_yield_observations", ["date"])
 
-    # -- Seed from existing snapshot tables --
-    op.execute(
-        """
-        INSERT INTO trading_economics_observations (id, country, indicator_key, date, value, created_at, updated_at)
-        SELECT gen_random_uuid(), country, indicator_key, CURRENT_DATE, value, NOW(), NOW()
-        FROM trading_economics_indicators
-        WHERE value IS NOT NULL
-        ON CONFLICT DO NOTHING
-        """
-    )
-    op.execute(
-        """
-        INSERT INTO bond_yield_observations (id, country, maturity, date, yield_value, created_at, updated_at)
-        SELECT gen_random_uuid(), country, maturity, CURRENT_DATE, yield_value, NOW(), NOW()
-        FROM bond_yields
-        WHERE yield_value IS NOT NULL
-        ON CONFLICT DO NOTHING
-        """
-    )
+    # -- Seed from existing snapshot tables (if they exist) --
+    conn = op.get_bind()
+    existing = set(sa.inspect(conn).get_table_names())
+
+    if "trading_economics_indicators" in existing:
+        op.execute(
+            """
+            INSERT INTO trading_economics_observations (id, country, indicator_key, date, value, created_at, updated_at)
+            SELECT gen_random_uuid(), country, indicator_key, CURRENT_DATE, value, NOW(), NOW()
+            FROM trading_economics_indicators
+            WHERE value IS NOT NULL
+            ON CONFLICT DO NOTHING
+            """
+        )
+    if "bond_yields" in existing:
+        op.execute(
+            """
+            INSERT INTO bond_yield_observations (id, country, maturity, date, yield_value, created_at, updated_at)
+            SELECT gen_random_uuid(), country, maturity, CURRENT_DATE, yield_value, NOW(), NOW()
+            FROM bond_yields
+            WHERE yield_value IS NOT NULL
+            ON CONFLICT DO NOTHING
+            """
+        )
 
 
 def downgrade() -> None:

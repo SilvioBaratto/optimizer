@@ -27,16 +27,20 @@ from app.schemas.yfinance_data import (
     YFinanceSingleFetchRequest,
     YFinanceSingleFetchResponse,
 )
-from app.services.background_job import BackgroundJobService
+from app.services._progress import make_progress
+from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.yfinance import YFinanceClient, get_yfinance_client
-from app.services.yfinance_data_service import YFinanceDataService
+from app.services.yfinance_data_service import YFinanceDataService, run_bulk_yfinance_fetch
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/yfinance-data", tags=["YFinance Data"])
 
 # Shared job service instance for this router
-_job_service = BackgroundJobService()
+_job_service = BackgroundJobService(
+    job_type="yfinance_fetch",
+    session_factory=database_manager.get_session,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -49,63 +53,14 @@ def _run_bulk_fetch(
     request: YFinanceFetchRequest,
     yf_client: YFinanceClient,
 ) -> None:
-    """Execute bulk yfinance fetch in a background thread."""
+    """Thin wrapper managing job lifecycle around the service function."""
     _job_service.update_job(job_id, status="running")
-
     try:
-        with database_manager.get_session() as session:
-            repo = YFinanceRepository(session)
-            instruments = repo.get_instruments_with_yfinance_ticker()
-
-            total = len(instruments)
-            _job_service.update_job(job_id, total=total)
-
-            all_errors: list[str] = []
-            total_counts: dict[str, int] = {}
-            total_skipped: int = 0
-
-            service = YFinanceDataService(repo, yf_client)
-
-            for idx, instrument in enumerate(instruments, 1):
-                ticker = instrument.yfinance_ticker
-                _job_service.update_job(job_id, current=idx, current_ticker=ticker)
-
-                try:
-                    result = service.fetch_and_store(
-                        instrument_id=instrument.id,
-                        yfinance_ticker=ticker,
-                        period=request.period,
-                        mode=request.mode,
-                        exchange_name=instrument.exchange_name,
-                    )
-
-                    for k, v in result["counts"].items():
-                        total_counts[k] = total_counts.get(k, 0) + v
-                    total_skipped += len(result.get("skipped", []))
-                    for err in result["errors"]:
-                        all_errors.append(f"{ticker}: {err}")
-
-                    session.commit()
-
-                except Exception as e:
-                    logger.error("Failed to process %s: %s", ticker, e)
-                    all_errors.append(f"{ticker}: {e}")
-                    session.rollback()
-
-            _job_service.update_job(
-                job_id,
-                status="completed",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-                errors=all_errors,
-                result={
-                    "tickers_processed": total,
-                    "counts": total_counts,
-                    "error_count": len(all_errors),
-                    "skipped_category_count": total_skipped,
-                },
-            )
-            logger.info("Bulk fetch %s completed: %d tickers", job_id, total)
-
+        run_bulk_yfinance_fetch(
+            request,
+            yf_client,
+            on_progress=make_progress(job_id, _job_service),
+        )
     except Exception as e:
         logger.error("Bulk fetch %s failed: %s", job_id, e)
         _job_service.update_job(
@@ -144,14 +99,14 @@ def start_bulk_fetch(
     yf_client: YFinanceClient = Depends(_get_yf_client),
 ):
     """Start a background job that fetches yfinance data for all instruments."""
-    running, running_id = _job_service.is_any_running()
-    if running:
+    try:
+        job_id = _job_service.create_job(current_ticker="")
+    except JobAlreadyRunningError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"A fetch job is already in progress (id={running_id})",
-        )
+            detail=str(exc),
+        ) from exc
 
-    job_id = _job_service.create_job(current_ticker="")
     _job_service.start_background(
         target=_run_bulk_fetch,
         args=(job_id, request, yf_client),

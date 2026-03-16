@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any
 
 from baml_client import b
 from baml_client.types import BusinessCyclePhase, MacroRegimeCalibration
 from sqlalchemy.orm import Session
 
 from app.repositories.macro_regime_repository import MacroRegimeRepository
+from app.services._progress import ProgressCallback, _noop
 
 logger = logging.getLogger(__name__)
 
@@ -277,6 +280,60 @@ def classify_macro_regime(
             logger.exception("Failed to persist calibration for country=%s (non-fatal)", country)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Standalone bulk calibrate (callable from routes and scheduler)
+# ---------------------------------------------------------------------------
+
+
+def run_bulk_calibrate(
+    countries: list[str],
+    force_refresh: bool,
+    *,
+    on_progress: ProgressCallback = _noop,
+) -> dict[str, Any]:
+    """Execute batch macro calibration for multiple countries.
+
+    Args:
+        countries: List of country names to calibrate.
+        force_refresh: Bypass cache and invoke the LLM for each country.
+        on_progress: Optional callback for progress updates.
+
+    Returns:
+        Result dict with ``countries_processed`` and ``error_count``.
+    """
+    from app.database import database_manager
+
+    on_progress(total=len(countries))
+    all_errors: list[str] = []
+
+    with database_manager.get_session() as session:
+        for idx, country in enumerate(countries, 1):
+            on_progress(current=idx, current_country=country)
+            try:
+                classify_macro_regime(
+                    session=session,
+                    country=country,
+                    force_refresh=force_refresh,
+                )
+                session.commit()
+            except Exception as e:
+                logger.error("Calibration failed for %s: %s", country, e)
+                all_errors.append(f"{country}: {e}")
+                session.rollback()
+
+    result_dict = {
+        "countries_processed": len(countries),
+        "error_count": len(all_errors),
+    }
+    on_progress(
+        status="completed",
+        finished_at=datetime.now(timezone.utc).isoformat(),
+        errors=all_errors,
+        result=result_dict,
+    )
+    return result_dict
 
 
 def build_bl_config_from_calibration(

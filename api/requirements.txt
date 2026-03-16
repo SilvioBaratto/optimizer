@@ -53,6 +53,9 @@ lxml==6.0.2
 requests[socks]==2.32.5
 pysocks==1.7.1
 
+# Scheduling
+APScheduler==3.10.4
+
 # Monitoring & System
 psutil==7.2.2
 prometheus-client==0.24.1

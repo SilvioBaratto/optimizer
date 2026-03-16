@@ -11,6 +11,11 @@ from datetime import datetime
 
 import requests
 
+from app.services.infrastructure import CircuitBreaker, retry_with_backoff
+from app.services.infrastructure.retry import is_transient_network_error
+
+_fred_circuit_breaker = CircuitBreaker(service_name="FRED API", max_attempts=8)
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -104,11 +109,33 @@ class FredScraper:
         if end_date:
             params["observation_end"] = end_date
 
+        url = f"{_FRED_BASE_URL}/series/observations"
+
+        def _fetch() -> requests.Response:
+            _fred_circuit_breaker.check()
+            resp = self.session.get(url, params=params, timeout=self.timeout)
+            resp.raise_for_status()
+            return resp
+
+        raw = retry_with_backoff(
+            _fetch,
+            max_retries=5,
+            base_delay=1.0,
+            max_delay=60.0,
+            is_rate_limit_error=is_transient_network_error,
+            on_rate_limit=_fred_circuit_breaker.trigger,
+            on_success=lambda _: _fred_circuit_breaker.reset(),
+        )
+        if raw is None:
+            return {
+                "status": "error",
+                "series_id": series_id,
+                "error": "Fetch failed after retries",
+                "timestamp": datetime.now().isoformat(),
+            }
+
         try:
-            url = f"{_FRED_BASE_URL}/series/observations"
-            response = self.session.get(url, params=params, timeout=self.timeout)
-            response.raise_for_status()
-            data = response.json()
+            data = raw.json()
 
             if "error_code" in data:
                 return {
@@ -128,13 +155,6 @@ class FredScraper:
                 "timestamp": datetime.now().isoformat(),
             }
 
-        except requests.RequestException as exc:
-            return {
-                "status": "error",
-                "series_id": series_id,
-                "error": f"HTTP request failed: {exc!s}",
-                "timestamp": datetime.now().isoformat(),
-            }
         except Exception as exc:
             return {
                 "status": "error",

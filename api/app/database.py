@@ -46,6 +46,7 @@ class DatabaseManager:
         self._is_initialized: bool = False
         self._lock = threading.RLock()
         self._last_health_check: float = 0
+        self._last_health_check_result: bool = False
         self._health_check_interval: float = 30.0  # Cache health checks for 30 seconds
 
     def initialize(self) -> None:
@@ -163,16 +164,16 @@ class DatabaseManager:
         Returns:
             bool: True if database is healthy, False otherwise
         """
+        if not self._is_initialized:
+            logger.warning("Health check failed: Database not initialized")
+            return False
+
         current_time = time.time()
 
         # Use cached result if recent
         if (current_time - self._last_health_check) < self._health_check_interval:
             logger.debug("Using cached health check result")
-            return True
-
-        if not self._is_initialized:
-            logger.warning("Health check failed: Database not initialized")
-            return False
+            return self._last_health_check_result
 
         try:
             with self.get_session() as session:
@@ -182,13 +183,18 @@ class DatabaseManager:
 
                 if row is not None and row[0] == 1:
                     self._last_health_check = current_time
+                    self._last_health_check_result = True
                     logger.debug("Database health check passed")
                     return True
                 else:
+                    self._last_health_check = current_time
+                    self._last_health_check_result = False
                     logger.warning("Database health check returned unexpected value")
                     return False
 
         except Exception as e:
+            self._last_health_check = current_time
+            self._last_health_check_result = False
             logger.error(f"Database health check failed: {e}")
             return False
 
@@ -339,6 +345,7 @@ class DatabaseManager:
         self._session_factory = None
         self._is_initialized = False
         self._last_health_check = 0
+        self._last_health_check_result = False
 
     @property
     def is_initialized(self) -> bool:

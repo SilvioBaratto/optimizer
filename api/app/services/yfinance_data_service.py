@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from app.repositories.yfinance_repository import YFinanceRepository
+from app.services._progress import ProgressCallback, _noop
 from app.services.trading_calendar import has_sufficient_history
 from app.services.yfinance import YFinanceClient
 
@@ -471,3 +472,83 @@ class YFinanceDataService:
             logger.warning("Failed news for %s: %s", yfinance_ticker, e)
 
         return {"counts": counts, "errors": errors, "skipped": skipped}
+
+
+# ---------------------------------------------------------------------------
+# Standalone bulk fetch (callable from routes and scheduler)
+# ---------------------------------------------------------------------------
+
+
+def run_bulk_yfinance_fetch(
+    request: Any,
+    yf_client: YFinanceClient,
+    *,
+    on_progress: ProgressCallback = _noop,
+) -> dict[str, Any]:
+    """Execute bulk yfinance fetch for all instruments.
+
+    Args:
+        request: ``YFinanceFetchRequest`` with ``period`` and ``mode`` fields.
+        yf_client: Configured yfinance client instance.
+        on_progress: Optional callback for progress updates.
+
+    Returns:
+        Result dict with ``tickers_processed``, ``counts``, ``error_count``,
+        and ``skipped_category_count``.
+    """
+    from app.database import database_manager
+
+    with database_manager.get_session() as session:
+        repo = YFinanceRepository(session)
+        instruments = repo.get_instruments_with_yfinance_ticker()
+
+        total = len(instruments)
+        on_progress(total=total)
+
+        all_errors: list[str] = []
+        total_counts: dict[str, int] = {}
+        total_skipped: int = 0
+
+        service = YFinanceDataService(repo, yf_client)
+
+        for idx, instrument in enumerate(instruments, 1):
+            ticker = instrument.yfinance_ticker
+            on_progress(current=idx, current_ticker=ticker)
+
+            try:
+                result = service.fetch_and_store(
+                    instrument_id=instrument.id,
+                    yfinance_ticker=ticker,
+                    period=request.period,
+                    mode=request.mode,
+                    exchange_name=instrument.exchange_name,
+                )
+
+                for k, v in result["counts"].items():
+                    total_counts[k] = total_counts.get(k, 0) + v
+                total_skipped += len(result.get("skipped", []))
+                for err in result["errors"]:
+                    all_errors.append(f"{ticker}: {err}")
+
+                session.commit()
+
+            except Exception as e:
+                logger.error("Failed to process %s: %s", ticker, e)
+                all_errors.append(f"{ticker}: {e}")
+                session.rollback()
+
+        result_dict = {
+            "tickers_processed": total,
+            "counts": total_counts,
+            "error_count": len(all_errors),
+            "skipped_category_count": total_skipped,
+        }
+        on_progress(
+            status="completed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            errors=all_errors,
+            result=result_dict,
+        )
+        logger.info("Bulk yfinance fetch completed: %d tickers", total)
+
+    return result_dict

@@ -73,22 +73,37 @@ class Settings(BaseSettings):
     # FRED API
     fred_api_key: str = Field(default="", alias="FRED_API_KEY")
 
-    # News Summary Scheduler
-    news_summary_refresh_interval_minutes: int = Field(
-        default=30,
-        alias="NEWS_SUMMARY_REFRESH_INTERVAL_MINUTES",
+    # Scheduler — cron expressions (5-field: min hour dom month dow)
+    scheduler_daily_pipeline_cron: str = Field(
+        default="0 7 * * *", alias="SCHEDULER_DAILY_PIPELINE_CRON",
+    )
+    scheduler_midday_news_cron: str = Field(
+        default="0 14 * * *", alias="SCHEDULER_MIDDAY_NEWS_CRON",
+    )
+    scheduler_weekly_refetch_cron: str = Field(
+        default="0 3 * * 0", alias="SCHEDULER_WEEKLY_REFETCH_CRON",
+    )
+    scheduler_fred_monthly_cron: str = Field(
+        default="0 8 1 * *", alias="SCHEDULER_FRED_MONTHLY_CRON",
+    )
+    scheduler_news_refresh_interval_minutes: int = Field(
+        default=30, alias="SCHEDULER_NEWS_REFRESH_INTERVAL_MIN",
+    )
+    scheduler_misfire_grace_time_seconds: int = Field(
+        default=3600, alias="SCHEDULER_MISFIRE_GRACE_TIME_SECONDS",
     )
 
-    @property
-    def news_summary_refresh_interval_seconds(self) -> int:
-        return self.news_summary_refresh_interval_minutes * 60
+    # Notifications
+    notification_webhook_url: str | None = Field(
+        default=None, alias="NOTIFICATION_WEBHOOK_URL",
+    )
 
     # Performance
     connection_timeout: int = Field(default=10)
     read_timeout: int = Field(default=30)
 
     # Environment detection helpers
-    debug: bool = Field(default=True)
+    debug: bool = Field(default=False)
     environment: str = Field(default="development")
 
     @property
