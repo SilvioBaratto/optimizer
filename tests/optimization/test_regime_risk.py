@@ -321,8 +321,8 @@ class TestRegimeRiskConfig:
 
     def test_for_calm_stress_measures_correct(self) -> None:
         config = RegimeRiskConfig.for_calm_stress()
-        assert config.regime_measures[0] == RiskMeasureType.VARIANCE
-        assert config.regime_measures[1] == RiskMeasureType.CVAR
+        assert config.regime_measures[0] == RiskMeasureType.CVAR  # bear/stress
+        assert config.regime_measures[1] == RiskMeasureType.VARIANCE  # calm/bull
 
     def test_for_three_regimes(self) -> None:
         config = RegimeRiskConfig.for_three_regimes()
@@ -343,8 +343,8 @@ class TestRegimeRiskConfig:
     def test_for_calm_stress_drawdown(self) -> None:
         config = RegimeRiskConfig.for_calm_stress_drawdown()
         assert len(config.regime_measures) == 2
-        assert config.regime_measures[0] == RiskMeasureType.VARIANCE
-        assert config.regime_measures[1] == RiskMeasureType.CDAR
+        assert config.regime_measures[0] == RiskMeasureType.CDAR  # bear/stress
+        assert config.regime_measures[1] == RiskMeasureType.VARIANCE  # calm/bull
         assert config.hmm_config.n_states == 2
         assert config.cvar_beta == pytest.approx(0.95)
 
@@ -366,26 +366,26 @@ class TestBuildRegimeBlendedOptimizer:
         optimizer = build_regime_blended_optimizer(config, hmm)
         assert isinstance(optimizer, MeanRisk)
 
-    def test_dominant_state_0_uses_variance(self) -> None:
-        """State 0 (calm) dominant → MeanRisk uses VARIANCE."""
+    def test_dominant_state_0_uses_cvar(self) -> None:
+        """State 0 (bear/stress, lowest mean) dominant → MeanRisk uses CVAR."""
         config = RegimeRiskConfig.for_calm_stress()
         hmm = _make_hmm_result(n_states=2, last_probs=[0.9, 0.1])
         optimizer = build_regime_blended_optimizer(config, hmm)
-        assert optimizer.risk_measure == RiskMeasure.VARIANCE
+        assert optimizer.risk_measure == RiskMeasure.CVAR
 
-    def test_dominant_state_1_uses_cvar(self) -> None:
-        """State 1 (stress) dominant → MeanRisk uses CVAR."""
+    def test_dominant_state_1_uses_variance(self) -> None:
+        """State 1 (calm/bull, highest mean) dominant → MeanRisk uses VARIANCE."""
         config = RegimeRiskConfig.for_calm_stress()
         hmm = _make_hmm_result(n_states=2, last_probs=[0.1, 0.9])
         optimizer = build_regime_blended_optimizer(config, hmm)
-        assert optimizer.risk_measure == RiskMeasure.CVAR
+        assert optimizer.risk_measure == RiskMeasure.VARIANCE
 
     def test_equal_probs_selects_state_0(self) -> None:
-        """argmax([0.5, 0.5]) = 0 → state-0 measure selected."""
+        """argmax([0.5, 0.5]) = 0 → state-0 (bear) measure selected."""
         config = RegimeRiskConfig.for_calm_stress()
         hmm = _make_hmm_result(n_states=2, last_probs=[0.5, 0.5])
         optimizer = build_regime_blended_optimizer(config, hmm)
-        assert optimizer.risk_measure == RiskMeasure.VARIANCE
+        assert optimizer.risk_measure == RiskMeasure.CVAR
 
     def test_wrong_n_measures_raises(self) -> None:
         config = RegimeRiskConfig(
@@ -408,7 +408,7 @@ class TestBuildRegimeBlendedOptimizer:
         config = RegimeRiskConfig.for_three_regimes()
         hmm = _make_hmm_result(n_states=3, last_probs=[0.1, 0.7, 0.2])
         optimizer = build_regime_blended_optimizer(config, hmm)
-        # State 1 = MEAN_ABSOLUTE_DEVIATION
+        # State 1 = middle regime = MAD
         assert optimizer.risk_measure == RiskMeasure.MEAN_ABSOLUTE_DEVIATION
 
 

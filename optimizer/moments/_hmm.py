@@ -108,6 +108,13 @@ def fit_hmm(returns: pd.DataFrame, config: HMMConfig | None = None) -> HMMResult
     ValueError
         If fewer than 2 assets or fewer than ``n_states + 1`` observations
         remain after dropping NaN rows.
+
+    Notes
+    -----
+    State ordering is deterministic after fitting.  States are sorted
+    by ascending mean return (averaged across assets), so state 0 is
+    always the lowest-return regime (bear/stress) and state
+    ``n_states - 1`` is the highest-return regime (bull/calm).
     """
     if config is None:
         config = HMMConfig()
@@ -137,6 +144,12 @@ def fit_hmm(returns: pd.DataFrame, config: HMMConfig | None = None) -> HMMResult
         random_state=config.random_state,
     )
     model.fit(X)
+
+    # Canonicalize state ordering: sort by ascending mean return so
+    # state 0 = lowest mean (bear/stress), state N-1 = highest mean
+    # (bull/calm).  hmmlearn does not guarantee state ordering across
+    # random seeds, refits, or data samples.
+    _sort_hmm_states(model, config.covariance_type)
 
     # Smoothed posterior state probabilities (conditioned on entire sequence)
     smoothed = model.predict_proba(X)
@@ -515,6 +528,53 @@ class HMMBlendedCovariance(BaseCovariance):
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _sort_hmm_states(
+    model: GaussianHMM,
+    covariance_type: str,
+) -> npt.NDArray[np.intp]:
+    """Sort HMM states by ascending cross-asset mean return, in-place.
+
+    After fitting, hmmlearn does not guarantee a consistent ordering of
+    hidden states across random seeds, refits, or data windows.  This
+    function reorders all parameter arrays so that:
+
+        state 0   = lowest mean return  (bear / stress)
+        state N-1 = highest mean return (bull / calm)
+
+    Parameters
+    ----------
+    model : GaussianHMM
+        A fitted hmmlearn GaussianHMM instance.
+    covariance_type : str
+        The covariance parameterization (``"full"``, ``"diag"``,
+        ``"tied"``, ``"spherical"``).
+
+    Returns
+    -------
+    order : ndarray of shape (n_states,)
+        The permutation applied to the state indices.
+    """
+    per_state_mean: npt.NDArray[np.float64] = model.means_.mean(axis=1)
+    order: npt.NDArray[np.intp] = np.argsort(per_state_mean)
+
+    if np.all(order == np.arange(len(order))):
+        return order
+
+    model.means_ = model.means_[order]
+    model.transmat_ = model.transmat_[order][:, order]
+    model.startprob_ = model.startprob_[order]
+
+    # covars_ layout depends on covariance_type; "tied" has no state axis.
+    # Bypass the property setter (which re-validates PSD) — the covariance
+    # arrays are unchanged, only reordered.
+    if covariance_type != "tied":
+        covars = model.covars_
+        assert covars is not None
+        model._covars_ = covars[order]
+
+    return order
 
 
 def _expand_covars(

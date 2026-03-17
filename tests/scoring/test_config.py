@@ -38,3 +38,17 @@ class TestScorerConfig:
     def test_for_custom(self) -> None:
         cfg = ScorerConfig.for_custom()
         assert cfg.ratio_measure is None
+
+    def test_risk_free_rate_default(self) -> None:
+        cfg = ScorerConfig()
+        assert cfg.risk_free_rate == 0.0
+
+    def test_for_sharpe_with_rf(self) -> None:
+        cfg = ScorerConfig.for_sharpe_with_rf(0.0002)
+        assert cfg.ratio_measure == RatioMeasureType.SHARPE_RATIO
+        assert cfg.risk_free_rate == pytest.approx(0.0002)
+
+    def test_risk_free_rate_frozen(self) -> None:
+        cfg = ScorerConfig.for_sharpe_with_rf(0.0002)
+        with pytest.raises(AttributeError):
+            cfg.risk_free_rate = 0.0  # type: ignore[misc]

@@ -7,8 +7,10 @@ from optimizer.factors._alpha import (
 from optimizer.factors._config import (
     FACTOR_GROUP_MAPPING,
     GROUP_WEIGHT_TIER,
+    HEAVY_TAILED_FACTORS,
     CompositeMethod,
     CompositeScoringConfig,
+    FactorBuildHealth,
     FactorConstructionConfig,
     FactorGroupType,
     FactorIntegrationConfig,
@@ -17,11 +19,13 @@ from optimizer.factors._config import (
     GroupWeight,
     MacroRegime,
     PublicationLagConfig,
+    RegimeThresholdConfig,
     RegimeTiltConfig,
     SelectionConfig,
     SelectionMethod,
     StandardizationConfig,
     StandardizationMethod,
+    WinsorizeMethod,
 )
 from optimizer.factors._construction import (
     align_to_pit,
@@ -61,7 +65,9 @@ from optimizer.factors._oos_validation import (
 )
 from optimizer.factors._regime import (
     apply_regime_tilts,
+    check_regime_disagreement,
     classify_regime,
+    classify_regime_composite,
     get_regime_tilts,
 )
 from optimizer.factors._scoring import (
@@ -86,6 +92,7 @@ from optimizer.factors._standardization import (
     standardize_all_factors,
     standardize_factor,
     winsorize_cross_section,
+    winsorize_cross_section_mad,
     z_score_standardize,
 )
 from optimizer.factors._validation import (
@@ -112,9 +119,11 @@ __all__ = [
     "FACTOR_GROUP_MAPPING",
     "FACTOR_SPREAD_BENCHMARKS",
     "GROUP_WEIGHT_TIER",
+    "HEAVY_TAILED_FACTORS",
     "CompositeMethod",
     "CompositeScoringConfig",
     "CorrectedPValues",
+    "FactorBuildHealth",
     "FactorConstructionConfig",
     "FactorExposureConstraints",
     "FactorGroupType",
@@ -134,11 +143,13 @@ __all__ = [
     "PublicationLagConfig",
     "QuantileSpreadResult",
     "QuintileSpreadResult",
+    "RegimeThresholdConfig",
     "RegimeTiltConfig",
     "SelectionConfig",
     "SelectionMethod",
     "StandardizationConfig",
     "StandardizationMethod",
+    "WinsorizeMethod",
     "align_to_pit",
     "apply_regime_tilts",
     "apply_sector_balance",
@@ -146,8 +157,10 @@ __all__ = [
     "build_factor_bl_views",
     "build_factor_exposure_constraints",
     "build_factor_mimicking_portfolios",
+    "check_regime_disagreement",
     "check_survivorship_bias",
     "classify_regime",
+    "classify_regime_composite",
     "compute_all_factors",
     "compute_composite_score",
     "compute_cross_factor_correlation",
@@ -189,5 +202,6 @@ __all__ = [
     "standardize_factor",
     "validate_factor_universe",
     "winsorize_cross_section",
+    "winsorize_cross_section_mad",
     "z_score_standardize",
 ]

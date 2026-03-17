@@ -11,7 +11,11 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 from optimizer.exceptions import ConfigurationError, DataError
-from optimizer.factors._config import StandardizationConfig, StandardizationMethod
+from optimizer.factors._config import (
+    StandardizationConfig,
+    StandardizationMethod,
+    WinsorizeMethod,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +46,41 @@ def winsorize_cross_section(
         return scores
     lower = valid.quantile(lower_pct)
     upper = valid.quantile(upper_pct)
+    return scores.clip(lower=lower, upper=upper)
+
+
+def winsorize_cross_section_mad(
+    scores: pd.Series,
+    mad_multiplier: float = 3.0,
+) -> pd.Series:
+    """Clip scores using Median Absolute Deviation (MAD).
+
+    Uses the normal-consistent scale factor ``1.4826 * MAD`` to set clip
+    boundaries at ``median +/- mad_multiplier * scale``, following the
+    MSCI Barra USE4 convention (+/-3 MAD).
+
+    Parameters
+    ----------
+    scores : pd.Series
+        Raw factor scores (may contain NaN).
+    mad_multiplier : float
+        Number of scaled-MAD units for clip boundaries.
+
+    Returns
+    -------
+    pd.Series
+        Winsorized scores.
+    """
+    valid = scores.dropna()
+    if len(valid) == 0:
+        return scores
+    med = valid.median()
+    mad = (valid - med).abs().median()
+    if mad == 0.0:
+        return scores
+    scale = 1.4826 * mad
+    lower = med - mad_multiplier * scale
+    upper = med + mad_multiplier * scale
     return scores.clip(lower=lower, upper=upper)
 
 
@@ -125,11 +164,25 @@ def neutralize_sector(
     return aligned - group_means
 
 
+def _resolve_method(
+    factor_name: str,
+    config: StandardizationConfig,
+) -> StandardizationMethod:
+    """Resolve standardization method for a factor, respecting overrides."""
+    if config.factor_method_overrides and factor_name:
+        overrides = dict(config.factor_method_overrides)
+        if factor_name in overrides:
+            return StandardizationMethod(overrides[factor_name])
+    return config.method
+
+
 def standardize_factor(
     raw_scores: pd.Series,
     config: StandardizationConfig | None = None,
     sector_labels: pd.Series | None = None,
     country_labels: pd.Series | None = None,
+    *,
+    factor_name: str = "",
 ) -> pd.Series:
     """Full standardization pipeline for a single factor.
 
@@ -143,6 +196,9 @@ def standardize_factor(
         Sector labels for neutralization.
     country_labels : pd.Series or None
         Country labels for neutralization.
+    factor_name : str
+        Column name of the factor, used to look up per-factor method
+        overrides in ``config.factor_method_overrides``.
 
     Returns
     -------
@@ -153,14 +209,18 @@ def standardize_factor(
         config = StandardizationConfig()
 
     # 1. Winsorize
-    scores = winsorize_cross_section(
-        raw_scores,
-        lower_pct=config.winsorize_lower,
-        upper_pct=config.winsorize_upper,
-    )
+    if config.winsorize_method == WinsorizeMethod.MAD:
+        scores = winsorize_cross_section_mad(raw_scores)
+    else:
+        scores = winsorize_cross_section(
+            raw_scores,
+            lower_pct=config.winsorize_lower,
+            upper_pct=config.winsorize_upper,
+        )
 
-    # 2. Standardize
-    if config.method == StandardizationMethod.Z_SCORE:
+    # 2. Standardize (with per-factor override support)
+    method = _resolve_method(factor_name, config)
+    if method == StandardizationMethod.Z_SCORE:
         scores = z_score_standardize(scores)
     else:
         scores = rank_normal_standardize(scores)
@@ -214,6 +274,7 @@ def standardize_all_factors(
             config=config,
             sector_labels=sector_labels,
             country_labels=country_labels,
+            factor_name=col,
         )
 
     scores = pd.DataFrame(standardized, index=raw_factors.index)

@@ -7,6 +7,7 @@ import pytest
 from optimizer.factors import (
     FACTOR_GROUP_MAPPING,
     GROUP_WEIGHT_TIER,
+    HEAVY_TAILED_FACTORS,
     CompositeMethod,
     CompositeScoringConfig,
     FactorConstructionConfig,
@@ -17,11 +18,13 @@ from optimizer.factors import (
     GroupWeight,
     MacroRegime,
     PublicationLagConfig,
+    RegimeThresholdConfig,
     RegimeTiltConfig,
     SelectionConfig,
     SelectionMethod,
     StandardizationConfig,
     StandardizationMethod,
+    WinsorizeMethod,
 )
 
 
@@ -70,6 +73,7 @@ class TestEnums:
             MacroRegime.SLOWDOWN,
             MacroRegime.RECESSION,
             MacroRegime.RECOVERY,
+            MacroRegime.UNKNOWN,
         }
 
     def test_group_weight_members(self) -> None:
@@ -80,6 +84,7 @@ class TestEnums:
         assert FactorType.MOMENTUM_12_1.value == "momentum_12_1"
         assert StandardizationMethod.Z_SCORE.value == "z_score"
         assert MacroRegime.EXPANSION.value == "expansion"
+        assert MacroRegime.UNKNOWN.value == "unknown"
 
 
 class TestMappingConstants:
@@ -190,18 +195,61 @@ class TestFactorConstructionConfig:
         assert len(cfg.factors) == 17
 
 
+class TestWinsorizeMethodEnum:
+    def test_members(self) -> None:
+        assert set(WinsorizeMethod) == {
+            WinsorizeMethod.PERCENTILE,
+            WinsorizeMethod.MAD,
+        }
+
+    def test_values(self) -> None:
+        assert WinsorizeMethod.PERCENTILE.value == "percentile"
+        assert WinsorizeMethod.MAD.value == "mad"
+
+
+class TestHeavyTailedFactors:
+    def test_contains_expected(self) -> None:
+        expected = {
+            "book_to_price",
+            "earnings_yield",
+            "cash_flow_yield",
+            "sales_to_price",
+            "ebitda_to_ev",
+            "asset_growth",
+            "dividend_yield",
+            "amihud_illiquidity",
+            "accruals",
+        }
+        assert expected == HEAVY_TAILED_FACTORS
+
+    def test_is_frozenset(self) -> None:
+        assert isinstance(HEAVY_TAILED_FACTORS, frozenset)
+
+    def test_normal_factors_excluded(self) -> None:
+        assert "momentum_12_1" not in HEAVY_TAILED_FACTORS
+        assert "volatility" not in HEAVY_TAILED_FACTORS
+        assert "beta" not in HEAVY_TAILED_FACTORS
+
+
 class TestStandardizationConfig:
     def test_defaults(self) -> None:
         cfg = StandardizationConfig()
-        assert cfg.method == StandardizationMethod.Z_SCORE
+        assert cfg.method == StandardizationMethod.RANK_NORMAL
+        assert cfg.winsorize_method == WinsorizeMethod.PERCENTILE
         assert cfg.winsorize_lower == 0.01
         assert cfg.winsorize_upper == 0.99
         assert cfg.neutralize_sector is True
+        assert cfg.factor_method_overrides == ()
 
     def test_frozen(self) -> None:
         cfg = StandardizationConfig()
         with pytest.raises(AttributeError):
             cfg.method = StandardizationMethod.RANK_NORMAL  # type: ignore[misc]
+
+    def test_is_hashable(self) -> None:
+        cfg = StandardizationConfig()
+        assert hash(cfg) is not None
+        assert {cfg, cfg} == {cfg}
 
     def test_for_heavy_tailed(self) -> None:
         cfg = StandardizationConfig.for_heavy_tailed()
@@ -210,6 +258,42 @@ class TestStandardizationConfig:
     def test_for_normal(self) -> None:
         cfg = StandardizationConfig.for_normal()
         assert cfg.method == StandardizationMethod.Z_SCORE
+
+    def test_for_z_score(self) -> None:
+        cfg = StandardizationConfig.for_z_score()
+        assert cfg.method == StandardizationMethod.Z_SCORE
+
+    def test_for_mad_winsorize(self) -> None:
+        cfg = StandardizationConfig.for_mad_winsorize()
+        assert cfg.winsorize_method == WinsorizeMethod.MAD
+        assert cfg.method == StandardizationMethod.RANK_NORMAL
+
+    def test_for_per_factor_heavy_tailed_get_rank_normal(self) -> None:
+        cfg = StandardizationConfig.for_per_factor()
+        overrides = dict(cfg.factor_method_overrides)
+        for name in ["book_to_price", "earnings_yield", "amihud_illiquidity"]:
+            assert overrides[name] == StandardizationMethod.RANK_NORMAL.value
+
+    def test_for_per_factor_normal_get_z_score(self) -> None:
+        cfg = StandardizationConfig.for_per_factor()
+        overrides = dict(cfg.factor_method_overrides)
+        for name in ["momentum_12_1", "volatility", "beta"]:
+            assert overrides[name] == StandardizationMethod.Z_SCORE.value
+
+    def test_for_per_factor_covers_all_factor_types(self) -> None:
+        cfg = StandardizationConfig.for_per_factor()
+        overrides = dict(cfg.factor_method_overrides)
+        for ft in FactorType:
+            assert ft.value in overrides
+
+    def test_for_per_factor_is_hashable(self) -> None:
+        cfg = StandardizationConfig.for_per_factor()
+        assert hash(cfg) is not None
+
+    def test_for_per_factor_is_frozen(self) -> None:
+        cfg = StandardizationConfig.for_per_factor()
+        with pytest.raises(AttributeError):
+            cfg.factor_method_overrides = ()  # type: ignore[misc]
 
 
 class TestCompositeScoringConfig:
@@ -233,6 +317,34 @@ class TestCompositeScoringConfig:
         assert cfg.method == CompositeMethod.ICIR_WEIGHTED
 
 
+    def test_min_coverage_groups_default(self) -> None:
+        cfg = CompositeScoringConfig()
+        assert cfg.min_coverage_groups == 0
+
+    def test_return_coverage_default(self) -> None:
+        cfg = CompositeScoringConfig()
+        assert cfg.return_coverage is False
+
+    def test_for_sparse_universe_preset(self) -> None:
+        cfg = CompositeScoringConfig.for_sparse_universe()
+        assert cfg.min_coverage_groups == 2
+
+    def test_for_coverage_diagnostics_preset(self) -> None:
+        cfg = CompositeScoringConfig.for_coverage_diagnostics()
+        assert cfg.return_coverage is True
+
+    def test_frozen_new_fields(self) -> None:
+        cfg = CompositeScoringConfig()
+        with pytest.raises(AttributeError):
+            cfg.min_coverage_groups = 3  # type: ignore[misc]
+        with pytest.raises(AttributeError):
+            cfg.return_coverage = True  # type: ignore[misc]
+
+    def test_hashable_with_new_fields(self) -> None:
+        cfg = CompositeScoringConfig(min_coverage_groups=3, return_coverage=True)
+        assert hash(cfg) is not None
+
+
 class TestSelectionConfig:
     def test_defaults(self) -> None:
         cfg = SelectionConfig()
@@ -240,6 +352,7 @@ class TestSelectionConfig:
         assert cfg.target_count == 100
         assert cfg.buffer_fraction == 0.1
         assert cfg.sector_balance is True
+        assert cfg.sector_tolerance == 0.05
 
     def test_for_top_100(self) -> None:
         cfg = SelectionConfig.for_top_100()
@@ -253,6 +366,11 @@ class TestSelectionConfig:
     def test_for_concentrated(self) -> None:
         cfg = SelectionConfig.for_concentrated()
         assert cfg.target_count == 30
+
+    def test_for_low_tracking_error(self) -> None:
+        cfg = SelectionConfig.for_low_tracking_error()
+        assert cfg.sector_tolerance == 0.03
+        assert cfg.target_count == 100
 
 
 class TestRegimeTiltConfig:
@@ -269,6 +387,56 @@ class TestRegimeTiltConfig:
     def test_for_no_tilts(self) -> None:
         cfg = RegimeTiltConfig.for_no_tilts()
         assert cfg.enable is False
+
+
+class TestRegimeThresholdConfig:
+    def test_defaults(self) -> None:
+        cfg = RegimeThresholdConfig()
+        assert cfg.hy_oas_risk_on == 350.0
+        assert cfg.hy_oas_risk_off == 500.0
+        assert cfg.pmi_expansion == 52.0
+        assert cfg.pmi_contraction == 48.0
+        assert cfg.spread_2s10s_steep == 1.0
+        assert cfg.spread_2s10s_inversion == 0.0
+        assert cfg.sentiment_positive == 0.3
+        assert cfg.sentiment_negative == -0.3
+
+    def test_frozen(self) -> None:
+        cfg = RegimeThresholdConfig()
+        with pytest.raises(AttributeError):
+            cfg.hy_oas_risk_on = 400.0  # type: ignore[misc]
+
+    def test_is_hashable(self) -> None:
+        cfg = RegimeThresholdConfig()
+        assert hash(cfg) is not None
+        assert {cfg, cfg} == {cfg}
+
+    def test_for_empirical_returns_defaults(self) -> None:
+        assert RegimeThresholdConfig.for_empirical() == RegimeThresholdConfig()
+
+    def test_for_rolling_percentile_no_data_returns_defaults(self) -> None:
+        cfg = RegimeThresholdConfig.for_rolling_percentile()
+        assert cfg == RegimeThresholdConfig()
+
+    def test_for_rolling_percentile_with_hy_series(self) -> None:
+        import pandas as pd
+
+        hy = pd.Series([200.0, 300.0, 400.0, 500.0, 600.0])
+        cfg = RegimeThresholdConfig.for_rolling_percentile(
+            hy_series=hy,
+            hy_risk_on_pct=0.40,
+            hy_risk_off_pct=0.75,
+        )
+        assert cfg.hy_oas_risk_on == pytest.approx(hy.quantile(0.40))
+        assert cfg.hy_oas_risk_off == pytest.approx(hy.quantile(0.75))
+        # Unaffected fields stay at defaults
+        assert cfg.pmi_expansion == 52.0
+
+    def test_custom_values(self) -> None:
+        cfg = RegimeThresholdConfig(hy_oas_risk_on=300.0, pmi_expansion=53.0)
+        assert cfg.hy_oas_risk_on == 300.0
+        assert cfg.pmi_expansion == 53.0
+        assert cfg.hy_oas_risk_off == 500.0  # unchanged default
 
 
 class TestFactorValidationConfig:

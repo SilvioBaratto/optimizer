@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -56,20 +58,20 @@ def panel_48(dates_48: pd.DatetimeIndex) -> tuple[pd.DataFrame, pd.DataFrame]:
 class TestFactorOOSConfig:
     def test_defaults(self) -> None:
         cfg = FactorOOSConfig()
-        assert cfg.train_months == 36
-        assert cfg.val_months == 12
-        assert cfg.step_months == 6
+        assert cfg.train_periods == 36
+        assert cfg.val_periods == 12
+        assert cfg.step_periods == 6
 
     def test_frozen(self) -> None:
         cfg = FactorOOSConfig()
         with pytest.raises(AttributeError):
-            cfg.train_months = 24  # type: ignore[misc]
+            cfg.train_periods = 24  # type: ignore[misc]
 
     def test_custom_values(self) -> None:
-        cfg = FactorOOSConfig(train_months=24, val_months=6, step_months=3)
-        assert cfg.train_months == 24
-        assert cfg.val_months == 6
-        assert cfg.step_months == 3
+        cfg = FactorOOSConfig(train_periods=24, val_periods=6, step_periods=3)
+        assert cfg.train_periods == 24
+        assert cfg.val_periods == 6
+        assert cfg.step_periods == 3
 
 
 # ---------------------------------------------------------------------------
@@ -81,13 +83,13 @@ class TestMakeFolds:
     def test_fold_count_matches_formula(self) -> None:
         """n_folds = floor((total - train) / step)."""
         dates = pd.date_range("2019-01-31", periods=48, freq="ME")
-        folds = _make_folds(dates, train_months=36, val_months=12, step_months=6)
+        folds = _make_folds(dates, train_periods=36, val_periods=12, step_periods=6)
         assert len(folds) == (48 - 36) // 6  # = 2
 
     def test_train_val_within_fold_are_disjoint(self) -> None:
         """Within each fold, train and val windows share no dates."""
         dates = pd.date_range("2019-01-31", periods=48, freq="ME")
-        folds = _make_folds(dates, train_months=36, val_months=12, step_months=6)
+        folds = _make_folds(dates, train_periods=36, val_periods=12, step_periods=6)
         for train_dates, val_dates in folds:
             overlap = set(train_dates) & set(val_dates)
             assert len(overlap) == 0
@@ -95,19 +97,19 @@ class TestMakeFolds:
     def test_val_starts_immediately_after_train(self) -> None:
         """Val window starts right after training ends."""
         dates = pd.date_range("2019-01-31", periods=60, freq="ME")
-        folds = _make_folds(dates, train_months=24, val_months=12, step_months=12)
+        folds = _make_folds(dates, train_periods=24, val_periods=12, step_periods=12)
         for train_dates, val_dates in folds:
             assert train_dates[-1] < val_dates[0]
 
     def test_zero_folds_when_not_enough_data(self) -> None:
         dates = pd.date_range("2019-01-31", periods=24, freq="ME")
-        folds = _make_folds(dates, train_months=36, val_months=12, step_months=6)
+        folds = _make_folds(dates, train_periods=36, val_periods=12, step_periods=6)
         assert len(folds) == 0
 
     def test_fold_count_with_custom_config(self) -> None:
         """floor((60 - 24) / 12) = 3."""
         dates = pd.date_range("2019-01-31", periods=60, freq="ME")
-        folds = _make_folds(dates, train_months=24, val_months=12, step_months=12)
+        folds = _make_folds(dates, train_periods=24, val_periods=12, step_periods=12)
         assert len(folds) == (60 - 24) // 12  # = 3
 
 
@@ -128,16 +130,16 @@ class TestRunFactorOOSValidation:
         self, panel_48: tuple[pd.DataFrame, pd.DataFrame], dates_48: pd.DatetimeIndex
     ) -> None:
         scores, returns = panel_48
-        config = FactorOOSConfig(train_months=36, val_months=12, step_months=6)
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
         result = run_factor_oos_validation(scores, returns, config)
-        expected = (len(dates_48) - config.train_months) // config.step_months
+        expected = (len(dates_48) - config.train_periods) // config.step_periods
         assert result.n_folds == expected
 
     def test_per_fold_ic_shape(
         self, panel_48: tuple[pd.DataFrame, pd.DataFrame]
     ) -> None:
         scores, returns = panel_48
-        config = FactorOOSConfig(train_months=36, val_months=12, step_months=6)
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
         result = run_factor_oos_validation(scores, returns, config)
         assert result.per_fold_ic.shape == (result.n_folds, len(_FACTORS))
         assert list(result.per_fold_ic.columns) == _FACTORS
@@ -146,7 +148,7 @@ class TestRunFactorOOSValidation:
         self, panel_48: tuple[pd.DataFrame, pd.DataFrame]
     ) -> None:
         scores, returns = panel_48
-        config = FactorOOSConfig(train_months=36, val_months=12, step_months=6)
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
         result = run_factor_oos_validation(scores, returns, config)
         assert result.per_fold_spread.shape == (result.n_folds, len(_FACTORS))
         assert list(result.per_fold_spread.columns) == _FACTORS
@@ -178,10 +180,10 @@ class TestRunFactorOOSValidation:
     ) -> None:
         """Corrupting training-window scores must not change OOS IC."""
         scores, returns = panel_48
-        config = FactorOOSConfig(train_months=36, val_months=12, step_months=6)
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
         result_orig = run_factor_oos_validation(scores, returns, config)
 
-        # Overwrite the first 36 months (training window of fold 0) with noise
+        # Overwrite the first 36 periods (training window of fold 0) with noise
         train_dates = dates_48[:36]
         scores_corrupted = scores.copy()
         train_mask = scores_corrupted.index.get_level_values(0).isin(train_dates)
@@ -196,22 +198,53 @@ class TestRunFactorOOSValidation:
         dates = pd.date_range("2019-01-31", periods=24, freq="ME")
         rng = np.random.default_rng(0)
         scores, returns = _make_panel(dates, rng)
-        config = FactorOOSConfig(train_months=36, val_months=12, step_months=6)
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
         result = run_factor_oos_validation(scores, returns, config)
         assert result.n_folds == 0
         assert result.per_fold_ic.empty
         assert result.per_fold_spread.empty
 
     def test_non_overlapping_val_windows_with_step_equals_val(self) -> None:
-        """Non-overlapping val windows when step == val_months."""
+        """Non-overlapping val windows when step == val_periods."""
         dates = pd.date_range("2019-01-31", periods=60, freq="ME")
         rng = np.random.default_rng(7)
         scores, returns = _make_panel(dates, rng)
-        config = FactorOOSConfig(train_months=24, val_months=12, step_months=12)
+        config = FactorOOSConfig(train_periods=24, val_periods=12, step_periods=12)
         result = run_factor_oos_validation(scores, returns, config)
         # floor((60-24)/12) = 3
         assert result.n_folds == 3
         assert result.per_fold_ic.shape == (3, len(_FACTORS))
+
+
+# ---------------------------------------------------------------------------
+# Warnings (issue #239)
+# ---------------------------------------------------------------------------
+
+
+class TestWarnings:
+    def test_zero_folds_emits_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Zero folds triggers a logger.warning."""
+        dates = pd.date_range("2019-01-31", periods=24, freq="ME")
+        rng = np.random.default_rng(0)
+        scores, returns = _make_panel(dates, rng)
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
+        _logger = "optimizer.factors._oos_validation"
+        with caplog.at_level(logging.WARNING, logger=_logger):
+            run_factor_oos_validation(scores, returns, config)
+        assert any("0 folds" in r.message for r in caplog.records)
+
+    def test_few_folds_emits_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Fewer than 3 folds triggers a logger.warning."""
+        # 48 dates, train=36, step=6 → floor((48-36)/6) = 2 folds
+        dates = pd.date_range("2019-01-31", periods=48, freq="ME")
+        rng = np.random.default_rng(1)
+        scores, returns = _make_panel(dates, rng)
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
+        _logger = "optimizer.factors._oos_validation"
+        with caplog.at_level(logging.WARNING, logger=_logger):
+            result = run_factor_oos_validation(scores, returns, config)
+        assert result.n_folds == 2
+        assert any("only 2 fold" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +284,7 @@ class TestCPCVPath:
         from math import comb
 
         scores, returns = panel_60
-        rolling = FactorOOSConfig(train_months=36, val_months=12, step_months=6)
+        rolling = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
         cpcv = CPCVConfig(n_folds=6, n_test_folds=2)
         result = run_factor_oos_validation(
             scores, returns, config=rolling, cpcv_config=cpcv

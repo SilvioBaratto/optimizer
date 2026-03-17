@@ -10,12 +10,14 @@ from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.factors import (
     StandardizationConfig,
     StandardizationMethod,
+    WinsorizeMethod,
     neutralize_sector,
     orthogonalize_factors,
     rank_normal_standardize,
     standardize_all_factors,
     standardize_factor,
     winsorize_cross_section,
+    winsorize_cross_section_mad,
     z_score_standardize,
 )
 
@@ -129,10 +131,17 @@ class TestStandardizeFactor:
         result = standardize_factor(raw_scores, config, sector_labels)
         assert len(result) == len(raw_scores)
 
-    def test_no_neutralize(self, raw_scores: pd.Series) -> None:
-        config = StandardizationConfig(neutralize_sector=False)
+    def test_no_neutralize_z_score(self, raw_scores: pd.Series) -> None:
+        config = StandardizationConfig(
+            method=StandardizationMethod.Z_SCORE, neutralize_sector=False
+        )
         result = standardize_factor(raw_scores, config)
         assert abs(result.mean()) < 1e-10
+
+    def test_no_neutralize_rank_normal(self, raw_scores: pd.Series) -> None:
+        config = StandardizationConfig(neutralize_sector=False)
+        result = standardize_factor(raw_scores, config)
+        assert abs(result.mean()) < 0.1
 
 
 class TestStandardizeAllFactors:
@@ -272,3 +281,157 @@ class TestOrthogonalizeFactors:
         )
         result = orthogonalize_factors(df, min_variance_explained=0.95)
         assert result.shape[1] == 1
+
+
+# ---------------------------------------------------------------------------
+# winsorize_cross_section_mad (issue #244)
+# ---------------------------------------------------------------------------
+
+
+class TestWinsorizeMAD:
+    def test_clips_extreme_outlier(self) -> None:
+        scores = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 100.0])
+        result = winsorize_cross_section_mad(scores)
+        assert result.iloc[-1] < 100.0
+
+    def test_moderate_values_unchanged(self) -> None:
+        scores = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0])
+        result = winsorize_cross_section_mad(scores)
+        pd.testing.assert_series_equal(result, scores)
+
+    def test_empty_series(self) -> None:
+        result = winsorize_cross_section_mad(pd.Series(dtype=float))
+        assert len(result) == 0
+
+    def test_constant_series_unchanged(self) -> None:
+        scores = pd.Series([5.0] * 10)
+        result = winsorize_cross_section_mad(scores)
+        pd.testing.assert_series_equal(result, scores)
+
+    def test_nan_handling(self) -> None:
+        scores = pd.Series([1.0, np.nan, 3.0, 100.0, 2.0])
+        result = winsorize_cross_section_mad(scores)
+        assert pd.isna(result.iloc[1])
+        assert result.iloc[-1] == 2.0  # moderate value unchanged
+
+    def test_multiplier_controls_width(self) -> None:
+        scores = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 50.0])
+        narrow = winsorize_cross_section_mad(scores, mad_multiplier=1.0)
+        wide = winsorize_cross_section_mad(scores, mad_multiplier=5.0)
+        # Narrow clips more aggressively
+        assert narrow.iloc[-1] < wide.iloc[-1]
+
+    def test_symmetric_clipping(self) -> None:
+        scores = pd.Series([-100.0, 1.0, 2.0, 3.0, 4.0, 5.0, 100.0])
+        result = winsorize_cross_section_mad(scores)
+        med = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0]).median()
+        assert result.iloc[0] > -100.0
+        assert result.iloc[-1] < 100.0
+        # Clips are symmetric around median
+        assert abs((result.iloc[-1] - med) + (result.iloc[0] - med)) < 1e-10
+
+
+# ---------------------------------------------------------------------------
+# Per-factor standardization dispatch (issue #244)
+# ---------------------------------------------------------------------------
+
+
+class TestStandardizeFactorPerFactor:
+    def test_mad_winsorize_path(self) -> None:
+        rng = np.random.default_rng(42)
+        scores = pd.Series(rng.normal(10, 5, 100))
+        config = StandardizationConfig(
+            winsorize_method=WinsorizeMethod.MAD,
+            neutralize_sector=False,
+        )
+        result = standardize_factor(scores, config)
+        assert abs(result.mean()) < 0.1
+
+    def test_per_factor_override_applies_correct_method(self) -> None:
+        rng = np.random.default_rng(42)
+        scores = pd.Series(rng.normal(10, 5, 200))
+        overrides = (
+            ("heavy_factor", StandardizationMethod.RANK_NORMAL.value),
+            ("normal_factor", StandardizationMethod.Z_SCORE.value),
+        )
+        config = StandardizationConfig(
+            method=StandardizationMethod.Z_SCORE,
+            neutralize_sector=False,
+            factor_method_overrides=overrides,
+        )
+        # With rank_normal override
+        result_heavy = standardize_factor(
+            scores, config, factor_name="heavy_factor"
+        )
+        # With z_score override
+        result_normal = standardize_factor(
+            scores, config, factor_name="normal_factor"
+        )
+        # Results should differ — rank-normal vs z-score produce different values
+        assert not np.allclose(
+            result_heavy.to_numpy(), result_normal.to_numpy(), atol=1e-6
+        )
+
+    def test_unknown_column_falls_back_to_global(self) -> None:
+        rng = np.random.default_rng(42)
+        scores = pd.Series(rng.normal(10, 5, 100))
+        overrides = (("known_factor", StandardizationMethod.Z_SCORE.value),)
+        config = StandardizationConfig(
+            method=StandardizationMethod.RANK_NORMAL,
+            neutralize_sector=False,
+            factor_method_overrides=overrides,
+        )
+        result_unknown = standardize_factor(
+            scores, config, factor_name="unknown_factor"
+        )
+        result_global = standardize_factor(
+            scores,
+            StandardizationConfig(
+                method=StandardizationMethod.RANK_NORMAL,
+                neutralize_sector=False,
+            ),
+        )
+        pd.testing.assert_series_equal(result_unknown, result_global)
+
+
+class TestStandardizeAllFactorsPerFactor:
+    def test_per_factor_preset_dispatches_correctly(self) -> None:
+        rng = np.random.default_rng(42)
+        factors = pd.DataFrame(
+            rng.lognormal(0, 1, (200, 2)),
+            index=[f"T{i:03d}" for i in range(200)],
+            columns=["book_to_price", "momentum_12_1"],
+        )
+        config = StandardizationConfig.for_per_factor()
+        scores_pf, _ = standardize_all_factors(factors, config=config)
+        # Compare with uniform RANK_NORMAL
+        config_uniform = StandardizationConfig(neutralize_sector=False)
+        scores_uniform, _ = standardize_all_factors(
+            factors, config=config_uniform
+        )
+        # momentum_12_1 uses Z_SCORE in per_factor → differs from RANK_NORMAL
+        assert not np.allclose(
+            scores_pf["momentum_12_1"].to_numpy(),
+            scores_uniform["momentum_12_1"].to_numpy(),
+            atol=1e-6,
+        )
+
+    def test_empty_overrides_uses_global_method(self) -> None:
+        rng = np.random.default_rng(42)
+        factors = pd.DataFrame(
+            rng.normal(0, 1, (50, 2)),
+            index=[f"T{i:02d}" for i in range(50)],
+            columns=["factor_a", "factor_b"],
+        )
+        config_no_override = StandardizationConfig(
+            method=StandardizationMethod.Z_SCORE,
+            neutralize_sector=False,
+            factor_method_overrides=(),
+        )
+        config_plain = StandardizationConfig(
+            method=StandardizationMethod.Z_SCORE,
+            neutralize_sector=False,
+        )
+        scores_no, _ = standardize_all_factors(factors, config=config_no_override)
+        scores_plain, _ = standardize_all_factors(factors, config=config_plain)
+        pd.testing.assert_frame_equal(scores_no, scores_plain)

@@ -23,10 +23,14 @@ class ScorerConfig:
     greater_is_better : bool or None
         Whether higher scores are better.  ``None`` auto-detects
         from the ratio measure.
+    risk_free_rate : float
+        Daily risk-free rate used for ratio computation.  Defaults to
+        0.0 for backward compatibility.
     """
 
     ratio_measure: RatioMeasureType | None = RatioMeasureType.SHARPE_RATIO
     greater_is_better: bool | None = None
+    risk_free_rate: float = 0.0
 
     @classmethod
     def for_sharpe(cls) -> ScorerConfig:
@@ -56,6 +60,14 @@ class ScorerConfig:
         :func:`~optimizer.scoring.build_scorer`.
         """
         return cls(ratio_measure=RatioMeasureType.INFORMATION_RATIO)
+
+    @classmethod
+    def for_sharpe_with_rf(cls, rf_daily: float) -> ScorerConfig:
+        """Sharpe ratio scorer with explicit daily risk-free rate."""
+        return cls(
+            ratio_measure=RatioMeasureType.SHARPE_RATIO,
+            risk_free_rate=rf_daily,
+        )
 
     @classmethod
     def for_custom(cls) -> ScorerConfig:

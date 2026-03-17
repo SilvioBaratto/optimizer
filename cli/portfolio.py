@@ -6,6 +6,7 @@ by assembling DataFrames and calling ``run_full_pipeline_with_selection()``.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import sys
 from enum import Enum
@@ -59,8 +60,17 @@ class Strategy(str, Enum):
     INVERSE_VOL = "inverse-vol"
 
 
-def _build_optimizer(strategy: Strategy) -> Any:
-    """Build a skfolio optimizer instance from a named strategy."""
+def _build_optimizer(strategy: Strategy, rf_daily: float = 0.0) -> Any:
+    """Build a skfolio optimizer instance from a named strategy.
+
+    Parameters
+    ----------
+    strategy : Strategy
+        Named optimization strategy.
+    rf_daily : float
+        Daily risk-free rate (decimal).  Applied to ratio-maximising
+        strategies (MAX_SHARPE, MAX_UTILITY).
+    """
     from optimizer.optimization import (
         HERCConfig,
         HRPConfig,
@@ -77,13 +87,15 @@ def _build_optimizer(strategy: Strategy) -> Any:
 
     match strategy:
         case Strategy.MAX_SHARPE:
-            return build_mean_risk(MeanRiskConfig.for_max_sharpe())
+            cfg = MeanRiskConfig.for_max_sharpe()
+            return build_mean_risk(dataclasses.replace(cfg, risk_free_rate=rf_daily))
         case Strategy.MIN_VARIANCE:
             return build_mean_risk(MeanRiskConfig.for_min_variance())
         case Strategy.MIN_CVAR:
             return build_mean_risk(MeanRiskConfig.for_min_cvar())
         case Strategy.MAX_UTILITY:
-            return build_mean_risk(MeanRiskConfig.for_max_utility())
+            cfg = MeanRiskConfig.for_max_utility()
+            return build_mean_risk(dataclasses.replace(cfg, risk_free_rate=rf_daily))
         case Strategy.RISK_PARITY:
             return build_risk_budgeting(RiskBudgetingConfig.for_risk_parity())
         case Strategy.CVAR_PARITY:
@@ -250,9 +262,9 @@ def optimize(
         help="Number of top weights to display.",
     ),
     sector_tolerance: float = typer.Option(
-        0.03,
+        0.05,
         "--sector-tolerance",
-        help="Max sector weight deviation from parent universe (0.0-1.0).",
+        help="Max sector weight deviation (0.0-1.0). Use 0.03 for low tracking error.",
     ),
     output: str | None = typer.Option(
         None,
@@ -301,9 +313,13 @@ def optimize(
             "Results may be unreliable with fewer than 252 days."
         )
 
-    # 3. Build optimizer
+    # 3. Build optimizer (inject risk-free rate from FRED DGS3MO)
+    rf_daily = data.risk_free_rate
+    if rf_daily > 0:
+        rf_ann = rf_daily * 252 * 100
+        console.print(f"[bold]Risk-free rate:[/bold] {rf_ann:.2f}% ann. (DGS3MO)")
     console.print(f"[bold]Strategy:[/bold] {strategy.value}")
-    optimizer_instance = _build_optimizer(strategy)
+    optimizer_instance = _build_optimizer(strategy, rf_daily=rf_daily)
 
     # 4. Configure backtest
     from optimizer.validation import WalkForwardConfig

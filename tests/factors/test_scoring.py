@@ -414,6 +414,283 @@ class TestCoverageWeightedMean:
         pd.testing.assert_series_equal(result["value"], expected, check_names=False)
 
 
+class TestNaNGroupScoreRenormalization:
+    """Tests for renormalized weighted average over available groups (issue #242)."""
+
+    def test_missing_group_not_zero_filled(self) -> None:
+        """Ticker missing a group gets composite from available groups only."""
+        tickers = ["A", "B"]
+        group_scores = pd.DataFrame(
+            {"value": [1.0, 1.0], "momentum": [np.nan, 0.5]},
+            index=tickers,
+        )
+        result = compute_equal_weight_composite(group_scores)
+        # A has only value=1.0 available → composite = 1.0 (not 0.5)
+        assert result["A"] == pytest.approx(1.0)
+        # B has both → composite = mean(1.0, 0.5) = 0.75
+        assert result["B"] == pytest.approx(0.75)
+
+    def test_all_groups_missing_produces_nan(self) -> None:
+        """Ticker with all NaN group scores gets NaN composite."""
+        group_scores = pd.DataFrame(
+            {"value": [np.nan], "momentum": [np.nan]},
+            index=["A"],
+        )
+        result = compute_equal_weight_composite(group_scores)
+        assert np.isnan(result["A"])
+
+    def test_partial_coverage_renormalized_weights_sum_to_one(self) -> None:
+        """With all available scores = 1.0, composite = 1.0 regardless of coverage."""
+        group_scores = pd.DataFrame(
+            {"value": [1.0], "momentum": [np.nan], "profitability": [1.0]},
+            index=["A"],
+        )
+        result = compute_equal_weight_composite(group_scores)
+        assert result["A"] == pytest.approx(1.0)
+
+    def test_ic_weighted_missing_group_renormalizes(self) -> None:
+        """IC_WEIGHTED renormalizes over available groups."""
+        tickers = ["A"]
+        group_scores = pd.DataFrame(
+            {"value": [2.0], "momentum": [np.nan]},
+            index=tickers,
+        )
+        rng = np.random.default_rng(42)
+        ic_history = pd.DataFrame({
+            "value": rng.uniform(0.02, 0.06, 36),
+            "momentum": rng.uniform(0.02, 0.06, 36),
+        })
+        result = compute_ic_weighted_composite(group_scores, ic_history)
+        # Only value is available → composite = 2.0
+        assert result["A"] == pytest.approx(2.0)
+
+    def test_icir_weighted_missing_group_renormalizes(self) -> None:
+        """ICIR_WEIGHTED renormalizes over available groups."""
+        tickers = ["A"]
+        group_scores = pd.DataFrame(
+            {"value": [3.0], "momentum": [np.nan]},
+            index=tickers,
+        )
+        rng = np.random.default_rng(42)
+        ic_per_group = {
+            "value": pd.Series(rng.normal(0.05, 0.01, 36)),
+            "momentum": pd.Series(rng.normal(0.05, 0.01, 36)),
+        }
+        result = compute_icir_weighted_composite(group_scores, ic_per_group)
+        # Only value is available → composite = 3.0
+        assert result["A"] == pytest.approx(3.0)
+
+    def test_full_coverage_unchanged(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """With full coverage, result is identical to pre-fix behavior."""
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        result = compute_equal_weight_composite(group_scores)
+        # Verify no NaN in output when no NaN in input
+        assert not result.isna().any()
+        assert len(result) == len(standardized_factors)
+
+
+class TestMinCoverageGroups:
+    """Tests for min_coverage_groups config field (issue #242)."""
+
+    def test_zero_min_coverage_no_filtering(self) -> None:
+        """With min_coverage_groups=0, no tickers are filtered out."""
+        factors = pd.DataFrame(
+            {"book_to_price": [1.0], "momentum_12_1": [np.nan]},
+            index=["A"],
+        )
+        cov = pd.DataFrame(
+            {"book_to_price": [True], "momentum_12_1": [False]},
+            index=["A"],
+        )
+        config = CompositeScoringConfig(min_coverage_groups=0)
+        result = compute_composite_score(factors, cov, config=config)
+        assert not result.isna().all()
+
+    def test_below_threshold_produces_nan(self) -> None:
+        """Ticker with fewer groups than threshold gets NaN."""
+        factors = pd.DataFrame(
+            {"book_to_price": [1.0], "momentum_12_1": [np.nan]},
+            index=["A"],
+        )
+        cov = pd.DataFrame(
+            {"book_to_price": [True], "momentum_12_1": [False]},
+            index=["A"],
+        )
+        # Only 1 group available, require 2
+        config = CompositeScoringConfig(min_coverage_groups=2)
+        result = compute_composite_score(factors, cov, config=config)
+        assert result.isna().all()
+
+    def test_exactly_at_threshold_passes(self) -> None:
+        """Ticker with exactly min_coverage_groups is included."""
+        factors = pd.DataFrame(
+            {"book_to_price": [1.0], "momentum_12_1": [0.5]},
+            index=["A"],
+        )
+        cov = pd.DataFrame(
+            {"book_to_price": [True], "momentum_12_1": [True]},
+            index=["A"],
+        )
+        # 2 groups available, require 2
+        config = CompositeScoringConfig(min_coverage_groups=2)
+        result = compute_composite_score(factors, cov, config=config)
+        assert not result.isna().any()
+
+    def test_config_defaults(self) -> None:
+        assert CompositeScoringConfig().min_coverage_groups == 0
+
+    def test_for_sparse_universe_preset(self) -> None:
+        cfg = CompositeScoringConfig.for_sparse_universe()
+        assert cfg.min_coverage_groups == 2
+
+
+class TestCoverageRatioOutput:
+    """Tests for return_coverage config field (issue #242)."""
+
+    def test_return_coverage_false_returns_series(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        config = CompositeScoringConfig(return_coverage=False)
+        result = compute_composite_score(standardized_factors, coverage, config=config)
+        assert isinstance(result, pd.Series)
+
+    def test_return_coverage_true_returns_dataframe(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        config = CompositeScoringConfig(return_coverage=True)
+        result = compute_composite_score(standardized_factors, coverage, config=config)
+        assert isinstance(result, pd.DataFrame)
+        assert "composite" in result.columns
+        assert "coverage_ratio" in result.columns
+
+    def test_coverage_ratio_values(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        config = CompositeScoringConfig(return_coverage=True)
+        result = compute_composite_score(standardized_factors, coverage, config=config)
+        assert (result["coverage_ratio"] >= 0.0).all()
+        assert (result["coverage_ratio"] <= 1.0).all()
+
+    def test_full_coverage_ratio_is_one(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        config = CompositeScoringConfig(return_coverage=True)
+        result = compute_composite_score(standardized_factors, coverage, config=config)
+        assert (result["coverage_ratio"] == 1.0).all()
+
+    def test_partial_coverage_ratio(self) -> None:
+        factors = pd.DataFrame(
+            {
+                "book_to_price": [1.0],
+                "momentum_12_1": [np.nan],
+                "volatility": [0.5],
+                "dividend_yield": [np.nan],
+            },
+            index=["A"],
+        )
+        cov = pd.DataFrame(
+            {
+                "book_to_price": [True],
+                "momentum_12_1": [False],
+                "volatility": [True],
+                "dividend_yield": [False],
+            },
+            index=["A"],
+        )
+        config = CompositeScoringConfig(return_coverage=True)
+        result = compute_composite_score(factors, cov, config=config)
+        # 2 of 4 groups available = 0.5 (each factor maps to a different group)
+        assert result.loc["A", "coverage_ratio"] == pytest.approx(0.5, abs=0.01)
+
+
+class TestICIRWeightedNegativeICIR:
+    """Tests for ICIR_WEIGHTED clamping negative ICIR to zero (issue #253)."""
+
+    def _make_ic_series(
+        self,
+        mean: float,
+        std: float,
+        n: int = 36,
+        seed: int = 42,
+    ) -> pd.Series:
+        rng = np.random.default_rng(seed)
+        return pd.Series(mean + rng.normal(0, std, n))
+
+    def test_negative_icir_group_gets_zero_weight(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """A group with negative ICIR should get zero weight."""
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+
+        # Set "value" = 1.0, all others = 0.0
+        controlled = pd.DataFrame(0.0, index=group_scores.index, columns=groups)
+        if "value" in controlled.columns:
+            controlled["value"] = 1.0
+
+        # IC series: value has consistently negative mean → negative ICIR
+        rng = np.random.default_rng(99)
+        ic_per_group = {
+            col: (
+                pd.Series(rng.uniform(-0.10, -0.02, 36))
+                if col == "value"
+                else self._make_ic_series(0.05, 0.02, seed=hash(col) % 2**31)
+            )
+            for col in groups
+        }
+        result = compute_icir_weighted_composite(controlled, ic_per_group)
+        # value has negative ICIR → zero weight → composite should be 0
+        assert (result.abs() < 1e-10).all(), (
+            "Negative-ICIR group should get zero weight and not contribute"
+        )
+
+    def test_all_negative_icir_falls_back_to_equal_weight(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """When all groups have negative ICIR, falls back to equal weight."""
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        rng = np.random.default_rng(42)
+        ic_per_group = {
+            col: pd.Series(rng.uniform(-0.10, -0.02, 36)) for col in groups
+        }
+        icir_result = compute_icir_weighted_composite(group_scores, ic_per_group)
+        equal_result = compute_equal_weight_composite(group_scores)
+        pd.testing.assert_series_equal(icir_result, equal_result)
+
+    def test_negative_icir_same_as_zero_icir(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """Negative ICIR and zero ICIR both produce zero contribution."""
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+
+        # Set "value" = 1.0, "momentum" = 1.0, all others = 0.0
+        controlled = pd.DataFrame(0.0, index=group_scores.index, columns=groups)
+        if "value" in controlled.columns:
+            controlled["value"] = 1.0
+        if "momentum" in controlled.columns:
+            controlled["momentum"] = 1.0
+
+        # value: negative ICIR; momentum: zero ICIR (constant series)
+        ic_per_group: dict[str, pd.Series] = {}
+        rng = np.random.default_rng(99)
+        for col in groups:
+            if col == "value":
+                ic_per_group[col] = pd.Series(rng.uniform(-0.10, -0.02, 36))
+            elif col == "momentum":
+                ic_per_group[col] = pd.Series([0.0] * 36)
+            else:
+                ic_per_group[col] = self._make_ic_series(
+                    0.05, 0.02, seed=hash(col) % 2**31
+                )
+        result = compute_icir_weighted_composite(controlled, ic_per_group)
+        # Both value (negative ICIR) and momentum (zero ICIR) excluded → composite = 0
+        assert (result.abs() < 1e-10).all()
+
+
 class TestICIRWeightedGroupWeights:
     """Tests for group_weights parameter in ICIR_WEIGHTED (issue #81)."""
 

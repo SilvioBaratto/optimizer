@@ -23,3 +23,7 @@ class ValidationError(OptimizerError):
 
 class OptimizationError(OptimizerError):
     """Portfolio optimization solver failure."""
+
+
+class FactorCoverageError(OptimizerError):
+    """Factor history build failed: too few rebalancing dates succeeded."""

@@ -225,6 +225,71 @@ class TestFitHMM:
 
 
 # ---------------------------------------------------------------------------
+# State ordering guarantee (issue #252)
+# ---------------------------------------------------------------------------
+
+
+class TestHMMStateSorting:
+    def test_states_sorted_by_mean_ascending(
+        self, synthetic_returns: pd.DataFrame
+    ) -> None:
+        """State means must be in ascending order (state 0 = lowest mean)."""
+        config = HMMConfig(n_states=2, n_iter=200, random_state=0)
+        result = fit_hmm(synthetic_returns, config)
+        means = result.regime_means.mean(axis=1).to_numpy()
+        assert means[0] <= means[1], (
+            f"State 0 mean ({means[0]:.6f}) must be <= state 1 mean ({means[1]:.6f})"
+        )
+
+    def test_sorting_stable_across_seeds(
+        self, synthetic_returns: pd.DataFrame
+    ) -> None:
+        """State ordering must be consistent regardless of random seed."""
+        results = []
+        for seed in [0, 1, 2, 7, 42]:
+            config = HMMConfig(n_states=2, n_iter=200, random_state=seed)
+            result = fit_hmm(synthetic_returns, config)
+            means = result.regime_means.mean(axis=1).to_numpy()
+            results.append(means[0] <= means[1])
+        assert all(results), "State ordering must be ascending across all seeds"
+
+    def test_three_state_sorted(self, synthetic_returns: pd.DataFrame) -> None:
+        """Three-state model states are sorted ascending by mean."""
+        config = HMMConfig(n_states=3, n_iter=200, random_state=0)
+        result = fit_hmm(synthetic_returns, config)
+        means = result.regime_means.mean(axis=1).to_numpy()
+        assert means[0] <= means[1] <= means[2], (
+            f"Three-state means must be sorted ascending: {means}"
+        )
+
+    def test_transition_matrix_row_stochastic_after_sort(
+        self, hmm_result: HMMResult
+    ) -> None:
+        """Transition matrix reordering preserves row-stochastic property."""
+        row_sums = hmm_result.transition_matrix.sum(axis=1)
+        np.testing.assert_allclose(row_sums, np.ones(2), atol=1e-8)
+
+    def test_filtered_probs_sum_to_one_after_sort(
+        self, hmm_result: HMMResult
+    ) -> None:
+        """filtered_probs rows sum to 1 after state sort."""
+        row_sums = hmm_result.filtered_probs.sum(axis=1)
+        np.testing.assert_allclose(
+            row_sums.to_numpy(), np.ones(len(row_sums)), atol=1e-8
+        )
+
+    def test_bear_state_has_lower_mean(
+        self, synthetic_returns: pd.DataFrame
+    ) -> None:
+        """On two-regime data with clear bear/bull, state 0 should be bear."""
+        config = HMMConfig(n_states=2, n_iter=200, random_state=0)
+        result = fit_hmm(synthetic_returns, config)
+        bear_mean = result.regime_means.iloc[0].mean()
+        bull_mean = result.regime_means.iloc[1].mean()
+        assert bear_mean < bull_mean
+
+
+# ---------------------------------------------------------------------------
 # blend_moments_by_regime
 # ---------------------------------------------------------------------------
 

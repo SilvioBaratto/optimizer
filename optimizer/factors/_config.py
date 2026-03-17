@@ -62,6 +62,13 @@ class StandardizationMethod(str, Enum):
     RANK_NORMAL = "rank_normal"
 
 
+class WinsorizeMethod(str, Enum):
+    """Winsorization method for outlier treatment."""
+
+    PERCENTILE = "percentile"
+    MAD = "mad"
+
+
 class CompositeMethod(str, Enum):
     """Composite scoring method."""
 
@@ -86,6 +93,7 @@ class MacroRegime(str, Enum):
     SLOWDOWN = "slowdown"
     RECESSION = "recession"
     RECOVERY = "recovery"
+    UNKNOWN = "unknown"
 
 
 class GroupWeight(str, Enum):
@@ -130,6 +138,18 @@ GROUP_WEIGHT_TIER: dict[FactorGroupType, GroupWeight] = {
     FactorGroupType.SENTIMENT: GroupWeight.SUPPLEMENTARY,
     FactorGroupType.OWNERSHIP: GroupWeight.SUPPLEMENTARY,
 }
+
+HEAVY_TAILED_FACTORS: frozenset[str] = frozenset({
+    "book_to_price",
+    "earnings_yield",
+    "cash_flow_yield",
+    "sales_to_price",
+    "ebitda_to_ev",
+    "asset_growth",
+    "dividend_yield",
+    "amihud_illiquidity",
+    "accruals",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -247,23 +267,35 @@ class StandardizationConfig:
     Parameters
     ----------
     method : StandardizationMethod
-        Z-score or rank-normal standardization.
+        Z-score or rank-normal standardization.  Default is ``RANK_NORMAL``
+        following MSCI Barra USE4 and Gu/Kelly/Xiu (2020) best practice for
+        heavy-tailed financial factor distributions.
+    winsorize_method : WinsorizeMethod
+        Outlier treatment method.  ``PERCENTILE`` clips at fixed quantiles;
+        ``MAD`` clips at median +/- k * 1.4826 * MAD.
     winsorize_lower : float
-        Lower percentile for winsorization (0-1).
+        Lower percentile for winsorization (0-1, used with PERCENTILE).
     winsorize_upper : float
-        Upper percentile for winsorization (0-1).
+        Upper percentile for winsorization (0-1, used with PERCENTILE).
     neutralize_sector : bool
         Whether to sector-neutralize scores.
     neutralize_country : bool
         Whether to country-neutralize scores.
+    factor_method_overrides : tuple[tuple[str, str], ...]
+        Per-factor standardization method overrides as
+        ``(factor_name, method_value)`` pairs.  When non-empty, each factor
+        is standardized with its assigned method; factors not in the map
+        fall back to ``method``.
     """
 
-    method: StandardizationMethod = StandardizationMethod.Z_SCORE
+    method: StandardizationMethod = StandardizationMethod.RANK_NORMAL
+    winsorize_method: WinsorizeMethod = WinsorizeMethod.PERCENTILE
     winsorize_lower: float = 0.01
     winsorize_upper: float = 0.99
     neutralize_sector: bool = True
     neutralize_country: bool = False
     re_standardize_after_neutralization: bool = False
+    factor_method_overrides: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def for_heavy_tailed(cls) -> StandardizationConfig:
@@ -274,6 +306,42 @@ class StandardizationConfig:
     def for_normal(cls) -> StandardizationConfig:
         """Z-score for approximately normal factors (e.g. momentum)."""
         return cls(method=StandardizationMethod.Z_SCORE)
+
+    @classmethod
+    def for_z_score(cls) -> StandardizationConfig:
+        """Z-score standardization (backward-compatibility alias)."""
+        return cls(method=StandardizationMethod.Z_SCORE)
+
+    @classmethod
+    def for_per_factor(cls) -> StandardizationConfig:
+        """Per-factor method: RANK_NORMAL for heavy-tailed, Z_SCORE for normal.
+
+        Based on MSCI Barra USE4 and Gu/Kelly/Xiu (2020) classification.
+        Heavy-tailed: value ratios, illiquidity, dividend yield, accruals,
+        asset growth.  Approximately normal: momentum, volatility, beta.
+        """
+        approximately_normal = frozenset({
+            FactorType.MOMENTUM_12_1.value,
+            FactorType.VOLATILITY.value,
+            FactorType.BETA.value,
+        })
+        overrides: list[tuple[str, str]] = []
+        for ft in FactorType:
+            if ft.value in approximately_normal:
+                overrides.append((ft.value, StandardizationMethod.Z_SCORE.value))
+            else:
+                overrides.append(
+                    (ft.value, StandardizationMethod.RANK_NORMAL.value)
+                )
+        return cls(
+            method=StandardizationMethod.RANK_NORMAL,
+            factor_method_overrides=tuple(sorted(overrides)),
+        )
+
+    @classmethod
+    def for_mad_winsorize(cls) -> StandardizationConfig:
+        """MAD-based winsorization (MSCI Barra +/-3 MAD convention)."""
+        return cls(winsorize_method=WinsorizeMethod.MAD)
 
 
 @dataclass(frozen=True)
@@ -297,6 +365,13 @@ class CompositeScoringConfig:
         Maximum tree depth for ``GBT_WEIGHTED``.
     gbt_n_estimators : int
         Number of boosting rounds for ``GBT_WEIGHTED``.
+    min_coverage_groups : int
+        Minimum number of non-NaN group scores required.  Tickers with
+        fewer available groups receive NaN composite and are excluded from
+        selection.  0 disables the threshold (default).
+    return_coverage : bool
+        When True, ``compute_composite_score`` returns a DataFrame with
+        columns ``["composite", "coverage_ratio"]`` instead of a Series.
     """
 
     method: CompositeMethod = CompositeMethod.EQUAL_WEIGHT
@@ -306,6 +381,8 @@ class CompositeScoringConfig:
     ridge_alpha: float = 1.0
     gbt_max_depth: int = 3
     gbt_n_estimators: int = 50
+    min_coverage_groups: int = 0
+    return_coverage: bool = False
 
     @classmethod
     def for_equal_weight(cls) -> CompositeScoringConfig:
@@ -344,6 +421,16 @@ class CompositeScoringConfig:
         """
         return cls(method=CompositeMethod.GBT_WEIGHTED)
 
+    @classmethod
+    def for_sparse_universe(cls) -> CompositeScoringConfig:
+        """Equal-weight scoring with minimum coverage of 2 groups."""
+        return cls(min_coverage_groups=2)
+
+    @classmethod
+    def for_coverage_diagnostics(cls) -> CompositeScoringConfig:
+        """Equal-weight scoring returning coverage_ratio alongside composite."""
+        return cls(return_coverage=True)
+
 
 @dataclass(frozen=True)
 class SelectionConfig:
@@ -364,7 +451,10 @@ class SelectionConfig:
     sector_balance : bool
         Whether to enforce sector-proportional representation.
     sector_tolerance : float
-        Maximum deviation from parent universe sector weights.
+        Maximum deviation from parent universe sector weights (fraction,
+        0–1).  Default 0.05 (5 pp) matches MSCI, S&P DJI, and FTSE Russell
+        factor-index methodology.  Use ``for_low_tracking_error()`` for a
+        tighter 3% band suited to institutional low-active-risk mandates.
     """
 
     method: SelectionMethod = SelectionMethod.FIXED_COUNT
@@ -373,7 +463,7 @@ class SelectionConfig:
     exit_quantile: float = 0.7
     buffer_fraction: float = 0.1
     sector_balance: bool = True
-    sector_tolerance: float = 0.03
+    sector_tolerance: float = 0.05
 
     @classmethod
     def for_top_100(cls) -> SelectionConfig:
@@ -409,6 +499,17 @@ class SelectionConfig:
         """Concentrated portfolio of top 30 stocks."""
         return cls(target_count=30, buffer_fraction=0.15)
 
+    @classmethod
+    def for_low_tracking_error(cls) -> SelectionConfig:
+        """Top 100 stocks with tighter sector tolerance for low tracking error.
+
+        Uses a 3% sector deviation cap (vs. the standard 5%) to more closely
+        replicate the sector composition of the parent benchmark, matching
+        the tighter band used by institutional index providers (e.g., MSCI
+        Minimum Volatility) when minimising active sector bets is a mandate.
+        """
+        return cls(sector_tolerance=0.03)
+
 
 @dataclass(frozen=True)
 class RegimeTiltConfig:
@@ -429,6 +530,9 @@ class RegimeTiltConfig:
         Group tilts during recession.
     recovery_tilts : tuple[tuple[str, float], ...]
         Group tilts during recovery.
+    unknown_tilts : tuple[tuple[str, float], ...]
+        Group tilts when regime is unknown (neutral — all multipliers
+        default to 1.0 via empty tuple).
     """
 
     enable: bool = False
@@ -453,6 +557,7 @@ class RegimeTiltConfig:
         ("momentum", 1.2),
         ("low_risk", 0.7),
     )
+    unknown_tilts: tuple[tuple[str, float], ...] = ()
 
     @classmethod
     def for_moderate_tilts(cls) -> RegimeTiltConfig:
@@ -463,6 +568,110 @@ class RegimeTiltConfig:
     def for_no_tilts(cls) -> RegimeTiltConfig:
         """Disable regime tilts (default)."""
         return cls(enable=False)
+
+
+@dataclass(frozen=True)
+class RegimeThresholdConfig:
+    """Classification thresholds for the composite macro regime scorer.
+
+    All eight thresholds drive the {-1, 0, +1} component scores used by
+    :func:`~optimizer.factors._regime.classify_regime_composite` and the
+    research-layer scoring functions in ``research/_macro.py``.
+
+    Parameters
+    ----------
+    hy_oas_risk_on : float
+        HY OAS level (bps) below which credit conditions are benign (+1).
+        Empirical basis: ~40th pctl of ICE BofA HY OAS 1997-2023.
+    hy_oas_risk_off : float
+        HY OAS level (bps) above which credit stress is elevated (-1).
+        Empirical basis: ~75th pctl of ICE BofA HY OAS historically.
+    pmi_expansion : float
+        ISM Manufacturing PMI above which growth is accelerating (+1).
+        2-point buffer above the 50 neutral line (Koenig 2002).
+    pmi_contraction : float
+        ISM Manufacturing PMI below which growth is contracting (-1).
+        Symmetric 2-point band around 50.
+    spread_2s10s_steep : float
+        10Y-2Y spread (percentage points) above which the curve is steep (+1).
+        100 bps historically associated with early-cycle acceleration.
+    spread_2s10s_inversion : float
+        10Y-2Y spread (percentage points) at/below which the curve is inverted (-1).
+        Conventional inversion definition (Estrella & Mishkin 1998).
+    sentiment_positive : float
+        Normalized NLP sentiment score above which sentiment is positive (+1).
+    sentiment_negative : float
+        Normalized NLP sentiment score below which sentiment is negative (-1).
+    """
+
+    hy_oas_risk_on: float = 350.0
+    hy_oas_risk_off: float = 500.0
+    pmi_expansion: float = 52.0
+    pmi_contraction: float = 48.0
+    spread_2s10s_steep: float = 1.0
+    spread_2s10s_inversion: float = 0.0
+    sentiment_positive: float = 0.3
+    sentiment_negative: float = -0.3
+
+    @classmethod
+    def for_empirical(cls) -> RegimeThresholdConfig:
+        """Canonical empirical thresholds (Chapter 7 calibration)."""
+        return cls()
+
+    @classmethod
+    def for_rolling_percentile(
+        cls,
+        hy_series: object | None = None,
+        spread_series: object | None = None,
+        pmi_series: object | None = None,
+        sentiment_series: object | None = None,
+        hy_risk_on_pct: float = 0.40,
+        hy_risk_off_pct: float = 0.75,
+        pmi_expansion_pct: float = 0.60,
+        pmi_contraction_pct: float = 0.40,
+        spread_steep_pct: float = 0.65,
+        sentiment_positive_pct: float = 0.70,
+    ) -> RegimeThresholdConfig:
+        """Compute thresholds from trailing empirical distributions.
+
+        Pass historical Series for each indicator; thresholds are set at
+        the specified percentiles.  Any ``None`` series falls back to the
+        hard-coded empirical default for that indicator.
+        """
+        import pandas as pd
+
+        defaults = cls()
+
+        def _pct(series: object | None, q: float, fallback: float) -> float:
+            if series is None:
+                return fallback
+            s = pd.Series(series).dropna()
+            return float(s.quantile(q)) if len(s) > 0 else fallback
+
+        return cls(
+            hy_oas_risk_on=_pct(hy_series, hy_risk_on_pct, defaults.hy_oas_risk_on),
+            hy_oas_risk_off=_pct(hy_series, hy_risk_off_pct, defaults.hy_oas_risk_off),
+            pmi_expansion=_pct(pmi_series, pmi_expansion_pct, defaults.pmi_expansion),
+            pmi_contraction=_pct(
+                pmi_series, pmi_contraction_pct, defaults.pmi_contraction
+            ),
+            spread_2s10s_steep=_pct(
+                spread_series, spread_steep_pct, defaults.spread_2s10s_steep
+            ),
+            spread_2s10s_inversion=_pct(
+                spread_series, 1.0 - spread_steep_pct, defaults.spread_2s10s_inversion
+            ),
+            sentiment_positive=_pct(
+                sentiment_series,
+                sentiment_positive_pct,
+                defaults.sentiment_positive,
+            ),
+            sentiment_negative=_pct(
+                sentiment_series,
+                1.0 - sentiment_positive_pct,
+                defaults.sentiment_negative,
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -536,3 +745,46 @@ class FactorIntegrationConfig:
     def for_black_litterman(cls) -> FactorIntegrationConfig:
         """Factor-based Black-Litterman views."""
         return cls(use_black_litterman=True)
+
+
+# ---------------------------------------------------------------------------
+# Result containers (mutable dataclasses)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FactorBuildHealth:
+    """Diagnostic report from build_factor_scores_history().
+
+    Parameters
+    ----------
+    total_dates : int
+        Number of rebalancing dates attempted.
+    succeeded_dates : int
+        Number of dates for which factor computation succeeded.
+    failed_dates : int
+        Number of dates skipped due to errors.
+    failures : dict[str, str]
+        Mapping of ISO-date string to exception message for each failure.
+    min_success_fraction : float
+        Minimum fraction of succeeded/total required before
+        FactorCoverageError is raised.
+    """
+
+    total_dates: int
+    succeeded_dates: int
+    failed_dates: int
+    failures: dict[str, str]
+    min_success_fraction: float
+
+    @property
+    def success_fraction(self) -> float:
+        """Fraction of dates that succeeded (1.0 if total_dates == 0)."""
+        if self.total_dates == 0:
+            return 1.0
+        return self.succeeded_dates / self.total_dates
+
+    @property
+    def is_healthy(self) -> bool:
+        """True when success_fraction >= min_success_fraction."""
+        return self.success_fraction >= self.min_success_fraction

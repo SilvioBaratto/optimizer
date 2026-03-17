@@ -196,12 +196,16 @@ Cross-sectional standardization transforms raw factor scores into comparable, we
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `method` | `StandardizationMethod` | `Z_SCORE` | Z-score or rank-normal standardization |
-| `winsorize_lower` | `float` | `0.01` | Lower percentile for winsorization (0-1) |
-| `winsorize_upper` | `float` | `0.99` | Upper percentile for winsorization (0-1) |
+| `method` | `StandardizationMethod` | `RANK_NORMAL` | Z-score or rank-normal standardization |
+| `winsorize_method` | `WinsorizeMethod` | `PERCENTILE` | Outlier treatment method |
+| `winsorize_lower` | `float` | `0.01` | Lower percentile for winsorization (0-1, PERCENTILE only) |
+| `winsorize_upper` | `float` | `0.99` | Upper percentile for winsorization (0-1, PERCENTILE only) |
 | `neutralize_sector` | `bool` | `True` | Whether to sector-neutralize scores |
 | `neutralize_country` | `bool` | `False` | Whether to country-neutralize scores |
 | `re_standardize_after_neutralization` | `bool` | `False` | Re-apply z-score after neutralization |
+| `factor_method_overrides` | `tuple[tuple[str, str], ...]` | `()` | Per-factor method overrides as `(factor_name, method_value)` pairs |
+
+> **Note**: The default method changed from `Z_SCORE` to `RANK_NORMAL` to align with MSCI Barra USE4 (Menchero et al. 2011) and Gu/Kelly/Xiu (2020) best practice for heavy-tailed financial factor distributions. Use `StandardizationConfig.for_z_score()` for backward compatibility.
 
 ### StandardizationMethod
 
@@ -209,6 +213,19 @@ Cross-sectional standardization transforms raw factor scores into comparable, we
 |-------|-------------|----------|
 | `Z_SCORE` | `(x - mean) / std` | Approximately normal factors (e.g., momentum) |
 | `RANK_NORMAL` | `Phi^-1((rank - 0.5) / N)` inverse normal transform | Heavy-tailed distributions (e.g., value ratios) |
+
+### WinsorizeMethod
+
+| Value | Description | Best For |
+|-------|-------------|----------|
+| `PERCENTILE` | Clip at fixed quantiles (1st/99th percentile) | General use |
+| `MAD` | Clip at median ± 3 × 1.4826 × MAD (MSCI Barra convention) | Heavy-tailed distributions |
+
+### HEAVY_TAILED_FACTORS
+
+The canonical classification of heavy-tailed factors (value ratios, illiquidity, dividend yield, accruals, asset growth): `book_to_price`, `earnings_yield`, `cash_flow_yield`, `sales_to_price`, `ebitda_to_ev`, `asset_growth`, `dividend_yield`, `amihud_illiquidity`, `accruals`.
+
+Approximately normal factors (z-score is appropriate): `momentum_12_1`, `volatility`, `beta`.
 
 ### Presets
 
@@ -220,6 +237,15 @@ config = StandardizationConfig.for_heavy_tailed()
 
 # Z-score for approximately normal factors (momentum, profitability)
 config = StandardizationConfig.for_normal()
+
+# Z-score standardization (backward-compatibility alias)
+config = StandardizationConfig.for_z_score()
+
+# Per-factor: RANK_NORMAL for heavy-tailed, Z_SCORE for near-normal
+config = StandardizationConfig.for_per_factor()
+
+# MAD-based winsorization (MSCI Barra +/-3 MAD)
+config = StandardizationConfig.for_mad_winsorize()
 ```
 
 ### Standardization Pipeline Steps
@@ -318,6 +344,15 @@ Composite scoring aggregates standardized factor scores into a single composite 
 | `ridge_alpha` | `float` | `1.0` | L2 regularization strength for RIDGE_WEIGHTED |
 | `gbt_max_depth` | `int` | `3` | Maximum tree depth for GBT_WEIGHTED |
 | `gbt_n_estimators` | `int` | `50` | Number of boosting rounds for GBT_WEIGHTED |
+| `min_coverage_groups` | `int` | `0` | Minimum non-NaN group scores required; tickers below this receive NaN composite. 0 disables |
+| `return_coverage` | `bool` | `False` | When True, returns DataFrame with `composite` and `coverage_ratio` columns |
+
+### Sparse-Coverage Handling
+
+When a ticker is missing all factors in a group (e.g., no analyst estimates for the Sentiment group), the group score is NaN. The composite scoring functions compute a **renormalized weighted average** using only available (non-NaN) groups per ticker, rather than filling missing groups with zero. This prevents systematic dilution of the signal for sparse-coverage tickers.
+
+- **`min_coverage_groups`**: Set a minimum threshold for data quality. Tickers with fewer than this many non-NaN group scores receive NaN composite and are automatically excluded by `select_stocks()`.
+- **`coverage_ratio`**: When `return_coverage=True`, a `coverage_ratio` column (0.0–1.0) is returned alongside the composite, enabling downstream diagnostics.
 
 ### CompositeMethod
 
@@ -325,7 +360,7 @@ Composite scoring aggregates standardized factor scores into a single composite 
 |--------|-------------|-------------|-----------|
 | `EQUAL_WEIGHT` | Core/supplementary tiered equal weighting | None | Robust, no estimation error |
 | `IC_WEIGHTED` | Trailing IC magnitude as weights | `ic_history` | Adapts to recent predictive power |
-| `ICIR_WEIGHTED` | `\|mean(IC) / std(IC)\|` as weights | `ic_history` | Penalizes inconsistent predictors |
+| `ICIR_WEIGHTED` | `max(mean(IC) / std(IC), 0)` as weights | `ic_history` | Penalizes inconsistent predictors |
 | `RIDGE_WEIGHTED` | Ridge regression on historical returns | `training_scores`, `training_returns` | Captures linear factor interactions |
 | `GBT_WEIGHTED` | Gradient-boosted trees on historical returns | `training_scores`, `training_returns` | Captures non-linear interactions |
 
@@ -339,6 +374,8 @@ config = CompositeScoringConfig.for_ic_weighted()
 config = CompositeScoringConfig.for_icir_weighted()
 config = CompositeScoringConfig.for_ridge_weighted()
 config = CompositeScoringConfig.for_gbt_weighted()
+config = CompositeScoringConfig.for_sparse_universe()        # min_coverage_groups=2
+config = CompositeScoringConfig.for_coverage_diagnostics()   # return_coverage=True
 ```
 
 ### Scoring Workflow
@@ -404,10 +441,10 @@ If all groups have negative or zero IC, the method falls back to equal-weight sc
 ICIR (Information Coefficient Information Ratio) penalizes factors that are inconsistent predictors:
 
 ```
-ICIR = |mean(IC) / std(IC)|
+ICIR = max(mean(IC) / std(IC), 0)
 ```
 
-A factor with high mean IC but also high IC volatility receives a lower weight than a factor with moderate but stable IC. Falls back to equal-weight when all groups have ICIR = 0.
+A factor with high mean IC but also high IC volatility receives a lower weight than a factor with moderate but stable IC. Groups with negative ICIR (consistently wrong-direction predictions) receive zero weight rather than being included with flipped sign. Falls back to equal-weight when all groups have ICIR <= 0.
 
 ### ML Scoring Details
 
@@ -487,7 +524,7 @@ Stock selection filters the scored universe down to a target number of stocks, w
 | `exit_quantile` | `float` | `0.7` | Exit quantile for hysteresis (for QUANTILE) |
 | `buffer_fraction` | `float` | `0.1` | Buffer zone fraction around selection boundary |
 | `sector_balance` | `bool` | `True` | Whether to enforce sector-proportional representation |
-| `sector_tolerance` | `float` | `0.03` | Maximum deviation from parent universe sector weights |
+| `sector_tolerance` | `float` | `0.05` | Maximum deviation from parent universe sector weights |
 
 ### SelectionMethod
 
@@ -509,6 +546,9 @@ config = SelectionConfig.for_top_quintile()
 
 # Concentrated portfolio of top 30
 config = SelectionConfig.for_concentrated()
+
+# Tight 3% sector cap for low tracking error (institutional use)
+config = SelectionConfig.for_low_tracking_error()
 ```
 
 ### Buffer-Zone Hysteresis
@@ -553,7 +593,7 @@ balanced = apply_sector_balance(
     scores=composite_scores,
     sector_labels=sector_series,
     parent_universe=full_universe,
-    tolerance=0.03,
+    tolerance=0.05,
 )
 ```
 
@@ -569,7 +609,7 @@ config = SelectionConfig(
     target_count=100,
     buffer_fraction=0.1,
     sector_balance=True,
-    sector_tolerance=0.03,
+    sector_tolerance=0.05,
 )
 
 # Without turnover tracking
@@ -878,9 +918,9 @@ from optimizer.factors import run_factor_oos_validation, FactorOOSConfig
 
 # Rolling block OOS
 config = FactorOOSConfig(
-    train_months=36,     # 3-year training window
-    val_months=12,       # 1-year validation window
-    step_months=6,       # Roll forward 6 months per fold
+    train_periods=36,     # 36-period training window
+    val_periods=12,       # 12-period validation window
+    step_periods=6,       # Roll forward 6 periods per fold
 )
 
 result = run_factor_oos_validation(
@@ -900,9 +940,9 @@ result = run_factor_oos_validation(
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `train_months` | `int` | `36` | Length of the training window in months |
-| `val_months` | `int` | `12` | Length of the validation window in months |
-| `step_months` | `int` | `6` | Number of months to roll forward between folds |
+| `train_periods` | `int` | `36` | Length of the training window in index periods |
+| `val_periods` | `int` | `12` | Length of the validation window in index periods |
+| `step_periods` | `int` | `6` | Number of index periods to roll forward between folds |
 
 #### CPCV Mode
 

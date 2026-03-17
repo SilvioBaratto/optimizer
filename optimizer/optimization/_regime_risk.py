@@ -69,8 +69,10 @@ class RegimeRiskConfig:
     ----------
     regime_measures : tuple[RiskMeasureType, ...]
         One :class:`RiskMeasureType` per HMM state (index = state label).
-        E.g. ``(VARIANCE, CVAR)`` means state-0 uses variance and state-1
-        uses CVaR.  Must match ``HMMResult.n_states``.
+        States are sorted by ascending mean return after HMM fitting,
+        so state 0 is always the lowest-mean regime (bear/stress).
+        E.g. ``(CVAR, VARIANCE)`` means bear → CVaR, bull → variance.
+        Must match ``HMMResult.n_states``.
     hmm_config : HMMConfig
         HMM hyper-parameters used when fitting inside the pipeline.
     cvar_beta : float
@@ -84,18 +86,26 @@ class RegimeRiskConfig:
 
     @classmethod
     def for_calm_stress(cls, **kwargs: object) -> RegimeRiskConfig:
-        """Two-regime preset: calm → variance, stress → CVaR."""
+        """Two-regime preset: bear/stress → CVaR, calm/bull → variance.
+
+        States are sorted by ascending mean return after HMM fitting,
+        so state 0 is always the lowest-mean regime (bear/stress).
+        """
         return cls(
-            regime_measures=(RiskMeasureType.VARIANCE, RiskMeasureType.CVAR),
+            regime_measures=(RiskMeasureType.CVAR, RiskMeasureType.VARIANCE),
             hmm_config=HMMConfig(n_states=2),
             **kwargs,  # type: ignore[arg-type]
         )
 
     @classmethod
     def for_calm_stress_drawdown(cls, **kwargs: object) -> RegimeRiskConfig:
-        """Two-regime preset: calm → variance, stress → CDaR."""
+        """Two-regime preset: bear/stress → CDaR, calm/bull → variance.
+
+        States are sorted by ascending mean return after HMM fitting,
+        so state 0 is always the lowest-mean regime (bear/stress).
+        """
         return cls(
-            regime_measures=(RiskMeasureType.VARIANCE, RiskMeasureType.CDAR),
+            regime_measures=(RiskMeasureType.CDAR, RiskMeasureType.VARIANCE),
             hmm_config=HMMConfig(n_states=2),
             cvar_beta=0.95,
             **kwargs,
@@ -103,12 +113,16 @@ class RegimeRiskConfig:
 
     @classmethod
     def for_three_regimes(cls, **kwargs: object) -> RegimeRiskConfig:
-        """Three-regime preset: calm → variance, normal → MAD, stress → CVaR."""
+        """Three-regime: bear → CVaR, normal → MAD, bull → variance.
+
+        States are sorted by ascending mean return after HMM fitting,
+        so state 0 is always the lowest-mean regime (bear/stress).
+        """
         return cls(
             regime_measures=(
-                RiskMeasureType.VARIANCE,
-                RiskMeasureType.MEAN_ABSOLUTE_DEVIATION,
                 RiskMeasureType.CVAR,
+                RiskMeasureType.MEAN_ABSOLUTE_DEVIATION,
+                RiskMeasureType.VARIANCE,
             ),
             hmm_config=HMMConfig(n_states=3),
             **kwargs,  # type: ignore[arg-type]

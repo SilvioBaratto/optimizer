@@ -29,17 +29,17 @@ class FactorOOSConfig:
 
     Parameters
     ----------
-    train_months : int
-        Length of the training window in months.  Default: 36.
-    val_months : int
-        Length of the validation window in months.  Default: 12.
-    step_months : int
-        Number of months to roll forward between folds.  Default: 6.
+    train_periods : int
+        Length of the training window in index periods.  Default: 36.
+    val_periods : int
+        Length of the validation window in index periods.  Default: 12.
+    step_periods : int
+        Number of index periods to roll forward between folds.  Default: 6.
     """
 
-    train_months: int = 36
-    val_months: int = 12
-    step_months: int = 6
+    train_periods: int = 36
+    val_periods: int = 12
+    step_periods: int = 6
 
 
 @dataclass
@@ -74,25 +74,25 @@ class FactorOOSResult:
 
 def _make_folds(
     dates: pd.Index,
-    train_months: int,
-    val_months: int,
-    step_months: int,
+    train_periods: int,
+    val_periods: int,
+    step_periods: int,
 ) -> list[tuple[pd.Index, pd.Index]]:
     """Generate (train, val) date-index pairs for rolling block CV.
 
-    Fold count = ``floor((len(dates) - train_months) / step_months)``.
+    Fold count = ``floor((len(dates) - train_periods) / step_periods)``.
     Each validation window starts immediately after its training window,
     guaranteeing no date overlap between train and val within the same fold.
     Val windows are truncated to the available date range when necessary.
     """
     total = len(dates)
-    n = max(0, (total - train_months) // step_months)
+    n = max(0, (total - train_periods) // step_periods)
     folds: list[tuple[pd.Index, pd.Index]] = []
     for i in range(n):
-        t_start = i * step_months
-        t_end = t_start + train_months
+        t_start = i * step_periods
+        t_end = t_start + train_periods
         v_start = t_end
-        v_end = min(v_start + val_months, total)
+        v_end = min(v_start + val_periods, total)
         if v_start >= total:
             continue
         folds.append((dates[t_start:t_end], dates[v_start:v_end]))
@@ -218,7 +218,7 @@ def run_factor_oos_validation(
     -----
     The validation window computation uses **only val-window dates**; no
     training-window data is used.  Fold count equals
-    ``floor((total_months - train_months) / step_months)`` for rolling,
+    ``floor((total_periods - train_periods) / step_periods)`` for rolling,
     or ``C(n_folds, n_test_folds)`` for CPCV.
     """
     if config is None:
@@ -230,7 +230,23 @@ def run_factor_oos_validation(
         folds = _make_cpcv_folds(all_dates, cpcv_config)
     else:
         folds = _make_folds(
-            all_dates, config.train_months, config.val_months, config.step_months
+            all_dates, config.train_periods, config.val_periods, config.step_periods
+        )
+
+    if len(folds) == 0:
+        logger.warning(
+            "FactorOOSConfig produced 0 folds. "
+            "total_periods=%d, train_periods=%d, step_periods=%d. "
+            "Reduce train_periods or provide more history.",
+            len(all_dates),
+            config.train_periods,
+            config.step_periods,
+        )
+    elif len(folds) < 3:
+        logger.warning(
+            "FactorOOSConfig produced only %d fold(s); at least 3 are recommended "
+            "for meaningful OOS statistics.",
+            len(folds),
         )
 
     factors = list(scores.columns)

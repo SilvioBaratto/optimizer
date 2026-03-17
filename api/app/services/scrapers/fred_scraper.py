@@ -53,12 +53,18 @@ FRED_RECESSION_SERIES: dict[str, str] = {
     "USREC": "NBER Recession Indicator (0=expansion, 1=recession)",
 }
 
+# Risk-free rate proxy (daily)
+FRED_RATE_SERIES: dict[str, str] = {
+    "DGS3MO": "3-Month Treasury Constant Maturity Rate",
+}
+
 # Combined registry used by default fetch operations.
 FRED_SERIES: dict[str, str] = {
     **FRED_SPREAD_SERIES,
     **FRED_VOLATILITY_SERIES,
     **FRED_CLI_SERIES,
     **FRED_RECESSION_SERIES,
+    **FRED_RATE_SERIES,
 }
 
 _FRED_BASE_URL = "https://api.stlouisfed.org/fred"

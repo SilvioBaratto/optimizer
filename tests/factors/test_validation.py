@@ -60,6 +60,16 @@ class TestComputeMonthlyIC:
         ic = compute_monthly_ic(scores, returns)
         assert np.isnan(ic)
 
+    def test_min_observations_stricter(self) -> None:
+        """5 observations pass default (min=3) but fail min_observations=6."""
+        tickers = list("ABCDE")
+        scores = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], index=tickers)
+        returns = pd.Series([0.1, 0.2, 0.3, 0.4, 0.5], index=tickers)
+        assert not np.isnan(compute_monthly_ic(scores, returns))
+        assert np.isnan(
+            compute_monthly_ic(scores, returns, min_observations=6)
+        )
+
 
 class TestComputeICSeries:
     def test_returns_series(self) -> None:
@@ -77,6 +87,29 @@ class TestComputeICSeries:
         result = compute_ic_series(scores_hist, returns_hist, "test_factor")
         assert isinstance(result, pd.Series)
         assert len(result) > 0
+
+    def test_min_observations_filters_dates(self) -> None:
+        """Dates with exactly 5 tickers are excluded at min_observations=6."""
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2023-01-01", periods=6, freq="ME")
+        # 5 tickers — passes default (min=3) but fails min_observations=6
+        tickers = [f"T{i}" for i in range(5)]
+
+        scores_hist = pd.DataFrame(
+            rng.normal(0, 1, (6, 5)), index=dates, columns=tickers
+        )
+        returns_hist = pd.DataFrame(
+            rng.normal(0.001, 0.02, (6, 5)), index=dates, columns=tickers
+        )
+
+        default_result = compute_ic_series(
+            scores_hist, returns_hist, "f"
+        )
+        strict_result = compute_ic_series(
+            scores_hist, returns_hist, "f", min_observations=6
+        )
+        assert len(default_result) > 0
+        assert len(strict_result) == 0
 
 
 class TestNeweyWestTStat:

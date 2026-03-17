@@ -27,6 +27,37 @@ from optimizer.factors._validation import compute_icir
 logger = logging.getLogger(__name__)
 
 
+def _renormalized_weighted_composite(
+    group_scores: pd.DataFrame,
+    weights: dict[str, float],
+) -> pd.Series:
+    """Weighted average over available (non-NaN) groups per ticker.
+
+    For each ticker, only groups with a non-NaN score contribute.
+    Weights are renormalized to sum to 1 over those available groups.
+    Tickers with no available groups receive NaN.
+    """
+    cols = [c for c in weights if c in group_scores.columns]
+    if not cols:
+        return pd.Series(np.nan, index=group_scores.index)
+
+    w_arr = np.array([weights[c] for c in cols])
+    scores = group_scores[cols]
+    available = scores.notna()
+
+    # Broadcast raw weights and mask where score is NaN
+    w_matrix = available.values * w_arr  # (tickers, groups)
+    row_sums = w_matrix.sum(axis=1)
+
+    # Avoid division by zero: tickers with no coverage get NaN
+    safe_sums = np.where(row_sums == 0.0, np.nan, row_sums)
+    normed = w_matrix / safe_sums[:, np.newaxis]
+
+    # fillna(0) is safe because normed weights are zero where score is NaN
+    composite = (scores.fillna(0.0).values * normed).sum(axis=1)
+    return pd.Series(composite, index=group_scores.index)
+
+
 def compute_group_scores(
     standardized_factors: pd.DataFrame,
     coverage: pd.DataFrame,
@@ -110,12 +141,7 @@ def compute_equal_weight_composite(
     if not weights:
         return pd.Series(0.0, index=group_scores.index)
 
-    total_weight = sum(weights.values())
-    composite = pd.Series(0.0, index=group_scores.index)
-    for col, w in weights.items():
-        composite = composite + (w / total_weight) * group_scores[col].fillna(0.0)
-
-    return composite
+    return _renormalized_weighted_composite(group_scores, weights)
 
 
 def compute_ic_weighted_composite(
@@ -178,11 +204,7 @@ def compute_ic_weighted_composite(
         # All groups have negative or zero IC — fall back to equal weight
         return compute_equal_weight_composite(group_scores, config, group_weights)
 
-    composite = pd.Series(0.0, index=group_scores.index)
-    for col, w in weights.items():
-        composite = composite + (w / total_weight) * group_scores[col].fillna(0.0)
-
-    return composite
+    return _renormalized_weighted_composite(group_scores, weights)
 
 
 def compute_icir_weighted_composite(
@@ -193,9 +215,10 @@ def compute_icir_weighted_composite(
 ) -> pd.Series:
     """ICIR-weighted composite score.
 
-    Weights each group by ``|ICIR| = |mean(IC) / std(IC)|``, normalised
-    to sum to 1.  Groups with zero or undefined ICIR receive zero weight.
-    Falls back to equal-weight when all groups have ICIR = 0.
+    Weights each group by ``max(ICIR, 0) = max(mean(IC) / std(IC), 0)``,
+    normalised to sum to 1.  Groups with zero, negative, or undefined ICIR
+    receive zero weight.  Falls back to equal-weight when all groups have
+    ICIR <= 0.
 
     Parameters
     ----------
@@ -232,17 +255,14 @@ def compute_icir_weighted_composite(
                 if tier == GroupWeight.CORE
                 else config.supplementary_weight
             )
-        weights[group.value] = abs(icir) * tier_mult
+        weights[group.value] = max(icir, 0.0) * tier_mult
 
     total_weight = sum(weights.values())
     if total_weight == 0.0:
+        # All groups have zero or negative ICIR — fall back to equal weight
         return compute_equal_weight_composite(group_scores, config, group_weights)
 
-    composite = pd.Series(0.0, index=group_scores.index)
-    for col, w in weights.items():
-        composite = composite + (w / total_weight) * group_scores[col].fillna(0.0)
-
-    return composite
+    return _renormalized_weighted_composite(group_scores, weights)
 
 
 def compute_ml_composite(
@@ -292,6 +312,27 @@ def compute_ml_composite(
     return predict_composite_scores(model, standardized_factors)
 
 
+def _apply_coverage_gating(
+    composite: pd.Series,
+    group_scores: pd.DataFrame,
+    config: CompositeScoringConfig,
+) -> pd.Series | pd.DataFrame:
+    """Apply minimum-coverage threshold and optional coverage_ratio output."""
+    if config.min_coverage_groups > 0:
+        n_available = group_scores.notna().sum(axis=1)
+        composite = composite.where(n_available >= config.min_coverage_groups)
+
+    if config.return_coverage:
+        n_groups = len(group_scores.columns)
+        coverage_ratio = group_scores.notna().sum(axis=1) / max(n_groups, 1)
+        return pd.DataFrame(
+            {"composite": composite, "coverage_ratio": coverage_ratio},
+            index=composite.index,
+        )
+
+    return composite
+
+
 def compute_composite_score(
     standardized_factors: pd.DataFrame,
     coverage: pd.DataFrame,
@@ -300,7 +341,7 @@ def compute_composite_score(
     training_scores: pd.DataFrame | None = None,
     training_returns: pd.Series | None = None,
     group_weights: dict[str, float] | None = None,
-) -> pd.Series:
+) -> pd.Series | pd.DataFrame:
     """Compute composite score from standardized factors.
 
     Parameters
@@ -328,8 +369,10 @@ def compute_composite_score(
 
     Returns
     -------
-    pd.Series
-        Composite score per ticker.
+    pd.Series or pd.DataFrame
+        Composite score per ticker.  When ``config.return_coverage`` is
+        True, returns a DataFrame with ``composite`` and ``coverage_ratio``
+        columns.
     """
     if config is None:
         config = CompositeScoringConfig()
@@ -340,9 +383,10 @@ def compute_composite_score(
         if ic_history is None:
             msg = "ic_history required for IC_WEIGHTED composite method"
             raise ConfigurationError(msg)
-        return compute_ic_weighted_composite(
+        composite = compute_ic_weighted_composite(
             group_scores, ic_history, config, group_weights
         )
+        return _apply_coverage_gating(composite, group_scores, config)
 
     if config.method == CompositeMethod.ICIR_WEIGHTED:
         if ic_history is None:
@@ -351,9 +395,10 @@ def compute_composite_score(
         ic_series_per_group = {
             col: ic_history[col].dropna() for col in ic_history.columns
         }
-        return compute_icir_weighted_composite(
+        composite = compute_icir_weighted_composite(
             group_scores, ic_series_per_group, config, group_weights
         )
+        return _apply_coverage_gating(composite, group_scores, config)
 
     if config.method in (CompositeMethod.RIDGE_WEIGHTED, CompositeMethod.GBT_WEIGHTED):
         if training_scores is None or training_returns is None:
@@ -362,8 +407,10 @@ def compute_composite_score(
                 f"{config.method.value} composite method"
             )
             raise ConfigurationError(msg)
-        return compute_ml_composite(
+        composite = compute_ml_composite(
             standardized_factors, training_scores, training_returns, config
         )
+        return _apply_coverage_gating(composite, group_scores, config)
 
-    return compute_equal_weight_composite(group_scores, config, group_weights)
+    composite = compute_equal_weight_composite(group_scores, config, group_weights)
+    return _apply_coverage_gating(composite, group_scores, config)

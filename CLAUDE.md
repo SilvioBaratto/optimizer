@@ -25,7 +25,7 @@ Portfolio optimizer platform with a FastAPI backend (synchronous SQLAlchemy + Po
 
 ```bash
 # Infrastructure
-docker compose up -d              # PostgreSQL (port 54320) + Adminer (port 18080)
+docker compose up -d              # PostgreSQL (port 54320) + Adminer (port 18081)
 
 # Optimizer library (root)
 pip install -e ".[dev]"           # Install optimizer + dev deps (what CI uses)
@@ -169,7 +169,7 @@ Angular 21 single-page dashboard with Tailwind CSS v4 and ECharts for data visua
 - Use native control flow (`@if`, `@for`, `@switch`) instead of structural directives
 - Reactive forms over template-driven forms
 - Use `class` bindings instead of `ngClass`, `style` bindings instead of `ngStyle`
-- Shared reusable components in `shared/` (e.g. `echarts-heatmap`, `echarts-donut`, `tab-group`)
+- Shared reusable components in `shared/` (e.g. `echarts-heatmap`, `echarts-donut`, `tab-group`, `freshness-indicator`)
 - Services in `services/` with `providedIn: 'root'` for singletons
 - Models/interfaces in `models/`
 - `--legacy-peer-deps` required for `npm install` due to dependency conflicts
@@ -195,6 +195,56 @@ Layered architecture: **Routes → Services → Repositories → Models**
 - PostgreSQL 16 on port **54320** (not 5432). Connection: `postgresql://postgres:postgres@localhost:54320/optimizer_db`
 - Two separate `requirements.txt` and `pyproject.toml` — root for optimizer library, `api/` for FastAPI app
 
+### Scheduler & Background Jobs
+
+APScheduler runs inside the FastAPI process (started in lifespan), with a `SQLAlchemyJobStore` so misfired runs execute at next startup within a configurable grace window.
+
+**Five scheduled jobs** (all configurable via `SCHEDULER_*` env vars):
+
+| Job | Trigger | Default | Description |
+|-----|---------|---------|-------------|
+| `daily_pipeline` | Cron | `0 7 * * *` | Sequential: yfinance → macro → news → summarize → calibrate |
+| `midday_news` | Cron | `0 14 * * *` | Afternoon news + summarize refresh |
+| `weekly_refetch` | Cron | `0 3 * * 0` | Full yfinance + macro rebuild (5-year history) |
+| `fred_monthly` | Cron | `0 8 1 * *` | FRED economic data fetch |
+| `news_refresh` | Interval | Every 30 min | Incremental news re-summarization |
+
+**BackgroundJobService** (`api/app/services/background_job.py`) — instantiated once per job domain (e.g. `macro_fetch`, `fred_fetch`, `yfinance_fetch`) at module level in route files:
+- `create_job()` — atomically claims a slot; raises `JobAlreadyRunningError` if one is already pending/running
+- `get_job(job_id)` → dict — returns job state for polling endpoints
+- `update_job(job_id, **kwargs)` — updates status, progress, errors
+- `start_background(target, args)` — launches worker in daemon thread
+
+**Route pattern for async work** (used in `macro_regime.py`, `yfinance_data.py`, `macro_calibration.py`, `trading212.py`):
+1. Module-level `_job_service = BackgroundJobService(job_type="...", session_factory=database_manager.get_session)`
+2. POST endpoint → `create_job()` → `start_background(wrapper_fn)` → return `202 + job_id`
+3. Wrapper function: set `status="running"` → call service function with `on_progress=make_progress(job_id, svc)` → catch errors → set `status="completed"` or `"failed"`
+4. GET endpoint → `get_job(job_id)` → return progress
+
+**Progress callback**: `make_progress(job_id, job_svc)` in `api/app/services/_progress.py` returns a closure forwarding kwargs to `update_job`. Service functions accept `on_progress=` to report `current=`, `total=`, `current_country=`, etc.
+
+**Persistence**: `background_jobs` table (UUID PK, `job_type` + `status` composite index, JSONB `extra`/`result`/`errors` columns). Model uses `JSON().with_variant(JSONB, "postgresql")` for SQLite test compatibility.
+
+**Observability**:
+- Prometheus metrics (`api/app/metrics.py`): counters `jobs_started_total`, `jobs_completed_total`, `jobs_failed_total`; histogram `job_duration_seconds`; gauge `jobs_in_progress` — all labeled by `domain`. Exposed at `/metrics`
+- Webhook notifications (`api/app/services/notifications.py`): Discord/Slack-compatible POST on job failure when `NOTIFICATION_WEBHOOK_URL` is set
+- Read-only jobs API: `GET /api/v1/jobs` (domain/status filtering, pagination), `GET /api/v1/jobs/{job_id}`
+
+### Shared Infrastructure (`api/app/services/infrastructure/`)
+
+Generalized resilience primitives extracted from yfinance, re-exported as shims in `api/app/services/yfinance/infrastructure/`:
+- **`CircuitBreaker`** — exponential backoff (2^attempt), max_attempts safety limit, service-name in errors
+- **`RateLimiter`** — thread-safe per-key delay enforcement (default 0.1s)
+- **`retry_with_backoff()`** — retry with full-jitter exponential backoff, transient error detection
+- **`LRUCache`** — in-memory TTL cache
+
+All three scrapers (`fred_scraper.py`, `ilsole_scraper.py`, `tradingeconomics_scraper.py`) instantiate module-level `CircuitBreaker` + `RateLimiter` from the shared package.
+
+### Shell Scripts (`scheduler/`)
+
+- **`fetch.sh`** — daily pipeline: health check → fire-and-poll yfinance → macro → news → summarize → calibrate (with dependency enforcement and 409 conflict handling). `MAX_POLL_SECONDS` env var (default 21600 = 6h)
+- **`refetch_all.sh`** — full re-fetch: adds universe + fred stages. `MAX_POLL_SECONDS` default 21600
+
 ### Environment Variables
 
 Configuration via `.env` at project root:
@@ -202,6 +252,30 @@ Configuration via `.env` at project root:
 - `TRADING_212_API_KEY` — Trading 212 API access
 - `FRED_API_KEY` — Federal Reserve Economic Data
 - `TRADING_ECONOMICS_API_KEY` — Trading Economics data
+- `NOTIFICATION_WEBHOOK_URL` — Discord/Slack webhook for failure alerts (optional)
+- `SCHEDULER_DAILY_PIPELINE_CRON` — 5-field cron (default `0 7 * * *`)
+- `SCHEDULER_MIDDAY_NEWS_CRON` — (default `0 14 * * *`)
+- `SCHEDULER_WEEKLY_REFETCH_CRON` — (default `0 3 * * 0`)
+- `SCHEDULER_FRED_MONTHLY_CRON` — (default `0 8 1 * *`)
+- `SCHEDULER_NEWS_REFRESH_INTERVAL_MIN` — minutes (default `30`)
+- `SCHEDULER_MISFIRE_GRACE_TIME_SECONDS` — (default `3600`)
+
+### Docker Compose
+
+- `db` — PostgreSQL 16 on host port **54320**
+- `adminer` — DB admin UI on host port **18081**
+- `api` — FastAPI on host port **8005** (port 8000 is reserved on the host). Passes all `SCHEDULER_*` and `NOTIFICATION_WEBHOOK_URL` env vars
+- `frontend` — Angular on host port **4300**
+
+### Testing
+
+**API tests** (`api/tests/`) use **SQLite in-memory** with `StaticPool`:
+- SAVEPOINT pattern (`session.begin_nested()`) so `session.commit()` in app code is rolled back between tests
+- `client` fixture overrides FastAPI `get_db` dependency to inject the test session
+
+**Gotcha — BackgroundJobService in tests**: The service uses `database_manager.get_session` (bypasses FastAPI DI), so it does NOT use the test SQLite session. Tests that trigger background job creation/polling must mock `create_job`, `get_job`, and `start_background` on the module-level service instance (e.g. `patch("app.api.v1.macro_regime._summarize_job_service.create_job", ...)`).
+
+**Gotcha — JSONB columns**: The `BackgroundJob` model uses `JSON().with_variant(JSONB, "postgresql")` so SQLite tests can create the table. Do NOT use raw `JSONB` type in new models that need test coverage.
 
 ### Linting & Type Checking
 

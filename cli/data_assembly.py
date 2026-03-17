@@ -32,6 +32,7 @@ from app.models.macro_regime import (
     EconomicIndicator,
     EconomicIndicatorObservation,
     FredObservation,
+    MacroNewsSummary,
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
 )
@@ -45,6 +46,9 @@ from app.models.yfinance_data import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Number of trading days per year (equity convention).
+_TRADING_DAYS: int = 252
 
 # Line items to extract from the FinancialStatement EAV table.
 # Mapping: DB line_item -> (statement_type, target_column_name)
@@ -143,7 +147,7 @@ def _apply_delisting_returns(
 
         # Add a new index row for the delisting date if not already present.
         if delisted_ts not in out.index:
-            new_row = pd.Series({c: np.nan for c in out.columns}, name=delisted_ts)
+            new_row = pd.Series(dict.fromkeys(out.columns, np.nan), name=delisted_ts)
             out = pd.concat([out, new_row.to_frame().T])
             out = out.sort_index()
 
@@ -542,6 +546,129 @@ def assemble_fundamentals(
     return df, sector_mapping
 
 
+def assemble_fundamental_history(
+    session: Session,
+    tickers: list[str] | None = None,
+) -> pd.DataFrame:
+    """Build a ``(period_date, ticker)`` panel from financial_statements EAV.
+
+    Queries all historical financial statement rows for key line items,
+    pivots them into a MultiIndex panel suitable for point-in-time slicing.
+
+    Parameters
+    ----------
+    session : Session
+        Active SQLAlchemy session.
+    tickers : list[str] or None
+        Restrict to these tickers.  ``None`` fetches all.
+
+    Returns
+    -------
+    pd.DataFrame
+        MultiIndex ``(period_date: pd.Timestamp, ticker: str)``.
+        Columns: ``net_income``, ``gross_profit``, ``operating_income``,
+        ``total_assets``, ``total_equity``, ``period_type``
+        (``'annual'`` | ``'quarterly'``), ``asset_growth`` (float | NaN).
+    """
+    ticker_map = _build_ticker_map(session)
+    if tickers is not None:
+        inv = {v: k for k, v in ticker_map.items()}
+        allowed_ids = {inv[t] for t in tickers if t in inv}
+        ticker_map = {k: v for k, v in ticker_map.items() if k in allowed_ids}
+
+    line_item_names = list(_STMT_LINE_ITEMS.keys())
+
+    rows = session.execute(
+        select(
+            FinancialStatement.instrument_id,
+            FinancialStatement.period_type,
+            FinancialStatement.period_date,
+            FinancialStatement.line_item,
+            FinancialStatement.value,
+        )
+        .where(FinancialStatement.line_item.in_(line_item_names))
+        .where(FinancialStatement.value.isnot(None))
+        .order_by(FinancialStatement.instrument_id, FinancialStatement.period_date)
+    ).all()
+
+    if not rows:
+        idx = pd.MultiIndex.from_arrays(
+            [pd.DatetimeIndex([]), pd.Index([], dtype=str)],
+            names=["period_date", "ticker"],
+        )
+        return pd.DataFrame(
+            columns=[
+                "net_income", "gross_profit", "operating_income",
+                "total_assets", "total_equity", "period_type", "asset_growth",
+            ],
+            index=idx,
+        )
+
+    records: list[dict[str, Any]] = []
+    for instrument_id, period_type, period_date, line_item, value in rows:
+        ticker = ticker_map.get(str(instrument_id))
+        if ticker is None:
+            continue
+        _, target_col = _STMT_LINE_ITEMS[line_item]
+        records.append({
+            "ticker": ticker,
+            "period_date": pd.Timestamp(period_date),
+            "period_type": period_type,
+            "target_col": target_col,
+            "value": _to_float(value),
+        })
+
+    if not records:
+        idx = pd.MultiIndex.from_arrays(
+            [pd.DatetimeIndex([]), pd.Index([], dtype=str)],
+            names=["period_date", "ticker"],
+        )
+        return pd.DataFrame(
+            columns=[
+                "net_income", "gross_profit", "operating_income",
+                "total_assets", "total_equity", "period_type", "asset_growth",
+            ],
+            index=idx,
+        )
+
+    raw = pd.DataFrame(records)
+
+    # Pivot: one row per (period_date, ticker, period_type), columns = target_col
+    pivoted = raw.pivot_table(
+        index=["period_date", "ticker", "period_type"],
+        columns="target_col",
+        values="value",
+        aggfunc="first",
+    )
+    pivoted = pivoted.reset_index()
+
+    # Compute asset_growth per ticker from annual Total Assets (YoY)
+    pivoted["asset_growth"] = np.nan
+    annual_mask = pivoted["period_type"] == "annual"
+    if annual_mask.any() and "total_assets" in pivoted.columns:
+        annual = pivoted.loc[annual_mask].sort_values(["ticker", "period_date"])
+        growth = annual.groupby("ticker")["total_assets"].pct_change()
+        pivoted.loc[annual.index, "asset_growth"] = growth.values
+
+    # Build MultiIndex (period_date, ticker)
+    pivoted = pivoted.set_index(["period_date", "ticker"]).sort_index()
+
+    # Ensure all expected columns exist
+    for col in [
+        "net_income", "gross_profit", "operating_income",
+        "total_assets", "total_equity",
+    ]:
+        if col not in pivoted.columns:
+            pivoted[col] = np.nan
+
+    logger.info(
+        "Assembled fundamental history panel: %d rows, %d tickers.",
+        len(pivoted),
+        pivoted.index.get_level_values("ticker").nunique(),
+    )
+    return pivoted
+
+
 def assemble_financial_statements(session: Session) -> pd.DataFrame:
     """Build financial statements DataFrame for screening.
 
@@ -897,6 +1024,163 @@ def assemble_macro_timeseries(
     return df
 
 
+def assemble_te_observations(
+    session: Session,
+    country: str = "USA",
+    start_date: datetime.date | None = None,
+) -> pd.DataFrame:
+    """Build a dates x indicator_key DataFrame of Trading Economics observations.
+
+    Parameters
+    ----------
+    session : Session
+        Active SQLAlchemy session.
+    country : str
+        Country code (e.g. "USA", "Germany").
+    start_date : datetime.date | None
+        Optional lower bound on observation date.
+
+    Returns
+    -------
+    pd.DataFrame
+        Index = DatetimeIndex, columns = indicator_key strings
+        (e.g. "manufacturing_pmi", "gdp_growth_rate").
+    """
+    stmt = select(
+        TradingEconomicsObservation.date,
+        TradingEconomicsObservation.indicator_key,
+        TradingEconomicsObservation.value,
+    ).where(TradingEconomicsObservation.country == country)
+
+    if start_date is not None:
+        stmt = stmt.where(TradingEconomicsObservation.date >= start_date)
+    stmt = stmt.order_by(TradingEconomicsObservation.date)
+    rows = session.execute(stmt).all()
+
+    if not rows:
+        return pd.DataFrame()
+
+    records = [
+        {"date": pd.Timestamp(d), "indicator_key": key, "value": float(val)}
+        for d, key, val in rows
+        if val is not None
+    ]
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
+    pivoted = df.pivot_table(
+        index="date", columns="indicator_key", values="value", aggfunc="first",
+    )
+    pivoted.index = pd.DatetimeIndex(pivoted.index)
+    pivoted.columns.name = None
+    return pivoted.sort_index()
+
+
+def assemble_bond_observations(
+    session: Session,
+    country: str = "USA",
+    start_date: datetime.date | None = None,
+) -> pd.DataFrame:
+    """Build a dates x maturity DataFrame of bond yield observations.
+
+    Parameters
+    ----------
+    session : Session
+        Active SQLAlchemy session.
+    country : str
+        Country code.
+    start_date : datetime.date | None
+        Optional lower bound.
+
+    Returns
+    -------
+    pd.DataFrame
+        Index = DatetimeIndex, columns = maturity strings ("2Y", "5Y", "10Y", "30Y").
+    """
+    stmt = select(
+        BondYieldObservation.date,
+        BondYieldObservation.maturity,
+        BondYieldObservation.yield_value,
+    ).where(BondYieldObservation.country == country)
+
+    if start_date is not None:
+        stmt = stmt.where(BondYieldObservation.date >= start_date)
+    stmt = stmt.order_by(BondYieldObservation.date)
+    rows = session.execute(stmt).all()
+
+    if not rows:
+        return pd.DataFrame()
+
+    records = [
+        {"date": pd.Timestamp(d), "maturity": mat, "yield_value": float(val)}
+        for d, mat, val in rows
+        if val is not None
+    ]
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
+    pivoted = df.pivot_table(
+        index="date", columns="maturity", values="yield_value", aggfunc="first",
+    )
+    pivoted.index = pd.DatetimeIndex(pivoted.index)
+    pivoted.columns.name = None
+    return pivoted.sort_index()
+
+
+def assemble_sentiment(
+    session: Session,
+    start_date: datetime.date | None = None,
+) -> pd.DataFrame:
+    """Build a dates x country DataFrame of news sentiment scores.
+
+    Queries ``macro_news_summaries`` for the ``sentiment_score`` field
+    (continuous [-1, 1]) produced by the daily news pipeline.
+
+    Parameters
+    ----------
+    session : Session
+        Active SQLAlchemy session.
+    start_date : datetime.date | None
+        Optional lower bound on summary_date.
+
+    Returns
+    -------
+    pd.DataFrame
+        Index = DatetimeIndex (summary_date), columns = country strings.
+        Values are sentiment scores in [-1, 1].
+    """
+    stmt = select(
+        MacroNewsSummary.summary_date,
+        MacroNewsSummary.country,
+        MacroNewsSummary.sentiment_score,
+    )
+    if start_date is not None:
+        stmt = stmt.where(MacroNewsSummary.summary_date >= start_date)
+    stmt = stmt.order_by(MacroNewsSummary.summary_date)
+    rows = session.execute(stmt).all()
+
+    if not rows:
+        return pd.DataFrame()
+
+    records = [
+        {"date": pd.Timestamp(d), "country": country, "sentiment_score": float(score)}
+        for d, country, score in rows
+        if score is not None
+    ]
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
+    pivoted = df.pivot_table(
+        index="date", columns="country", values="sentiment_score", aggfunc="first",
+    )
+    pivoted.index = pd.DatetimeIndex(pivoted.index)
+    pivoted.columns.name = None
+    return pivoted.sort_index()
+
+
 # ---------------------------------------------------------------------------
 # FRED time-series assembly
 # ---------------------------------------------------------------------------
@@ -918,6 +1202,8 @@ FRED_SERIES_IDS: list[str] = [
     "RECPROUSM156N",
     "JHGDPBRINDX",
     "USREC",
+    # Risk-free rate proxy (daily, annualized %)
+    "DGS3MO",
 ]
 
 
@@ -982,6 +1268,107 @@ def assemble_fred_series(
 
 
 # ---------------------------------------------------------------------------
+# Regime data merging
+# ---------------------------------------------------------------------------
+
+# Column translation maps: DB column names → classify_regime() expected names
+_FRED_REGIME_MAP: dict[str, str] = {
+    "T10Y2Y": "spread_2s10s",
+    "BAMLH0A0HYM2": "hy_oas",
+}
+_TE_REGIME_MAP: dict[str, str] = {
+    "manufacturing_pmi": "pmi",
+}
+
+
+def assemble_regime_data(
+    macro_data: pd.DataFrame,
+    fred_data: pd.DataFrame,
+    te_observations: pd.DataFrame,
+    sentiment_data: pd.DataFrame | None = None,
+    sentiment_country: str = "USA",
+) -> pd.DataFrame:
+    """Merge macro indicators into a single DataFrame for regime classification.
+
+    Combines columns from ``macro_data`` (GDP growth, yield spread),
+    ``fred_data`` (2s10s spread, HY OAS), ``te_observations`` (PMI),
+    and optionally ``sentiment_data`` into the column names that
+    :func:`optimizer.factors.classify_regime` expects.
+
+    Parameters
+    ----------
+    macro_data : pd.DataFrame
+        GDP/yield-spread macro data (dates x columns).
+    fred_data : pd.DataFrame
+        FRED time-series (dates x series_ids).
+    te_observations : pd.DataFrame
+        Trading Economics observations (dates x indicator_key).
+    sentiment_data : pd.DataFrame or None
+        News sentiment (dates x country).
+    sentiment_country : str
+        Country column to extract from ``sentiment_data``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Merged DataFrame with any subset of ``gdp_growth``,
+        ``yield_spread``, ``pmi``, ``spread_2s10s``, ``hy_oas``,
+        ``sentiment``.  Never raises on missing data.
+    """
+    parts: list[pd.DataFrame] = []
+
+    # FRED columns (daily granularity — used as base index)
+    fred_cols: dict[str, pd.Series] = {}
+    for fred_id, regime_name in _FRED_REGIME_MAP.items():
+        if fred_id in fred_data.columns:
+            s = fred_data[fred_id].dropna()
+            if len(s) > 0:
+                fred_cols[regime_name] = s
+
+    if fred_cols:
+        fred_df = pd.DataFrame(fred_cols)
+        parts.append(fred_df)
+
+    # TE observations (monthly — forward-fill onto daily base)
+    te_cols: dict[str, pd.Series] = {}
+    for te_key, regime_name in _TE_REGIME_MAP.items():
+        if te_key in te_observations.columns:
+            s = te_observations[te_key].dropna()
+            if len(s) > 0:
+                te_cols[regime_name] = s
+
+    if te_cols:
+        te_df = pd.DataFrame(te_cols)
+        parts.append(te_df)
+
+    # Sentiment
+    if (
+        sentiment_data is not None
+        and sentiment_country in sentiment_data.columns
+    ):
+        sent = sentiment_data[sentiment_country].dropna()
+        if len(sent) > 0:
+            parts.append(sent.rename("sentiment").to_frame())
+
+    # Macro baseline columns (gdp_growth, yield_spread)
+    macro_cols = [c for c in ("gdp_growth", "yield_spread") if c in macro_data.columns]
+    if macro_cols:
+        parts.append(macro_data[macro_cols].dropna(how="all"))
+
+    if not parts:
+        return pd.DataFrame()
+
+    # Outer-join all parts on date index, then forward-fill
+    merged = parts[0]
+    for p in parts[1:]:
+        merged = merged.join(p, how="outer")
+
+    merged = merged.sort_index().ffill()
+
+    return merged
+
+
+# ---------------------------------------------------------------------------
 # All-in-one assembly
 # ---------------------------------------------------------------------------
 
@@ -1009,6 +1396,18 @@ class DataAssembly:
         gdp_growth and yield_spread.
     fred_data : pd.DataFrame
         FRED time-series (dates x series_ids).
+    te_observations : pd.DataFrame
+        dates x indicator_key Trading Economics observations.
+    bond_observations : pd.DataFrame
+        dates x maturity bond yield observations.
+    sentiment_data : pd.DataFrame
+        dates x country news sentiment scores.
+    regime_data : pd.DataFrame
+        Merged macro indicators for regime classification
+        (pmi, spread_2s10s, hy_oas, sentiment, gdp_growth, yield_spread).
+    fundamental_history : pd.DataFrame
+        MultiIndex ``(period_date, ticker)`` panel of historical financial
+        statements for point-in-time factor construction.
     include_delisted : bool
         Whether delisted instruments are included in ``prices``.
     """
@@ -1024,6 +1423,11 @@ class DataAssembly:
         insider_data: pd.DataFrame,
         macro_data: pd.DataFrame,
         fred_data: pd.DataFrame | None = None,
+        te_observations: pd.DataFrame | None = None,
+        bond_observations: pd.DataFrame | None = None,
+        sentiment_data: pd.DataFrame | None = None,
+        regime_data: pd.DataFrame | None = None,
+        fundamental_history: pd.DataFrame | None = None,
         include_delisted: bool = True,
     ) -> None:
         self.prices = prices
@@ -1035,6 +1439,14 @@ class DataAssembly:
         self.insider_data = insider_data
         self.macro_data = macro_data
         self.fred_data = fred_data if fred_data is not None else pd.DataFrame()
+        self.te_observations = te_observations if te_observations is not None else pd.DataFrame()
+        self.bond_observations = bond_observations if bond_observations is not None else pd.DataFrame()
+        self.sentiment_data = sentiment_data if sentiment_data is not None else pd.DataFrame()
+        self.regime_data = regime_data if regime_data is not None else pd.DataFrame()
+        self.fundamental_history = (
+            fundamental_history if fundamental_history is not None
+            else pd.DataFrame()
+        )
         self.include_delisted = include_delisted
 
     @property
@@ -1045,7 +1457,37 @@ class DataAssembly:
     def n_trading_days(self) -> int:
         return len(self.prices)
 
+    @property
+    def risk_free_rate_series(self) -> pd.Series:
+        """Daily compounded risk-free rate from DGS3MO.
+
+        Returns per-day decimal: ``(1 + annual_pct/100)^(1/252) - 1``.
+        Empty Series when DGS3MO is absent from ``fred_data``.
+        """
+        if self.fred_data.empty or "DGS3MO" not in self.fred_data.columns:
+            return pd.Series(dtype=float, name="risk_free_rate")
+        raw = self.fred_data["DGS3MO"].dropna()
+        return ((1 + raw / 100) ** (1.0 / _TRADING_DAYS) - 1).rename(
+            "risk_free_rate"
+        )
+
+    @property
+    def risk_free_rate(self) -> float:
+        """Latest daily compounded risk-free rate scalar.
+
+        Returns 0.0 when DGS3MO is unavailable.
+        """
+        series = self.risk_free_rate_series
+        if series.empty:
+            logger.warning(
+                "DGS3MO not found in fred_data; using rf=0.0. "
+                "Run 'python -m cli fred fetch' to populate."
+            )
+            return 0.0
+        return float(series.iloc[-1])
+
     def summary(self) -> dict[str, Any]:
+        rf_series = self.risk_free_rate_series
         return {
             "tickers": self.n_tickers,
             "trading_days": self.n_trading_days,
@@ -1056,6 +1498,17 @@ class DataAssembly:
             "sectors": len(set(self.sector_mapping.values())),
             "has_macro": len(self.macro_data) > 0,
             "fred_observations": len(self.fred_data),
+            "te_observations": len(self.te_observations),
+            "bond_observations": len(self.bond_observations),
+            "sentiment_days": len(self.sentiment_data),
+            "regime_data_rows": len(self.regime_data),
+            "fundamental_history_rows": len(self.fundamental_history),
+            "risk_free_rate_pct": (
+                round(float(rf_series.iloc[-1]) * _TRADING_DAYS * 100, 4)
+                if not rf_series.empty
+                else None
+            ),
+            "risk_free_rate_obs": len(rf_series),
         }
 
 
@@ -1107,6 +1560,23 @@ def assemble_all(
         logger.info("Assembling FRED time-series data...")
         fred_data = assemble_fred_series(session)
 
+        logger.info("Assembling Trading Economics observations...")
+        te_observations = assemble_te_observations(session, country=macro_country)
+
+        logger.info("Assembling bond yield observations...")
+        bond_observations = assemble_bond_observations(session, country=macro_country)
+
+        logger.info("Assembling news sentiment data...")
+        sentiment_data = assemble_sentiment(session)
+
+        logger.info("Assembling fundamental history panel...")
+        fundamental_history = assemble_fundamental_history(session)
+
+    logger.info("Assembling composite regime data...")
+    regime_data = assemble_regime_data(
+        macro_data, fred_data, te_observations, sentiment_data,
+    )
+
     return DataAssembly(
         prices=prices,
         volumes=volumes,
@@ -1117,5 +1587,10 @@ def assemble_all(
         insider_data=insider_data,
         macro_data=macro_data,
         fred_data=fred_data,
+        te_observations=te_observations,
+        bond_observations=bond_observations,
+        sentiment_data=sentiment_data,
+        regime_data=regime_data,
+        fundamental_history=fundamental_history,
         include_delisted=include_delisted,
     )

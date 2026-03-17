@@ -388,6 +388,7 @@ def run_full_pipeline_with_selection(
     analyst_data: pd.DataFrame | None = None,
     insider_data: pd.DataFrame | None = None,
     macro_data: pd.DataFrame | None = None,
+    regime_data: pd.DataFrame | None = None,
     investability_config: InvestabilityScreenConfig | None = None,
     factor_config: FactorConstructionConfig | None = None,
     standardization_config: StandardizationConfig | None = None,
@@ -438,6 +439,11 @@ def run_full_pipeline_with_selection(
         Insider transaction data for factor construction.
     macro_data : pd.DataFrame or None
         Macro indicators for regime classification.
+    regime_data : pd.DataFrame or None
+        Merged macro indicators (pmi, spread_2s10s, hy_oas, etc.)
+        for composite regime classification.  When provided and
+        non-empty, takes precedence over ``macro_data`` for regime
+        classification.  Receives the same publication lag filtering.
     investability_config : InvestabilityScreenConfig or None
         Universe screening configuration.
     factor_config : FactorConstructionConfig or None
@@ -551,7 +557,14 @@ def run_full_pipeline_with_selection(
             if len(lagged_macro) == 0:
                 lagged_macro = macro_data
 
-            regime = classify_regime(lagged_macro)
+            # Prefer merged regime_data when available (enables composite path)
+            if regime_data is not None and not regime_data.empty:
+                lagged_regime = regime_data.loc[regime_data.index <= cutoff]
+                if len(lagged_regime) == 0:
+                    lagged_regime = regime_data
+                regime = classify_regime(lagged_regime)
+            else:
+                regime = classify_regime(lagged_macro)
 
             # Build base group weights from config
             _scoring = scoring_config or CompositeScoringConfig()

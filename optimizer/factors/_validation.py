@@ -117,6 +117,7 @@ class CorrectedPValues:
 def compute_monthly_ic(
     factor_scores: pd.Series,
     forward_returns: pd.Series,
+    min_observations: int = 3,
 ) -> float:
     """Compute rank information coefficient (Spearman correlation).
 
@@ -126,6 +127,9 @@ def compute_monthly_ic(
         Cross-sectional factor scores.
     forward_returns : pd.Series
         Forward returns for the same tickers.
+    min_observations : int, default 3
+        Minimum number of common non-NaN observations required.
+        Returns NaN if fewer are available.
 
     Returns
     -------
@@ -135,7 +139,7 @@ def compute_monthly_ic(
     common = factor_scores.dropna().index.intersection(
         forward_returns.dropna().index,
     )
-    if len(common) < 3:
+    if len(common) < min_observations:
         return float(np.nan)
     return float(
         factor_scores.loc[common].corr(forward_returns.loc[common], method="spearman")
@@ -146,6 +150,7 @@ def compute_ic_series(
     factor_scores_history: pd.DataFrame,
     returns_history: pd.DataFrame,
     factor_name: str,
+    min_observations: int = 3,
 ) -> pd.Series:
     """Compute IC time series for a factor.
 
@@ -157,6 +162,9 @@ def compute_ic_series(
         Dates x tickers matrix of forward returns.
     factor_name : str
         Used only for labeling.
+    min_observations : int, default 3
+        Minimum number of common non-NaN observations per date.
+        Passed through to ``compute_monthly_ic``.
 
     Returns
     -------
@@ -171,6 +179,7 @@ def compute_ic_series(
         ic = compute_monthly_ic(
             factor_scores_history.loc[date],
             returns_history.loc[date],
+            min_observations=min_observations,
         )
         if not np.isnan(ic):
             ics[date] = ic
