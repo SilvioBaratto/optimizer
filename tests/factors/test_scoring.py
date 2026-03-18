@@ -456,10 +456,12 @@ class TestNaNGroupScoreRenormalization:
             index=tickers,
         )
         rng = np.random.default_rng(42)
-        ic_history = pd.DataFrame({
-            "value": rng.uniform(0.02, 0.06, 36),
-            "momentum": rng.uniform(0.02, 0.06, 36),
-        })
+        ic_history = pd.DataFrame(
+            {
+                "value": rng.uniform(0.02, 0.06, 36),
+                "momentum": rng.uniform(0.02, 0.06, 36),
+            }
+        )
         result = compute_ic_weighted_composite(group_scores, ic_history)
         # Only value is available → composite = 2.0
         assert result["A"] == pytest.approx(2.0)
@@ -653,9 +655,7 @@ class TestICIRWeightedNegativeICIR:
         group_scores = compute_group_scores(standardized_factors, coverage)
         groups = list(group_scores.columns)
         rng = np.random.default_rng(42)
-        ic_per_group = {
-            col: pd.Series(rng.uniform(-0.10, -0.02, 36)) for col in groups
-        }
+        ic_per_group = {col: pd.Series(rng.uniform(-0.10, -0.02, 36)) for col in groups}
         icir_result = compute_icir_weighted_composite(group_scores, ic_per_group)
         equal_result = compute_equal_weight_composite(group_scores)
         pd.testing.assert_series_equal(icir_result, equal_result)

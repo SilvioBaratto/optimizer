@@ -104,6 +104,16 @@ class TestFactoryMethods:
         assert cfg.min_trading_history == 126
         assert cfg.min_annual_reports == 2
 
+    def test_for_large_cap(self) -> None:
+        cfg = InvestabilityScreenConfig.for_large_cap()
+        assert cfg.market_cap.entry == 2_000_000_000
+        assert cfg.market_cap.exit_ == 1_500_000_000
+        assert cfg.addv_12m.entry == 5_000_000
+        assert cfg.addv_3m.entry == 3_000_000
+        assert cfg.trading_frequency.entry == 0.98
+        assert cfg.min_trading_history == 252
+        assert cfg.min_ipo_seasoning == 120
+
     def test_for_small_cap(self) -> None:
         cfg = InvestabilityScreenConfig.for_small_cap()
         assert cfg.market_cap.entry == 50_000_000

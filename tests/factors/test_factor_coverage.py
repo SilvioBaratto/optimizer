@@ -169,12 +169,16 @@ class TestBuildFactorScoresHistoryExceptionHandling:
             from optimizer.factors._construction import (
                 compute_all_factors as real_fn,
             )
+
             return real_fn(*args, **kwargs)
 
-        with patch(
-            "research._factors.compute_all_factors",
-            side_effect=_failing_first_call,
-        ), patch("research._factors.logger") as mock_logger:
+        with (
+            patch(
+                "research._factors.compute_all_factors",
+                side_effect=_failing_first_call,
+            ),
+            patch("research._factors.logger") as mock_logger,
+        ):
             result = build_factor_scores_history(
                 investable_prices=prices,
                 investable_volumes=volumes,
@@ -205,10 +209,13 @@ class TestBuildFactorScoresHistoryExceptionHandling:
 
         prices, volumes, fundamentals, sector_mapping = _make_prices_volumes()
 
-        with patch(
-            "research._factors.compute_all_factors",
-            side_effect=ValueError("always fails"),
-        ), pytest.raises(FactorCoverageError, match="succeeded"):
+        with (
+            patch(
+                "research._factors.compute_all_factors",
+                side_effect=ValueError("always fails"),
+            ),
+            pytest.raises(FactorCoverageError, match="succeeded"),
+        ):
             build_factor_scores_history(
                 investable_prices=prices,
                 investable_volumes=volumes,
@@ -241,6 +248,7 @@ class TestBuildFactorScoresHistoryExceptionHandling:
             from optimizer.factors._construction import (
                 compute_all_factors as real_fn,
             )
+
             return real_fn(*args, **kwargs)
 
         with patch(
@@ -309,12 +317,16 @@ class TestBuildFactorScoresHistoryExceptionHandling:
             from optimizer.factors._construction import (
                 compute_all_factors as real_fn,
             )
+
             return real_fn(*args, **kwargs)
 
-        with patch(
-            "research._factors.compute_all_factors",
-            side_effect=_failing_first_call,
-        ), pytest.raises(FactorCoverageError):
+        with (
+            patch(
+                "research._factors.compute_all_factors",
+                side_effect=_failing_first_call,
+            ),
+            pytest.raises(FactorCoverageError),
+        ):
             build_factor_scores_history(
                 investable_prices=prices,
                 investable_volumes=volumes,
@@ -368,9 +380,7 @@ class TestValidateFactorsVIFExceptionHandling:
 
         return factor_scores_history, returns_history, standardized
 
-    def test_linalg_error_does_not_propagate(
-        self, _validation_inputs: tuple
-    ) -> None:
+    def test_linalg_error_does_not_propagate(self, _validation_inputs: tuple) -> None:
         from research._factors import validate_factors
 
         fsh, rh, std = _validation_inputs
@@ -381,9 +391,7 @@ class TestValidateFactorsVIFExceptionHandling:
             report = validate_factors(fsh, rh, std)
             assert report.vif_scores is None
 
-    def test_value_error_does_not_propagate(
-        self, _validation_inputs: tuple
-    ) -> None:
+    def test_value_error_does_not_propagate(self, _validation_inputs: tuple) -> None:
         from research._factors import validate_factors
 
         fsh, rh, std = _validation_inputs
@@ -394,16 +402,17 @@ class TestValidateFactorsVIFExceptionHandling:
             report = validate_factors(fsh, rh, std)
             assert report.vif_scores is None
 
-    def test_other_exceptions_propagate(
-        self, _validation_inputs: tuple
-    ) -> None:
+    def test_other_exceptions_propagate(self, _validation_inputs: tuple) -> None:
         from research._factors import validate_factors
 
         fsh, rh, std = _validation_inputs
-        with patch(
-            "research._factors.compute_vif",
-            side_effect=TypeError("wrong type"),
-        ), pytest.raises(TypeError, match="wrong type"):
+        with (
+            patch(
+                "research._factors.compute_vif",
+                side_effect=TypeError("wrong type"),
+            ),
+            pytest.raises(TypeError, match="wrong type"),
+        ):
             validate_factors(fsh, rh, std)
 
     def test_warning_logged_on_linalg_error(
@@ -412,9 +421,12 @@ class TestValidateFactorsVIFExceptionHandling:
         from research._factors import validate_factors
 
         fsh, rh, std = _validation_inputs
-        with patch(
-            "research._factors.compute_vif",
-            side_effect=np.linalg.LinAlgError("singular"),
-        ), caplog.at_level(logging.WARNING, logger="research._factors"):
+        with (
+            patch(
+                "research._factors.compute_vif",
+                side_effect=np.linalg.LinAlgError("singular"),
+            ),
+            caplog.at_level(logging.WARNING, logger="research._factors"),
+        ):
             validate_factors(fsh, rh, std)
             assert any("VIF" in r.message for r in caplog.records)

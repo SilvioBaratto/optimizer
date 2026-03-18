@@ -213,31 +213,27 @@ class TestCheckRegimeDisagreement:
     """Tests for regime disagreement detection (issue #240)."""
 
     def test_agreement_returns_false(self) -> None:
-        assert check_regime_disagreement(
-            MacroRegime.EXPANSION, MacroRegime.EXPANSION
-        ) is False
+        assert (
+            check_regime_disagreement(MacroRegime.EXPANSION, MacroRegime.EXPANSION)
+            is False
+        )
 
     def test_disagreement_returns_true(self) -> None:
-        assert check_regime_disagreement(
-            MacroRegime.EXPANSION, MacroRegime.RECESSION
-        ) is True
+        assert (
+            check_regime_disagreement(MacroRegime.EXPANSION, MacroRegime.RECESSION)
+            is True
+        )
 
-    def test_logs_warning_on_disagreement(
-        self, caplog: logging.LogRecord
-    ) -> None:
+    def test_logs_warning_on_disagreement(self, caplog: logging.LogRecord) -> None:
         with caplog.at_level(logging.WARNING):
-            check_regime_disagreement(
-                MacroRegime.EXPANSION, MacroRegime.RECESSION
-            )
+            check_regime_disagreement(MacroRegime.EXPANSION, MacroRegime.RECESSION)
         assert "Regime disagreement" in caplog.text
         assert "expansion" in caplog.text
         assert "recession" in caplog.text
 
     def test_no_log_on_agreement(self, caplog: logging.LogRecord) -> None:
         with caplog.at_level(logging.WARNING):
-            check_regime_disagreement(
-                MacroRegime.SLOWDOWN, MacroRegime.SLOWDOWN
-            )
+            check_regime_disagreement(MacroRegime.SLOWDOWN, MacroRegime.SLOWDOWN)
         assert "Regime disagreement" not in caplog.text
 
     def test_custom_labels_in_log(self, caplog: logging.LogRecord) -> None:

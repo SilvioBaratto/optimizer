@@ -11,9 +11,11 @@ import pytest
 from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
     FactorExposureConstraints,
+    FactorIntegrationConfig,
     NetAlphaResult,
     build_factor_bl_views,
     build_factor_exposure_constraints,
+    build_factor_integration,
     compute_net_alpha,
     estimate_factor_premia,
 )
@@ -31,21 +33,81 @@ def factor_scores() -> pd.DataFrame:
     )
 
 
-class TestBuildFactorBLViews:
-    def test_returns_views_and_confidences(self, factor_scores: pd.DataFrame) -> None:
-        premia = {"value": 0.04, "momentum": 0.06}
-        views, confidences = build_factor_bl_views(
-            factor_scores, premia, factor_scores.index
-        )
-        assert isinstance(views, list)
-        assert isinstance(confidences, list)
-        assert len(views) == len(confidences)
+@pytest.fixture()
+def composite_scores() -> pd.Series:
+    rng = np.random.default_rng(42)
+    tickers = [f"T{i:02d}" for i in range(20)]
+    return pd.Series(rng.normal(0, 1, 20), index=tickers, name="composite")
 
-    def test_empty_premia(self, factor_scores: pd.DataFrame) -> None:
-        views, _confidences = build_factor_bl_views(
-            factor_scores, {}, factor_scores.index
+
+class TestBuildFactorBLViews:
+    def test_returns_views_and_confidences(self, composite_scores: pd.Series) -> None:
+        config = FactorIntegrationConfig.for_black_litterman()
+        views, confidences = build_factor_bl_views(
+            composite_scores, composite_scores.index, config
         )
+        assert isinstance(views, tuple)
+        assert isinstance(confidences, tuple)
+        assert len(views) == len(confidences)
+        assert len(views) == 20
+
+    def test_views_are_absolute_strings(self, composite_scores: pd.Series) -> None:
+        config = FactorIntegrationConfig.for_black_litterman()
+        views, _confidences = build_factor_bl_views(
+            composite_scores, composite_scores.index, config
+        )
+        for v in views:
+            assert isinstance(v, str)
+            assert "==" in v
+
+    def test_confidences_capped(self, composite_scores: pd.Series) -> None:
+        config = FactorIntegrationConfig.for_black_litterman()
+        _views, confidences = build_factor_bl_views(
+            composite_scores, composite_scores.index, config
+        )
+        cap = config.view_confidence_cap
+        for c in confidences:
+            assert 0.0 <= c <= cap + 1e-9
+
+    def test_empty_scores(self) -> None:
+        config = FactorIntegrationConfig.for_black_litterman()
+        empty = pd.Series(dtype=float)
+        views, _confidences = build_factor_bl_views(empty, pd.Index([]), config)
         assert len(views) == 0
+
+    def test_nan_scores_skipped(self) -> None:
+        config = FactorIntegrationConfig.for_black_litterman()
+        scores = pd.Series([1.0, np.nan, -0.5], index=["A", "B", "C"])
+        views, _confidences = build_factor_bl_views(scores, scores.index, config)
+        assert len(views) == 2
+
+
+class TestBuildFactorIntegration:
+    def test_bl_path_returns_prior(
+        self, composite_scores: pd.Series, factor_scores: pd.DataFrame
+    ) -> None:
+        config = FactorIntegrationConfig.for_black_litterman()
+        prior, constraints = build_factor_integration(
+            config=config,
+            composite_scores=composite_scores,
+            standardized_factors=factor_scores,
+            selected_tickers=composite_scores.index,
+        )
+        assert prior is not None
+        assert constraints is None
+
+    def test_constraint_path_returns_constraints(
+        self, composite_scores: pd.Series, factor_scores: pd.DataFrame
+    ) -> None:
+        config = FactorIntegrationConfig.for_linear_mapping()
+        prior, constraints = build_factor_integration(
+            config=config,
+            composite_scores=composite_scores,
+            standardized_factors=factor_scores,
+            selected_tickers=composite_scores.index,
+        )
+        assert prior is None
+        assert isinstance(constraints, FactorExposureConstraints)
 
 
 class TestBuildFactorExposureConstraints:

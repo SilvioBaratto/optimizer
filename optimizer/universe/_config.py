@@ -127,6 +127,21 @@ class InvestabilityScreenConfig:
         return cls()
 
     @classmethod
+    def for_large_cap(cls) -> InvestabilityScreenConfig:
+        """Large-cap universe (~S&P 500 comparable).
+
+        $2B market-cap entry, $5M daily volume, 252 trading days history.
+        """
+        return cls(
+            market_cap=HysteresisConfig(entry=2_000_000_000, exit_=1_500_000_000),
+            addv_12m=HysteresisConfig(entry=5_000_000, exit_=3_000_000),
+            addv_3m=HysteresisConfig(entry=3_000_000, exit_=2_000_000),
+            trading_frequency=HysteresisConfig(entry=0.98, exit_=0.95),
+            min_trading_history=252,
+            min_ipo_seasoning=120,
+        )
+
+    @classmethod
     def for_broad_universe(cls) -> InvestabilityScreenConfig:
         """Relaxed thresholds for broader coverage."""
         return cls(

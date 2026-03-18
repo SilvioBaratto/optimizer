@@ -45,3 +45,4 @@ class PortfolioResult:
     summary: dict[str, float] = field(default_factory=dict)
     rebalance_needed: bool | None = None
     turnover: float | None = None
+    risk_free_rate: float = 0.0

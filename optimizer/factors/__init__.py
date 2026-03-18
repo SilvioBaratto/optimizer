@@ -43,6 +43,7 @@ from optimizer.factors._integration import (
     NetAlphaResult,
     build_factor_bl_views,
     build_factor_exposure_constraints,
+    build_factor_integration,
     compute_net_alpha,
     estimate_factor_premia,
 )
@@ -156,6 +157,7 @@ __all__ = [
     "benjamini_hochberg",
     "build_factor_bl_views",
     "build_factor_exposure_constraints",
+    "build_factor_integration",
     "build_factor_mimicking_portfolios",
     "check_regime_disagreement",
     "check_survivorship_bias",

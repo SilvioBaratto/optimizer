@@ -261,6 +261,12 @@ def optimize(
         "--top-n",
         help="Number of top weights to display.",
     ),
+    universe: str = typer.Option(
+        "developed",
+        "--universe",
+        "-u",
+        help="Universe: developed, large-cap, broad, small-cap.",
+    ),
     sector_tolerance: float = typer.Option(
         0.05,
         "--sector-tolerance",
@@ -330,10 +336,32 @@ def optimize(
     console.print("[bold]Running optimization pipeline...[/bold]")
     try:
         if selection and len(data.fundamentals) > 0:
-            from optimizer.factors import SelectionConfig
+            from optimizer.factors import (
+                CompositeScoringConfig,
+                FactorIntegrationConfig,
+                SelectionConfig,
+            )
             from optimizer.pipeline import run_full_pipeline_with_selection
+            from optimizer.universe import InvestabilityScreenConfig
 
             sel_config = SelectionConfig(sector_tolerance=sector_tolerance)
+
+            # Universe preset
+            universe_presets = {
+                "developed": InvestabilityScreenConfig.for_developed_markets,
+                "large-cap": InvestabilityScreenConfig.for_large_cap,
+                "broad": InvestabilityScreenConfig.for_broad_universe,
+                "small-cap": InvestabilityScreenConfig.for_small_cap,
+            }
+            inv_config = universe_presets.get(
+                universe, InvestabilityScreenConfig.for_developed_markets
+            )()
+
+            # Scoring with coverage gate
+            scoring = CompositeScoringConfig.for_ic_weighted_robust()
+
+            # Factor integration (BL alpha bridge)
+            integration = FactorIntegrationConfig.for_black_litterman()
 
             stmts = (
                 data.financial_statements
@@ -345,6 +373,10 @@ def optimize(
             macro = data.macro_data if len(data.macro_data) > 0 else None
             sectors = data.sector_mapping if data.sector_mapping else None
 
+            regime = (
+                data.regime_data if len(data.regime_data) > 0 else None
+            )
+
             result = run_full_pipeline_with_selection(
                 prices=data.prices,
                 optimizer=optimizer_instance,
@@ -354,6 +386,10 @@ def optimize(
                 analyst_data=analyst,
                 insider_data=insider,
                 macro_data=macro,
+                regime_data=regime,
+                investability_config=inv_config,
+                scoring_config=scoring,
+                integration_config=integration,
                 sector_mapping=sectors,
                 selection_config=sel_config,
                 cv_config=cv_config,

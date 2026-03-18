@@ -316,7 +316,6 @@ class TestCompositeScoringConfig:
         cfg = CompositeScoringConfig.for_icir_weighted()
         assert cfg.method == CompositeMethod.ICIR_WEIGHTED
 
-
     def test_min_coverage_groups_default(self) -> None:
         cfg = CompositeScoringConfig()
         assert cfg.min_coverage_groups == 0

@@ -139,17 +139,19 @@ GROUP_WEIGHT_TIER: dict[FactorGroupType, GroupWeight] = {
     FactorGroupType.OWNERSHIP: GroupWeight.SUPPLEMENTARY,
 }
 
-HEAVY_TAILED_FACTORS: frozenset[str] = frozenset({
-    "book_to_price",
-    "earnings_yield",
-    "cash_flow_yield",
-    "sales_to_price",
-    "ebitda_to_ev",
-    "asset_growth",
-    "dividend_yield",
-    "amihud_illiquidity",
-    "accruals",
-})
+HEAVY_TAILED_FACTORS: frozenset[str] = frozenset(
+    {
+        "book_to_price",
+        "earnings_yield",
+        "cash_flow_yield",
+        "sales_to_price",
+        "ebitda_to_ev",
+        "asset_growth",
+        "dividend_yield",
+        "amihud_illiquidity",
+        "accruals",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -320,19 +322,19 @@ class StandardizationConfig:
         Heavy-tailed: value ratios, illiquidity, dividend yield, accruals,
         asset growth.  Approximately normal: momentum, volatility, beta.
         """
-        approximately_normal = frozenset({
-            FactorType.MOMENTUM_12_1.value,
-            FactorType.VOLATILITY.value,
-            FactorType.BETA.value,
-        })
+        approximately_normal = frozenset(
+            {
+                FactorType.MOMENTUM_12_1.value,
+                FactorType.VOLATILITY.value,
+                FactorType.BETA.value,
+            }
+        )
         overrides: list[tuple[str, str]] = []
         for ft in FactorType:
             if ft.value in approximately_normal:
                 overrides.append((ft.value, StandardizationMethod.Z_SCORE.value))
             else:
-                overrides.append(
-                    (ft.value, StandardizationMethod.RANK_NORMAL.value)
-                )
+                overrides.append((ft.value, StandardizationMethod.RANK_NORMAL.value))
         return cls(
             method=StandardizationMethod.RANK_NORMAL,
             factor_method_overrides=tuple(sorted(overrides)),
@@ -420,6 +422,11 @@ class CompositeScoringConfig:
         improving momentum = stronger combined signal).
         """
         return cls(method=CompositeMethod.GBT_WEIGHTED)
+
+    @classmethod
+    def for_ic_weighted_robust(cls) -> CompositeScoringConfig:
+        """IC-weighted scoring with minimum coverage of 3 groups."""
+        return cls(method=CompositeMethod.IC_WEIGHTED, min_coverage_groups=3)
 
     @classmethod
     def for_sparse_universe(cls) -> CompositeScoringConfig:
@@ -722,8 +729,17 @@ class FactorIntegrationConfig:
         Annual risk-free rate for expected return mapping.
     market_risk_premium : float
         Annual equity risk premium.
+    score_premium : float
+        Annualized premium per unit of composite z-score.
     use_black_litterman : bool
         Whether to generate Black-Litterman views from factor scores.
+    view_confidence_cap : float
+        Maximum Idzorek confidence for BL views (0–1).  At 1.0 the
+        posterior equals the view exactly, causing extreme concentration.
+        Values 0.25–0.50 blend the view with the equilibrium prior.
+    max_weight : float
+        Maximum per-asset weight enforced on the optimizer when the
+        integration injects a BL prior.  0.0 disables the constraint.
     exposure_lower_bound : float
         Lower bound for factor exposure constraints.
     exposure_upper_bound : float
@@ -732,7 +748,10 @@ class FactorIntegrationConfig:
 
     risk_free_rate: float = 0.04
     market_risk_premium: float = 0.05
+    score_premium: float = 0.02
     use_black_litterman: bool = False
+    view_confidence_cap: float = 0.50
+    max_weight: float = 0.10
     exposure_lower_bound: float = -0.5
     exposure_upper_bound: float = 0.5
 

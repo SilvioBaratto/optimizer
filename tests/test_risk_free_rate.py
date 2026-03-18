@@ -50,9 +50,7 @@ class TestRiskFreeRateSeries:
 
     def test_nan_values_dropped(self) -> None:
         dates = pd.date_range("2024-01-02", periods=4, freq="B")
-        fred = pd.DataFrame(
-            {"DGS3MO": [5.0, np.nan, 5.25, np.nan]}, index=dates
-        )
+        fred = pd.DataFrame({"DGS3MO": [5.0, np.nan, 5.25, np.nan]}, index=dates)
         data = _make_assembly(fred_data=fred)
         assert len(data.risk_free_rate_series) == 2
 

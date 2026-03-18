@@ -238,6 +238,7 @@ def run_full_pipeline(
     current_date: pd.Timestamp | None = None,
     last_review_date: pd.Timestamp | None = None,
     y_prices: pd.DataFrame | None = None,
+    risk_free_rate: float = 0.0,
     n_jobs: int | None = None,
 ) -> PortfolioResult:
     """End-to-end: prices → validated weights + backtest + rebalancing.
@@ -328,6 +329,7 @@ def run_full_pipeline(
     # 4. Fit on full data → final weights
     result = optimize(pipeline, X, y=y)
     result.backtest = bt
+    result.risk_free_rate = risk_free_rate
 
     # 5. Rebalancing analysis (optional)
     if previous_weights is not None:
@@ -408,6 +410,7 @@ def run_full_pipeline_with_selection(
     y_prices: pd.DataFrame | None = None,
     current_members: pd.Index | None = None,
     ic_history: pd.DataFrame | None = None,
+    risk_free_rate: float = 0.0,
     n_jobs: int | None = None,
 ) -> PortfolioResult:
     """End-to-end: fundamentals + prices → stock selection → optimization.
@@ -600,6 +603,43 @@ def run_full_pipeline_with_selection(
 
         selected_prices = prices[prices.columns.intersection(selected)]
 
+        # 6.5  Factor-to-optimizer integration (alpha bridge)
+        if integration_config is not None:
+            from copy import deepcopy
+
+            from optimizer.factors._integration import build_factor_integration
+
+            bl_prior, factor_constraints = build_factor_integration(
+                config=integration_config,
+                composite_scores=composite,
+                standardized_factors=standardized,
+                selected_tickers=selected,
+            )
+            if bl_prior is not None and hasattr(optimizer, "prior_estimator"):
+                optimizer = deepcopy(optimizer)
+                optimizer.prior_estimator = bl_prior
+                # Enforce per-asset diversification when using BL views
+                if integration_config.max_weight > 0 and hasattr(
+                    optimizer, "max_weights"
+                ):
+                    optimizer.max_weights = integration_config.max_weight
+                logger.info("Injected BL prior from factor scores into optimizer")
+            elif bl_prior is not None:
+                logger.warning(
+                    "Optimizer %s has no prior_estimator; BL views skipped",
+                    type(optimizer).__name__,
+                )
+            if factor_constraints is not None and hasattr(optimizer, "left_inequality"):
+                optimizer = deepcopy(optimizer)
+                optimizer.left_inequality = factor_constraints.left_inequality
+                optimizer.right_inequality = factor_constraints.right_inequality
+                logger.info("Injected factor exposure constraints into optimizer")
+            elif factor_constraints is not None:
+                logger.warning(
+                    "Optimizer %s has no left_inequality; constraints skipped",
+                    type(optimizer).__name__,
+                )
+
     # 7. Delegate to existing pipeline
     return run_full_pipeline(
         prices=selected_prices,
@@ -612,6 +652,7 @@ def run_full_pipeline_with_selection(
         current_date=current_date,
         last_review_date=last_review_date,
         y_prices=y_prices,
+        risk_free_rate=risk_free_rate,
         n_jobs=n_jobs,
     )
 

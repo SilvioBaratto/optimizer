@@ -66,9 +66,7 @@ class TestComputeMonthlyIC:
         scores = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], index=tickers)
         returns = pd.Series([0.1, 0.2, 0.3, 0.4, 0.5], index=tickers)
         assert not np.isnan(compute_monthly_ic(scores, returns))
-        assert np.isnan(
-            compute_monthly_ic(scores, returns, min_observations=6)
-        )
+        assert np.isnan(compute_monthly_ic(scores, returns, min_observations=6))
 
 
 class TestComputeICSeries:
@@ -102,9 +100,7 @@ class TestComputeICSeries:
             rng.normal(0.001, 0.02, (6, 5)), index=dates, columns=tickers
         )
 
-        default_result = compute_ic_series(
-            scores_hist, returns_hist, "f"
-        )
+        default_result = compute_ic_series(scores_hist, returns_hist, "f")
         strict_result = compute_ic_series(
             scores_hist, returns_hist, "f", min_observations=6
         )

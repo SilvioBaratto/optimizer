@@ -360,13 +360,9 @@ class TestStandardizeFactorPerFactor:
             factor_method_overrides=overrides,
         )
         # With rank_normal override
-        result_heavy = standardize_factor(
-            scores, config, factor_name="heavy_factor"
-        )
+        result_heavy = standardize_factor(scores, config, factor_name="heavy_factor")
         # With z_score override
-        result_normal = standardize_factor(
-            scores, config, factor_name="normal_factor"
-        )
+        result_normal = standardize_factor(scores, config, factor_name="normal_factor")
         # Results should differ — rank-normal vs z-score produce different values
         assert not np.allclose(
             result_heavy.to_numpy(), result_normal.to_numpy(), atol=1e-6
@@ -406,9 +402,7 @@ class TestStandardizeAllFactorsPerFactor:
         scores_pf, _ = standardize_all_factors(factors, config=config)
         # Compare with uniform RANK_NORMAL
         config_uniform = StandardizationConfig(neutralize_sector=False)
-        scores_uniform, _ = standardize_all_factors(
-            factors, config=config_uniform
-        )
+        scores_uniform, _ = standardize_all_factors(factors, config=config_uniform)
         # momentum_12_1 uses Z_SCORE in per_factor → differs from RANK_NORMAL
         assert not np.allclose(
             scores_pf["momentum_12_1"].to_numpy(),

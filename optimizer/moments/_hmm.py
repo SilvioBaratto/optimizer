@@ -571,7 +571,9 @@ def _sort_hmm_states(
     # arrays are unchanged, only reordered.
     if covariance_type != "tied":
         covars = model.covars_
-        assert covars is not None
+        if covars is None:  # pragma: no cover
+            msg = "model.covars_ is None after fitting"
+            raise RuntimeError(msg)
         model._covars_ = covars[order]
 
     return order

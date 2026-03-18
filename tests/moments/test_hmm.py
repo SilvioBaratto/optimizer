@@ -241,9 +241,7 @@ class TestHMMStateSorting:
             f"State 0 mean ({means[0]:.6f}) must be <= state 1 mean ({means[1]:.6f})"
         )
 
-    def test_sorting_stable_across_seeds(
-        self, synthetic_returns: pd.DataFrame
-    ) -> None:
+    def test_sorting_stable_across_seeds(self, synthetic_returns: pd.DataFrame) -> None:
         """State ordering must be consistent regardless of random seed."""
         results = []
         for seed in [0, 1, 2, 7, 42]:
@@ -269,18 +267,14 @@ class TestHMMStateSorting:
         row_sums = hmm_result.transition_matrix.sum(axis=1)
         np.testing.assert_allclose(row_sums, np.ones(2), atol=1e-8)
 
-    def test_filtered_probs_sum_to_one_after_sort(
-        self, hmm_result: HMMResult
-    ) -> None:
+    def test_filtered_probs_sum_to_one_after_sort(self, hmm_result: HMMResult) -> None:
         """filtered_probs rows sum to 1 after state sort."""
         row_sums = hmm_result.filtered_probs.sum(axis=1)
         np.testing.assert_allclose(
             row_sums.to_numpy(), np.ones(len(row_sums)), atol=1e-8
         )
 
-    def test_bear_state_has_lower_mean(
-        self, synthetic_returns: pd.DataFrame
-    ) -> None:
+    def test_bear_state_has_lower_mean(self, synthetic_returns: pd.DataFrame) -> None:
         """On two-regime data with clear bear/bull, state 0 should be bear."""
         config = HMMConfig(n_states=2, n_iter=200, random_state=0)
         result = fit_hmm(synthetic_returns, config)

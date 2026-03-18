@@ -39,17 +39,19 @@ def _build_history_panel(
             growth = np.nan
             if prev_assets is not None and prev_assets != 0:
                 growth = (total_assets - prev_assets) / abs(prev_assets)
-            records.append({
-                "period_date": pd.Timestamp(date_str),
-                "ticker": ticker,
-                "net_income": rng.uniform(1e7, 5e8),
-                "gross_profit": rng.uniform(5e7, 1e9),
-                "operating_income": rng.uniform(2e7, 4e8),
-                "total_assets": total_assets,
-                "total_equity": rng.uniform(5e8, 2e9),
-                "period_type": period_type,
-                "asset_growth": growth,
-            })
+            records.append(
+                {
+                    "period_date": pd.Timestamp(date_str),
+                    "ticker": ticker,
+                    "net_income": rng.uniform(1e7, 5e8),
+                    "gross_profit": rng.uniform(5e7, 1e9),
+                    "operating_income": rng.uniform(2e7, 4e8),
+                    "total_assets": total_assets,
+                    "total_equity": rng.uniform(5e8, 2e9),
+                    "period_type": period_type,
+                    "asset_growth": growth,
+                }
+            )
             prev_assets = total_assets
 
     df = pd.DataFrame(records)
@@ -179,6 +181,7 @@ class TestSliceFundamentalsAt:
     def _import_slicer(self):
         """Import the private helper from research._factors."""
         from research._factors import _slice_fundamentals_at
+
         return _slice_fundamentals_at
 
     def test_returns_snapshot_when_history_empty(self, _import_slicer) -> None:
@@ -243,11 +246,17 @@ class TestSliceFundamentalsAt:
 
         # Annual data for 2023
         annual = _build_history_panel(
-            tickers, ["2023-12-31"], period_type="annual", seed=10,
+            tickers,
+            ["2023-12-31"],
+            period_type="annual",
+            seed=10,
         )
         # Quarterly data for Q1 2024 with different values
         quarterly = _build_history_panel(
-            tickers, ["2024-03-31"], period_type="quarterly", seed=20,
+            tickers,
+            ["2024-03-31"],
+            period_type="quarterly",
+            seed=20,
         )
 
         panel = pd.concat([annual, quarterly]).sort_index()
@@ -321,9 +330,7 @@ class TestBuildFactorScoresHistoryWarning:
                 fundamental_history=None,
             )
             # Check warning was raised
-            bias_warnings = [
-                x for x in w if "look-ahead bias" in str(x.message)
-            ]
+            bias_warnings = [x for x in w if "look-ahead bias" in str(x.message)]
             assert len(bias_warnings) >= 1
 
     def test_no_warning_when_history_provided(self) -> None:
@@ -375,7 +382,5 @@ class TestBuildFactorScoresHistoryWarning:
                 rebalance_freq=63,
                 fundamental_history=panel,
             )
-            bias_warnings = [
-                x for x in w if "look-ahead bias" in str(x.message)
-            ]
+            bias_warnings = [x for x in w if "look-ahead bias" in str(x.message)]
             assert len(bias_warnings) == 0

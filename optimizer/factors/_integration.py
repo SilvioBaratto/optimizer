@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from optimizer.exceptions import ConfigurationError
+from optimizer.factors._config import FactorIntegrationConfig
 from optimizer.rebalancing._rebalancer import compute_turnover
 
 logger = logging.getLogger(__name__)
@@ -51,52 +52,58 @@ class FactorExposureConstraints:
 
 
 def build_factor_bl_views(
-    factor_scores: pd.DataFrame,
-    factor_premia: dict[str, float],
+    composite_scores: pd.Series,
     selected_tickers: pd.Index,
-) -> tuple[list[tuple[str, ...]], list[float]]:
-    """Generate Black-Litterman views from factor scores.
+    config: FactorIntegrationConfig,
+) -> tuple[tuple[str, ...], tuple[float, ...]]:
+    """Generate Black-Litterman absolute views from composite factor scores.
 
-    Creates relative views: top-scored assets outperform
-    bottom-scored by the factor premium.
+    For each selected ticker with composite score ``z_i``, generates a view::
+
+        E[r_i] = (rf + market_premium + z_i * score_premium) / 252
 
     Parameters
     ----------
-    factor_scores : pd.DataFrame
-        Tickers x factors matrix of standardized scores.
-    factor_premia : dict[str, float]
-        Expected premium per factor.
+    composite_scores : pd.Series
+        Composite factor scores indexed by ticker.
     selected_tickers : pd.Index
         Tickers in the portfolio.
+    config : FactorIntegrationConfig
+        Integration configuration with rf, market premium, and score premium.
 
     Returns
     -------
-    tuple[list[tuple[str, ...]], list[float]]
-        (views, confidences) for Black-Litterman.
+    tuple[tuple[str, ...], tuple[float, ...]]
+        ``(views, confidences)`` where views are BL-compatible strings
+        like ``"AAPL == 0.00045"`` and confidences are in [0, 1].
     """
-    scores = factor_scores.reindex(selected_tickers)
-    views: list[tuple[str, ...]] = []
-    confidences: list[float] = []
+    scores = composite_scores.reindex(selected_tickers).dropna()
+    if len(scores) == 0:
+        return (), ()
 
-    for factor_name, premium in factor_premia.items():
-        if factor_name not in scores.columns:
-            continue
+    views: list[str] = []
+    raw_confidences: list[float] = []
 
-        col = scores[factor_name].dropna()
-        if len(col) < 4:
-            continue
+    for ticker, z_i in scores.items():
+        daily_er = (
+            config.risk_free_rate
+            + config.market_risk_premium
+            + float(z_i) * config.score_premium
+        ) / 252.0
+        views.append(f"{ticker} == {daily_er:.8f}")
+        raw_confidences.append(abs(float(z_i)))
 
-        # Top quartile vs bottom quartile
-        q75 = col.quantile(0.75)
-        q25 = col.quantile(0.25)
-        top = col[col >= q75].index.tolist()
-        bottom = col[col <= q25].index.tolist()
+    # Scale confidences to [0, cap].  Idzorek confidence=1.0 means
+    # "posterior equals view exactly" — extreme concentration.
+    # Typical calibrations use 0.25–0.50 to blend view with prior.
+    cap = config.view_confidence_cap
+    max_abs_z = max(raw_confidences) if raw_confidences else 1.0
+    if max_abs_z > 0:
+        confidences = [(c / max_abs_z) * cap for c in raw_confidences]
+    else:
+        confidences = [cap] * len(raw_confidences)
 
-        if top and bottom:
-            views.append(tuple(top + bottom))
-            confidences.append(abs(premium))
-
-    return views, confidences
+    return tuple(views), tuple(confidences)
 
 
 def build_factor_exposure_constraints(
@@ -213,6 +220,76 @@ def estimate_factor_premia(
     mean_daily = factor_mimicking_returns.mean()
     annualized = mean_daily * 252
     return dict(annualized)
+
+
+# ---------------------------------------------------------------------------
+# Factor integration factory
+# ---------------------------------------------------------------------------
+
+
+def build_factor_integration(
+    config: FactorIntegrationConfig,
+    composite_scores: pd.Series,
+    standardized_factors: pd.DataFrame,
+    selected_tickers: pd.Index,
+) -> tuple[object | None, FactorExposureConstraints | None]:
+    """Build factor-to-optimizer integration objects.
+
+    Depending on ``config.use_black_litterman``, either creates a
+    Black-Litterman prior from composite scores or builds linear
+    factor exposure constraints.
+
+    Parameters
+    ----------
+    config : FactorIntegrationConfig
+        Integration configuration.
+    composite_scores : pd.Series
+        Composite factor scores indexed by ticker.
+    standardized_factors : pd.DataFrame
+        Standardized factor scores (tickers x factors).
+    selected_tickers : pd.Index
+        Tickers selected for the portfolio.
+
+    Returns
+    -------
+    tuple[BasePrior | None, FactorExposureConstraints | None]
+        ``(prior, constraints)`` — one of the two will be set,
+        the other ``None``.
+    """
+    if config.use_black_litterman:
+        views, confidences = build_factor_bl_views(
+            composite_scores, selected_tickers, config
+        )
+        if len(views) == 0:
+            logger.warning("No BL views generated from factor scores")
+            return None, None
+
+        from optimizer.views._config import (
+            BlackLittermanConfig,
+            ViewUncertaintyMethod,
+        )
+        from optimizer.views._factory import build_black_litterman
+
+        bl_config = BlackLittermanConfig(
+            views=views,
+            view_confidences=confidences,
+            uncertainty_method=ViewUncertaintyMethod.IDZOREK,
+        )
+        prior = build_black_litterman(bl_config)
+        return prior, None
+    else:
+        selected_factors = standardized_factors.reindex(selected_tickers).dropna(
+            how="all"
+        )
+        if selected_factors.empty:
+            logger.warning("No factor data for selected tickers")
+            return None, None
+
+        constraints = build_factor_exposure_constraints(
+            selected_factors,
+            bounds=(config.exposure_lower_bound, config.exposure_upper_bound),
+        )
+        return None, constraints
 
 
 # ---------------------------------------------------------------------------
