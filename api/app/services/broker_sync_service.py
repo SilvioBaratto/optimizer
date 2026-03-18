@@ -154,6 +154,38 @@ def sync_portfolio(
     try:
         dividends = client.get_all_dividend_history()
         result.dividends_fetched = len(dividends)
+
+        # Create activity events for recent dividends
+        for dividend in dividends[:20]:  # Only latest 20
+            ticker = (
+                dividend.get("ticker")
+                or dividend.get("instrumentTicker")
+                or dividend.get("symbol")
+                or "?"
+            )
+            amount = (
+                dividend.get("amount")
+                if dividend.get("amount") is not None
+                else dividend.get("netAmount", dividend.get("grossAmount"))
+            )
+            currency = dividend.get("currencyCode") or dividend.get("currency")
+            ex_date = dividend.get("exDividendDate") or dividend.get("paymentDate")
+
+            amount_text = f"Amount: {amount} {currency}" if currency else f"Amount: {amount}"
+            description_parts = [amount_text] if amount is not None else []
+            if ex_date:
+                description_parts.append(f"Date: {ex_date}")
+
+            repo.add_event(
+                event_type="dividend",
+                title=f"Dividend {ticker}",
+                portfolio_id=portfolio_id,
+                description=" | ".join(description_parts) if description_parts else None,
+                metadata={
+                    "dividend_id": dividend.get("id"),
+                    "ticker": ticker,
+                },
+            )
     except Exception as e:
         errors.append(f"Dividend history fetch failed: {e}")
         logger.error("Dividend history error: %s", e)
