@@ -9,10 +9,13 @@ import pytest
 from optimizer.exceptions import DataError
 from optimizer.factors import (
     FACTOR_SPREAD_BENCHMARKS,
+    CompositeICResult,
     CorrectedPValues,
+    FactorValidationConfig,
     FactorValidationReport,
     ICStats,
     benjamini_hochberg,
+    compute_composite_ic,
     compute_ic_series,
     compute_ic_stats,
     compute_monthly_ic,
@@ -173,6 +176,49 @@ class TestComputeVIF:
         factors = pd.DataFrame({"a": [1.0, 2.0, 3.0]})
         with pytest.raises(DataError, match="at least 2 factor columns"):
             compute_vif(factors)
+
+    def test_near_singular_r2_returns_inf(self) -> None:
+        """Near-singular R² above floating-point tolerance must return inf."""
+        rng = np.random.default_rng(0)
+        base = rng.normal(0, 1, 200)
+        # epsilon = 1e-7 makes R² ≈ 1 - (tiny noise / base variance),
+        # well above the 1e-10 singularity tolerance → VIF must be inf.
+        epsilon_col = base + rng.normal(0, 1e-7, 200)
+        factors = pd.DataFrame(
+            {"a": base, "b": epsilon_col, "c": rng.normal(0, 1, 200)}
+        )
+        result = compute_vif(factors)
+        assert np.isinf(result["a"]) or np.isinf(result["b"]), (
+            f"Expected inf for near-singular factor, "
+            f"got a={result['a']}, b={result['b']}"
+        )
+
+    def test_moderate_collinearity_preserves_finite_vif(self) -> None:
+        """R² ≈ 0.99 is diagnostically meaningful — VIF must remain finite."""
+        rng = np.random.default_rng(1)
+        base = rng.normal(0, 1, 500)
+        # noise std = 0.1 → R² ≈ 0.99; 1 - R² ≈ 0.01 >> 1e-10
+        noisy_col = base + rng.normal(0, 0.1, 500)
+        factors = pd.DataFrame(
+            {"a": base, "b": noisy_col, "c": rng.normal(0, 1, 500)}
+        )
+        result = compute_vif(factors)
+        assert np.isfinite(result["a"]) and np.isfinite(result["b"]), (
+            f"Expected finite VIF for R²≈0.99, got {result}"
+        )
+        assert result["a"] > 50 or result["b"] > 50
+
+    def test_exact_collinearity_returns_inf_not_nan(self) -> None:
+        """Exact collinearity must yield inf, never NaN."""
+        rng = np.random.default_rng(2)
+        base = rng.normal(0, 1, 200)
+        exact = base * 2.0
+        factors = pd.DataFrame(
+            {"a": base, "b": exact, "c": rng.normal(0, 1, 200)}
+        )
+        result = compute_vif(factors)
+        inf_vals = result[np.isinf(result)]
+        assert not inf_vals.isna().any(), "inf VIF values must not be NaN"
 
 
 class TestBenjaminiHochberg:
@@ -496,3 +542,299 @@ class TestFactorSpreadBenchmarks:
         assert set(report.significant_factors_holm).issubset(
             set(report.significant_factors)
         )
+
+    def test_composite_ic_none_when_not_provided(self) -> None:
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2023-01-01", periods=36, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(30)]
+        factor_history = {
+            "value": pd.DataFrame(
+                rng.normal(0, 1, (36, 30)),
+                index=dates,
+                columns=tickers,
+            ),
+        }
+        returns_hist = pd.DataFrame(
+            rng.normal(0.001, 0.02, (36, 30)),
+            index=dates,
+            columns=tickers,
+        )
+        report = run_factor_validation(factor_history, returns_hist)
+        assert report.composite_ic_result is None
+
+    def test_composite_ic_populated_when_provided(self) -> None:
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2023-01-01", periods=36, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(30)]
+        factor_history = {
+            "value": pd.DataFrame(
+                rng.normal(0, 1, (36, 30)),
+                index=dates,
+                columns=tickers,
+            ),
+        }
+        returns_hist = pd.DataFrame(
+            rng.normal(0.001, 0.02, (36, 30)),
+            index=dates,
+            columns=tickers,
+        )
+        composite = pd.DataFrame(
+            rng.normal(0, 1, (36, 30)),
+            index=dates,
+            columns=tickers,
+        )
+        report = run_factor_validation(
+            factor_history,
+            returns_hist,
+            composite_scores_history=composite,
+        )
+        assert report.composite_ic_result is not None
+        assert isinstance(report.composite_ic_result, CompositeICResult)
+        assert not np.isnan(report.composite_ic_result.mean_ic)
+        assert isinstance(
+            report.composite_ic_result.outperforms_best_individual,
+            bool,
+        )
+
+    def test_composite_outperforms_best_individual_flag(self) -> None:
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2023-01-01", periods=48, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(30)]
+        factor_a = rng.normal(0, 1, (48, 30))
+        forward_ret = factor_a + rng.normal(0, 0.1, (48, 30))
+        factor_b = rng.normal(0, 1, (48, 30))
+
+        factor_history = {
+            "factor_a": pd.DataFrame(
+                factor_a, index=dates, columns=tickers
+            ),
+            "factor_b": pd.DataFrame(
+                factor_b, index=dates, columns=tickers
+            ),
+        }
+        returns_hist = pd.DataFrame(
+            forward_ret, index=dates, columns=tickers
+        )
+        composite = pd.DataFrame(
+            (factor_a + factor_b) / 2,
+            index=dates,
+            columns=tickers,
+        )
+        report = run_factor_validation(
+            factor_history,
+            returns_hist,
+            composite_scores_history=composite,
+        )
+        cic = report.composite_ic_result
+        assert cic is not None
+        # Verify best_individual_ic matches max of individual ICs
+        best = max(r.mean_ic for r in report.ic_results)
+        assert cic.best_individual_ic == best
+        assert isinstance(cic.outperforms_best_individual, bool)
+
+
+class TestCompositeICValidation:
+    def test_known_strong_ic(self) -> None:
+        """Strong rank correlation yields high, significant IC."""
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2020-01-01", periods=40, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(20)]
+        scores = rng.normal(0, 1, (40, 20))
+        returns = scores + rng.normal(0, 0.05, (40, 20))
+
+        result = compute_composite_ic(
+            pd.DataFrame(scores, index=dates, columns=tickers),
+            pd.DataFrame(returns, index=dates, columns=tickers),
+        )
+        assert isinstance(result, CompositeICResult)
+        assert result.mean_ic > 0.8
+        assert result.significant is True
+        assert result.p_value < 0.05
+        assert result.t_stat > 2.0
+
+    def test_known_zero_ic(self) -> None:
+        """Uncorrelated scores yield near-zero, insignificant IC."""
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2020-01-01", periods=20, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(20)]
+        scores = rng.normal(0, 1, (20, 20))
+        rng2 = np.random.default_rng(99)
+        returns = rng2.normal(0, 1, (20, 20))
+
+        result = compute_composite_ic(
+            pd.DataFrame(scores, index=dates, columns=tickers),
+            pd.DataFrame(returns, index=dates, columns=tickers),
+        )
+        assert abs(result.mean_ic) < 0.3
+        assert result.significant is False
+
+    def test_best_individual_ic_nan_standalone(self) -> None:
+        """Direct call has NaN best_individual_ic."""
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2020-01-01", periods=20, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(10)]
+        scores = pd.DataFrame(
+            rng.normal(0, 1, (20, 10)),
+            index=dates,
+            columns=tickers,
+        )
+        returns = pd.DataFrame(
+            rng.normal(0, 1, (20, 10)),
+            index=dates,
+            columns=tickers,
+        )
+        result = compute_composite_ic(scores, returns)
+        assert np.isnan(result.best_individual_ic)
+        assert result.outperforms_best_individual is False
+
+    def test_icir_sign_matches_mean_ic(self) -> None:
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2020-01-01", periods=40, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(20)]
+        scores = rng.normal(0, 1, (40, 20))
+        returns = scores + rng.normal(0, 0.05, (40, 20))
+
+        result = compute_composite_ic(
+            pd.DataFrame(scores, index=dates, columns=tickers),
+            pd.DataFrame(returns, index=dates, columns=tickers),
+        )
+        if result.mean_ic != 0:
+            assert np.sign(result.icir) == np.sign(result.mean_ic)
+
+    def test_empty_overlap_returns_degenerate(self) -> None:
+        """No date overlap returns degenerate result."""
+        dates_a = pd.date_range("2020-01-01", periods=10, freq="ME")
+        dates_b = pd.date_range("2022-01-01", periods=10, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(10)]
+        rng = np.random.default_rng(42)
+        scores = pd.DataFrame(
+            rng.normal(0, 1, (10, 10)),
+            index=dates_a,
+            columns=tickers,
+        )
+        returns = pd.DataFrame(
+            rng.normal(0, 1, (10, 10)),
+            index=dates_b,
+            columns=tickers,
+        )
+        result = compute_composite_ic(scores, returns)
+        assert np.isnan(result.mean_ic)
+        assert result.significant is False
+        assert result.p_value == 1.0
+
+    def test_icir_finite(self) -> None:
+        """ICIR is finite when IC series has positive variance."""
+        rng = np.random.default_rng(42)
+        dates = pd.date_range("2020-01-01", periods=36, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(20)]
+        scores = rng.normal(0, 1, (36, 20))
+        returns = scores + rng.normal(0, 0.3, (36, 20))
+
+        result = compute_composite_ic(
+            pd.DataFrame(scores, index=dates, columns=tickers),
+            pd.DataFrame(returns, index=dates, columns=tickers),
+        )
+        assert np.isfinite(result.icir)
+
+    def test_known_exact_ic_from_deterministic_construction(self) -> None:
+        """IC is exactly 1.0 when scores perfectly rank-correlate with returns."""
+        dates = pd.date_range("2020-01-01", periods=12, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(10)]
+        scores_row = np.arange(1, 11, dtype=float)
+        scores = pd.DataFrame(
+            np.tile(scores_row, (12, 1)), index=dates, columns=tickers
+        )
+        returns_row = scores_row * 0.01
+        returns = pd.DataFrame(
+            np.tile(returns_row, (12, 1)), index=dates, columns=tickers
+        )
+        result = compute_composite_ic(scores, returns)
+        assert pytest.approx(result.mean_ic, abs=1e-9) == 1.0
+        assert result.significant is True
+        # Perfect IC every period → ic_std=0 → icir=0 by zero-std guard
+        assert result.ic_std == 0.0
+        assert result.icir == 0.0
+
+    def test_composite_does_not_outperform_dominant_factor(self) -> None:
+        """When one factor is strongly predictive and the other is noise,
+        the composite average IC is lower than the dominant factor IC."""
+        rng = np.random.default_rng(0)
+        dates = pd.date_range("2020-01-01", periods=36, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(20)]
+        signal = rng.normal(0, 1, (36, 20))
+        noise = rng.normal(0, 1, (36, 20))
+        forward_ret = signal + rng.normal(0, 0.05, (36, 20))
+
+        factor_history = {
+            "signal": pd.DataFrame(signal, index=dates, columns=tickers),
+            "noise": pd.DataFrame(noise, index=dates, columns=tickers),
+        }
+        returns_hist = pd.DataFrame(forward_ret, index=dates, columns=tickers)
+        composite = pd.DataFrame(
+            (signal + noise) / 2.0, index=dates, columns=tickers
+        )
+        report = run_factor_validation(
+            factor_history,
+            returns_hist,
+            composite_scores_history=composite,
+        )
+        cic = report.composite_ic_result
+        assert cic is not None
+        best = max(r.mean_ic for r in report.ic_results)
+        assert cic.best_individual_ic == pytest.approx(best, rel=1e-9)
+        assert cic.outperforms_best_individual is False
+
+    def test_result_field_invariants(self) -> None:
+        """significant flag, ICIR sign, and bounds are internally consistent."""
+        rng = np.random.default_rng(7)
+        dates = pd.date_range("2020-01-01", periods=48, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(20)]
+        scores = rng.normal(0, 1, (48, 20))
+        returns = scores + rng.normal(0, 0.2, (48, 20))
+        result = compute_composite_ic(
+            pd.DataFrame(scores, index=dates, columns=tickers),
+            pd.DataFrame(returns, index=dates, columns=tickers),
+            t_stat_threshold=2.0,
+        )
+        assert result.significant == (abs(result.t_stat) >= 2.0)
+        if result.mean_ic != 0.0:
+            assert np.sign(result.icir) == np.sign(result.mean_ic)
+        assert result.ic_std >= 0.0
+        assert 0.0 <= result.p_value <= 1.0
+        assert result.outperforms_best_individual is False
+        assert np.isnan(result.best_individual_ic)
+
+    def test_composite_min_observations_respected(self) -> None:
+        """composite_min_observations config threads to compute_composite_ic."""
+        rng = np.random.default_rng(5)
+        dates = pd.date_range("2020-01-01", periods=6, freq="ME")
+        tickers = [f"T{i}" for i in range(4)]
+        factor_history = {
+            "value": pd.DataFrame(
+                rng.normal(0, 1, (6, 4)), index=dates, columns=tickers
+            ),
+        }
+        returns_hist = pd.DataFrame(
+            rng.normal(0, 1, (6, 4)), index=dates, columns=tickers
+        )
+        composite = pd.DataFrame(
+            rng.normal(0, 1, (6, 4)), index=dates, columns=tickers
+        )
+        strict_config = FactorValidationConfig(composite_min_observations=5)
+        report_strict = run_factor_validation(
+            factor_history,
+            returns_hist,
+            config=strict_config,
+            composite_scores_history=composite,
+        )
+        report_default = run_factor_validation(
+            factor_history,
+            returns_hist,
+            composite_scores_history=composite,
+        )
+        # With 4 tickers, strict min=5 forces all cross-sections to be dropped
+        assert report_strict.composite_ic_result is not None
+        assert np.isnan(report_strict.composite_ic_result.mean_ic)
+        # Default min=3 passes with 4 tickers
+        assert report_default.composite_ic_result is not None
+        assert not np.isnan(report_default.composite_ic_result.mean_ic)

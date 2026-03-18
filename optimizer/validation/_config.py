@@ -12,6 +12,15 @@ class WalkForwardConfig:
     Walk-forward backtesting partitions time series into successive
     train/test windows that respect the causal arrow of time.
 
+    **Purging**: A ``purged_size`` gap is excised between the end of the
+    training window and the start of the test window.  Without this buffer,
+    autocorrelated returns (volatility clustering, momentum) can leak
+    information from training observations into the first test observations,
+    inflating out-of-sample scores.  For daily equity returns a purge of
+    21 observations (one trading month) is the standard minimum; increase
+    it to match the longest look-back window used by any feature in the
+    estimator pipeline.
+
     Parameters
     ----------
     test_size : int
@@ -21,8 +30,10 @@ class WalkForwardConfig:
         ``expend_train`` is ``True``, this is the *initial* training
         window size.
     purged_size : int
-        Number of observations purged between train and test windows
-        to prevent look-ahead bias.
+        Number of observations purged between the end of the training
+        window and the start of the test window to prevent look-ahead
+        bias from autocorrelated returns.  Defaults to 5 (one trading
+        week).  Presets use 21 (one trading month).
     expend_train : bool
         When ``True``, the training window expands as new data arrives
         (expanding window).  When ``False``, the training window rolls
@@ -34,24 +45,36 @@ class WalkForwardConfig:
 
     test_size: int = 63
     train_size: int = 252
-    purged_size: int = 0
+    purged_size: int = 5
     expend_train: bool = False
     reduce_test: bool = False
 
     @classmethod
     def for_monthly_rolling(cls) -> WalkForwardConfig:
-        """Monthly test windows with one-year rolling training."""
-        return cls(test_size=21, train_size=252)
+        """Monthly test windows with one-year rolling training.
+
+        Uses ``purged_size=21`` (one trading month) to eliminate
+        autocorrelation leakage at the train/test boundary.
+        """
+        return cls(test_size=21, train_size=252, purged_size=21)
 
     @classmethod
     def for_quarterly_rolling(cls) -> WalkForwardConfig:
-        """Quarterly test windows with one-year rolling training."""
-        return cls(test_size=63, train_size=252)
+        """Quarterly test windows with one-year rolling training.
+
+        Uses ``purged_size=21`` (one trading month) to eliminate
+        autocorrelation leakage at the train/test boundary.
+        """
+        return cls(test_size=63, train_size=252, purged_size=21)
 
     @classmethod
     def for_quarterly_expanding(cls) -> WalkForwardConfig:
-        """Quarterly test windows with expanding training."""
-        return cls(test_size=63, train_size=252, expend_train=True)
+        """Quarterly test windows with expanding training.
+
+        Uses ``purged_size=21`` (one trading month) to eliminate
+        autocorrelation leakage at the train/test boundary.
+        """
+        return cls(test_size=63, train_size=252, expend_train=True, purged_size=21)
 
 
 @dataclass(frozen=True)

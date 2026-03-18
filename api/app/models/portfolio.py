@@ -1,7 +1,11 @@
 """SQLAlchemy models for portfolio state persistence."""
 
+from __future__ import annotations
+
+import json
 import uuid
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -11,18 +15,14 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
-
-# Use JSONB on PostgreSQL, plain JSON elsewhere (e.g. SQLite in tests).
-_JSON = JSON().with_variant(JSONB, "postgresql")
 
 
 class Portfolio(BaseModel):
@@ -82,15 +82,45 @@ class PortfolioSnapshot(BaseModel):
     snapshot_type: Mapped[str] = mapped_column(
         String(30), nullable=False,
     )  # "optimization" | "rebalance" | "manual"
-    weights: Mapped[dict] = mapped_column(_JSON, nullable=False)
-    sector_mapping: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
-    summary: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
-    optimizer_config: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     turnover: Mapped[float | None] = mapped_column(Float, nullable=True)
     holding_count: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    # Relationship
-    portfolio: Mapped["Portfolio"] = relationship(back_populates="snapshots")
+    # Relationships
+    portfolio: Mapped[Portfolio] = relationship(back_populates="snapshots")
+    weight_entries: Mapped[list[SnapshotWeight]] = relationship(
+        back_populates="snapshot", cascade="all, delete-orphan", lazy="selectin",
+    )
+    sector_mapping_entries: Mapped[list[SnapshotSectorMapping]] = relationship(
+        back_populates="snapshot", cascade="all, delete-orphan", lazy="selectin",
+    )
+    summary_entries: Mapped[list[SnapshotSummaryEntry]] = relationship(
+        back_populates="snapshot", cascade="all, delete-orphan", lazy="selectin",
+    )
+    optimizer_config_entries: Mapped[list[SnapshotOptimizerParam]] = relationship(
+        back_populates="snapshot", cascade="all, delete-orphan", lazy="selectin",
+    )
+
+    @property
+    def weights(self) -> dict[str, float]:
+        return {e.ticker: e.weight for e in self.weight_entries}
+
+    @property
+    def sector_mapping(self) -> dict[str, str] | None:
+        if not self.sector_mapping_entries:
+            return None
+        return {e.ticker: e.sector for e in self.sector_mapping_entries}
+
+    @property
+    def summary(self) -> dict[str, Any] | None:
+        if not self.summary_entries:
+            return None
+        return {e.key: json.loads(e.value_text) for e in self.summary_entries}
+
+    @property
+    def optimizer_config(self) -> dict[str, Any] | None:
+        if not self.optimizer_config_entries:
+            return None
+        return {e.key: json.loads(e.value_text) for e in self.optimizer_config_entries}
 
 
 class BrokerPosition(BaseModel):
@@ -178,12 +208,18 @@ class ActivityEvent(BaseModel):
     )  # matches frontend ActivityType
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", _JSON, nullable=True,
+
+    # Relationships
+    portfolio: Mapped[Portfolio | None] = relationship(back_populates="events")
+    metadata_entries: Mapped[list[ActivityEventDetail]] = relationship(
+        back_populates="event", cascade="all, delete-orphan", lazy="selectin",
     )
 
-    # Relationship
-    portfolio: Mapped["Portfolio | None"] = relationship(back_populates="events")
+    @property
+    def metadata_(self) -> dict | None:
+        if not self.metadata_entries:
+            return None
+        return {e.key: json.loads(e.value_text) for e in self.metadata_entries}
 
 
 class RegimeState(BaseModel):
@@ -201,10 +237,176 @@ class RegimeState(BaseModel):
     regime: Mapped[str] = mapped_column(
         String(20), nullable=False,
     )  # "bull" | "bear" | "sideways" | "volatile"
-    probabilities: Mapped[dict] = mapped_column(_JSON, nullable=False)
     model_type: Mapped[str] = mapped_column(
         String(30), nullable=False, server_default="hmm",
     )
-    metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", _JSON, nullable=True,
+    # Scalar columns extracted from the old metadata JSONB
+    since: Mapped[date | None] = mapped_column(Date, nullable=True)
+    n_states: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_fitted: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+
+    # Relationships
+    probability_entries: Mapped[list[RegimeStateProbability]] = relationship(
+        back_populates="regime_state", cascade="all, delete-orphan", lazy="selectin",
+    )
+
+    @property
+    def probabilities(self) -> list[dict]:
+        return [
+            {"regime": e.regime, "probability": e.probability}
+            for e in self.probability_entries
+        ]
+
+    @property
+    def metadata_(self) -> dict | None:
+        if self.since is None and self.n_states is None and self.last_fitted is None:
+            return None
+        d: dict[str, Any] = {}
+        if self.since is not None:
+            d["since"] = self.since.isoformat()
+        if self.n_states is not None:
+            d["n_states"] = self.n_states
+        if self.last_fitted is not None:
+            d["last_fitted"] = self.last_fitted.isoformat()
+        return d
+
+
+# ------------------------------------------------------------------
+# Child tables (normalized from JSONB columns)
+# ------------------------------------------------------------------
+
+
+class SnapshotWeight(BaseModel):
+    """Individual weight entry for a portfolio snapshot."""
+
+    __tablename__ = "snapshot_weights"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "ticker", name="uq_snapshot_weight_ticker"),
+        Index("ix_snapshot_weights_snapshot_id", "snapshot_id"),
+    )
+
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    ticker: Mapped[str] = mapped_column(String(100), nullable=False)
+    weight: Mapped[float] = mapped_column(Float, nullable=False)
+
+    snapshot: Mapped[PortfolioSnapshot] = relationship(back_populates="weight_entries")
+
+
+class SnapshotSectorMapping(BaseModel):
+    """Sector mapping entry for a portfolio snapshot."""
+
+    __tablename__ = "snapshot_sector_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", "ticker", name="uq_snapshot_sector_mapping_ticker",
+        ),
+        Index("ix_snapshot_sector_mappings_snapshot_id", "snapshot_id"),
+    )
+
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    ticker: Mapped[str] = mapped_column(String(100), nullable=False)
+    sector: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    snapshot: Mapped[PortfolioSnapshot] = relationship(
+        back_populates="sector_mapping_entries",
+    )
+
+
+class SnapshotSummaryEntry(BaseModel):
+    """EAV entry for snapshot summary data."""
+
+    __tablename__ = "snapshot_summary_entries"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "key", name="uq_snapshot_summary_key"),
+        Index("ix_snapshot_summary_entries_snapshot_id", "snapshot_id"),
+    )
+
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    key: Mapped[str] = mapped_column(String(200), nullable=False)
+    value_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    snapshot: Mapped[PortfolioSnapshot] = relationship(
+        back_populates="summary_entries",
+    )
+
+
+class SnapshotOptimizerParam(BaseModel):
+    """EAV entry for snapshot optimizer configuration."""
+
+    __tablename__ = "snapshot_optimizer_params"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", "key", name="uq_snapshot_optimizer_param_key",
+        ),
+        Index("ix_snapshot_optimizer_params_snapshot_id", "snapshot_id"),
+    )
+
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    key: Mapped[str] = mapped_column(String(200), nullable=False)
+    value_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    snapshot: Mapped[PortfolioSnapshot] = relationship(
+        back_populates="optimizer_config_entries",
+    )
+
+
+class ActivityEventDetail(BaseModel):
+    """EAV entry for activity event metadata."""
+
+    __tablename__ = "activity_event_metadata"
+    __table_args__ = (
+        UniqueConstraint("event_id", "key", name="uq_activity_event_detail_key"),
+        Index("ix_activity_event_metadata_event_id", "event_id"),
+    )
+
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("activity_events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    key: Mapped[str] = mapped_column(String(200), nullable=False)
+    value_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    event: Mapped[ActivityEvent] = relationship(back_populates="metadata_entries")
+
+
+class RegimeStateProbability(BaseModel):
+    """Individual regime probability for a regime state."""
+
+    __tablename__ = "regime_state_probabilities"
+    __table_args__ = (
+        UniqueConstraint(
+            "regime_state_id", "regime", name="uq_regime_state_prob_regime",
+        ),
+        Index("ix_regime_state_probs_state_id", "regime_state_id"),
+    )
+
+    regime_state_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("regime_states.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    regime: Mapped[str] = mapped_column(String(20), nullable=False)
+    probability: Mapped[float] = mapped_column(Float, nullable=False)
+
+    regime_state: Mapped[RegimeState] = relationship(
+        back_populates="probability_entries",
     )

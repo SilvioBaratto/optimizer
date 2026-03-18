@@ -282,6 +282,17 @@ def apply_regime_tilts(
     -------
     dict[FactorGroupType, float]
         Tilted group weights (re-normalized to sum to original total).
+
+    Notes
+    -----
+    The bounding sequence is:
+
+    1. Look up raw tilts from ``get_regime_tilts``.
+    2. Clamp each multiplier to ``[0, config.max_tilt_multiplier]``.
+    3. Apply clamped multiplier to each group weight.
+    4. Floor each result to ``config.min_post_tilt_weight * total``
+       so no group is compressed to near-zero.
+    5. Re-normalize to preserve the original total weight.
     """
     if config is None:
         config = RegimeTiltConfig()
@@ -291,13 +302,21 @@ def apply_regime_tilts(
 
     tilts = get_regime_tilts(regime, config)
 
-    tilted = {}
-    for group, weight in group_weights.items():
-        tilt = tilts.get(group, 1.0)
-        tilted[group] = weight * tilt
-
-    # Re-normalize to preserve total weight
     original_total = sum(group_weights.values())
+
+    # Step 1-3: clamp each multiplier and apply to weight
+    tilted: dict[FactorGroupType, float] = {}
+    for group, weight in group_weights.items():
+        raw_tilt = tilts.get(group, 1.0)
+        capped_tilt = max(min(raw_tilt, config.max_tilt_multiplier), 0.0)
+        tilted[group] = weight * capped_tilt
+
+    # Step 4: floor — no group may fall below min_post_tilt_weight * total
+    if original_total > 0:
+        floor = config.min_post_tilt_weight * original_total
+        tilted = {g: max(w, floor) for g, w in tilted.items()}
+
+    # Step 5: re-normalize to preserve total weight
     tilted_total = sum(tilted.values())
     if tilted_total > 0 and original_total > 0:
         scale = original_total / tilted_total

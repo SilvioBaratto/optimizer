@@ -1,18 +1,23 @@
 """SQLAlchemy models for macroeconomic regime data storage."""
 
+from __future__ import annotations
+
 import datetime
+import uuid
 
 from sqlalchemy import (
     Date,
     DateTime,
     Float,
+    ForeignKey,
     Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
 
@@ -208,7 +213,6 @@ class MacroNews(BaseModel):
     __table_args__ = (
         UniqueConstraint("news_id", name="uq_macro_news_id"),
         Index("ix_macro_news_publish_time", "publish_time"),
-        Index("ix_macro_news_themes", "themes"),
     )
 
     news_id: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -220,9 +224,19 @@ class MacroNews(BaseModel):
     )
     source_ticker: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source_query: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    themes: Mapped[str | None] = mapped_column(Text, nullable=True)
     snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
     full_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Relationships
+    theme_entries: Mapped[list[MacroNewsTheme]] = relationship(
+        back_populates="news", cascade="all, delete-orphan", lazy="selectin",
+    )
+
+    @property
+    def themes(self) -> str | None:
+        if not self.theme_entries:
+            return None
+        return ",".join(sorted(e.theme for e in self.theme_entries))
 
 
 class MacroCalibration(BaseModel):
@@ -272,3 +286,23 @@ class MacroNewsSummary(BaseModel):
     sentiment_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     article_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     news_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MacroNewsTheme(BaseModel):
+    """Theme tag for a macro news article (junction table)."""
+
+    __tablename__ = "macro_news_themes"
+    __table_args__ = (
+        UniqueConstraint("news_id", "theme", name="uq_macro_news_theme"),
+        Index("ix_macro_news_themes_news_id", "news_id"),
+        Index("ix_macro_news_themes_theme", "theme"),
+    )
+
+    news_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("macro_news.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    theme: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    news: Mapped[MacroNews] = relationship(back_populates="theme_entries")

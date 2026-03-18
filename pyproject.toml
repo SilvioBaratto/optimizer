@@ -86,7 +86,7 @@ ignore_missing_imports = true
 
 # sklearn/skfolio lack type stubs — suppress errors from untyped bases
 [[tool.mypy.overrides]]
-module = "optimizer.preprocessing.*"
+module = ["optimizer.preprocessing.*", "optimizer.fx.*"]
 disallow_subclassing_any = false
 
 # skfolio BaseMu / BaseCovariance / BlackLitterman lack type stubs — suppress subclassing errors

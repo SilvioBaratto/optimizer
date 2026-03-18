@@ -18,6 +18,7 @@ from app.models.macro_regime import (
     FredObservation,
     MacroCalibration,
     MacroNews,
+    MacroNewsTheme,
     MacroNewsSummary,
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
@@ -491,12 +492,48 @@ class MacroRegimeRepository(RepositoryBase):
     # ------------------------------------------------------------------
 
     def upsert_macro_news(self, rows: list[dict[str, Any]]) -> int:
-        """Bulk upsert macro news rows. Deduplicates on ``news_id``."""
-        return self._upsert(
+        """Bulk upsert macro news rows. Deduplicates on ``news_id``.
+
+        Extracts ``themes`` from each row dict, upserts the MacroNews rows,
+        then manages MacroNewsTheme child rows for each article.
+        """
+        # Extract themes before upsert (themes is no longer a column)
+        themes_by_news_id: dict[str, list[str]] = {}
+        clean_rows = []
+        for row in rows:
+            row_copy = dict(row)
+            raw_themes = row_copy.pop("themes", None)
+            if raw_themes and isinstance(raw_themes, str):
+                themes_by_news_id[row_copy["news_id"]] = [
+                    t.strip() for t in raw_themes.split(",") if t.strip()
+                ]
+            clean_rows.append(row_copy)
+
+        count = self._upsert(
             MacroNews,
-            rows,
+            clean_rows,
             constraint_name="uq_macro_news_id",
         )
+
+        # Now manage theme child rows
+        if themes_by_news_id:
+            news_ids = list(themes_by_news_id.keys())
+            stmt = select(MacroNews).where(MacroNews.news_id.in_(news_ids))
+            news_rows = self.session.execute(stmt).scalars().all()
+            for news_row in news_rows:
+                theme_list = themes_by_news_id.get(news_row.news_id, [])
+                if not theme_list:
+                    continue
+                # Clear existing themes and re-add
+                news_row.theme_entries.clear()
+                self.session.flush()
+                for theme_str in theme_list:
+                    self.session.add(MacroNewsTheme(
+                        news_id=news_row.id, theme=theme_str,
+                    ))
+            self.session.flush()
+
+        return count
 
     def get_macro_news(
         self,
@@ -508,7 +545,7 @@ class MacroRegimeRepository(RepositoryBase):
         """Query stored macro news with optional theme/date filters."""
         stmt = select(MacroNews)
         if theme:
-            stmt = stmt.where(MacroNews.themes.contains(theme))
+            stmt = stmt.join(MacroNewsTheme).where(MacroNewsTheme.theme == theme)
         if start_date:
             stmt = stmt.where(MacroNews.publish_time >= start_date)
         if end_date:

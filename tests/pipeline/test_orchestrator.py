@@ -322,7 +322,7 @@ class TestRunFullPipelineWithSelection:
             np.random.default_rng(42).uniform(0, 1, len(tickers)),
             index=tickers,
         )
-        mock_selected = pd.Index(tickers[:3])
+        mock_selected = pd.Index(tickers[:5])
 
         fundamentals = pd.DataFrame({"market_cap": [1e9] * len(tickers)}, index=tickers)
 
@@ -363,7 +363,7 @@ class TestRunFullPipelineWithSelection:
     def test_selected_subset_used(self, prices_df: pd.DataFrame) -> None:
         from unittest.mock import patch
 
-        tickers = list(prices_df.columns[:3])
+        tickers = list(prices_df.columns[:5])
         mock_investable = pd.Index(tickers)
         mock_factors = pd.DataFrame(
             np.random.default_rng(42).normal(0, 1, (len(tickers), 2)),
@@ -406,7 +406,7 @@ class TestRunFullPipelineWithSelection:
                 optimizer=EqualWeighted(),
                 fundamentals=fundamentals,
             )
-            assert len(result.weights) <= 3
+            assert len(result.weights) <= 5
 
     def test_cv_config_forwarded(self, prices_df: pd.DataFrame) -> None:
         result = run_full_pipeline_with_selection(
@@ -432,7 +432,7 @@ class TestRunFullPipelineWithSelection:
             np.random.default_rng(42).uniform(0, 1, len(tickers)),
             index=tickers,
         )
-        mock_selected = pd.Index(tickers[:3])
+        mock_selected = pd.Index(tickers[:5])
 
         fundamentals = pd.DataFrame({"market_cap": [1e9] * len(tickers)}, index=tickers)
 
@@ -480,6 +480,96 @@ class TestRunFullPipelineWithSelection:
             assert len(vol_arg) == 0
 
 
+class TestEmptySelectionGuard:
+    """Guard against empty or degenerate stock selection (issue #268)."""
+
+    def _run_with_mocked_selection(
+        self,
+        prices_df: pd.DataFrame,
+        mock_selected: pd.Index,
+        n_nan_scores: int = 0,
+    ):
+        """Run run_full_pipeline_with_selection with all upstream mocks."""
+        from unittest.mock import patch
+
+        tickers = list(prices_df.columns[:5])
+        mock_investable = pd.Index(tickers)
+        mock_factors = pd.DataFrame(
+            np.random.default_rng(0).normal(0, 1, (len(tickers), 2)),
+            index=tickers,
+            columns=["F1", "F2"],
+        )
+        mock_coverage = pd.Series(1.0, index=["F1", "F2"])
+
+        scores = list(np.random.default_rng(0).uniform(0, 1, len(tickers)))
+        for i in range(n_nan_scores):
+            scores[i] = float("nan")
+        mock_composite = pd.Series(scores, index=tickers)
+
+        fundamentals = pd.DataFrame(
+            {"market_cap": [1e9] * len(tickers)}, index=tickers
+        )
+
+        pfx = "optimizer.pipeline._orchestrator"
+        with (
+            patch(f"{pfx}.screen_universe", return_value=mock_investable),
+            patch(f"{pfx}.compute_all_factors", return_value=mock_factors),
+            patch(
+                f"{pfx}.standardize_all_factors",
+                return_value=(mock_factors, mock_coverage),
+            ),
+            patch(f"{pfx}.compute_composite_score", return_value=mock_composite),
+            patch(f"{pfx}.select_stocks", return_value=mock_selected),
+        ):
+            return run_full_pipeline_with_selection(
+                prices=prices_df,
+                optimizer=EqualWeighted(),
+                fundamentals=fundamentals,
+            )
+
+    def test_empty_selection_raises_data_error(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        from optimizer.exceptions import DataError
+
+        with pytest.raises(DataError, match="empty universe"):
+            self._run_with_mocked_selection(
+                prices_df, mock_selected=pd.Index([]), n_nan_scores=5
+            )
+
+    def test_below_minimum_raises_data_error(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        from optimizer.exceptions import DataError
+
+        with pytest.raises(DataError, match="below the minimum of 5"):
+            self._run_with_mocked_selection(
+                prices_df,
+                mock_selected=pd.Index(list(prices_df.columns[:3])),
+                n_nan_scores=2,
+            )
+
+    def test_error_message_includes_nan_count(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        from optimizer.exceptions import DataError
+
+        with pytest.raises(DataError, match="5 of 5"):
+            self._run_with_mocked_selection(
+                prices_df, mock_selected=pd.Index([]), n_nan_scores=5
+            )
+
+    def test_sufficient_selection_does_not_raise(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        result = self._run_with_mocked_selection(
+            prices_df,
+            mock_selected=pd.Index(list(prices_df.columns[:5])),
+            n_nan_scores=0,
+        )
+        assert isinstance(result, PortfolioResult)
+
+
 class TestTuneRandomizedSearch:
     """Tests for RandomizedSearchConfig in tune_and_optimize (issue #97)."""
 
@@ -518,17 +608,50 @@ class TestComputeNetBacktestReturns:
     def test_full_turnover_deducts_cost(self) -> None:
         dates = pd.date_range("2023-01-01", periods=3, freq="B")
         gross = pd.Series([0.01, 0.02, 0.03], index=dates)
-        # Turnover = sum(abs) = 0.5 + 0.5 = 1.0 on first date
+        # One-way turnover = sum(abs) / 2 = (0.5 + 0.5) / 2 = 0.5
         changes = pd.DataFrame(
             {"A": [0.5, 0.0, 0.0], "B": [-0.5, 0.0, 0.0]},
             index=dates,
         )
         net = compute_net_backtest_returns(gross, changes, cost_bps=10.0)
-        # First date: 0.01 - 1.0 * 10/10000 = 0.01 - 0.001 = 0.009
-        assert net.iloc[0] == pytest.approx(0.009)
+        # First date: 0.01 - 0.5 * 10/10000 = 0.01 - 0.0005 = 0.0095
+        assert net.iloc[0] == pytest.approx(0.0095)
         # Other dates: no changes → same as gross
         assert net.iloc[1] == pytest.approx(0.02)
         assert net.iloc[2] == pytest.approx(0.03)
+
+    def test_one_way_turnover_not_double_counted(self) -> None:
+        """A shift of w from A to B costs w * cost_bps/10_000, not 2w."""
+        dates = pd.date_range("2023-01-01", periods=2, freq="B")
+        gross = pd.Series([0.0, 0.0], index=dates)
+        # Move 20% from A to B: weight_change = [-0.2, +0.2]
+        # One-way turnover = (0.2 + 0.2) / 2 = 0.2
+        # Cost = 0.2 * 50/10_000 = 0.001
+        changes = pd.DataFrame(
+            {"A": [-0.2, 0.0], "B": [0.2, 0.0]},
+            index=dates,
+        )
+        net = compute_net_backtest_returns(gross, changes, cost_bps=50.0)
+        assert net.iloc[0] == pytest.approx(-0.001)
+        assert net.iloc[1] == pytest.approx(0.0)
+
+    def test_net_returns_consistent_with_compute_turnover(self) -> None:
+        """compute_net_backtest_returns and compute_turnover agree."""
+        from optimizer.rebalancing._rebalancer import compute_turnover
+
+        dates = pd.date_range("2023-01-01", periods=1, freq="B")
+        gross = pd.Series([0.05], index=dates)
+        prev = np.array([0.6, 0.4])
+        new = np.array([0.5, 0.5])
+        changes = pd.DataFrame(
+            {"A": [new[0] - prev[0]], "B": [new[1] - prev[1]]},
+            index=dates,
+        )
+        cost_bps = 20.0
+        net = compute_net_backtest_returns(gross, changes, cost_bps=cost_bps)
+        expected_turnover = compute_turnover(prev, new)  # = 0.1
+        expected_net = 0.05 - expected_turnover * cost_bps / 10_000
+        assert net.iloc[0] == pytest.approx(expected_net)
 
     def test_no_weight_change_no_deduction(self) -> None:
         dates = pd.date_range("2023-01-01", periods=3, freq="B")
@@ -539,3 +662,316 @@ class TestComputeNetBacktestReturns:
         )
         net = compute_net_backtest_returns(gross, changes, cost_bps=10.0)
         pd.testing.assert_series_equal(net, gross)
+
+
+class TestRiskFreeRatePropagation:
+    """Risk-free rate propagation through the pipeline (issue #272)."""
+
+    def test_rf_injected_into_mean_risk_optimizer(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """When risk_free_rate != 0, MeanRisk optimizer receives the value."""
+        rf = 0.0002  # ~5% annualised daily
+        optimizer = build_mean_risk(MeanRiskConfig.for_max_sharpe())
+        assert optimizer.risk_free_rate == 0.0  # default before injection
+
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=optimizer,
+            risk_free_rate=rf,
+        )
+        assert isinstance(result, PortfolioResult)
+        assert result.risk_free_rate == rf
+        # The fitted pipeline's optimizer should have the injected Rf
+        fitted_opt = result.pipeline[-1]  # last step is the optimizer
+        assert fitted_opt.risk_free_rate == pytest.approx(rf)
+
+    def test_rf_zero_does_not_copy_optimizer(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """When risk_free_rate=0.0 (default), optimizer is not deepcopied."""
+        optimizer = build_mean_risk(MeanRiskConfig.for_max_sharpe())
+
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=optimizer,
+            risk_free_rate=0.0,
+        )
+        assert result.risk_free_rate == 0.0
+        assert "sharpe_ratio" in result.summary
+
+    def test_rf_ignored_for_equal_weighted_with_warning(
+        self, prices_df: pd.DataFrame, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """EqualWeighted has no risk_free_rate attr; a warning is logged."""
+        import logging
+
+        log = "optimizer.pipeline._orchestrator"
+        with caplog.at_level(logging.WARNING, logger=log):
+            result = run_full_pipeline(
+                prices=prices_df,
+                optimizer=EqualWeighted(),
+                risk_free_rate=0.0005,
+            )
+        assert result.risk_free_rate == 0.0005
+        assert isinstance(result, PortfolioResult)
+        assert any("risk_free_rate" in rec.message for rec in caplog.records)
+
+    def test_summary_sharpe_uses_injected_rf(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """Portfolio Sharpe in summary uses the injected risk_free_rate."""
+        rf = 0.0002
+        # Run with rf=0 and rf=nonzero, Sharpe should differ
+        result_zero = run_full_pipeline(
+            prices=prices_df,
+            optimizer=build_mean_risk(MeanRiskConfig.for_max_sharpe()),
+            risk_free_rate=0.0,
+        )
+        result_with_rf = run_full_pipeline(
+            prices=prices_df,
+            optimizer=build_mean_risk(MeanRiskConfig.for_max_sharpe()),
+            risk_free_rate=rf,
+        )
+        # With positive rf, Sharpe should be lower
+        sharpe_rf = result_with_rf.summary["sharpe_ratio"]
+        sharpe_0 = result_zero.summary["sharpe_ratio"]
+        assert sharpe_rf < sharpe_0
+
+    def test_original_optimizer_not_mutated(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """The caller's original optimizer object must not be modified."""
+        optimizer = build_mean_risk(MeanRiskConfig.for_max_sharpe())
+        assert optimizer.risk_free_rate == 0.0
+
+        run_full_pipeline(
+            prices=prices_df,
+            optimizer=optimizer,
+            risk_free_rate=0.001,
+        )
+        # Original should still be 0.0 — deepcopy protects it
+        assert optimizer.risk_free_rate == 0.0
+
+
+class TestWeightHistoryExtraction:
+    """Walk-forward weight history extraction in PortfolioResult (issue #285)."""
+
+    def test_weight_history_none_without_backtest(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+        )
+        assert result.weight_history is None
+
+    def test_weight_history_populated_with_backtest(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        assert result.weight_history is not None
+        assert isinstance(result.weight_history, pd.DataFrame)
+        # At least the initial allocation is present
+        assert len(result.weight_history) >= 1
+
+    def test_weight_history_multiple_events_with_mean_risk(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """MeanRisk produces different weights per window → multiple events."""
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=build_mean_risk(MeanRiskConfig.for_min_variance()),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        assert result.weight_history is not None
+        assert len(result.weight_history) > 1
+
+    def test_weight_history_is_rebalancing_events_only(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """Rows in weight_history must be fewer than total observations."""
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        assert result.weight_history is not None
+        assert result.backtest is not None
+        total_obs = len(result.backtest.returns_df)
+        assert len(result.weight_history) < total_obs
+
+    def test_weight_history_contains_absolute_weights(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """Each row must be absolute weights summing to ~1, not deltas."""
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        assert result.weight_history is not None
+        for _, row in result.weight_history.iterrows():
+            assert row.sum() == pytest.approx(1.0, abs=1e-4)
+
+    def test_weight_history_compatible_with_compute_net_alpha(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """weight_history can be passed directly to compute_net_alpha."""
+        from optimizer.factors._integration import compute_net_alpha
+
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        assert result.weight_history is not None
+        # Dummy IC series
+        ic_series = pd.Series(
+            np.random.default_rng(42).normal(0.03, 0.01, 10),
+            index=pd.date_range("2023-01-01", periods=10, freq="ME"),
+        )
+        na_result = compute_net_alpha(
+            ic_series=ic_series,
+            weights_history=result.weight_history,
+            cost_bps=10.0,
+        )
+        # With multiple rebalancing events, turnover should be > 0
+        # (EqualWeighted may have near-zero turnover between windows,
+        # but the initial allocation from zero counts)
+        assert na_result.avg_turnover >= 0.0
+        assert na_result.net_alpha <= na_result.gross_alpha
+
+    def test_single_period_vs_full_history_net_alpha(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """Full-history net alpha must show higher cost drag than single-period."""
+        from optimizer.factors._integration import compute_net_alpha
+
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=build_mean_risk(MeanRiskConfig.for_min_variance()),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        assert result.weight_history is not None
+        assert len(result.weight_history) > 1
+
+        ic_series = pd.Series(
+            np.random.default_rng(42).normal(0.05, 0.02, 10),
+            index=pd.date_range("2023-01-01", periods=10, freq="ME"),
+        )
+        cost_bps = 50.0
+
+        # Full history: multiple rebalancing events → non-zero turnover
+        full_result = compute_net_alpha(
+            ic_series=ic_series,
+            weights_history=result.weight_history,
+            cost_bps=cost_bps,
+        )
+
+        # Single-period snapshot (the old buggy approach)
+        single_snapshot = pd.DataFrame(
+            [result.weights], index=[result.weight_history.index[-1]]
+        )
+        single_result = compute_net_alpha(
+            ic_series=ic_series,
+            weights_history=single_snapshot,
+            cost_bps=cost_bps,
+        )
+
+        # Single snapshot always has avg_turnover=0 (only one row)
+        assert single_result.avg_turnover == 0.0
+        # Full history should have non-zero turnover (MeanRisk weights change)
+        assert full_result.avg_turnover > 0.0
+        # Therefore full-history net alpha is lower (more cost drag)
+        assert full_result.net_alpha < single_result.net_alpha
+
+
+class TestNetBacktestReturns:
+    """Net transaction cost wiring in run_full_pipeline (issue #284)."""
+
+    def test_net_returns_none_without_backtest(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+        )
+        assert result.net_returns is None
+        assert result.net_sharpe_ratio is None
+
+    def test_net_returns_populated_with_backtest(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        assert result.net_returns is not None
+        assert isinstance(result.net_returns, pd.Series)
+        assert result.net_sharpe_ratio is not None
+
+    def test_net_sharpe_lower_than_gross(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        from optimizer.pipeline._orchestrator import _compute_net_sharpe
+
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+            cost_bps=50.0,
+        )
+        assert result.backtest is not None
+        assert result.net_returns is not None
+        assert result.net_sharpe_ratio is not None
+        # Compare using same formula for both gross and net
+        gross_sharpe = _compute_net_sharpe(result.backtest.returns_df)
+        assert gross_sharpe is not None
+        assert result.net_sharpe_ratio < gross_sharpe
+
+    def test_net_returns_lower_by_cost_amount(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+            cost_bps=10.0,
+        )
+        assert result.net_returns is not None
+        gross = result.backtest.returns_df
+        diff = gross.sum() - result.net_returns.sum()
+        # Net must be lower (costs deducted)
+        assert diff > 0
+
+    def test_zero_cost_bps_net_equals_gross(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+            cost_bps=0.0,
+        )
+        assert result.net_returns is not None
+        pd.testing.assert_series_equal(
+            result.net_returns, result.backtest.returns_df
+        )
+
+    def test_cost_bps_forwarded_through_selection(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        result = run_full_pipeline_with_selection(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            fundamentals=None,
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+            cost_bps=25.0,
+        )
+        assert result.net_sharpe_ratio is not None

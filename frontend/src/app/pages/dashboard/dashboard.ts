@@ -44,7 +44,7 @@ export class DashboardComponent implements OnDestroy {
 
   // Portfolio name from context with fallback
   readonly portfolioName = computed(
-    () => this.portfolioCtx.currentPortfolioId() ?? 'Global Multi-Factor',
+    () => this.portfolioCtx.currentPortfolioId() ?? 'main',
   );
 
   // Per-domain loading states
@@ -61,6 +61,7 @@ export class DashboardComponent implements OnDestroy {
   readonly kpis = signal<DashboardKPI[]>([]);
   readonly nav = signal(0);
   readonly dailyChange = signal(0);
+  readonly currency = signal('EUR');
 
   // #154 — Equity Curve + Allocation
   readonly equityCurve = signal<EquityCurvePoint[]>([]);
@@ -115,7 +116,7 @@ export class DashboardComponent implements OnDestroy {
   readonly subtitle = computed(() => {
     const navVal = this.nav();
     const change = this.dailyChange();
-    const navStr = this.fmt.formatCurrencyCompact(navVal);
+    const navStr = this.fmt.formatCurrencyCompact(navVal, this.currency());
     const changeStr = this.fmt.formatPercent(change);
     return `NAV ${navStr}  |  ${change >= 0 ? '+' : ''}${changeStr} today`;
   });
@@ -162,9 +163,8 @@ export class DashboardComponent implements OnDestroy {
     };
 
     const onError = (err: Error) => {
-      this.hasError.set(true);
-      this.errorMessage.set(err.message);
-      this.isLoadingPortfolio.set(false);
+      console.warn('[dashboard] non-critical API error:', err.message);
+      onComplete();
     };
 
     this.dashboardSvc.getPerformanceMetrics(name)
@@ -174,6 +174,7 @@ export class DashboardComponent implements OnDestroy {
           this.kpis.set(res.kpis as DashboardKPI[]);
           this.nav.set(res.nav);
           this.dailyChange.set(res.navChangePct);
+          this.currency.set(res.currency ?? 'EUR');
           onComplete();
         },
         error: onError,
@@ -296,7 +297,7 @@ export class DashboardComponent implements OnDestroy {
   formatKpiValue(kpi: DashboardKPI): string {
     switch (kpi.format) {
       case 'percent': return this.fmt.formatPercent(kpi.value);
-      case 'currency': return this.fmt.formatCurrencyCompact(kpi.value);
+      case 'currency': return this.fmt.formatCurrencyCompact(kpi.value, this.currency());
       case 'ratio': return this.fmt.formatRatio(kpi.value);
       default: return kpi.value.toLocaleString();
     }

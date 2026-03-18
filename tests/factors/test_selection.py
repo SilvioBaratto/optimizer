@@ -104,6 +104,83 @@ class TestApplySectorBalance:
         assert len(result) > 0
 
 
+    def test_convergence_multi_sector_cascade(self) -> None:
+        """Single-pass leaves a violation; convergence loop fixes it (#280).
+
+        Universe: X=50%, Y=30%, Z=20% (100 stocks).
+        Initial selection: 25 X, 5 Y, 0 Z = 30 selected.
+
+        Single-pass (old code, n_selected=30 fixed):
+          X: max_n=16, remove 9 → 16 X.  Y: add 3.  Z: add 4.
+          Final = 16X + 8Y + 4Z = 28.
+          At n=28: X max_n=round(15.4)=15, but X count=16 → VIOLATION.
+
+        Convergence loop catches the cascade and trims X to 15.
+        """
+        x_tickers = [f"X{i}" for i in range(50)]
+        y_tickers = [f"Y{i}" for i in range(30)]
+        z_tickers = [f"Z{i}" for i in range(20)]
+        all_tickers = x_tickers + y_tickers + z_tickers
+
+        sector_labels = pd.Series(
+            ["X"] * 50 + ["Y"] * 30 + ["Z"] * 20,
+            index=all_tickers,
+        )
+        parent_universe = pd.Index(all_tickers)
+
+        scores = pd.Series(
+            [float(100 - i) for i in range(100)],
+            index=all_tickers,
+        )
+
+        # Initial selection: 25 X, 5 Y, 0 Z
+        initial_selected = pd.Index(x_tickers[:25] + y_tickers[:5])
+
+        result = apply_sector_balance(
+            initial_selected,
+            scores,
+            sector_labels,
+            parent_universe=parent_universe,
+            tolerance=0.05,
+        )
+
+        # Verify discrete count constraints at FINAL n_selected
+        result_sectors = sector_labels.reindex(result).dropna()
+        n = len(result)
+        target_weights = (
+            sector_labels.reindex(parent_universe)
+            .dropna()
+            .value_counts(normalize=True)
+        )
+        for sector, tw in target_weights.items():
+            count = int((result_sectors == sector).sum())
+            min_n = max(0, round((tw - 0.05) * n))
+            max_n = round((tw + 0.05) * n)
+            assert min_n <= count <= max_n, (
+                f"Sector {sector}: count={count}, "
+                f"expected [{min_n}, {max_n}] at n={n}"
+            )
+
+    def test_already_balanced_single_iteration(self) -> None:
+        """A perfectly balanced selection converges with zero changes."""
+        tickers = [f"S{i}" for i in range(9)]
+        sector_labels = pd.Series(
+            ["X", "X", "X", "Y", "Y", "Y", "Z", "Z", "Z"], index=tickers
+        )
+        scores = pd.Series(
+            [3.0, 2.0, 1.0, 3.0, 2.0, 1.0, 3.0, 2.0, 1.0], index=tickers
+        )
+        selected = pd.Index(["S0", "S3", "S6"])
+        result = apply_sector_balance(
+            selected,
+            scores,
+            sector_labels,
+            parent_universe=pd.Index(tickers),
+            tolerance=0.05,
+        )
+        assert set(result) == {"S0", "S3", "S6"}
+
+
 class TestSelectStocks:
     def test_fixed_count(self, scores: pd.Series) -> None:
         config = SelectionConfig(

@@ -79,6 +79,47 @@ class CompositeMethod(str, Enum):
     GBT_WEIGHTED = "gbt_weighted"
 
 
+class ICFallbackStrategy(str, Enum):
+    """Strategy when all IC/ICIR weights are zero or negative.
+
+    Applied by IC-weighted and ICIR-weighted composite scoring when every
+    factor group has non-positive IC or ICIR and the total weight sums
+    to zero.
+    """
+
+    EQUAL_WEIGHT = "equal_weight"
+    NAN = "nan"
+    RAISE = "raise"
+
+
+class ICWeightingMethod(str, Enum):
+    """Method for aggregating per-factor ICs within a group.
+
+    SIMPLE_MEAN averages ICs equally (current default behaviour).
+    TSTAT_WEIGHTED uses absolute Newey-West t-stat as weight so that
+    factors with more statistically significant ICs dominate the group
+    average.
+    """
+
+    SIMPLE_MEAN = "simple_mean"
+    TSTAT_WEIGHTED = "tstat_weighted"
+
+
+class ICNegativeFilterPolicy(str, Enum):
+    """Policy for handling factors with consistently negative IC.
+
+    INCLUDE keeps all factors regardless of IC sign (current default).
+    EXCLUDE removes negative-IC factors before computing the group
+    average (denominator shrinks).
+    SOFT zeros the contribution of negative-IC factors but keeps
+    them in the denominator (dampening).
+    """
+
+    INCLUDE = "include"
+    EXCLUDE = "exclude"
+    SOFT = "soft"
+
+
 class SelectionMethod(str, Enum):
     """Stock selection method."""
 
@@ -367,6 +408,9 @@ class CompositeScoringConfig:
         Maximum tree depth for ``GBT_WEIGHTED``.
     gbt_n_estimators : int
         Number of boosting rounds for ``GBT_WEIGHTED``.
+    gbt_random_state : int
+        Random state for ``GBT_WEIGHTED`` ``GradientBoostingRegressor``.
+        Change for sensitivity analysis or ensemble diversity.
     min_coverage_groups : int
         Minimum number of non-NaN group scores required.  Tickers with
         fewer available groups receive NaN composite and are excluded from
@@ -374,6 +418,11 @@ class CompositeScoringConfig:
     return_coverage : bool
         When True, ``compute_composite_score`` returns a DataFrame with
         columns ``["composite", "coverage_ratio"]`` instead of a Series.
+    ic_fallback_strategy : ICFallbackStrategy
+        Strategy when all IC/ICIR weights resolve to zero (all groups have
+        non-positive IC or ICIR).  ``EQUAL_WEIGHT`` preserves the current
+        behavior.  ``NAN`` returns all-NaN scores to suppress trading.
+        ``RAISE`` raises ``ConfigurationError``.  Default is ``EQUAL_WEIGHT``.
     """
 
     method: CompositeMethod = CompositeMethod.EQUAL_WEIGHT
@@ -383,8 +432,10 @@ class CompositeScoringConfig:
     ridge_alpha: float = 1.0
     gbt_max_depth: int = 3
     gbt_n_estimators: int = 50
+    gbt_random_state: int = 0
     min_coverage_groups: int = 0
     return_coverage: bool = False
+    ic_fallback_strategy: ICFallbackStrategy = ICFallbackStrategy.EQUAL_WEIGHT
 
     @classmethod
     def for_equal_weight(cls) -> CompositeScoringConfig:
@@ -437,6 +488,14 @@ class CompositeScoringConfig:
     def for_coverage_diagnostics(cls) -> CompositeScoringConfig:
         """Equal-weight scoring returning coverage_ratio alongside composite."""
         return cls(return_coverage=True)
+
+    @classmethod
+    def for_ic_weighted_raise_on_fallback(cls) -> CompositeScoringConfig:
+        """IC-weighted scoring that raises if all groups have negative IC."""
+        return cls(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.RAISE,
+        )
 
 
 @dataclass(frozen=True)
@@ -540,6 +599,15 @@ class RegimeTiltConfig:
     unknown_tilts : tuple[tuple[str, float], ...]
         Group tilts when regime is unknown (neutral — all multipliers
         default to 1.0 via empty tuple).
+    max_tilt_multiplier : float
+        Upper bound on any single raw tilt multiplier (default 2.0).
+        Multipliers exceeding this value are clamped before application.
+        Must be >= 1.0.
+    min_post_tilt_weight : float
+        Minimum weight any group may hold after tilting, expressed as a
+        fraction of the original total weight (default 0.05).  Groups
+        suppressed below this floor are raised to it before
+        renormalization.  Must be in [0.0, 1.0).
     """
 
     enable: bool = False
@@ -565,6 +633,25 @@ class RegimeTiltConfig:
         ("low_risk", 0.7),
     )
     unknown_tilts: tuple[tuple[str, float], ...] = ()
+    max_tilt_multiplier: float = 2.0
+    min_post_tilt_weight: float = 0.05
+
+    def __post_init__(self) -> None:
+        if self.max_tilt_multiplier < 1.0:
+            raise ValueError(
+                f"max_tilt_multiplier must be >= 1.0, "
+                f"got {self.max_tilt_multiplier}"
+            )
+        if self.min_post_tilt_weight < 0.0:
+            raise ValueError(
+                f"min_post_tilt_weight must be >= 0.0, "
+                f"got {self.min_post_tilt_weight}"
+            )
+        if self.min_post_tilt_weight >= 1.0:
+            raise ValueError(
+                f"min_post_tilt_weight must be < 1.0, "
+                f"got {self.min_post_tilt_weight}"
+            )
 
     @classmethod
     def for_moderate_tilts(cls) -> RegimeTiltConfig:
@@ -575,6 +662,20 @@ class RegimeTiltConfig:
     def for_no_tilts(cls) -> RegimeTiltConfig:
         """Disable regime tilts (default)."""
         return cls(enable=False)
+
+    @classmethod
+    def for_strict_bounds(cls) -> RegimeTiltConfig:
+        """Enable tilts with tight multiplier cap and weight floor.
+
+        Caps each raw tilt multiplier at 1.5x and prevents any group
+        from falling below 10% of the total weight.  Suitable for
+        mandates requiring diversification guarantees.
+        """
+        return cls(
+            enable=True,
+            max_tilt_multiplier=1.5,
+            min_post_tilt_weight=0.10,
+        )
 
 
 @dataclass(frozen=True)
@@ -699,6 +800,9 @@ class FactorValidationConfig:
         Top percentile for factor-mimicking portfolios.
     fmp_bottom_pct : float
         Bottom percentile for factor-mimicking portfolios.
+    composite_min_observations : int
+        Minimum non-NaN observations per cross-section for composite IC.
+        Default: 3.
     """
 
     newey_west_lags: int = 6
@@ -707,6 +811,7 @@ class FactorValidationConfig:
     n_quantiles: int = 5
     fmp_top_pct: float = 0.2
     fmp_bottom_pct: float = 0.2
+    composite_min_observations: int = 3
 
     @classmethod
     def for_strict(cls) -> FactorValidationConfig:
@@ -764,6 +869,56 @@ class FactorIntegrationConfig:
     def for_black_litterman(cls) -> FactorIntegrationConfig:
         """Factor-based Black-Litterman views."""
         return cls(use_black_litterman=True)
+
+
+@dataclass(frozen=True)
+class GroupICAggregationConfig:
+    """Configuration for group-level IC aggregation.
+
+    Controls how per-factor ICs are combined within each factor group.
+
+    Parameters
+    ----------
+    weighting : ICWeightingMethod
+        Method for weighting per-factor ICs within a group.
+    negative_filter : ICNegativeFilterPolicy
+        Policy for handling factors with consistently negative IC.
+    min_observations_tstat : int
+        Minimum IC observations to compute a valid t-stat.
+        Factors below this threshold fall back to equal weight
+        when ``weighting=TSTAT_WEIGHTED``.
+    newey_west_lags : int
+        Number of lags for Newey-West HAC standard errors when
+        computing t-stat weights.
+    """
+
+    weighting: ICWeightingMethod = ICWeightingMethod.SIMPLE_MEAN
+    negative_filter: ICNegativeFilterPolicy = ICNegativeFilterPolicy.INCLUDE
+    min_observations_tstat: int = 6
+    newey_west_lags: int = 6
+
+    @classmethod
+    def for_simple_mean(cls) -> GroupICAggregationConfig:
+        """Default: simple arithmetic mean, no filtering."""
+        return cls()
+
+    @classmethod
+    def for_tstat_weighted(cls) -> GroupICAggregationConfig:
+        """Weight factor ICs by absolute Newey-West t-stat."""
+        return cls(weighting=ICWeightingMethod.TSTAT_WEIGHTED)
+
+    @classmethod
+    def for_excluding_negative(cls) -> GroupICAggregationConfig:
+        """Exclude factors with consistently negative IC."""
+        return cls(negative_filter=ICNegativeFilterPolicy.EXCLUDE)
+
+    @classmethod
+    def for_robust(cls) -> GroupICAggregationConfig:
+        """T-stat weighted with negative IC exclusion."""
+        return cls(
+            weighting=ICWeightingMethod.TSTAT_WEIGHTED,
+            negative_filter=ICNegativeFilterPolicy.EXCLUDE,
+        )
 
 
 # ---------------------------------------------------------------------------

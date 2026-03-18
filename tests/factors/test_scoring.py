@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import warnings as _warnings_module
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
+    CompositeMethod,
     CompositeScoringConfig,
+    ICFallbackStrategy,
     compute_composite_score,
     compute_equal_weight_composite,
     compute_group_scores,
@@ -257,7 +261,9 @@ class TestICWeightedNegativeIC:
         ic_history = pd.DataFrame(
             {col: rng.uniform(-0.10, -0.02, 36) for col in groups}
         )
-        ic_result = compute_ic_weighted_composite(group_scores, ic_history)
+        with _warnings_module.catch_warnings():
+            _warnings_module.simplefilter("ignore", UserWarning)
+            ic_result = compute_ic_weighted_composite(group_scores, ic_history)
         equal_result = compute_equal_weight_composite(group_scores)
         pd.testing.assert_series_equal(ic_result, equal_result)
 
@@ -379,7 +385,9 @@ class TestICIRWeightedComposite:
         """Falls back to equal weight when all groups have ICIR = 0."""
         group_scores = compute_group_scores(standardized_factors, coverage)
         ic_per_group = {col: pd.Series([0.0] * 36) for col in group_scores.columns}
-        icir_result = compute_icir_weighted_composite(group_scores, ic_per_group)
+        with _warnings_module.catch_warnings():
+            _warnings_module.simplefilter("ignore", UserWarning)
+            icir_result = compute_icir_weighted_composite(group_scores, ic_per_group)
         equal_result = compute_equal_weight_composite(group_scores)
         pd.testing.assert_series_equal(icir_result, equal_result)
 
@@ -656,7 +664,9 @@ class TestICIRWeightedNegativeICIR:
         groups = list(group_scores.columns)
         rng = np.random.default_rng(42)
         ic_per_group = {col: pd.Series(rng.uniform(-0.10, -0.02, 36)) for col in groups}
-        icir_result = compute_icir_weighted_composite(group_scores, ic_per_group)
+        with _warnings_module.catch_warnings():
+            _warnings_module.simplefilter("ignore", UserWarning)
+            icir_result = compute_icir_weighted_composite(group_scores, ic_per_group)
         equal_result = compute_equal_weight_composite(group_scores)
         pd.testing.assert_series_equal(icir_result, equal_result)
 
@@ -754,3 +764,234 @@ class TestICIRWeightedGroupWeights:
         assert not np.allclose(
             result_with.to_numpy(), result_without.to_numpy(), atol=1e-6
         )
+
+
+class TestICFallbackStrategy:
+    """Tests for ICFallbackStrategy on IC/ICIR-weighted fallback (issue #277)."""
+
+    def _all_negative_ic_history(
+        self, groups: list[str], seed: int = 42
+    ) -> pd.DataFrame:
+        """IC history where every group has negative mean IC."""
+        rng = np.random.default_rng(seed)
+        return pd.DataFrame(
+            {col: rng.uniform(-0.10, -0.02, 36) for col in groups}
+        )
+
+    def _all_negative_icir_series(
+        self, groups: list[str], seed: int = 42
+    ) -> dict[str, pd.Series]:
+        """Per-group IC series where every group has negative mean IC."""
+        rng = np.random.default_rng(seed)
+        return {
+            col: pd.Series(rng.uniform(-0.10, -0.02, 36)) for col in groups
+        }
+
+    # ------------------------------------------------------------------
+    # Strategy: EQUAL_WEIGHT (default, backward-compat)
+    # ------------------------------------------------------------------
+
+    def test_ic_equal_weight_fallback(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        ic_history = self._all_negative_ic_history(groups)
+
+        config = CompositeScoringConfig(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.EQUAL_WEIGHT,
+        )
+        with _warnings_module.catch_warnings():
+            _warnings_module.simplefilter("ignore", UserWarning)
+            result = compute_ic_weighted_composite(
+                group_scores, ic_history, config
+            )
+        expected = compute_equal_weight_composite(group_scores, config)
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_icir_equal_weight_fallback(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        ic_per_group = self._all_negative_icir_series(groups)
+
+        config = CompositeScoringConfig(
+            method=CompositeMethod.ICIR_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.EQUAL_WEIGHT,
+        )
+        with _warnings_module.catch_warnings():
+            _warnings_module.simplefilter("ignore", UserWarning)
+            result = compute_icir_weighted_composite(
+                group_scores, ic_per_group, config
+            )
+        expected = compute_equal_weight_composite(group_scores, config)
+        pd.testing.assert_series_equal(result, expected)
+
+    # ------------------------------------------------------------------
+    # Strategy: NAN
+    # ------------------------------------------------------------------
+
+    def test_ic_nan_fallback(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        ic_history = self._all_negative_ic_history(groups)
+
+        config = CompositeScoringConfig(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.NAN,
+        )
+        with _warnings_module.catch_warnings():
+            _warnings_module.simplefilter("ignore", UserWarning)
+            result = compute_ic_weighted_composite(
+                group_scores, ic_history, config
+            )
+        assert isinstance(result, pd.Series)
+        assert result.isna().all()
+        assert result.index.equals(group_scores.index)
+
+    def test_icir_nan_fallback(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        ic_per_group = self._all_negative_icir_series(groups)
+
+        config = CompositeScoringConfig(
+            method=CompositeMethod.ICIR_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.NAN,
+        )
+        with _warnings_module.catch_warnings():
+            _warnings_module.simplefilter("ignore", UserWarning)
+            result = compute_icir_weighted_composite(
+                group_scores, ic_per_group, config
+            )
+        assert isinstance(result, pd.Series)
+        assert result.isna().all()
+        assert result.index.equals(group_scores.index)
+
+    # ------------------------------------------------------------------
+    # Strategy: RAISE
+    # ------------------------------------------------------------------
+
+    def test_ic_raise_fallback(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        ic_history = self._all_negative_ic_history(groups)
+
+        config = CompositeScoringConfig(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.RAISE,
+        )
+        with pytest.raises(ConfigurationError, match="non-positive IC"):
+            compute_ic_weighted_composite(group_scores, ic_history, config)
+
+    def test_icir_raise_fallback(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        ic_per_group = self._all_negative_icir_series(groups)
+
+        config = CompositeScoringConfig(
+            method=CompositeMethod.ICIR_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.RAISE,
+        )
+        with pytest.raises(ConfigurationError, match="non-positive ICIR"):
+            compute_icir_weighted_composite(
+                group_scores, ic_per_group, config
+            )
+
+    # ------------------------------------------------------------------
+    # Warning emission
+    # ------------------------------------------------------------------
+
+    def test_ic_fallback_emits_warning(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        ic_history = self._all_negative_ic_history(groups)
+
+        config = CompositeScoringConfig(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.EQUAL_WEIGHT,
+        )
+        with pytest.warns(UserWarning, match="non-positive IC"):
+            compute_ic_weighted_composite(group_scores, ic_history, config)
+
+    def test_icir_fallback_emits_warning(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        ic_per_group = self._all_negative_icir_series(groups)
+
+        config = CompositeScoringConfig(
+            method=CompositeMethod.ICIR_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.EQUAL_WEIGHT,
+        )
+        with pytest.warns(UserWarning, match="non-positive ICIR"):
+            compute_icir_weighted_composite(
+                group_scores, ic_per_group, config
+            )
+
+    def test_warning_includes_group_count(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        ic_history = self._all_negative_ic_history(groups)
+        n_groups = len(groups)
+
+        config = CompositeScoringConfig(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.EQUAL_WEIGHT,
+        )
+        with pytest.warns(UserWarning) as record:
+            compute_ic_weighted_composite(group_scores, ic_history, config)
+
+        assert len(record) == 1
+        msg = str(record[0].message)
+        assert f"{n_groups}/{n_groups}" in msg
+
+    def test_no_warning_when_positive_ic(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """No warning when at least one group has positive IC."""
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        groups = list(group_scores.columns)
+        rng = np.random.default_rng(42)
+        ic_history = pd.DataFrame(
+            {col: rng.uniform(0.01, 0.06, 36) for col in groups}
+        )
+        config = CompositeScoringConfig(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.EQUAL_WEIGHT,
+        )
+        with _warnings_module.catch_warnings():
+            _warnings_module.simplefilter("error", UserWarning)
+            compute_ic_weighted_composite(group_scores, ic_history, config)
+
+    # ------------------------------------------------------------------
+    # Config defaults and enum values
+    # ------------------------------------------------------------------
+
+    def test_default_fallback_strategy_is_equal_weight(self) -> None:
+        cfg = CompositeScoringConfig()
+        assert cfg.ic_fallback_strategy == ICFallbackStrategy.EQUAL_WEIGHT
+
+    def test_enum_values(self) -> None:
+        assert ICFallbackStrategy.EQUAL_WEIGHT == "equal_weight"
+        assert ICFallbackStrategy.NAN == "nan"
+        assert ICFallbackStrategy.RAISE == "raise"
+
+    def test_preset_raise_on_fallback(self) -> None:
+        cfg = CompositeScoringConfig.for_ic_weighted_raise_on_fallback()
+        assert cfg.method == CompositeMethod.IC_WEIGHTED
+        assert cfg.ic_fallback_strategy == ICFallbackStrategy.RAISE

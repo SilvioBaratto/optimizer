@@ -323,3 +323,175 @@ class TestUnknownRegime:
     def test_unknown_value_is_string(self) -> None:
         assert MacroRegime.UNKNOWN.value == "unknown"
         assert isinstance(MacroRegime.UNKNOWN, str)
+
+
+class TestBoundedTilts:
+    """Tests for capped tilt multipliers and weight floor (issue #279)."""
+
+    def _weights(self) -> dict[FactorGroupType, float]:
+        return {
+            FactorGroupType.VALUE: 0.30,
+            FactorGroupType.MOMENTUM: 0.40,
+            FactorGroupType.LOW_RISK: 0.30,
+        }
+
+    # --- multiplier cap ---
+
+    def test_extreme_tilt_is_capped(self) -> None:
+        """A raw tilt of 10x is clamped to max_tilt_multiplier."""
+        config = RegimeTiltConfig(
+            enable=True,
+            max_tilt_multiplier=2.0,
+            min_post_tilt_weight=0.0,
+            expansion_tilts=(("momentum", 10.0),),
+        )
+        result = apply_regime_tilts(
+            self._weights(), MacroRegime.EXPANSION, config
+        )
+        # Effective momentum tilt is 2.0, not 10.0.
+        # Pre-norm: value=0.30, momentum=0.40*2=0.80, low_risk=0.30
+        # Total = 1.40, scale = 1.0 / 1.40
+        expected_momentum = 0.80 / 1.40
+        assert abs(result[FactorGroupType.MOMENTUM] - expected_momentum) < 1e-10
+
+    def test_normal_tilt_unchanged_by_cap(self) -> None:
+        """Tilts within the cap are applied without modification."""
+        config = RegimeTiltConfig(
+            enable=True,
+            max_tilt_multiplier=2.0,
+            min_post_tilt_weight=0.0,
+            expansion_tilts=(
+                ("momentum", 1.2),
+                ("value", 0.8),
+                ("low_risk", 0.8),
+            ),
+        )
+        result = apply_regime_tilts(
+            self._weights(), MacroRegime.EXPANSION, config
+        )
+        # Pre-norm: value=0.24, momentum=0.48, low_risk=0.24 → 0.96
+        expected_momentum = 0.48 / 0.96
+        assert abs(result[FactorGroupType.MOMENTUM] - expected_momentum) < 1e-10
+
+    # --- weight floor ---
+
+    def test_floor_prevents_near_zero_weight(self) -> None:
+        """A suppressed group is raised to min_post_tilt_weight * total."""
+        config = RegimeTiltConfig(
+            enable=True,
+            max_tilt_multiplier=2.0,
+            min_post_tilt_weight=0.10,
+            recession_tilts=(("momentum", 0.01),),
+        )
+        weights = self._weights()
+        result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
+        # momentum raw = 0.40 * 0.01 = 0.004, floored to 0.10 * 1.0 = 0.10
+        # Pre-renorm: 0.30, 0.10, 0.30 → 0.70, scale = 1.0/0.70
+        assert result[FactorGroupType.MOMENTUM] > 0.0
+        assert abs(sum(result.values()) - sum(weights.values())) < 1e-10
+
+    def test_floor_zero_allows_full_suppression(self) -> None:
+        """With min_post_tilt_weight=0.0, zero tilt drives weight to 0."""
+        config = RegimeTiltConfig(
+            enable=True,
+            max_tilt_multiplier=2.0,
+            min_post_tilt_weight=0.0,
+            recession_tilts=(("momentum", 0.0),),
+        )
+        result = apply_regime_tilts(
+            self._weights(), MacroRegime.RECESSION, config
+        )
+        assert result[FactorGroupType.MOMENTUM] == 0.0
+
+    # --- combined caps and floor ---
+
+    def test_extreme_recession_tilts_bounded(self) -> None:
+        """Extreme tilts: multiplier capped and floor applied."""
+        config = RegimeTiltConfig(
+            enable=True,
+            max_tilt_multiplier=2.0,
+            min_post_tilt_weight=0.05,
+            recession_tilts=(
+                ("low_risk", 5.0),
+                ("momentum", 0.0),
+            ),
+        )
+        weights = {
+            FactorGroupType.VALUE: 1.0,
+            FactorGroupType.MOMENTUM: 1.0,
+            FactorGroupType.LOW_RISK: 1.0,
+        }
+        result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
+        assert abs(sum(result.values()) - 3.0) < 1e-10
+        assert result[FactorGroupType.LOW_RISK] > result[FactorGroupType.VALUE]
+        assert result[FactorGroupType.MOMENTUM] > 0.0
+
+    # --- total preservation ---
+
+    def test_total_weight_preserved_with_bounds(self) -> None:
+        """Total weight preserved even when bounds are active."""
+        config = RegimeTiltConfig(
+            enable=True,
+            max_tilt_multiplier=1.5,
+            min_post_tilt_weight=0.10,
+            recession_tilts=(
+                ("low_risk", 3.0),
+                ("momentum", 0.1),
+            ),
+        )
+        weights = {
+            FactorGroupType.VALUE: 2.0,
+            FactorGroupType.MOMENTUM: 3.0,
+            FactorGroupType.LOW_RISK: 1.0,
+        }
+        result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
+        assert abs(sum(result.values()) - 6.0) < 1e-10
+
+    # --- validation ---
+
+    def test_invalid_max_tilt_multiplier_raises(self) -> None:
+        """max_tilt_multiplier below 1.0 is rejected."""
+        import pytest
+
+        with pytest.raises(ValueError, match="max_tilt_multiplier"):
+            RegimeTiltConfig(enable=True, max_tilt_multiplier=0.9)
+
+    def test_negative_min_post_tilt_weight_raises(self) -> None:
+        """Negative min_post_tilt_weight is rejected."""
+        import pytest
+
+        with pytest.raises(ValueError, match="min_post_tilt_weight"):
+            RegimeTiltConfig(enable=True, min_post_tilt_weight=-0.01)
+
+    def test_min_post_tilt_weight_ge_one_raises(self) -> None:
+        """min_post_tilt_weight >= 1.0 is rejected."""
+        import pytest
+
+        with pytest.raises(ValueError, match="min_post_tilt_weight"):
+            RegimeTiltConfig(enable=True, min_post_tilt_weight=1.0)
+
+    # --- preset ---
+
+    def test_for_strict_bounds_preset(self) -> None:
+        """for_strict_bounds() is enabled with tighter caps."""
+        config = RegimeTiltConfig.for_strict_bounds()
+        assert config.enable is True
+        assert config.max_tilt_multiplier == 1.5
+        assert config.min_post_tilt_weight == 0.10
+
+    def test_for_strict_bounds_limits_boost(self) -> None:
+        """Strict bounds cap expansion momentum at 1.5x max."""
+        config = RegimeTiltConfig.for_strict_bounds()
+        weights = {
+            FactorGroupType.VALUE: 1.0,
+            FactorGroupType.MOMENTUM: 1.0,
+            FactorGroupType.LOW_RISK: 1.0,
+        }
+        result = apply_regime_tilts(
+            weights, MacroRegime.EXPANSION, config
+        )
+        # Default expansion: momentum=1.2 < 1.5 cap, not capped
+        # value=0.8, low_risk=0.8
+        # Pre-norm: 0.8, 1.2, 0.8 → 2.8, scale=3.0/2.8
+        expected = 1.2 / 2.8 * 3.0
+        assert abs(result[FactorGroupType.MOMENTUM] - expected) < 1e-10

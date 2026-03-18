@@ -10,7 +10,10 @@ import pandas as pd
 import pytest
 
 from optimizer.factors import (
+    FactorConstructionConfig,
+    FactorType,
     PublicationLagConfig,
+    StandardizationConfig,
     align_to_pit,
 )
 
@@ -392,3 +395,238 @@ class TestBuildFactorScoresHistoryWarning:
             )
             bias_warnings = [x for x in w if "look-ahead bias" in str(x.message)]
             assert len(bias_warnings) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: PIT correctness end-to-end (issue #273)
+# ---------------------------------------------------------------------------
+
+
+def _build_pit_test_data(
+    n_dates: int = 500,
+    n_tickers: int = 3,
+) -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    dict[str, str],
+]:
+    """Build synthetic data for PIT correctness tests.
+
+    Returns (prices, volumes, snapshot_fundamentals, fundamental_history,
+    sector_mapping).
+
+    The key design:
+    - snapshot_fundamentals uses book_value=5e9 (the 2022-12-31 value)
+    - fundamental_history has 2021-12-31 (book_value=1e9) and 2022-12-31
+      (book_value=5e9)
+    - With 90-day annual lag, rebalancing dates before 2023-03-31 should see
+      only 2021-12-31 data in PIT mode, but snapshot mode always uses 5e9.
+    """
+    rng = np.random.default_rng(42)
+    tickers = [f"T{i}" for i in range(n_tickers)]
+    dates = pd.bdate_range("2022-01-03", periods=n_dates)
+
+    # Cumulative prices so they look realistic
+    prices = pd.DataFrame(
+        rng.uniform(0.5, 2.0, (n_dates, n_tickers)),
+        index=dates,
+        columns=tickers,
+    ).cumsum() + 50.0
+
+    volumes = pd.DataFrame(
+        rng.uniform(1e5, 1e7, (n_dates, n_tickers)),
+        index=dates,
+        columns=tickers,
+    )
+
+    # Snapshot: uses the "future" book_value (2022-12-31 fiscal year)
+    # Values differ across tickers so z-score standardization produces
+    # different rankings than the 2021 data.
+    snapshot = pd.DataFrame(
+        {
+            "market_cap": [10e9, 15e9, 8e9],
+            "enterprise_value": [12e9, 18e9, 10e9],
+            "net_income": [5e8, 3e8, 7e8],
+            "gross_profit": [8e8, 6e8, 1e9],
+            "operating_income": [4e8, 2e8, 5e8],
+            "total_assets": [20e9, 25e9, 15e9],
+            "total_equity": [8e9, 10e9, 6e9],
+            "book_value": [5e9, 8e9, 3e9],
+            "dividend_yield": [0.02, 0.01, 0.03],
+        },
+        index=pd.Index(tickers, name="ticker"),
+    )
+
+    # PIT history: two annual reporting periods with very different values
+    # 2021 data has *reversed* equity ranking vs 2022 data so that
+    # standardized factor scores (z-score across tickers) differ.
+    records = []
+    equity_2021 = [6e9, 2e9, 4e9]  # T0 highest equity in 2021
+    equity_2022 = [8e9, 10e9, 6e9]  # T1 highest equity in 2022
+    for i, t in enumerate(tickers):
+        records.append(
+            {
+                "period_date": pd.Timestamp("2021-12-31"),
+                "ticker": t,
+                "net_income": 1e8 + i * 5e7,
+                "gross_profit": 2e8 + i * 1e8,
+                "operating_income": 1e8 + i * 5e7,
+                "total_assets": 5e9 + i * 2e9,
+                "total_equity": equity_2021[i],
+                "period_type": "annual",
+                "asset_growth": np.nan,
+            }
+        )
+        records.append(
+            {
+                "period_date": pd.Timestamp("2022-12-31"),
+                "ticker": t,
+                "net_income": 5e8 + i * 1e8,
+                "gross_profit": 8e8 + i * 2e8,
+                "operating_income": 4e8 + i * 1e8,
+                "total_assets": 20e9 + i * 5e9,
+                "total_equity": equity_2022[i],
+                "period_type": "annual",
+                "asset_growth": (20e9 - 5e9) / 5e9,
+            }
+        )
+
+    history = pd.DataFrame(records).set_index(["period_date", "ticker"]).sort_index()
+    sector_mapping = dict.fromkeys(tickers, "Technology")
+
+    return prices, volumes, snapshot, history, sector_mapping
+
+
+@_skip_no_research
+class TestBuildFactorScoresHistoryPITCorrectness:
+    """Verify that PIT fundamentals produce different scores than snapshot.
+
+    Uses synthetic data where 2021-12-31 and 2022-12-31 annual reports have
+    very different values. With a 90-day publication lag, rebalancing dates
+    before 2023-03-31 should see only the 2021-12-31 data in PIT mode, but
+    snapshot mode always sees the 2022-12-31 values.
+    """
+
+    def test_pit_fundamentals_differ_from_snapshot_at_early_dates(self) -> None:
+        """PIT mode should produce different scores than snapshot at early dates."""
+        from research._factors import build_factor_scores_history
+
+        prices, volumes, snapshot, history, sector_mapping = _build_pit_test_data()
+
+        class MockAssembly:
+            analyst_data = pd.DataFrame()
+            insider_data = pd.DataFrame()
+
+        # ROE = net_income / total_equity — both columns exist in the
+        # history panel, so PIT slicing produces genuinely different raw
+        # values (not filled from snapshot).
+        factor_config = FactorConstructionConfig(
+            factors=(FactorType.ROE,),
+            publication_lag=PublicationLagConfig(annual_days=90),
+        )
+        std_config = StandardizationConfig()
+
+        # Run 1: snapshot mode (no fundamental_history)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            snap_scores, _, _ = build_factor_scores_history(
+                investable_prices=prices,
+                investable_volumes=volumes,
+                investable_fundamentals=snapshot,
+                assembly=MockAssembly(),  # type: ignore[arg-type]
+                factor_config=factor_config,
+                std_config=std_config,
+                sector_mapping=sector_mapping,
+                rebalance_freq=63,
+                fundamental_history=None,
+            )
+
+        # Run 2: PIT mode (with fundamental_history)
+        pit_scores, _, _ = build_factor_scores_history(
+            investable_prices=prices,
+            investable_volumes=volumes,
+            investable_fundamentals=snapshot,
+            assembly=MockAssembly(),  # type: ignore[arg-type]
+            factor_config=factor_config,
+            std_config=std_config,
+            sector_mapping=sector_mapping,
+            rebalance_freq=63,
+            fundamental_history=history,
+        )
+
+        factor_name = "roe"
+        assert factor_name in snap_scores
+        assert factor_name in pit_scores
+
+        snap_f = snap_scores[factor_name]
+        pit_f = pit_scores[factor_name]
+
+        # Find early dates (before 2023-03-31 — when 2022-12-31 data
+        # becomes available with 90-day lag)
+        cutoff = pd.Timestamp("2023-03-31")
+        early_dates = [d for d in pit_f.index if d < cutoff]
+
+        assert len(early_dates) > 0, "Expected at least one early rebalancing date"
+
+        # At early dates, PIT (sees 2021 data) should differ from
+        # snapshot (sees 2022 data)
+        any_different = False
+        for dt in early_dates:
+            if dt in snap_f.index:
+                snap_row = snap_f.loc[dt].dropna()
+                pit_row = pit_f.loc[dt].dropna()
+                common = snap_row.index.intersection(pit_row.index)
+                if len(common) > 0 and not np.allclose(
+                    snap_row[common].values,
+                    pit_row[common].values,
+                    atol=1e-8,
+                ):
+                    any_different = True
+                    break
+
+        assert any_different, (
+            "PIT and snapshot scores should differ at early dates "
+            "where only 2021 fundamentals are available in PIT mode"
+        )
+
+    def test_pit_mode_does_not_use_future_data(self) -> None:
+        """At early dates, PIT factor scores must reflect 2021 data, not 2022."""
+        from research._factors import _slice_fundamentals_at
+
+        prices, _, snapshot, history, _ = _build_pit_test_data()
+
+        # Identify rebalancing dates before the 2022-12-31 data becomes
+        # available (i.e., before 2023-03-31 with 90-day lag)
+        dates = prices.index
+        rebal_indices = list(range(len(dates) - 1, 63, -63))
+        rebal_indices.reverse()
+        rebal_dates = [dates[i] for i in rebal_indices]
+        cutoff = pd.Timestamp("2023-03-31")
+        early_dates = [d for d in rebal_dates if d < cutoff]
+
+        assert len(early_dates) > 0, "Expected at least one early rebalancing date"
+
+        lag_config = PublicationLagConfig(annual_days=90)
+
+        for dt in early_dates:
+            sliced = _slice_fundamentals_at(
+                as_of_date=dt,
+                fundamental_history=history,
+                snapshot_fundamentals=snapshot,
+                lag_config=lag_config,
+            )
+
+            # The sliced fundamentals should reflect 2021-12-31 values,
+            # NOT 2022-12-31 values.
+            expected_equity = {"T0": 6e9, "T1": 2e9, "T2": 4e9}
+            for ticker in ["T0", "T1", "T2"]:
+                if ticker in sliced.index and "total_equity" in sliced.columns:
+                    equity = sliced.loc[ticker, "total_equity"]
+                    assert np.isclose(equity, expected_equity[ticker]), (
+                        f"At {dt.date()}, {ticker} total_equity={equity:.0f} "
+                        f"but expected {expected_equity[ticker]:.0f} "
+                        f"(2021-12-31 value). "
+                        f"Got future 2022-12-31 data — look-ahead bias!"
+                    )

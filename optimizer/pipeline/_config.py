@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from optimizer.fx._decomposition import FxReturnDecomposition
 
 
 @dataclass
@@ -36,6 +39,21 @@ class PortfolioResult:
     turnover : float or None
         One-way turnover between ``previous_weights`` and the new
         weights.  ``None`` when no previous weights were provided.
+    fx_decomposition : FxReturnDecomposition or None
+        FX return decomposition when ``FxConfig.mode == DECOMPOSE``.
+    currency : str or None
+        Base currency used for FX conversion (e.g. ``"EUR"``).
+    net_returns : pd.Series or None
+        Net backtest portfolio returns after transaction cost deduction.
+        ``None`` when no backtest was run.
+    net_sharpe_ratio : float or None
+        Annualized Sharpe ratio computed from ``net_returns``.
+        ``None`` when no backtest was run.
+    weight_history : pd.DataFrame or None
+        Absolute portfolio weights at each walk-forward rebalancing date.
+        Rows are rebalancing dates; columns are asset tickers.
+        Compatible with ``compute_net_alpha(weights_history=...)``.
+        ``None`` when no backtest was run.
     """
 
     weights: pd.Series
@@ -46,3 +64,8 @@ class PortfolioResult:
     rebalance_needed: bool | None = None
     turnover: float | None = None
     risk_free_rate: float = 0.0
+    fx_decomposition: FxReturnDecomposition | None = None
+    currency: str | None = None
+    net_returns: pd.Series | None = None
+    net_sharpe_ratio: float | None = None
+    weight_history: pd.DataFrame | None = None

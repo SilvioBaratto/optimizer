@@ -233,6 +233,11 @@ class MeanRiskConfig:
         Additional solver parameters.
     prior_config : MomentEstimationConfig or None
         Inner prior configuration.
+    max_sector_weight : float or None
+        Maximum total weight allocated to any single sector.  When set,
+        ``build_mean_risk()`` requires a ``sector_mapping`` kwarg to
+        resolve sector membership.  ``None`` disables sector constraints
+        (default).
     """
 
     objective: ObjectiveFunctionType = ObjectiveFunctionType.MINIMIZE_RISK
@@ -258,6 +263,7 @@ class MeanRiskConfig:
     solver: str = "CLARABEL"
     solver_params: dict[str, object] | None = None
     prior_config: MomentEstimationConfig | None = None
+    max_sector_weight: float | None = None
 
     # -- factory methods -----------------------------------------------------
 
@@ -308,6 +314,32 @@ class MeanRiskConfig:
             min_weights=0.01,
             max_weights=0.10,
             l2_coef=0.05,
+            prior_config=MomentEstimationConfig.for_shrunk_denoised(),
+        )
+
+    @classmethod
+    def for_max_sharpe_sector_constrained(
+        cls,
+        max_sector_weight: float = 0.25,
+    ) -> MeanRiskConfig:
+        """Max Sharpe with per-asset and per-sector diversification constraints.
+
+        Combines L2 regularisation, a 10% per-asset cap, and a uniform
+        per-sector cap to prevent sector concentration.
+
+        Uses ShrunkMu + DenoiseCovariance for robust moment estimates.
+
+        Parameters
+        ----------
+        max_sector_weight : float
+            Maximum total weight for any single sector.  Default 0.25.
+        """
+        return cls(
+            objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
+            risk_measure=RiskMeasureType.VARIANCE,
+            max_weights=0.10,
+            l2_coef=0.05,
+            max_sector_weight=max_sector_weight,
             prior_config=MomentEstimationConfig.for_shrunk_denoised(),
         )
 

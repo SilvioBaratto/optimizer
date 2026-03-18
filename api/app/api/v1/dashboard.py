@@ -115,7 +115,10 @@ def get_performance_metrics(
             detail=str(exc),
         ) from exc
 
-    return PerformanceMetricsResponse(**result)
+    return PerformanceMetricsResponse(
+        **result,
+        currency=portfolio.currency,
+    )
 
 
 @router.get(

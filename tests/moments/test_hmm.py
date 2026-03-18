@@ -70,7 +70,7 @@ class TestHMMConfig:
         assert cfg.n_iter == 100
         assert cfg.tol == 1e-4
         assert cfg.covariance_type == "full"
-        assert cfg.random_state is None
+        assert cfg.random_state == 42
 
     def test_custom_values(self) -> None:
         cfg = HMMConfig(n_states=3, n_iter=50, random_state=7)
@@ -222,6 +222,29 @@ class TestFitHMM:
         for s in range(2):
             eigvals = np.linalg.eigvalsh(hmm_result.regime_covariances[s])
             assert (eigvals > -1e-10).all()
+
+    def test_default_config_deterministic(
+        self, synthetic_returns: pd.DataFrame
+    ) -> None:
+        """Two runs with default HMMConfig produce identical results."""
+        r1 = fit_hmm(synthetic_returns, HMMConfig())
+        r2 = fit_hmm(synthetic_returns, HMMConfig())
+        np.testing.assert_array_equal(
+            r1.filtered_probs.to_numpy(), r2.filtered_probs.to_numpy()
+        )
+        np.testing.assert_array_equal(
+            r1.regime_means.to_numpy(), r2.regime_means.to_numpy()
+        )
+        np.testing.assert_array_equal(
+            r1.regime_covariances, r2.regime_covariances
+        )
+
+    def test_none_random_state_allowed(self, synthetic_returns: pd.DataFrame) -> None:
+        """Users can still pass random_state=None for non-deterministic runs."""
+        cfg = HMMConfig(random_state=None)
+        assert cfg.random_state is None
+        result = fit_hmm(synthetic_returns, cfg)
+        assert isinstance(result, HMMResult)
 
 
 # ---------------------------------------------------------------------------

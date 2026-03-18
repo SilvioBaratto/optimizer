@@ -33,6 +33,7 @@ class PerformanceMetricsResponse(CamelCaseModel):
     kpis: list[KpiItem]
     nav: float
     nav_change_pct: float
+    currency: str = "EUR"
 
 
 class EquityCurvePoint(CamelCaseModel):

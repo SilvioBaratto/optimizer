@@ -10,6 +10,8 @@ from optimizer.factors._config import SelectionConfig, SelectionMethod
 
 logger = logging.getLogger(__name__)
 
+_MAX_BALANCE_ITERATIONS: int = 10
+
 
 def select_fixed_count(
     scores: pd.Series,
@@ -112,8 +114,9 @@ def apply_sector_balance(
 ) -> pd.Index:
     """Adjust selection for sector-proportional representation.
 
-    Ensures no sector is over- or under-represented relative to
-    the parent universe by more than ``tolerance``.
+    Iterates the balance pass until convergence (no further adds or
+    removes are needed) or until ``_MAX_BALANCE_ITERATIONS`` is reached.
+    A warning is logged if the cap is hit before convergence.
 
     Parameters
     ----------
@@ -136,35 +139,68 @@ def apply_sector_balance(
     parent_sectors = sector_labels.reindex(parent_universe).dropna()
     target_weights = parent_sectors.value_counts(normalize=True)
 
-    selected_sectors = sector_labels.reindex(selected).dropna()
-    n_selected = len(selected)
+    result_set: set[str] = set(selected)
 
-    result = list(selected)
+    for iteration in range(_MAX_BALANCE_ITERATIONS):
+        current_index = pd.Index(list(result_set))
+        selected_sectors = sector_labels.reindex(current_index).dropna()
+        n_selected = len(result_set)
 
-    for sector, target_w in target_weights.items():
-        min_n = max(0, round((target_w - tolerance) * n_selected))
-        max_n = round((target_w + tolerance) * n_selected)
+        changed = False
 
-        current_n = (selected_sectors == sector).sum()
+        for sector, target_w in target_weights.items():
+            min_n = max(0, round((target_w - tolerance) * n_selected))
+            max_n = round((target_w + tolerance) * n_selected)
 
-        if current_n < min_n:
-            # Under-represented: add highest-scoring non-selected from this sector
-            candidates = sector_labels.index[
-                (sector_labels == sector) & (~sector_labels.index.isin(selected))
-            ]
-            candidate_scores = (
-                scores.reindex(candidates).dropna().sort_values(ascending=False)
+            current_n = int((selected_sectors == sector).sum())
+
+            if current_n < min_n:
+                candidates = sector_labels.index[
+                    (sector_labels == sector)
+                    & (~sector_labels.index.isin(result_set))
+                ]
+                candidate_scores = (
+                    scores.reindex(candidates).dropna().sort_values(ascending=False)
+                )
+                to_add = candidate_scores.index[: min_n - current_n]
+                if len(to_add) > 0:
+                    result_set.update(to_add)
+                    selected_sectors = sector_labels.reindex(
+                        pd.Index(list(result_set))
+                    ).dropna()
+                    n_selected = len(result_set)
+                    changed = True
+
+            elif current_n > max_n:
+                sector_members = selected_sectors[
+                    selected_sectors == sector
+                ].index
+                sector_scores = (
+                    scores.reindex(sector_members).dropna().sort_values()
+                )
+                to_remove = set(sector_scores.index[: current_n - max_n])
+                if to_remove:
+                    result_set -= to_remove
+                    selected_sectors = sector_labels.reindex(
+                        pd.Index(list(result_set))
+                    ).dropna()
+                    n_selected = len(result_set)
+                    changed = True
+
+        if not changed:
+            logger.debug(
+                "apply_sector_balance converged after %d iteration(s).",
+                iteration + 1,
             )
-            to_add = candidate_scores.index[: min_n - current_n]
-            result.extend(to_add)
-        elif current_n > max_n:
-            # Over-represented: remove lowest-scoring from this sector
-            sector_selected = selected[selected_sectors == sector]
-            sector_scores = scores.reindex(sector_selected).sort_values()
-            to_remove = sector_scores.index[: current_n - max_n]
-            result = [t for t in result if t not in to_remove]
+            break
+    else:
+        logger.warning(
+            "apply_sector_balance did not converge within %d iterations. "
+            "Returning best-effort result.",
+            _MAX_BALANCE_ITERATIONS,
+        )
 
-    return pd.Index(sorted(set(result)))
+    return pd.Index(sorted(result_set))
 
 
 def compute_selection_turnover(

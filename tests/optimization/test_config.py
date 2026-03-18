@@ -178,6 +178,7 @@ class TestMeanRiskConfig:
         assert cfg.solver == "CLARABEL"
         assert cfg.solver_params is None
         assert cfg.prior_config is None
+        assert cfg.max_sector_weight is None
 
     def test_frozen(self) -> None:
         cfg = MeanRiskConfig()
@@ -234,6 +235,30 @@ class TestMeanRiskConfig:
         cfg = MeanRiskConfig.for_efficient_frontier(size=30)
         assert cfg.efficient_frontier_size == 30
         assert cfg.objective == ObjectiveFunctionType.MINIMIZE_RISK
+
+    def test_max_sector_weight_roundtrip(self) -> None:
+        cfg = MeanRiskConfig(max_sector_weight=0.25)
+        assert cfg.max_sector_weight == 0.25
+
+    def test_for_max_sharpe_sector_constrained_defaults(self) -> None:
+        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained()
+        assert cfg.objective == ObjectiveFunctionType.MAXIMIZE_RATIO
+        assert cfg.risk_measure == RiskMeasureType.VARIANCE
+        assert cfg.max_weights == 0.10
+        assert cfg.l2_coef == 0.05
+        assert cfg.max_sector_weight == 0.25
+        assert cfg.prior_config is not None
+
+    def test_for_max_sharpe_sector_constrained_custom_cap(self) -> None:
+        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained(
+            max_sector_weight=0.30
+        )
+        assert cfg.max_sector_weight == 0.30
+
+    def test_for_max_sharpe_sector_constrained_is_frozen(self) -> None:
+        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained()
+        with pytest.raises(AttributeError):
+            cfg.max_sector_weight = 0.5  # type: ignore[misc]
 
 
 class TestRiskBudgetingConfig:

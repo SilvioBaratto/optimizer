@@ -115,7 +115,7 @@ class DashboardRepository(RepositoryBase):
         """
         stmt = (
             select(BondYield)
-            .where(BondYield.country == "United States")
+            .where(BondYield.country.in_(("United States", "USA")))
             .where(BondYield.maturity == "10Y")
         )
         row = self.session.execute(stmt).scalar_one_or_none()
@@ -127,7 +127,7 @@ class DashboardRepository(RepositoryBase):
         """Return the reference_date for US 10Y bond yield."""
         stmt = (
             select(BondYield.reference_date)
-            .where(BondYield.country == "United States")
+            .where(BondYield.country.in_(("United States", "USA")))
             .where(BondYield.maturity == "10Y")
         )
         return self.session.execute(stmt).scalar_one_or_none()

@@ -16,7 +16,7 @@ class TestWalkForwardConfig:
         cfg = WalkForwardConfig()
         assert cfg.test_size == 63
         assert cfg.train_size == 252
-        assert cfg.purged_size == 0
+        assert cfg.purged_size == 5
         assert cfg.expend_train is False
         assert cfg.reduce_test is False
 
@@ -29,16 +29,19 @@ class TestWalkForwardConfig:
         cfg = WalkForwardConfig.for_monthly_rolling()
         assert cfg.test_size == 21
         assert cfg.train_size == 252
+        assert cfg.purged_size == 21
         assert cfg.expend_train is False
 
     def test_for_quarterly_rolling(self) -> None:
         cfg = WalkForwardConfig.for_quarterly_rolling()
         assert cfg.test_size == 63
         assert cfg.train_size == 252
+        assert cfg.purged_size == 21
 
     def test_for_quarterly_expanding(self) -> None:
         cfg = WalkForwardConfig.for_quarterly_expanding()
         assert cfg.test_size == 63
+        assert cfg.purged_size == 21
         assert cfg.expend_train is True
 
     def test_custom_params(self) -> None:

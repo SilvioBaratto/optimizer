@@ -29,6 +29,7 @@ def _make_portfolio(name: str = "test") -> MagicMock:
     p = MagicMock()
     p.id = uuid.uuid4()
     p.name = name
+    p.currency = "EUR"
     return p
 
 

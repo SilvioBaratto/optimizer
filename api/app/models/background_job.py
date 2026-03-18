@@ -1,15 +1,28 @@
 """SQLAlchemy model for persistent background job tracking."""
 
+from __future__ import annotations
+
+import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Index, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import BaseModel
 
 # Use JSONB on PostgreSQL, plain JSON elsewhere (e.g. SQLite in tests).
 _JSON = JSON().with_variant(JSONB, "postgresql")
-
-from app.models.base import BaseModel
 
 
 class BackgroundJob(BaseModel):
@@ -34,7 +47,6 @@ class BackgroundJob(BaseModel):
     total: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     extra: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     result: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
-    errors: Mapped[list | None] = mapped_column(_JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(),
@@ -42,3 +54,37 @@ class BackgroundJob(BaseModel):
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
+
+    # Relationships
+    error_entries: Mapped[list[BackgroundJobError]] = relationship(
+        back_populates="job",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="BackgroundJobError.error_index",
+    )
+
+    @property
+    def errors(self) -> list[str] | None:
+        if not self.error_entries:
+            return None
+        return [e.message for e in self.error_entries]
+
+
+class BackgroundJobError(BaseModel):
+    """Individual error message for a background job."""
+
+    __tablename__ = "background_job_errors"
+    __table_args__ = (
+        UniqueConstraint("job_id", "error_index", name="uq_bg_job_error_index"),
+        Index("ix_background_job_errors_job_id", "job_id"),
+    )
+
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("background_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    error_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+
+    job: Mapped[BackgroundJob] = relationship(back_populates="error_entries")

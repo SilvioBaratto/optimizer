@@ -17,6 +17,7 @@ export interface ApiPerformanceMetricsResponse {
   kpis: ApiKpiItem[];
   nav: number;
   navChangePct: number;
+  currency: string;
 }
 
 export interface ApiEquityCurvePoint {

@@ -46,6 +46,62 @@ class ICResult:
 
 
 @dataclass
+class CompositeICResult:
+    """IC analysis results for the composite score signal.
+
+    Attributes
+    ----------
+    mean_ic : float
+        Mean IC of the composite score over the evaluation period.
+    ic_std : float
+        Standard deviation of the IC series.
+    t_stat : float
+        Newey-West adjusted t-statistic.
+    p_value : float
+        Two-tailed p-value from the Newey-West t-statistic.
+    icir : float
+        IC Information Ratio: ``mean(IC) / std(IC)``.
+    significant : bool
+        True when ``abs(t_stat) >= t_stat_threshold``.
+    best_individual_ic : float
+        Highest mean IC among individual factors.  ``NaN`` when
+        no individual factors were validated alongside.
+    outperforms_best_individual : bool
+        True when ``mean_ic > best_individual_ic``.
+    """
+
+    mean_ic: float
+    ic_std: float
+    t_stat: float
+    p_value: float
+    icir: float
+    significant: bool
+    best_individual_ic: float
+    outperforms_best_individual: bool
+
+
+@dataclass
+class GroupICResult:
+    """Result of group-level IC aggregation with per-factor breakdown.
+
+    Attributes
+    ----------
+    group_ic : pd.DataFrame
+        (dates x groups) group-level IC history.  Identical in shape to
+        the legacy ``build_group_ic_history`` return value.
+    factor_ic : pd.DataFrame
+        (dates x factors) per-factor IC time series.
+    excluded_factors : dict[str, list[str]]
+        Group name → list of factor names excluded by the negative-IC
+        filter policy.  Empty when ``ICNegativeFilterPolicy.INCLUDE``.
+    """
+
+    group_ic: pd.DataFrame
+    factor_ic: pd.DataFrame
+    excluded_factors: dict[str, list[str]]
+
+
+@dataclass
 class QuantileSpreadResult:
     """Quantile spread analysis results for a single factor."""
 
@@ -66,6 +122,7 @@ class FactorValidationReport:
     vif_scores: pd.Series | None = None
     significant_factors: list[str] = field(default_factory=list)
     significant_factors_holm: list[str] = field(default_factory=list)
+    composite_ic_result: CompositeICResult | None = None
 
 
 @dataclass
@@ -432,6 +489,81 @@ def validate_factor_universe(
 
 
 # ---------------------------------------------------------------------------
+# Composite IC validation
+# ---------------------------------------------------------------------------
+
+
+def compute_composite_ic(
+    composite_scores_history: pd.DataFrame,
+    returns_history: pd.DataFrame,
+    newey_west_lags: int = 6,
+    t_stat_threshold: float = 2.0,
+    min_observations: int = 3,
+) -> CompositeICResult:
+    """Compute IC statistics for the composite score signal.
+
+    Parameters
+    ----------
+    composite_scores_history : pd.DataFrame
+        Dates x tickers matrix of composite scores.
+    returns_history : pd.DataFrame
+        Dates x tickers matrix of forward returns.
+    newey_west_lags : int, default 6
+        Number of lags for HAC standard errors.
+    t_stat_threshold : float, default 2.0
+        Threshold for significance decision.
+    min_observations : int, default 3
+        Minimum non-NaN observations per cross-section date.
+
+    Returns
+    -------
+    CompositeICResult
+        IC statistics for the composite score.  The
+        ``best_individual_ic`` and ``outperforms_best_individual``
+        fields are populated by ``run_factor_validation`` when
+        individual factor results are available.
+    """
+    ic_series = compute_ic_series(
+        composite_scores_history,
+        returns_history,
+        "composite",
+        min_observations=min_observations,
+    )
+
+    if len(ic_series) < 2:
+        return CompositeICResult(
+            mean_ic=float("nan"),
+            ic_std=float("nan"),
+            t_stat=0.0,
+            p_value=1.0,
+            icir=float("nan"),
+            significant=False,
+            best_individual_ic=float("nan"),
+            outperforms_best_individual=False,
+        )
+
+    mean_ic = float(ic_series.mean())
+    ic_std = float(ic_series.std(ddof=1))
+    icir = mean_ic / ic_std if ic_std > 0.0 else 0.0
+
+    t_stat, p_value = compute_newey_west_tstat(
+        ic_series, n_lags=newey_west_lags
+    )
+    significant = abs(t_stat) >= t_stat_threshold
+
+    return CompositeICResult(
+        mean_ic=mean_ic,
+        ic_std=ic_std,
+        t_stat=t_stat,
+        p_value=p_value,
+        icir=icir,
+        significant=significant,
+        best_individual_ic=float("nan"),
+        outperforms_best_individual=False,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Quantile spread
 # ---------------------------------------------------------------------------
 
@@ -479,6 +611,13 @@ def compute_quantile_spread(
 # VIF
 # ---------------------------------------------------------------------------
 
+# Guard near-singular regressions: if 1 - R² falls below this threshold the
+# residual variance is dominated by floating-point noise and VIF is meaningless.
+# 1e-10 preserves all diagnostically meaningful VIF values (up to ~1e10) while
+# mapping IEEE 754 near-exact collinearity artefacts to inf.  Chosen to match
+# statsmodels' numerical rank tolerance for OLS singular matrices.
+_VIF_R2_SINGULARITY_TOL: float = 1e-10
+
 
 def compute_vif(factor_matrix: pd.DataFrame) -> pd.Series:
     """Compute variance inflation factors for multicollinearity.
@@ -524,7 +663,11 @@ def compute_vif(factor_matrix: pd.DataFrame) -> pd.Series:
             ss_res = float(np.sum((y - y_hat) ** 2))
             ss_tot = float(np.sum((y - y.mean()) ** 2))
             r_sq = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
-            vifs[str(col)] = 1.0 / (1.0 - r_sq) if r_sq < 1.0 else float(np.inf)
+            vifs[str(col)] = (
+                1.0 / (1.0 - r_sq)
+                if 1.0 - r_sq > _VIF_R2_SINGULARITY_TOL
+                else float(np.inf)
+            )
         except np.linalg.LinAlgError:
             vifs[str(col)] = float(np.inf)
 
@@ -590,6 +733,7 @@ def run_factor_validation(
     factor_scores_history: dict[str, pd.DataFrame],
     returns_history: pd.DataFrame,
     config: FactorValidationConfig | None = None,
+    composite_scores_history: pd.DataFrame | None = None,
 ) -> FactorValidationReport:
     """Run complete factor validation suite.
 
@@ -601,6 +745,10 @@ def run_factor_validation(
         Dates x tickers forward return matrix.
     config : FactorValidationConfig or None
         Validation parameters.
+    composite_scores_history : pd.DataFrame or None
+        Dates x tickers matrix of composite scores.  When provided,
+        IC analysis is run on the composite signal and compared
+        against the best individual factor IC.
 
     Returns
     -------
@@ -676,5 +824,22 @@ def run_factor_validation(
             for f, p in zip(factor_names, corrected.holm, strict=True)
             if p <= config.fdr_alpha
         ]
+
+    # Composite score IC validation
+    if composite_scores_history is not None:
+        composite_result = compute_composite_ic(
+            composite_scores_history,
+            returns_history,
+            newey_west_lags=config.newey_west_lags,
+            t_stat_threshold=config.t_stat_threshold,
+            min_observations=config.composite_min_observations,
+        )
+        if report.ic_results:
+            best_ic = max(r.mean_ic for r in report.ic_results)
+            composite_result.best_individual_ic = best_ic
+            composite_result.outperforms_best_individual = (
+                composite_result.mean_ic > best_ic
+            )
+        report.composite_ic_result = composite_result
 
     return report

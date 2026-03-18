@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,7 @@ from optimizer.factors._config import (
     CompositeScoringConfig,
     FactorGroupType,
     GroupWeight,
+    ICFallbackStrategy,
 )
 from optimizer.factors._ml_scoring import (
     FittedMLModel,
@@ -56,6 +58,43 @@ def _renormalized_weighted_composite(
     # fillna(0) is safe because normed weights are zero where score is NaN
     composite = (scores.fillna(0.0).values * normed).sum(axis=1)
     return pd.Series(composite, index=group_scores.index)
+
+
+def _handle_zero_weight_fallback(
+    group_scores: pd.DataFrame,
+    config: CompositeScoringConfig,
+    group_weights: dict[str, float] | None,
+    signal_type: str,
+    n_negative: int,
+) -> pd.Series:
+    """Handle the zero-total-weight fallback for IC/ICIR weighting.
+
+    Called when every factor group has non-positive IC or ICIR so that the
+    pre-normalisation weight vector sums to zero.
+    """
+    n_groups = len(group_scores.columns)
+    msg = (
+        f"All {n_negative}/{n_groups} factor groups have non-positive "
+        f"{signal_type}; "
+        f"falling back to {config.ic_fallback_strategy.value!r} strategy. "
+        "Consider increasing ic_lookback or checking factor data quality."
+    )
+    logger.warning(msg)
+    warnings.warn(msg, UserWarning, stacklevel=3)
+
+    strategy = config.ic_fallback_strategy
+    if strategy == ICFallbackStrategy.EQUAL_WEIGHT:
+        return compute_equal_weight_composite(group_scores, config, group_weights)
+
+    if strategy == ICFallbackStrategy.NAN:
+        return pd.Series(np.nan, index=group_scores.index)
+
+    # ICFallbackStrategy.RAISE
+    raise_msg = (
+        f"All {n_negative}/{n_groups} factor groups have non-positive "
+        f"{signal_type}. Cannot compute weighted composite."
+    )
+    raise ConfigurationError(raise_msg)
 
 
 def compute_group_scores(
@@ -201,8 +240,10 @@ def compute_ic_weighted_composite(
 
     total_weight = sum(weights.values())
     if total_weight == 0.0:
-        # All groups have negative or zero IC — fall back to equal weight
-        return compute_equal_weight_composite(group_scores, config, group_weights)
+        n_negative = sum(1 for v in weights.values() if v == 0.0)
+        return _handle_zero_weight_fallback(
+            group_scores, config, group_weights, "IC", n_negative
+        )
 
     return _renormalized_weighted_composite(group_scores, weights)
 
@@ -259,8 +300,10 @@ def compute_icir_weighted_composite(
 
     total_weight = sum(weights.values())
     if total_weight == 0.0:
-        # All groups have zero or negative ICIR — fall back to equal weight
-        return compute_equal_weight_composite(group_scores, config, group_weights)
+        n_negative = sum(1 for v in weights.values() if v == 0.0)
+        return _handle_zero_weight_fallback(
+            group_scores, config, group_weights, "ICIR", n_negative
+        )
 
     return _renormalized_weighted_composite(group_scores, weights)
 
@@ -308,6 +351,7 @@ def compute_ml_composite(
             training_returns,
             config.gbt_max_depth,
             config.gbt_n_estimators,
+            config.gbt_random_state,
         )
     return predict_composite_scores(model, standardized_factors)
 

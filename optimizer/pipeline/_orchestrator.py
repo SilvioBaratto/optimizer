@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
+from math import sqrt
 from typing import Any, cast
 
 import numpy as np
@@ -29,9 +31,16 @@ from optimizer.factors._regime import apply_regime_tilts, classify_regime
 from optimizer.factors._scoring import compute_composite_score
 from optimizer.factors._selection import select_stocks
 from optimizer.factors._standardization import standardize_all_factors
+from optimizer.fx._config import FxConfig, FxConversionMode
+from optimizer.fx._decomposition import decompose_fx_returns
+from optimizer.fx._factory import build_fx_converter
+from optimizer.optimization._config import RatioMeasureType
 from optimizer.pipeline._builder import build_portfolio_pipeline
 from optimizer.pipeline._config import PortfolioResult
 from optimizer.pre_selection._config import PreSelectionConfig
+from optimizer.preprocessing._delisting import (
+    apply_delisting_returns as _apply_delisting_rets,
+)
 from optimizer.rebalancing._config import (
     HybridRebalancingConfig,
     ThresholdRebalancingConfig,
@@ -49,6 +58,8 @@ from optimizer.validation._config import WalkForwardConfig
 from optimizer.validation._factory import build_walk_forward, run_cross_val
 
 logger = logging.getLogger(__name__)
+
+_MIN_SELECTED_STOCKS = 5
 
 # ---------------------------------------------------------------------------
 # Low-level composable functions
@@ -133,6 +144,7 @@ def tune_and_optimize(
     *,
     tuning_config: GridSearchConfig | RandomizedSearchConfig | None = None,
     y: pd.DataFrame | None = None,
+    risk_free_rate: float = 0.0,
 ) -> PortfolioResult:
     """Tune hyperparameters via grid or randomized search, then optimise.
 
@@ -151,12 +163,28 @@ def tune_and_optimize(
         with Sharpe ratio scoring (grid search).
     y : pd.DataFrame or None
         Benchmark or factor returns.
+    risk_free_rate : float
+        Daily risk-free rate for consistent Sharpe scoring (issue #272).
+        When non-zero and the scorer uses Sharpe ratio, the scorer
+        config is updated to use this rate.
 
     Returns
     -------
     PortfolioResult
         Weights from the best estimator, with backtest from CV.
     """
+    # Inject risk_free_rate into the tuning scorer (issue #272)
+    if risk_free_rate != 0.0 and tuning_config is not None:
+        from dataclasses import replace
+
+        from optimizer.scoring._config import ScorerConfig
+
+        sc = tuning_config.scorer_config
+        is_sharpe = sc.ratio_measure == RatioMeasureType.SHARPE_RATIO
+        if is_sharpe and sc.risk_free_rate == 0.0:
+            new_scorer = ScorerConfig.for_sharpe_with_rf(risk_free_rate)
+            tuning_config = replace(tuning_config, scorer_config=new_scorer)
+
     if isinstance(tuning_config, RandomizedSearchConfig):
         gs = build_randomized_search_cv(pipeline, param_grid, config=tuning_config)
     else:
@@ -192,9 +220,11 @@ def compute_net_backtest_returns(
 ) -> pd.Series:
     """Deduct proportional transaction costs from gross backtest returns.
 
-    For each date with weight changes, the turnover (sum of absolute
-    weight deltas) is multiplied by ``cost_bps / 10_000`` and subtracted
-    from the gross return at that date.
+    For each date with weight changes, the one-way turnover (half the sum
+    of absolute weight deltas, consistent with ``compute_turnover()``) is
+    multiplied by ``cost_bps / 10_000`` and subtracted from the gross
+    return at that date.  A shift of weight *w* from one asset to another
+    incurs a cost of ``w * cost_bps / 10_000``, not ``2w``.
 
     Parameters
     ----------
@@ -218,7 +248,7 @@ def compute_net_backtest_returns(
         if date not in net.index:
             continue
         row = weight_changes.loc[date].to_numpy(dtype=np.float64)
-        turnover = float(np.sum(np.abs(row)))
+        turnover = float(np.sum(np.abs(row))) / 2.0
         net.at[date] = net.at[date] - turnover * cost_frac
 
     return net
@@ -239,6 +269,11 @@ def run_full_pipeline(
     last_review_date: pd.Timestamp | None = None,
     y_prices: pd.DataFrame | None = None,
     risk_free_rate: float = 0.0,
+    delisting_returns: dict[str, float] | None = None,
+    fx_config: FxConfig | None = None,
+    currency_map: dict[str, str] | None = None,
+    fx_rates: pd.DataFrame | None = None,
+    cost_bps: float = 10.0,
     n_jobs: int | None = None,
 ) -> PortfolioResult:
     """End-to-end: prices → validated weights + backtest + rebalancing.
@@ -247,6 +282,7 @@ def run_full_pipeline(
     raw price data.  It:
 
     1. Converts prices to linear returns.
+    1b. Applies delisting returns (survivorship-bias correction).
     2. Builds the full pipeline (pre-selection + optimiser).
     3. Backtests via walk-forward (if ``cv_config`` is provided).
     4. Fits on full data to produce final weights.
@@ -281,6 +317,29 @@ def run_full_pipeline(
     y_prices : pd.DataFrame or None
         Benchmark or factor price series.  Converted to returns
         alongside asset prices.
+    delisting_returns : dict[str, float] or None
+        Mapping of ticker → terminal delisting return.  When provided,
+        each ticker's last valid return is replaced with this value
+        after ``prices_to_returns()`` (survivorship-bias correction,
+        issue #274).  Tickers not present in the returns columns are
+        silently ignored.
+    fx_config : FxConfig or None
+        Multi-currency FX conversion configuration (issue #283).
+        When provided with ``mode != NONE``, prices are converted to
+        the base currency before ``prices_to_returns()``.  ``None``
+        disables conversion (default, backward-compatible).
+    currency_map : dict[str, str] or None
+        Ticker → ISO currency code mapping.  Required when
+        ``fx_config`` is provided.
+    fx_rates : pd.DataFrame or None
+        Pre-loaded FX rate DataFrame (dates x currencies).  Each
+        column holds units-of-base per one unit-of-foreign.
+        Required when ``fx_config`` is provided.
+    cost_bps : float
+        One-way transaction cost in basis points applied to each
+        walk-forward rebalancing event.  Subtracted from gross backtest
+        returns to produce ``result.net_returns`` and
+        ``result.net_sharpe_ratio``.  Default 10 bps.
     n_jobs : int or None
         Number of parallel jobs for backtesting.
 
@@ -288,7 +347,7 @@ def run_full_pipeline(
     -------
     PortfolioResult
         Complete result with weights, portfolio metrics, optional
-        backtest, and rebalancing signals.
+        backtest, net returns, and rebalancing signals.
 
     Examples
     --------
@@ -306,6 +365,43 @@ def run_full_pipeline(
     >>> print(result.summary)
     >>> print(result.backtest.sharpe_ratio)  # out-of-sample
     """
+    # 0.5  FX conversion — convert local-currency prices to base currency
+    #       (issue #283).  Must happen before prices_to_returns().
+    fx_decomp = None
+    fx_currency: str | None = None
+    if (
+        fx_config is not None
+        and fx_config.mode != FxConversionMode.NONE
+        and currency_map is not None
+        and fx_rates is not None
+    ):
+        converter = build_fx_converter(
+            fx_config, fx_rates=fx_rates, currency_map=currency_map
+        )
+        local_prices = prices.copy()
+        converter.fit(prices)
+        prices = converter.transform(prices)
+        fx_currency = fx_config.base_currency.value
+        logger.info("FX-converted prices to %s.", fx_currency)
+
+        # Also convert benchmark prices
+        if y_prices is not None:
+            bench_converter = build_fx_converter(
+                fx_config, fx_rates=fx_rates, currency_map=currency_map
+            )
+            bench_converter.fit(y_prices)
+            y_prices = bench_converter.transform(y_prices)
+
+        # Decompose returns if requested
+        if fx_config.mode == FxConversionMode.DECOMPOSE:
+            fx_decomp = decompose_fx_returns(
+                local_prices=local_prices,
+                base_prices=prices,
+                fx_rates_aligned=converter.fx_aligned_,
+                currency_map=currency_map,
+                base_currency=fx_currency,
+            )
+
     # 1. Prices → returns
     X = cast(pd.DataFrame, prices_to_returns(prices))
     y: pd.DataFrame | None = (
@@ -313,6 +409,33 @@ def run_full_pipeline(
         if y_prices is not None
         else None
     )
+
+    # 1.5  Apply delisting returns (survivorship-bias correction, issue #274)
+    if delisting_returns:
+        present = {t: r for t, r in delisting_returns.items() if t in X.columns}
+        if present:
+            X = _apply_delisting_rets(X, present)
+            logger.info(
+                "Applied delisting returns for %d ticker(s).", len(present)
+            )
+
+    # 1.6  Inject risk-free rate into optimizer (issue #272)
+    if risk_free_rate != 0.0:
+        if hasattr(optimizer, "risk_free_rate"):
+            optimizer = deepcopy(optimizer)
+            optimizer.risk_free_rate = risk_free_rate
+            logger.info(
+                "Injected risk_free_rate=%.6f into %s",
+                risk_free_rate,
+                type(optimizer).__name__,
+            )
+        else:
+            logger.warning(
+                "risk_free_rate=%.6f provided but %s has no risk_free_rate "
+                "attribute; Sharpe calculation will use rf=0.",
+                risk_free_rate,
+                type(optimizer).__name__,
+            )
 
     # 2. Build pipeline
     pipeline = build_portfolio_pipeline(
@@ -329,7 +452,34 @@ def run_full_pipeline(
     # 4. Fit on full data → final weights
     result = optimize(pipeline, X, y=y)
     result.backtest = bt
+
+    # 3b. Net backtest returns (issue #284) + weight history (issue #285)
+    if bt is not None and hasattr(bt, "weights_per_observation"):
+        wpo = bt.weights_per_observation
+        wc = _extract_weight_changes(wpo)
+        # Absolute weights at rebalancing dates (for compute_net_alpha)
+        result.weight_history = wpo.loc[wc.index]
+        gross = bt.returns_df
+        net = compute_net_backtest_returns(gross, wc, cost_bps=cost_bps)
+        result.net_returns = net
+        result.net_sharpe_ratio = _compute_net_sharpe(
+            net, risk_free_rate=risk_free_rate
+        )
+        logger.info(
+            "Net backtest Sharpe: %.4f (gross: %.4f, cost=%.1f bps)",
+            result.net_sharpe_ratio or float("nan"),
+            float(bt.sharpe_ratio),
+            cost_bps,
+        )
+    elif bt is not None:
+        logger.debug(
+            "Net backtest skipped: %s has no weights_per_observation.",
+            type(bt).__name__,
+        )
+
     result.risk_free_rate = risk_free_rate
+    result.fx_decomposition = fx_decomp
+    result.currency = fx_currency
 
     # 5. Rebalancing analysis (optional)
     if previous_weights is not None:
@@ -411,6 +561,11 @@ def run_full_pipeline_with_selection(
     current_members: pd.Index | None = None,
     ic_history: pd.DataFrame | None = None,
     risk_free_rate: float = 0.0,
+    delisting_returns: dict[str, float] | None = None,
+    fx_config: FxConfig | None = None,
+    currency_map: dict[str, str] | None = None,
+    fx_rates: pd.DataFrame | None = None,
+    cost_bps: float = 10.0,
     n_jobs: int | None = None,
 ) -> PortfolioResult:
     """End-to-end: fundamentals + prices → stock selection → optimization.
@@ -601,12 +756,29 @@ def run_full_pipeline_with_selection(
             parent_universe=investable,
         )
 
+        n_selected = len(selected)
+        n_total = len(composite)
+        n_nan = int(composite.isna().sum())
+        if n_selected == 0:
+            msg = (
+                f"select_stocks() returned an empty universe. "
+                f"All {n_nan} of {n_total} composite scores are NaN. "
+                f"Check factor construction and standardization inputs."
+            )
+            raise DataError(msg)
+        if n_selected < _MIN_SELECTED_STOCKS:
+            msg = (
+                f"select_stocks() returned only {n_selected} stock(s), "
+                f"below the minimum of {_MIN_SELECTED_STOCKS}. "
+                f"{n_nan} of {n_total} composite scores were NaN. "
+                f"Widen the selection criteria or provide more candidates."
+            )
+            raise DataError(msg)
+
         selected_prices = prices[prices.columns.intersection(selected)]
 
         # 6.5  Factor-to-optimizer integration (alpha bridge)
         if integration_config is not None:
-            from copy import deepcopy
-
             from optimizer.factors._integration import build_factor_integration
 
             bl_prior, factor_constraints = build_factor_integration(
@@ -653,6 +825,11 @@ def run_full_pipeline_with_selection(
         last_review_date=last_review_date,
         y_prices=y_prices,
         risk_free_rate=risk_free_rate,
+        delisting_returns=delisting_returns,
+        fx_config=fx_config,
+        currency_map=currency_map,
+        fx_rates=fx_rates,
+        cost_bps=cost_bps,
         n_jobs=n_jobs,
     )
 
@@ -687,3 +864,40 @@ def _extract_summary(portfolio: Any) -> dict[str, float]:
         if val is not None:
             summary[attr] = float(val)
     return summary
+
+
+def _extract_weight_changes(
+    weights_per_obs: pd.DataFrame,
+    tol: float = 1e-8,
+) -> pd.DataFrame:
+    """Convert ``weights_per_observation`` to sparse weight-change rows.
+
+    ``MultiPeriodPortfolio.weights_per_observation`` broadcasts constant
+    weights across every day in each test window.  This helper diffs
+    consecutive rows and keeps only those where at least one weight
+    actually changed (rebalancing dates).
+    """
+    diff = weights_per_obs.diff()
+    # First row: initial allocation from zero → full weight
+    diff.iloc[0] = weights_per_obs.iloc[0]
+    mask = diff.abs().sum(axis=1) > tol
+    return diff[mask]
+
+
+def _compute_net_sharpe(
+    net_returns: pd.Series,
+    risk_free_rate: float = 0.0,
+    trading_days_per_year: int = 252,
+) -> float | None:
+    """Annualised Sharpe ratio from a daily net-return Series."""
+    if len(net_returns) < 2:
+        return None
+    rf_daily = risk_free_rate / trading_days_per_year
+    std = float(net_returns.std(ddof=1))
+    if std == 0:
+        return None
+    return float(
+        (net_returns.mean() - rf_daily)
+        / std
+        * sqrt(trading_days_per_year)
+    )

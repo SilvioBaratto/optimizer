@@ -16,14 +16,22 @@ from optimizer.validation._factory import (
     compute_optimal_folds,
     run_cross_val,
 )
+from optimizer.validation._regime import (
+    RegimeValidationConfig,
+    RegimeValidationResult,
+    run_regime_validation,
+)
 
 __all__ = [
     "CPCVConfig",
     "MultipleRandomizedCVConfig",
+    "RegimeValidationConfig",
+    "RegimeValidationResult",
     "WalkForwardConfig",
     "build_cpcv",
     "build_multiple_randomized_cv",
     "build_walk_forward",
     "compute_optimal_folds",
     "run_cross_val",
+    "run_regime_validation",
 ]

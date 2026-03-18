@@ -43,6 +43,7 @@ from optimizer.optimization._factory import (
     build_mean_risk,
     build_nco,
     build_risk_budgeting,
+    build_sector_constraints,
     build_stacking,
 )
 from optimizer.optimization._regime_risk import (
@@ -98,6 +99,7 @@ __all__ = [
     "build_regime_risk_budgeting",
     "build_risk_budgeting",
     "build_robust_mean_risk",
+    "build_sector_constraints",
     "build_stacking",
     "compute_blended_risk_measure",
     "compute_regime_budget",

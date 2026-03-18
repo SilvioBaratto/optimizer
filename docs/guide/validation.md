@@ -30,7 +30,7 @@ from optimizer.validation import WalkForwardConfig
 config = WalkForwardConfig(
     test_size=63,       # ~1 quarter of trading days
     train_size=252,     # ~1 year of trading days
-    purged_size=0,      # observations purged between train/test
+    purged_size=5,      # observations purged between train/test (default: 5 = one trading week)
     expend_train=False, # False = rolling, True = expanding
     reduce_test=False,  # allow shorter final test window
 )
@@ -40,17 +40,17 @@ config = WalkForwardConfig(
 |-------|------|---------|-------------|
 | `test_size` | `int` | 63 | Trading days per test window |
 | `train_size` | `int` | 252 | Trading days per training window (initial size when expanding) |
-| `purged_size` | `int` | 0 | Observations excised between train and test |
+| `purged_size` | `int` | 5 | Observations excised between train and test (one trading week) |
 | `expend_train` | `bool` | `False` | `True` = expanding window, `False` = rolling window |
 | `reduce_test` | `bool` | `False` | Allow shorter final test window to avoid data waste |
 
 ### Presets
 
-| Preset | test_size | train_size | Window Type |
-|--------|-----------|------------|-------------|
-| `for_monthly_rolling()` | 21 | 252 | Rolling |
-| `for_quarterly_rolling()` | 63 | 252 | Rolling |
-| `for_quarterly_expanding()` | 63 | 252 | Expanding |
+| Preset | test_size | train_size | purged_size | Window Type |
+|--------|-----------|------------|-------------|-------------|
+| `for_monthly_rolling()` | 21 | 252 | 21 | Rolling |
+| `for_quarterly_rolling()` | 63 | 252 | 21 | Rolling |
+| `for_quarterly_expanding()` | 63 | 252 | 21 | Expanding |
 
 ### Rolling vs Expanding
 
@@ -200,8 +200,8 @@ population = run_cross_val(pipeline, X, cv=cv)
 !!! tip "CPCV returns Population, not MultiPeriodPortfolio"
     Walk-forward returns a `MultiPeriodPortfolio` (single path). CPCV returns a `Population` (collection of paths). Handle them differently when extracting metrics.
 
-!!! warning "Purging is important for high-frequency data"
-    For daily equity data, `purged_size=0` is usually fine. For intraday data or when using features with look-ahead windows (e.g., rolling averages), increase `purged_size` to cover the window length.
+!!! warning "Purging prevents temporal leakage"
+    For daily equity data, `purged_size=21` (one trading month) is recommended and enforced by all presets. Increase it further when using features with long look-back windows (e.g., 60-day rolling averages). For intraday data, scale proportionally.
 
 ## Quick Reference
 
@@ -214,3 +214,56 @@ population = run_cross_val(pipeline, X, cv=cv)
 | Robustness check | `MultipleRandomizedCVConfig.for_robustness_check()` |
 | Run CV | `run_cross_val(pipeline, X, cv=config)` |
 | Default CV | `run_cross_val(pipeline, X)` → quarterly rolling |
+
+## Point-in-Time Fundamental Correctness
+
+### The Look-Ahead Bias Problem
+
+Factor scores that depend on financial statement data (book-to-price, earnings yield, ROE, asset growth, etc.) must use only the data that would have been available at each historical rebalancing date. Annual 10-K filings are published approximately 90 days after fiscal year end; quarterly 10-Q filings are published approximately 45 days after quarter end. Using the current snapshot of fundamentals at all historical dates introduces look-ahead bias: the model "sees" future earnings and balance sheet data when computing historical factor scores, overstating IC and all downstream metrics.
+
+### The Fix (Issue #273)
+
+`build_factor_scores_history()` in `research/_factors.py` accepts a `fundamental_history` parameter — a `pd.DataFrame` with `MultiIndex (period_date, ticker)` and a `period_type` column (`'annual'` | `'quarterly'`). When provided, the function calls `_slice_fundamentals_at()` at each rebalancing date, which applies differentiated publication lags via `align_to_pit()`:
+
+- Annual statements: 90-day lag (`PublicationLagConfig.annual_days`)
+- Quarterly statements: 45-day lag (`PublicationLagConfig.quarterly_days`)
+
+The assembly layer (`cli/data_assembly.py`, `assemble_all()`) populates `assembly.fundamental_history` from the `financial_statements` table. The fix in `research/stock_selection_pipeline.py` passes this panel to `build_factor_scores_history()`:
+
+```python
+factor_scores_history, returns_history, build_health = build_factor_scores_history(
+    ...
+    fundamental_history=assembly.fundamental_history,   # eliminates look-ahead bias
+)
+```
+
+When `assembly.fundamental_history` is empty (DB has no financial statement history), the function falls back to snapshot mode and emits a `UserWarning`.
+
+### Publication Lag Reference
+
+| Source | Default lag | Configurable via |
+|--------|-------------|-----------------|
+| Annual 10-K | 90 days | `PublicationLagConfig.annual_days` |
+| Quarterly 10-Q | 45 days | `PublicationLagConfig.quarterly_days` |
+| Analyst estimates | 5 days | `PublicationLagConfig.analyst_days` |
+| Macro indicators | 63 days | `PublicationLagConfig.macro_days` |
+
+## Survivorship Bias Correction
+
+Delisted stocks are included in the research pipeline by default (`include_delisted=True` in `research/_data.py`). Two complementary mechanisms prevent survivorship bias:
+
+1. **Price-space correction** (`cli/data_assembly._apply_delisting_returns`) — appends a synthetic price row at the delisting date so `prices_to_returns()` produces the correct terminal return.
+
+2. **Returns-space correction** (`optimizer.preprocessing.apply_delisting_returns`) — replaces each delisted ticker's last valid return with its delisting return value. Wired into `run_full_pipeline()` via the `delisting_returns` parameter.
+
+`DataAssembly.delisting_returns` is automatically populated by `assemble_all()` from the `instruments` table. When a ticker's `delisting_return` is NULL in the DB, a default of -30% is used.
+
+```python
+result = run_full_pipeline(
+    prices=assembly.prices,
+    optimizer=optimizer,
+    delisting_returns=assembly.delisting_returns,
+)
+```
+
+Tickers not present in the returns columns (e.g., filtered out by pre-selection) are silently ignored.

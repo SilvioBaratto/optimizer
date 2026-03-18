@@ -1,5 +1,6 @@
 """Repository for portfolio state persistence operations."""
 
+import json
 import uuid
 from collections.abc import Sequence
 from datetime import date, datetime
@@ -10,11 +11,17 @@ from sqlalchemy.orm import Session
 
 from app.models.portfolio import (
     ActivityEvent,
+    ActivityEventDetail,
     BrokerAccountSnapshot,
     BrokerPosition,
     Portfolio,
     PortfolioSnapshot,
     RegimeState,
+    RegimeStateProbability,
+    SnapshotOptimizerParam,
+    SnapshotSectorMapping,
+    SnapshotSummaryEntry,
+    SnapshotWeight,
 )
 from app.repositories.base import RepositoryBase
 
@@ -74,14 +81,32 @@ class PortfolioRepository(RepositoryBase):
             portfolio_id=portfolio_id,
             snapshot_date=snapshot_date,
             snapshot_type=snapshot_type,
-            weights=weights,
-            sector_mapping=sector_mapping,
-            summary=summary,
-            optimizer_config=optimizer_config,
             turnover=turnover,
             holding_count=len(weights),
         )
         self.session.add(snap)
+        self.session.flush()
+
+        # Populate child rows
+        for ticker, weight in weights.items():
+            self.session.add(SnapshotWeight(
+                snapshot_id=snap.id, ticker=ticker, weight=weight,
+            ))
+        if sector_mapping:
+            for ticker, sector in sector_mapping.items():
+                self.session.add(SnapshotSectorMapping(
+                    snapshot_id=snap.id, ticker=ticker, sector=sector,
+                ))
+        if summary:
+            for key, val in summary.items():
+                self.session.add(SnapshotSummaryEntry(
+                    snapshot_id=snap.id, key=key, value_text=json.dumps(val),
+                ))
+        if optimizer_config:
+            for key, val in optimizer_config.items():
+                self.session.add(SnapshotOptimizerParam(
+                    snapshot_id=snap.id, key=key, value_text=json.dumps(val),
+                ))
         self.session.flush()
         return snap
 
@@ -221,10 +246,16 @@ class PortfolioRepository(RepositoryBase):
             event_type=event_type,
             title=title,
             description=description,
-            metadata_=metadata,
         )
         self.session.add(event)
         self.session.flush()
+
+        if metadata:
+            for key, val in metadata.items():
+                self.session.add(ActivityEventDetail(
+                    event_id=event.id, key=key, value_text=json.dumps(val),
+                ))
+            self.session.flush()
         return event
 
     def get_events(
@@ -273,22 +304,50 @@ class PortfolioRepository(RepositoryBase):
         model_type: str = "hmm",
         metadata: dict[str, Any] | None = None,
     ) -> int:
-        rows = [
-            {
-                "id": uuid.uuid4(),
-                "state_date": state_date,
-                "regime": regime,
-                "probabilities": probabilities,
-                "model_type": model_type,
-                "metadata": metadata,
-            },
-        ]
-        return self._upsert(
-            RegimeState,
-            rows,
-            constraint_name="uq_regime_state_date_model",
-            update_columns=["regime", "probabilities", "metadata", "updated_at"],
+        stmt = select(RegimeState).where(
+            RegimeState.state_date == state_date,
+            RegimeState.model_type == model_type,
         )
+        existing = self.session.execute(stmt).scalar_one_or_none()
+
+        if existing is None:
+            existing = RegimeState(
+                state_date=state_date,
+                regime=regime,
+                model_type=model_type,
+            )
+            self.session.add(existing)
+        else:
+            existing.regime = regime
+
+        # Set scalar metadata columns
+        if metadata:
+            existing.since = (
+                date.fromisoformat(metadata["since"])
+                if "since" in metadata else None
+            )
+            existing.n_states = metadata.get("n_states")
+            raw_lf = metadata.get("last_fitted")
+            if raw_lf and isinstance(raw_lf, str):
+                existing.last_fitted = datetime.fromisoformat(raw_lf)
+            elif raw_lf and isinstance(raw_lf, datetime):
+                existing.last_fitted = raw_lf
+            else:
+                existing.last_fitted = None
+
+        self.session.flush()
+
+        # Replace probability child rows
+        existing.probability_entries.clear()
+        self.session.flush()
+        for prob in probabilities:
+            self.session.add(RegimeStateProbability(
+                regime_state_id=existing.id,
+                regime=prob["regime"],
+                probability=prob["probability"],
+            ))
+        self.session.flush()
+        return 1
 
     def get_latest_regime(
         self, model_type: str = "hmm",

@@ -35,6 +35,7 @@ export class DashboardService {
         kpis: MOCK_DASHBOARD_KPIS,
         nav: 12_847_320,
         navChangePct: 0.0181,
+        currency: 'EUR',
       });
     }
     return this.http

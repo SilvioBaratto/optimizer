@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from app.models.background_job import BackgroundJob
+from app.models.background_job import BackgroundJob, BackgroundJobError
 from app.repositories.base import RepositoryBase
 
 
@@ -41,9 +41,9 @@ class BackgroundJobRepository(RepositoryBase):
     def update(self, job_id: uuid.UUID, **kwargs: Any) -> None:
         """Update columns on an existing job row.
 
-        Core columns (status, current, total, error, finished_at, result,
-        errors) are mapped directly.  Everything else is merged into the
-        JSONB ``extra`` column.
+        Core columns (status, current, total, error, finished_at, result)
+        are mapped directly.  ``errors`` is handled via child table rows.
+        Everything else is merged into the JSONB ``extra`` column.
         """
         row = self.get(job_id)
         if row is None:
@@ -51,8 +51,10 @@ class BackgroundJobRepository(RepositoryBase):
 
         _CORE = frozenset({
             "status", "current", "total", "error",
-            "finished_at", "result", "errors",
+            "finished_at", "result",
         })
+
+        errors_value = kwargs.pop("errors", None)
 
         extra_updates: dict[str, Any] = {}
         for key, value in kwargs.items():
@@ -67,6 +69,16 @@ class BackgroundJobRepository(RepositoryBase):
             merged = dict(row.extra) if row.extra else {}
             merged.update(extra_updates)
             row.extra = merged
+
+        # Handle errors via child table
+        if errors_value is not None:
+            row.error_entries.clear()
+            self.session.flush()
+            if isinstance(errors_value, list):
+                for idx, msg in enumerate(errors_value):
+                    self.session.add(BackgroundJobError(
+                        job_id=job_id, error_index=idx, message=str(msg),
+                    ))
 
         self.session.flush()
 

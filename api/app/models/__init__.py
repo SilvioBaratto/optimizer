@@ -1,4 +1,4 @@
-from app.models.background_job import BackgroundJob
+from app.models.background_job import BackgroundJob, BackgroundJobError
 from app.models.base import (
     Base,
     BaseModel,
@@ -10,16 +10,23 @@ from app.models.macro_regime import (
     EconomicIndicator,
     MacroCalibration,
     MacroNews,
+    MacroNewsTheme,
     MacroNewsSummary,
     TradingEconomicsIndicator,
 )
 from app.models.portfolio import (
     ActivityEvent,
+    ActivityEventDetail,
     BrokerAccountSnapshot,
     BrokerPosition,
     Portfolio,
     PortfolioSnapshot,
     RegimeState,
+    RegimeStateProbability,
+    SnapshotOptimizerParam,
+    SnapshotSectorMapping,
+    SnapshotSummaryEntry,
+    SnapshotWeight,
 )
 from app.models.universe import Exchange, Instrument
 from app.models.yfinance_data import (
@@ -38,9 +45,11 @@ from app.models.yfinance_data import (
 
 __all__ = [
     "ActivityEvent",
+    "ActivityEventDetail",
     "AnalystPriceTarget",
     "AnalystRecommendation",
     "BackgroundJob",
+    "BackgroundJobError",
     "Base",
     "BaseModel",
     "BondYield",
@@ -51,6 +60,7 @@ __all__ = [
     "Exchange",
     "MacroCalibration",
     "MacroNews",
+    "MacroNewsTheme",
     "MacroNewsSummary",
     "FinancialStatement",
     "InsiderTransaction",
@@ -61,6 +71,11 @@ __all__ = [
     "PortfolioSnapshot",
     "PriceHistory",
     "RegimeState",
+    "RegimeStateProbability",
+    "SnapshotOptimizerParam",
+    "SnapshotSectorMapping",
+    "SnapshotSummaryEntry",
+    "SnapshotWeight",
     "StockSplit",
     "TickerNews",
     "TickerProfile",

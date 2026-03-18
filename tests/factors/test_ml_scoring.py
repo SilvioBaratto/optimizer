@@ -158,6 +158,68 @@ class TestFitGbtComposite:
         model = fit_gbt_composite(training_scores, training_returns, n_estimators=10)
         assert model.n_estimators_ == 10
 
+    def test_respects_random_state(
+        self, training_scores: pd.DataFrame, training_returns: pd.Series
+    ) -> None:
+        model = fit_gbt_composite(training_scores, training_returns, random_state=99)
+        assert model.random_state == 99
+
+    def test_different_random_states_produce_different_results(
+        self,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+        current_scores: pd.DataFrame,
+    ) -> None:
+        """Different random_state values produce different (but valid) predictions
+        when stochastic gradient boosting is used (subsample < 1.0)."""
+        # Use stochastic GBT via sklearn directly to prove random_state matters
+        common = training_scores.index.intersection(training_returns.index)
+        X = training_scores.loc[common].values.astype(float)
+        y = training_returns.loc[common].values.astype(float)
+        valid = ~(np.isnan(X).any(axis=1) | np.isnan(y))
+        X, y = X[valid], y[valid]
+
+        model_a = GradientBoostingRegressor(
+            n_estimators=50, subsample=0.8, random_state=0
+        ).fit(X, y)
+        model_b = GradientBoostingRegressor(
+            n_estimators=50, subsample=0.8, random_state=42
+        ).fit(X, y)
+        pred_a = model_a.predict(current_scores.values.astype(float))
+        pred_b = model_b.predict(current_scores.values.astype(float))
+        # With stochastic boosting, different seeds produce different trees
+        assert not np.allclose(pred_a, pred_b)
+
+    def test_different_random_states_both_valid(
+        self,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+        current_scores: pd.DataFrame,
+    ) -> None:
+        """Both random states produce valid, finite output."""
+        model_a = fit_gbt_composite(
+            training_scores, training_returns, n_estimators=50, random_state=0
+        )
+        model_b = fit_gbt_composite(
+            training_scores, training_returns, n_estimators=50, random_state=42
+        )
+        pred_a = predict_composite_scores(model_a, current_scores)
+        pred_b = predict_composite_scores(model_b, current_scores)
+        assert pred_a.notna().all()
+        assert pred_b.notna().all()
+        assert len(pred_a) == len(current_scores)
+        assert len(pred_b) == len(current_scores)
+
+    def test_default_random_state_backward_compatible(
+        self, training_scores: pd.DataFrame, training_returns: pd.Series
+    ) -> None:
+        """Default random_state=0 preserves backward compatibility."""
+        model_default = fit_gbt_composite(training_scores, training_returns)
+        model_explicit = fit_gbt_composite(
+            training_scores, training_returns, random_state=0
+        )
+        assert model_default.random_state == model_explicit.random_state == 0
+
     def test_handles_nan_rows(self) -> None:
         rng = np.random.default_rng(7)
         scores = pd.DataFrame(rng.normal(0, 1, (50, 3)), columns=["a", "b", "c"])
@@ -384,10 +446,16 @@ class TestComputeCompositeScoreDispatch:
             ridge_alpha=0.1,
             gbt_max_depth=4,
             gbt_n_estimators=30,
+            gbt_random_state=42,
         )
         assert cfg.ridge_alpha == 0.1
         assert cfg.gbt_max_depth == 4
         assert cfg.gbt_n_estimators == 30
+        assert cfg.gbt_random_state == 42
+
+    def test_config_gbt_random_state_default(self) -> None:
+        cfg = CompositeScoringConfig()
+        assert cfg.gbt_random_state == 0
 
     def test_temporal_isolation_no_future_leak(
         self,

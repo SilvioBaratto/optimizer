@@ -43,7 +43,7 @@ class HMMConfig:
     n_iter: int = 100
     tol: float = 1e-4
     covariance_type: str = "full"
-    random_state: int | None = None
+    random_state: int | None = 42
 
 
 @dataclass

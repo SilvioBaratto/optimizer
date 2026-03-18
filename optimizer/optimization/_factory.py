@@ -220,6 +220,36 @@ def build_clustering_estimator(
     )
 
 
+def build_sector_constraints(
+    sector_mapping: dict[str, str],
+    max_sector_weight: float,
+) -> tuple[dict[str, str], list[str]]:
+    """Build skfolio ``groups`` and ``linear_constraints`` from a sector mapping.
+
+    Parameters
+    ----------
+    sector_mapping : dict[str, str]
+        Mapping from asset ticker to sector name
+        (e.g. ``{"AAPL": "Technology", "JPM": "Financials"}``).
+    max_sector_weight : float
+        Maximum total weight for any single sector (e.g. 0.25 = 25%).
+
+    Returns
+    -------
+    groups : dict[str, str]
+        Ticker -> sector label, as required by
+        :class:`skfolio.optimization.MeanRisk` (converted to a 2-D
+        group array at fit-time via ``input_to_array``).
+    linear_constraints : list[str]
+        One constraint string per sector (``"SectorName <= cap"``).
+    """
+    sectors = sorted(set(sector_mapping.values()))
+    cap = round(max_sector_weight, 6)
+    linear_constraints = [f"{sector} <= {cap}" for sector in sectors]
+
+    return sector_mapping, linear_constraints
+
+
 # ---------------------------------------------------------------------------
 # Main optimiser factories
 # ---------------------------------------------------------------------------
@@ -240,6 +270,7 @@ def build_mean_risk(
     *,
     prior_estimator: BasePrior | None = None,
     factor_exposure_constraints: FactorExposureConstraints | None = None,
+    sector_mapping: dict[str, str] | None = None,
     **kwargs: Any,
 ) -> MeanRisk:
     """Build a skfolio :class:`MeanRisk` optimiser from *config*.
@@ -259,6 +290,12 @@ def build_mean_risk(
         injected into the :class:`MeanRisk` constructor.  Any explicit
         ``left_inequality`` / ``right_inequality`` entries in ``kwargs``
         take precedence.
+    sector_mapping : dict[str, str] or None
+        Ticker -> sector name mapping.  Used to build ``groups`` and
+        ``linear_constraints`` when ``config.max_sector_weight`` is set.
+        Ignored when ``config.max_sector_weight is None``.  Any explicit
+        ``groups`` or ``linear_constraints`` in ``kwargs`` take
+        precedence.
     **kwargs
         Additional keyword arguments forwarded to the
         :class:`MeanRisk` constructor (for non-serialisable
@@ -283,6 +320,20 @@ def build_mean_risk(
         kwargs.setdefault(
             "right_inequality", factor_exposure_constraints.right_inequality
         )
+
+    if config.max_sector_weight is not None:
+        if sector_mapping is not None:
+            built_groups, built_constraints = build_sector_constraints(
+                sector_mapping, config.max_sector_weight
+            )
+            kwargs.setdefault("groups", built_groups)
+            kwargs.setdefault("linear_constraints", built_constraints)
+        else:
+            logger.warning(
+                "MeanRiskConfig.max_sector_weight=%.4f is set but no "
+                "sector_mapping was provided; sector constraints are skipped.",
+                config.max_sector_weight,
+            )
 
     return MeanRisk(
         objective_function=_OBJECTIVE_MAP[config.objective],

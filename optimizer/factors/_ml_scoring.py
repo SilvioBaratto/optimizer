@@ -59,6 +59,7 @@ def fit_gbt_composite(
     forward_returns: pd.Series,
     max_depth: int = 3,
     n_estimators: int = 50,
+    random_state: int = 0,
 ) -> GradientBoostingRegressor:
     """Fit a gradient-boosted tree model mapping factor scores to forward returns.
 
@@ -73,6 +74,8 @@ def fit_gbt_composite(
         limit extrapolation and retain interpretability).
     n_estimators : int
         Number of boosting rounds.
+    random_state : int
+        Random state for reproducibility.
 
     Returns
     -------
@@ -89,7 +92,7 @@ def fit_gbt_composite(
     model = GradientBoostingRegressor(
         max_depth=max_depth,
         n_estimators=n_estimators,
-        random_state=0,
+        random_state=random_state,
     )
     model.fit(X, y)
     return model

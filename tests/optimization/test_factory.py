@@ -59,6 +59,7 @@ from optimizer.optimization import (
     build_mean_risk,
     build_nco,
     build_risk_budgeting,
+    build_sector_constraints,
     build_stacking,
 )
 
@@ -973,3 +974,116 @@ class TestCVaRGeVaR:
         model.fit(returns_df)
         portfolio = model.predict(returns_df)
         assert portfolio.cvar >= portfolio.value_at_risk - 1e-8
+
+
+# ---------------------------------------------------------------------------
+# Sector constraints (issue #271)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSectorConstraints:
+    def test_basic_grouping(self) -> None:
+        mapping = {"AAPL": "Technology", "MSFT": "Technology", "JPM": "Financials"}
+        groups, constraints = build_sector_constraints(mapping, 0.25)
+        # groups is ticker->sector (passthrough of sector_mapping)
+        assert groups["AAPL"] == "Technology"
+        assert groups["JPM"] == "Financials"
+        assert "Financials <= 0.25" in constraints
+        assert "Technology <= 0.25" in constraints
+        assert len(constraints) == 2
+
+    def test_single_sector(self) -> None:
+        mapping = {"A": "Tech", "B": "Tech"}
+        groups, constraints = build_sector_constraints(mapping, 0.40)
+        assert groups is mapping
+        assert constraints == ["Tech <= 0.4"]
+
+    def test_cap_formatting(self) -> None:
+        _, constraints = build_sector_constraints({"A": "S"}, 1 / 3)
+        assert "0.333333" in constraints[0]
+
+    def test_no_sector_mapping_warning_emitted(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        cfg = MeanRiskConfig(max_sector_weight=0.25)
+        with caplog.at_level(logging.WARNING, logger="optimizer.optimization._factory"):
+            model = build_mean_risk(cfg)
+        assert isinstance(model, MeanRisk)
+        assert "sector_mapping" in caplog.text
+
+    def test_explicit_groups_kwarg_takes_precedence(self) -> None:
+        cfg = MeanRiskConfig(max_sector_weight=0.25)
+        custom_groups = {"TICK_00": "MyGroup"}
+        mapping = {"TICK_00": "Technology"}
+        model = build_mean_risk(cfg, sector_mapping=mapping, groups=custom_groups)
+        assert model.groups == custom_groups
+
+
+class TestSectorConstraintIntegration:
+    """Fit-level tests verifying sector caps are enforced after optimization."""
+
+    def test_sector_weights_below_cap(
+        self,
+        returns_df: pd.DataFrame,
+        sector_mapping: dict[str, str],
+    ) -> None:
+        cap = 0.25
+        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained(
+            max_sector_weight=cap
+        )
+        model = build_mean_risk(cfg, sector_mapping=sector_mapping)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+
+        weights = pd.Series(portfolio.weights, index=returns_df.columns)
+        for sector in set(sector_mapping.values()):
+            members = [t for t, s in sector_mapping.items() if s == sector]
+            sector_weight = weights[members].sum()
+            assert sector_weight <= cap + 1e-6, (
+                f"Sector {sector!r} weight {sector_weight:.4f} exceeds cap {cap}"
+            )
+
+    def test_sector_weights_below_tighter_cap(
+        self,
+        returns_df: pd.DataFrame,
+        sector_mapping: dict[str, str],
+    ) -> None:
+        # 4 sectors, cap=0.30 => 4*0.30=1.20 > budget=1.0 so feasible
+        cap = 0.30
+        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained(
+            max_sector_weight=cap
+        )
+        model = build_mean_risk(cfg, sector_mapping=sector_mapping)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+
+        weights = pd.Series(portfolio.weights, index=returns_df.columns)
+        for sector in set(sector_mapping.values()):
+            members = [t for t, s in sector_mapping.items() if s == sector]
+            assert weights[members].sum() <= cap + 1e-6
+
+    def test_no_sector_mapping_still_fits(
+        self,
+        returns_df: pd.DataFrame,
+    ) -> None:
+        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained()
+        model = build_mean_risk(cfg)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        assert portfolio.weights is not None
+        assert abs(sum(portfolio.weights) - 1.0) < 1e-5
+
+    def test_groups_and_constraints_injected(
+        self,
+        sector_mapping: dict[str, str],
+    ) -> None:
+        cfg = MeanRiskConfig(max_sector_weight=0.30)
+        model = build_mean_risk(cfg, sector_mapping=sector_mapping)
+        assert model.groups is not None
+        # groups dict maps ticker -> sector label
+        assert model.groups == sector_mapping
+        assert model.linear_constraints is not None
+        sectors = set(sector_mapping.values())
+        assert len(model.linear_constraints) == len(sectors)

@@ -259,6 +259,33 @@ def assemble_prices(
     return pivoted
 
 
+def assemble_delisting_returns(session: Session) -> dict[str, float]:
+    """Build a ``{yfinance_ticker: delisting_return}`` mapping for delisted instruments.
+
+    Used by ``run_full_pipeline()`` to apply the returns-space
+    survivorship-bias correction after ``prices_to_returns()``.
+
+    Returns
+    -------
+    dict[str, float]
+        Empty when no delisted instruments exist.  Defaults to ``-0.30``
+        when ``delisting_return`` is ``NULL`` in the database.
+    """
+    rows = session.execute(
+        select(
+            Instrument.yfinance_ticker,
+            Instrument.delisting_return,
+        )
+        .where(Instrument.delisted_at.isnot(None))
+        .where(Instrument.yfinance_ticker.isnot(None))
+        .where(Instrument.yfinance_ticker != "")
+    ).all()
+    return {
+        str(yf_ticker): float(dr) if dr is not None else -0.30
+        for yf_ticker, dr in rows
+    }
+
+
 def assemble_volumes(
     session: Session,
     include_delisted: bool = True,
@@ -1410,6 +1437,10 @@ class DataAssembly:
         statements for point-in-time factor construction.
     include_delisted : bool
         Whether delisted instruments are included in ``prices``.
+    delisting_returns : dict[str, float]
+        Mapping of yfinance_ticker → terminal delisting return for each
+        delisted instrument.  Used by ``run_full_pipeline()`` for the
+        returns-space survivorship-bias correction.
     """
 
     def __init__(
@@ -1429,6 +1460,7 @@ class DataAssembly:
         regime_data: pd.DataFrame | None = None,
         fundamental_history: pd.DataFrame | None = None,
         include_delisted: bool = True,
+        delisting_returns: dict[str, float] | None = None,
     ) -> None:
         self.prices = prices
         self.volumes = volumes
@@ -1448,6 +1480,7 @@ class DataAssembly:
             else pd.DataFrame()
         )
         self.include_delisted = include_delisted
+        self.delisting_returns: dict[str, float] = delisting_returns or {}
 
     @property
     def n_tickers(self) -> int:
@@ -1509,6 +1542,7 @@ class DataAssembly:
                 else None
             ),
             "risk_free_rate_obs": len(rf_series),
+            "delisted_tickers": len(self.delisting_returns),
         }
 
 
@@ -1572,6 +1606,9 @@ def assemble_all(
         logger.info("Assembling fundamental history panel...")
         fundamental_history = assemble_fundamental_history(session)
 
+        logger.info("Assembling delisting returns...")
+        delisting_returns = assemble_delisting_returns(session)
+
     logger.info("Assembling composite regime data...")
     regime_data = assemble_regime_data(
         macro_data, fred_data, te_observations, sentiment_data,
@@ -1593,4 +1630,5 @@ def assemble_all(
         regime_data=regime_data,
         fundamental_history=fundamental_history,
         include_delisted=include_delisted,
+        delisting_returns=delisting_returns,
     )
