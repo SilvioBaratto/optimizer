@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 from unittest.mock import patch
 
@@ -11,6 +12,11 @@ import pytest
 
 from optimizer.exceptions import FactorCoverageError, OptimizerError
 from optimizer.factors import FactorBuildHealth
+
+_skip_no_research = pytest.mark.skipif(
+    importlib.util.find_spec("research") is None,
+    reason="research package not available in CI",
+)
 
 # ---------------------------------------------------------------------------
 # FactorBuildHealth
@@ -145,6 +151,7 @@ class _MockAssembly:
     insider_data = pd.DataFrame()
 
 
+@_skip_no_research
 class TestBuildFactorScoresHistoryExceptionHandling:
     """Verify logging, health tracking, and coverage gate."""
 
@@ -346,6 +353,7 @@ class TestBuildFactorScoresHistoryExceptionHandling:
 # ---------------------------------------------------------------------------
 
 
+@_skip_no_research
 class TestValidateFactorsVIFExceptionHandling:
     """Verify VIF exception narrowing in validate_factors."""
 

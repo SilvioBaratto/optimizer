@@ -112,6 +112,9 @@ module = [
 ]
 warn_return_any = false
 
+[tool.ruff.lint.isort]
+known-first-party = ["optimizer", "cli", "research"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

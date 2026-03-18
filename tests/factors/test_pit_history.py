@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import warnings
 
 import numpy as np
@@ -11,6 +12,11 @@ import pytest
 from optimizer.factors import (
     PublicationLagConfig,
     align_to_pit,
+)
+
+_skip_no_research = pytest.mark.skipif(
+    importlib.util.find_spec("research") is None,
+    reason="research package not available in CI",
 )
 
 # ---------------------------------------------------------------------------
@@ -174,6 +180,7 @@ class TestAlignToPitWithPanel:
 # ---------------------------------------------------------------------------
 
 
+@_skip_no_research
 class TestSliceFundamentalsAt:
     """Verify the PIT cross-section slicer."""
 
@@ -281,6 +288,7 @@ class TestSliceFundamentalsAt:
 # ---------------------------------------------------------------------------
 
 
+@_skip_no_research
 class TestBuildFactorScoresHistoryWarning:
     """Verify that the degraded-mode warning is emitted."""
 

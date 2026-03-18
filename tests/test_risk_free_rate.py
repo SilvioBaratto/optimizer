@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 import numpy as np
 import pandas as pd
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("typer") is None,
+    reason="typer not available in CI (cli dependency)",
+)
 
 
 def _make_assembly(**kwargs):
