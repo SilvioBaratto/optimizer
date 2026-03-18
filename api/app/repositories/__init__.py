@@ -210,14 +210,18 @@ Best Practices
 
 # Import and export your repositories here:
 from app.repositories.base import BaseRepository, RepositoryBase
+from app.repositories.dashboard_repository import DashboardRepository
 from app.repositories.macro_regime_repository import MacroRegimeRepository
+from app.repositories.portfolio_repository import PortfolioRepository
 from app.repositories.universe_repository import UniverseRepository
 from app.repositories.yfinance_repository import YFinanceRepository
 
 __all__ = [
     "RepositoryBase",
     "BaseRepository",
+    "DashboardRepository",
+    "MacroRegimeRepository",
+    "PortfolioRepository",
     "UniverseRepository",
     "YFinanceRepository",
-    "MacroRegimeRepository",
 ]

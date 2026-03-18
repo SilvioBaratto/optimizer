@@ -7,30 +7,27 @@ import {
   ElementRef,
   viewChild,
   OnDestroy,
+  DestroyRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
+import { interval, switchMap, startWith } from 'rxjs';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { EchartsSunburstComponent, SunburstNode } from '../../shared/echarts-sunburst/echarts-sunburst';
 import { FormatService } from '../../services/format.service';
-import { MockFetchService } from '../../services/mock-fetch.service';
+import { DashboardService } from '../../services/dashboard.service';
+import { PortfolioContextService } from '../../services/portfolio-context.service';
 import { readCssVar } from '../../shared/charts/echarts-theme';
-import { DashboardKPI, ActivityType, MarketRegime } from '../../models/dashboard.model';
+import type { DashboardKPI, ActivityType, MarketRegime } from '../../models/dashboard.model';
+import type { ActivityFeedItem, MarketContext, RegimeInfo, DriftEntry, EquityCurvePoint, AssetClassReturn } from '../../models/dashboard.model';
 import { ModalService } from '../../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../../shared/modal/export-report-modal';
-import {
-  MOCK_DASHBOARD_KPIS,
-  MOCK_EQUITY_CURVE,
-  MOCK_ACTIVITY_FEED,
-  MOCK_MARKET_CONTEXT,
-  MOCK_REGIME_INFO,
-  MOCK_ALLOCATION_SUNBURST,
-  MOCK_DRIFT_TABLE,
-  MOCK_ASSET_CLASS_RETURNS,
-} from '../../mocks/dashboard-mocks';
+
+const MARKET_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
 
 @Component({
   selector: 'app-dashboard',
@@ -41,26 +38,36 @@ import {
 export class DashboardComponent implements OnDestroy {
   readonly fmt = inject(FormatService);
   private readonly modalService = inject(ModalService);
-  private readonly mockFetch = inject(MockFetchService);
+  private readonly dashboardSvc = inject(DashboardService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly portfolioCtx = inject(PortfolioContextService);
 
-  // Loading / error state
-  readonly isLoading = signal(true);
+  // Portfolio name from context with fallback
+  readonly portfolioName = computed(
+    () => this.portfolioCtx.currentPortfolioId() ?? 'Global Multi-Factor',
+  );
+
+  // Per-domain loading states
+  readonly isLoadingPortfolio = signal(true);
+  readonly isLoadingMarket = signal(true);
+
+  // Aggregate loading / error
+  readonly isLoading = computed(() => this.isLoadingPortfolio() && this.isLoadingMarket());
   readonly hasError = signal(false);
   readonly errorMessage = signal('');
   readonly revealIndex = signal(0);
 
   // #153 — KPI Strip
-  readonly kpis = signal(MOCK_DASHBOARD_KPIS);
-  readonly portfolioName = 'Global Multi-Factor';
-  readonly nav = 12_847_320;
-  readonly dailyChange = 0.0181;
+  readonly kpis = signal<DashboardKPI[]>([]);
+  readonly nav = signal(0);
+  readonly dailyChange = signal(0);
 
   // #154 — Equity Curve + Allocation
-  readonly equityCurve = signal(MOCK_EQUITY_CURVE);
-  readonly allocationData = signal<SunburstNode[]>(MOCK_ALLOCATION_SUNBURST);
-  readonly driftTable = signal(MOCK_DRIFT_TABLE);
+  readonly equityCurve = signal<EquityCurvePoint[]>([]);
+  readonly allocationData = signal<SunburstNode[]>([]);
+  readonly driftTable = signal<DriftEntry[]>([]);
 
-  // Allocation legend — sector summaries for the right-side legend
+  // Allocation legend
   readonly allocationSectors = computed(() => {
     const data = this.allocationData();
     const total = data.reduce((sum, s) => sum + (s.value ?? 0), 0);
@@ -74,30 +81,43 @@ export class DashboardComponent implements OnDestroy {
       .sort((a, b) => b.weight - a.weight);
   });
   readonly allocationTotalHoldings = computed(() =>
-    this.allocationData().reduce((sum, s) => sum + (s.children?.length ?? 0), 0)
+    this.allocationData().reduce((sum, s) => sum + (s.children?.length ?? 0), 0),
   );
 
   // #155 — Activity Feed + Market Context
-  readonly activityFeed = signal(MOCK_ACTIVITY_FEED);
-  readonly marketContext = signal(MOCK_MARKET_CONTEXT);
-  readonly regimeInfo = signal(MOCK_REGIME_INFO);
-  readonly assetClassReturns = signal(MOCK_ASSET_CLASS_RETURNS);
+  readonly activityFeed = signal<ActivityFeedItem[]>([]);
+  readonly marketContext = signal<MarketContext>({
+    vix: 0, vixChange: 0, sp500Return: 0,
+    tenYearYield: 0, yieldChange: 0, usdIndex: 0, usdChange: 0,
+  });
+  readonly regimeInfo = signal<RegimeInfo>({
+    current: 'sideways', probability: 0, since: '', hmmStates: [],
+  });
+  readonly assetClassReturns = signal<AssetClassReturn[]>([]);
 
-  // Macro stat-card helpers — VIX is inverted (lower = better)
-  readonly macroVixDelta = computed(() => this.marketContext().vixChange / this.marketContext().vix);
+  // Macro stat-card helpers
+  readonly macroVixDelta = computed(() => {
+    const ctx = this.marketContext();
+    return ctx.vix ? ctx.vixChange / ctx.vix : 0;
+  });
   readonly macroVixTrend = computed((): 'up' | 'down' | 'flat' =>
     this.marketContext().vixChange < 0 ? 'up' : this.marketContext().vixChange > 0 ? 'down' : 'flat');
   readonly macroYieldDelta = computed(() => this.marketContext().yieldChange / 100);
   readonly macroYieldTrend = computed((): 'up' | 'down' | 'flat' =>
     this.marketContext().yieldChange < 0 ? 'down' : this.marketContext().yieldChange > 0 ? 'up' : 'flat');
-  readonly macroUsdDelta = computed(() => this.marketContext().usdChange / this.marketContext().usdIndex);
+  readonly macroUsdDelta = computed(() => {
+    const ctx = this.marketContext();
+    return ctx.usdIndex ? ctx.usdChange / ctx.usdIndex : 0;
+  });
   readonly macroUsdTrend = computed((): 'up' | 'down' | 'flat' =>
     this.marketContext().usdChange > 0 ? 'up' : this.marketContext().usdChange < 0 ? 'down' : 'flat');
 
   readonly subtitle = computed(() => {
-    const navStr = this.fmt.formatCurrencyCompact(this.nav);
-    const changeStr = this.fmt.formatPercent(this.dailyChange);
-    return `NAV ${navStr}  |  ${this.dailyChange >= 0 ? '+' : ''}${changeStr} today`;
+    const navVal = this.nav();
+    const change = this.dailyChange();
+    const navStr = this.fmt.formatCurrencyCompact(navVal);
+    const changeStr = this.fmt.formatPercent(change);
+    return `NAV ${navStr}  |  ${change >= 0 ? '+' : ''}${changeStr} today`;
   });
 
   // Equity curve chart
@@ -106,7 +126,9 @@ export class DashboardComponent implements OnDestroy {
   private equityRo?: ResizeObserver;
 
   constructor() {
-    this.loadData();
+    this.loadPortfolioData();
+    this.startMarketRefresh();
+
     effect((onCleanup) => {
       const el = this.equityCurveContainer();
       if (el && !this.equityChart) {
@@ -121,51 +143,154 @@ export class DashboardComponent implements OnDestroy {
     });
   }
 
-  loadData(): void {
-    this.isLoading.set(true);
+  private loadPortfolioData(): void {
+    const name = this.portfolioName();
+
+    this.isLoadingPortfolio.set(true);
     this.hasError.set(false);
     this.revealIndex.set(0);
 
-    this.mockFetch.fetch({
-      kpis: MOCK_DASHBOARD_KPIS,
-      equityCurve: MOCK_EQUITY_CURVE,
-      allocationData: MOCK_ALLOCATION_SUNBURST,
-      driftTable: MOCK_DRIFT_TABLE,
-      activityFeed: MOCK_ACTIVITY_FEED,
-      marketContext: MOCK_MARKET_CONTEXT,
-      regimeInfo: MOCK_REGIME_INFO,
-      assetClassReturns: MOCK_ASSET_CLASS_RETURNS,
-    }).then(data => {
-      this.kpis.set(data.kpis);
-      this.equityCurve.set(data.equityCurve);
-      this.allocationData.set(data.allocationData);
-      this.driftTable.set(data.driftTable);
-      this.activityFeed.set(data.activityFeed);
-      this.marketContext.set(data.marketContext);
-      this.regimeInfo.set(data.regimeInfo);
-      this.assetClassReturns.set(data.assetClassReturns);
-      this.isLoading.set(false);
+    let completedCount = 0;
+    const totalCalls = 6;
 
-      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (prefersReducedMotion) {
-        this.revealIndex.set(10);
-      } else {
-        let idx = 0;
-        const interval = setInterval(() => {
-          idx++;
-          this.revealIndex.set(idx);
-          if (idx >= 10) clearInterval(interval);
-        }, 50);
+    const onComplete = () => {
+      completedCount++;
+      if (completedCount >= totalCalls) {
+        this.isLoadingPortfolio.set(false);
+        this.startRevealAnimation();
       }
-    }).catch((err: Error) => {
+    };
+
+    const onError = (err: Error) => {
       this.hasError.set(true);
       this.errorMessage.set(err.message);
-      this.isLoading.set(false);
-    });
+      this.isLoadingPortfolio.set(false);
+    };
+
+    this.dashboardSvc.getPerformanceMetrics(name)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: res => {
+          this.kpis.set(res.kpis as DashboardKPI[]);
+          this.nav.set(res.nav);
+          this.dailyChange.set(res.navChangePct);
+          onComplete();
+        },
+        error: onError,
+      });
+
+    this.dashboardSvc.getEquityCurve(name, 'SPY', '3Y')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: res => {
+          this.equityCurve.set(res.points as EquityCurvePoint[]);
+          onComplete();
+          if (this.equityChart) {
+            this.equityChart.setOption(this.buildEquityCurveOption());
+          }
+        },
+        error: onError,
+      });
+
+    this.dashboardSvc.getAllocation(name)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: res => {
+          this.allocationData.set(res.nodes as SunburstNode[]);
+          onComplete();
+        },
+        error: onError,
+      });
+
+    this.dashboardSvc.getDrift(name)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: res => {
+          this.driftTable.set(res.entries as DriftEntry[]);
+          onComplete();
+        },
+        error: onError,
+      });
+
+    this.dashboardSvc.getActivity(name)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: res => {
+          this.activityFeed.set(res.items as ActivityFeedItem[]);
+          onComplete();
+        },
+        error: onError,
+      });
+
+    this.dashboardSvc.getAssetClassReturns(name)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: res => {
+          this.assetClassReturns.set(res.returns as AssetClassReturn[]);
+          onComplete();
+        },
+        error: onError,
+      });
+  }
+
+  private startMarketRefresh(): void {
+    interval(MARKET_REFRESH_MS)
+      .pipe(
+        startWith(0),
+        switchMap(() => this.dashboardSvc.getMarketSnapshot()),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: res => {
+          this.marketContext.set({
+            vix: res.vix,
+            vixChange: res.vixChange,
+            sp500Return: res.sp500Return,
+            tenYearYield: res.tenYearYield,
+            yieldChange: res.yieldChange,
+            usdIndex: res.usdIndex,
+            usdChange: res.usdChange,
+          });
+          this.isLoadingMarket.set(false);
+        },
+        error: () => this.isLoadingMarket.set(false),
+      });
+
+    interval(MARKET_REFRESH_MS)
+      .pipe(
+        startWith(0),
+        switchMap(() => this.dashboardSvc.getRegimeState()),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: res => {
+          this.regimeInfo.set({
+            current: res.current as MarketRegime,
+            probability: res.probability,
+            since: res.since,
+            hmmStates: res.hmmStates as { regime: MarketRegime; probability: number }[],
+          });
+        },
+        error: () => { /* regime failure is non-critical */ },
+      });
+  }
+
+  private startRevealAnimation(): void {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) {
+      this.revealIndex.set(10);
+    } else {
+      let idx = 0;
+      const timer = setInterval(() => {
+        idx++;
+        this.revealIndex.set(idx);
+        if (idx >= 10) clearInterval(timer);
+      }, 50);
+    }
   }
 
   retry(): void {
-    this.loadData();
+    this.loadPortfolioData();
   }
 
   formatKpiValue(kpi: DashboardKPI): string {
@@ -184,7 +309,10 @@ export class DashboardComponent implements OnDestroy {
   }
 
   kpiDelta(kpi: DashboardKPI): number {
-    if (kpi.format === 'currency') return kpi.change / this.nav;
+    if (kpi.format === 'currency') {
+      const navVal = this.nav();
+      return navVal ? kpi.change / navVal : 0;
+    }
     return kpi.change;
   }
 
@@ -193,8 +321,8 @@ export class DashboardComponent implements OnDestroy {
   }
 
   // Activity feed helpers
-  activityDotClass(type: ActivityType): string {
-    const map: Record<ActivityType, string> = {
+  activityDotClass(type: string): string {
+    const map: Record<string, string> = {
       optimization: 'bg-info',
       rebalance: 'bg-success',
       regime_change: 'bg-warning',
@@ -202,7 +330,7 @@ export class DashboardComponent implements OnDestroy {
       ai_decision: 'bg-agent-risk',
       trade: 'bg-chart-5',
     };
-    return map[type];
+    return map[type] ?? 'bg-text-tertiary';
   }
 
   relativeTime(timestamp: string): string {

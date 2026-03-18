@@ -26,8 +26,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "X-Frame-Options": "DENY",
             # Referrer Policy
             "Referrer-Policy": "strict-origin-when-cross-origin",
-            # HSTS (HTTPS only)
-            "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
             # Permissions Policy (disable unnecessary features)
             "Permissions-Policy": (
                 "geolocation=(), "
@@ -44,8 +42,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "X-Powered-By": "FastAPI",
         }
 
+        # HSTS only in production (breaks localhost by forcing HTTPS)
+        if not settings.is_development and not settings.debug:
+            headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+
         # Content Security Policy based on endpoint and environment
-        if is_docs_endpoint and settings.debug:
+        if is_docs_endpoint and (settings.debug or settings.is_development):
             # Allow external resources for Swagger UI in development
             headers["Content-Security-Policy"] = (
                 "default-src 'self'; "

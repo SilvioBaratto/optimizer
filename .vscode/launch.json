@@ -23,29 +23,7 @@
       "console": "integratedTerminal"
     },
     {
-      "name": "CLI: yfinance fetch",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "cli",
-      "cwd": "${workspaceFolder}",
-      "args": ["yfinance", "fetch"],
-      "python": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
-      "envFile": "${workspaceFolder}/.env",
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "CLI: macro fetch",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "cli",
-      "cwd": "${workspaceFolder}",
-      "args": ["macro", "fetch"],
-      "python": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
-      "envFile": "${workspaceFolder}/.env",
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "Research: Stock Selection Pipeline",
+      "name": "Stock Selection Pipeline",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/research/stock_selection_pipeline.py",

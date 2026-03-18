@@ -58,6 +58,11 @@ FRED_RATE_SERIES: dict[str, str] = {
     "DGS3MO": "3-Month Treasury Constant Maturity Rate",
 }
 
+# FX / Dollar Index (daily)
+FRED_FX_SERIES: dict[str, str] = {
+    "DTWEXBGS": "Trade Weighted US Dollar Index: Broad, Goods and Services",
+}
+
 # Combined registry used by default fetch operations.
 FRED_SERIES: dict[str, str] = {
     **FRED_SPREAD_SERIES,
@@ -65,6 +70,7 @@ FRED_SERIES: dict[str, str] = {
     **FRED_CLI_SERIES,
     **FRED_RECESSION_SERIES,
     **FRED_RATE_SERIES,
+    **FRED_FX_SERIES,
 }
 
 _FRED_BASE_URL = "https://api.stlouisfed.org/fred"

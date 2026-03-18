@@ -279,8 +279,32 @@ from app.schemas.yfinance_data import (
     YFinanceSingleFetchResponse,
 )
 
+# Import portfolio schemas
+from app.schemas.portfolio import (
+    BrokerAccountResponse,
+    BrokerPositionResponse,
+    PortfolioCreate,
+    PortfolioListResponse,
+    PortfolioResponse,
+    SnapshotCreate,
+    SnapshotListResponse,
+    SnapshotResponse,
+    SyncJobResponse,
+    SyncProgressResponse,
+)
+
 # Export all schemas
 __all__ = [
+    "BrokerAccountResponse",
+    "BrokerPositionResponse",
+    "PortfolioCreate",
+    "PortfolioListResponse",
+    "PortfolioResponse",
+    "SnapshotCreate",
+    "SnapshotListResponse",
+    "SnapshotResponse",
+    "SyncJobResponse",
+    "SyncProgressResponse",
     "AnalystPriceTargetResponse",
     "AnalystRecommendationResponse",
     "BuildJobResponse",

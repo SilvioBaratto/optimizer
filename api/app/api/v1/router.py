@@ -2,12 +2,14 @@
 
 from fastapi import APIRouter
 
+from app.api.v1.dashboard import market_router, router as dashboard_router
 from app.api.v1.database import router as database_router
 from app.api.v1.jobs import router as jobs_router
 from app.api.v1.llm_moments import router as llm_moments_router
 from app.api.v1.macro_calibration import router as macro_calibration_router
 from app.api.v1.macro_regime import router as macro_regime_router
 from app.api.v1.opinion_pooling import router as opinion_pooling_router
+from app.api.v1.portfolio import router as portfolio_router
 from app.api.v1.risk_budget import router as risk_budget_router
 from app.api.v1.stress_scenarios import router as stress_scenarios_router
 from app.api.v1.test import router as test_router
@@ -31,3 +33,6 @@ api_router.include_router(opinion_pooling_router)
 api_router.include_router(stress_scenarios_router)
 api_router.include_router(risk_budget_router)
 api_router.include_router(jobs_router)
+api_router.include_router(dashboard_router)
+api_router.include_router(market_router)
+api_router.include_router(portfolio_router)

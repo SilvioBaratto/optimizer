@@ -13,6 +13,14 @@ from app.models.macro_regime import (
     MacroNewsSummary,
     TradingEconomicsIndicator,
 )
+from app.models.portfolio import (
+    ActivityEvent,
+    BrokerAccountSnapshot,
+    BrokerPosition,
+    Portfolio,
+    PortfolioSnapshot,
+    RegimeState,
+)
 from app.models.universe import Exchange, Instrument
 from app.models.yfinance_data import (
     AnalystPriceTarget,
@@ -29,12 +37,15 @@ from app.models.yfinance_data import (
 )
 
 __all__ = [
+    "ActivityEvent",
     "AnalystPriceTarget",
     "AnalystRecommendation",
     "BackgroundJob",
     "Base",
     "BaseModel",
     "BondYield",
+    "BrokerAccountSnapshot",
+    "BrokerPosition",
     "Dividend",
     "EconomicIndicator",
     "Exchange",
@@ -46,7 +57,10 @@ __all__ = [
     "InstitutionalHolder",
     "Instrument",
     "MutualFundHolder",
+    "Portfolio",
+    "PortfolioSnapshot",
     "PriceHistory",
+    "RegimeState",
     "StockSplit",
     "TickerNews",
     "TickerProfile",
