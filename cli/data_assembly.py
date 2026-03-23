@@ -45,6 +45,12 @@ from app.models.yfinance_data import (
     TickerProfile,
 )
 
+from cli._currency import (
+    build_currency_map,
+    normalize_fundamentals,
+    normalize_prices,
+)
+
 logger = logging.getLogger(__name__)
 
 # Number of trading days per year (equity convention).
@@ -94,6 +100,21 @@ def _build_ticker_map(
         stmt = stmt.where(Instrument.delisted_at.is_(None))
     rows = session.execute(stmt).all()
     return {str(r[0]): r[1] for r in rows}
+
+
+def _build_currency_map_from_instruments(session: Session) -> dict[str, str]:
+    """Return {yfinance_ticker: currency_code} from the Instrument table.
+
+    Lightweight query for price/volume normalisation when TickerProfile
+    is not loaded.
+    """
+    rows = session.execute(
+        select(Instrument.yfinance_ticker, Instrument.currency_code)
+        .where(Instrument.yfinance_ticker.isnot(None))
+        .where(Instrument.yfinance_ticker != "")
+        .where(Instrument.currency_code.isnot(None))
+    ).all()
+    return {str(t): str(c) for t, c in rows}
 
 
 def _apply_delisting_returns(
@@ -255,6 +276,12 @@ def assemble_prices(
             if yf_ticker in pivoted.columns
         ]
         pivoted = _apply_delisting_returns(pivoted, delistings)
+
+    # Normalise minor-unit prices (GBX → GBP, etc.) so that ADDV
+    # computation and factor construction use consistent values.
+    currency_map = _build_currency_map_from_instruments(session)
+    if currency_map:
+        pivoted = normalize_prices(pivoted, currency_map)
 
     return pivoted
 
@@ -514,14 +541,19 @@ _FUNDAMENTAL_COLUMNS: list[str] = [
 
 def assemble_fundamentals(
     session: Session,
-) -> tuple[pd.DataFrame, dict[str, str]]:
+) -> tuple[pd.DataFrame, dict[str, str], dict[str, str]]:
     """Build a ``tickers x fields`` fundamentals DataFrame and sector map.
+
+    Minor-unit currencies (GBX, ILA, ZAC) are normalised to their
+    major-unit equivalents (÷100) so that downstream screening and
+    factor construction receive consistent values.
 
     Returns
     -------
-    tuple[pd.DataFrame, dict[str, str]]
+    tuple[pd.DataFrame, dict[str, str], dict[str, str]]
         - Fundamentals DataFrame indexed by yfinance ticker.
         - ``{ticker: sector}`` mapping.
+        - ``{ticker: currency_code}`` mapping (major-unit normalised).
     """
     profiles = (
         session.execute(
@@ -532,7 +564,10 @@ def assemble_fundamentals(
     )
 
     if not profiles:
-        return pd.DataFrame(), {}
+        return pd.DataFrame(), {}, {}
+
+    # Build currency map from the already-loaded profiles (no extra query).
+    currency_map = build_currency_map(list(profiles))
 
     fundamentals_records: list[dict[str, Any]] = []
     sector_mapping: dict[str, str] = {}
@@ -554,7 +589,7 @@ def assemble_fundamentals(
             sector_mapping[ticker] = profile.sector
 
     if not fundamentals_records:
-        return pd.DataFrame(), {}
+        return pd.DataFrame(), {}, currency_map
 
     df = pd.DataFrame(fundamentals_records).set_index("ticker")
     # Multiple instruments can map to the same yfinance_ticker
@@ -570,7 +605,11 @@ def assemble_fundamentals(
     ticker_map = _build_ticker_map(session)
     df = _enrich_from_financial_statements(session, df, ticker_map)
 
-    return df, sector_mapping
+    # Normalise minor-unit currencies (GBX → GBP, ILA → ILS, etc.)
+    # so downstream screening and factor construction see major-unit values.
+    df, currency_map = normalize_fundamentals(df, currency_map)
+
+    return df, sector_mapping, currency_map
 
 
 def assemble_fundamental_history(
@@ -1441,6 +1480,10 @@ class DataAssembly:
         Mapping of yfinance_ticker → terminal delisting return for each
         delisted instrument.  Used by ``run_full_pipeline()`` for the
         returns-space survivorship-bias correction.
+    currency_map : dict[str, str]
+        ``{yfinance_ticker: currency_code}`` mapping (major-unit normalised,
+        e.g. ``"GBP"`` not ``"GBX"``).  Used to activate FX conversion in
+        ``run_full_pipeline()`` and for downstream currency-aware logic.
     """
 
     def __init__(
@@ -1461,6 +1504,7 @@ class DataAssembly:
         fundamental_history: pd.DataFrame | None = None,
         include_delisted: bool = True,
         delisting_returns: dict[str, float] | None = None,
+        currency_map: dict[str, str] | None = None,
     ) -> None:
         self.prices = prices
         self.volumes = volumes
@@ -1481,6 +1525,7 @@ class DataAssembly:
         )
         self.include_delisted = include_delisted
         self.delisting_returns: dict[str, float] = delisting_returns or {}
+        self.currency_map: dict[str, str] = currency_map or {}
 
     @property
     def n_tickers(self) -> int:
@@ -1577,7 +1622,7 @@ def assemble_all(
         volumes = assemble_volumes(session, include_delisted=include_delisted)
 
         logger.info("Assembling fundamentals...")
-        fundamentals, sector_mapping = assemble_fundamentals(session)
+        fundamentals, sector_mapping, currency_map = assemble_fundamentals(session)
 
         logger.info("Assembling financial statements...")
         financial_statements = assemble_financial_statements(session)
@@ -1631,4 +1676,5 @@ def assemble_all(
         fundamental_history=fundamental_history,
         include_delisted=include_delisted,
         delisting_returns=delisting_returns,
+        currency_map=currency_map,
     )
