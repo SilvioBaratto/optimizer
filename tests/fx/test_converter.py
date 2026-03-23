@@ -257,3 +257,50 @@ class TestFxPriceConverterSklearnAPI:
         result = converter.fit_transform(local_prices)
         assert isinstance(result, pd.DataFrame)
         assert result.shape == local_prices.shape
+
+
+class TestFxPriceConverterFillLimitWarning:
+    """Tests for fill_limit exhaustion NaN warning."""
+
+    def test_transform_warns_on_fill_limit_exhaustion(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """When FX rates have gaps beyond fill_limit, warn about affected tickers."""
+        dates = pd.bdate_range("2024-01-02", periods=10)
+        prices = pd.DataFrame(
+            {
+                "LLOY.L": np.linspace(50, 55, 10),
+                "ORA.PA": np.linspace(90, 95, 10),
+            },
+            index=dates,
+        )
+        cmap = {"LLOY.L": "GBP", "ORA.PA": "EUR"}
+
+        # Only provide FX rate for the first day — fill_limit=2 means
+        # days 4–10 will have NaN rates, causing NaN prices for LLOY.L.
+        fx = pd.DataFrame(
+            {"GBP": [1.16]},
+            index=pd.to_datetime(["2024-01-02"]),
+        )
+
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map=cmap,
+            fx_rates=fx,
+            fill_limit=2,
+        )
+        converter.fit(prices)
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            result = converter.transform(prices)
+
+        # LLOY.L should have NaN prices where fill_limit was exhausted
+        assert result["LLOY.L"].isna().any()
+        # ORA.PA (base currency) should be unchanged — no NaNs introduced
+        assert not (result["ORA.PA"].isna() & ~prices["ORA.PA"].isna()).any()
+        # Warning should mention the affected ticker
+        assert any("LLOY.L" in record.message for record in caplog.records)
+        assert any("fill_limit=2" in record.message for record in caplog.records)

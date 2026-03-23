@@ -224,6 +224,7 @@ class FinancialStatement(BaseModel):
     period_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     line_item: Mapped[str] = mapped_column(String(200), nullable=False)
     value: Mapped[float | None] = mapped_column(Numeric(38, 6), nullable=True)
+    currency_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class Dividend(BaseModel):

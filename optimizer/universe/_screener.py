@@ -63,7 +63,9 @@ def compute_addv(
     Parameters
     ----------
     price_history : pd.DataFrame
-        Price matrix (dates x tickers).
+        Price matrix (dates x tickers).  Must be denominated in major
+        currency units (e.g. GBP, not GBX).  Minor-unit normalisation
+        must be applied upstream (see ``cli.data_assembly.assemble_prices``).
     volume_history : pd.DataFrame
         Volume matrix (dates x tickers), aligned with price_history.
     window : int
@@ -267,6 +269,11 @@ def apply_investability_screens(
     fundamentals : pd.DataFrame
         Cross-sectional data with one row per ticker.  Required
         columns: ``market_cap``, ``current_price``.  Index is ticker.
+        All monetary columns (``market_cap``, ``current_price``, etc.)
+        must be denominated in major currency units (e.g. GBP, not
+        GBX).  Minor-unit normalisation must be applied upstream via
+        ``cli._currency.normalize_fundamentals()`` before this
+        function is called.
     price_history : pd.DataFrame
         Price matrix (dates x tickers).
     volume_history : pd.DataFrame

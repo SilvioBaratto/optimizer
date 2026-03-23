@@ -144,6 +144,19 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
             rate = self.fx_aligned_[ccy].reindex(out.index)
             out[ticker] = out[ticker] * rate
 
+        # Warn about tickers with NaN prices due to fill_limit exhaustion
+        nan_mask = out.isnull() & ~X.isnull()
+        if nan_mask.any().any():
+            affected = nan_mask.any(axis=0)
+            affected_tickers = list(affected[affected].index)
+            logger.warning(
+                "FxPriceConverter: %d ticker(s) have NaN prices after FX "
+                "conversion (fill_limit=%d exhausted): %s",
+                len(affected_tickers),
+                self.fill_limit,
+                affected_tickers,
+            )
+
         n_converted = sum(
             1
             for t, c in self.foreign_tickers_.items()

@@ -10,6 +10,7 @@ from app.repositories.yfinance_repository import YFinanceRepository
 from app.services._progress import ProgressCallback, _noop
 from app.services.trading_calendar import has_sufficient_history
 from app.services.yfinance import YFinanceClient
+from app.utils.currency import to_major_currency
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ class YFinanceDataService:
         mode: str = "incremental",
         thresholds: StalenessThresholds | None = None,
         exchange_name: str | None = None,
+        currency_code: str | None = None,
     ) -> dict[str, Any]:
         """Fetch all data categories for a single ticker and store.
 
@@ -78,6 +80,9 @@ class YFinanceDataService:
                   fresh categories and date-ranges the price fetch.
             thresholds: Override default staleness thresholds.
             exchange_name: Exchange name for calendar-based history validation.
+            currency_code: Instrument listing currency (e.g. "GBX").
+                Converted to major-unit (e.g. "GBP") before storing on
+                financial statement rows.
 
         Returns dict with counts per category, list of errors, and skipped categories.
         """
@@ -187,6 +192,11 @@ class YFinanceDataService:
             logger.warning("Failed to fetch prices for %s: %s", yfinance_ticker, e)
 
         # 3. Financial statements (income, balance, cashflow - annual + quarterly)
+        # Financial statements from yfinance are in the company's reporting
+        # currency (e.g. GBP for UK companies), not the listing quote
+        # currency (e.g. GBX).  Store the major-unit code for auditability.
+        reporting_currency = to_major_currency(currency_code)
+
         if (
             mode == "incremental"
             and staleness is not None
@@ -227,7 +237,8 @@ class YFinanceDataService:
                         df = fetch_method(yfinance_ticker, quarterly=quarterly_flag)
                         if df is not None and not df.empty:
                             fs_count += self.repo.upsert_financial_statements(
-                                instrument_id, df, stmt_type, period_type
+                                instrument_id, df, stmt_type, period_type,
+                                currency_code=reporting_currency,
                             )
                     except Exception as e:
                         errors.append(f"financials.{stmt_type}.{period_type}: {e}")
@@ -248,7 +259,8 @@ class YFinanceDataService:
                         )
                         if df is not None and not df.empty:
                             fs_count += self.repo.upsert_financial_statements(
-                                instrument_id, df, "earnings", period_type
+                                instrument_id, df, "earnings", period_type,
+                                currency_code=reporting_currency,
                             )
                     except Exception as e:
                         errors.append(f"financials.earnings.{period_type}: {e}")
@@ -522,6 +534,7 @@ def run_bulk_yfinance_fetch(
                     period=request.period,
                     mode=request.mode,
                     exchange_name=instrument.exchange_name,
+                    currency_code=instrument.currency_code,
                 )
 
                 for k, v in result["counts"].items():

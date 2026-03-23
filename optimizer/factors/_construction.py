@@ -371,6 +371,7 @@ def compute_factor(
     analyst_data: pd.DataFrame | None = None,
     insider_data: pd.DataFrame | None = None,
     config: FactorConstructionConfig | None = None,
+    market_returns: pd.Series | None = None,
 ) -> pd.Series:
     """Compute a single factor.
 
@@ -390,6 +391,12 @@ def compute_factor(
         Insider transaction data.
     config : FactorConstructionConfig or None
         Construction parameters.
+    market_returns : pd.Series or None
+        Pre-computed market return series for beta estimation.
+        When provided, used as the benchmark instead of the
+        equal-weight cross-sectional mean.  Pass a currency-
+        consistent broad index (e.g. SPY daily returns) when
+        ``price_history`` spans multiple currency zones.
 
     Returns
     -------
@@ -419,6 +426,7 @@ def compute_factor(
         case FactorType.BETA:
             return _compute_beta(
                 price_history,
+                market_returns=market_returns,
                 lookback=config.beta_lookback,
             )
         case FactorType.AMIHUD_ILLIQUIDITY:
@@ -444,6 +452,7 @@ def compute_all_factors(
     analyst_data: pd.DataFrame | None = None,
     insider_data: pd.DataFrame | None = None,
     config: FactorConstructionConfig | None = None,
+    market_returns: pd.Series | None = None,
 ) -> pd.DataFrame:
     """Compute all configured factors.
 
@@ -461,6 +470,9 @@ def compute_all_factors(
         Insider transaction data.
     config : FactorConstructionConfig or None
         Construction parameters.
+    market_returns : pd.Series or None
+        Pre-computed market return series for beta estimation.
+        See :func:`compute_factor` for details.
 
     Returns
     -------
@@ -480,6 +492,7 @@ def compute_all_factors(
             analyst_data=analyst_data,
             insider_data=insider_data,
             config=config,
+            market_returns=market_returns,
         )
         if len(series) > 0:
             results[factor_type.value] = series

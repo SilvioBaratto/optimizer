@@ -47,6 +47,22 @@ _MINOR_TO_MAJOR: dict[str, str] = {
     "ZAC": "ZAR",
 }
 
+#: Currency priority for cross-listed ticker deduplication.
+#: Lower rank = higher priority.  When a ticker appears on multiple
+#: exchanges, the listing with the lowest rank "wins" deduplication.
+CURRENCY_DEDUP_PRIORITY: dict[str, int] = {
+    "USD": 0,
+    "GBP": 1,
+    "EUR": 2,
+    "GBX": 3,
+    "GBp": 3,  # yfinance variant of GBX — same rank
+    "CHF": 4,
+    "JPY": 5,
+    "CAD": 6,
+    "AUD": 7,
+    "HKD": 8,
+}
+
 # Columns in a fundamentals DataFrame that are denominated in local
 # currency and must be divided by the minor-unit divisor.
 _CURRENCY_DENOMINATED_COLUMNS: list[str] = [
@@ -80,6 +96,17 @@ def normalize_to_major_currency(currency_code: str) -> str:
     'USD'
     """
     return _MINOR_TO_MAJOR.get(currency_code, currency_code)
+
+
+def currency_dedup_rank(currency_code: str | None) -> int:
+    """Return the deduplication priority rank for a currency code.
+
+    Lower rank is preferred (USD=0 outranks EUR=2).  Unknown or missing
+    currencies receive rank 99 so that a known listing always wins.
+    """
+    if currency_code is None:
+        return 99
+    return CURRENCY_DEDUP_PRIORITY.get(currency_code, 99)
 
 
 def build_currency_map(profiles: list[TickerProfile]) -> dict[str, str]:

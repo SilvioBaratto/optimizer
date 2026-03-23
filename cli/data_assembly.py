@@ -47,6 +47,7 @@ from app.models.yfinance_data import (
 
 from cli._currency import (
     build_currency_map,
+    currency_dedup_rank,
     normalize_fundamentals,
     normalize_prices,
 )
@@ -187,6 +188,7 @@ def _apply_delisting_returns(
 def assemble_prices(
     session: Session,
     include_delisted: bool = True,
+    currency_map: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Build a ``dates x tickers`` close-price DataFrame.
 
@@ -279,9 +281,16 @@ def assemble_prices(
 
     # Normalise minor-unit prices (GBX → GBP, etc.) so that ADDV
     # computation and factor construction use consistent values.
-    currency_map = _build_currency_map_from_instruments(session)
-    if currency_map:
-        pivoted = normalize_prices(pivoted, currency_map)
+    # Prefer the caller-supplied currency_map (avoids a second DB query
+    # when called from assemble_all); fall back to a direct Instrument
+    # query for standalone callers.
+    effective_map = (
+        currency_map
+        if currency_map is not None
+        else _build_currency_map_from_instruments(session)
+    )
+    if effective_map:
+        pivoted = normalize_prices(pivoted, effective_map)
 
     return pivoted
 
@@ -382,6 +391,13 @@ def _compute_asset_growth_from_statements(
 
     Mutates *enrichment* in-place: adds ``asset_growth`` for each ticker
     where two annual Total Assets rows are available.
+
+    Currency safety
+    ~~~~~~~~~~~~~~~
+    ``asset_growth = (current - prior) / abs(prior)`` is a dimensionless
+    ratio.  Both numerator and denominator are in the same reporting
+    currency for the same ticker, so the currency cancels regardless of
+    denomination (GBP, USD, EUR, etc.).  No normalization is needed.
     """
     rows = session.execute(
         select(
@@ -539,6 +555,47 @@ _FUNDAMENTAL_COLUMNS: list[str] = [
 ]
 
 
+def _dedup_fundamentals_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Deduplicate cross-listed tickers by currency priority + completeness.
+
+    Sorts each group of rows sharing the same yfinance_ticker by:
+      1. Currency priority rank (USD < GBP < EUR < GBX < others)
+      2. Number of NaN values in fundamental columns (fewer NaNs wins)
+
+    After sorting, ``keep="first"`` always selects the deterministically
+    best row.  Helper columns are dropped before returning.
+    """
+    df = df.copy()
+    fundamental_cols = [c for c in _FUNDAMENTAL_COLUMNS if c in df.columns]
+
+    df["_ccy_rank"] = df["_raw_currency"].map(
+        lambda c: currency_dedup_rank(c if isinstance(c, str) else None)
+    )
+    df["_nan_count"] = df[fundamental_cols].isna().sum(axis=1)
+
+    df = df.sort_values(["_ccy_rank", "_nan_count"])
+
+    # Log resolved duplicates before dedup
+    dup_mask = df.index.duplicated(keep=False)
+    if dup_mask.any():
+        dup_df = df.loc[dup_mask]
+        for ticker_val in dup_df.index.unique():
+            group = dup_df.loc[[ticker_val]]
+            chosen_ccy = group.iloc[0]["_raw_currency"]
+            logger.info(
+                "Dedup %s: %d cross-listed candidates, selected currency=%s, "
+                "dropped %d listing(s).",
+                ticker_val,
+                len(group),
+                chosen_ccy,
+                len(group) - 1,
+            )
+
+    df = df[~df.index.duplicated(keep="first")]
+    df = df.drop(columns=["_raw_currency", "_ccy_rank", "_nan_count"])
+    return df
+
+
 def assemble_fundamentals(
     session: Session,
 ) -> tuple[pd.DataFrame, dict[str, str], dict[str, str]]:
@@ -557,7 +614,11 @@ def assemble_fundamentals(
     """
     profiles = (
         session.execute(
-            select(TickerProfile).options(joinedload(TickerProfile.instrument))
+            select(TickerProfile).options(
+                joinedload(TickerProfile.instrument).joinedload(
+                    Instrument.exchange
+                )
+            )
         )
         .scalars()
         .all()
@@ -583,6 +644,9 @@ def assemble_fundamentals(
         for col in _FUNDAMENTAL_COLUMNS:
             row[col] = _to_float(getattr(profile, col, None))
 
+        row["exchange"] = instrument.exchange_name
+        row["_raw_currency"] = instrument.currency_code or profile.currency
+
         fundamentals_records.append(row)
 
         if profile.sector:
@@ -593,11 +657,16 @@ def assemble_fundamentals(
 
     df = pd.DataFrame(fundamentals_records).set_index("ticker")
     # Multiple instruments can map to the same yfinance_ticker
-    # (different exchanges).  Keep the first (typically most complete).
-    df = df[~df.index.duplicated(keep="first")]
+    # (different exchanges).  Deterministic dedup: prefer listings with
+    # higher-priority currencies (USD > GBP > EUR > GBX > others),
+    # then prefer rows with fewer NaN fundamental columns.
+    df = _dedup_fundamentals_df(df)
 
-    # book_value from yfinance (bookValue) is per-share.  Scale to total
-    # book equity so that book_to_price = book_value / market_cap is correct.
+    # book_value from yfinance (bookValue) is per-share in listing currency
+    # (GBX for LSE stocks).  Multiplied by shares_outstanding (a count),
+    # the result is total book equity in listing currency.
+    # normalize_fundamentals() below then divides by the minor-unit divisor
+    # (÷100 for GBX) to convert total book equity to GBP.
     if "book_value" in df.columns and "shares_outstanding" in df.columns:
         df["book_value"] = df["book_value"] * df["shares_outstanding"]
 
@@ -635,6 +704,26 @@ def assemble_fundamental_history(
         Columns: ``net_income``, ``gross_profit``, ``operating_income``,
         ``total_assets``, ``total_equity``, ``period_type``
         (``'annual'`` | ``'quarterly'``), ``asset_growth`` (float | NaN).
+
+    Notes
+    -----
+    Financial statement monetary values (net_income, gross_profit,
+    operating_income, total_assets, total_equity) are stored by yfinance
+    in the company's **reporting currency** — GBP for UK-listed
+    companies, USD for US companies, etc.  This is distinct from the
+    listing quote currency: an LSE stock quoted in GBX (pence) still
+    has balance-sheet data reported in GBP.
+
+    Consequently, ``asset_growth`` — computed as the year-over-year ratio
+    of ``total_assets`` values for the same ticker — is dimensionless
+    and inherently currency-safe: the currency cancels in the division.
+    No normalisation is applied or needed for this column.
+
+    Callers combining ``total_assets`` (in reporting-currency units)
+    with market data (market_cap, current_price) for cross-sectional
+    ratios **must** ensure market data has been normalised from minor
+    units to major units (e.g. via ``normalize_fundamentals()``) before
+    computing ratios.
     """
     ticker_map = _build_ticker_map(session)
     if tickers is not None:
@@ -1434,6 +1523,151 @@ def assemble_regime_data(
     return merged
 
 
+def assemble_fx_rates(
+    currency_map: dict[str, str],
+    base_currency: str,
+    price_index: pd.DatetimeIndex,
+    *,
+    cross_via_usd: bool = True,
+) -> pd.DataFrame:
+    """Fetch FX rates from yfinance for all foreign currencies in the map.
+
+    Downloads exchange rate data and returns a DataFrame where each column
+    holds units-of-base per one unit-of-foreign currency (the format
+    expected by :class:`~optimizer.fx.FxPriceConverter`).
+
+    Parameters
+    ----------
+    currency_map : dict[str, str]
+        ``{yfinance_ticker: ISO_currency_code}`` mapping.
+    base_currency : str
+        Target base currency (e.g. ``"EUR"``).
+    price_index : pd.DatetimeIndex
+        Date index from the price DataFrame (used to determine the
+        download range).
+    cross_via_usd : bool
+        Compute cross rates via USD for non-USD pairs.
+
+    Returns
+    -------
+    pd.DataFrame
+        Index = dates, columns = foreign currency codes, values =
+        units-of-base per one unit-of-foreign.  Empty DataFrame when
+        no foreign currencies are needed or download fails.
+    """
+    import yfinance as yf
+
+    from optimizer.fx._rates import (
+        build_fx_pair_ticker,
+        compute_cross_rate,
+        required_fx_currencies,
+    )
+
+    base = base_currency.upper()
+
+    if len(price_index) == 0:
+        logger.warning("price_index is empty; cannot determine FX date range.")
+        return pd.DataFrame()
+
+    foreign_ccys = required_fx_currencies(currency_map, base)
+
+    if not foreign_ccys:
+        logger.info("No foreign currencies to fetch FX rates for.")
+        return pd.DataFrame(index=price_index)
+
+    # Build yfinance ticker list and remember the mapping
+    all_tickers: set[str] = set()
+    pair_info: dict[str, str | tuple[str, str]] = {}
+
+    for ccy in sorted(foreign_ccys):
+        pair = build_fx_pair_ticker(ccy, base, cross_via_usd=cross_via_usd)
+        if pair is None:
+            continue
+        pair_info[ccy] = pair
+        if isinstance(pair, tuple):
+            all_tickers.update(pair)
+        else:
+            all_tickers.add(pair)
+
+    if not all_tickers:
+        return pd.DataFrame(index=price_index)
+
+    # Download all needed tickers in one call
+    start = price_index[0] - pd.Timedelta(days=7)
+    end = price_index[-1] + pd.Timedelta(days=1)
+    tickers_list = sorted(all_tickers)
+
+    logger.info(
+        "Downloading FX rates for %d pair(s): %s",
+        len(tickers_list),
+        tickers_list,
+    )
+
+    try:
+        data = yf.download(
+            tickers_list,
+            start=start,
+            end=end,
+            auto_adjust=True,
+            progress=False,
+        )
+    except Exception:
+        logger.exception("Failed to download FX rates from yfinance.")
+        return pd.DataFrame(index=price_index)
+
+    if data is None or data.empty:
+        logger.warning("yfinance returned empty FX rate data.")
+        return pd.DataFrame(index=price_index)
+
+    # Extract Close prices — handle single vs multi-ticker column formats
+    if isinstance(data.columns, pd.MultiIndex):
+        close = data["Close"]
+    else:
+        # Single ticker → flat columns
+        close = data[["Close"]].copy()
+        close.columns = [tickers_list[0]]
+
+    # Build rate DataFrame (units of base per one unit of foreign)
+    rates: dict[str, pd.Series] = {}
+
+    for ccy, pair in pair_info.items():
+        if isinstance(pair, tuple):
+            from_ticker, to_ticker = pair
+            if from_ticker not in close.columns or to_ticker not in close.columns:
+                logger.warning(
+                    "Missing FX data for cross-rate %s: need %s and %s",
+                    ccy,
+                    from_ticker,
+                    to_ticker,
+                )
+                continue
+            rate = compute_cross_rate(close[from_ticker], close[to_ticker])
+            rates[ccy] = rate
+        else:
+            if pair not in close.columns:
+                logger.warning("Missing FX data for %s: %s", ccy, pair)
+                continue
+            downloaded = close[pair]
+            if ccy.upper() == "USD":
+                # Ticker is {base}USD=X → gives USD per 1 base → reciprocal
+                rates[ccy] = 1.0 / downloaded
+            else:
+                # Ticker gives base per 1 foreign → direct
+                rates[ccy] = downloaded
+
+    if not rates:
+        logger.warning("Could not compute any FX rates.")
+        return pd.DataFrame(index=price_index)
+
+    result = pd.DataFrame(rates)
+    logger.info(
+        "Assembled FX rates: %d currencies, %d observations.",
+        len(result.columns),
+        len(result),
+    )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # All-in-one assembly
 # ---------------------------------------------------------------------------
@@ -1484,6 +1718,11 @@ class DataAssembly:
         ``{yfinance_ticker: currency_code}`` mapping (major-unit normalised,
         e.g. ``"GBP"`` not ``"GBX"``).  Used to activate FX conversion in
         ``run_full_pipeline()`` and for downstream currency-aware logic.
+    fx_rates : pd.DataFrame
+        FX rate DataFrame (dates x currency codes).  Each column holds
+        units-of-base per one unit-of-foreign (e.g. EUR per 1 GBP).
+        Used by ``FxPriceConverter`` to convert local-currency prices
+        to the base currency.
     """
 
     def __init__(
@@ -1505,6 +1744,7 @@ class DataAssembly:
         include_delisted: bool = True,
         delisting_returns: dict[str, float] | None = None,
         currency_map: dict[str, str] | None = None,
+        fx_rates: pd.DataFrame | None = None,
     ) -> None:
         self.prices = prices
         self.volumes = volumes
@@ -1526,6 +1766,7 @@ class DataAssembly:
         self.include_delisted = include_delisted
         self.delisting_returns: dict[str, float] = delisting_returns or {}
         self.currency_map: dict[str, str] = currency_map or {}
+        self.fx_rates = fx_rates if fx_rates is not None else pd.DataFrame()
 
     @property
     def n_tickers(self) -> int:
@@ -1588,6 +1829,13 @@ class DataAssembly:
             ),
             "risk_free_rate_obs": len(rf_series),
             "delisted_tickers": len(self.delisting_returns),
+            "currency_map_tickers": len(self.currency_map),
+            "fx_rates_currencies": (
+                len(self.fx_rates.columns)
+                if not self.fx_rates.empty
+                else 0
+            ),
+            "fx_rates_observations": len(self.fx_rates),
         }
 
 
@@ -1595,6 +1843,7 @@ def assemble_all(
     db_manager: DatabaseManager,
     macro_country: str = "USA",
     include_delisted: bool = True,
+    base_currency: str = "EUR",
 ) -> DataAssembly:
     """Query the database and assemble all DataFrames.
 
@@ -1608,6 +1857,10 @@ def assemble_all(
         Whether to include delisted instruments in prices and volumes.
         Pass ``False`` to reproduce the original survivorship-biased
         behaviour (e.g. for backward-compatibility checks).
+    base_currency : str, default="EUR"
+        Target base currency for FX rate assembly (e.g. ``"EUR"``,
+        ``"USD"``, ``"GBP"``).  Must match the ``FxConfig.base_currency``
+        used downstream.
 
     Returns
     -------
@@ -1615,14 +1868,18 @@ def assemble_all(
         All assembled DataFrames ready for the optimizer.
     """
     with db_manager.get_session() as session:
+        logger.info("Assembling fundamentals...")
+        fundamentals, sector_mapping, currency_map = assemble_fundamentals(session)
+
         logger.info("Assembling price data (include_delisted=%s)...", include_delisted)
-        prices = assemble_prices(session, include_delisted=include_delisted)
+        prices = assemble_prices(
+            session,
+            include_delisted=include_delisted,
+            currency_map=currency_map,
+        )
 
         logger.info("Assembling volume data...")
         volumes = assemble_volumes(session, include_delisted=include_delisted)
-
-        logger.info("Assembling fundamentals...")
-        fundamentals, sector_mapping, currency_map = assemble_fundamentals(session)
 
         logger.info("Assembling financial statements...")
         financial_statements = assemble_financial_statements(session)
@@ -1659,6 +1916,17 @@ def assemble_all(
         macro_data, fred_data, te_observations, sentiment_data,
     )
 
+    logger.info("Assembling FX rates...")
+    if prices.empty:
+        logger.warning("Prices DataFrame is empty; skipping FX rate assembly.")
+        fx_rates = pd.DataFrame()
+    else:
+        fx_rates = assemble_fx_rates(
+            currency_map=currency_map,
+            base_currency=base_currency,
+            price_index=prices.index,
+        )
+
     return DataAssembly(
         prices=prices,
         volumes=volumes,
@@ -1677,4 +1945,5 @@ def assemble_all(
         include_delisted=include_delisted,
         delisting_returns=delisting_returns,
         currency_map=currency_map,
+        fx_rates=fx_rates,
     )

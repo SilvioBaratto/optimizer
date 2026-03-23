@@ -151,6 +151,33 @@ class TestComputeAddv:
         assert len(addv_short) == len(addv_long)
 
 
+    def test_gbx_normalized_vs_raw_regression(self) -> None:
+        """Regression for issue #287: GBX prices inflate ADDV by 100x.
+
+        Callers must normalise minor-unit prices (GBX → GBP) before
+        invoking ``compute_addv()``.  This test confirms that a stock
+        with normalised GBP prices falls well below a $5M ADDV entry
+        threshold, whereas the same stock at raw GBX prices would
+        trivially pass — demonstrating why upstream normalisation matters.
+        """
+        n_days = 300
+        dates = pd.bdate_range("2023-01-01", periods=n_days)
+
+        # GBP-normalised price ~£2 (after ÷100 from ~200 GBX)
+        gbp_prices = pd.DataFrame({"LSE.L": np.full(n_days, 2.0)}, index=dates)
+        # Volume: 100k shares/day → ADDV = £200k (well below $5M)
+        volume = pd.DataFrame({"LSE.L": np.full(n_days, 100_000)}, index=dates)
+
+        addv_normalised = compute_addv(gbp_prices, volume, window=252)
+        assert addv_normalised["LSE.L"] == pytest.approx(200_000.0)
+
+        # Un-normalised GBX price (200 pence) → ADDV = 20M (100x inflation)
+        gbx_prices = gbp_prices * 100
+        addv_inflated = compute_addv(gbx_prices, volume, window=252)
+        assert addv_inflated["LSE.L"] == pytest.approx(20_000_000.0)
+        assert addv_inflated["LSE.L"] > addv_normalised["LSE.L"] * 50
+
+
 class TestComputeTradingFrequency:
     def test_basic(self, volume_history: pd.DataFrame) -> None:
         freq = compute_trading_frequency(volume_history, window=252)
@@ -567,3 +594,120 @@ class TestMcapPercentileScreenInApplyInvestabilityScreens:
         # EXACT (300M) >= pct_10 and >= 200M abs floor → must be included
         assert mcaps[0] >= pct_10, "EXACT must be at or above 10th percentile"
         assert "EXACT" in result
+
+
+# ---------------------------------------------------------------------------
+# GBX price-screen regression tests (issue #288)
+# ---------------------------------------------------------------------------
+
+
+class TestGbxPriceScreenRegression:
+    """Regression for issue #288: GBX penny stocks must not pass price filter.
+
+    The price screen compares ``fundamentals["current_price"]`` against a
+    major-currency threshold (e.g. $3 USD or €2 EUR).  If the caller
+    supplies raw GBX values (pence), a stock at 4 pence satisfies
+    ``4 > 3.0`` and is incorrectly admitted.
+
+    ``assemble_fundamentals()`` normalises via ``normalize_fundamentals()``
+    before reaching the screener, so the screener always sees major-unit
+    values.  These tests document that contract and guard against
+    regressions.
+    """
+
+    @pytest.fixture()
+    def _minimal_price_volume(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+        n_days = 300
+        dates = pd.bdate_range("2023-01-01", periods=n_days)
+        prices = pd.DataFrame(
+            {"BARC.L": np.full(n_days, 2.0)},
+            index=dates,
+        )
+        volumes = pd.DataFrame(
+            {"BARC.L": np.full(n_days, 5_000_000)},
+            index=dates,
+        )
+        return prices, volumes
+
+    def test_raw_gbx_price_incorrectly_passes_usd_filter(
+        self,
+        _minimal_price_volume: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        """Without normalisation, 4 GBX satisfies the $3 floor — the bug."""
+        prices, volumes = _minimal_price_volume
+        fundamentals = pd.DataFrame(
+            {"market_cap": [500e6], "current_price": [4.0]},  # 4 GBX raw
+            index=pd.Index(["BARC.L"], name="ticker"),
+        )
+        config = InvestabilityScreenConfig(
+            market_cap=HysteresisConfig(entry=200e6, exit_=100e6),
+            addv_12m=HysteresisConfig(entry=0.0, exit_=0.0),
+            addv_3m=HysteresisConfig(entry=0.0, exit_=0.0),
+            trading_frequency=HysteresisConfig(entry=0.0, exit_=0.0),
+        )
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=prices,
+            volume_history=volumes,
+            config=config,
+        )
+        # 4 GBX > $3 threshold → incorrectly passes (documents the bug)
+        assert "BARC.L" in result
+
+    def test_normalised_gbp_price_correctly_fails_price_filter(
+        self,
+        _minimal_price_volume: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        """After ÷100 normalisation, £0.04 is below the €2 Europe floor."""
+        prices, volumes = _minimal_price_volume
+        fundamentals = pd.DataFrame(
+            {
+                "market_cap": [500e6],
+                "current_price": [0.04],  # 4 GBX ÷ 100 = £0.04 GBP
+            },
+            index=pd.Index(["BARC.L"], name="ticker"),
+        )
+        config = InvestabilityScreenConfig(
+            exchange_region=ExchangeRegion.EUROPE,
+            market_cap=HysteresisConfig(entry=200e6, exit_=100e6),
+            addv_12m=HysteresisConfig(entry=0.0, exit_=0.0),
+            addv_3m=HysteresisConfig(entry=0.0, exit_=0.0),
+            trading_frequency=HysteresisConfig(entry=0.0, exit_=0.0),
+        )
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=prices,
+            volume_history=volumes,
+            config=config,
+        )
+        # £0.04 < €2.0 entry threshold → correctly excluded
+        assert "BARC.L" not in result
+
+    def test_normalised_gbp_price_passes_when_above_threshold(
+        self,
+        _minimal_price_volume: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        """A legitimate LSE stock at £3.50 (350 GBX ÷ 100) passes."""
+        prices, volumes = _minimal_price_volume
+        fundamentals = pd.DataFrame(
+            {
+                "market_cap": [2e9],
+                "current_price": [3.50],  # 350 GBX ÷ 100 = £3.50
+            },
+            index=pd.Index(["BARC.L"], name="ticker"),
+        )
+        config = InvestabilityScreenConfig(
+            exchange_region=ExchangeRegion.EUROPE,
+            market_cap=HysteresisConfig(entry=200e6, exit_=100e6),
+            addv_12m=HysteresisConfig(entry=0.0, exit_=0.0),
+            addv_3m=HysteresisConfig(entry=0.0, exit_=0.0),
+            trading_frequency=HysteresisConfig(entry=0.0, exit_=0.0),
+        )
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=prices,
+            volume_history=volumes,
+            config=config,
+        )
+        # £3.50 > €2.0 → passes
+        assert "BARC.L" in result

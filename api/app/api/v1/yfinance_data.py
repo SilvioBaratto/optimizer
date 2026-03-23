@@ -30,7 +30,10 @@ from app.schemas.yfinance_data import (
 from app.services._progress import make_progress
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.yfinance import YFinanceClient, get_yfinance_client
-from app.services.yfinance_data_service import YFinanceDataService, run_bulk_yfinance_fetch
+from app.services.yfinance_data_service import (
+    YFinanceDataService,
+    run_bulk_yfinance_fetch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +175,7 @@ def fetch_single_ticker(
         period=request.period,
         mode=request.mode,
         exchange_name=instrument.exchange_name,
+        currency_code=instrument.currency_code,
     )
     db.commit()
 

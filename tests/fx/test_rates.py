@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -125,3 +127,91 @@ class TestRequiredFxCurrencies:
         cmap = {"LLOY.L": "gbp"}
         result = required_fx_currencies(cmap, "eur")
         assert result == {"GBP"}
+
+
+class TestAssembleFxRates:
+    """Tests for assemble_fx_rates() in cli/data_assembly.py."""
+
+    def test_eur_base_fetches_gbp_and_usd(self) -> None:
+        """Mock yfinance and verify cross-rate computation for EUR base."""
+        from cli.data_assembly import assemble_fx_rates
+
+        price_index = pd.bdate_range("2024-01-02", periods=10)
+        cmap = {"LLOY.L": "GBP", "ORA.PA": "EUR", "SPY": "USD"}
+
+        # Mock yfinance download: returns GBPUSD=X and EURUSD=X
+        mock_data = pd.DataFrame(
+            {
+                ("Close", "GBPUSD=X"): np.linspace(1.27, 1.29, 10),
+                ("Close", "EURUSD=X"): np.linspace(1.09, 1.11, 10),
+            },
+            index=price_index,
+        )
+        mock_data.columns = pd.MultiIndex.from_tuples(mock_data.columns)
+
+        with patch("yfinance.download") as mock_download:
+            mock_download.return_value = mock_data
+            result = assemble_fx_rates(cmap, "EUR", price_index)
+
+        # Should have GBP and USD columns
+        assert "GBP" in result.columns
+        assert "USD" in result.columns
+        # EUR should NOT be in the result (it's the base currency)
+        assert "EUR" not in result.columns
+
+        # GBP rate = GBPUSD / EURUSD (cross rate)
+        expected_gbp = np.linspace(1.27, 1.29, 10) / np.linspace(1.09, 1.11, 10)
+        np.testing.assert_allclose(
+            result["GBP"].values, expected_gbp, rtol=1e-10
+        )
+
+        # USD rate = 1 / EURUSD (reciprocal)
+        expected_usd = 1.0 / np.linspace(1.09, 1.11, 10)
+        np.testing.assert_allclose(
+            result["USD"].values, expected_usd, rtol=1e-10
+        )
+
+    def test_all_base_currency_returns_empty(self) -> None:
+        """When all tickers are in the base currency, return empty DataFrame."""
+        from cli.data_assembly import assemble_fx_rates
+
+        price_index = pd.bdate_range("2024-01-02", periods=5)
+        cmap = {"ORA.PA": "EUR", "BNP.PA": "EUR"}
+
+        result = assemble_fx_rates(cmap, "EUR", price_index)
+
+        assert result.empty or len(result.columns) == 0
+
+    def test_usd_base_direct_rate(self) -> None:
+        """USD base with GBP foreign — direct rate, no reciprocal needed."""
+        from cli.data_assembly import assemble_fx_rates
+
+        price_index = pd.bdate_range("2024-01-02", periods=5)
+        cmap = {"LLOY.L": "GBP", "SPY": "USD"}
+
+        mock_data = pd.DataFrame(
+            {"Close": np.linspace(1.27, 1.29, 5)},
+            index=price_index,
+        )
+
+        with patch("yfinance.download") as mock_download:
+            mock_download.return_value = mock_data
+            result = assemble_fx_rates(cmap, "USD", price_index)
+
+        assert "GBP" in result.columns
+        np.testing.assert_allclose(
+            result["GBP"].values, np.linspace(1.27, 1.29, 5), rtol=1e-10
+        )
+
+    def test_download_failure_returns_empty(self) -> None:
+        """When yfinance download fails, return empty DataFrame gracefully."""
+        from cli.data_assembly import assemble_fx_rates
+
+        price_index = pd.bdate_range("2024-01-02", periods=5)
+        cmap = {"LLOY.L": "GBP"}
+
+        with patch("yfinance.download") as mock_download:
+            mock_download.side_effect = Exception("Network error")
+            result = assemble_fx_rates(cmap, "EUR", price_index)
+
+        assert result.empty or len(result.columns) == 0

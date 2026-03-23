@@ -12,7 +12,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.universe import Instrument
-from app.repositories.base import RepositoryBase
 from app.models.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
@@ -26,6 +25,7 @@ from app.models.yfinance_data import (
     TickerNews,
     TickerProfile,
 )
+from app.repositories.base import RepositoryBase
 
 logger = logging.getLogger(__name__)
 
@@ -288,12 +288,21 @@ class YFinanceRepository(RepositoryBase):
         df: pd.DataFrame,
         statement_type: str,
         period_type: str,
+        currency_code: str | None = None,
     ) -> int:
         """Upsert financial statement rows (EAV format).
 
         yfinance returns DataFrames where:
          - columns are period dates
          - index rows are line item names
+
+        Parameters
+        ----------
+        currency_code : str or None
+            Reporting currency for these rows (e.g. ``"GBP"`` for UK
+            companies).  Should be the **major-unit** code — convert
+            listing currencies like ``"GBX"`` via
+            :func:`app.utils.currency.to_major_currency` before passing.
         """
         rows = []
         for col in df.columns:
@@ -310,6 +319,7 @@ class YFinanceRepository(RepositoryBase):
                         "period_date": period_date,
                         "line_item": _safe_str(line_item, 200),
                         "value": val,
+                        "currency_code": currency_code,
                     }
                 )
 

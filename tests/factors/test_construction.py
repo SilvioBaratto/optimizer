@@ -322,3 +322,374 @@ class TestAlignToPit:
         )
         result = align_to_pit(data, "period_date", "2024-04-01", lag_days=90)
         assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# GBX → GBP value factor currency correctness (issue #289)
+# ---------------------------------------------------------------------------
+
+
+class TestValueFactorCurrencyCorrectness:
+    """Regression for issue #289: value factors must NOT be 100× deflated.
+
+    After assemble_fundamentals() normalises GBX market data to GBP via
+    normalize_fundamentals(), both numerators (financial statement GBP) and
+    denominators (market_cap/EV in GBP post-normalisation) are in the same
+    unit.  These tests pin the correct ratio values and explicitly document
+    the pre-fix 100× deflation so the bug cannot silently re-emerge.
+    """
+
+    @pytest.fixture()
+    def lse_fundamentals_normalised(self) -> pd.DataFrame:
+        """LSE stock fundamentals after GBX → GBP normalisation.
+
+        market_cap and enterprise_value are in GBP (divided by 100).
+        Financial statement values (net_income, operating_cashflow,
+        total_revenue, ebitda, book_value) are already in GBP from
+        their respective sources.
+        """
+        return pd.DataFrame(
+            {
+                "market_cap": [1_000_000_000.0],  # 1 B GBP
+                "enterprise_value": [1_200_000_000.0],  # 1.2 B GBP
+                "net_income": [80_000_000.0],  # 80 M GBP
+                "book_value": [400_000_000.0],  # 400 M GBP
+                "operating_cashflow": [120_000_000.0],  # 120 M GBP
+                "total_revenue": [800_000_000.0],  # 800 M GBP
+                "ebitda": [200_000_000.0],  # 200 M GBP
+                "total_equity": [400_000_000.0],  # fallback for book_to_price
+            },
+            index=pd.Index(["BARC.L"], name="ticker"),
+        )
+
+    @pytest.fixture()
+    def lse_fundamentals_deflated(self) -> pd.DataFrame:
+        """Pre-normalisation (buggy) DataFrame: market_cap still in GBX.
+
+        market_cap is 100× too large (GBX not yet divided by 100).
+        Numerators are in GBP from financial statements.
+        This is the state before PR #286 fix.
+        """
+        return pd.DataFrame(
+            {
+                "market_cap": [100_000_000_000.0],  # 100 B GBX (not divided)
+                "enterprise_value": [120_000_000_000.0],  # 120 B GBX
+                "net_income": [80_000_000.0],  # 80 M GBP (correct)
+                "book_value": [400_000_000.0],  # 400 M GBP (correct)
+                "operating_cashflow": [120_000_000.0],  # 120 M GBP (correct)
+                "total_revenue": [800_000_000.0],  # 800 M GBP (correct)
+                "ebitda": [200_000_000.0],  # 200 M GBP (correct)
+            },
+            index=pd.Index(["BARC.L"], name="ticker"),
+        )
+
+    @pytest.fixture()
+    def dummy_prices(self) -> pd.DataFrame:
+        """Minimal price history (value factors don't use it)."""
+        dates = pd.bdate_range("2023-01-01", periods=5)
+        return pd.DataFrame(
+            {"BARC.L": [100.0, 101.0, 99.0, 102.0, 100.5]},
+            index=dates,
+        )
+
+    def test_book_to_price_normalised(
+        self,
+        lse_fundamentals_normalised: pd.DataFrame,
+        dummy_prices: pd.DataFrame,
+    ) -> None:
+        result = compute_factor(
+            FactorType.BOOK_TO_PRICE, lse_fundamentals_normalised, dummy_prices
+        )
+        # 400M / 1000M = 0.40
+        assert result["BARC.L"] == pytest.approx(0.40, rel=1e-6)
+
+    def test_earnings_yield_normalised(
+        self,
+        lse_fundamentals_normalised: pd.DataFrame,
+        dummy_prices: pd.DataFrame,
+    ) -> None:
+        result = compute_factor(
+            FactorType.EARNINGS_YIELD, lse_fundamentals_normalised, dummy_prices
+        )
+        # 80M / 1000M = 0.08
+        assert result["BARC.L"] == pytest.approx(0.08, rel=1e-6)
+
+    def test_cash_flow_yield_normalised(
+        self,
+        lse_fundamentals_normalised: pd.DataFrame,
+        dummy_prices: pd.DataFrame,
+    ) -> None:
+        result = compute_factor(
+            FactorType.CASH_FLOW_YIELD, lse_fundamentals_normalised, dummy_prices
+        )
+        # 120M / 1000M = 0.12
+        assert result["BARC.L"] == pytest.approx(0.12, rel=1e-6)
+
+    def test_sales_to_price_normalised(
+        self,
+        lse_fundamentals_normalised: pd.DataFrame,
+        dummy_prices: pd.DataFrame,
+    ) -> None:
+        result = compute_factor(
+            FactorType.SALES_TO_PRICE, lse_fundamentals_normalised, dummy_prices
+        )
+        # 800M / 1000M = 0.80
+        assert result["BARC.L"] == pytest.approx(0.80, rel=1e-6)
+
+    def test_ebitda_to_ev_normalised(
+        self,
+        lse_fundamentals_normalised: pd.DataFrame,
+        dummy_prices: pd.DataFrame,
+    ) -> None:
+        result = compute_factor(
+            FactorType.EBITDA_TO_EV, lse_fundamentals_normalised, dummy_prices
+        )
+        # 200M / 1200M ≈ 0.1667
+        assert result["BARC.L"] == pytest.approx(
+            200_000_000 / 1_200_000_000, rel=1e-6
+        )
+
+    def test_book_to_price_deflated_100x(
+        self,
+        lse_fundamentals_deflated: pd.DataFrame,
+        dummy_prices: pd.DataFrame,
+    ) -> None:
+        """Pre-fix (GBX market_cap) produces 100× deflated ratio."""
+        result = compute_factor(
+            FactorType.BOOK_TO_PRICE, lse_fundamentals_deflated, dummy_prices
+        )
+        # 400M GBP / 100B GBX = 0.004 (100× smaller than correct 0.40)
+        assert result["BARC.L"] == pytest.approx(0.004, rel=1e-6)
+
+    def test_earnings_yield_deflated_100x(
+        self,
+        lse_fundamentals_deflated: pd.DataFrame,
+        dummy_prices: pd.DataFrame,
+    ) -> None:
+        """Pre-fix earnings_yield is 100× too small."""
+        result = compute_factor(
+            FactorType.EARNINGS_YIELD, lse_fundamentals_deflated, dummy_prices
+        )
+        assert result["BARC.L"] == pytest.approx(0.0008, rel=1e-6)
+
+    def test_normalised_ratio_is_100x_larger_than_deflated(
+        self,
+        lse_fundamentals_normalised: pd.DataFrame,
+        lse_fundamentals_deflated: pd.DataFrame,
+        dummy_prices: pd.DataFrame,
+    ) -> None:
+        """The normalised:deflated ratio must be exactly 100 for value factors."""
+        for factor_type in (
+            FactorType.BOOK_TO_PRICE,
+            FactorType.EARNINGS_YIELD,
+            FactorType.CASH_FLOW_YIELD,
+            FactorType.SALES_TO_PRICE,
+        ):
+            normalised = compute_factor(
+                factor_type, lse_fundamentals_normalised, dummy_prices
+            )
+            deflated = compute_factor(
+                factor_type, lse_fundamentals_deflated, dummy_prices
+            )
+            ratio = normalised["BARC.L"] / deflated["BARC.L"]
+            assert ratio == pytest.approx(100.0, rel=1e-6), (
+                f"{factor_type}: expected 100x ratio, got {ratio:.4f}"
+            )
+
+    def test_ebitda_to_ev_normalised_vs_deflated(
+        self,
+        lse_fundamentals_normalised: pd.DataFrame,
+        lse_fundamentals_deflated: pd.DataFrame,
+        dummy_prices: pd.DataFrame,
+    ) -> None:
+        """EBITDA/EV is also 100× deflated when EV is in GBX."""
+        norm = compute_factor(
+            FactorType.EBITDA_TO_EV, lse_fundamentals_normalised, dummy_prices
+        )
+        defl = compute_factor(
+            FactorType.EBITDA_TO_EV, lse_fundamentals_deflated, dummy_prices
+        )
+        assert norm["BARC.L"] / defl["BARC.L"] == pytest.approx(100.0, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# asset_growth currency invariance (issue #290)
+# ---------------------------------------------------------------------------
+
+
+class TestAssetGrowthCurrencyInvariance:
+    """Regression for issue #290: asset_growth must be currency-invariant.
+
+    asset_growth = (current_total_assets - prior_total_assets) / abs(prior)
+    is a dimensionless ratio.  Multiplying all total_assets values for a
+    ticker by any constant k > 0 (e.g. k=100 for GBX->GBP confusion)
+    leaves the ratio unchanged.
+    """
+
+    @pytest.fixture()
+    def fundamentals_with_growth(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {"asset_growth": [0.12]},
+            index=pd.Index(["BARC.L"], name="ticker"),
+        )
+
+    @pytest.fixture()
+    def dummy_prices(self) -> pd.DataFrame:
+        dates = pd.bdate_range("2023-01-01", periods=5)
+        return pd.DataFrame(
+            {"BARC.L": [100.0, 101.0, 99.0, 102.0, 100.5]},
+            index=dates,
+        )
+
+    def test_asset_growth_factor_uses_precomputed_ratio(
+        self,
+        fundamentals_with_growth: pd.DataFrame,
+        dummy_prices: pd.DataFrame,
+    ) -> None:
+        """ASSET_GROWTH factor is sign-flipped fundamentals['asset_growth']."""
+        result = compute_factor(
+            FactorType.ASSET_GROWTH, fundamentals_with_growth, dummy_prices
+        )
+        # Sign is flipped: negative growth -> positive score
+        assert result["BARC.L"] == pytest.approx(-0.12, rel=1e-9)
+
+    def test_asset_growth_ratio_cancels_currency_scale(self) -> None:
+        """Direct proof: (k*a1 - k*a0) / abs(k*a0) == (a1-a0) / abs(a0)."""
+        a0, a1, k = 1_000_000_000.0, 1_120_000_000.0, 100.0
+        growth_major = (a1 - a0) / abs(a0)
+        growth_minor = (k * a1 - k * a0) / abs(k * a0)
+        assert growth_major == pytest.approx(growth_minor, rel=1e-12)
+
+    def test_asset_growth_identical_across_scales(self) -> None:
+        """asset_growth computed from scaled total_assets is identical."""
+        a0_gbp, a1_gbp = 5_000_000_000.0, 5_600_000_000.0
+        a0_gbx, a1_gbx = a0_gbp * 100, a1_gbp * 100  # GBX scale
+        a0_zac, a1_zac = a0_gbp * 100, a1_gbp * 100  # ZAC scale
+
+        growth_gbp = (a1_gbp - a0_gbp) / abs(a0_gbp)
+        growth_gbx = (a1_gbx - a0_gbx) / abs(a0_gbx)
+        growth_zac = (a1_zac - a0_zac) / abs(a0_zac)
+
+        assert growth_gbp == pytest.approx(growth_gbx, rel=1e-12)
+        assert growth_gbp == pytest.approx(growth_zac, rel=1e-12)
+        assert growth_gbp == pytest.approx(0.12, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Beta market proxy threading (issue #294)
+# ---------------------------------------------------------------------------
+
+
+class TestBetaMarketProxy:
+    """Regression for issue #294: beta uses mixed-currency market proxy.
+
+    When ``price_history`` contains stocks from multiple currency zones,
+    the default equal-weight cross-sectional mean is contaminated.
+    Passing an explicit ``market_returns`` series bypasses this.
+    """
+
+    def test_beta_with_explicit_market_returns(
+        self,
+        fundamentals: pd.DataFrame,
+        price_history: pd.DataFrame,
+    ) -> None:
+        """compute_factor passes market_returns through to _compute_beta."""
+        mkt = price_history.pct_change().dropna().mean(axis=1)
+        result = compute_factor(
+            FactorType.BETA,
+            fundamentals,
+            price_history,
+            market_returns=mkt,
+        )
+        assert isinstance(result, pd.Series)
+        assert len(result) == price_history.shape[1]
+
+    def test_beta_external_proxy_differs_from_equal_weight(
+        self,
+        fundamentals: pd.DataFrame,
+        price_history: pd.DataFrame,
+    ) -> None:
+        """A non-equal-weight proxy produces different betas."""
+        # Single-stock proxy: just the first column's returns
+        single_stock_proxy = price_history.iloc[:, 0].pct_change().dropna()
+        result_proxy = compute_factor(
+            FactorType.BETA,
+            fundamentals,
+            price_history,
+            market_returns=single_stock_proxy,
+        )
+        result_default = compute_factor(
+            FactorType.BETA,
+            fundamentals,
+            price_history,
+        )
+        # They should differ because the proxy differs from equal weight
+        assert not result_proxy.equals(result_default)
+
+    def test_equal_weight_proxy_matches_default(
+        self,
+        fundamentals: pd.DataFrame,
+        price_history: pd.DataFrame,
+    ) -> None:
+        """Passing the equal-weight mean explicitly matches the default."""
+        returns = price_history.pct_change().dropna()
+        # _compute_beta uses tail.mean(axis=1) when market_returns is None.
+        # We replicate that here: the lookback default is 252, and we have
+        # 300 days of prices -> 299 return rows.
+        tail = returns.iloc[-252:]
+        mkt = tail.mean(axis=1)
+
+        config = FactorConstructionConfig(factors=(FactorType.BETA,))
+        with_proxy = compute_all_factors(
+            fundamentals, price_history, config=config, market_returns=mkt
+        )
+        without_proxy = compute_all_factors(
+            fundamentals, price_history, config=config
+        )
+        pd.testing.assert_series_equal(
+            with_proxy["beta"].round(10),
+            without_proxy["beta"].round(10),
+        )
+
+    def test_mixed_currency_proxy_distorts_beta(self) -> None:
+        """Adding uncorrelated 'GBX noise' stocks shifts beta estimates.
+
+        Constructs 10 correlated USD stocks plus 5 noise stocks
+        simulating uncorrelated GBX micro-caps.  The endogenous
+        equal-weight proxy is contaminated by the noise.
+        """
+        rng = np.random.default_rng(0)
+        n_days = 300
+        dates = pd.bdate_range("2023-01-01", periods=n_days)
+
+        # 10 correlated stocks ("USD universe")
+        common = rng.normal(0, 0.01, n_days)
+        usd_returns = pd.DataFrame(
+            {f"USD{i}": common + rng.normal(0, 0.005, n_days) for i in range(10)},
+            index=dates,
+        )
+
+        # 5 noise stocks (simulating GBX micro-caps, low correlation)
+        noise_returns = pd.DataFrame(
+            {f"GBX{i}": rng.normal(0, 0.02, n_days) for i in range(5)},
+            index=dates,
+        )
+
+        all_returns = pd.concat([usd_returns, noise_returns], axis=1)
+        all_prices = (1 + all_returns).cumprod() * 100
+
+        usd_cols = [c for c in all_prices.columns if c.startswith("USD")]
+        usd_prices = all_prices[usd_cols]
+
+        # Clean proxy: equal-weight of USD stocks only
+        clean_proxy = usd_returns.mean(axis=1)
+
+        from optimizer.factors._construction import _compute_beta
+
+        beta_clean = _compute_beta(usd_prices, market_returns=clean_proxy)
+        beta_polluted = _compute_beta(all_prices)  # endogenous, includes GBX
+
+        # Beta for USD stocks should differ when proxy is contaminated
+        beta_clean_vals = beta_clean.reindex(usd_cols).values
+        beta_polluted_vals = beta_polluted.reindex(usd_cols).values
+        assert not np.allclose(beta_polluted_vals, beta_clean_vals, atol=0.05)

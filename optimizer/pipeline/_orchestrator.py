@@ -562,6 +562,7 @@ def run_full_pipeline_with_selection(
     ic_history: pd.DataFrame | None = None,
     risk_free_rate: float = 0.0,
     delisting_returns: dict[str, float] | None = None,
+    market_returns: pd.Series | None = None,
     fx_config: FxConfig | None = None,
     currency_map: dict[str, str] | None = None,
     fx_rates: pd.DataFrame | None = None,
@@ -632,6 +633,12 @@ def run_full_pipeline_with_selection(
         Currently selected tickers for hysteresis.
     ic_history : pd.DataFrame or None
         IC history for IC-weighted scoring.
+    market_returns : pd.Series or None
+        Pre-computed market return series for beta estimation.
+        When provided, used as the benchmark instead of the
+        equal-weight cross-sectional mean.  Pass a currency-
+        consistent broad index (e.g. SPY daily returns) when
+        ``prices`` spans multiple currency zones.
     n_jobs : int or None
         Number of parallel jobs.
 
@@ -672,6 +679,7 @@ def run_full_pipeline_with_selection(
             analyst_data=analyst_data,
             insider_data=insider_data,
             config=factor_config,
+            market_returns=market_returns,
         )
 
         # 3. Standardize
@@ -812,7 +820,15 @@ def run_full_pipeline_with_selection(
                     type(optimizer).__name__,
                 )
 
-    # 7. Delegate to existing pipeline
+    # 7. Slice currency_map to selected universe to avoid spurious FX log noise
+    effective_currency_map = currency_map
+    if currency_map is not None and fundamentals is not None:
+        selected_cols = set(selected_prices.columns)
+        effective_currency_map = {
+            t: c for t, c in currency_map.items() if t in selected_cols
+        }
+
+    # 8. Delegate to existing pipeline
     return run_full_pipeline(
         prices=selected_prices,
         optimizer=optimizer,
@@ -827,7 +843,7 @@ def run_full_pipeline_with_selection(
         risk_free_rate=risk_free_rate,
         delisting_returns=delisting_returns,
         fx_config=fx_config,
-        currency_map=currency_map,
+        currency_map=effective_currency_map,
         fx_rates=fx_rates,
         cost_bps=cost_bps,
         n_jobs=n_jobs,
