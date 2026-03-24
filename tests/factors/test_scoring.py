@@ -774,18 +774,14 @@ class TestICFallbackStrategy:
     ) -> pd.DataFrame:
         """IC history where every group has negative mean IC."""
         rng = np.random.default_rng(seed)
-        return pd.DataFrame(
-            {col: rng.uniform(-0.10, -0.02, 36) for col in groups}
-        )
+        return pd.DataFrame({col: rng.uniform(-0.10, -0.02, 36) for col in groups})
 
     def _all_negative_icir_series(
         self, groups: list[str], seed: int = 42
     ) -> dict[str, pd.Series]:
         """Per-group IC series where every group has negative mean IC."""
         rng = np.random.default_rng(seed)
-        return {
-            col: pd.Series(rng.uniform(-0.10, -0.02, 36)) for col in groups
-        }
+        return {col: pd.Series(rng.uniform(-0.10, -0.02, 36)) for col in groups}
 
     # ------------------------------------------------------------------
     # Strategy: EQUAL_WEIGHT (default, backward-compat)
@@ -804,9 +800,7 @@ class TestICFallbackStrategy:
         )
         with _warnings_module.catch_warnings():
             _warnings_module.simplefilter("ignore", UserWarning)
-            result = compute_ic_weighted_composite(
-                group_scores, ic_history, config
-            )
+            result = compute_ic_weighted_composite(group_scores, ic_history, config)
         expected = compute_equal_weight_composite(group_scores, config)
         pd.testing.assert_series_equal(result, expected)
 
@@ -823,9 +817,7 @@ class TestICFallbackStrategy:
         )
         with _warnings_module.catch_warnings():
             _warnings_module.simplefilter("ignore", UserWarning)
-            result = compute_icir_weighted_composite(
-                group_scores, ic_per_group, config
-            )
+            result = compute_icir_weighted_composite(group_scores, ic_per_group, config)
         expected = compute_equal_weight_composite(group_scores, config)
         pd.testing.assert_series_equal(result, expected)
 
@@ -846,9 +838,7 @@ class TestICFallbackStrategy:
         )
         with _warnings_module.catch_warnings():
             _warnings_module.simplefilter("ignore", UserWarning)
-            result = compute_ic_weighted_composite(
-                group_scores, ic_history, config
-            )
+            result = compute_ic_weighted_composite(group_scores, ic_history, config)
         assert isinstance(result, pd.Series)
         assert result.isna().all()
         assert result.index.equals(group_scores.index)
@@ -866,9 +856,7 @@ class TestICFallbackStrategy:
         )
         with _warnings_module.catch_warnings():
             _warnings_module.simplefilter("ignore", UserWarning)
-            result = compute_icir_weighted_composite(
-                group_scores, ic_per_group, config
-            )
+            result = compute_icir_weighted_composite(group_scores, ic_per_group, config)
         assert isinstance(result, pd.Series)
         assert result.isna().all()
         assert result.index.equals(group_scores.index)
@@ -903,9 +891,7 @@ class TestICFallbackStrategy:
             ic_fallback_strategy=ICFallbackStrategy.RAISE,
         )
         with pytest.raises(ConfigurationError, match="non-positive ICIR"):
-            compute_icir_weighted_composite(
-                group_scores, ic_per_group, config
-            )
+            compute_icir_weighted_composite(group_scores, ic_per_group, config)
 
     # ------------------------------------------------------------------
     # Warning emission
@@ -937,9 +923,7 @@ class TestICFallbackStrategy:
             ic_fallback_strategy=ICFallbackStrategy.EQUAL_WEIGHT,
         )
         with pytest.warns(UserWarning, match="non-positive ICIR"):
-            compute_icir_weighted_composite(
-                group_scores, ic_per_group, config
-            )
+            compute_icir_weighted_composite(group_scores, ic_per_group, config)
 
     def test_warning_includes_group_count(
         self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
@@ -967,9 +951,7 @@ class TestICFallbackStrategy:
         group_scores = compute_group_scores(standardized_factors, coverage)
         groups = list(group_scores.columns)
         rng = np.random.default_rng(42)
-        ic_history = pd.DataFrame(
-            {col: rng.uniform(0.01, 0.06, 36) for col in groups}
-        )
+        ic_history = pd.DataFrame({col: rng.uniform(0.01, 0.06, 36) for col in groups})
         config = CompositeScoringConfig(
             method=CompositeMethod.IC_WEIGHTED,
             ic_fallback_strategy=ICFallbackStrategy.EQUAL_WEIGHT,
@@ -1012,9 +994,7 @@ class TestICFallbackStrategy:
             {"value": [1.0, 2.0], "momentum": [1.0, 2.0]}, index=tickers
         )
         # value: genuinely negative IC; momentum: exactly zero IC
-        ic_history = pd.DataFrame(
-            {"value": [-0.05] * 36, "momentum": [0.0] * 36}
-        )
+        ic_history = pd.DataFrame({"value": [-0.05] * 36, "momentum": [0.0] * 36})
         config = CompositeScoringConfig(
             method=CompositeMethod.IC_WEIGHTED,
             ic_fallback_strategy=ICFallbackStrategy.EQUAL_WEIGHT,

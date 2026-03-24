@@ -170,8 +170,7 @@ def apply_sector_balance(
 
             if current_n < min_n:
                 candidates = sector_labels.index[
-                    (sector_labels == sector)
-                    & (~sector_labels.index.isin(result_set))
+                    (sector_labels == sector) & (~sector_labels.index.isin(result_set))
                 ]
                 candidate_scores = (
                     scores.reindex(candidates).dropna().sort_values(ascending=False)
@@ -185,12 +184,8 @@ def apply_sector_balance(
                     changed = True
 
             elif current_n > max_n:
-                sector_members = selected_sectors[
-                    selected_sectors == sector
-                ].index
-                sector_scores = (
-                    scores.reindex(sector_members).dropna().sort_values()
-                )
+                sector_members = selected_sectors[selected_sectors == sector].index
+                sector_scores = scores.reindex(sector_members).dropna().sort_values()
                 to_remove = set(sector_scores.index[: current_n - max_n])
                 if to_remove:
                     result_set -= to_remove

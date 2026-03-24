@@ -57,9 +57,7 @@ class RegimeValidationConfig:
 
     def __post_init__(self) -> None:
         if self.min_regime_obs < 1:
-            raise ValueError(
-                f"min_regime_obs must be >= 1, got {self.min_regime_obs}"
-            )
+            raise ValueError(f"min_regime_obs must be >= 1, got {self.min_regime_obs}")
         if not (0.0 < self.single_regime_alpha_threshold <= 1.0):
             raise ValueError(
                 f"single_regime_alpha_threshold must be in (0.0, 1.0], "
@@ -67,8 +65,7 @@ class RegimeValidationConfig:
             )
         if self.trading_days_per_year <= 0:
             raise ValueError(
-                f"trading_days_per_year must be > 0, "
-                f"got {self.trading_days_per_year}"
+                f"trading_days_per_year must be > 0, got {self.trading_days_per_year}"
             )
         if self.risk_free_rate < 0.0:
             raise ValueError(
@@ -496,16 +493,13 @@ def run_regime_validation(
     for regime_name in observed_regimes:
         regime_mask = regime_timeline == regime_name
         regime_returns = oos_filtered[regime_mask]
-        cum_return_per_regime[regime_name] = float(
-            (1.0 + regime_returns).prod() - 1.0
-        )
+        cum_return_per_regime[regime_name] = float((1.0 + regime_returns).prod() - 1.0)
 
     total_positive = sum(v for v in cum_return_per_regime.values() if v > 0)
 
     if total_positive > 0:
         concentration = {
-            r: max(v, 0.0) / total_positive
-            for r, v in cum_return_per_regime.items()
+            r: max(v, 0.0) / total_positive for r, v in cum_return_per_regime.items()
         }
     else:
         # No positive alpha in any regime — concentration is zero everywhere
@@ -515,9 +509,7 @@ def run_regime_validation(
     regime_alpha_concentration = pd.Series(concentration, name="alpha_concentration")
 
     concentrated_regimes = [
-        r
-        for r, c in concentration.items()
-        if c > config.single_regime_alpha_threshold
+        r for r, c in concentration.items() if c > config.single_regime_alpha_threshold
     ]
 
     return RegimeValidationResult(

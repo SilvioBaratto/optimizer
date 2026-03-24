@@ -183,6 +183,5 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
     def _validate_input(X: pd.DataFrame) -> None:
         if not isinstance(X, pd.DataFrame):
             raise DataError(
-                f"FxPriceConverter requires a pandas DataFrame, "
-                f"got {type(X).__name__}"
+                f"FxPriceConverter requires a pandas DataFrame, got {type(X).__name__}"
             )

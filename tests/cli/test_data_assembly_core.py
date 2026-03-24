@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+pytest.importorskip("typer")
+
 from cli.data_assembly import (
     _apply_delisting_returns,
     _to_float,
@@ -106,18 +108,14 @@ class TestApplyDelistingReturns:
     def test_ticker_not_in_prices_silently_skipped(self) -> None:
         prices = self._base_prices()
         delisting_date = pd.Timestamp("2024-01-05")
-        result = _apply_delisting_returns(
-            prices, [("UNKNOWN", delisting_date, -0.30)]
-        )
+        result = _apply_delisting_returns(prices, [("UNKNOWN", delisting_date, -0.30)])
         assert set(result.columns) == {"AAPL", "MSFT"}
         assert len(result) == 3  # no new rows
 
     def test_synthetic_row_injected_at_new_date(self) -> None:
         prices = self._base_prices()
         delisting_date = pd.Timestamp("2024-01-05")
-        result = _apply_delisting_returns(
-            prices, [("AAPL", delisting_date, -0.10)]
-        )
+        result = _apply_delisting_returns(prices, [("AAPL", delisting_date, -0.10)])
         assert delisting_date in result.index
         assert len(result) == 4
 
@@ -125,9 +123,7 @@ class TestApplyDelistingReturns:
         prices = self._base_prices()
         delisting_date = pd.Timestamp("2024-01-05")
         r = -0.30
-        result = _apply_delisting_returns(
-            prices, [("AAPL", delisting_date, r)]
-        )
+        result = _apply_delisting_returns(prices, [("AAPL", delisting_date, r)])
         expected = 102.0 * (1.0 + r)
         assert result.loc[delisting_date, "AAPL"] == pytest.approx(expected)
 
@@ -141,9 +137,7 @@ class TestApplyDelistingReturns:
             index=idx,
         )
         delisting_date = pd.Timestamp("2024-01-03")
-        result = _apply_delisting_returns(
-            prices, [("AAPL", delisting_date, -0.20)]
-        )
+        result = _apply_delisting_returns(prices, [("AAPL", delisting_date, -0.20)])
         assert not pd.isna(result.loc[delisting_date, "AAPL"])
         assert result.loc[delisting_date, "AAPL"] == pytest.approx(101.0 * 0.80)
         assert len(result) == 4  # no new row added
@@ -152,18 +146,14 @@ class TestApplyDelistingReturns:
         idx = pd.date_range("2024-01-01", periods=3, freq="D")
         prices = pd.DataFrame({"AAPL": [100.0, 101.0, 102.0]}, index=idx)
         delisting_date = pd.Timestamp("2024-01-03")
-        result = _apply_delisting_returns(
-            prices, [("AAPL", delisting_date, -0.50)]
-        )
+        result = _apply_delisting_returns(prices, [("AAPL", delisting_date, -0.50)])
         # 102.0 is not overwritten by 102.0 * 0.50 = 51.0
         assert result.loc[delisting_date, "AAPL"] == pytest.approx(102.0)
 
     def test_other_column_stays_nan_in_new_row(self) -> None:
         prices = self._base_prices()
         delisting_date = pd.Timestamp("2024-01-10")
-        result = _apply_delisting_returns(
-            prices, [("AAPL", delisting_date, -0.10)]
-        )
+        result = _apply_delisting_returns(prices, [("AAPL", delisting_date, -0.10)])
         assert pd.isna(result.loc[delisting_date, "MSFT"])
 
     def test_multiple_delistings_one_in_index_one_not(self) -> None:
@@ -193,9 +183,7 @@ class TestApplyDelistingReturns:
     def test_result_index_is_sorted(self) -> None:
         prices = self._base_prices()
         delisting_date = pd.Timestamp("2023-12-31")  # before existing rows
-        result = _apply_delisting_returns(
-            prices, [("AAPL", delisting_date, 0.05)]
-        )
+        result = _apply_delisting_returns(prices, [("AAPL", delisting_date, 0.05)])
         assert result.index.is_monotonic_increasing
 
     def test_empty_prices_returns_empty(self) -> None:
@@ -211,9 +199,7 @@ class TestApplyDelistingReturns:
             index=idx,
         )
         delisting_date = pd.Timestamp("2024-01-05")
-        result = _apply_delisting_returns(
-            prices, [("AAPL", delisting_date, -0.30)]
-        )
+        result = _apply_delisting_returns(prices, [("AAPL", delisting_date, -0.30)])
         # New row added but cell should be NaN (no last_price found)
         if delisting_date in result.index:
             assert pd.isna(result.loc[delisting_date, "AAPL"])
@@ -229,7 +215,7 @@ class TestAssemblePrices:
         inst_id = str(uuid.uuid4())
         session = _make_session(
             [(inst_id, "AAPL", "USD")],  # ticker rank map query
-            [],                           # price rows — empty → early return
+            [],  # price rows — empty → early return
         )
         result = assemble_prices(session, include_delisted=False, currency_map={})
         assert isinstance(result, pd.DataFrame)
@@ -339,8 +325,8 @@ class TestAssemblePrices:
     def test_empty_ticker_map_returns_empty_dataframe(self) -> None:
         """No instruments in DB → early return."""
         session = _make_session(
-            [],   # ticker rank map — empty
-            [],   # price rows
+            [],  # ticker rank map — empty
+            [],  # price rows
         )
         result = assemble_prices(session, include_delisted=False, currency_map={})
         assert result.empty
@@ -404,8 +390,8 @@ class TestAssembleVolumes:
         session = _make_session(
             [(id_usd, "SHEL.L", "USD"), (id_gbx, "SHEL.L", "GBX")],
             [
-                (id_usd, "2024-01-02", 5_000_000.0),   # USD volume (should win)
-                (id_gbx, "2024-01-02", 3_000_000.0),   # GBX volume (dropped)
+                (id_usd, "2024-01-02", 5_000_000.0),  # USD volume (should win)
+                (id_gbx, "2024-01-02", 3_000_000.0),  # GBX volume (dropped)
             ],
         )
         with pytest.warns(UserWarning, match="assemble_volumes"):

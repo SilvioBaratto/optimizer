@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+pytest.importorskip("typer")
+
 from cli.portfolio import Strategy, _build_optimizer
 
 # ---------------------------------------------------------------------------

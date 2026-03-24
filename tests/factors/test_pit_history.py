@@ -429,11 +429,14 @@ def _build_pit_test_data(
     dates = pd.bdate_range("2022-01-03", periods=n_dates)
 
     # Cumulative prices so they look realistic
-    prices = pd.DataFrame(
-        rng.uniform(0.5, 2.0, (n_dates, n_tickers)),
-        index=dates,
-        columns=tickers,
-    ).cumsum() + 50.0
+    prices = (
+        pd.DataFrame(
+            rng.uniform(0.5, 2.0, (n_dates, n_tickers)),
+            index=dates,
+            columns=tickers,
+        ).cumsum()
+        + 50.0
+    )
 
     volumes = pd.DataFrame(
         rng.uniform(1e5, 1e7, (n_dates, n_tickers)),

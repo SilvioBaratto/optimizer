@@ -150,7 +150,6 @@ class TestComputeAddv:
         # Both should produce values for all tickers
         assert len(addv_short) == len(addv_long)
 
-
     def test_gbx_normalized_vs_raw_regression(self) -> None:
         """Regression for issue #287: GBX prices inflate ADDV by 100x.
 

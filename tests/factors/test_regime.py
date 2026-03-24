@@ -345,9 +345,7 @@ class TestBoundedTilts:
             min_post_tilt_weight=0.0,
             expansion_tilts=(("momentum", 10.0),),
         )
-        result = apply_regime_tilts(
-            self._weights(), MacroRegime.EXPANSION, config
-        )
+        result = apply_regime_tilts(self._weights(), MacroRegime.EXPANSION, config)
         # Effective momentum tilt is 2.0, not 10.0.
         # Pre-norm: value=0.30, momentum=0.40*2=0.80, low_risk=0.30
         # Total = 1.40, scale = 1.0 / 1.40
@@ -366,9 +364,7 @@ class TestBoundedTilts:
                 ("low_risk", 0.8),
             ),
         )
-        result = apply_regime_tilts(
-            self._weights(), MacroRegime.EXPANSION, config
-        )
+        result = apply_regime_tilts(self._weights(), MacroRegime.EXPANSION, config)
         # Pre-norm: value=0.24, momentum=0.48, low_risk=0.24 → 0.96
         expected_momentum = 0.48 / 0.96
         assert abs(result[FactorGroupType.MOMENTUM] - expected_momentum) < 1e-10
@@ -398,9 +394,7 @@ class TestBoundedTilts:
             min_post_tilt_weight=0.0,
             recession_tilts=(("momentum", 0.0),),
         )
-        result = apply_regime_tilts(
-            self._weights(), MacroRegime.RECESSION, config
-        )
+        result = apply_regime_tilts(self._weights(), MacroRegime.RECESSION, config)
         assert result[FactorGroupType.MOMENTUM] == 0.0
 
     # --- combined caps and floor ---
@@ -487,9 +481,7 @@ class TestBoundedTilts:
             FactorGroupType.MOMENTUM: 1.0,
             FactorGroupType.LOW_RISK: 1.0,
         }
-        result = apply_regime_tilts(
-            weights, MacroRegime.EXPANSION, config
-        )
+        result = apply_regime_tilts(weights, MacroRegime.EXPANSION, config)
         # Default expansion: momentum=1.2 < 1.5 cap, not capped
         # value=0.8, low_risk=0.8
         # Pre-norm: 0.8, 1.2, 0.8 → 2.8, scale=3.0/2.8

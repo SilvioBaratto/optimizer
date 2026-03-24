@@ -651,18 +651,15 @@ class RegimeTiltConfig:
     def __post_init__(self) -> None:
         if self.max_tilt_multiplier < 1.0:
             raise ValueError(
-                f"max_tilt_multiplier must be >= 1.0, "
-                f"got {self.max_tilt_multiplier}"
+                f"max_tilt_multiplier must be >= 1.0, got {self.max_tilt_multiplier}"
             )
         if self.min_post_tilt_weight < 0.0:
             raise ValueError(
-                f"min_post_tilt_weight must be >= 0.0, "
-                f"got {self.min_post_tilt_weight}"
+                f"min_post_tilt_weight must be >= 0.0, got {self.min_post_tilt_weight}"
             )
         if self.min_post_tilt_weight >= 1.0:
             raise ValueError(
-                f"min_post_tilt_weight must be < 1.0, "
-                f"got {self.min_post_tilt_weight}"
+                f"min_post_tilt_weight must be < 1.0, got {self.min_post_tilt_weight}"
             )
 
     @classmethod

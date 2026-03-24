@@ -328,9 +328,7 @@ class TestRunFullPipelineWithSelectionFxSlicing:
         )
 
         # Patch run_full_pipeline to capture the currency_map it receives
-        with patch(
-            "optimizer.pipeline._orchestrator.run_full_pipeline"
-        ) as mock_rfp:
+        with patch("optimizer.pipeline._orchestrator.run_full_pipeline") as mock_rfp:
             mock_rfp.return_value = MagicMock(
                 weights=pd.Series([0.5, 0.5], index=["LLOY.L", "SPY"]),
                 currency="EUR",
@@ -438,9 +436,7 @@ class TestAssembleAllBaseCurrency:
 
         mock_db = MagicMock()
         mock_db.get_session.return_value.__enter__ = MagicMock()
-        mock_db.get_session.return_value.__exit__ = MagicMock(
-            return_value=False
-        )
+        mock_db.get_session.return_value.__exit__ = MagicMock(return_value=False)
 
         assemble_all(mock_db, base_currency="GBP")
 
@@ -589,9 +585,7 @@ class TestBenchmarkCurrencyConversion:
         fx_config = FxConfig.for_eur_base()
         bench_prices = local_prices[["SPY"]].copy()
 
-        with patch(
-            "optimizer.pipeline._orchestrator.run_full_pipeline"
-        ) as mock_rfp:
+        with patch("optimizer.pipeline._orchestrator.run_full_pipeline") as mock_rfp:
             mock_rfp.return_value = MagicMock(
                 weights=pd.Series([0.5, 0.5], index=["LLOY.L", "ORA.PA"]),
                 currency="EUR",

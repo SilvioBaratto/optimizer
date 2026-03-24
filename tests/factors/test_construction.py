@@ -445,9 +445,7 @@ class TestValueFactorCurrencyCorrectness:
             FactorType.EBITDA_TO_EV, lse_fundamentals_normalised, dummy_prices
         )
         # 200M / 1200M ≈ 0.1667
-        assert result["BARC.L"] == pytest.approx(
-            200_000_000 / 1_200_000_000, rel=1e-6
-        )
+        assert result["BARC.L"] == pytest.approx(200_000_000 / 1_200_000_000, rel=1e-6)
 
     def test_book_to_price_deflated_100x(
         self,
@@ -643,9 +641,7 @@ class TestBetaMarketProxy:
         with_proxy = compute_all_factors(
             fundamentals, price_history, config=config, market_returns=mkt
         )
-        without_proxy = compute_all_factors(
-            fundamentals, price_history, config=config
-        )
+        without_proxy = compute_all_factors(fundamentals, price_history, config=config)
         pd.testing.assert_series_equal(
             with_proxy["beta"].round(10),
             without_proxy["beta"].round(10),

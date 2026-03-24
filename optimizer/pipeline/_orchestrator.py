@@ -390,13 +390,10 @@ def run_full_pipeline(
         if _missing:
             _missing_str = " and ".join(_missing)
             _msg = (
-                "FX conversion requested (mode=%s) but %s is None; "
-                "conversion skipped."
+                "FX conversion requested (mode=%s) but %s is None; conversion skipped."
             )
             if fx_config.strict:
-                raise ConfigurationError(
-                    _msg % (fx_config.mode.value, _missing_str)
-                )
+                raise ConfigurationError(_msg % (fx_config.mode.value, _missing_str))
             logger.warning(_msg, fx_config.mode.value, _missing_str)
         else:
             # Both are non-None here (guarded by _missing check above)
@@ -458,9 +455,7 @@ def run_full_pipeline(
         present = {t: r for t, r in delisting_returns.items() if t in X.columns}
         if present:
             X = _apply_delisting_rets(X, present)
-            logger.info(
-                "Applied delisting returns for %d ticker(s).", len(present)
-            )
+            logger.info("Applied delisting returns for %d ticker(s).", len(present))
 
     # 1.6  Inject risk-free rate into optimizer (issue #272)
     if risk_free_rate != 0.0:
@@ -512,9 +507,7 @@ def run_full_pipeline(
                 "bt.returns + bt.observations (issue #309).",
                 type(bt).__name__,
             )
-            gross = pd.Series(
-                index=bt.observations, data=bt.returns, name="returns"
-            )
+            gross = pd.Series(index=bt.observations, data=bt.returns, name="returns")
         net = compute_net_backtest_returns(gross, wc, cost_bps=cost_bps)
         result.net_returns = net
         result.net_sharpe_ratio = _compute_net_sharpe(
@@ -973,8 +966,4 @@ def _compute_net_sharpe(
     std = float(net_returns.std(ddof=1))
     if std == 0:
         return None
-    return float(
-        (net_returns.mean() - rf_daily)
-        / std
-        * sqrt(trading_days_per_year)
-    )
+    return float((net_returns.mean() - rf_daily) / std * sqrt(trading_days_per_year))

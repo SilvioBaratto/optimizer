@@ -506,9 +506,7 @@ class TestEmptySelectionGuard:
             scores[i] = float("nan")
         mock_composite = pd.Series(scores, index=tickers)
 
-        fundamentals = pd.DataFrame(
-            {"market_cap": [1e9] * len(tickers)}, index=tickers
-        )
+        fundamentals = pd.DataFrame({"market_cap": [1e9] * len(tickers)}, index=tickers)
 
         pfx = "optimizer.pipeline._orchestrator"
         with (
@@ -527,9 +525,7 @@ class TestEmptySelectionGuard:
                 fundamentals=fundamentals,
             )
 
-    def test_empty_selection_raises_data_error(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_empty_selection_raises_data_error(self, prices_df: pd.DataFrame) -> None:
         from optimizer.exceptions import DataError
 
         with pytest.raises(DataError, match="empty universe"):
@@ -537,9 +533,7 @@ class TestEmptySelectionGuard:
                 prices_df, mock_selected=pd.Index([]), n_nan_scores=5
             )
 
-    def test_below_minimum_raises_data_error(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_below_minimum_raises_data_error(self, prices_df: pd.DataFrame) -> None:
         from optimizer.exceptions import DataError
 
         with pytest.raises(DataError, match="below the minimum of 5"):
@@ -549,9 +543,7 @@ class TestEmptySelectionGuard:
                 n_nan_scores=2,
             )
 
-    def test_error_message_includes_nan_count(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_error_message_includes_nan_count(self, prices_df: pd.DataFrame) -> None:
         from optimizer.exceptions import DataError
 
         with pytest.raises(DataError, match="5 of 5"):
@@ -559,9 +551,7 @@ class TestEmptySelectionGuard:
                 prices_df, mock_selected=pd.Index([]), n_nan_scores=5
             )
 
-    def test_sufficient_selection_does_not_raise(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_sufficient_selection_does_not_raise(self, prices_df: pd.DataFrame) -> None:
         result = self._run_with_mocked_selection(
             prices_df,
             mock_selected=pd.Index(list(prices_df.columns[:5])),
@@ -686,9 +676,7 @@ class TestRiskFreeRatePropagation:
         fitted_opt = result.pipeline[-1]  # last step is the optimizer
         assert fitted_opt.risk_free_rate == pytest.approx(rf)
 
-    def test_rf_zero_does_not_copy_optimizer(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_rf_zero_does_not_copy_optimizer(self, prices_df: pd.DataFrame) -> None:
         """When risk_free_rate=0.0 (default), optimizer is not deepcopied."""
         optimizer = build_mean_risk(MeanRiskConfig.for_max_sharpe())
 
@@ -717,9 +705,7 @@ class TestRiskFreeRatePropagation:
         assert isinstance(result, PortfolioResult)
         assert any("risk_free_rate" in rec.message for rec in caplog.records)
 
-    def test_summary_sharpe_uses_injected_rf(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_summary_sharpe_uses_injected_rf(self, prices_df: pd.DataFrame) -> None:
         """Portfolio Sharpe in summary uses the injected risk_free_rate."""
         rf = 0.0002
         # Run with rf=0 and rf=nonzero, Sharpe should differ
@@ -738,9 +724,7 @@ class TestRiskFreeRatePropagation:
         sharpe_0 = result_zero.summary["sharpe_ratio"]
         assert sharpe_rf < sharpe_0
 
-    def test_original_optimizer_not_mutated(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_original_optimizer_not_mutated(self, prices_df: pd.DataFrame) -> None:
         """The caller's original optimizer object must not be modified."""
         optimizer = build_mean_risk(MeanRiskConfig.for_max_sharpe())
         assert optimizer.risk_free_rate == 0.0
@@ -894,9 +878,7 @@ class TestWeightHistoryExtraction:
 class TestNetBacktestReturns:
     """Net transaction cost wiring in run_full_pipeline (issue #284)."""
 
-    def test_net_returns_none_without_backtest(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_net_returns_none_without_backtest(self, prices_df: pd.DataFrame) -> None:
         result = run_full_pipeline(
             prices=prices_df,
             optimizer=EqualWeighted(),
@@ -904,9 +886,7 @@ class TestNetBacktestReturns:
         assert result.net_returns is None
         assert result.net_sharpe_ratio is None
 
-    def test_net_returns_populated_with_backtest(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_net_returns_populated_with_backtest(self, prices_df: pd.DataFrame) -> None:
         result = run_full_pipeline(
             prices=prices_df,
             optimizer=EqualWeighted(),
@@ -916,9 +896,7 @@ class TestNetBacktestReturns:
         assert isinstance(result.net_returns, pd.Series)
         assert result.net_sharpe_ratio is not None
 
-    def test_net_sharpe_lower_than_gross(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_net_sharpe_lower_than_gross(self, prices_df: pd.DataFrame) -> None:
         from optimizer.pipeline._orchestrator import _compute_net_sharpe
 
         result = run_full_pipeline(
@@ -935,9 +913,7 @@ class TestNetBacktestReturns:
         assert gross_sharpe is not None
         assert result.net_sharpe_ratio < gross_sharpe
 
-    def test_net_returns_lower_by_cost_amount(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_net_returns_lower_by_cost_amount(self, prices_df: pd.DataFrame) -> None:
         result = run_full_pipeline(
             prices=prices_df,
             optimizer=EqualWeighted(),
@@ -950,9 +926,7 @@ class TestNetBacktestReturns:
         # Net must be lower (costs deducted)
         assert diff > 0
 
-    def test_zero_cost_bps_net_equals_gross(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_zero_cost_bps_net_equals_gross(self, prices_df: pd.DataFrame) -> None:
         result = run_full_pipeline(
             prices=prices_df,
             optimizer=EqualWeighted(),
@@ -960,9 +934,7 @@ class TestNetBacktestReturns:
             cost_bps=0.0,
         )
         assert result.net_returns is not None
-        pd.testing.assert_series_equal(
-            result.net_returns, result.backtest.returns_df
-        )
+        pd.testing.assert_series_equal(result.net_returns, result.backtest.returns_df)
 
     def test_cost_bps_forwarded_through_selection(
         self, prices_df: pd.DataFrame
@@ -1047,11 +1019,12 @@ class TestReturnsDfFallback:
 
         mock_bt = self._make_mock_bt(include_returns_df=False)
 
-        with caplog.at_level(
-            logging.WARNING, logger="optimizer.pipeline._orchestrator"
-        ), patch(
-            "optimizer.pipeline._orchestrator.backtest",
-            return_value=mock_bt,
+        with (
+            caplog.at_level(logging.WARNING, logger="optimizer.pipeline._orchestrator"),
+            patch(
+                "optimizer.pipeline._orchestrator.backtest",
+                return_value=mock_bt,
+            ),
         ):
             run_full_pipeline(
                 prices=prices_df,
@@ -1064,9 +1037,7 @@ class TestReturnsDfFallback:
             for rec in caplog.records
         )
 
-    def test_returns_df_preferred_when_present(
-        self, prices_df: pd.DataFrame
-    ) -> None:
+    def test_returns_df_preferred_when_present(self, prices_df: pd.DataFrame) -> None:
         """When bt has returns_df, it is used directly without fallback."""
         from unittest.mock import patch
 
@@ -1097,11 +1068,12 @@ class TestReturnsDfFallback:
         # A bt without weights_per_observation triggers the elif branch
         mock_bt = types.SimpleNamespace(sharpe_ratio=0.5)
 
-        with caplog.at_level(
-            logging.WARNING, logger="optimizer.pipeline._orchestrator"
-        ), patch(
-            "optimizer.pipeline._orchestrator.backtest",
-            return_value=mock_bt,
+        with (
+            caplog.at_level(logging.WARNING, logger="optimizer.pipeline._orchestrator"),
+            patch(
+                "optimizer.pipeline._orchestrator.backtest",
+                return_value=mock_bt,
+            ),
         ):
             run_full_pipeline(
                 prices=prices_df,

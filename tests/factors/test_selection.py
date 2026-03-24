@@ -133,7 +133,6 @@ class TestApplySectorBalance:
         assert isinstance(result, pd.Index)
         assert len(result) > 0
 
-
     def test_convergence_multi_sector_cascade(self) -> None:
         """Single-pass leaves a violation; convergence loop fixes it (#280).
 
@@ -178,17 +177,14 @@ class TestApplySectorBalance:
         result_sectors = sector_labels.reindex(result).dropna()
         n = len(result)
         target_weights = (
-            sector_labels.reindex(parent_universe)
-            .dropna()
-            .value_counts(normalize=True)
+            sector_labels.reindex(parent_universe).dropna().value_counts(normalize=True)
         )
         for sector, tw in target_weights.items():
             count = int((result_sectors == sector).sum())
             min_n = max(0, round((tw - 0.05) * n))
             max_n = round((tw + 0.05) * n)
             assert min_n <= count <= max_n, (
-                f"Sector {sector}: count={count}, "
-                f"expected [{min_n}, {max_n}] at n={n}"
+                f"Sector {sector}: count={count}, expected [{min_n}, {max_n}] at n={n}"
             )
 
     def test_no_shrinkage_when_overweight_sector_trimmed(self) -> None:
@@ -234,9 +230,7 @@ class TestApplySectorBalance:
         n = len(result)
         result_sectors = sector_labels.reindex(result).dropna()
         target_weights = (
-            sector_labels.reindex(parent_universe)
-            .dropna()
-            .value_counts(normalize=True)
+            sector_labels.reindex(parent_universe).dropna().value_counts(normalize=True)
         )
         for sector, tw in target_weights.items():
             count = int((result_sectors == sector).sum())
@@ -252,9 +246,7 @@ class TestApplySectorBalance:
         sector_labels = pd.Series(
             ["X", "X", "X", "Y", "Y", "Y", "Z", "Z", "Z"], index=tickers
         )
-        scores = pd.Series(
-            [3.0, 2.0, 1.0, 3.0, 2.0, 1.0, 3.0, 2.0, 1.0], index=tickers
-        )
+        scores = pd.Series([3.0, 2.0, 1.0, 3.0, 2.0, 1.0, 3.0, 2.0, 1.0], index=tickers)
         selected = pd.Index(["S0", "S3", "S6"])
         result = apply_sector_balance(
             selected,

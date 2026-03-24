@@ -231,9 +231,7 @@ class TestComputeVIF:
         base = rng.normal(0, 1, 500)
         # noise std = 0.1 → R² ≈ 0.99; 1 - R² ≈ 0.01 >> 1e-10
         noisy_col = base + rng.normal(0, 0.1, 500)
-        factors = pd.DataFrame(
-            {"a": base, "b": noisy_col, "c": rng.normal(0, 1, 500)}
-        )
+        factors = pd.DataFrame({"a": base, "b": noisy_col, "c": rng.normal(0, 1, 500)})
         result = compute_vif(factors)
         assert np.isfinite(result["a"]) and np.isfinite(result["b"]), (
             f"Expected finite VIF for R²≈0.99, got {result}"
@@ -245,9 +243,7 @@ class TestComputeVIF:
         rng = np.random.default_rng(2)
         base = rng.normal(0, 1, 200)
         exact = base * 2.0
-        factors = pd.DataFrame(
-            {"a": base, "b": exact, "c": rng.normal(0, 1, 200)}
-        )
+        factors = pd.DataFrame({"a": base, "b": exact, "c": rng.normal(0, 1, 200)})
         result = compute_vif(factors)
         inf_vals = result[np.isinf(result)]
         assert not inf_vals.isna().any(), "inf VIF values must not be NaN"
@@ -666,16 +662,10 @@ class TestFactorSpreadBenchmarks:
         factor_b = rng.normal(0, 1, (48, 30))
 
         factor_history = {
-            "factor_a": pd.DataFrame(
-                factor_a, index=dates, columns=tickers
-            ),
-            "factor_b": pd.DataFrame(
-                factor_b, index=dates, columns=tickers
-            ),
+            "factor_a": pd.DataFrame(factor_a, index=dates, columns=tickers),
+            "factor_b": pd.DataFrame(factor_b, index=dates, columns=tickers),
         }
-        returns_hist = pd.DataFrame(
-            forward_ret, index=dates, columns=tickers
-        )
+        returns_hist = pd.DataFrame(forward_ret, index=dates, columns=tickers)
         composite = pd.DataFrame(
             (factor_a + factor_b) / 2,
             index=dates,
@@ -831,9 +821,7 @@ class TestCompositeICValidation:
             "noise": pd.DataFrame(noise, index=dates, columns=tickers),
         }
         returns_hist = pd.DataFrame(forward_ret, index=dates, columns=tickers)
-        composite = pd.DataFrame(
-            (signal + noise) / 2.0, index=dates, columns=tickers
-        )
+        composite = pd.DataFrame((signal + noise) / 2.0, index=dates, columns=tickers)
         report = run_factor_validation(
             factor_history,
             returns_hist,

@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+pytest.importorskip("typer")
+
 from cli.data_assembly import assemble_regime_data
 
 # ---------------------------------------------------------------------------
@@ -53,9 +55,7 @@ class TestFfillLimitRespected:
         te_obs = _te_df("2024-01-01")
         fred = _fred_df("2024-01-01", "2024-04-01")
 
-        result = assemble_regime_data(
-            _empty_macro(), fred, te_obs, fill_limit=45
-        )
+        result = assemble_regime_data(_empty_macro(), fred, te_obs, fill_limit=45)
 
         assert "pmi" in result.columns
         assert pd.isna(result["pmi"].iloc[-1]), (
@@ -68,9 +68,7 @@ class TestFfillLimitRespected:
         te_obs = _te_df("2024-01-01")
         fred = _fred_df("2024-01-01", "2024-01-31")
 
-        result = assemble_regime_data(
-            _empty_macro(), fred, te_obs, fill_limit=45
-        )
+        result = assemble_regime_data(_empty_macro(), fred, te_obs, fill_limit=45)
 
         assert "pmi" in result.columns
         assert not pd.isna(result["pmi"].iloc[-1]), (
@@ -233,9 +231,7 @@ class TestIndexValidationAndCoercion:
         te_str = pd.DataFrame({"manufacturing_pmi": [52.0]}, index=str_index)
 
         with pytest.warns(UserWarning, match="Index"):
-            result = assemble_regime_data(
-                _empty_macro(), fred, te_str, fill_limit=45
-            )
+            result = assemble_regime_data(_empty_macro(), fred, te_str, fill_limit=45)
 
         assert "pmi" in result.columns
         assert result["pmi"].notna().any(), (
@@ -247,9 +243,7 @@ class TestIndexValidationAndCoercion:
         fred = _fred_df("2024-01-01", "2024-01-10")
 
         bad_index = pd.Index(["not-a-date", "also-bad"])
-        te_bad = pd.DataFrame(
-            {"manufacturing_pmi": [52.0, 53.0]}, index=bad_index
-        )
+        te_bad = pd.DataFrame({"manufacturing_pmi": [52.0, 53.0]}, index=bad_index)
 
         with pytest.raises(ValueError, match="could not be coerced to DatetimeIndex"):
             assemble_regime_data(_empty_macro(), fred, te_bad, fill_limit=45)
@@ -262,8 +256,6 @@ class TestIndexValidationAndCoercion:
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
             # Should not raise — all parts already have DatetimeIndex.
-            result = assemble_regime_data(
-                _empty_macro(), fred, te_obs, fill_limit=45
-            )
+            result = assemble_regime_data(_empty_macro(), fred, te_obs, fill_limit=45)
 
         assert not result.empty

@@ -235,9 +235,7 @@ class TestFitHMM:
         np.testing.assert_array_equal(
             r1.regime_means.to_numpy(), r2.regime_means.to_numpy()
         )
-        np.testing.assert_array_equal(
-            r1.regime_covariances, r2.regime_covariances
-        )
+        np.testing.assert_array_equal(r1.regime_covariances, r2.regime_covariances)
 
     def test_none_random_state_allowed(self, synthetic_returns: pd.DataFrame) -> None:
         """Users can still pass random_state=None for non-deterministic runs."""

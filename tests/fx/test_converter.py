@@ -139,9 +139,7 @@ class TestFxPriceConverterTransform:
         result = converter.transform(local_prices)
 
         # EUR ticker should be unchanged
-        pd.testing.assert_series_equal(
-            result["ORA.PA"], local_prices["ORA.PA"]
-        )
+        pd.testing.assert_series_equal(result["ORA.PA"], local_prices["ORA.PA"])
 
     def test_foreign_tickers_converted(
         self,
@@ -165,9 +163,7 @@ class TestFxPriceConverterTransform:
 
         # USD ticker: converted = local × USD/EUR rate
         expected_spy = local_prices["SPY"] * fx_rates["USD"]
-        pd.testing.assert_series_equal(
-            result["SPY"], expected_spy, check_names=False
-        )
+        pd.testing.assert_series_equal(result["SPY"], expected_spy, check_names=False)
 
     def test_missing_currency_skipped(
         self,
@@ -188,9 +184,7 @@ class TestFxPriceConverterTransform:
         result = converter.transform(local_prices)
 
         # SPY should remain unchanged (missing USD rate)
-        pd.testing.assert_series_equal(
-            result["SPY"], local_prices["SPY"]
-        )
+        pd.testing.assert_series_equal(result["SPY"], local_prices["SPY"])
         # LLOY.L should be converted
         assert not result["LLOY.L"].equals(local_prices["LLOY.L"])
 

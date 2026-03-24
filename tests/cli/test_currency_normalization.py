@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+pytest.importorskip("typer")
+
 from cli._currency import (
     MINOR_CURRENCY_DIVISORS,
     build_currency_map,
@@ -153,9 +155,7 @@ class TestNormalizeFundamentals:
         currency_map = {"AAPL": "USD"}
         result_df, result_map = normalize_fundamentals(df, currency_map)
 
-        assert result_df.loc["AAPL", "market_cap"] == pytest.approx(
-            150_000_000_000.0
-        )
+        assert result_df.loc["AAPL", "market_cap"] == pytest.approx(150_000_000_000.0)
         assert result_map["AAPL"] == "USD"
 
     def test_mixed_currencies(self) -> None:
@@ -167,9 +167,7 @@ class TestNormalizeFundamentals:
         result_df, _ = normalize_fundamentals(df, currency_map)
 
         assert result_df.loc["BARC.L", "market_cap"] == pytest.approx(20_000_000.0)
-        assert result_df.loc["AAPL", "market_cap"] == pytest.approx(
-            150_000_000_000.0
-        )
+        assert result_df.loc["AAPL", "market_cap"] == pytest.approx(150_000_000_000.0)
 
     def test_ila_normalization(self) -> None:
         """Israeli Agorot should be divided by 100."""

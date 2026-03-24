@@ -1030,9 +1030,7 @@ class TestSectorConstraintIntegration:
         sector_mapping: dict[str, str],
     ) -> None:
         cap = 0.25
-        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained(
-            max_sector_weight=cap
-        )
+        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained(max_sector_weight=cap)
         model = build_mean_risk(cfg, sector_mapping=sector_mapping)
         model.fit(returns_df)
         portfolio = model.predict(returns_df)
@@ -1052,9 +1050,7 @@ class TestSectorConstraintIntegration:
     ) -> None:
         # 4 sectors, cap=0.30 => 4*0.30=1.20 > budget=1.0 so feasible
         cap = 0.30
-        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained(
-            max_sector_weight=cap
-        )
+        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained(max_sector_weight=cap)
         model = build_mean_risk(cfg, sector_mapping=sector_mapping)
         model.fit(returns_df)
         portfolio = model.predict(returns_df)

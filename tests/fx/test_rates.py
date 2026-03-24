@@ -161,15 +161,11 @@ class TestAssembleFxRates:
 
         # GBP rate = GBPUSD / EURUSD (cross rate)
         expected_gbp = np.linspace(1.27, 1.29, 10) / np.linspace(1.09, 1.11, 10)
-        np.testing.assert_allclose(
-            result["GBP"].values, expected_gbp, rtol=1e-10
-        )
+        np.testing.assert_allclose(result["GBP"].values, expected_gbp, rtol=1e-10)
 
         # USD rate = 1 / EURUSD (reciprocal)
         expected_usd = 1.0 / np.linspace(1.09, 1.11, 10)
-        np.testing.assert_allclose(
-            result["USD"].values, expected_usd, rtol=1e-10
-        )
+        np.testing.assert_allclose(result["USD"].values, expected_usd, rtol=1e-10)
 
     def test_all_base_currency_returns_empty(self) -> None:
         """When all tickers are in the base currency, return empty DataFrame."""

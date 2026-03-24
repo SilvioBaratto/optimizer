@@ -363,9 +363,15 @@ class TestRunRegimeValidation:
         assert len(d["regimes"]) >= 1
         regime_entry = d["regimes"][0]
         expected_keys = (
-            "regime", "obs", "coverage_pct", "ann_return",
-            "ann_vol", "sharpe", "max_drawdown",
-            "alpha_concentration", "is_concentrated",
+            "regime",
+            "obs",
+            "coverage_pct",
+            "ann_return",
+            "ann_vol",
+            "sharpe",
+            "max_drawdown",
+            "alpha_concentration",
+            "is_concentrated",
         )
         for key in expected_keys:
             assert key in regime_entry
@@ -373,8 +379,16 @@ class TestRunRegimeValidation:
         # Subperiod entries
         assert len(d["subperiods"]) >= 1
         sp_entry = d["subperiods"][0]
-        for key in ("start", "end", "regime", "obs", "ann_return",
-                     "ann_vol", "sharpe", "max_drawdown"):
+        for key in (
+            "start",
+            "end",
+            "regime",
+            "obs",
+            "ann_return",
+            "ann_vol",
+            "sharpe",
+            "max_drawdown",
+        ):
             assert key in sp_entry
 
         # Summary

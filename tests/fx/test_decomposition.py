@@ -47,9 +47,7 @@ class TestDecomposeReturns:
 
     def test_decomposition_returns_correct_types(self) -> None:
         local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
-        result = decompose_fx_returns(
-            local_prices, base_prices, fx_rates, cmap, "EUR"
-        )
+        result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
 
         assert isinstance(result, FxReturnDecomposition)
         assert isinstance(result.total_returns, pd.DataFrame)
@@ -59,9 +57,7 @@ class TestDecomposeReturns:
 
     def test_base_currency_fx_returns_zero(self) -> None:
         local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
-        result = decompose_fx_returns(
-            local_prices, base_prices, fx_rates, cmap, "EUR"
-        )
+        result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
 
         # EUR ticker should have zero FX returns
         np.testing.assert_array_equal(
@@ -71,9 +67,7 @@ class TestDecomposeReturns:
 
     def test_foreign_ticker_has_nonzero_fx(self) -> None:
         local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
-        result = decompose_fx_returns(
-            local_prices, base_prices, fx_rates, cmap, "EUR"
-        )
+        result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
 
         # GBP ticker should have non-zero FX returns
         assert result.fx_returns["LLOY.L"].abs().sum() > 0
@@ -82,13 +76,9 @@ class TestDecomposeReturns:
     def test_algebraic_identity(self) -> None:
         """Verify r_total ≈ r_local + r_fx + r_local * r_fx."""
         local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
-        result = decompose_fx_returns(
-            local_prices, base_prices, fx_rates, cmap, "EUR"
-        )
+        result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
 
-        reconstructed = (
-            result.local_returns + result.fx_returns + result.cross_terms
-        )
+        reconstructed = result.local_returns + result.fx_returns + result.cross_terms
 
         # The identity should hold closely (not exactly due to
         # discrete compounding and alignment)
@@ -102,9 +92,7 @@ class TestDecomposeReturns:
 
     def test_shapes_consistent(self) -> None:
         local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
-        result = decompose_fx_returns(
-            local_prices, base_prices, fx_rates, cmap, "EUR"
-        )
+        result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
 
         # All return DataFrames should have same shape
         assert result.total_returns.shape == result.local_returns.shape
@@ -116,9 +104,7 @@ class TestDecomposeReturns:
 
     def test_metadata_stored(self) -> None:
         local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
-        result = decompose_fx_returns(
-            local_prices, base_prices, fx_rates, cmap, "EUR"
-        )
+        result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
 
         assert result.currency_map == cmap
         assert result.base_currency == "EUR"

@@ -546,9 +546,7 @@ def compute_composite_ic(
     ic_std = float(ic_series.std(ddof=1))
     icir = mean_ic / ic_std if ic_std > 0.0 else 0.0
 
-    t_stat, p_value = compute_newey_west_tstat(
-        ic_series, n_lags=newey_west_lags
-    )
+    t_stat, p_value = compute_newey_west_tstat(ic_series, n_lags=newey_west_lags)
     significant = abs(t_stat) >= t_stat_threshold
 
     return CompositeICResult(
@@ -765,7 +763,9 @@ def run_factor_validation(
     for factor_name, scores_df in factor_scores_history.items():
         # IC analysis
         ic_series = compute_ic_series(
-            scores_df, returns_history, factor_name,
+            scores_df,
+            returns_history,
+            factor_name,
             min_observations=config.min_ic_observations,
         )
         if len(ic_series) == 0:

@@ -250,9 +250,7 @@ class TestMeanRiskConfig:
         assert cfg.prior_config is not None
 
     def test_for_max_sharpe_sector_constrained_custom_cap(self) -> None:
-        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained(
-            max_sector_weight=0.30
-        )
+        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained(max_sector_weight=0.30)
         assert cfg.max_sector_weight == 0.30
 
     def test_for_max_sharpe_sector_constrained_is_frozen(self) -> None:

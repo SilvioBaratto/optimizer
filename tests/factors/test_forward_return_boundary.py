@@ -26,6 +26,7 @@ _skip_no_research = pytest.mark.skipif(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_fundamentals(
     tickers: list[str],
     rng: np.random.Generator,
@@ -89,10 +90,9 @@ class TestPricesToReturnsIndexAlignment:
 
         for i in range(1, len(prices)):
             dt = prices.index[i]
-            expected = (
-                (prices.iloc[i, 0] - prices.iloc[i - 1, 0])
-                / prices.iloc[i - 1, 0]
-            )
+            expected = (prices.iloc[i, 0] - prices.iloc[i - 1, 0]) / prices.iloc[
+                i - 1, 0
+            ]
             assert np.isclose(returns.loc[dt].iloc[0], expected), (
                 f"Return at {dt.date()} does not match pct_change"
             )
@@ -141,7 +141,8 @@ class TestForwardReturnBoundary:
         assert next_dt in window.index
 
     def test_all_intermediate_dates_included(
-        self, returns: pd.DataFrame,
+        self,
+        returns: pd.DataFrame,
     ) -> None:
         dt = returns.index[5]
         next_dt = returns.index[10]
@@ -153,7 +154,8 @@ class TestForwardReturnBoundary:
         pd.testing.assert_index_equal(window.index, expected_dates)
 
     def test_consecutive_dates_yield_single_return(
-        self, returns: pd.DataFrame,
+        self,
+        returns: pd.DataFrame,
     ) -> None:
         """When dt and next_dt are adjacent, window has exactly one row."""
         dt = returns.index[5]
@@ -174,7 +176,7 @@ class TestForwardReturnBoundary:
         }
         returns = pd.DataFrame(data, index=dates[1:])
 
-        dt = dates[1]       # return = 0.01
+        dt = dates[1]  # return = 0.01
         next_dt = dates[3]  # return = 0.03
 
         mask = (returns.index > dt) & (returns.index <= next_dt)
@@ -303,5 +305,7 @@ class TestForwardReturnIntegration:
 
             actual = returns_history.loc[dt, tickers]
             pd.testing.assert_series_equal(
-                actual, expected_mean, check_names=False,
+                actual,
+                expected_mean,
+                check_names=False,
             )
