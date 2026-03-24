@@ -51,6 +51,7 @@ def _run_sync(job_id: str, portfolio_id: str, mode: str) -> None:
     try:
         client = Trading212Client(
             api_key=settings.trading_212_api_key or "",
+            api_secret=settings.trading_212_secret_key or "",
             mode=mode,
         )
         on_progress = make_progress(job_id, _sync_job_service)
@@ -105,6 +106,7 @@ def get_t212_client() -> Trading212Client:
         )
     return Trading212Client(
         api_key=settings.trading_212_api_key,
+        api_secret=settings.trading_212_secret_key,
         mode=settings.trading_212_mode,
     )
 

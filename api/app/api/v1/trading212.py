@@ -143,6 +143,7 @@ def get_trading212_client() -> Trading212Client:
         )
     return Trading212Client(
         api_key=settings.trading_212_api_key,
+        api_secret=settings.trading_212_secret_key,
         mode=settings.trading_212_mode,
     )
 
