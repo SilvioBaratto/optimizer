@@ -28,7 +28,7 @@ from optimizer.moments._hmm import HMMConfig, fit_hmm
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/portfolio", tags=["Dashboard"])
+router = APIRouter(prefix="/portfolio-analytics", tags=["Dashboard"])
 market_router = APIRouter(prefix="/market", tags=["Market"])
 
 HISTORY_LOOKBACK_YEARS = 3

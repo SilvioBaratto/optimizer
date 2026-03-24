@@ -13,7 +13,7 @@ import pandas as pd
 from skfolio.preprocessing import prices_to_returns
 from sklearn.pipeline import Pipeline
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.factors._config import (
     GROUP_WEIGHT_TIER,
     CompositeScoringConfig,
@@ -273,6 +273,7 @@ def run_full_pipeline(
     fx_config: FxConfig | None = None,
     currency_map: dict[str, str] | None = None,
     fx_rates: pd.DataFrame | None = None,
+    benchmark_currency: str | None = None,
     cost_bps: float = 10.0,
     n_jobs: int | None = None,
 ) -> PortfolioResult:
@@ -335,6 +336,14 @@ def run_full_pipeline(
         Pre-loaded FX rate DataFrame (dates x currencies).  Each
         column holds units-of-base per one unit-of-foreign.
         Required when ``fx_config`` is provided.
+    benchmark_currency : str | None
+        ISO currency code for the benchmark in ``y_prices`` (issue #308).
+        When provided and FX conversion is active, all columns of
+        ``y_prices`` are treated as denominated in this currency and
+        converted to ``fx_config.base_currency`` before returns are
+        computed.  ``None`` (default) preserves existing behaviour:
+        the benchmark is converted only if its ticker already appears
+        in ``currency_map``.
     cost_bps : float
         One-way transaction cost in basis points applied to each
         walk-forward rebalancing event.  Subtracted from gross backtest
@@ -369,38 +378,72 @@ def run_full_pipeline(
     #       (issue #283).  Must happen before prices_to_returns().
     fx_decomp = None
     fx_currency: str | None = None
-    if (
-        fx_config is not None
-        and fx_config.mode != FxConversionMode.NONE
-        and currency_map is not None
-        and fx_rates is not None
-    ):
-        converter = build_fx_converter(
-            fx_config, fx_rates=fx_rates, currency_map=currency_map
-        )
-        local_prices = prices.copy()
-        converter.fit(prices)
-        prices = converter.transform(prices)
-        fx_currency = fx_config.base_currency.value
-        logger.info("FX-converted prices to %s.", fx_currency)
-
-        # Also convert benchmark prices
-        if y_prices is not None:
-            bench_converter = build_fx_converter(
-                fx_config, fx_rates=fx_rates, currency_map=currency_map
+    if fx_config is not None and fx_config.mode != FxConversionMode.NONE:
+        _missing = [
+            name
+            for name, val in (
+                ("currency_map", currency_map),
+                ("fx_rates", fx_rates),
             )
-            bench_converter.fit(y_prices)
-            y_prices = bench_converter.transform(y_prices)
-
-        # Decompose returns if requested
-        if fx_config.mode == FxConversionMode.DECOMPOSE:
-            fx_decomp = decompose_fx_returns(
-                local_prices=local_prices,
-                base_prices=prices,
-                fx_rates_aligned=converter.fx_aligned_,
-                currency_map=currency_map,
-                base_currency=fx_currency,
+            if val is None
+        ]
+        if _missing:
+            _missing_str = " and ".join(_missing)
+            _msg = (
+                "FX conversion requested (mode=%s) but %s is None; "
+                "conversion skipped."
             )
+            if fx_config.strict:
+                raise ConfigurationError(
+                    _msg % (fx_config.mode.value, _missing_str)
+                )
+            logger.warning(_msg, fx_config.mode.value, _missing_str)
+        else:
+            # Both are non-None here (guarded by _missing check above)
+            _currency_map = cast(dict[str, str], currency_map)
+            _fx_rates = cast(pd.DataFrame, fx_rates)
+            converter = build_fx_converter(
+                fx_config, fx_rates=_fx_rates, currency_map=_currency_map
+            )
+            local_prices = prices.copy()
+            converter.fit(prices)
+            prices = converter.transform(prices)
+            fx_currency = fx_config.base_currency.value
+            logger.info("FX-converted prices to %s.", fx_currency)
+
+            # Also convert benchmark prices (issue #308).
+            # Build a dedicated map for y_prices: start from the portfolio
+            # currency_map and overlay benchmark_currency for every column
+            # in y_prices so foreign benchmarks (e.g. SPY in USD for a
+            # EUR-base portfolio) are explicitly converted even when absent
+            # from the portfolio currency_map.
+            if y_prices is not None:
+                _bench_map: dict[str, str] = dict(_currency_map)
+                if benchmark_currency is not None:
+                    _bench_ccy = benchmark_currency.upper()
+                    for _col in y_prices.columns:
+                        _bench_map[_col] = _bench_ccy
+                    logger.info(
+                        "Benchmark FX: treating y_prices columns %s as %s "
+                        "(issue #308).",
+                        list(y_prices.columns),
+                        _bench_ccy,
+                    )
+                bench_converter = build_fx_converter(
+                    fx_config, fx_rates=_fx_rates, currency_map=_bench_map
+                )
+                bench_converter.fit(y_prices)
+                y_prices = bench_converter.transform(y_prices)
+
+            # Decompose returns if requested
+            if fx_config.mode == FxConversionMode.DECOMPOSE:
+                fx_decomp = decompose_fx_returns(
+                    local_prices=local_prices,
+                    base_prices=prices,
+                    fx_rates_aligned=converter.fx_aligned_,
+                    currency_map=_currency_map,
+                    base_currency=fx_currency,
+                )
 
     # 1. Prices → returns
     X = cast(pd.DataFrame, prices_to_returns(prices))
@@ -459,7 +502,19 @@ def run_full_pipeline(
         wc = _extract_weight_changes(wpo)
         # Absolute weights at rebalancing dates (for compute_net_alpha)
         result.weight_history = wpo.loc[wc.index]
-        gross = bt.returns_df
+        # Resilient returns accessor (issue #309): prefer returns_df but fall
+        # back to public members if the attribute is absent in future skfolio.
+        if hasattr(bt, "returns_df"):
+            gross = bt.returns_df
+        else:
+            logger.warning(
+                "bt.returns_df not found on %s; reconstructing from "
+                "bt.returns + bt.observations (issue #309).",
+                type(bt).__name__,
+            )
+            gross = pd.Series(
+                index=bt.observations, data=bt.returns, name="returns"
+            )
         net = compute_net_backtest_returns(gross, wc, cost_bps=cost_bps)
         result.net_returns = net
         result.net_sharpe_ratio = _compute_net_sharpe(
@@ -472,7 +527,7 @@ def run_full_pipeline(
             cost_bps,
         )
     elif bt is not None:
-        logger.debug(
+        logger.warning(
             "Net backtest skipped: %s has no weights_per_observation.",
             type(bt).__name__,
         )
@@ -566,6 +621,7 @@ def run_full_pipeline_with_selection(
     fx_config: FxConfig | None = None,
     currency_map: dict[str, str] | None = None,
     fx_rates: pd.DataFrame | None = None,
+    benchmark_currency: str | None = None,
     cost_bps: float = 10.0,
     n_jobs: int | None = None,
 ) -> PortfolioResult:
@@ -639,6 +695,10 @@ def run_full_pipeline_with_selection(
         equal-weight cross-sectional mean.  Pass a currency-
         consistent broad index (e.g. SPY daily returns) when
         ``prices`` spans multiple currency zones.
+    benchmark_currency : str | None
+        ISO currency code for the benchmark in ``y_prices``.
+        Forwarded verbatim to :func:`run_full_pipeline`; see that
+        function's documentation for full semantics (issue #308).
     n_jobs : int or None
         Number of parallel jobs.
 
@@ -845,6 +905,7 @@ def run_full_pipeline_with_selection(
         fx_config=fx_config,
         currency_map=effective_currency_map,
         fx_rates=fx_rates,
+        benchmark_currency=benchmark_currency,
         cost_bps=cost_bps,
         n_jobs=n_jobs,
     )

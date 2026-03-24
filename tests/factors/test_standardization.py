@@ -429,3 +429,114 @@ class TestStandardizeAllFactorsPerFactor:
         scores_no, _ = standardize_all_factors(factors, config=config_no_override)
         scores_plain, _ = standardize_all_factors(factors, config=config_plain)
         pd.testing.assert_frame_equal(scores_no, scores_plain)
+
+
+# ---------------------------------------------------------------------------
+# Issue #299: FACTOR_DIRECTION applied in standardize_factor()
+# ---------------------------------------------------------------------------
+
+
+class TestFactorDirectionInStandardization:
+    """Verify FACTOR_DIRECTION flips scores for lower-is-better factors.
+
+    After standardization, a low-volatility stock must have a *higher*
+    standardized score than a high-volatility stock.  The direction flip
+    is applied after winsorization and before z-scoring/rank-normal.
+    """
+
+    def test_volatility_low_vol_gets_higher_score(self) -> None:
+        """After standardization, low-vol stock has higher score than high-vol."""
+        rng = np.random.default_rng(0)
+        n = 300
+        dates = pd.bdate_range("2022-01-01", periods=n)
+        low_vol_prices = pd.DataFrame(
+            {"LOW": 100 * np.exp(rng.normal(0.0003, 0.005, n).cumsum())},
+            index=dates,
+        )
+        high_vol_prices = pd.DataFrame(
+            {"HIGH": 100 * np.exp(rng.normal(0.0003, 0.03, n).cumsum())},
+            index=dates,
+        )
+        from optimizer.factors._construction import _compute_volatility
+
+        raw = _compute_volatility(pd.concat([low_vol_prices, high_vol_prices], axis=1))
+        assert raw["HIGH"] > raw["LOW"], "test setup: HIGH should have more vol"
+
+        config = StandardizationConfig(neutralize_sector=False)
+        std_scores = standardize_factor(raw, config, factor_name="volatility")
+        assert std_scores["LOW"] > std_scores["HIGH"], (
+            f"low-vol stock should have higher score: "
+            f"LOW={std_scores['LOW']:.4f}, HIGH={std_scores['HIGH']:.4f}"
+        )
+
+    def test_beta_low_beta_gets_higher_score(self) -> None:
+        """After standardization, low-beta stock has higher score than high-beta."""
+        raw = pd.Series({"LOW_BETA": 0.3, "HIGH_BETA": 1.8})
+        config = StandardizationConfig(neutralize_sector=False)
+        std_scores = standardize_factor(raw, config, factor_name="beta")
+        assert std_scores["LOW_BETA"] > std_scores["HIGH_BETA"], (
+            f"low-beta stock should have higher score: "
+            f"LOW={std_scores['LOW_BETA']:.4f}, HIGH={std_scores['HIGH_BETA']:.4f}"
+        )
+
+    def test_asset_growth_low_growth_gets_higher_score(self) -> None:
+        """After standardization, low-growth stock has higher score than high-growth."""
+        raw = pd.Series({"CONSERVATIVE": -0.05, "AGGRESSIVE": 0.30})
+        config = StandardizationConfig(neutralize_sector=False)
+        std_scores = standardize_factor(raw, config, factor_name="asset_growth")
+        assert std_scores["CONSERVATIVE"] > std_scores["AGGRESSIVE"], (
+            f"low-growth stock should have higher score: "
+            f"CONSERVATIVE={std_scores['CONSERVATIVE']:.4f}, "
+            f"AGGRESSIVE={std_scores['AGGRESSIVE']:.4f}"
+        )
+
+    def test_unknown_factor_name_no_direction_flip(self) -> None:
+        """Unknown factor name (direction=+1) leaves ordering unchanged."""
+        raw = pd.Series({"A": 1.0, "B": 3.0})
+        config = StandardizationConfig(neutralize_sector=False)
+        std_no_name = standardize_factor(raw, config, factor_name="")
+        std_unknown = standardize_factor(raw, config, factor_name="some_new_factor")
+        assert std_no_name["B"] > std_no_name["A"]
+        assert std_unknown["B"] > std_unknown["A"]
+
+    def test_momentum_no_direction_flip(self) -> None:
+        """Momentum (not in FACTOR_DIRECTION) preserves natural ordering."""
+        raw = pd.Series({"LOW_MOM": -0.10, "HIGH_MOM": 0.25})
+        config = StandardizationConfig(neutralize_sector=False)
+        std_scores = standardize_factor(raw, config, factor_name="momentum_12_1")
+        assert std_scores["HIGH_MOM"] > std_scores["LOW_MOM"]
+
+    def test_factor_direction_constant_exported(self) -> None:
+        """FACTOR_DIRECTION is importable from optimizer.factors."""
+        from optimizer.factors import FACTOR_DIRECTION
+
+        assert "volatility" in FACTOR_DIRECTION
+        assert "beta" in FACTOR_DIRECTION
+        assert "asset_growth" in FACTOR_DIRECTION
+        assert FACTOR_DIRECTION["volatility"] == -1
+        assert FACTOR_DIRECTION["beta"] == -1
+        assert FACTOR_DIRECTION["asset_growth"] == -1
+
+    def test_direction_flip_applied_after_winsorize_before_zscore(self) -> None:
+        """Direction flip is applied after winsorization and before z-scoring."""
+        rng = np.random.default_rng(42)
+        raw = pd.Series(rng.uniform(0.05, 0.80, 20))
+        config = StandardizationConfig(
+            method=StandardizationMethod.Z_SCORE,
+            neutralize_sector=False,
+            winsorize_method=WinsorizeMethod.PERCENTILE,
+            winsorize_lower=0.01,
+            winsorize_upper=0.99,
+        )
+
+        # Manual pipeline: winsorize -> negate -> z-score
+        from optimizer.factors._standardization import (
+            winsorize_cross_section,
+            z_score_standardize,
+        )
+
+        winsorized = winsorize_cross_section(raw, 0.01, 0.99)
+        expected = z_score_standardize(winsorized * -1)
+
+        actual = standardize_factor(raw, config, factor_name="volatility")
+        pd.testing.assert_series_equal(actual, expected)

@@ -975,3 +975,141 @@ class TestNetBacktestReturns:
             cost_bps=25.0,
         )
         assert result.net_sharpe_ratio is not None
+
+
+class TestReturnsDfFallback:
+    """Regression tests for issue #309: resilient bt.returns_df accessor.
+
+    Verifies the fallback path (reconstructing gross returns from public
+    ``bt.returns`` + ``bt.observations``) and that both branches correctly
+    upgrade the silent debug log to a warning.
+    """
+
+    def _make_mock_bt(
+        self,
+        n_obs: int = 50,
+        *,
+        include_returns_df: bool,
+    ) -> object:
+        """Build a minimal backtest-like namespace.
+
+        Uses ``types.SimpleNamespace`` so ``hasattr`` checks reflect only
+        explicitly set attributes — unlike ``MagicMock`` which auto-creates.
+        """
+        import types
+
+        rng = np.random.default_rng(0)
+        obs_index = pd.date_range("2023-01-01", periods=n_obs, freq="B")
+        raw_returns = rng.normal(0.001, 0.02, n_obs)
+
+        bt = types.SimpleNamespace(
+            weights_per_observation=pd.DataFrame(
+                {"TICK_00": [0.5] * n_obs, "TICK_01": [0.5] * n_obs},
+                index=obs_index,
+            ),
+            returns=raw_returns,
+            observations=obs_index,
+            sharpe_ratio=0.75,
+        )
+        if include_returns_df:
+            bt.returns_df = pd.Series(raw_returns, index=obs_index, name="returns")
+        return bt
+
+    def test_fallback_reconstruction_when_returns_df_absent(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """Without returns_df, gross returns are reconstructed from public members."""
+        from unittest.mock import patch
+
+        mock_bt = self._make_mock_bt(include_returns_df=False)
+        assert not hasattr(mock_bt, "returns_df")
+
+        with patch(
+            "optimizer.pipeline._orchestrator.backtest",
+            return_value=mock_bt,
+        ):
+            result = run_full_pipeline(
+                prices=prices_df,
+                optimizer=EqualWeighted(),
+                cv_config=WalkForwardConfig(test_size=21, train_size=100),
+            )
+
+        assert result.net_returns is not None
+        assert isinstance(result.net_returns, pd.Series)
+        assert len(result.net_returns) == 50
+
+    def test_fallback_issues_warning(
+        self, prices_df: pd.DataFrame, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Absent returns_df must trigger a logger.warning, not silent degradation."""
+        import logging
+        from unittest.mock import patch
+
+        mock_bt = self._make_mock_bt(include_returns_df=False)
+
+        with caplog.at_level(
+            logging.WARNING, logger="optimizer.pipeline._orchestrator"
+        ), patch(
+            "optimizer.pipeline._orchestrator.backtest",
+            return_value=mock_bt,
+        ):
+            run_full_pipeline(
+                prices=prices_df,
+                optimizer=EqualWeighted(),
+                cv_config=WalkForwardConfig(test_size=21, train_size=100),
+            )
+
+        assert any(
+            "returns_df" in rec.message and rec.levelno == logging.WARNING
+            for rec in caplog.records
+        )
+
+    def test_returns_df_preferred_when_present(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """When bt has returns_df, it is used directly without fallback."""
+        from unittest.mock import patch
+
+        mock_bt = self._make_mock_bt(include_returns_df=True)
+        assert hasattr(mock_bt, "returns_df")
+
+        with patch(
+            "optimizer.pipeline._orchestrator.backtest",
+            return_value=mock_bt,
+        ):
+            result = run_full_pipeline(
+                prices=prices_df,
+                optimizer=EqualWeighted(),
+                cv_config=WalkForwardConfig(test_size=21, train_size=100),
+            )
+
+        assert result.net_returns is not None
+        assert isinstance(result.net_returns, pd.Series)
+
+    def test_elif_branch_emits_warning_not_debug(
+        self, prices_df: pd.DataFrame, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """bt without weights_per_observation emits WARNING (issue #309, fix 2)."""
+        import logging
+        import types
+        from unittest.mock import patch
+
+        # A bt without weights_per_observation triggers the elif branch
+        mock_bt = types.SimpleNamespace(sharpe_ratio=0.5)
+
+        with caplog.at_level(
+            logging.WARNING, logger="optimizer.pipeline._orchestrator"
+        ), patch(
+            "optimizer.pipeline._orchestrator.backtest",
+            return_value=mock_bt,
+        ):
+            run_full_pipeline(
+                prices=prices_df,
+                optimizer=EqualWeighted(),
+                cv_config=WalkForwardConfig(test_size=21, train_size=100),
+            )
+
+        assert any(
+            "weights_per_observation" in rec.message and rec.levelno == logging.WARNING
+            for rec in caplog.records
+        )

@@ -586,7 +586,6 @@ class MacroRegimeRepository(RepositoryBase):
             "id": uuid.uuid4(),
             "country": country,
             "summary_date": summary_date,
-            "updated_at": datetime.datetime.now(datetime.timezone.utc),
             **data,
         }
         return self._upsert(

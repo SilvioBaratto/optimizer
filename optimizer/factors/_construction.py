@@ -187,15 +187,16 @@ def _compute_profit_margin(fundamentals: pd.DataFrame) -> pd.Series:
 
 
 def _compute_asset_growth(fundamentals: pd.DataFrame) -> pd.Series:
-    """Year-over-year total asset growth.
+    """Year-over-year total asset growth (natural units).
 
     Negative asset growth is favorable (conservative investment).
-    The sign is flipped so higher values = more conservative.
+    The sign is NOT flipped here; direction is handled in standardization
+    via FACTOR_DIRECTION.
     """
     growth = fundamentals.get("asset_growth")
     if growth is None:
         return pd.Series(dtype=float)
-    return pd.Series(-cast(pd.Series, growth), dtype=float)
+    return pd.Series(cast(pd.Series, growth), dtype=float)
 
 
 def _compute_momentum(
@@ -216,14 +217,16 @@ def _compute_volatility(
     price_history: pd.DataFrame,
     lookback: int = 252,
 ) -> pd.Series:
-    """Annualized return volatility.
+    """Annualized return volatility (natural units, always non-negative).
 
-    Lower volatility is favorable, so sign is flipped.
+    Lower volatility is favorable for LOW_RISK factor scoring.
+    The sign is NOT flipped here; direction is handled in standardization
+    via FACTOR_DIRECTION.
     """
     returns = price_history.pct_change().dropna()
     tail = returns.iloc[-lookback:] if len(returns) >= lookback else returns
     vol: pd.Series = tail.std()
-    return pd.Series(-(vol * np.sqrt(252)), dtype=float)
+    return pd.Series(vol * np.sqrt(252), dtype=float)
 
 
 def _compute_beta(
@@ -231,9 +234,11 @@ def _compute_beta(
     market_returns: pd.Series | None = None,
     lookback: int = 252,
 ) -> pd.Series:
-    """Market beta.
+    """Market beta (natural units).
 
-    Lower beta is favorable, so sign is flipped.
+    Lower beta is favorable for LOW_RISK factor scoring.
+    The sign is NOT flipped here; direction is handled in standardization
+    via FACTOR_DIRECTION.
     """
     returns = price_history.pct_change().dropna()
     tail = returns.iloc[-lookback:] if len(returns) >= lookback else returns
@@ -251,10 +256,7 @@ def _compute_beta(
     beta_values = {
         str(col): float(tail[col].cov(mkt) / market_var) for col in tail.columns
     }
-    return pd.Series(
-        {k: -v for k, v in beta_values.items()},
-        dtype=float,
-    )
+    return pd.Series(beta_values, dtype=float)
 
 
 def _compute_amihud_illiquidity(

@@ -219,12 +219,15 @@ def compute_ic_weighted_composite(
 
     # Apply core/supplementary tiering as a multiplier
     weights: dict[str, float] = {}
+    n_negative = 0
     for group in FactorGroupType:
         if group.value not in group_scores.columns:
             continue
         ic_val = recent_ic.get(group.value, 0.0)
         if np.isnan(ic_val):
             ic_val = 0.0
+        if ic_val < 0.0:
+            n_negative += 1
         if group_weights is not None:
             tier_mult = group_weights.get(group.value, 0.0)
         else:
@@ -240,7 +243,6 @@ def compute_ic_weighted_composite(
 
     total_weight = sum(weights.values())
     if total_weight == 0.0:
-        n_negative = sum(1 for v in weights.values() if v == 0.0)
         return _handle_zero_weight_fallback(
             group_scores, config, group_weights, "IC", n_negative
         )
@@ -282,11 +284,14 @@ def compute_icir_weighted_composite(
         config = CompositeScoringConfig()
 
     weights: dict[str, float] = {}
+    n_negative = 0
     for group in FactorGroupType:
         if group.value not in group_scores.columns:
             continue
         ic_s = ic_series_per_group.get(group.value, pd.Series(dtype=float))
         icir = compute_icir(ic_s)
+        if icir < 0.0:
+            n_negative += 1
         if group_weights is not None:
             tier_mult = group_weights.get(group.value, 0.0)
         else:
@@ -300,7 +305,6 @@ def compute_icir_weighted_composite(
 
     total_weight = sum(weights.values())
     if total_weight == 0.0:
-        n_negative = sum(1 for v in weights.values() if v == 0.0)
         return _handle_zero_weight_fallback(
             group_scores, config, group_weights, "ICIR", n_negative
         )

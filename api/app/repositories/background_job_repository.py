@@ -1,11 +1,10 @@
 """Repository for persistent background job operations."""
 
-import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, exists, func, insert, literal, select
 from sqlalchemy.orm import Session
 
 from app.models.background_job import BackgroundJob, BackgroundJobError
@@ -105,39 +104,46 @@ class BackgroundJobRepository(RepositoryBase):
     ) -> uuid.UUID | None:
         """Atomically create a job only if none is already active.
 
-        Uses a single INSERT ... WHERE NOT EXISTS to close the TOCTOU
-        window.  Returns the new job's UUID on success, or ``None`` if
-        a pending/running job already exists for *job_type*.
+        Uses a single INSERT ... SELECT WHERE NOT EXISTS (SQLAlchemy Core)
+        to close the TOCTOU window.  Dialect-agnostic: works on both
+        PostgreSQL (production) and SQLite (tests).
+
+        Returns the new job's UUID on success, or ``None`` if a
+        pending/running job already exists for *job_type*.
         """
         new_id = uuid.uuid4()
-        extra_str = json.dumps(initial_extra) if initial_extra else None
+        now = datetime.now(timezone.utc)
+        extra_value = initial_extra if initial_extra else None
 
-        result = self.session.execute(
-            text("""
-                INSERT INTO background_jobs
-                    (id, job_type, status, current, total, extra, started_at,
-                     created_at, updated_at)
-                SELECT
-                    :new_id, :job_type, 'pending', 0, 0,
-                    CAST(:extra AS jsonb), NOW(),
-                    NOW(), NOW()
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM background_jobs
-                    WHERE job_type = :job_type
-                      AND status IN ('pending', 'running')
-                )
-                RETURNING id
-            """),
-            {
-                "new_id": new_id,
-                "job_type": job_type,
-                "extra": extra_str,
-            },
+        tbl = BackgroundJob.__table__
+
+        conflict_exists = exists().where(
+            BackgroundJob.job_type == job_type,
+            BackgroundJob.status.in_(("pending", "running")),
         )
-        row = result.fetchone()
+
+        source = select(
+            literal(new_id, type_=tbl.c.id.type).label("id"),
+            literal(job_type, type_=tbl.c.job_type.type).label("job_type"),
+            literal("pending", type_=tbl.c.status.type).label("status"),
+            literal(0, type_=tbl.c.current.type).label("current"),
+            literal(0, type_=tbl.c.total.type).label("total"),
+            literal(extra_value, type_=tbl.c.extra.type).label("extra"),
+            literal(now, type_=tbl.c.started_at.type).label("started_at"),
+            literal(now, type_=tbl.c.created_at.type).label("created_at"),
+            literal(now, type_=tbl.c.updated_at.type).label("updated_at"),
+        ).where(~conflict_exists)
+
+        stmt = insert(tbl).from_select(
+            ["id", "job_type", "status", "current", "total", "extra",
+             "started_at", "created_at", "updated_at"],
+            source,
+        )
+
+        result = self.session.execute(stmt)
         self.session.flush()
-        if row is not None:
-            return row[0]
+        if result.rowcount == 1:
+            return new_id
         return None
 
     @staticmethod
@@ -175,14 +181,15 @@ class BackgroundJobRepository(RepositoryBase):
 
         Returns the number of rows deleted.
         """
-        result = self.session.execute(
-            text("""
-                DELETE FROM background_jobs
-                WHERE status IN ('completed', 'failed')
-                  AND finished_at IS NOT NULL
-                  AND finished_at < NOW() - INTERVAL '1 second' * :ttl
-            """),
-            {"ttl": ttl_seconds},
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)
+        stmt = (
+            delete(BackgroundJob)
+            .where(
+                BackgroundJob.status.in_(("completed", "failed")),
+                BackgroundJob.finished_at.is_not(None),
+                BackgroundJob.finished_at < cutoff,
+            )
         )
+        result = self.session.execute(stmt)
         self.session.flush()
         return result.rowcount  # type: ignore[return-value]

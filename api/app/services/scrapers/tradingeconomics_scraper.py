@@ -12,6 +12,7 @@ from app.services.infrastructure import (
     retry_with_backoff,
 )
 from app.services.infrastructure.retry import is_transient_network_error
+from app.services.scrapers.exceptions import ParseStructureError
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,14 @@ _te_circuit_breaker = CircuitBreaker(
     service_name="Trading Economics", max_attempts=5
 )
 _te_rate_limiter = RateLimiter(delay=1.5)
+
+# Minimum row thresholds — below these counts after a successful HTTP fetch,
+# the result is treated as a structural HTML change rather than legitimately
+# empty data.
+_MIN_INDICATORS = 3
+_MIN_BOND_YIELDS = 1
+_MIN_INDUSTRIAL_PRODUCTION_ROWS = 3
+_MIN_CAPACITY_UTILIZATION_ROWS = 3
 
 # Country code mapping to Trading Economics URL slugs
 COUNTRY_MAPPING = {
@@ -299,6 +308,21 @@ class TradingEconomicsIndicatorsScraper:
 
             return result
 
+        except ParseStructureError as e:
+            _te_circuit_breaker.trigger()
+            logger.warning(
+                "Trading Economics HTML structure change detected for %s (url=%s): %s",
+                country,
+                url,
+                e,
+            )
+            return {
+                "country": country,
+                "status": "error",
+                "timestamp": datetime.now().isoformat(),
+                "error": f"Parse structure failure: {e!s}",
+                "parse_failure": True,
+            }
         except Exception as e:
             return {
                 "country": country,
@@ -364,6 +388,15 @@ class TradingEconomicsIndicatorsScraper:
                     except (ValueError, IndexError, AttributeError):
                         # Skip rows that don't match expected format
                         continue
+
+        if len(indicators) < _MIN_INDICATORS:
+            raise ParseStructureError(
+                f"Expected at least {_MIN_INDICATORS} matched indicators, got "
+                f"{len(indicators)}. The Trading Economics indicators table "
+                "structure may have changed.",
+                url="(indicators page)",
+                rows_found=len(indicators),
+            )
 
         return indicators
 
@@ -440,6 +473,21 @@ class TradingEconomicsIndicatorsScraper:
                 "timestamp": datetime.now().isoformat(),
             }
 
+        except ParseStructureError as e:
+            _te_circuit_breaker.trigger()
+            logger.warning(
+                "Trading Economics bond yield structure change detected for %s "
+                "(url=%s): %s",
+                country,
+                url,
+                e,
+            )
+            return {
+                "status": "error",
+                "country": country,
+                "error": f"Parse structure failure: {e!s}",
+                "parse_failure": True,
+            }
         except Exception as e:
             return {
                 "status": "error",
@@ -537,6 +585,15 @@ class TradingEconomicsIndicatorsScraper:
                     except (ValueError, IndexError, AttributeError):
                         continue
 
+        if len(yields) < _MIN_BOND_YIELDS:
+            raise ParseStructureError(
+                f"Expected at least {_MIN_BOND_YIELDS} bond yield(s), got "
+                f"{len(yields)}. The Trading Economics bond yields table "
+                "structure may have changed.",
+                url="(bond yields page)",
+                rows_found=len(yields),
+            )
+
         return yields
 
     def get_industrial_production_all(self) -> dict:
@@ -570,6 +627,18 @@ class TradingEconomicsIndicatorsScraper:
                 "timestamp": datetime.now().isoformat(),
             }
 
+        except ParseStructureError as e:
+            _te_circuit_breaker.trigger()
+            logger.warning(
+                "Trading Economics industrial production structure change (url=%s): %s",
+                url,
+                e,
+            )
+            return {
+                "status": "error",
+                "error": f"Parse structure failure: {e!s}",
+                "parse_failure": True,
+            }
         except Exception as e:
             return {"status": "error", "error": f"Parsing failed: {e!s}"}
 
@@ -604,6 +673,18 @@ class TradingEconomicsIndicatorsScraper:
                 "timestamp": datetime.now().isoformat(),
             }
 
+        except ParseStructureError as e:
+            _te_circuit_breaker.trigger()
+            logger.warning(
+                "Trading Economics capacity utilization structure change (url=%s): %s",
+                url,
+                e,
+            )
+            return {
+                "status": "error",
+                "error": f"Parse structure failure: {e!s}",
+                "parse_failure": True,
+            }
         except Exception as e:
             return {"status": "error", "error": f"Parsing failed: {e!s}"}
 
@@ -659,6 +740,15 @@ class TradingEconomicsIndicatorsScraper:
                     except (ValueError, IndexError, AttributeError):
                         continue
 
+        if len(production) < _MIN_INDUSTRIAL_PRODUCTION_ROWS:
+            raise ParseStructureError(
+                f"Expected at least {_MIN_INDUSTRIAL_PRODUCTION_ROWS} industrial "
+                f"production rows, got {len(production)}. The Trading Economics "
+                "country-list table structure may have changed.",
+                url="(industrial production page)",
+                rows_found=len(production),
+            )
+
         return production
 
     def _parse_capacity_utilization_table(self, soup: BeautifulSoup) -> dict:
@@ -713,6 +803,15 @@ class TradingEconomicsIndicatorsScraper:
                     except (ValueError, IndexError, AttributeError):
                         continue
 
+        if len(capacity) < _MIN_CAPACITY_UTILIZATION_ROWS:
+            raise ParseStructureError(
+                f"Expected at least {_MIN_CAPACITY_UTILIZATION_ROWS} capacity "
+                f"utilization rows, got {len(capacity)}. The Trading Economics "
+                "country-list table structure may have changed.",
+                url="(capacity utilization page)",
+                rows_found=len(capacity),
+            )
+
         return capacity
 
     def get_multiple_countries(
@@ -730,6 +829,11 @@ class TradingEconomicsIndicatorsScraper:
             prod_result = self.get_industrial_production_all()
             if prod_result.get("status") == "success":
                 industrial_production_data = prod_result.get("data", {})
+            else:
+                logger.warning(
+                    "Industrial production fetch failed for all countries: %s",
+                    prod_result.get("error"),
+                )
 
         # Fetch capacity utilization data once for all countries (more efficient)
         capacity_utilization_data = {}
@@ -737,6 +841,11 @@ class TradingEconomicsIndicatorsScraper:
             capacity_result = self.get_capacity_utilization_all()
             if capacity_result.get("status") == "success":
                 capacity_utilization_data = capacity_result.get("data", {})
+            else:
+                logger.warning(
+                    "Capacity utilization fetch failed for all countries: %s",
+                    capacity_result.get("error"),
+                )
 
         for i, country in enumerate(countries):
             results[country] = self.get_country_indicators(

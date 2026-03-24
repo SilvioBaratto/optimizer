@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.portfolio import (
@@ -203,19 +204,44 @@ class PortfolioRepository(RepositoryBase):
         cash_data: dict[str, Any],
         synced_at: datetime,
     ) -> BrokerAccountSnapshot:
-        snap = BrokerAccountSnapshot(
-            portfolio_id=portfolio_id,
-            total=cash_data["total"],
-            free=cash_data["free"],
-            invested=cash_data["invested"],
-            blocked=cash_data.get("blocked"),
-            result=cash_data.get("result"),
-            currency=cash_data.get("currency", "EUR"),
-            synced_at=synced_at,
+        """Insert or update a daily account snapshot for the given portfolio.
+
+        Deduplicates on (portfolio_id, snapshot_date): a second call on the
+        same calendar day updates the existing row's value columns and
+        synced_at rather than appending a new row.
+        """
+        snapshot_date = synced_at.date()
+
+        stmt = select(BrokerAccountSnapshot).where(
+            BrokerAccountSnapshot.portfolio_id == portfolio_id,
+            BrokerAccountSnapshot.snapshot_date == snapshot_date,
         )
-        self.session.add(snap)
+        existing = self.session.execute(stmt).scalar_one_or_none()
+
+        if existing is None:
+            existing = BrokerAccountSnapshot(
+                portfolio_id=portfolio_id,
+                snapshot_date=snapshot_date,
+                total=cash_data["total"],
+                free=cash_data["free"],
+                invested=cash_data["invested"],
+                blocked=cash_data.get("blocked"),
+                result=cash_data.get("result"),
+                currency=cash_data.get("currency", "EUR"),
+                synced_at=synced_at,
+            )
+            self.session.add(existing)
+        else:
+            existing.total = cash_data["total"]
+            existing.free = cash_data["free"]
+            existing.invested = cash_data["invested"]
+            existing.blocked = cash_data.get("blocked")
+            existing.result = cash_data.get("result")
+            existing.currency = cash_data.get("currency", "EUR")
+            existing.synced_at = synced_at
+
         self.session.flush()
-        return snap
+        return existing
 
     def get_latest_account_snapshot(
         self, portfolio_id: uuid.UUID,
@@ -223,7 +249,7 @@ class PortfolioRepository(RepositoryBase):
         stmt = (
             select(BrokerAccountSnapshot)
             .where(BrokerAccountSnapshot.portfolio_id == portfolio_id)
-            .order_by(BrokerAccountSnapshot.synced_at.desc())
+            .order_by(BrokerAccountSnapshot.snapshot_date.desc())
             .limit(1)
         )
         return self.session.execute(stmt).scalar_one_or_none()
@@ -257,6 +283,61 @@ class PortfolioRepository(RepositoryBase):
                 ))
             self.session.flush()
         return event
+
+    def add_event_idempotent(
+        self,
+        event_type: str,
+        title: str,
+        *,
+        external_id: str | None = None,
+        portfolio_id: uuid.UUID | None = None,
+        description: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> ActivityEvent | None:
+        """Insert an activity event only if external_id is not already present.
+
+        When external_id is None, delegates to add_event() (no deduplication).
+        When external_id is provided, uses INSERT ... ON CONFLICT DO NOTHING.
+        Returns the ActivityEvent if inserted, or None if skipped as a duplicate.
+        """
+        if external_id is None:
+            return self.add_event(
+                event_type=event_type,
+                title=title,
+                portfolio_id=portfolio_id,
+                description=description,
+                metadata=metadata,
+            )
+
+        row_id = uuid.uuid4()
+        stmt = (
+            pg_insert(ActivityEvent.__table__)
+            .values(
+                id=row_id,
+                portfolio_id=portfolio_id,
+                event_type=event_type,
+                title=title,
+                description=description,
+                external_id=external_id,
+            )
+            .on_conflict_do_nothing(constraint="uq_activity_event_external_id")
+        )
+        self.session.execute(stmt)
+        self.session.flush()
+
+        # Detect whether the row was actually inserted (vs. silently skipped)
+        inserted = self.session.get(ActivityEvent, row_id)
+        if inserted is None:
+            return None
+
+        if metadata:
+            for key, val in metadata.items():
+                self.session.add(ActivityEventDetail(
+                    event_id=inserted.id, key=key, value_text=json.dumps(val),
+                ))
+            self.session.flush()
+
+        return inserted
 
     def get_events(
         self,

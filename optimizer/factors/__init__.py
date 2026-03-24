@@ -5,6 +5,7 @@ from optimizer.factors._alpha import (
     factor_scores_to_expected_returns,
 )
 from optimizer.factors._config import (
+    FACTOR_DIRECTION,
     FACTOR_GROUP_MAPPING,
     GROUP_WEIGHT_TIER,
     HEAVY_TAILED_FACTORS,
@@ -124,6 +125,7 @@ from optimizer.factors._validation import (
 )
 
 __all__ = [
+    "FACTOR_DIRECTION",
     "FACTOR_GROUP_MAPPING",
     "FACTOR_SPREAD_BENCHMARKS",
     "GROUP_WEIGHT_TIER",

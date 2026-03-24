@@ -49,6 +49,13 @@ class RepositoryBase:
                 if col.name not in exclude
             }
 
+        # Always stamp updated_at with the server's current time on conflict.
+        # excluded.updated_at is unreliable: server_default columns are omitted
+        # from the proposed-INSERT VALUES list, so excluded reflects the original
+        # insert timestamp or NULL — never the conflict timestamp.
+        if "updated_at" in update_dict:
+            update_dict["updated_at"] = func.now()
+
         stmt = stmt.on_conflict_do_update(
             constraint=constraint_name,
             set_=update_dict,

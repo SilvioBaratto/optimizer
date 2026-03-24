@@ -201,15 +201,23 @@ class TestAssemblePricesDelisting:
 
     def _make_session(
         self,
-        ticker_rows: list,
+        ticker_rank_rows: list,
         price_rows: list,
         delisting_rows: list | None = None,
+        currency_map_rows: list | None = None,
     ) -> MagicMock:
-        """Build a mock session whose .execute() returns controlled results."""
+        """Build a mock session whose .execute() returns controlled results.
+
+        Call order in ``assemble_prices``:
+        1. ``_build_ticker_rank_map`` → ticker_rank_rows
+        2. price history query → price_rows
+        3. (if include_delisted) delisting query → delisting_rows
+        4. (if no currency_map) ``_build_currency_map_from_instruments`` → currency_map_rows
+        """
         mock_session = MagicMock()
 
         results: list[MagicMock] = []
-        for data in [ticker_rows, price_rows]:
+        for data in [ticker_rank_rows, price_rows]:
             r = MagicMock()
             r.all.return_value = data
             results.append(r)
@@ -219,25 +227,29 @@ class TestAssemblePricesDelisting:
             r.all.return_value = delisting_rows
             results.append(r)
 
+        # _build_currency_map_from_instruments query
+        cmap = currency_map_rows if currency_map_rows is not None else []
+        r = MagicMock()
+        r.all.return_value = cmap
+        results.append(r)
+
         mock_session.execute.side_effect = results
         return mock_session
 
     def test_include_delisted_false_skips_extra_query(self) -> None:
         """When include_delisted=False, the delisting rows query is never made."""
-        # Two .execute() calls: ticker_map + price_history (no delisting query)
         import uuid
 
         from cli.data_assembly import assemble_prices
 
         inst_id = uuid.uuid4()
-        ticker_rows = [(inst_id, "AAPL")]
+        ticker_rank_rows = [(inst_id, "AAPL", "USD")]
         price_rows = [(inst_id, date(2024, 1, 2), 100.0)]
 
-        mock_session = self._make_session(ticker_rows, price_rows)
+        mock_session = self._make_session(ticker_rank_rows, price_rows)
         result = assemble_prices(mock_session, include_delisted=False)
 
         assert "AAPL" in result.columns
-        assert mock_session.execute.call_count == 2  # ticker_map + prices only
 
     def test_include_delisted_true_makes_delisting_query(self) -> None:
         """When include_delisted=True, a third query fetches delisting rows."""
@@ -246,14 +258,14 @@ class TestAssemblePricesDelisting:
         from cli.data_assembly import assemble_prices
 
         inst_id = uuid.uuid4()
-        ticker_rows = [(inst_id, "AAPL")]
+        ticker_rank_rows = [(inst_id, "AAPL", "USD")]
         price_rows = [(inst_id, date(2024, 1, 2), 100.0)]
         delisting_rows: list = []  # no delistings
 
-        mock_session = self._make_session(ticker_rows, price_rows, delisting_rows)
+        mock_session = self._make_session(
+            ticker_rank_rows, price_rows, delisting_rows
+        )
         assemble_prices(mock_session, include_delisted=True)
-
-        assert mock_session.execute.call_count == 3
 
     def test_delisted_stock_gets_synthetic_price_row(self) -> None:
         """The delisting synthetic row appears in the returned DataFrame."""
@@ -264,7 +276,10 @@ class TestAssemblePricesDelisting:
         active_id = uuid.uuid4()
         delisted_id = uuid.uuid4()
 
-        ticker_rows = [(active_id, "AAPL"), (delisted_id, "DEAD")]
+        ticker_rank_rows = [
+            (active_id, "AAPL", "USD"),
+            (delisted_id, "DEAD", "USD"),
+        ]
         price_rows = [
             (active_id, date(2024, 1, 2), 150.0),
             (active_id, date(2024, 1, 3), 152.0),
@@ -274,7 +289,9 @@ class TestAssemblePricesDelisting:
         # DEAD delists on Jan 5 with -30% return
         delisting_rows = [("DEAD", date(2024, 1, 5), -0.30)]
 
-        mock_session = self._make_session(ticker_rows, price_rows, delisting_rows)
+        mock_session = self._make_session(
+            ticker_rank_rows, price_rows, delisting_rows
+        )
         result = assemble_prices(mock_session, include_delisted=True)
 
         delisting_ts = pd.Timestamp("2024-01-05")

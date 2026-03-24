@@ -58,6 +58,36 @@ class TestSelectFixedCount:
             modified_scores, target_count=10, buffer_fraction=0.2, current_members=first
         )
         assert sorted_idx[9] in result
+        # Count must never exceed target_count
+        assert len(result) == 10
+
+    def test_buffer_never_exceeds_target_count(self, scores: pd.Series) -> None:
+        """Buffer zone must not inflate the returned set beyond target_count."""
+        first = select_fixed_count(scores, target_count=30)
+        # Demote several top-30 members into the buffer zone
+        modified = scores.copy()
+        sorted_idx = scores.sort_values(ascending=False).index
+        for i in [27, 28, 29]:
+            modified[sorted_idx[i]] = scores[sorted_idx[31]]
+
+        result = select_fixed_count(
+            modified, target_count=30, buffer_fraction=0.1, current_members=first
+        )
+        assert len(result) == 30
+
+    def test_buffer_evicts_lowest_ranked_direct(self, scores: pd.Series) -> None:
+        """Retained buffer member displaces the lowest-ranked direct entrant."""
+        sorted_idx = scores.sort_values(ascending=False).index
+        current = pd.Index(list(sorted_idx[:10]))
+        # Demote rank-9 ticker to just below the buffer cutoff position
+        modified = scores.copy()
+        delta = abs(scores[sorted_idx[10]]) * 0.01
+        modified[sorted_idx[9]] = scores[sorted_idx[10]] - delta
+        result = select_fixed_count(
+            modified, target_count=10, buffer_fraction=0.2, current_members=current
+        )
+        assert len(result) == 10
+        assert sorted_idx[9] in result
 
     def test_fewer_than_target(self) -> None:
         scores = pd.Series([1.0, 2.0, 3.0], index=["A", "B", "C"])
@@ -161,6 +191,61 @@ class TestApplySectorBalance:
                 f"expected [{min_n}, {max_n}] at n={n}"
             )
 
+    def test_no_shrinkage_when_overweight_sector_trimmed(self) -> None:
+        """Trimming overweight sector must not shrink below target_count.
+
+        Regression test for #300.
+
+        Universe: Tech=50%, Finance=30%, Energy=20% (20 stocks).
+        Initial: Tech=14, Finance=5, Energy=3 → 22 selected.
+        With tolerance=0.1, Tech max_n = round((0.5+0.1)*22)=13 → 1 removed.
+        Bug: n_selected then becomes 21, Finance min_n drops from 5→4, so
+        Finance is not topped up, leaving 21 stocks instead of 22.
+        Fix: n_target is snapshotted at 22 for the whole inner loop; Finance
+        min_n stays at 5 and the loop converges with the correct count.
+        """
+        tech = [f"TECH{i}" for i in range(10)]
+        finance = [f"FIN{i}" for i in range(6)]
+        energy = [f"ENE{i}" for i in range(4)]
+        all_tickers = tech + finance + energy
+
+        sector_labels = pd.Series(
+            ["Tech"] * 10 + ["Finance"] * 6 + ["Energy"] * 4,
+            index=all_tickers,
+        )
+        parent_universe = pd.Index(all_tickers)
+        scores = pd.Series(
+            [float(100 - i) for i in range(20)],
+            index=all_tickers,
+        )
+
+        # Initial: 7 Tech, 3 Finance, 2 Energy = 12 selected; Tech is overweight
+        initial_selected = pd.Index(tech[:7] + finance[:3] + energy[:2])
+
+        result = apply_sector_balance(
+            initial_selected,
+            scores,
+            sector_labels,
+            parent_universe=parent_universe,
+            tolerance=0.1,
+        )
+
+        # Verify that every sector count is within tolerance of n_target
+        n = len(result)
+        result_sectors = sector_labels.reindex(result).dropna()
+        target_weights = (
+            sector_labels.reindex(parent_universe)
+            .dropna()
+            .value_counts(normalize=True)
+        )
+        for sector, tw in target_weights.items():
+            count = int((result_sectors == sector).sum())
+            min_n = max(0, round((tw - 0.1) * n))
+            max_n = round((tw + 0.1) * n)
+            assert min_n <= count <= max_n, (
+                f"Sector {sector}: count={count} not in [{min_n}, {max_n}] at n={n}"
+            )
+
     def test_already_balanced_single_iteration(self) -> None:
         """A perfectly balanced selection converges with zero changes."""
         tickers = [f"S{i}" for i in range(9)]
@@ -220,6 +305,23 @@ class TestSelectStocks:
         # Default selects top 100 but we only have 50
         result = select_stocks(scores)
         assert len(result) == 50
+
+    def test_fixed_count_with_buffer_respects_target(self, scores: pd.Series) -> None:
+        """select_stocks returns exactly target_count when buffer retains extras."""
+        config = SelectionConfig(
+            method=SelectionMethod.FIXED_COUNT,
+            target_count=10,
+            buffer_fraction=0.2,
+            sector_balance=False,
+        )
+        first = select_stocks(scores, config=config)
+        # Demote the last two direct members into the buffer zone
+        modified = scores.copy()
+        sorted_idx = scores.sort_values(ascending=False).index
+        for i in [8, 9]:
+            modified[sorted_idx[i]] = scores[sorted_idx[11]]
+        result = select_stocks(modified, config=config, current_members=first)
+        assert len(result) == 10
 
 
 class TestComputeSelectionTurnover:

@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from optimizer.fx._rates import (
+from optimizer.fx import (
     align_fx_rates,
     build_fx_pair_ticker,
     compute_cross_rate,

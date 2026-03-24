@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 _PORTFOLIO_REPO = "app.api.v1.dashboard.PortfolioRepository"
 _DASHBOARD_REPO = "app.api.v1.dashboard.DashboardRepository"
 
-BASE_URL = "/api/v1/portfolio"
+BASE_URL = "/api/v1/portfolio-analytics"
 
 
 # ---------------------------------------------------------------------------

@@ -194,6 +194,18 @@ HEAVY_TAILED_FACTORS: frozenset[str] = frozenset(
     }
 )
 
+# Factors where the raw value has an inverted desirability direction:
+# lower raw value = more desirable (better score).
+# The direction multiplier (-1) is applied during standardization, after
+# winsorization and before z-scoring/rank-normal, so raw factor values from
+# construction are always in natural units (positive volatility, positive
+# beta, positive asset growth rate).
+FACTOR_DIRECTION: dict[str, int] = {
+    FactorType.VOLATILITY.value: -1,
+    FactorType.BETA.value: -1,
+    FactorType.ASSET_GROWTH.value: -1,
+}
+
 
 # ---------------------------------------------------------------------------
 # Frozen dataclass configs
@@ -802,7 +814,14 @@ class FactorValidationConfig:
         Bottom percentile for factor-mimicking portfolios.
     composite_min_observations : int
         Minimum non-NaN observations per cross-section for composite IC.
-        Default: 3.
+        Default: 24. Newey-West with 6 lags requires at least 13 observations
+        (2*lags+1); 24 provides two years of monthly IC for reliable
+        Spearman rank correlations.
+    min_ic_observations : int
+        Minimum non-NaN observations per cross-section date for per-factor
+        IC computation in ``run_factor_validation``. Default: 24, matching
+        ``composite_min_observations`` so both paths apply consistent
+        minimum-data guards.
     """
 
     newey_west_lags: int = 6
@@ -811,7 +830,8 @@ class FactorValidationConfig:
     n_quantiles: int = 5
     fmp_top_pct: float = 0.2
     fmp_bottom_pct: float = 0.2
-    composite_min_observations: int = 3
+    composite_min_observations: int = 24
+    min_ic_observations: int = 24
 
     @classmethod
     def for_strict(cls) -> FactorValidationConfig:
@@ -886,7 +906,7 @@ class GroupICAggregationConfig:
     min_observations_tstat : int
         Minimum IC observations to compute a valid t-stat.
         Factors below this threshold fall back to equal weight
-        when ``weighting=TSTAT_WEIGHTED``.
+        when ``weighting=TSTAT_WEIGHTED``. Default: 24.
     newey_west_lags : int
         Number of lags for Newey-West HAC standard errors when
         computing t-stat weights.
@@ -894,7 +914,7 @@ class GroupICAggregationConfig:
 
     weighting: ICWeightingMethod = ICWeightingMethod.SIMPLE_MEAN
     negative_filter: ICNegativeFilterPolicy = ICNegativeFilterPolicy.INCLUDE
-    min_observations_tstat: int = 6
+    min_observations_tstat: int = 24
     newey_west_lags: int = 6
 
     @classmethod

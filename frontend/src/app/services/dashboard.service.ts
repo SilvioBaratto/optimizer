@@ -40,7 +40,7 @@ export class DashboardService {
     }
     return this.http
       .get<ApiPerformanceMetricsResponse>(
-        `${this.base}portfolio/${encodeURIComponent(name)}/performance-metrics`,
+        `${this.base}portfolio-analytics/${encodeURIComponent(name)}/performance-metrics`,
       )
       .pipe(catchError(err => throwError(() => new Error(
         err.error?.detail ?? 'Failed to load performance metrics',
@@ -64,7 +64,7 @@ export class DashboardService {
       .set('period', period);
     return this.http
       .get<ApiEquityCurveResponse>(
-        `${this.base}portfolio/${encodeURIComponent(name)}/equity-curve`,
+        `${this.base}portfolio-analytics/${encodeURIComponent(name)}/equity-curve`,
         { params },
       )
       .pipe(catchError(err => throwError(() => new Error(
@@ -82,7 +82,7 @@ export class DashboardService {
     }
     return this.http
       .get<ApiAllocationResponse>(
-        `${this.base}portfolio/${encodeURIComponent(name)}/allocation`,
+        `${this.base}portfolio-analytics/${encodeURIComponent(name)}/allocation`,
       )
       .pipe(catchError(err => throwError(() => new Error(
         err.error?.detail ?? 'Failed to load allocation',
@@ -101,7 +101,7 @@ export class DashboardService {
     const params = new HttpParams().set('threshold', threshold.toString());
     return this.http
       .get<ApiDriftResponse>(
-        `${this.base}portfolio/${encodeURIComponent(name)}/drift`,
+        `${this.base}portfolio-analytics/${encodeURIComponent(name)}/drift`,
         { params },
       )
       .pipe(catchError(err => throwError(() => new Error(
@@ -127,7 +127,7 @@ export class DashboardService {
     if (type) params = params.set('type', type);
     return this.http
       .get<ApiActivityFeedResponse>(
-        `${this.base}portfolio/${encodeURIComponent(name)}/activity`,
+        `${this.base}portfolio-analytics/${encodeURIComponent(name)}/activity`,
         { params },
       )
       .pipe(catchError(err => throwError(() => new Error(
@@ -175,7 +175,7 @@ export class DashboardService {
     }
     return this.http
       .get<ApiAssetClassReturnsResponse>(
-        `${this.base}portfolio/${encodeURIComponent(name)}/asset-class-returns`,
+        `${this.base}portfolio-analytics/${encodeURIComponent(name)}/asset-class-returns`,
       )
       .pipe(catchError(err => throwError(() => new Error(
         err.error?.detail ?? 'Failed to load asset class returns',

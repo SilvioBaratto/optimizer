@@ -1,4 +1,3 @@
-import base64
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -11,7 +10,6 @@ from app.config import settings
 @dataclass
 class Trading212Client:
     api_key: str
-    api_secret: str = ""
     mode: str = "live"
     max_retries: int = 5
     base_url: str = field(init=False)
@@ -24,11 +22,6 @@ class Trading212Client:
 
     @property
     def headers(self) -> dict[str, str]:
-        if self.api_secret:
-            credentials = base64.b64encode(
-                f"{self.api_key}:{self.api_secret}".encode(),
-            ).decode()
-            return {"Authorization": f"Basic {credentials}"}
         return {"Authorization": self.api_key}
 
     # ------------------------------------------------------------------
@@ -164,6 +157,8 @@ class Trading212Client:
             f"Failed to fetch {path} after {self.max_retries} attempts"
         ) from last_error
 
+    MAX_PAGES = 1000
+
     def _get_paginated(
         self,
         path: str,
@@ -171,11 +166,22 @@ class Trading212Client:
         ticker: str | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        """Auto-paginate a cursor-based endpoint. Returns all items."""
+        """Auto-paginate a cursor-based endpoint. Returns all items.
+
+        Raises RuntimeError if more than MAX_PAGES pages are consumed, which
+        protects the background sync thread from looping indefinitely on a
+        malformed API response with a persistent cursor.
+        """
         all_items: list[dict[str, Any]] = []
         cursor: int | None = None
 
-        while True:
+        for page_num in range(1, self.MAX_PAGES + 2):
+            if page_num > self.MAX_PAGES:
+                raise RuntimeError(
+                    f"_get_paginated exceeded {self.MAX_PAGES} pages for "
+                    f"{path!r} — possible runaway cursor from malformed API response"
+                )
+
             params: dict[str, Any] = {"limit": limit}
             if cursor is not None:
                 params["cursor"] = cursor
@@ -204,6 +210,5 @@ class Trading212Client:
             return None
         return cls(
             api_key=api_key,
-            api_secret=settings.trading_212_secret_key,
             mode=mode or settings.trading_212_mode,
         )

@@ -162,10 +162,19 @@ class BrokerPosition(BaseModel):
 
 
 class BrokerAccountSnapshot(BaseModel):
-    """Snapshot of brokerage account cash/value state."""
+    """Snapshot of brokerage account cash/value state.
+
+    Deduplicated per (portfolio_id, snapshot_date): at most one row per
+    portfolio per calendar day.  Repeated syncs on the same day update the
+    existing row rather than inserting a new one, preventing unbounded growth.
+    """
 
     __tablename__ = "broker_account_snapshots"
     __table_args__ = (
+        UniqueConstraint(
+            "portfolio_id", "snapshot_date",
+            name="uq_broker_account_snapshot_portfolio_date",
+        ),
         Index("ix_broker_account_portfolio_id", "portfolio_id"),
     )
 
@@ -174,6 +183,7 @@ class BrokerAccountSnapshot(BaseModel):
         ForeignKey("portfolios.id", ondelete="CASCADE"),
         nullable=False,
     )
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
     total: Mapped[float] = mapped_column(Float, nullable=False)
     free: Mapped[float] = mapped_column(Float, nullable=False)
     invested: Mapped[float] = mapped_column(Float, nullable=False)
@@ -193,9 +203,11 @@ class ActivityEvent(BaseModel):
 
     __tablename__ = "activity_events"
     __table_args__ = (
+        UniqueConstraint("external_id", name="uq_activity_event_external_id"),
         Index("ix_activity_events_portfolio_id", "portfolio_id"),
         Index("ix_activity_events_event_type", "event_type"),
         Index("ix_activity_events_created_at", "created_at"),
+        Index("ix_activity_events_external_id", "external_id"),
     )
 
     portfolio_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -208,6 +220,9 @@ class ActivityEvent(BaseModel):
     )  # matches frontend ActivityType
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    external_id: Mapped[str | None] = mapped_column(
+        String(200), nullable=True,
+    )  # Broker order_id for idempotent sync deduplication
 
     # Relationships
     portfolio: Mapped[Portfolio | None] = relationship(back_populates="events")

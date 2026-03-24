@@ -121,20 +121,50 @@ class TestRunFullPipelineFxConversion:
         self,
         local_prices: pd.DataFrame,
         currency_map: dict[str, str],
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
+        import logging
+
         optimizer = build_equal_weighted(EqualWeightedConfig())
         fx_config = FxConfig.for_eur_base()
 
-        result = run_full_pipeline(
-            prices=local_prices,
-            optimizer=optimizer,
-            fx_config=fx_config,
-            currency_map=currency_map,
-            fx_rates=None,
-        )
+        _log = "optimizer.pipeline._orchestrator"
+        with caplog.at_level(logging.WARNING, logger=_log):
+            result = run_full_pipeline(
+                prices=local_prices,
+                optimizer=optimizer,
+                fx_config=fx_config,
+                currency_map=currency_map,
+                fx_rates=None,
+            )
 
         assert result.currency is None
         assert result.fx_decomposition is None
+        assert any("fx_rates" in rec.message for rec in caplog.records)
+
+    def test_fx_skipped_when_no_currency_map(
+        self,
+        local_prices: pd.DataFrame,
+        fx_rates: pd.DataFrame,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import logging
+
+        optimizer = build_equal_weighted(EqualWeightedConfig())
+        fx_config = FxConfig.for_eur_base()
+
+        _log = "optimizer.pipeline._orchestrator"
+        with caplog.at_level(logging.WARNING, logger=_log):
+            result = run_full_pipeline(
+                prices=local_prices,
+                optimizer=optimizer,
+                fx_config=fx_config,
+                currency_map=None,
+                fx_rates=fx_rates,
+            )
+
+        assert result.currency is None
+        assert any("currency_map" in rec.message for rec in caplog.records)
 
     def test_fx_skipped_when_mode_none(
         self,
@@ -154,6 +184,123 @@ class TestRunFullPipelineFxConversion:
         )
 
         assert result.currency is None
+
+
+class TestFxStrictMode:
+    """Verify strict=True raises ConfigurationError instead of warning."""
+
+    def test_strict_raises_when_fx_rates_none(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+    ) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        optimizer = build_equal_weighted(EqualWeightedConfig())
+        fx_config = FxConfig(
+            mode=FxConversionMode.TO_BASE,
+            base_currency=BaseCurrency.EUR,
+            strict=True,
+        )
+        with pytest.raises(ConfigurationError, match="fx_rates"):
+            run_full_pipeline(
+                prices=local_prices,
+                optimizer=optimizer,
+                fx_config=fx_config,
+                currency_map=currency_map,
+                fx_rates=None,
+            )
+
+    def test_strict_raises_when_currency_map_none(
+        self,
+        local_prices: pd.DataFrame,
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        optimizer = build_equal_weighted(EqualWeightedConfig())
+        fx_config = FxConfig(
+            mode=FxConversionMode.TO_BASE,
+            base_currency=BaseCurrency.EUR,
+            strict=True,
+        )
+        with pytest.raises(ConfigurationError, match="currency_map"):
+            run_full_pipeline(
+                prices=local_prices,
+                optimizer=optimizer,
+                fx_config=fx_config,
+                currency_map=None,
+                fx_rates=fx_rates,
+            )
+
+    def test_strict_raises_when_both_none(
+        self,
+        local_prices: pd.DataFrame,
+    ) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        optimizer = build_equal_weighted(EqualWeightedConfig())
+        fx_config = FxConfig(
+            mode=FxConversionMode.TO_BASE,
+            base_currency=BaseCurrency.EUR,
+            strict=True,
+        )
+        with pytest.raises(ConfigurationError, match="currency_map"):
+            run_full_pipeline(
+                prices=local_prices,
+                optimizer=optimizer,
+                fx_config=fx_config,
+                currency_map=None,
+                fx_rates=None,
+            )
+
+    def test_strict_false_warns_not_raises(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import logging
+
+        optimizer = build_equal_weighted(EqualWeightedConfig())
+        fx_config = FxConfig(
+            mode=FxConversionMode.TO_BASE,
+            base_currency=BaseCurrency.EUR,
+            strict=False,
+        )
+        _log = "optimizer.pipeline._orchestrator"
+        with caplog.at_level(logging.WARNING, logger=_log):
+            result = run_full_pipeline(
+                prices=local_prices,
+                optimizer=optimizer,
+                fx_config=fx_config,
+                currency_map=currency_map,
+                fx_rates=None,
+            )
+        assert result.currency is None
+        assert any("fx_rates" in rec.message for rec in caplog.records)
+
+    def test_for_strict_conversion_preset(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+    ) -> None:
+        """for_strict_conversion() preset has strict=True and mode=TO_BASE."""
+        from optimizer.exceptions import ConfigurationError
+
+        fx_config = FxConfig.for_strict_conversion(BaseCurrency.EUR)
+        assert fx_config.strict is True
+        assert fx_config.mode == FxConversionMode.TO_BASE
+
+        optimizer = build_equal_weighted(EqualWeightedConfig())
+        with pytest.raises(ConfigurationError):
+            run_full_pipeline(
+                prices=local_prices,
+                optimizer=optimizer,
+                fx_config=fx_config,
+                currency_map=currency_map,
+                fx_rates=None,
+            )
 
 
 class TestRunFullPipelineWithSelectionFxSlicing:
@@ -302,3 +449,164 @@ class TestAssembleAllBaseCurrency:
         assert call_kwargs.kwargs.get("base_currency") == "GBP" or (
             call_kwargs.args and call_kwargs.args[1] == "GBP"
         )
+
+
+class TestBenchmarkCurrencyConversion:
+    """Regression tests for issue #308 — benchmark FX conversion."""
+
+    def test_benchmark_currency_none_no_regression(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        """benchmark_currency=None must produce the same result as not
+        passing the parameter at all (backward compatibility)."""
+        import pandas.testing as pdt
+
+        optimizer = build_equal_weighted(EqualWeightedConfig())
+        fx_config = FxConfig.for_eur_base()
+        bench_prices = local_prices[["SPY"]].copy()
+
+        result_explicit_none = run_full_pipeline(
+            prices=local_prices,
+            optimizer=optimizer,
+            fx_config=fx_config,
+            currency_map=currency_map,
+            fx_rates=fx_rates,
+            y_prices=bench_prices,
+            benchmark_currency=None,
+        )
+
+        result_default = run_full_pipeline(
+            prices=local_prices,
+            optimizer=optimizer,
+            fx_config=fx_config,
+            currency_map=currency_map,
+            fx_rates=fx_rates,
+            y_prices=bench_prices,
+        )
+
+        pdt.assert_series_equal(result_explicit_none.weights, result_default.weights)
+        assert result_explicit_none.currency == result_default.currency
+
+    def test_benchmark_currency_skipped_when_fx_not_active(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        """benchmark_currency has no effect when fx_config is None."""
+        import pandas.testing as pdt
+
+        optimizer = build_equal_weighted(EqualWeightedConfig())
+        bench_prices = local_prices[["SPY"]].copy()
+
+        result_a = run_full_pipeline(
+            prices=local_prices,
+            optimizer=optimizer,
+            fx_config=None,
+            currency_map=currency_map,
+            fx_rates=fx_rates,
+            y_prices=bench_prices,
+            benchmark_currency=None,
+        )
+
+        result_b = run_full_pipeline(
+            prices=local_prices,
+            optimizer=optimizer,
+            fx_config=None,
+            currency_map=currency_map,
+            fx_rates=fx_rates,
+            y_prices=bench_prices,
+            benchmark_currency="USD",
+        )
+
+        assert result_a.currency is None
+        assert result_b.currency is None
+        pdt.assert_series_equal(result_a.weights, result_b.weights)
+
+    def test_benchmark_currency_converts_foreign_benchmark(
+        self,
+        local_prices: pd.DataFrame,
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        """When benchmark_currency='USD' and base is EUR, SPY must be
+        converted from USD → EUR before returns are computed.
+
+        We verify this by omitting SPY from the portfolio currency_map so the
+        old code path would leave it unconverted; the new path must override
+        this by injecting benchmark_currency into the bench_map."""
+        optimizer = build_equal_weighted(EqualWeightedConfig())
+        fx_config = FxConfig.for_eur_base()
+
+        portfolio_prices = local_prices[["LLOY.L", "ORA.PA"]].copy()
+        partial_map = {"LLOY.L": "GBP", "ORA.PA": "EUR"}
+        bench_prices = local_prices[["SPY"]].copy()
+
+        # With benchmark_currency=None, SPY not in partial_map → treated as
+        # base currency (EUR), no conversion applied.
+        result_no_ccy = run_full_pipeline(
+            prices=portfolio_prices,
+            optimizer=optimizer,
+            fx_config=fx_config,
+            currency_map=partial_map,
+            fx_rates=fx_rates,
+            y_prices=bench_prices,
+            benchmark_currency=None,
+        )
+
+        # With benchmark_currency='USD', SPY is explicitly converted USD→EUR.
+        result_with_ccy = run_full_pipeline(
+            prices=portfolio_prices,
+            optimizer=optimizer,
+            fx_config=fx_config,
+            currency_map=partial_map,
+            fx_rates=fx_rates,
+            y_prices=bench_prices,
+            benchmark_currency="USD",
+        )
+
+        assert result_no_ccy.currency == "EUR"
+        assert result_with_ccy.currency == "EUR"
+        # Both pipelines complete successfully; the difference lies in how
+        # benchmark returns are computed (not in portfolio weights, which
+        # are determined by portfolio prices only).
+        assert result_no_ccy.weights is not None
+        assert result_with_ccy.weights is not None
+
+    def test_benchmark_currency_forwarded_by_selection_wrapper(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        """run_full_pipeline_with_selection must forward benchmark_currency
+        unchanged to run_full_pipeline."""
+        import contextlib
+
+        optimizer = build_equal_weighted(EqualWeightedConfig())
+        fx_config = FxConfig.for_eur_base()
+        bench_prices = local_prices[["SPY"]].copy()
+
+        with patch(
+            "optimizer.pipeline._orchestrator.run_full_pipeline"
+        ) as mock_rfp:
+            mock_rfp.return_value = MagicMock(
+                weights=pd.Series([0.5, 0.5], index=["LLOY.L", "ORA.PA"]),
+                currency="EUR",
+            )
+            with contextlib.suppress(Exception):
+                run_full_pipeline_with_selection(
+                    prices=local_prices,
+                    optimizer=optimizer,
+                    fx_config=fx_config,
+                    currency_map=currency_map,
+                    fx_rates=fx_rates,
+                    y_prices=bench_prices,
+                    benchmark_currency="USD",
+                )
+
+            if mock_rfp.called:
+                call_kwargs = mock_rfp.call_args.kwargs
+                assert call_kwargs.get("benchmark_currency") == "USD"

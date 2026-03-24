@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 _PORTFOLIO_REPO = "app.api.v1.dashboard.PortfolioRepository"
 _DASHBOARD_REPO = "app.api.v1.dashboard.DashboardRepository"
 
-BASE_URL = "/api/v1/portfolio"
+BASE_URL = "/api/v1/portfolio-analytics"
 
 _WEIGHTS = {"AAPL": 0.3, "MSFT": 0.2, "XOM": 0.3, "CVX": 0.2}
 _SECTOR_MAP = {

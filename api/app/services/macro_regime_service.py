@@ -152,6 +152,12 @@ class MacroRegimeService:
                 else:
                     counts["te_indicators"] = 0
                     counts["te_observations"] = 0
+                    logger.warning(
+                        "Trading Economics returned 0 matched indicators for %s "
+                        "(HTML structure may have drifted — no names matched "
+                        "INDICATOR_PATTERNS)",
+                        country,
+                    )
 
                 # Store bond yields (latest-snapshot table)
                 if include_bonds:

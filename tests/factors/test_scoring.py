@@ -995,3 +995,63 @@ class TestICFallbackStrategy:
         cfg = CompositeScoringConfig.for_ic_weighted_raise_on_fallback()
         assert cfg.method == CompositeMethod.IC_WEIGHTED
         assert cfg.ic_fallback_strategy == ICFallbackStrategy.RAISE
+
+    # ------------------------------------------------------------------
+    # Regression: issue #304 — n_negative must count pre-clamp negatives
+    # ------------------------------------------------------------------
+
+    def test_ic_n_negative_counts_pre_clamp_negatives(self) -> None:
+        """n_negative in warning reflects genuinely-negative ICs, not post-clamp zeros.
+
+        Regression for issue #304: when one group has IC=-0.05 (negative) and
+        another has IC=0.0 (zero, not negative), the warning should report 1/2
+        negative groups, not 2/2.
+        """
+        tickers = ["A", "B"]
+        group_scores = pd.DataFrame(
+            {"value": [1.0, 2.0], "momentum": [1.0, 2.0]}, index=tickers
+        )
+        # value: genuinely negative IC; momentum: exactly zero IC
+        ic_history = pd.DataFrame(
+            {"value": [-0.05] * 36, "momentum": [0.0] * 36}
+        )
+        config = CompositeScoringConfig(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.EQUAL_WEIGHT,
+        )
+        with pytest.warns(UserWarning) as record:
+            compute_ic_weighted_composite(group_scores, ic_history, config)
+
+        msg = str(record[0].message)
+        assert "1/2" in msg, (
+            f"Expected '1/2' in warning (1 negative IC, not 2 zeros), got: {msg!r}"
+        )
+
+    def test_icir_n_negative_counts_pre_clamp_negatives(self) -> None:
+        """n_negative in ICIR warning reflects genuinely-negative ICIR, not zeros.
+
+        Regression for issue #304: groups with negative ICIR and groups with
+        zero ICIR (constant series → std=0 → ICIR=0) must be counted separately.
+        """
+        tickers = ["A", "B"]
+        group_scores = pd.DataFrame(
+            {"value": [1.0, 2.0], "momentum": [1.0, 2.0]}, index=tickers
+        )
+        rng = np.random.default_rng(7)
+        # value: negative ICIR (negative mean, nonzero std)
+        # momentum: exactly zero ICIR (constant series → std=0)
+        ic_per_group = {
+            "value": pd.Series(rng.uniform(-0.10, -0.02, 36)),
+            "momentum": pd.Series([0.0] * 36),
+        }
+        config = CompositeScoringConfig(
+            method=CompositeMethod.ICIR_WEIGHTED,
+            ic_fallback_strategy=ICFallbackStrategy.EQUAL_WEIGHT,
+        )
+        with pytest.warns(UserWarning) as record:
+            compute_icir_weighted_composite(group_scores, ic_per_group, config)
+
+        msg = str(record[0].message)
+        assert "1/2" in msg, (
+            f"Expected '1/2' in warning (1 negative ICIR, not 2 zeros), got: {msg!r}"
+        )

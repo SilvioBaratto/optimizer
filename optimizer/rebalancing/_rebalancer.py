@@ -118,7 +118,12 @@ def should_rebalance(
     if config.threshold_type == ThresholdType.ABSOLUTE:
         return bool(np.any(drifts > config.threshold))
 
-    # Relative threshold: drift / target (guard against zero targets)
+    # Relative threshold: zero-target positions with non-zero current weight
+    # always require rebalancing (explicit exit intent).
+    exit_needed = (target_weights == 0) & (current_weights > 0)
+    if np.any(exit_needed):
+        return True
+
     safe_targets = np.where(target_weights > 0, target_weights, np.inf)
     relative_drifts = drifts / safe_targets
     return bool(np.any(relative_drifts > config.threshold))
@@ -163,7 +168,7 @@ def should_rebalance_hybrid(
         ``True`` only if it is a calendar review date AND drift exceeds
         the threshold.
     """
-    elapsed = len(pd.bdate_range(last_review_date, current_date)) - 1
-    if elapsed < config.calendar.trading_days:
+    next_review = last_review_date + pd.offsets.BDay(config.calendar.trading_days)
+    if current_date < next_review:
         return False
     return should_rebalance(current_weights, target_weights, config.threshold)

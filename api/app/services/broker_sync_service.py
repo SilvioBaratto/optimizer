@@ -20,7 +20,9 @@ class BrokerSyncResult:
     positions_removed: int = 0
     account_synced: bool = False
     orders_fetched: int = 0
+    orders_inserted: int = 0
     dividends_fetched: int = 0
+    dividends_inserted: int = 0
     errors: list[str] | None = None
 
 
@@ -129,20 +131,24 @@ def sync_portfolio(
         orders = client.get_all_order_history()
         result.orders_fetched = len(orders)
 
-        # Create activity events for recent filled orders
+        # Create activity events for recent filled orders (idempotent)
         for order in orders[:20]:  # Only latest 20
             if order.get("status") == "FILLED":
                 side = "Bought" if order.get("type") == "BUY" else "Sold"
                 ticker = order.get("ticker", "?")
                 qty = order.get("filledQuantity", order.get("quantity", 0))
                 price = order.get("fillPrice", order.get("limitPrice", 0))
-                repo.add_event(
+                order_id = order.get("id")
+                inserted = repo.add_event_idempotent(
                     event_type="trade",
                     title=f"{side} {qty} {ticker}",
                     portfolio_id=portfolio_id,
                     description=f"Fill price: {price}",
-                    metadata={"order_id": order.get("id"), "ticker": ticker},
+                    external_id=str(order_id) if order_id is not None else None,
+                    metadata={"order_id": order_id, "ticker": ticker},
                 )
+                if inserted is not None:
+                    result.orders_inserted += 1
     except Exception as e:
         errors.append(f"Order history fetch failed: {e}")
         logger.error("Order history error: %s", e)
@@ -154,6 +160,33 @@ def sync_portfolio(
     try:
         dividends = client.get_all_dividend_history()
         result.dividends_fetched = len(dividends)
+
+        for div in dividends[:20]:  # Only latest 20
+            amount = div.get("amount")
+            if amount is None:
+                continue  # Malformed payload — no amount field at all
+            ticker = div.get("ticker", "?")
+            reference = div.get("reference")
+            paid_on = div.get("paidOn")
+            inserted = repo.add_event_idempotent(
+                event_type="dividend",
+                title=f"Dividend {amount} {ticker}",
+                portfolio_id=portfolio_id,
+                description=f"Paid: {paid_on}" if paid_on is not None else None,
+                external_id=str(reference) if reference is not None else None,
+                metadata={
+                    "reference": reference,
+                    "ticker": ticker,
+                    "amount": amount,
+                    "amount_in_euro": div.get("amountInEuro"),
+                    "quantity": div.get("quantity"),
+                    "type": div.get("type"),
+                    "appointed_date": div.get("appointedDate"),
+                    "paid_on": paid_on,
+                },
+            )
+            if inserted is not None:
+                result.dividends_inserted += 1
     except Exception as e:
         errors.append(f"Dividend history fetch failed: {e}")
         logger.error("Dividend history error: %s", e)

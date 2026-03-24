@@ -55,6 +55,10 @@ class FxConfig:
         When ``True``, compute cross-rates via USD (e.g. GBP/EUR =
         GBP/USD / EUR/USD) rather than looking up direct pairs.
         yfinance direct cross pairs are often sparse.
+    strict : bool
+        If ``True``, raise ``ConfigurationError`` when ``mode != NONE``
+        but ``currency_map`` or ``fx_rates`` is ``None``.  If ``False``
+        (default), log a ``WARNING`` and silently skip conversion.
     """
 
     base_currency: BaseCurrency = BaseCurrency.EUR
@@ -63,6 +67,7 @@ class FxConfig:
     fill_limit: int = 5
     require_full_coverage: bool = False
     cross_via_usd: bool = True
+    strict: bool = False
 
     @classmethod
     def for_eur_base(cls) -> FxConfig:
@@ -85,3 +90,14 @@ class FxConfig:
     ) -> FxConfig:
         """Conversion with full return decomposition."""
         return cls(base_currency=base_currency, mode=FxConversionMode.DECOMPOSE)
+
+    @classmethod
+    def for_strict_conversion(
+        cls, base_currency: BaseCurrency = BaseCurrency.EUR
+    ) -> FxConfig:
+        """Conversion enabled; raises ``ConfigurationError`` if inputs are missing."""
+        return cls(
+            base_currency=base_currency,
+            mode=FxConversionMode.TO_BASE,
+            strict=True,
+        )

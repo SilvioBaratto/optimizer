@@ -598,8 +598,9 @@ def compute_quantile_spread(
     scores = factor_scores.loc[common]
     returns = forward_returns.loc[common]
 
-    quantile_labels = pd.qcut(scores, n_quantiles, labels=False, duplicates="drop")
-    quantile_returns: pd.Series = returns.groupby(quantile_labels).mean()
+    pct_ranks = scores.rank(pct=True, method="average")
+    labels = pd.cut(pct_ranks, bins=n_quantiles, labels=False, include_lowest=True)
+    quantile_returns: pd.Series = returns.groupby(labels).mean()
 
     if len(quantile_returns) < 2:
         return float(np.nan)
@@ -763,7 +764,10 @@ def run_factor_validation(
 
     for factor_name, scores_df in factor_scores_history.items():
         # IC analysis
-        ic_series = compute_ic_series(scores_df, returns_history, factor_name)
+        ic_series = compute_ic_series(
+            scores_df, returns_history, factor_name,
+            min_observations=config.min_ic_observations,
+        )
         if len(ic_series) == 0:
             continue
 

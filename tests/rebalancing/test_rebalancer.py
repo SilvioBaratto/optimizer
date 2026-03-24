@@ -114,9 +114,22 @@ class TestShouldRebalance:
         current = np.array([0.5, 0.3, 0.2])
         target = np.array([0.5, 0.5, 0.0])
         cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
-        # zero-weight target should not cause division error
-        result = should_rebalance(current, target, cfg)
-        assert isinstance(result, bool)
+        # zero-target with non-zero current weight must always trigger exit
+        assert should_rebalance(current, target, cfg) is True
+
+    def test_relative_zero_target_exit_always_triggers(self) -> None:
+        """Issue #303: zero-target position with non-zero current must trigger exit."""
+        current = np.array([0.33, 0.33, 0.34])
+        target = np.array([0.50, 0.50, 0.0])  # third position being exited
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.05)
+        assert should_rebalance(current, target, cfg) is True
+
+    def test_relative_zero_target_zero_current_no_trigger(self) -> None:
+        """Zero-target AND zero-current weight should not trigger spuriously."""
+        current = np.array([0.50, 0.50, 0.0])
+        target = np.array([0.50, 0.50, 0.0])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.05)
+        assert should_rebalance(current, target, cfg) is False
 
     def test_default_config(self) -> None:
         current = np.array([0.56, 0.24, 0.20])
@@ -226,5 +239,50 @@ class TestShouldRebalanceHybrid:
         current = _review_date(_LAST_REVIEW, 63)  # quarterly = 63 bdays
         assert (
             should_rebalance_hybrid(breaching, _TARGET, cfg, current, _LAST_REVIEW)
+            is True
+        )
+
+    def test_same_day_as_review_returns_false(self) -> None:
+        """current_date == last_review_date (0 elapsed) → False."""
+        assert (
+            should_rebalance_hybrid(
+                _BREACH, _TARGET, _MONTHLY_CFG, _LAST_REVIEW, _LAST_REVIEW
+            )
+            is False
+        )
+
+    def test_weekend_before_review_boundary_returns_false(self) -> None:
+        """Saturday before the 21-bday mark → False.
+
+        BDay(19) from 2024-01-02 = 2024-01-26 (Fri); +1 day = Sat 2024-01-27,
+        which is before next_review = BDay(21) = 2024-01-30.
+        """
+        current = _LAST_REVIEW + pd.offsets.BDay(19) + pd.offsets.Day(1)
+        assert (
+            should_rebalance_hybrid(
+                _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+            )
+            is False
+        )
+
+    def test_weekend_at_review_boundary_fires_on_monday(self) -> None:
+        """BDay(21) from last_review is a business day → True with breach."""
+        current = _LAST_REVIEW + pd.offsets.BDay(21)
+        assert (
+            should_rebalance_hybrid(
+                _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+            )
+            is True
+        )
+
+    def test_63_bday_quarterly_boundary(self) -> None:
+        """Exactly 63 bdays elapsed for quarterly config → True with breach."""
+        cfg = HybridRebalancingConfig(
+            calendar=CalendarRebalancingConfig.for_quarterly(),
+            threshold=ThresholdRebalancingConfig.for_absolute(threshold=0.05),
+        )
+        current = _LAST_REVIEW + pd.offsets.BDay(63)
+        assert (
+            should_rebalance_hybrid(_BREACH, _TARGET, cfg, current, _LAST_REVIEW)
             is True
         )

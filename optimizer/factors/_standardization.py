@@ -12,6 +12,7 @@ from sklearn.preprocessing import StandardScaler
 
 from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.factors._config import (
+    FACTOR_DIRECTION,
     StandardizationConfig,
     StandardizationMethod,
     WinsorizeMethod,
@@ -198,7 +199,8 @@ def standardize_factor(
         Country labels for neutralization.
     factor_name : str
         Column name of the factor, used to look up per-factor method
-        overrides in ``config.factor_method_overrides``.
+        overrides in ``config.factor_method_overrides`` and the
+        ``FACTOR_DIRECTION`` sign convention.
 
     Returns
     -------
@@ -218,21 +220,29 @@ def standardize_factor(
             upper_pct=config.winsorize_upper,
         )
 
-    # 2. Standardize (with per-factor override support)
+    # 2. Apply factor direction: invert "lower is better" factors so that
+    #    all downstream standardized scores share the same convention
+    #    (higher score = more desirable).  Direction is +1 for all factors
+    #    not listed in FACTOR_DIRECTION.
+    direction = FACTOR_DIRECTION.get(factor_name, 1)
+    if direction == -1:
+        scores = scores * -1
+
+    # 3. Standardize (with per-factor override support)
     method = _resolve_method(factor_name, config)
     if method == StandardizationMethod.Z_SCORE:
         scores = z_score_standardize(scores)
     else:
         scores = rank_normal_standardize(scores)
 
-    # 3. Sector/country neutralize
+    # 4. Sector/country neutralize
     neutralized = False
     if config.neutralize_sector and sector_labels is not None:
         country = country_labels if config.neutralize_country else None
         scores = neutralize_sector(scores, sector_labels, country)
         neutralized = True
 
-    # 4. Re-standardize after neutralization (optional)
+    # 5. Re-standardize after neutralization (optional)
     if config.re_standardize_after_neutralization and neutralized:
         scores = z_score_standardize(scores)
 

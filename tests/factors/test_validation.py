@@ -146,6 +146,38 @@ class TestQuantileSpread:
         spread = compute_quantile_spread(scores, returns, n_quantiles=5)
         assert np.isnan(spread)
 
+    def test_no_ties_top_minus_bottom(self) -> None:
+        scores = pd.Series(
+            [float(i) for i in range(10)],
+            index=[f"S{i:02d}" for i in range(10)],
+        )
+        returns = pd.Series(
+            [float(i) * 0.01 for i in range(10)],
+            index=[f"S{i:02d}" for i in range(10)],
+        )
+        spread = compute_quantile_spread(scores, returns, n_quantiles=5)
+        # Bottom quintile: assets 0,1 → mean return = 0.005
+        # Top quintile: assets 8,9 → mean return = 0.085
+        assert pytest.approx(spread, abs=1e-10) == 0.085 - 0.005
+
+    def test_mid_range_ties_correct_top_and_bottom(self) -> None:
+        n = 100
+        index = [f"T{i:03d}" for i in range(n)]
+        scores_vals = [0.0] * 15 + [0.5] * 70 + [1.0] * 15
+        returns_vals = [-0.02] * 15 + [0.0] * 70 + [0.02] * 15
+        scores = pd.Series(scores_vals, index=index)
+        returns = pd.Series(returns_vals, index=index)
+        spread = compute_quantile_spread(scores, returns, n_quantiles=5)
+        assert not np.isnan(spread)
+        assert spread > 0.0
+
+    def test_all_identical_scores_returns_nan(self) -> None:
+        index = [f"U{i:02d}" for i in range(10)]
+        scores = pd.Series([1.0] * 10, index=index)
+        returns = pd.Series([0.01] * 10, index=index)
+        spread = compute_quantile_spread(scores, returns, n_quantiles=5)
+        assert np.isnan(spread)
+
 
 class TestComputeVIF:
     def test_independent_factors(self) -> None:
@@ -455,6 +487,35 @@ class TestRunFactorValidation:
         assert isinstance(report, FactorValidationReport)
         assert len(report.ic_results) == 2
 
+    def test_min_ic_observations_threads_to_run_factor_validation(self) -> None:
+        """min_ic_observations in config is forwarded to compute_ic_series."""
+        rng = np.random.default_rng(11)
+        dates = pd.date_range("2021-01-01", periods=12, freq="ME")
+        # 5 tickers: passes min_ic_observations=4 but fails min_ic_observations=6
+        tickers = [f"S{i}" for i in range(5)]
+        factor_history = {
+            "value": pd.DataFrame(
+                rng.normal(0, 1, (12, 5)), index=dates, columns=tickers
+            ),
+        }
+        returns_hist = pd.DataFrame(
+            rng.normal(0.001, 0.02, (12, 5)), index=dates, columns=tickers
+        )
+
+        # With min=4: 5 tickers >= 4 → IC series is non-empty → result has IC result
+        permissive_config = FactorValidationConfig(min_ic_observations=4)
+        report_permissive = run_factor_validation(
+            factor_history, returns_hist, config=permissive_config
+        )
+        assert len(report_permissive.ic_results) == 1
+
+        # With min=6: 5 tickers < 6 → all cross-sections dropped → factor skipped
+        strict_config = FactorValidationConfig(min_ic_observations=6)
+        report_strict = run_factor_validation(
+            factor_history, returns_hist, config=strict_config
+        )
+        assert len(report_strict.ic_results) == 0
+
 
 class TestFactorSpreadBenchmarks:
     """Tests for benchmark thresholds and Holm FWER (issue #80)."""
@@ -760,10 +821,10 @@ class TestCompositeICValidation:
         the composite average IC is lower than the dominant factor IC."""
         rng = np.random.default_rng(0)
         dates = pd.date_range("2020-01-01", periods=36, freq="ME")
-        tickers = [f"T{i:02d}" for i in range(20)]
-        signal = rng.normal(0, 1, (36, 20))
-        noise = rng.normal(0, 1, (36, 20))
-        forward_ret = signal + rng.normal(0, 0.05, (36, 20))
+        tickers = [f"T{i:02d}" for i in range(30)]
+        signal = rng.normal(0, 1, (36, 30))
+        noise = rng.normal(0, 1, (36, 30))
+        forward_ret = signal + rng.normal(0, 0.05, (36, 30))
 
         factor_history = {
             "signal": pd.DataFrame(signal, index=dates, columns=tickers),
@@ -807,34 +868,55 @@ class TestCompositeICValidation:
     def test_composite_min_observations_respected(self) -> None:
         """composite_min_observations config threads to compute_composite_ic."""
         rng = np.random.default_rng(5)
-        dates = pd.date_range("2020-01-01", periods=6, freq="ME")
-        tickers = [f"T{i}" for i in range(4)]
-        factor_history = {
+
+        # --- strict override: 4 tickers < min=5 → all cross-sections dropped ---
+        dates_small = pd.date_range("2020-01-01", periods=6, freq="ME")
+        tickers_small = [f"T{i}" for i in range(4)]
+        factor_history_small = {
             "value": pd.DataFrame(
-                rng.normal(0, 1, (6, 4)), index=dates, columns=tickers
+                rng.normal(0, 1, (6, 4)),
+                index=dates_small,
+                columns=tickers_small,
             ),
         }
-        returns_hist = pd.DataFrame(
-            rng.normal(0, 1, (6, 4)), index=dates, columns=tickers
+        returns_small = pd.DataFrame(
+            rng.normal(0, 1, (6, 4)), index=dates_small, columns=tickers_small
         )
-        composite = pd.DataFrame(
-            rng.normal(0, 1, (6, 4)), index=dates, columns=tickers
+        composite_small = pd.DataFrame(
+            rng.normal(0, 1, (6, 4)), index=dates_small, columns=tickers_small
         )
         strict_config = FactorValidationConfig(composite_min_observations=5)
         report_strict = run_factor_validation(
-            factor_history,
-            returns_hist,
+            factor_history_small,
+            returns_small,
             config=strict_config,
-            composite_scores_history=composite,
+            composite_scores_history=composite_small,
         )
-        report_default = run_factor_validation(
-            factor_history,
-            returns_hist,
-            composite_scores_history=composite,
-        )
-        # With 4 tickers, strict min=5 forces all cross-sections to be dropped
+        # 4 tickers < min=5: all cross-sections are dropped
         assert report_strict.composite_ic_result is not None
         assert np.isnan(report_strict.composite_ic_result.mean_ic)
-        # Default min=3 passes with 4 tickers
+
+        # --- default config: 30 tickers ≥ 24 → IC computes normally ---
+        dates_large = pd.date_range("2020-01-01", periods=36, freq="ME")
+        tickers_large = [f"T{i:02d}" for i in range(30)]
+        factor_history_large = {
+            "value": pd.DataFrame(
+                rng.normal(0, 1, (36, 30)),
+                index=dates_large,
+                columns=tickers_large,
+            ),
+        }
+        returns_large = pd.DataFrame(
+            rng.normal(0, 1, (36, 30)), index=dates_large, columns=tickers_large
+        )
+        composite_large = pd.DataFrame(
+            rng.normal(0, 1, (36, 30)), index=dates_large, columns=tickers_large
+        )
+        report_default = run_factor_validation(
+            factor_history_large,
+            returns_large,
+            composite_scores_history=composite_large,
+        )
+        # Default min=24 passes with 30 tickers
         assert report_default.composite_ic_result is not None
         assert not np.isnan(report_default.composite_ic_result.mean_ic)

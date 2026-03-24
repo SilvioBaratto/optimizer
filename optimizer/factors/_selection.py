@@ -28,15 +28,18 @@ def select_fixed_count(
     target_count : int
         Target number of stocks.
     buffer_fraction : float
-        Buffer as a fraction of target_count.  Current members
-        within the buffer zone are retained.
+        Buffer as a fraction of target_count.  Current members within
+        the buffer zone are retained in preference to the lowest-ranked
+        direct entrants, but the returned index always contains exactly
+        ``min(len(valid_scores), target_count)`` tickers.
     current_members : pd.Index or None
         Tickers currently selected.
 
     Returns
     -------
     pd.Index
-        Selected tickers.
+        Selected tickers.  Length is always
+        ``min(len(scores.dropna()), target_count)``.
     """
     ranked = scores.dropna().sort_values(ascending=False)
 
@@ -57,7 +60,18 @@ def select_fixed_count(
     # Retain current members that fall in the buffer zone
     retained = current_members.intersection(buffer_zone)
 
-    return direct.union(retained)
+    # Retained members outside `direct` consume slots; evict an equal number
+    # of the lowest-ranked direct entrants to keep total == target_count.
+    overflow = retained.difference(direct)
+    if len(overflow) == 0:
+        return direct
+
+    non_retained_direct_set = set(direct) - set(retained)
+    # Walk ranked (descending) to recover rank order among non-retained direct
+    ranked_non_retained = [t for t in ranked.index if t in non_retained_direct_set]
+    # Evict the weakest (last in rank order) to make room for retained members
+    to_remove = pd.Index(ranked_non_retained[-len(overflow) :])
+    return direct.difference(to_remove).union(overflow)
 
 
 def select_quantile(
@@ -144,13 +158,13 @@ def apply_sector_balance(
     for iteration in range(_MAX_BALANCE_ITERATIONS):
         current_index = pd.Index(list(result_set))
         selected_sectors = sector_labels.reindex(current_index).dropna()
-        n_selected = len(result_set)
+        n_target = len(result_set)  # snapshot — do not mutate during inner loop
 
         changed = False
 
         for sector, target_w in target_weights.items():
-            min_n = max(0, round((target_w - tolerance) * n_selected))
-            max_n = round((target_w + tolerance) * n_selected)
+            min_n = max(0, round((target_w - tolerance) * n_target))
+            max_n = round((target_w + tolerance) * n_target)
 
             current_n = int((selected_sectors == sector).sum())
 
@@ -168,7 +182,6 @@ def apply_sector_balance(
                     selected_sectors = sector_labels.reindex(
                         pd.Index(list(result_set))
                     ).dropna()
-                    n_selected = len(result_set)
                     changed = True
 
             elif current_n > max_n:
@@ -184,7 +197,6 @@ def apply_sector_balance(
                     selected_sectors = sector_labels.reindex(
                         pd.Index(list(result_set))
                     ).dropna()
-                    n_selected = len(result_set)
                     changed = True
 
         if not changed:

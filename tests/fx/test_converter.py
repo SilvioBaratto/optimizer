@@ -304,3 +304,69 @@ class TestFxPriceConverterFillLimitWarning:
         # Warning should mention the affected ticker
         assert any("LLOY.L" in record.message for record in caplog.records)
         assert any("fill_limit=2" in record.message for record in caplog.records)
+        # Warning should report total NaN cells introduced (7 days × 1 ticker)
+        assert any("7" in record.message for record in caplog.records)
+        # Warning should include the actionable hint
+        assert any(
+            "Consider increasing fill_limit" in record.message
+            for record in caplog.records
+        )
+
+    def test_transform_warns_total_nan_count_multi_currency(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Multi-currency: GBP exhausts fill_limit, USD does not.
+
+        GBP rate present only on days 1-2; fill_limit=2 fills days 3-4,
+        days 5-10 are NaN → 6 NaN cells for LLOY.L.
+        USD rate present for all 10 days → 0 NaN cells for SPY.
+        Total introduced NaN = 6.
+        """
+        import logging
+
+        dates = pd.bdate_range("2024-01-02", periods=10)
+        prices = pd.DataFrame(
+            {
+                "LLOY.L": np.linspace(50, 55, 10),
+                "ORA.PA": np.linspace(90, 95, 10),
+                "SPY": np.linspace(480, 490, 10),
+            },
+            index=dates,
+        )
+        cmap = {"LLOY.L": "GBP", "ORA.PA": "EUR", "SPY": "USD"}
+
+        # GBP: days 1-2 real; fill_limit=2 fills days 3-4; days 5-10 NaN
+        # USD: full 10-day coverage, no NaN introduced
+        fx = pd.DataFrame(
+            {
+                "GBP": [1.16, 1.16] + [np.nan] * 8,
+                "USD": np.linspace(0.91, 0.93, 10),
+            },
+            index=dates,
+        )
+
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map=cmap,
+            fx_rates=fx,
+            fill_limit=2,
+        )
+        converter.fit(prices)
+
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            result = converter.transform(prices)
+
+        # Only LLOY.L should have NaN introduced
+        assert result["LLOY.L"].isna().sum() == 6
+        assert not (result["SPY"].isna() & ~prices["SPY"].isna()).any()
+        assert not (result["ORA.PA"].isna() & ~prices["ORA.PA"].isna()).any()
+
+        warning_messages = [
+            r.message for r in caplog.records if r.levelno == logging.WARNING
+        ]
+        assert any("LLOY.L" in m for m in warning_messages)
+        assert not any("SPY" in m for m in warning_messages)
+        # Warning must report correct total NaN count (6) and include hint
+        assert any("6" in m for m in warning_messages)
+        assert any("Consider increasing fill_limit" in m for m in warning_messages)

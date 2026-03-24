@@ -149,10 +149,13 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
         if nan_mask.any().any():
             affected = nan_mask.any(axis=0)
             affected_tickers = list(affected[affected].index)
+            total_nan_dates = int(nan_mask.sum().sum())
             logger.warning(
-                "FxPriceConverter: %d ticker(s) have NaN prices after FX "
-                "conversion (fill_limit=%d exhausted): %s",
+                "FxPriceConverter: %d tickers have %d NaN prices introduced by FX "
+                "conversion (fill_limit=%d). Affected tickers: %s. "
+                "Consider increasing fill_limit or using a fallback rate strategy.",
                 len(affected_tickers),
+                total_nan_dates,
                 self.fill_limit,
                 affected_tickers,
             )

@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime
 import logging
 import sys
+import warnings
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -103,6 +104,30 @@ def _build_ticker_map(
     return {str(r[0]): r[1] for r in rows}
 
 
+def _build_ticker_rank_map(
+    session: Session, include_delisted: bool = True
+) -> dict[str, tuple[str, int]]:
+    """Return ``{instrument_id_hex: (yfinance_ticker, currency_rank)}``.
+
+    The currency rank is derived from :func:`~cli._currency.currency_dedup_rank`
+    and is used to deterministically resolve cross-listed instruments that share
+    the same ``yfinance_ticker`` (e.g. LSE vs Frankfurt listings).  Lower rank
+    means higher priority (USD=0 beats GBX=3 beats unknown=99).
+    """
+    stmt = (
+        select(Instrument.id, Instrument.yfinance_ticker, Instrument.currency_code)
+        .where(Instrument.yfinance_ticker.isnot(None))
+        .where(Instrument.yfinance_ticker != "")
+    )
+    if not include_delisted:
+        stmt = stmt.where(Instrument.delisted_at.is_(None))
+    rows = session.execute(stmt).all()
+    return {
+        str(r[0]): (str(r[1]), currency_dedup_rank(r[2] if r[2] is not None else None))
+        for r in rows
+    }
+
+
 def _build_currency_map_from_instruments(session: Session) -> dict[str, str]:
     """Return {yfinance_ticker: currency_code} from the Instrument table.
 
@@ -116,6 +141,46 @@ def _build_currency_map_from_instruments(session: Session) -> dict[str, str]:
         .where(Instrument.currency_code.isnot(None))
     ).all()
     return {str(t): str(c) for t, c in rows}
+
+
+def _pivot_with_dedup(
+    df: pd.DataFrame,
+    index: str,
+    columns: str,
+    values: str,
+    name: str = "",
+) -> pd.DataFrame:
+    """Pivot *df* after deterministically deduplicating (index, columns) pairs.
+
+    When two rows share the same ``(index, columns)`` pair the one with the
+    lower ``_ccy_rank`` value is kept (primary-currency listing wins).  A
+    :mod:`warnings` warning is emitted once per call when rows are dropped.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain *index*, *columns*, *values*, and ``_ccy_rank`` columns.
+    name : str
+        Function label used in the warning message.
+    """
+    n_before = len(df)
+    df = df.sort_values("_ccy_rank", kind="stable")
+    df = df.drop_duplicates(subset=[index, columns], keep="first")
+    n_dropped = n_before - len(df)
+    if n_dropped > 0:
+        label = f"{name}: " if name else ""
+        warnings.warn(
+            f"{label}dropped {n_dropped} duplicate ({index}, {columns}) row(s); "
+            "cross-listed tickers resolved to primary-currency listing.",
+            stacklevel=3,
+        )
+    pivoted = df.pivot_table(
+        index=index,
+        columns=columns,
+        values=values,
+        aggfunc="first",
+    )
+    return pivoted
 
 
 def _apply_delisting_returns(
@@ -208,7 +273,7 @@ def assemble_prices(
     pd.DataFrame
         Index = ``pd.DatetimeIndex``, columns = yfinance tickers.
     """
-    ticker_map = _build_ticker_map(session, include_delisted=include_delisted)
+    ticker_rank_map = _build_ticker_rank_map(session, include_delisted=include_delisted)
 
     price_query = select(
         PriceHistory.instrument_id,
@@ -228,14 +293,16 @@ def assemble_prices(
 
     records: list[dict[str, Any]] = []
     for instrument_id, row_date, close in rows:
-        ticker = ticker_map.get(str(instrument_id))
-        if ticker is None:
+        info = ticker_rank_map.get(str(instrument_id))
+        if info is None:
             continue
+        ticker, ccy_rank = info
         records.append(
             {
                 "date": pd.Timestamp(row_date),
                 "ticker": ticker,
                 "close": _to_float(close),
+                "_ccy_rank": ccy_rank,
             }
         )
 
@@ -243,15 +310,9 @@ def assemble_prices(
         return pd.DataFrame()
 
     df = pd.DataFrame(records)
-    # Multiple instruments can map to the same yfinance_ticker (e.g.
-    # listed on different exchanges).  Use pivot_table with 'first' to
-    # deduplicate gracefully instead of raising on duplicates.
-    pivoted = df.pivot_table(
-        index="date",
-        columns="ticker",
-        values="close",
-        aggfunc="first",
-    )
+    # Deduplicate cross-listed instruments that share the same yfinance_ticker
+    # using a deterministic currency-priority tiebreaker (USD < GBP < EUR < …).
+    pivoted = _pivot_with_dedup(df, "date", "ticker", "close", "assemble_prices")
     pivoted.index = pd.DatetimeIndex(pivoted.index)
     pivoted = pivoted.sort_index()
 
@@ -338,7 +399,7 @@ def assemble_volumes(
     pd.DataFrame
         Index = ``pd.DatetimeIndex``, columns = yfinance tickers.
     """
-    ticker_map = _build_ticker_map(session, include_delisted=include_delisted)
+    ticker_rank_map = _build_ticker_rank_map(session, include_delisted=include_delisted)
 
     vol_query = select(
         PriceHistory.instrument_id,
@@ -356,14 +417,16 @@ def assemble_volumes(
 
     records: list[dict[str, Any]] = []
     for instrument_id, date, volume in rows:
-        ticker = ticker_map.get(str(instrument_id))
-        if ticker is None:
+        info = ticker_rank_map.get(str(instrument_id))
+        if info is None:
             continue
+        ticker, ccy_rank = info
         records.append(
             {
                 "date": pd.Timestamp(date),
                 "ticker": ticker,
                 "volume": _to_float(volume),
+                "_ccy_rank": ccy_rank,
             }
         )
 
@@ -371,12 +434,9 @@ def assemble_volumes(
         return pd.DataFrame()
 
     df = pd.DataFrame(records)
-    pivoted = df.pivot_table(
-        index="date",
-        columns="ticker",
-        values="volume",
-        aggfunc="first",
-    )
+    # Deduplicate cross-listed instruments that share the same yfinance_ticker
+    # using a deterministic currency-priority tiebreaker (USD < GBP < EUR < …).
+    pivoted = _pivot_with_dedup(df, "date", "ticker", "volume", "assemble_volumes")
     pivoted.index = pd.DatetimeIndex(pivoted.index)
     pivoted = pivoted.sort_index()
     return pivoted
@@ -1442,6 +1502,7 @@ def assemble_regime_data(
     te_observations: pd.DataFrame,
     sentiment_data: pd.DataFrame | None = None,
     sentiment_country: str = "USA",
+    fill_limit: int = 45,
 ) -> pd.DataFrame:
     """Merge macro indicators into a single DataFrame for regime classification.
 
@@ -1462,13 +1523,21 @@ def assemble_regime_data(
         News sentiment (dates x country).
     sentiment_country : str
         Country column to extract from ``sentiment_data``.
+    fill_limit : int
+        Maximum number of consecutive rows to forward-fill.  Prevents
+        stale monthly observations from propagating indefinitely into
+        the future.  A ``UserWarning`` is emitted for each column whose
+        last value is still NaN after forward-filling (data older than
+        ``fill_limit`` days).  Default is 45 (~1.5 months).
 
     Returns
     -------
     pd.DataFrame
         Merged DataFrame with any subset of ``gdp_growth``,
         ``yield_spread``, ``pmi``, ``spread_2s10s``, ``hy_oas``,
-        ``sentiment``.  Never raises on missing data.
+        ``sentiment``.  Never raises on missing data.  Columns with
+        data older than ``fill_limit`` consecutive rows will contain
+        trailing NaN values.
     """
     parts: list[pd.DataFrame] = []
 
@@ -1513,12 +1582,53 @@ def assemble_regime_data(
     if not parts:
         return pd.DataFrame()
 
+    # Validate / coerce DatetimeIndex on all parts before joining.
+    # A non-datetime index (e.g. integer years or string dates) causes a
+    # silent all-NaN column after the outer join because indices never align.
+    for i, p in enumerate(parts):
+        if not isinstance(p.index, pd.DatetimeIndex):
+            warnings.warn(
+                f"Part {i} has a {type(p.index).__name__} index; "
+                "attempting coercion to DatetimeIndex.",
+                UserWarning,
+                stacklevel=2,
+            )
+            try:
+                parts[i] = p.set_index(pd.to_datetime(p.index))
+            except Exception as exc:
+                raise ValueError(
+                    f"Part {i} index could not be coerced to DatetimeIndex: "
+                    f"{exc}"
+                ) from exc
+
     # Outer-join all parts on date index, then forward-fill
     merged = parts[0]
     for p in parts[1:]:
         merged = merged.join(p, how="outer")
 
-    merged = merged.sort_index().ffill()
+    merged = merged.sort_index()
+    # Capture last actual observation dates before filling (post-fill dates
+    # would reflect the last *filled* row, not the last real measurement)
+    last_actual = {col: merged[col].last_valid_index() for col in merged.columns}
+
+    merged = merged.ffill(limit=fill_limit)
+
+    # Warn for any column still NaN at the tail (data too stale to fill)
+    for col in merged.columns:
+        if pd.isna(merged[col].iloc[-1]):
+            trailing_nans = int(merged[col].isna()[::-1].cumprod().sum())
+            last_valid = last_actual[col]
+            last_valid_str = (
+                last_valid.strftime("%Y-%m-%d") if last_valid is not None else "never"
+            )
+            warnings.warn(
+                f"Regime data column '{col}' has {trailing_nans} trailing NaN rows "
+                f"after forward-filling (fill_limit={fill_limit}). "
+                f"Last valid observation: {last_valid_str}. "
+                "Regime classification may fall back to UNKNOWN for recent dates.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     return merged
 

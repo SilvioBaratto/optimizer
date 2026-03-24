@@ -85,8 +85,10 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
     """Run a single pipeline step synchronously.
 
     The service function ``fn`` must accept ``on_progress`` as a keyword
-    argument.  Job lifecycle (create / running / failed) is managed here;
-    the service function reports completion via the ``on_progress`` callback.
+    argument.  Job lifecycle (create / running / failed) is managed here.
+    If ``fn`` returns without raising and without calling
+    ``on_progress(status='completed')``, the job is marked completed
+    defensively so downstream steps are not silently skipped.
 
     Returns ``True`` if the step completed, ``False`` on skip or failure.
     """
@@ -107,16 +109,20 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
     try:
         fn(*args, on_progress=on_progress)
         job = job_svc.get_job(job_id) or {}
-        ok = job.get("status") == "completed"
-        if ok:
-            logger.info("daily_pipeline: %s completed", label)
-        else:
+        if job.get("status") != "completed":
             logger.warning(
-                "daily_pipeline: %s finished with status=%s",
+                "daily_pipeline: %s returned without calling on_progress(status='completed')"
+                " (status=%s) — marking completed defensively",
                 label,
                 job.get("status"),
             )
-        return ok
+            job_svc.update_job(
+                job_id,
+                status="completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+        logger.info("daily_pipeline: %s completed", label)
+        return True
     except Exception:
         logger.exception("daily_pipeline: %s raised an exception", label)
         job_svc.update_job(

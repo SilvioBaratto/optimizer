@@ -94,8 +94,8 @@ class TestIndividualFactors:
         self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
     ) -> None:
         result = compute_factor(FactorType.ASSET_GROWTH, fundamentals, price_history)
-        # Sign is flipped: negative growth -> positive score
-        assert (result == -fundamentals["asset_growth"]).all()
+        # Raw growth value returned (no sign flip — direction in standardization)
+        assert (result == fundamentals["asset_growth"]).all()
 
     def test_momentum(
         self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
@@ -108,8 +108,8 @@ class TestIndividualFactors:
         self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
     ) -> None:
         result = compute_factor(FactorType.VOLATILITY, fundamentals, price_history)
-        # Sign flipped: lower vol -> higher score
-        assert (result <= 0).all()
+        # Raw annualized vol returned (no sign flip — direction in standardization)
+        assert (result >= 0).all()
 
     def test_beta(
         self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
@@ -546,12 +546,12 @@ class TestAssetGrowthCurrencyInvariance:
         fundamentals_with_growth: pd.DataFrame,
         dummy_prices: pd.DataFrame,
     ) -> None:
-        """ASSET_GROWTH factor is sign-flipped fundamentals['asset_growth']."""
+        """ASSET_GROWTH factor is raw fundamentals['asset_growth'] (no sign flip)."""
         result = compute_factor(
             FactorType.ASSET_GROWTH, fundamentals_with_growth, dummy_prices
         )
-        # Sign is flipped: negative growth -> positive score
-        assert result["BARC.L"] == pytest.approx(-0.12, rel=1e-9)
+        # Raw value returned: no negation (direction applied in standardization)
+        assert result["BARC.L"] == pytest.approx(0.12, rel=1e-9)
 
     def test_asset_growth_ratio_cancels_currency_scale(self) -> None:
         """Direct proof: (k*a1 - k*a0) / abs(k*a0) == (a1-a0) / abs(a0)."""
@@ -693,3 +693,68 @@ class TestBetaMarketProxy:
         beta_clean_vals = beta_clean.reindex(usd_cols).values
         beta_polluted_vals = beta_polluted.reindex(usd_cols).values
         assert not np.allclose(beta_polluted_vals, beta_clean_vals, atol=0.05)
+
+
+# ---------------------------------------------------------------------------
+# Issue #299: sign-flip removed from construction (direction in standardization)
+# ---------------------------------------------------------------------------
+
+
+class TestFactorDirectionConventions:
+    """Verify raw construction values are in natural units (no sign flip).
+
+    The direction multiplier (-1 for lower-is-better factors) is applied
+    in standardize_factor() via FACTOR_DIRECTION, not in construction.
+    """
+
+    def test_volatility_is_non_negative(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
+        """Annualized volatility must be non-negative in natural units."""
+        result = compute_factor(FactorType.VOLATILITY, fundamentals, price_history)
+        assert (result >= 0).all(), "volatility must be positive before direction flip"
+
+    def test_volatility_is_annualized(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
+        """Annualized vol should be in [0.01, 2.0] for typical equity data."""
+        result = compute_factor(FactorType.VOLATILITY, fundamentals, price_history)
+        valid = result.dropna()
+        assert valid.between(0.01, 2.0).all(), (
+            f"annualized vol out of expected range:\n{valid.describe()}"
+        )
+
+    def test_beta_positive_mean_for_correlated_stocks(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
+        """Stocks generated with a common drift should have positive mean beta."""
+        result = compute_factor(FactorType.BETA, fundamentals, price_history)
+        assert result.mean() > 0, (
+            f"expected mean beta > 0 for correlated stocks, got {result.mean():.4f}"
+        )
+
+    def test_asset_growth_matches_raw_fundamentals(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
+        """ASSET_GROWTH must equal fundamentals['asset_growth'] exactly."""
+        result = compute_factor(FactorType.ASSET_GROWTH, fundamentals, price_history)
+        expected = fundamentals["asset_growth"].reindex(result.index)
+        pd.testing.assert_series_equal(
+            result.rename(None),
+            expected.rename(None).astype(float),
+        )
+
+    def test_beta_not_negated(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
+        """Raw beta from _compute_beta must not be negated by compute_factor."""
+        from optimizer.factors._construction import _compute_beta
+
+        raw_beta = _compute_beta(price_history)
+        api_beta = compute_factor(FactorType.BETA, fundamentals, price_history)
+
+        common = raw_beta.index.intersection(api_beta.index)
+        pd.testing.assert_series_equal(
+            api_beta.reindex(common).round(10),
+            raw_beta.reindex(common).round(10),
+        )
