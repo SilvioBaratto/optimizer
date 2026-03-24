@@ -1,3 +1,4 @@
+import base64
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -10,6 +11,7 @@ from app.config import settings
 @dataclass
 class Trading212Client:
     api_key: str
+    api_secret: str
     mode: str = "live"
     max_retries: int = 5
     base_url: str = field(init=False)
@@ -22,7 +24,11 @@ class Trading212Client:
 
     @property
     def headers(self) -> dict[str, str]:
-        return {"Authorization": self.api_key}
+        """HTTP Basic Auth — T212 requires Base64(api_key:api_secret)."""
+        credentials = base64.b64encode(
+            f"{self.api_key}:{self.api_secret}".encode()
+        ).decode()
+        return {"Authorization": f"Basic {credentials}"}
 
     # ------------------------------------------------------------------
     # Metadata endpoints (existing)
@@ -206,9 +212,11 @@ class Trading212Client:
     @classmethod
     def from_settings(cls, mode: str | None = None) -> Optional["Trading212Client"]:
         api_key = settings.trading_212_api_key
-        if not api_key:
+        api_secret = settings.trading_212_secret_key
+        if not api_key or not api_secret:
             return None
         return cls(
             api_key=api_key,
+            api_secret=api_secret,
             mode=mode or settings.trading_212_mode,
         )

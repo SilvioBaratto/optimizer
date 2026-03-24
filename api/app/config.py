@@ -68,6 +68,7 @@ class Settings(BaseSettings):
 
     # Trading212 API
     trading_212_api_key: str = Field(default="", alias="TRADING_212_API_KEY")
+    trading_212_secret_key: str = Field(default="", alias="TRADING_212_SECRET_KEY")
     trading_212_mode: str = Field(default="live", alias="TRADING_212_MODE")
 
     # FRED API

@@ -16,7 +16,12 @@ from app.services.trading212.client import Trading212Client
 
 
 def _make_client(mode: str = "live", max_retries: int = 3) -> Trading212Client:
-    return Trading212Client(api_key="test-key-abc", mode=mode, max_retries=max_retries)
+    return Trading212Client(
+        api_key="test-key-abc",
+        api_secret="test-secret-xyz",
+        mode=mode,
+        max_retries=max_retries,
+    )
 
 
 def _mock_response(json_data, status_code: int = 200) -> MagicMock:
@@ -59,12 +64,15 @@ class TestTrading212ClientInit:
         c = _make_client(mode="demo")
         assert c.base_url == "https://demo.trading212.com"
 
-    def test_headers_contain_api_key(self):
+    def test_headers_contain_basic_auth(self):
         c = _make_client()
-        assert c.headers == {"Authorization": "test-key-abc"}
+        import base64
+
+        expected = base64.b64encode(b"test-key-abc:test-secret-xyz").decode()
+        assert c.headers == {"Authorization": f"Basic {expected}"}
 
     def test_default_max_retries(self):
-        c = Trading212Client(api_key="k")
+        c = Trading212Client(api_key="k", api_secret="s")
         assert c.max_retries == 5
 
 
