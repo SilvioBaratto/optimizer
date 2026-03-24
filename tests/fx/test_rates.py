@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from unittest.mock import patch
 
 import numpy as np
@@ -129,6 +130,7 @@ class TestRequiredFxCurrencies:
         assert result == {"GBP"}
 
 
+@pytest.mark.skipif(not importlib.util.find_spec("typer"), reason="typer not installed")
 class TestAssembleFxRates:
     """Tests for assemble_fx_rates() in cli/data_assembly.py."""
 

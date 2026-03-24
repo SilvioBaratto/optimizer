@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -354,6 +355,7 @@ class TestRunFullPipelineWithSelectionFxSlicing:
                     assert set(passed_map.keys()) <= set(passed_prices.columns)
 
 
+@pytest.mark.skipif(not importlib.util.find_spec("typer"), reason="typer not installed")
 class TestAssembleFxRatesEmptyPriceIndex:
     """Verify assemble_fx_rates handles empty price index gracefully."""
 
@@ -373,6 +375,7 @@ class TestAssembleFxRatesEmptyPriceIndex:
         assert result.empty
 
 
+@pytest.mark.skipif(not importlib.util.find_spec("typer"), reason="typer not installed")
 class TestAssembleAllBaseCurrency:
     """Verify assemble_all() threads base_currency parameter."""
 
