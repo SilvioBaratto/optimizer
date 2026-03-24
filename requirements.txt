@@ -37,7 +37,7 @@ astropy==7.2.0
 pybind11==3.0.2
 
 # Skfolio
-skfolio==0.15.6
+skfolio==0.16.0
 
 # Deep Markov Models
 torch==2.10.0
