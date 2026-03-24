@@ -1,6 +1,6 @@
 # Core Framework
 fastapi==0.135.1
-uvicorn==0.41.0
+uvicorn==0.42.0
 python-dotenv==1.2.2
 
 # Database - Optimized for Supabase Transaction Pooler
@@ -43,7 +43,7 @@ astropy==7.2.0
 pybind11==3.0.2
 
 # Skfolio
-skfolio==0.15.6
+skfolio==0.16.0
 
 # HTTP & Web Scraping
 httpx==0.28.1
@@ -54,7 +54,7 @@ requests[socks]==2.32.5
 pysocks==1.7.1
 
 # Scheduling
-APScheduler==3.10.4
+APScheduler==3.11.2
 
 # Monitoring & System
 psutil==7.2.2
