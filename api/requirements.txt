@@ -50,7 +50,7 @@ httpx==0.28.1
 aiohttp==3.13.3
 beautifulsoup4==4.14.3
 lxml==6.0.2
-requests[socks]==2.32.5
+requests[socks]==2.33.0
 pysocks==1.7.1
 
 # Scheduling
