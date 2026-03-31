@@ -182,7 +182,7 @@ class MacroNewsFetchRequest(BaseModel):
     """Request body for macro news fetch."""
 
     fetch_full_content: bool = Field(
-        default=False,
+        default=True,
         description="Whether to scrape full article content.",
     )
     max_articles: int = Field(

@@ -59,10 +59,11 @@ dev = ["portopt[test,lint,typecheck,docs]", "pre-commit>=3.5"]
 optimizer = "cli:app"
 
 [tool.setuptools.packages.find]
-include = ["optimizer*", "cli*"]
+include = ["optimizer*", "cli*", "research*"]
 
 [tool.setuptools.package-data]
 optimizer = ["py.typed"]
+research = ["py.typed"]
 
 [tool.ruff]
 line-length = 88

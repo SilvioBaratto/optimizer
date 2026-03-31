@@ -328,6 +328,8 @@ class MacroRegimeService:
                 "full_content": article.get("full_content"),
             })
 
+        rows = [r for r in rows if r.get("full_content")]
+
         try:
             count = self.repo.upsert_macro_news(rows)
         except Exception as exc:
