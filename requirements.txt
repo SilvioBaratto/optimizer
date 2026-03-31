@@ -40,7 +40,7 @@ pybind11==3.0.2
 skfolio==0.16.1
 
 # Deep Markov Models
-torch==2.10.0
+torch==2.11.0
 pyro-ppl==1.9.1
 
 # HTTP & Web Scraping
