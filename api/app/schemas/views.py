@@ -2,10 +2,115 @@
 
 from __future__ import annotations
 
+import re
+
 from baml_client.types import ExpertPersona
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.base import CamelCaseModel
+
+# ---------------------------------------------------------------------------
+# Entropy Pooling schemas
+# ---------------------------------------------------------------------------
+
+_CORRELATION_VIEW_PATTERN = re.compile(
+    r"^\s*\(\s*\w+\s*,\s*\w+\s*\)\s*==\s*-?\d+(\.\d+)?\s*$"
+)
+
+
+class EntropyPoolingRequest(BaseModel):
+    """Request body for POST /api/v1/views/entropy-pooling."""
+
+    tickers: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Asset tickers to fetch price history for.",
+    )
+    start_date: str | None = Field(
+        default=None,
+        description="ISO date string for the start of the price history window.",
+    )
+    end_date: str | None = Field(
+        default=None,
+        description="ISO date string for the end of the price history window.",
+    )
+    mean_views: list[str] | None = Field(
+        default=None,
+        description="Mean equality view expressions, e.g. 'AAPL == 0.001'.",
+    )
+    variance_views: list[str] | None = Field(
+        default=None,
+        description="Variance view expressions, e.g. 'AAPL == 0.0004'.",
+    )
+    correlation_views: list[str] | None = Field(
+        default=None,
+        description="Correlation views in tuple format, e.g. '(AAPL, MSFT) == 0.5'.",
+    )
+    skew_views: list[str] | None = Field(
+        default=None,
+        description="Skewness view expressions, e.g. 'AAPL == -0.5'.",
+    )
+    kurtosis_views: list[str] | None = Field(
+        default=None,
+        description="Kurtosis view expressions, e.g. 'AAPL == 3.0'.",
+    )
+    cvar_views: list[str] | None = Field(
+        default=None,
+        description="CVaR view expressions, e.g. 'AAPL == -0.02'.",
+    )
+
+    @field_validator("tickers")
+    @classmethod
+    def normalise_tickers(cls, v: list[str]) -> list[str]:
+        stripped = [t.strip().upper() for t in v]
+        if not all(stripped):
+            raise ValueError("tickers must not contain empty strings")
+        return stripped
+
+    @field_validator("correlation_views")
+    @classmethod
+    def validate_correlation_format(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        for view in v:
+            if not _CORRELATION_VIEW_PATTERN.match(view):
+                raise ValueError(
+                    f"Invalid correlation view format: {view!r}. "
+                    "Expected '(ASSET1, ASSET2) == value'."
+                )
+        return v
+
+    @model_validator(mode="after")
+    def at_least_one_view_required(self) -> EntropyPoolingRequest:
+        has_views = any(
+            v
+            for v in (
+                self.mean_views,
+                self.variance_views,
+                self.correlation_views,
+                self.skew_views,
+                self.kurtosis_views,
+                self.cvar_views,
+            )
+            if v  # non-None and non-empty
+        )
+        if not has_views:
+            raise ValueError(
+                "At least one view type must be provided. "
+                "All of mean_views, variance_views, correlation_views, "
+                "skew_views, kurtosis_views, and cvar_views are null or empty."
+            )
+        return self
+
+
+class EntropyPoolingResponse(CamelCaseModel):
+    """Posterior moments from entropy pooling."""
+
+    mu: list[float] = Field(..., description="Posterior mean vector.")
+    covariance: list[list[float]] = Field(
+        ..., description="Posterior covariance matrix."
+    )
+    tickers: list[str] = Field(..., description="Asset tickers in the same order as mu.")
 
 
 # ---------------------------------------------------------------------------

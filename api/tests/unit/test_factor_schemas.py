@@ -260,15 +260,25 @@ class TestFactorValidateRequest:
 
     def test_valid_request(self) -> None:
         from app.schemas.factors import FactorValidateRequest
+        import datetime
 
         req = FactorValidateRequest(
+            tickers=["AAPL", "MSFT"],
+            start_date=datetime.date(2020, 1, 1),
+            end_date=datetime.date(2024, 1, 1),
             factor_type="momentum",
             validation_type="in_sample",
         )
         assert req.factor_type == "momentum"
 
-    def test_optional_validation_type(self) -> None:
+    def test_default_validation_type_is_in_sample(self) -> None:
         from app.schemas.factors import FactorValidateRequest
+        import datetime
 
-        req = FactorValidateRequest(factor_type="quality")
-        assert req.validation_type is None
+        req = FactorValidateRequest(
+            tickers=["AAPL"],
+            start_date=datetime.date(2020, 1, 1),
+            end_date=datetime.date(2024, 1, 1),
+            factor_type="quality",
+        )
+        assert req.validation_type == "in_sample"

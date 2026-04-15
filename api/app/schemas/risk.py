@@ -4,6 +4,7 @@ Covers risk_limits ORM model.
 """
 
 import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,15 +12,24 @@ from app.schemas.base import CamelCaseModel, StrFromUUID
 
 
 class RiskLimitCreate(BaseModel):
-    """Request body for POST /risk-limits."""
+    """Request body for POST /risk/{portfolio_name}/limits."""
 
     metric: str = Field(
         ..., min_length=1, description="Risk metric identifier (e.g. max_drawdown)"
     )
-    limit_type: str = Field(..., description="Constraint direction (upper / lower)")
+    limit_type: Literal["upper", "lower"] = Field(
+        ..., description="Constraint direction: 'upper' or 'lower'"
+    )
     threshold: float = Field(
         ..., gt=0, description="Limit threshold value (must be > 0)"
     )
+
+
+class RiskLimitUpdate(BaseModel):
+    """Request body for PUT /risk/{portfolio_name}/limits/{limit_id}."""
+
+    current_value: float = Field(..., description="Latest observed metric value")
+    is_breached: bool = Field(..., description="Whether the limit is currently breached")
 
 
 class RiskLimitResponse(CamelCaseModel):

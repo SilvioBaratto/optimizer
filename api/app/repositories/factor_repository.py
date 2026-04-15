@@ -52,6 +52,55 @@ class FactorRepository(RepositoryBase):
         stmt = stmt.order_by(FactorScore.score_date.asc())
         return list(self.session.execute(stmt).scalars().all())
 
+    def get_scores_by_tickers_and_date_range(
+        self,
+        tickers: list[str],
+        start_date: datetime.date,
+        end_date: datetime.date,
+        factor_type: str | None = None,
+    ) -> list[FactorScore]:
+        """Return factor scores for given tickers over a date range.
+
+        Args:
+            tickers: Asset ticker symbols to filter on.
+            start_date: Inclusive lower bound on ``score_date``.
+            end_date: Inclusive upper bound on ``score_date``.
+            factor_type: Optional filter on factor type.
+
+        Returns:
+            List of matching :class:`FactorScore` rows ordered by date ascending.
+        """
+        stmt = select(FactorScore).where(FactorScore.ticker.in_(tickers))
+        stmt = stmt.where(FactorScore.score_date >= start_date)
+        stmt = stmt.where(FactorScore.score_date <= end_date)
+
+        if factor_type is not None:
+            stmt = stmt.where(FactorScore.factor_type == factor_type)
+
+        stmt = stmt.order_by(FactorScore.score_date.asc(), FactorScore.ticker.asc())
+        return list(self.session.execute(stmt).scalars().all())
+
+    def get_scores_by_tickers_at_date(
+        self,
+        tickers: list[str],
+        score_date: datetime.date,
+    ) -> list[FactorScore]:
+        """Return all factor scores for given tickers on a specific date.
+
+        Args:
+            tickers: Asset ticker symbols to filter on.
+            score_date: The exact date to filter on.
+
+        Returns:
+            List of matching :class:`FactorScore` rows.
+        """
+        stmt = (
+            select(FactorScore)
+            .where(FactorScore.ticker.in_(tickers))
+            .where(FactorScore.score_date == score_date)
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
     def get_scores_by_date(self, score_date: datetime.date) -> list[FactorScore]:
         """Return all factor scores recorded on *score_date*.
 

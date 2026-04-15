@@ -176,6 +176,24 @@ class BackgroundJobRepository(RepositoryBase):
         stmt = self._apply_filters(stmt, domain, status)
         return self.session.execute(stmt).scalar_one()
 
+    def get_latest_by_type(self, job_type: str) -> BackgroundJob | None:
+        """Return the most-recently-finished job of *job_type*, or ``None``.
+
+        Ordered by ``finished_at`` descending so only completed/failed runs
+        (which have a ``finished_at``) are considered.  Jobs still pending or
+        running (``finished_at`` is NULL) are excluded.
+        """
+        stmt = (
+            select(BackgroundJob)
+            .where(
+                BackgroundJob.job_type == job_type,
+                BackgroundJob.finished_at.is_not(None),
+            )
+            .order_by(BackgroundJob.finished_at.desc())
+            .limit(1)
+        )
+        return self.session.execute(stmt).scalar_one_or_none()
+
     def cleanup_expired(self, ttl_seconds: int) -> int:
         """Delete completed/failed jobs older than *ttl_seconds*.
 

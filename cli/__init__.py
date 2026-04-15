@@ -6,6 +6,7 @@ from typing import Optional
 
 import typer
 
+from cli.auth import auth_app
 from cli.client import ApiClient
 from cli.db import db_app
 from cli.macro import macro_app
@@ -50,6 +51,7 @@ def main(
 
 
 # Register command groups
+app.add_typer(auth_app)
 app.add_typer(db_app)
 app.add_typer(macro_app)
 app.add_typer(portfolio_app)

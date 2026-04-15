@@ -26,6 +26,11 @@ class ExecutionRepository(RepositoryBase):
     # OptimizationRun
     # ------------------------------------------------------------------
 
+    def get_optimization_run(self, run_id: uuid.UUID) -> OptimizationRun | None:
+        """Return a single OptimizationRun by its primary-key UUID, or None."""
+        stmt = select(OptimizationRun).where(OptimizationRun.id == run_id)
+        return self.session.execute(stmt).scalar_one_or_none()
+
     def get_optimization_runs(
         self,
         portfolio_id: uuid.UUID | None = None,

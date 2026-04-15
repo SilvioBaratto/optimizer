@@ -1,6 +1,6 @@
 """Pydantic schemas for backtest run endpoints.
 
-Covers backtest_runs ORM model.
+Covers backtest_runs ORM model and background job lifecycle.
 """
 
 import datetime
@@ -9,6 +9,17 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.base import CamelCaseModel, StrFromUUID
+from app.schemas.base_job import AsyncJobCreateResponse, AsyncJobProgress
+
+
+class BacktestJobResponse(AsyncJobCreateResponse):
+    """Returned when a backtest background job is created (POST /backtest)."""
+
+    run_id: str = Field(..., description="Pre-created BacktestRun UUID")
+
+
+class BacktestProgressResponse(AsyncJobProgress):
+    """Progress info polled via GET /backtest/{job_id}."""
 
 
 class BacktestRequest(BaseModel):
