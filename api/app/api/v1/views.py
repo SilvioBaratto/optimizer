@@ -5,11 +5,11 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.repositories.view_generation_repository import ViewGenerationRepository
+from app.schemas.views import AssetViewResponse, GenerateViewsRequest, GenerateViewsResponse
 from app.services.view_generation import (
     GeneratedViews,
     fetch_factor_data,
@@ -19,73 +19,6 @@ from app.services.view_generation import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/views", tags=["Views"])
-
-
-# ---------------------------------------------------------------------------
-# Request / Response schemas
-# ---------------------------------------------------------------------------
-
-
-class GenerateViewsRequest(BaseModel):
-    tickers: list[str] = Field(
-        ...,
-        min_length=2,
-        description="Ordered list of asset tickers in the portfolio universe.",
-    )
-
-    @field_validator("tickers")
-    @classmethod
-    def non_empty_tickers(cls, v: list[str]) -> list[str]:
-        stripped = [t.strip().upper() for t in v]
-        if not all(stripped):
-            raise ValueError("tickers must not contain empty strings")
-        return stripped
-
-
-class AssetViewResponse(BaseModel):
-    asset: str
-    direction: int
-    magnitude_bps: float
-    confidence: float
-    reasoning: str
-
-
-class GenerateViewsResponse(BaseModel):
-    """BL-ready view components.
-
-    All arrays are serialised as nested lists for JSON transport.
-    """
-
-    n_views: int = Field(..., description="Number of views generated.")
-    n_assets: int = Field(..., description="Number of assets in the universe.")
-    view_strings: list[str] = Field(
-        ..., description="skfolio-compatible view expressions (e.g. 'AAPL == 0.02')."
-    )
-    P: list[list[float]] = Field(
-        ...,
-        description="Pick matrix, shape (n_views, n_assets). Row i is the i-th view.",
-    )
-    Q: list[float] = Field(
-        ...,
-        description="Expected excess returns vector, shape (n_views,). Decimal units.",
-    )
-    view_confidences: list[float] = Field(
-        ...,
-        description="Idzorek alpha_k per view, in (0, 1). Same order as view_strings.",
-    )
-    idzorek_alphas: dict[str, float] = Field(
-        ..., description="Asset ticker → Idzorek alpha_k. All values in (0, 1)."
-    )
-    views: list[AssetViewResponse] = Field(
-        ..., description="Structured per-asset views."
-    )
-    rationale: str = Field(..., description="LLM narrative explaining view generation.")
-    tickers_with_data: list[str] = Field(
-        ..., description="Tickers for which factor data was found in the DB."
-    )
-    tickers_missing_data: list[str] = Field(
-        ..., description="Tickers not found in the DB (excluded from view generation)."
-    )
 
 
 # ---------------------------------------------------------------------------

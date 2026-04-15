@@ -1,12 +1,16 @@
 """Moment estimation and prior construction."""
 
-import contextlib
-
 from optimizer.moments._config import (
     CovEstimatorType,
     MomentEstimationConfig,
     MuEstimatorType,
     ShrinkageMethod,
+)
+from optimizer.moments._dmm import (
+    DMMConfig,
+    DMMResult,
+    blend_moments_dmm,
+    fit_dmm,
 )
 from optimizer.moments._factory import (
     build_cov_estimator,
@@ -26,14 +30,6 @@ from optimizer.moments._scaling import (
     apply_lognormal_correction,
     scale_moments_to_horizon,
 )
-
-with contextlib.suppress(ImportError):
-    from optimizer.moments._dmm import (
-        DMMConfig,
-        DMMResult,
-        blend_moments_dmm,
-        fit_dmm,
-    )
 
 __all__ = [
     "CovEstimatorType",

@@ -6,11 +6,16 @@ import logging
 
 from baml_client.types import ExpertPersona
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.repositories.view_generation_repository import ViewGenerationRepository
+from app.schemas.views import (
+    ExpertViewSummary,
+    ICHistory,
+    OpinionPoolRequest,
+    OpinionPoolResponse,
+)
 from app.services.opinion_pooling import (
     ALL_PERSONAS,
     OpinionPoolResult,
@@ -21,92 +26,6 @@ from app.services.view_generation import fetch_factor_data
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/views", tags=["Views"])
-
-
-# ---------------------------------------------------------------------------
-# Request / Response schemas
-# ---------------------------------------------------------------------------
-
-
-class ICHistory(BaseModel):
-    """Historical IC series for one expert (ordered chronologically)."""
-
-    persona: str = Field(
-        ...,
-        description="Expert persona: VALUE_INVESTOR | MOMENTUM_TRADER | MACRO_ANALYST.",
-    )
-    ic_values: list[float] = Field(
-        ..., description="Chronological IC values (at least 3 for meaningful ICIR)."
-    )
-
-
-class ExpertViewSummary(BaseModel):
-    persona: str
-    name: str
-    n_views: int
-    view_strings: list[str]
-    idzorek_alphas: dict[str, float]
-    ic_weight: float
-
-
-class OpinionPoolRequest(BaseModel):
-    tickers: list[str] = Field(
-        ..., min_length=2, description="Portfolio universe tickers."
-    )
-    personas: list[str] | None = Field(
-        default=None,
-        description="Subset of personas to run. Defaults to all three.",
-    )
-    ic_histories: list[ICHistory] | None = Field(
-        default=None,
-        description="Historical IC series per expert for IC-weighted pooling. If omitted, equal weights are used.",
-    )
-    tau: float = Field(
-        default=0.05,
-        gt=0.0,
-        le=0.5,
-        description="BL uncertainty scaling for each expert prior.",
-    )
-    is_linear_pooling: bool = Field(
-        default=True, description="True = arithmetic pooling; False = geometric."
-    )
-    divergence_penalty: float = Field(
-        default=0.0, ge=0.0, description="KL divergence penalty for robust pooling."
-    )
-
-    @field_validator("tickers")
-    @classmethod
-    def normalise_tickers(cls, v: list[str]) -> list[str]:
-        stripped = [t.strip().upper() for t in v]
-        if not all(stripped):
-            raise ValueError("tickers must not contain empty strings")
-        return stripped
-
-    @field_validator("personas")
-    @classmethod
-    def validate_personas(cls, v: list[str] | None) -> list[str] | None:
-        if v is None:
-            return v
-        valid = {p.value for p in ExpertPersona}
-        for p in v:
-            if p not in valid:
-                raise ValueError(
-                    f"Unknown persona '{p}'. Must be one of: {sorted(valid)}"
-                )
-        return v
-
-
-class OpinionPoolResponse(BaseModel):
-    n_experts: int
-    tickers: list[str]
-    tickers_with_data: list[str]
-    tickers_missing_data: list[str]
-    experts: list[ExpertViewSummary]
-    ic_weights: list[float] = Field(
-        ..., description="IC-calibrated weights per expert, summing to 1.0."
-    )
-    pooling_type: str = Field(..., description="'linear' or 'geometric'.")
-    total_views: int = Field(..., description="Total unique views across all experts.")
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,10 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # Guard: no-op on fresh databases where NYSE exchange is not yet populated.
+    # Exchanges are seeded at runtime by the Trading212 universe builder, not by
+    # any migration. Without the WHERE EXISTS clause the subquery returns NULL,
+    # causing a NOT NULL constraint violation on exchange_id.
     op.execute("""
         INSERT INTO instruments (
             id,
@@ -46,6 +50,7 @@ def upgrade() -> None:
             (SELECT id FROM exchanges WHERE name = 'NYSE'),
             now(),
             now()
+        WHERE EXISTS (SELECT 1 FROM exchanges WHERE name = 'NYSE')
         ON CONFLICT ON CONSTRAINT uq_instrument_ticker_exchange DO NOTHING
     """)
 

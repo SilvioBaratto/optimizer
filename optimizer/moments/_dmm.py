@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-try:
+from optimizer.moments._dmm_compat import HAS_DMM, require_dmm
+
+if HAS_DMM:
     import pyro
     import pyro.distributions as dist
     import torch
@@ -22,11 +24,10 @@ try:
     from pyro import poutine
     from pyro.infer import SVI, Trace_ELBO
     from pyro.optim import ClippedAdam
-except ImportError as e:
-    raise ImportError(
-        "The DMM module requires 'torch' and 'pyro-ppl'. "
-        "Install them with: pip install optimizer[dmm]"
-    ) from e
+
+if TYPE_CHECKING:
+    import torch
+    import torch.nn as nn
 
 logger = logging.getLogger(__name__)
 
@@ -299,6 +300,8 @@ def fit_dmm(
     -------
     DMMResult
     """
+    require_dmm()
+
     if config is None:
         config = DMMConfig()
 
@@ -387,6 +390,8 @@ def blend_moments_dmm(
         ``(mu, cov)`` — expected returns and covariance matrix
         in the original (un-standardised) return scale.
     """
+    require_dmm()
+
     if seed is not None:
         torch.manual_seed(seed)
 

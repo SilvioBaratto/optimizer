@@ -377,7 +377,7 @@ class TestMacroCalibrationEndpoint:
         assert data["tau"] == pytest.approx(0.025)
         assert 0.0 <= data["confidence"] <= 1.0
         assert "rationale" in data
-        assert "bl_config" in data
+        assert "blConfig" in data
 
     def test_delta_in_valid_range(self, client: TestClient) -> None:
         mock_result = self._make_service_result(delta=5.0)
@@ -403,7 +403,7 @@ class TestMacroCalibrationEndpoint:
         with patch(_CLASSIFY, return_value=mock_result):
             resp = client.get(URL, params={"macro_text": "Late expansion."})
 
-        bl = resp.json()["bl_config"]
+        bl = resp.json()["blConfig"]
         assert "tau" in bl
         assert "prior_config" in bl
         assert "risk_aversion" in bl["prior_config"]
@@ -415,10 +415,10 @@ class TestMacroCalibrationEndpoint:
             resp = client.get(URL, params={"macro_text": "Recession onset."})
 
         data = resp.json()
-        assert data["bl_config"]["prior_config"]["risk_aversion"] == pytest.approx(
+        assert data["blConfig"]["prior_config"]["risk_aversion"] == pytest.approx(
             data["delta"]
         )
-        assert data["bl_config"]["tau"] == pytest.approx(data["tau"])
+        assert data["blConfig"]["tau"] == pytest.approx(data["tau"])
 
     def test_no_db_data_returns_422(self, client: TestClient) -> None:
         with patch(_CLASSIFY, side_effect=ValueError("No macro data found")):

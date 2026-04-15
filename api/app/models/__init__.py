@@ -5,13 +5,15 @@ from app.models.base import (
     TimestampMixin,
     UUIDPrimaryKeyMixin,
 )
+from app.models.execution import BacktestRun, OptimizationRun
+from app.models.factor import FactorScore, FactorValidationReport
 from app.models.macro_regime import (
     BondYield,
     EconomicIndicator,
     MacroCalibration,
     MacroNews,
-    MacroNewsTheme,
     MacroNewsSummary,
+    MacroNewsTheme,
     TradingEconomicsIndicator,
 )
 from app.models.portfolio import (
@@ -28,6 +30,8 @@ from app.models.portfolio import (
     SnapshotSummaryEntry,
     SnapshotWeight,
 )
+from app.models.rebalancing import RebalancingPolicy
+from app.models.risk import RiskLimit
 from app.models.universe import Exchange, Instrument
 from app.models.yfinance_data import (
     AnalystPriceTarget,
@@ -50,6 +54,7 @@ __all__ = [
     "AnalystRecommendation",
     "BackgroundJob",
     "BackgroundJobError",
+    "BacktestRun",
     "Base",
     "BaseModel",
     "BondYield",
@@ -58,20 +63,25 @@ __all__ = [
     "Dividend",
     "EconomicIndicator",
     "Exchange",
-    "MacroCalibration",
-    "MacroNews",
-    "MacroNewsTheme",
-    "MacroNewsSummary",
+    "FactorScore",
+    "FactorValidationReport",
     "FinancialStatement",
     "InsiderTransaction",
     "InstitutionalHolder",
     "Instrument",
+    "MacroCalibration",
+    "MacroNews",
+    "MacroNewsSummary",
+    "MacroNewsTheme",
     "MutualFundHolder",
+    "OptimizationRun",
     "Portfolio",
     "PortfolioSnapshot",
     "PriceHistory",
+    "RebalancingPolicy",
     "RegimeState",
     "RegimeStateProbability",
+    "RiskLimit",
     "SnapshotOptimizerParam",
     "SnapshotSectorMapping",
     "SnapshotSummaryEntry",

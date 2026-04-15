@@ -5,8 +5,12 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.stress_scenarios import (
+    StressScenarioItem,
+    StressScenarioRequest,
+    StressScenarioResponse,
+)
 from app.services.stress_scenarios import (
     generate_stress_scenarios,
     scenario_to_synthetic_data_args,
@@ -15,64 +19,6 @@ from app.services.stress_scenarios import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/risk", tags=["Risk"])
-
-
-# ---------------------------------------------------------------------------
-# Request / Response schemas
-# ---------------------------------------------------------------------------
-
-
-class StressScenarioRequest(BaseModel):
-    current_portfolio: dict[str, float] = Field(
-        ...,
-        description="Asset ticker → portfolio weight. Weights need not sum to 1.",
-        min_length=1,
-    )
-    macro_context: str = Field(
-        ...,
-        min_length=10,
-        description=(
-            "Free-text description of current macro/geopolitical conditions "
-            "used as LLM context (e.g. inflation, rate outlook, sector risks)."
-        ),
-    )
-    n_scenarios: int = Field(
-        default=3,
-        ge=1,
-        le=10,
-        description="Number of distinct stress scenarios to generate (1-10).",
-    )
-
-    @field_validator("current_portfolio")
-    @classmethod
-    def tickers_non_empty(cls, v: dict[str, float]) -> dict[str, float]:
-        cleaned = {k.strip().upper(): w for k, w in v.items() if k.strip()}
-        if not cleaned:
-            raise ValueError("current_portfolio must contain at least one ticker")
-        return cleaned
-
-
-class StressScenarioItem(BaseModel):
-    name: str
-    description: str
-    shocks: dict[str, float] = Field(
-        ..., description="Ticker → expected return shock in (-1, 1)."
-    )
-    probability: float = Field(..., description="Subjective probability in (0, 1).")
-    horizon_days: int = Field(..., description="Shock horizon in trading days.")
-    synthetic_data_args: dict[str, object] = Field(
-        ...,
-        description=(
-            "Ready-to-use sample_args for build_synthetic_data(). "
-            "Pass as sample_args= kwarg directly."
-        ),
-    )
-
-
-class StressScenarioResponse(BaseModel):
-    n_scenarios: int
-    tickers: list[str]
-    scenarios: list[StressScenarioItem]
 
 
 # ---------------------------------------------------------------------------
