@@ -67,21 +67,24 @@ TICKER_COUNTRY_MAP: dict[str, str] = {
     "EURUSD=X": "_GLOBAL",
 }
 
-# 12 queries from MACRO_SEARCH_QUERIES mapped to countries.
-# ECB queries map to both Germany and France.
+# 11 queries from MACRO_SEARCH_QUERIES mapped to countries.
+# Keys must exactly match MACRO_SEARCH_QUERIES in
+# api/app/services/yfinance/news/macro_news.py; run
+# api/scripts/validate_macro_queries.py after any change.
+# "European Central Bank rate" is the single eurozone query that returns
+# content from yfinance search; it maps to both Germany and France.
 QUERY_COUNTRY_MAP: dict[str, list[str]] = {
     "Federal Reserve interest rate decision": ["USA"],
-    "ISM manufacturing PMI economic": ["USA"],
-    "treasury yield curve inversion": ["USA"],
-    "high yield credit spread corporate bond": ["USA"],
-    "sector rotation cyclical defensive": ["USA"],
-    "CPI inflation consumer prices": ["USA"],
-    "emerging markets capital flows": ["_GLOBAL"],
-    "recession GDP employment nonfarm": ["USA"],
-    "Bank of England rate decision": ["UK"],
-    "UK inflation economy GDP": ["UK"],
-    "ECB interest rate decision": ["Germany", "France"],
-    "eurozone economy recession growth": ["Germany", "France"],
+    "ISM manufacturing index": ["USA"],
+    "10-year Treasury yield": ["USA"],
+    "high yield bond market": ["USA"],
+    "S&P 500 sector rotation": ["USA"],
+    "CPI inflation report": ["USA"],
+    "MSCI emerging markets": ["_GLOBAL"],
+    "US jobs report": ["USA"],
+    "Bank of England interest rate": ["UK"],
+    "Britain inflation": ["UK"],
+    "European Central Bank rate": ["Germany", "France"],
 }
 
 # ---------------------------------------------------------------------------
@@ -92,7 +95,14 @@ _GLOBAL = "_GLOBAL"
 _MIN_ARTICLES = 3
 _MAX_ARTICLES = 15
 _NEWS_LIMIT = 500
-_CUTOFF_HOURS = 24
+# 30-day window.  Previously 24h, later bumped to 168h (7d), but low-volume
+# sources like the ECB search query and the ^GDAXI / ^FCHI tickers can
+# still have gaps longer than a week.  At 30 days, Germany and France
+# reliably clear _MIN_ARTICLES while staying below the 60-day scraper
+# corpus ceiling.  This is orthogonal to how often summaries are
+# regenerated (still daily, still with summary_date=today) — it only
+# widens how far back to look for input articles on each run.
+_CUTOFF_HOURS = 720
 _CONTENT_TRUNCATE = 500
 _SENTIMENT_SCORE_MIN = -1.0
 _SENTIMENT_SCORE_MAX = 1.0

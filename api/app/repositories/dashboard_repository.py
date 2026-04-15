@@ -80,16 +80,16 @@ class DashboardRepository(RepositoryBase):
         row = self.session.execute(stmt).scalar_one_or_none()
         return row
 
-    def get_spy_prices(self, n: int = 2) -> list[float]:
-        """Return the last *n* SPY close prices ordered oldest-first.
+    def get_benchmark_prices(self, ticker: str, n: int = 2) -> list[float]:
+        """Return the last *n* close prices for a benchmark ticker, oldest-first.
 
         Returns:
-            [oldest, ..., newest]. Empty list if SPY not found.
+            [oldest, ..., newest]. Empty list if the ticker is not found.
         """
         stmt = (
             select(PriceHistory.close)
             .join(Instrument, PriceHistory.instrument_id == Instrument.id)
-            .where(Instrument.yfinance_ticker == "SPY")
+            .where(Instrument.yfinance_ticker == ticker)
             .order_by(PriceHistory.date.desc())
             .limit(n)
         )
@@ -97,12 +97,12 @@ class DashboardRepository(RepositoryBase):
         # Reverse so index 0 = oldest
         return [float(v) for v in reversed(rows) if v is not None]
 
-    def get_spy_latest_date(self) -> date | None:
-        """Return the most recent SPY price date."""
+    def get_benchmark_latest_date(self, ticker: str) -> date | None:
+        """Return the most recent price date for a benchmark ticker."""
         stmt = (
             select(PriceHistory.date)
             .join(Instrument, PriceHistory.instrument_id == Instrument.id)
-            .where(Instrument.yfinance_ticker == "SPY")
+            .where(Instrument.yfinance_ticker == ticker)
             .order_by(PriceHistory.date.desc())
             .limit(1)
         )

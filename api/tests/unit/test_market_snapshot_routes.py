@@ -24,10 +24,10 @@ class TestGetMarketSnapshot:
             "VIXCLS": (16.8, 18.0),
             "DTWEXBGS": (103.4, 103.68),
         }
-        repo.get_spy_prices.return_value = [449.30, 457.48]
+        repo.get_benchmark_prices.return_value = [449.30, 457.48]
         repo.get_ten_year_yield_usa.return_value = (4.22, -0.03)
         repo.get_latest_fred_observation_dates.return_value = date(2026, 3, 18)
-        repo.get_spy_latest_date.return_value = date(2026, 3, 18)
+        repo.get_benchmark_latest_date.return_value = date(2026, 3, 18)
         repo.get_ten_year_yield_reference_date.return_value = date(2026, 3, 17)
         return repo
 
@@ -99,7 +99,7 @@ class TestGetMarketSnapshot:
     def test_missing_spy_prices_returns_503(self, client: TestClient):
         with patch(_DASHBOARD_REPO) as MockDashRepo:
             repo = self._mock_repo(MockDashRepo)
-            repo.get_spy_prices.return_value = []
+            repo.get_benchmark_prices.return_value = []
 
             resp = client.get(f"{BASE_URL}/snapshot")
 
@@ -117,7 +117,7 @@ class TestGetMarketSnapshot:
     def test_spy_single_price_returns_503(self, client: TestClient):
         with patch(_DASHBOARD_REPO) as MockDashRepo:
             repo = self._mock_repo(MockDashRepo)
-            repo.get_spy_prices.return_value = [449.30]
+            repo.get_benchmark_prices.return_value = [449.30]
 
             resp = client.get(f"{BASE_URL}/snapshot")
 

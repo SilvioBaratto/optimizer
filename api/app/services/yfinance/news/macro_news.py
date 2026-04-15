@@ -107,50 +107,55 @@ MACRO_TICKERS: dict[str, list[MacroTheme]] = {
     "EURUSD=X": [MacroTheme.geographic_allocation, MacroTheme.monetary_policy],
 }
 
+#
+# NOTE: yfinance ``yf.Search`` uses strict entity/phrase matching, not
+# natural-language concept search.  Multi-word descriptive queries like
+# ``"eurozone economy recession growth"`` silently return zero results.
+# Every query below has been validated against live yfinance to return
+# at least one recent, trusted article.  Rewrites must be revalidated via
+# ``api/scripts/validate_macro_queries.py`` before shipping.
 MACRO_SEARCH_QUERIES: dict[str, list[MacroTheme]] = {
     # --- USA ---
     "Federal Reserve interest rate decision": [
         MacroTheme.monetary_policy,
     ],
-    "ISM manufacturing PMI economic": [
+    "ISM manufacturing index": [
         MacroTheme.growth_indicators,
         MacroTheme.business_cycle,
     ],
-    "treasury yield curve inversion": [
+    "10-year Treasury yield": [
         MacroTheme.yield_curve,
     ],
-    "high yield credit spread corporate bond": [
+    "high yield bond market": [
         MacroTheme.credit_conditions,
     ],
-    "sector rotation cyclical defensive": [
+    "S&P 500 sector rotation": [
         MacroTheme.sector_rotation,
     ],
-    "CPI inflation consumer prices": [
+    "CPI inflation report": [
         MacroTheme.commodity_inflation,
         MacroTheme.monetary_policy,
     ],
-    "emerging markets capital flows": [
+    "MSCI emerging markets": [
         MacroTheme.geographic_allocation,
     ],
-    "recession GDP employment nonfarm": [
+    "US jobs report": [
         MacroTheme.business_cycle,
         MacroTheme.growth_indicators,
     ],
     # --- UK ---
-    "Bank of England rate decision": [
+    "Bank of England interest rate": [
         MacroTheme.monetary_policy,
     ],
-    "UK inflation economy GDP": [
+    "Britain inflation": [
         MacroTheme.growth_indicators,
         MacroTheme.commodity_inflation,
     ],
     # --- Europe / ECB ---
-    "ECB interest rate decision": [
+    # NOTE: the only eurozone query that yfinance search actually returns
+    # content for.  Every ``"eurozone ..."`` phrasing tested returned zero.
+    "European Central Bank rate": [
         MacroTheme.monetary_policy,
-    ],
-    "eurozone economy recession growth": [
-        MacroTheme.business_cycle,
-        MacroTheme.growth_indicators,
     ],
 }
 

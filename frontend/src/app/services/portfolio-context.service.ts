@@ -1,4 +1,4 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal, computed, effect } from '@angular/core';
 
 export type PortfolioMode = 'live' | 'backtest' | 'paper';
 export type DateRangePreset = '1D' | '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | '3Y' | '5Y' | 'Max' | 'Custom';
@@ -9,12 +9,41 @@ export interface DateRange {
   end: Date;
 }
 
+const STORAGE_KEY_PORTFOLIO = 'optimizer.currentPortfolioId';
+
+function readStoredPortfolioId(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    return localStorage.getItem(STORAGE_KEY_PORTFOLIO);
+  } catch {
+    return null;
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class PortfolioContextService {
   readonly activeMode = signal<PortfolioMode>('backtest');
-  readonly currentPortfolioId = signal<string | null>(null);
+  readonly currentPortfolioId = signal<string | null>(readStoredPortfolioId());
   readonly dateRange = signal<DateRange>(this.computeDateRange('1Y'));
   readonly benchmark = signal('SPY');
+
+  constructor() {
+    // Persist portfolio selection across reloads. Storage errors (quota,
+    // private mode) must not crash the app, so they're swallowed.
+    effect(() => {
+      const id = this.currentPortfolioId();
+      if (typeof localStorage === 'undefined') return;
+      try {
+        if (id) {
+          localStorage.setItem(STORAGE_KEY_PORTFOLIO, id);
+        } else {
+          localStorage.removeItem(STORAGE_KEY_PORTFOLIO);
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+  }
 
   readonly hasPortfolio = computed(() => this.currentPortfolioId() !== null);
   readonly isLive = computed(() => this.activeMode() === 'live');

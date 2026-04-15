@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     # FRED API
     fred_api_key: str = Field(default="", alias="FRED_API_KEY")
 
+    # Benchmarks / reference indices
+    default_benchmark_ticker: str = Field(
+        default="SPY", alias="DEFAULT_BENCHMARK_TICKER",
+    )
+
     # Scheduler — cron expressions (5-field: min hour dom month dow)
     scheduler_daily_pipeline_cron: str = Field(
         default="0 7 * * *", alias="SCHEDULER_DAILY_PIPELINE_CRON",
