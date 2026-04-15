@@ -379,15 +379,15 @@ class TestGenerateViewsEndpoint:
 
         assert resp.status_code == 200
         data = resp.json()
-        n_views = data["n_views"]
-        n_assets = data["n_assets"]
+        n_views = data["nViews"]
+        n_assets = data["nAssets"]
 
         assert n_assets == len(TICKERS_PAYLOAD)
-        assert n_views == len(data["view_strings"])
-        assert len(data["P"]) == n_views
-        assert all(len(row) == n_assets for row in data["P"])
-        assert len(data["Q"]) == n_views
-        assert len(data["view_confidences"]) == n_views
+        assert n_views == len(data["viewStrings"])
+        assert len(data["p"]) == n_views
+        assert all(len(row) == n_assets for row in data["p"])
+        assert len(data["q"]) == n_views
+        assert len(data["viewConfidences"]) == n_views
 
     def test_all_idzorek_alphas_in_open_unit_interval(self, client: TestClient) -> None:
         mock_gv = _make_generated_views(TICKERS_PAYLOAD)
@@ -399,7 +399,7 @@ class TestGenerateViewsEndpoint:
             resp = client.post(URL, json=self.PAYLOAD)
 
         assert resp.status_code == 200
-        for alpha in resp.json()["idzorek_alphas"].values():
+        for alpha in resp.json()["idzorekAlphas"].values():
             assert 0.0 < alpha < 1.0
 
     def test_view_confidences_in_unit_interval(self, client: TestClient) -> None:
@@ -414,7 +414,7 @@ class TestGenerateViewsEndpoint:
             resp = client.post(URL, json=self.PAYLOAD)
 
         assert resp.status_code == 200
-        for c in resp.json()["view_confidences"]:
+        for c in resp.json()["viewConfidences"]:
             assert 0.0 < c < 1.0
 
     def test_p_matrix_shape_n_views_x_n_assets(self, client: TestClient) -> None:
@@ -431,8 +431,8 @@ class TestGenerateViewsEndpoint:
             resp = client.post(URL, json=self.PAYLOAD)
 
         data = resp.json()
-        P = np.array(data["P"])
-        assert P.shape == (data["n_views"], data["n_assets"])
+        P = np.array(data["p"])
+        assert P.shape == (data["nViews"], data["nAssets"])
 
     def test_q_shape_n_views(self, client: TestClient) -> None:
         mock_gv = _make_generated_views(TICKERS_PAYLOAD)
@@ -444,7 +444,7 @@ class TestGenerateViewsEndpoint:
             resp = client.post(URL, json=self.PAYLOAD)
 
         data = resp.json()
-        assert len(data["Q"]) == data["n_views"]
+        assert len(data["q"]) == data["nViews"]
 
     def test_fewer_than_2_tickers_rejected(self, client: TestClient) -> None:
         resp = client.post(URL, json={"tickers": ["AAPL"]})
@@ -479,9 +479,9 @@ class TestGenerateViewsEndpoint:
             resp = client.post(URL, json=self.PAYLOAD)
 
         data = resp.json()
-        assert "MSFT" in data["tickers_missing_data"]
-        assert "GOOGL" in data["tickers_missing_data"]
-        assert "AAPL" in data["tickers_with_data"]
+        assert "MSFT" in data["tickersMissingData"]
+        assert "GOOGL" in data["tickersMissingData"]
+        assert "AAPL" in data["tickersWithData"]
 
     def test_output_passes_directly_to_build_black_litterman(
         self, client: TestClient
@@ -500,6 +500,6 @@ class TestGenerateViewsEndpoint:
             resp = client.post(URL, json=self.PAYLOAD)
 
         data = resp.json()
-        views_tuple = tuple(data["view_strings"])
+        views_tuple = tuple(data["viewStrings"])
         config = BlackLittermanConfig(views=views_tuple)
-        assert len(config.views) == data["n_views"]
+        assert len(config.views) == data["nViews"]

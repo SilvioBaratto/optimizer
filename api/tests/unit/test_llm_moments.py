@@ -351,7 +351,7 @@ class TestSelectCovRegimeEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["estimator"] == "EW"
-        assert data["estimator_type"] == "ew"
+        assert data["estimatorType"] == "ew"
         assert data["confidence"] == pytest.approx(0.9)
         assert "rationale" in data
 
@@ -391,4 +391,4 @@ class TestSelectCovRegimeEndpoint:
         ):
             resp = client.post(self.URL, json=self.PAYLOAD)
 
-        assert resp.json()["estimator_type"] in valid_values
+        assert resp.json()["estimatorType"] in valid_values

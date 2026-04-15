@@ -211,17 +211,25 @@ Best Practices
 # Import and export your repositories here:
 from app.repositories.base import BaseRepository, RepositoryBase
 from app.repositories.dashboard_repository import DashboardRepository
+from app.repositories.execution_repository import ExecutionRepository
+from app.repositories.factor_repository import FactorRepository
 from app.repositories.macro_regime_repository import MacroRegimeRepository
 from app.repositories.portfolio_repository import PortfolioRepository
+from app.repositories.rebalancing_repository import RebalancingRepository
+from app.repositories.risk_repository import RiskRepository
 from app.repositories.universe_repository import UniverseRepository
 from app.repositories.yfinance_repository import YFinanceRepository
 
 __all__ = [
-    "RepositoryBase",
     "BaseRepository",
     "DashboardRepository",
+    "ExecutionRepository",
+    "FactorRepository",
     "MacroRegimeRepository",
     "PortfolioRepository",
+    "RebalancingRepository",
+    "RepositoryBase",
+    "RiskRepository",
     "UniverseRepository",
     "YFinanceRepository",
 ]

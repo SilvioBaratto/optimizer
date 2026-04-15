@@ -440,9 +440,9 @@ class TestOpinionPoolEndpoint:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["n_experts"] == 3
+        assert data["nExperts"] == 3
         assert len(data["experts"]) == 3
-        assert len(data["ic_weights"]) == 3
+        assert len(data["icWeights"]) == 3
 
     def test_ic_weights_sum_to_one(self, client: TestClient) -> None:
         mock_pool = _make_pool_result()
@@ -453,7 +453,7 @@ class TestOpinionPoolEndpoint:
         ):
             resp = client.post(URL, json=PAYLOAD)
 
-        weights = resp.json()["ic_weights"]
+        weights = resp.json()["icWeights"]
         assert sum(weights) == pytest.approx(1.0)
 
     def test_ic_weights_non_negative(self, client: TestClient) -> None:
@@ -465,7 +465,7 @@ class TestOpinionPoolEndpoint:
         ):
             resp = client.post(URL, json=PAYLOAD)
 
-        assert all(w >= 0.0 for w in resp.json()["ic_weights"])
+        assert all(w >= 0.0 for w in resp.json()["icWeights"])
 
     def test_at_least_two_distinct_personas_in_response(
         self, client: TestClient
@@ -516,9 +516,9 @@ class TestOpinionPoolEndpoint:
             resp = client.post(URL, json=PAYLOAD)
 
         data = resp.json()
-        assert "MSFT" in data["tickers_missing_data"]
-        assert "GOOGL" in data["tickers_missing_data"]
-        assert "AAPL" in data["tickers_with_data"]
+        assert "MSFT" in data["tickersMissingData"]
+        assert "GOOGL" in data["tickersMissingData"]
+        assert "AAPL" in data["tickersWithData"]
 
     def test_pooling_type_linear_default(self, client: TestClient) -> None:
         mock_pool = _make_pool_result()
@@ -529,7 +529,7 @@ class TestOpinionPoolEndpoint:
         ):
             resp = client.post(URL, json=PAYLOAD)
 
-        assert resp.json()["pooling_type"] == "linear"
+        assert resp.json()["poolingType"] == "linear"
 
     def test_pooling_type_geometric(self, client: TestClient) -> None:
         mock_pool = _make_pool_result()
@@ -540,7 +540,7 @@ class TestOpinionPoolEndpoint:
         ):
             resp = client.post(URL, json={**PAYLOAD, "is_linear_pooling": False})
 
-        assert resp.json()["pooling_type"] == "geometric"
+        assert resp.json()["poolingType"] == "geometric"
 
     def test_ic_histories_passed_to_service(self, client: TestClient) -> None:
         mock_pool = _make_pool_result()

@@ -65,7 +65,10 @@ class RepositoryBase:
         return len(rows)
 
 
-class BaseRepository(RepositoryBase, Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
+class BaseRepository(
+    RepositoryBase,
+    Generic[ModelType, CreateSchemaType, UpdateSchemaType],
+):
     """Generic repository with synchronous CRUD operations.
 
     Type Parameters:
