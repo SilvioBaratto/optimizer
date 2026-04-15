@@ -1,4 +1,4 @@
-"""FastAPI router for LLM-driven Black-Litterman view generation."""
+"""FastAPI router for LLM-driven Black-Litterman view generation and entropy pooling."""
 
 from __future__ import annotations
 
@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.repositories.view_generation_repository import ViewGenerationRepository
-from app.schemas.views import AssetViewResponse, GenerateViewsRequest, GenerateViewsResponse
+from app.schemas.views import (
+    AssetViewResponse,
+    EntropyPoolingRequest,
+    EntropyPoolingResponse,
+    GenerateViewsRequest,
+    GenerateViewsResponse,
+)
+from app.services.entropy_pooling_service import fetch_prices_df, run_entropy_pooling
 from app.services.view_generation import (
     GeneratedViews,
     fetch_factor_data,
@@ -115,4 +122,74 @@ def generate_bl_views(
         rationale=result.rationale,
         tickers_with_data=tickers_with_data,
         tickers_missing_data=tickers_missing,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entropy Pooling endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/entropy-pooling",
+    response_model=EntropyPoolingResponse,
+    summary="Compute posterior moments via Entropy Pooling",
+)
+def entropy_pooling(
+    request: EntropyPoolingRequest,
+    db: Session = Depends(get_db),
+) -> EntropyPoolingResponse:
+    """Fetch historical prices, apply entropy pooling views, and return posterior moments.
+
+    The endpoint:
+    1. Fetches close prices from DB via the yfinance repository.
+    2. Converts prices to returns via ``prices_to_returns()``.
+    3. Builds an ``EntropyPoolingConfig`` from the request views.
+    4. Fits the estimator and extracts ``return_distribution_`` (mu, covariance).
+
+    **Returns 422** when tickers are missing or no price data is found.
+    **Returns 500** when the entropy pooling solver fails to converge.
+    """
+    prices = fetch_prices_df(
+        request.tickers,
+        request.start_date,
+        request.end_date,
+        db,
+    )
+
+    if prices.empty:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"No price data found for tickers: {request.tickers}. "
+                "Ensure the tickers exist in the database."
+            ),
+        )
+
+    import pandas as pd
+    from skfolio.preprocessing import prices_to_returns
+
+    returns = pd.DataFrame(prices_to_returns(prices))
+
+    try:
+        result = run_entropy_pooling(
+            returns=returns,
+            mean_views=tuple(request.mean_views) if request.mean_views else None,
+            variance_views=tuple(request.variance_views) if request.variance_views else None,
+            correlation_views=tuple(request.correlation_views) if request.correlation_views else None,
+            skew_views=tuple(request.skew_views) if request.skew_views else None,
+            kurtosis_views=tuple(request.kurtosis_views) if request.kurtosis_views else None,
+            cvar_views=tuple(request.cvar_views) if request.cvar_views else None,
+        )
+    except Exception as exc:
+        logger.exception("Entropy pooling solver failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Entropy pooling solver failed to converge: {exc}",
+        ) from exc
+
+    return EntropyPoolingResponse(
+        mu=result["mu"],
+        covariance=result["covariance"],
+        tickers=result["tickers"],
     )

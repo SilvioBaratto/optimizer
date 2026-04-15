@@ -154,3 +154,76 @@ class TestCleanupExpired:
 
         deleted = repo.cleanup_expired(ttl_seconds=3600)
         assert deleted == 3
+
+
+class TestGetLatestByType:
+    """get_latest_by_type returns the most recently finished job."""
+
+    def test_returns_none_when_no_jobs(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        result = repo.get_latest_by_type("no_such_type_375")
+        assert result is None
+
+    def test_returns_none_when_only_pending_jobs(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        repo.claim_or_create("test_375_pending_only")
+        db_session.flush()
+
+        result = repo.get_latest_by_type("test_375_pending_only")
+        assert result is None
+
+    def test_returns_completed_job(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_375_completed")
+        assert job_id is not None
+        finished = datetime.now(timezone.utc)
+        repo.update(job_id, status="completed", finished_at=finished)
+        db_session.flush()
+
+        result = repo.get_latest_by_type("test_375_completed")
+        assert result is not None
+        assert result.status == "completed"
+
+    def test_returns_failed_job(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_375_failed")
+        assert job_id is not None
+        finished = datetime.now(timezone.utc)
+        repo.update(job_id, status="failed", finished_at=finished)
+        db_session.flush()
+
+        result = repo.get_latest_by_type("test_375_failed")
+        assert result is not None
+        assert result.status == "failed"
+
+    def test_returns_most_recent_when_multiple(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        older = datetime.now(timezone.utc) - timedelta(hours=2)
+        newer = datetime.now(timezone.utc)
+
+        jid_old = repo.claim_or_create("test_375_multi")
+        assert jid_old is not None
+        repo.update(jid_old, status="failed", finished_at=older)
+        db_session.flush()
+
+        jid_new = repo.claim_or_create("test_375_multi")
+        assert jid_new is not None
+        repo.update(jid_new, status="completed", finished_at=newer)
+        db_session.flush()
+
+        result = repo.get_latest_by_type("test_375_multi")
+        assert result is not None
+        assert result.id == jid_new
+        assert result.status == "completed"
+
+    def test_does_not_cross_contaminate_job_types(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        finished = datetime.now(timezone.utc)
+
+        jid = repo.claim_or_create("test_375_type_a")
+        assert jid is not None
+        repo.update(jid, status="completed", finished_at=finished)
+        db_session.flush()
+
+        result = repo.get_latest_by_type("test_375_type_b")
+        assert result is None

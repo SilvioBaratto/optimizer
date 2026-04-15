@@ -22,7 +22,9 @@ from app.api.v1.router import api_router
 from app.config import settings
 from app.database import close_db, database_manager, init_db
 from app.exceptions import setup_exception_handlers
+from app.middleware.auth import ApiKeyAuthMiddleware
 from app.middleware.logging import LoggingMiddleware
+from app.middleware.metrics_middleware import MetricsMiddleware
 from app.middleware.rate_limiting import RateLimitingMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 from app.services.scheduler import create_scheduler
@@ -43,7 +45,7 @@ async def lifespan(app: FastAPI):
     """
     FastAPI lifespan context manager for startup and shutdown events.
     """
-    scheduler = None
+    app.state.scheduler = None
 
     # Startup
     logger.info(f"Starting {settings.project_name}...")
@@ -68,6 +70,7 @@ async def lifespan(app: FastAPI):
         # Start APScheduler (replaces supercronic + MacroNewsSummaryScheduler)
         scheduler = create_scheduler()
         scheduler.start()
+        app.state.scheduler = scheduler
         logger.info(
             "APScheduler started — daily=%s, midday_news=%s, "
             "weekly=%s, fred=%s, news_refresh=%dmin",
@@ -83,6 +86,7 @@ async def lifespan(app: FastAPI):
 
     except Exception as e:
         logger.error(f"Startup error: {e}")
+        app.state.scheduler = None
         if settings.is_development:
             logger.warning("Continuing startup in development mode despite errors")
             yield
@@ -93,8 +97,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"Shutting down {settings.project_name}...")
 
     try:
+        scheduler = getattr(app.state, "scheduler", None)
         if scheduler is not None:
             scheduler.shutdown(wait=False)
+            app.state.scheduler = None
             logger.info("APScheduler stopped")
         close_db()
         logger.info("Application shutdown complete")
@@ -139,6 +145,7 @@ def create_application() -> FastAPI:
             "X-Requested-With",
             "X-Client-Info",
             "X-Dev-User",
+            "X-API-Key",
         ],
         expose_headers=["X-Total-Count", "X-Rate-Limit-Remaining"],
         max_age=3600,  # Cache preflight requests for 1 hour
@@ -155,7 +162,17 @@ def create_application() -> FastAPI:
     # 3. Security headers middleware
     app.add_middleware(SecurityHeadersMiddleware)
 
-    # 4. Request logging middleware (innermost)
+    # 4. Prometheus latency histogram middleware (after security headers, before auth)
+    app.add_middleware(MetricsMiddleware)
+
+    # 5. API-key authentication middleware (after security headers, before logging)
+    if settings.is_production_like:
+        app.add_middleware(
+            ApiKeyAuthMiddleware,
+            session_factory=database_manager.get_session,
+        )
+
+    # 6. Request logging middleware (innermost)
     if settings.debug or settings.log_level.upper() in ["DEBUG", "INFO"]:
         app.add_middleware(LoggingMiddleware)
 

@@ -1,12 +1,15 @@
 """Job history API — read-only access to background job records."""
 
+import asyncio
 import logging
 import uuid
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from starlette.responses import StreamingResponse
 
-from app.database import get_db
+from app.database import database_manager, get_db
 from app.models.background_job import BackgroundJob
 from app.repositories.background_job_repository import BackgroundJobRepository
 from app.schemas.jobs import JobListResponse, JobSummary
@@ -81,3 +84,69 @@ def get_job(
             detail="Job not found",
         )
     return _job_to_summary(row)
+
+
+_TERMINAL_STATUSES = frozenset({"completed", "failed"})
+
+
+def _sse_event(event_type: str, payload: JobSummary) -> str:
+    """Format a single named SSE event block."""
+    data = payload.model_dump_json()
+    return f"event: {event_type}\ndata: {data}\n\n"
+
+
+def _fetch_job(uid: uuid.UUID) -> BackgroundJob | None:
+    """Blocking DB fetch; designed to run in a thread-pool executor."""
+    with database_manager.get_session() as session:
+        repo = BackgroundJobRepository(session)
+        return repo.get(uid)
+
+
+async def _poll_job(uid: uuid.UUID, interval: int) -> AsyncGenerator[str, None]:
+    """Yield SSE events until terminal state; non-blocking async generator."""
+    loop = asyncio.get_running_loop()
+    while True:
+        row = await loop.run_in_executor(None, _fetch_job, uid)
+
+        if row is None:
+            return
+
+        summary = _job_to_summary(row)
+
+        if summary.status in _TERMINAL_STATUSES:
+            yield _sse_event("done", summary)
+            return
+
+        yield _sse_event("progress", summary)
+        await asyncio.sleep(interval)
+
+
+@router.get("/{job_id}/stream")
+async def stream_job(
+    job_id: str,
+    interval: int = Query(1, ge=1, le=10, description="Poll interval in seconds (1–10)"),
+) -> StreamingResponse:
+    """Stream job progress as SSE: ``event: progress`` while running, ``event: done`` on terminal."""
+    try:
+        uid = uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid job ID format",
+        )
+
+    # Pre-flight check: fail fast with 404 if job doesn't exist
+    loop = asyncio.get_running_loop()
+    exists = await loop.run_in_executor(None, _fetch_job, uid) is not None
+
+    if not exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    return StreamingResponse(
+        _poll_job(uid, interval),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

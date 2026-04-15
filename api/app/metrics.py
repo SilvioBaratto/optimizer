@@ -37,3 +37,10 @@ jobs_in_progress = Gauge(
     "Number of background jobs currently in the running state",
     ["domain"],
 )
+
+http_request_duration_seconds = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request wall-clock duration in seconds",
+    ["method", "path_template", "status_code"],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
+)

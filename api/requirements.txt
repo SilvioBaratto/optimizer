@@ -23,6 +23,7 @@ markitdown[all]==0.1.5
 
 # File Handling
 python-multipart==0.0.22
+reportlab==4.4.10
 
 # Financial Data & Analysis
 exchange_calendars==4.13.2

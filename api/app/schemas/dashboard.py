@@ -156,3 +156,36 @@ class AssetClassReturnsResponse(CamelCaseModel):
 
     returns: list[AssetClassReturnRow]
     as_of: Date
+
+
+class RegimeHistoryPoint(CamelCaseModel):
+    """Single date entry in the HMM regime history time series."""
+
+    date: Date
+    regime: str
+    bull_prob: float
+    bear_prob: float
+    sideways_prob: float
+    volatile_prob: float
+
+
+class RegimeHistoryResponse(CamelCaseModel):
+    """Response for GET /market/regime/history."""
+
+    points: list[RegimeHistoryPoint]
+    total: int
+
+
+class ReferenceIndexItem(CamelCaseModel):
+    """Single benchmark reference index entry."""
+
+    ticker: str
+    name: str | None
+    instrument_type: str | None
+
+
+class ReferenceIndicesResponse(CamelCaseModel):
+    """Response for GET /market/indices."""
+
+    indices: list[ReferenceIndexItem]
+    total: int

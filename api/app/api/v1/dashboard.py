@@ -23,6 +23,10 @@ from app.schemas.dashboard import (
     MarketRegimeResponse,
     MarketSnapshotResponse,
     PerformanceMetricsResponse,
+    ReferenceIndexItem,
+    ReferenceIndicesResponse,
+    RegimeHistoryPoint,
+    RegimeHistoryResponse,
 )
 from app.services import dashboard_service
 from optimizer.moments._hmm import HMMConfig, fit_hmm
@@ -643,3 +647,80 @@ def get_market_regime(
     db.commit()
 
     return MarketRegimeResponse(**result)
+
+
+# ---------------------------------------------------------------------------
+# Regime history (full time series)
+# ---------------------------------------------------------------------------
+
+
+def _pivot_regime_probs(state: object) -> dict[str, float]:
+    """Extract per-label probabilities from probability_entries into a flat dict."""
+    return {e.regime: e.probability for e in state.probability_entries}
+
+
+@market_router.get(
+    "/regime/history",
+    response_model=RegimeHistoryResponse,
+    response_model_by_alias=True,
+    summary="Full HMM posterior probability time series",
+)
+def get_regime_history(
+    start_date: date | None = Query(default=None, description="Filter start date (inclusive)"),
+    end_date: date | None = Query(default=None, description="Filter end date (inclusive)"),
+    db: Session = Depends(get_db),
+) -> RegimeHistoryResponse:
+    """Return the full HMM posterior probability time series for the regime timeline chart.
+
+    Joins regime_states ↔ regime_state_probabilities and pivots per-regime rows
+    into a flat {date, bull_prob, bear_prob, sideways_prob, volatile_prob} shape.
+    Supports optional start_date/end_date query params to avoid unbounded responses.
+    """
+    repo = DashboardRepository(db)
+    states = repo.get_regime_history(start_date=start_date, end_date=end_date)
+
+    points = [
+        RegimeHistoryPoint(
+            date=state.state_date,
+            regime=state.regime,
+            bull_prob=_pivot_regime_probs(state).get("bull", 0.0),
+            bear_prob=_pivot_regime_probs(state).get("bear", 0.0),
+            sideways_prob=_pivot_regime_probs(state).get("sideways", 0.0),
+            volatile_prob=_pivot_regime_probs(state).get("volatile", 0.0),
+        )
+        for state in states
+    ]
+    return RegimeHistoryResponse(points=points, total=len(points))
+
+
+# ---------------------------------------------------------------------------
+# Reference indices list
+# ---------------------------------------------------------------------------
+
+
+@market_router.get(
+    "/indices",
+    response_model=ReferenceIndicesResponse,
+    response_model_by_alias=True,
+    summary="List of benchmark reference indices (ETF-type instruments)",
+)
+def get_reference_indices(
+    db: Session = Depends(get_db),
+) -> ReferenceIndicesResponse:
+    """Return benchmark reference indices for the frontend benchmark selector.
+
+    Queries the instruments table filtered by instrument_type='ETF'.
+    Only ETF-type instruments are seeded through the reference index pipeline.
+    """
+    repo = DashboardRepository(db)
+    instruments = repo.get_etf_instruments()
+
+    indices = [
+        ReferenceIndexItem(
+            ticker=inst.yfinance_ticker or inst.ticker,
+            name=inst.name,
+            instrument_type=inst.instrument_type,
+        )
+        for inst in instruments
+    ]
+    return ReferenceIndicesResponse(indices=indices, total=len(indices))
