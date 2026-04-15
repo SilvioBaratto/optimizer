@@ -42,9 +42,13 @@ export class DashboardComponent implements OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
   private readonly portfolioCtx = inject(PortfolioContextService);
 
-  // Portfolio name from context with fallback
+  // Portfolio name from context. Null when no portfolio has been selected
+  // (no portfolios exist yet, or bootstrap hasn't run).
   readonly portfolioName = computed(
-    () => this.portfolioCtx.currentPortfolioId() ?? 'main',
+    () => this.portfolioCtx.currentPortfolioId() ?? 'No portfolio',
+  );
+  readonly hasPortfolio = computed(
+    () => this.portfolioCtx.currentPortfolioId() !== null,
   );
 
   // Per-domain loading states
@@ -114,6 +118,9 @@ export class DashboardComponent implements OnDestroy {
     this.marketContext().usdChange > 0 ? 'up' : this.marketContext().usdChange < 0 ? 'down' : 'flat');
 
   readonly subtitle = computed(() => {
+    if (!this.hasPortfolio()) {
+      return 'Create or sync a portfolio to get started';
+    }
     const navVal = this.nav();
     const change = this.dailyChange();
     const navStr = this.fmt.formatCurrencyCompact(navVal, this.currency());
@@ -145,7 +152,14 @@ export class DashboardComponent implements OnDestroy {
   }
 
   private loadPortfolioData(): void {
-    const name = this.portfolioName();
+    const name = this.portfolioCtx.currentPortfolioId();
+
+    // No portfolio selected — skip all API calls and land on empty state.
+    if (name === null) {
+      this.isLoadingPortfolio.set(false);
+      this.hasError.set(false);
+      return;
+    }
 
     this.isLoadingPortfolio.set(true);
     this.hasError.set(false);

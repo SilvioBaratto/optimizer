@@ -9,6 +9,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.repositories.dashboard_repository import DashboardRepository
 from app.repositories.portfolio_repository import PortfolioRepository
@@ -42,6 +43,22 @@ _PERIOD_DAYS: dict[str, int | None] = {
 _MAX_FLOOR_DATE = date(2000, 1, 1)
 
 
+def _require_benchmark_prices(
+    repo: DashboardRepository, ticker: str, n: int = 2,
+) -> list[float]:
+    """Load *n* most recent prices for a benchmark ticker or raise 503."""
+    prices = repo.get_benchmark_prices(ticker, n=n)
+    if len(prices) < n:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                f"{ticker} price data not yet available; "
+                "run yfinance fetch first"
+            ),
+        )
+    return prices
+
+
 @router.get(
     "/{name}/performance-metrics",
     response_model=PerformanceMetricsResponse,
@@ -50,7 +67,10 @@ _MAX_FLOOR_DATE = date(2000, 1, 1)
 )
 def get_performance_metrics(
     name: str,
-    benchmark: str = Query(default="SPY", description="Benchmark ticker"),
+    benchmark: str = Query(
+        default_factory=lambda: settings.default_benchmark_ticker,
+        description="Benchmark ticker",
+    ),
     db: Session = Depends(get_db),
 ) -> PerformanceMetricsResponse:
     """Return 7 KPIs for the dashboard strip.
@@ -129,7 +149,10 @@ def get_performance_metrics(
 )
 def get_equity_curve(
     name: str,
-    benchmark: str = Query(default="SPY", description="Benchmark ticker symbol"),
+    benchmark: str = Query(
+        default_factory=lambda: settings.default_benchmark_ticker,
+        description="Benchmark ticker symbol",
+    ),
     period: Literal["1Y", "3Y", "5Y", "MAX"] = Query(
         default="3Y",
         description="Lookback period",
@@ -478,12 +501,8 @@ def get_market_snapshot(
             ),
         )
 
-    spy_prices = repo.get_spy_prices(n=2)
-    if len(spy_prices) < 2:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="SPY price data not yet available; run yfinance fetch first",
-        )
+    benchmark_ticker = settings.default_benchmark_ticker
+    spy_prices = _require_benchmark_prices(repo, benchmark_ticker, n=2)
 
     bond_yield = repo.get_ten_year_yield_usa()
     if bond_yield is None:
@@ -494,7 +513,7 @@ def get_market_snapshot(
 
     # Determine as_of from the most recent data point
     fred_date = repo.get_latest_fred_observation_dates(_FRED_MARKET_SERIES)
-    spy_date = repo.get_spy_latest_date()
+    spy_date = repo.get_benchmark_latest_date(benchmark_ticker)
     bond_date = repo.get_ten_year_yield_reference_date()
 
     candidates = [d for d in (fred_date, spy_date, bond_date) if d is not None]
@@ -564,17 +583,21 @@ def get_market_regime(
     end_date = date.today()
     start_date = end_date - timedelta(days=_HMM_LOOKBACK_DAYS)
 
+    benchmark_ticker = settings.default_benchmark_ticker
     spy_prices_df = dashboard_repo.get_multi_ticker_prices(
-        ["SPY"], start_date, end_date,
+        [benchmark_ticker], start_date, end_date,
     )
 
-    if spy_prices_df.empty or "SPY" not in spy_prices_df.columns:
+    if spy_prices_df.empty or benchmark_ticker not in spy_prices_df.columns:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="SPY price data not yet available; run yfinance fetch first",
+            detail=(
+                f"{benchmark_ticker} price data not yet available; "
+                "run yfinance fetch first"
+            ),
         )
 
-    spy_returns = spy_prices_df[["SPY"]].pct_change().dropna()
+    spy_returns = spy_prices_df[[benchmark_ticker]].pct_change().dropna()
 
     if len(spy_returns) < _HMM_N_STATES + 1:
         raise HTTPException(

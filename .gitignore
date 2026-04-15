@@ -136,6 +136,9 @@ frontend/.angular/
 # Playwright MCP
 .playwright-mcp/
 
+# Code generator
+.code-generator/
+
 # Ideas / scratch notes (local only)
 ideas/
 

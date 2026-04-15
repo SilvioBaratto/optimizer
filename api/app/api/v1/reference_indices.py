@@ -1,0 +1,129 @@
+"""FastAPI router for reference-index seeding endpoints.
+
+Reference indices (e.g. SPY, QQQ, IWM, sector ETFs) are benchmark instruments
+used by the dashboard, portfolio attribution, and HMM regime detection.  They
+are *not* members of the T212 tradable universe, so they are ingested here via
+a dedicated background job rather than through the universe builder.
+"""
+
+import logging
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.database import database_manager
+from app.schemas.reference_index import (
+    ReferenceIndexSeedJobResponse,
+    ReferenceIndexSeedProgress,
+    ReferenceIndexSeedRequest,
+)
+from app.services._progress import make_progress
+from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
+from app.services.reference_index_seeder import seed_reference_indices
+from app.services.yfinance import YFinanceClient, get_yfinance_client
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/reference-indices", tags=["Reference Indices"])
+
+# Shared job service instance for this router.
+_job_service = BackgroundJobService(
+    job_type="reference_index_seed",
+    session_factory=database_manager.get_session,
+)
+
+
+# ---------------------------------------------------------------------------
+# Background seed worker
+# ---------------------------------------------------------------------------
+
+
+def _run_seed(
+    job_id: str,
+    request: ReferenceIndexSeedRequest,
+    yf_client: YFinanceClient,
+) -> None:
+    """Thin wrapper managing job lifecycle around the seeder service."""
+    _job_service.update_job(job_id, status="running")
+    try:
+        seed_reference_indices(
+            request.tickers,
+            yf_client,
+            on_progress=make_progress(job_id, _job_service),
+        )
+    except Exception as exc:
+        logger.error("Reference-index seed job %s failed: %s", job_id, exc)
+        _job_service.update_job(
+            job_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=str(exc),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Dependency helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_yf_client() -> YFinanceClient:
+    return get_yfinance_client()
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/seed",
+    response_model=ReferenceIndexSeedJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_seed(
+    request: ReferenceIndexSeedRequest,
+    yf_client: YFinanceClient = Depends(_get_yf_client),
+) -> ReferenceIndexSeedJobResponse:
+    """Start a background job that seeds reference-index instruments."""
+    try:
+        job_id = _job_service.create_job(current_ticker="")
+    except JobAlreadyRunningError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    _job_service.start_background(
+        target=_run_seed,
+        args=(job_id, request, yf_client),
+    )
+
+    return ReferenceIndexSeedJobResponse(
+        job_id=job_id,
+        status="pending",
+        message=(
+            "Reference-index seed started. "
+            "Poll GET /reference-indices/seed/{job_id} for progress."
+        ),
+    )
+
+
+@router.get("/seed/{job_id}", response_model=ReferenceIndexSeedProgress)
+def get_seed_status(job_id: str) -> ReferenceIndexSeedProgress:
+    """Poll the status and progress of a reference-index seed job."""
+    job = _job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    return ReferenceIndexSeedProgress(
+        job_id=job["job_id"],
+        status=job["status"],
+        current=job.get("current", 0),
+        total=job.get("total", 0),
+        errors=job.get("errors", []),
+        result=job.get("result"),
+        error=job.get("error"),
+    )

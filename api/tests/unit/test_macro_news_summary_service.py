@@ -91,23 +91,17 @@ class TestTickerCountryMap:
 
 
 class TestQueryCountryMap:
-    def test_has_12_entries(self) -> None:
-        assert len(QUERY_COUNTRY_MAP) == 12
+    def test_has_11_entries(self) -> None:
+        assert len(QUERY_COUNTRY_MAP) == 11
 
-    def test_ecb_interest_rate_maps_to_germany_and_france(self) -> None:
-        assert QUERY_COUNTRY_MAP["ECB interest rate decision"] == ["Germany", "France"]
-
-    def test_eurozone_maps_to_germany_and_france(self) -> None:
-        assert QUERY_COUNTRY_MAP["eurozone economy recession growth"] == [
-            "Germany",
-            "France",
-        ]
+    def test_ecb_rate_maps_to_germany_and_france(self) -> None:
+        assert QUERY_COUNTRY_MAP["European Central Bank rate"] == ["Germany", "France"]
 
     def test_fed_maps_to_usa(self) -> None:
         assert QUERY_COUNTRY_MAP["Federal Reserve interest rate decision"] == ["USA"]
 
     def test_boe_maps_to_uk(self) -> None:
-        assert QUERY_COUNTRY_MAP["Bank of England rate decision"] == ["UK"]
+        assert QUERY_COUNTRY_MAP["Bank of England interest rate"] == ["UK"]
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +127,7 @@ class TestGetCountriesForArticle:
         assert _get_countries_for_article(article) == []
 
     def test_query_ecb_maps_to_both(self) -> None:
-        article = _make_article(source_query="ECB interest rate decision")
+        article = _make_article(source_query="European Central Bank rate")
         result = _get_countries_for_article(article)
         assert "Germany" in result
         assert "France" in result
@@ -155,7 +149,7 @@ class TestGetCountriesForArticle:
         assert _get_countries_for_article(article) == []
 
     def test_global_query_returns_empty(self) -> None:
-        article = _make_article(source_query="emerging markets capital flows")
+        article = _make_article(source_query="MSCI emerging markets")
         assert _get_countries_for_article(article) == []
 
 
@@ -498,7 +492,7 @@ class TestGenerateCountrySummaries:
         mock_repo = MagicMock()
         mock_repo.get_macro_news_summary.return_value = None
         mock_repo.get_macro_news.return_value = [
-            _make_article(source_query="ECB interest rate decision")
+            _make_article(source_query="European Central Bank rate")
             for _ in range(5)
         ]
 
@@ -644,7 +638,7 @@ class TestFindCountriesWithNewArticles:
     def test_query_articles_mapped_to_countries(self) -> None:
         repo = MagicMock()
         repo.get_macro_news.return_value = [
-            _make_simple_article(source_query="ECB interest rate decision"),
+            _make_simple_article(source_query="European Central Bank rate"),
         ]
         result = _find_countries_with_new_articles(repo, _REFRESH_NOW)
         assert "France" in result
@@ -653,7 +647,7 @@ class TestFindCountriesWithNewArticles:
     def test_global_queries_excluded(self) -> None:
         repo = MagicMock()
         repo.get_macro_news.return_value = [
-            _make_simple_article(source_query="emerging markets capital flows"),
+            _make_simple_article(source_query="MSCI emerging markets"),
         ]
         assert _find_countries_with_new_articles(repo, _REFRESH_NOW) == []
 

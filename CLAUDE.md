@@ -13,13 +13,16 @@ These must be loaded proactively, not on request. Any work involving financial d
 
 ## Project Overview
 
-Portfolio optimizer platform with a FastAPI backend (synchronous SQLAlchemy + PostgreSQL), a Typer CLI, and a `skfolio`-based optimization library:
+Portfolio optimizer platform with a FastAPI backend (synchronous SQLAlchemy + PostgreSQL), a Typer CLI, and a `skfolio`-based optimization library published to PyPI as **`portopt`**:
 
-- **`optimizer/`** — Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based)
+- **`optimizer/`** — Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based). Published as `portopt`
 - **`api/`** — FastAPI application (app factory in `api/app/main.py`, runs on port 8000)
-- **`frontend/`** — Angular 21 dashboard (standalone components, signals, Tailwind CSS v4, ECharts)
+- **`frontend/`** — Angular 21 dashboard (standalone components, signals, Tailwind CSS v4, ECharts). Deployed at [optimizer.silviobaratto.com](https://optimizer.silviobaratto.com)
 - **`cli/`** — Typer CLI (`cli/__init__.py` creates the app, entry via `python -m cli`)
+- **`research/`** — End-to-end research scripts that exercise the full library against live DB data (e.g. `stock_selection_pipeline.py`, `_backtest_plots.py`). Not a shipped package — used for internal validation and report generation
+- **`examples/`** — Self-contained runnable scripts using skfolio bundled datasets (no API keys or DB required): `quickstart.py`, `robust_optimization.py`, `regime_blending.py`, `factor_selection.py`, `full_pipeline.py`. Prefer these when demonstrating library usage
 - **`theory/`** — LaTeX/Markdown theoretical documentation (not code)
+- **`docs/`** + `mkdocs.yml` — MkDocs site published at [silviobaratto.github.io/optimizer](https://silviobaratto.github.io/optimizer). Conceptual guides and config references live here
 
 ## Build & Run Commands
 
@@ -35,6 +38,19 @@ pytest -k "test_name"             # Single test by name
 ruff check optimizer/ tests/      # Lint (CI step)
 ruff check . --fix                # Lint + auto-fix
 mypy optimizer/                   # Type check strict mode (CI step)
+
+# Makefile shortcuts (root)
+make lint                         # ruff check + ruff format --check
+make format                       # ruff format (writes changes)
+make typecheck                    # mypy optimizer/
+make test                         # pytest with coverage term-missing
+make coverage                     # pytest with HTML coverage in htmlcov/
+make all                          # lint + typecheck + test
+make clean                        # remove caches, coverage, egg-info
+
+# Runnable examples (no DB, no API keys — uses skfolio bundled data)
+python examples/quickstart.py
+python examples/full_pipeline.py
 
 # API
 cd api && pip install -r requirements.txt
