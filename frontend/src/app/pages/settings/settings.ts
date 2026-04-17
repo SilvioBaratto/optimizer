@@ -8,7 +8,6 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { LucideAngularModule } from 'lucide-angular';
-import { MockFetchService } from '../../services/mock-fetch.service';
 import { NotificationService } from '../../shared/notification/notification.service';
 import { MOCK_DATA_SOURCES } from '../../mocks/settings-mocks';
 
@@ -25,7 +24,6 @@ import { MOCK_DATA_SOURCES } from '../../mocks/settings-mocks';
 })
 export class SettingsComponent {
   private readonly notifications = inject(NotificationService);
-  private readonly mockFetch = inject(MockFetchService);
 
   // ── Loading state ──
   isLoading = signal(true);
@@ -70,18 +68,8 @@ export class SettingsComponent {
   }
 
   loadData(): void {
-    this.isLoading.set(true);
     this.hasError.set(false);
-    this.mockFetch
-      .fetch({ dataSources: MOCK_DATA_SOURCES })
-      .then(() => {
-        this.isLoading.set(false);
-      })
-      .catch((err: Error) => {
-        this.hasError.set(true);
-        this.errorMessage.set(err.message);
-        this.isLoading.set(false);
-      });
+    this.isLoading.set(false);
   }
 
   retry(): void {

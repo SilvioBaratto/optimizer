@@ -3,10 +3,11 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 import { NAV_GROUPS, NavGroup } from './nav-data';
 import { BreakpointService } from '../../services/breakpoint.service';
+import { PortfolioPickerComponent } from '../portfolio-picker/portfolio-picker';
 
 @Component({
   selector: 'app-sidebar',
-  imports: [RouterLink, RouterLinkActive, LucideAngularModule],
+  imports: [RouterLink, RouterLinkActive, LucideAngularModule, PortfolioPickerComponent],
   templateUrl: './sidebar.html',
   styleUrl: './sidebar.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

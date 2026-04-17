@@ -17,6 +17,8 @@ const routerTransition = trigger('routerTransition', [
   ]),
 ]);
 
+// Exactly 10 routes so Cmd/Ctrl+1..9,0 map 1:1. Settings is intentionally
+// omitted — it's low-frequency and still reachable from the sidebar.
 const PAGE_ROUTES = [
   '/',
   '/portfolio-builder',
@@ -26,8 +28,8 @@ const PAGE_ROUTES = [
   '/factor-research',
   '/rebalancing',
   '/attribution',
+  '/macro-intelligence',
   '/ai-control-room',
-  '/settings',
 ];
 
 @Component({

@@ -10,7 +10,6 @@ import { MomentPanelComponent } from './moment-panel';
 import { ViewPanelComponent } from './view-panel';
 import { OptimizerPanelComponent } from './optimizer-panel';
 import { ResultsPanelComponent } from './results-panel';
-import { MockFetchService } from '../../services/mock-fetch.service';
 import { PipelineNode } from '../../models/optimization.model';
 import { MOCK_PIPELINE_NODES } from '../../mocks/optimization-mocks';
 
@@ -32,7 +31,6 @@ import { MOCK_PIPELINE_NODES } from '../../mocks/optimization-mocks';
 })
 export class OptimizationStudioComponent {
   private readonly modalService = inject(ModalService);
-  private readonly mockFetch = inject(MockFetchService);
 
   readonly isLoading = signal(true);
   readonly hasError = signal(false);
@@ -48,17 +46,8 @@ export class OptimizationStudioComponent {
   }
 
   loadData(): void {
-    this.isLoading.set(true);
     this.hasError.set(false);
-
-    this.mockFetch.fetch({ nodes: MOCK_PIPELINE_NODES }).then(data => {
-      this.pipelineNodes.set(data.nodes);
-      this.isLoading.set(false);
-    }).catch((err: Error) => {
-      this.hasError.set(true);
-      this.errorMessage.set(err.message);
-      this.isLoading.set(false);
-    });
+    this.isLoading.set(false);
   }
 
   retry(): void {

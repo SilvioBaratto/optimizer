@@ -4,7 +4,6 @@ import { Observable, forkJoin, interval, of } from 'rxjs';
 import { switchMap, takeWhile, catchError, map } from 'rxjs/operators';
 import type {
   MacroCalibrationResponse,
-  BlackLittermanBlConfig,
   FredObservationPoint,
   MacroNewsItem,
   MacroNewsTheme,
@@ -15,6 +14,14 @@ import type {
   CompositeScorePoint,
   BusinessCyclePhase,
   MacroNewsSummaryResponse,
+  MacroCalibrationApiResponse,
+  FredObservationApiResponse,
+  TeObservationApiResponse,
+  BondYieldApiResponse,
+  BondYieldObservationApiResponse,
+  MacroNewsApiResponse,
+  MacroNewsThemeApiResponse,
+  CountryMacroSummaryResponse,
 } from '../models/macro-intelligence.model';
 import {
   COUNTRY_CODE_MAP,
@@ -23,90 +30,6 @@ import {
   COMPOSITE_SCORE_THRESHOLDS,
 } from '../constants/macro-intelligence.constants';
 import { environment } from '../../environments/environment';
-
-// ---------------------------------------------------------------------------
-// Private API response interfaces (raw backend shapes)
-// ---------------------------------------------------------------------------
-
-interface ApiMacroCalibration {
-  phase: string;
-  delta: number;
-  tau: number;
-  confidence: number;
-  rationale: string;
-  macro_summary: string;
-  bl_config: BlackLittermanBlConfig;
-}
-
-interface ApiFredObservation {
-  id: string;
-  series_id: string;
-  date: string;
-  value: number | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ApiTeObservation {
-  id: string;
-  country: string;
-  indicator_key: string;
-  date: string;
-  value: number | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ApiBondYieldRow {
-  id: string;
-  country: string;
-  maturity: string;
-  yield_value: number | null;
-  day_change: number | null;
-  month_change: number | null;
-  year_change: number | null;
-  reference_date: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ApiBondYieldObsRow {
-  id: string;
-  country: string;
-  maturity: string;
-  date: string;
-  yield_value: number | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ApiNewsTheme {
-  value: string;
-  label: string;
-}
-
-interface ApiNewsItem {
-  id: string;
-  news_id: string;
-  title: string | null;
-  publisher: string | null;
-  link: string | null;
-  publish_time: string | null;
-  source_ticker: string | null;
-  source_query: string | null;
-  themes: string | null;
-  snippet: string | null;
-  full_content: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ApiCountrySummary {
-  country: string;
-  economic_indicators: Array<Record<string, unknown>>;
-  te_indicators: ApiTeObservation[];
-  bond_yields: ApiBondYieldRow[];
-}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -133,7 +56,7 @@ export class MacroIntelligenceService {
   getMacroCalibration(forceRefresh = false): Observable<MacroCalibrationResponse | null> {
     const params: Record<string, string> = { country: 'USA' };
     if (forceRefresh) params['force_refresh'] = 'true';
-    return this.http.get<ApiMacroCalibration>(
+    return this.http.get<MacroCalibrationApiResponse>(
       `${this.apiBase}views/macro-calibration`,
       { params },
     ).pipe(
@@ -160,13 +83,15 @@ export class MacroIntelligenceService {
   // ── FRED / TE indicator series ──
 
   getFredPmi(): Observable<FredObservationPoint[]> {
-    return this.http.get<ApiTeObservation[]>(
+    return this.http.get<TeObservationApiResponse[]>(
       `${this.apiBase}macro-data/te-observations`,
       { params: { country: 'USA', indicator_keys: 'manufacturing_pmi', limit: '500' } },
     ).pipe(
       map(rows => rows
-        .filter(r => r.value !== null)
-        .map(r => ({ date: r.date, value: r.value! })),
+        .filter((r): r is TeObservationApiResponse & { date: string; value: number } =>
+          r.value !== null && typeof r.date === 'string',
+        )
+        .map(r => ({ date: r.date, value: r.value })),
       ),
       catchError(() => of([])),
     );
@@ -192,7 +117,7 @@ export class MacroIntelligenceService {
 
   getCountryData(): Observable<CountryMacroData[]> {
     const requests = DB_COUNTRIES.map(country =>
-      this.http.get<ApiCountrySummary>(
+      this.http.get<CountryMacroSummaryResponse>(
         `${this.apiBase}macro-data/countries/${country}`,
       ).pipe(
         map(summary => this.mapCountrySummary(summary)),
@@ -209,7 +134,7 @@ export class MacroIntelligenceService {
   // ── Bond yields ──
 
   getBondYieldsToday(): Observable<BondYieldSnapshot[]> {
-    return this.http.get<ApiBondYieldRow[]>(
+    return this.http.get<BondYieldApiResponse[]>(
       `${this.apiBase}macro-data/bond-yields`,
     ).pipe(
       map(rows => this.groupBondYields(rows, new Date().toISOString().split('T')[0])),
@@ -225,7 +150,7 @@ export class MacroIntelligenceService {
     const end = new Date(oneYearAgo);
     end.setDate(end.getDate() + 3);
 
-    return this.http.get<ApiBondYieldObsRow[]>(
+    return this.http.get<BondYieldObservationApiResponse[]>(
       `${this.apiBase}macro-data/bond-yield-observations`,
       {
         params: {
@@ -236,7 +161,7 @@ export class MacroIntelligenceService {
     ).pipe(
       map(rows => {
         // Deduplicate: keep the latest observation per (country, maturity)
-        const latest = new Map<string, ApiBondYieldObsRow>();
+        const latest = new Map<string, BondYieldObservationApiResponse>();
         for (const row of rows) {
           const key = `${row.country}|${row.maturity}`;
           const existing = latest.get(key);
@@ -247,7 +172,7 @@ export class MacroIntelligenceService {
         const dedupedRows = [...latest.values()];
 
         // Group by country
-        const byCountry = new Map<string, ApiBondYieldObsRow[]>();
+        const byCountry = new Map<string, BondYieldObservationApiResponse[]>();
         for (const row of dedupedRows) {
           const group = byCountry.get(row.country) ?? [];
           group.push(row);
@@ -277,7 +202,7 @@ export class MacroIntelligenceService {
   // ── News ──
 
   getNewsThemes(): Observable<MacroNewsTheme[]> {
-    return this.http.get<ApiNewsTheme[]>(
+    return this.http.get<MacroNewsThemeApiResponse[]>(
       `${this.apiBase}macro-data/news/themes`,
     ).pipe(
       map(items => items.map(i => ({ id: i.value, label: i.label, count: 0 }))),
@@ -291,7 +216,7 @@ export class MacroIntelligenceService {
       params = params.set('theme', theme);
     }
 
-    return this.http.get<ApiNewsItem[]>(
+    return this.http.get<MacroNewsApiResponse[]>(
       `${this.apiBase}macro-data/news`,
       { params },
     ).pipe(
@@ -407,7 +332,7 @@ export class MacroIntelligenceService {
   // ── Private helpers ──
 
   private fetchFredSeries(seriesId: string): Observable<FredObservationPoint[]> {
-    return this.http.get<ApiFredObservation[]>(
+    return this.http.get<FredObservationApiResponse[]>(
       `${this.apiBase}macro-data/fred/series`,
       { params: { series_id: seriesId, start_date: this.oneYearAgo(), limit: '500' } },
     ).pipe(
@@ -429,7 +354,7 @@ export class MacroIntelligenceService {
     return d.toISOString().split('T')[0];
   }
 
-  private mapCountrySummary(summary: ApiCountrySummary): CountryMacroData {
+  private mapCountrySummary(summary: CountryMacroSummaryResponse): CountryMacroData {
     const te = new Map(summary.te_indicators.map(i => [i.indicator_key, i]));
     const bonds = new Map(summary.bond_yields.map(b => [b.maturity, b]));
 
@@ -455,8 +380,8 @@ export class MacroIntelligenceService {
     };
   }
 
-  private groupBondYields(rows: ApiBondYieldRow[], refDate: string): BondYieldSnapshot[] {
-    const byCountry = new Map<string, ApiBondYieldRow[]>();
+  private groupBondYields(rows: BondYieldApiResponse[], refDate: string): BondYieldSnapshot[] {
+    const byCountry = new Map<string, BondYieldApiResponse[]>();
     for (const row of rows) {
       const group = byCountry.get(row.country) ?? [];
       group.push(row);
