@@ -1,66 +1,80 @@
-<div class="space-y-6">
+<div class="space-y-4">
 
-  <!-- Sliders -->
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+  <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-3">
+    <h3 class="text-data-sm font-medium text-text">What-if inputs</h3>
 
-    <!-- Partial Rebalance -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <label for="partial-rebalance" class="block text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
-        Partial Rebalance
+    <div>
+      <label for="currentWeights" class="text-xs text-text-secondary block mb-1">
+        Current weights (ticker:weight, comma-separated — must sum to 1)
       </label>
-      <input id="partial-rebalance" type="range" min="0" max="100" step="5"
-        [value]="partialRebalPct()" (input)="onPartialRebalChange($event)"
-        [attr.aria-valuenow]="partialRebalPct()"
-        aria-valuemin="0" aria-valuemax="100"
-        [attr.aria-valuetext]="partialRebalPct() + '% partial rebalance'"
-        class="w-full accent-chart-1" />
-      <p class="mt-1 text-sm font-mono text-text">{{ partialRebalPct() }}%</p>
+      <input id="currentWeights" type="text"
+        [ngModel]="currentRaw()" (ngModelChange)="currentRaw.set($event)"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent" />
     </div>
 
-    <!-- Threshold Override -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <label for="threshold-override" class="block text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
-        Threshold Override
+    <div>
+      <label for="targetWeights" class="text-xs text-text-secondary block mb-1">
+        Target weights (ticker:weight, comma-separated — must sum to 1)
       </label>
-      <input id="threshold-override" type="range" min="50" max="500" step="10"
-        [value]="thresholdOverride()" (input)="onThresholdOverrideChange($event)"
-        [attr.aria-valuenow]="thresholdOverride()"
-        aria-valuemin="50" aria-valuemax="500"
-        [attr.aria-valuetext]="thresholdOverride() + ' basis points threshold override'"
-        class="w-full accent-chart-1" />
-      <p class="mt-1 text-sm font-mono text-text">{{ thresholdOverride() }} bps</p>
+      <input id="targetWeights" type="text"
+        [ngModel]="targetRaw()" (ngModelChange)="targetRaw.set($event)"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent" />
     </div>
 
-    <!-- Cost Multiplier -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <label for="cost-multiplier" class="block text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
-        Cost Multiplier
-      </label>
-      <input id="cost-multiplier" type="range" min="50" max="200" step="5"
-        [value]="costMultiplier()" (input)="onCostMultiplierChange($event)"
-        [attr.aria-valuenow]="costMultiplier()"
-        aria-valuemin="50" aria-valuemax="200"
-        [attr.aria-valuetext]="costMultiplier() + '% cost multiplier'"
-        class="w-full accent-chart-1" />
-      <p class="mt-1 text-sm font-mono text-text">{{ costMultiplier() }}%</p>
+    <div class="grid grid-cols-3 gap-3">
+      <div>
+        <label for="whatifPolicyType" class="text-xs text-text-secondary block mb-1">Policy type</label>
+        <select id="whatifPolicyType"
+          [ngModel]="policyType()" (ngModelChange)="policyType.set($event)"
+          class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent">
+          <option value="calendar">Calendar</option>
+          <option value="threshold">Threshold</option>
+          <option value="hybrid">Hybrid</option>
+        </select>
+      </div>
+      @if (policyType() === 'threshold' || policyType() === 'hybrid') {
+        <div>
+          <label for="whatifThreshold" class="text-xs text-text-secondary block mb-1">Threshold</label>
+          <input id="whatifThreshold" type="number" step="0.01" min="0" max="0.999"
+            [ngModel]="thresholdValue()" (ngModelChange)="thresholdValue.set(+$event)"
+            class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+        </div>
+      }
+      @if (policyType() === 'calendar' || policyType() === 'hybrid') {
+        <div>
+          <label for="whatifFreq" class="text-xs text-text-secondary block mb-1">Frequency days</label>
+          <input id="whatifFreq" type="number" min="1"
+            [ngModel]="frequencyDays()" (ngModelChange)="frequencyDays.set(+$event)"
+            class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+        </div>
+      }
     </div>
 
+    <div class="flex justify-end">
+      <button type="button" (click)="submit()" [disabled]="!isFormValid()"
+        class="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors">
+        Run decide
+      </button>
+    </div>
+    @if (!isFormValid()) {
+      <p class="text-xs text-warning">Both weight vectors must be non-empty and sum to 1 (± 2%).</p>
+    }
   </div>
 
-  <!-- Scenario KPI Cards -->
-  <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
-    <app-stat-card label="Adjusted Turnover" [value]="adjustedTurnover()" subtitle="After partial rebalance" />
-    <app-stat-card label="Adjusted Cost" [value]="adjustedCost()" subtitle="After partial + cost scaling" />
-    <app-stat-card label="Remaining Drift" [value]="remainingDrift()" subtitle="Estimated post-rebalance drift" />
-    <app-stat-card label="Trades Affected" [value]="tradesAffected()" subtitle="Orders at current percentage" />
-  </div>
+  @if (decideResponse()) {
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <app-stat-card label="Should rebalance?" [value]="kpiShouldRebalance()" subtitle="Policy decision" />
+      <app-stat-card label="Turnover" [value]="kpiTurnover()" subtitle="Σ |Δw| / 2" />
+      <app-stat-card label="Est. cost" [value]="kpiEstCost()" subtitle="Per policy fraction" />
+    </div>
 
-  <!-- Threshold Sensitivity -->
-  <div class="bg-surface-raised border border-border rounded-lg p-4">
-    <p class="text-data-sm font-medium text-text mb-3">
-      Threshold Sensitivity — Assets Exceeding Drift Threshold
-    </p>
-    <app-echarts-bar [data]="thresholdSensitivityData()" [height]="220" />
-  </div>
-
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">Trade weights (Δ = target − current)</h3>
+      <app-data-table
+        [columns]="tradeColumns"
+        [rows]="tradeRows()"
+        [total]="tradeRows().length"
+        [dense]="true" />
+    </div>
+  }
 </div>

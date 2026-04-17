@@ -17,6 +17,8 @@ import {
   Exchange,
   Instrument,
   InstrumentList,
+  UniverseScreenRequest,
+  UniverseScreenResponse,
   UniverseStats,
 } from '../models/universe.model';
 
@@ -181,6 +183,44 @@ describe('UniverseService', () => {
       http.expectOne(`${API}universe/build/abc`).flush(payload);
 
       expect(result).toEqual(payload);
+    });
+  });
+
+  describe('screen()', () => {
+    it('POSTs the InvestabilityScreenConfig payload and returns the screen response', () => {
+      const request: UniverseScreenRequest = {
+        preset: 'developed_markets',
+        current_members: ['AAPL', 'MSFT'],
+      };
+      const payload: UniverseScreenResponse = {
+        passingTickers: ['AAPL', 'MSFT', 'NVDA'],
+        totalScreened: 500,
+        diagnostics: { AAPL: { market_cap: true, addv_3m: true } },
+      };
+
+      let result: UniverseScreenResponse | undefined;
+      svc.screen(request).subscribe((r) => (result = r));
+
+      const req = http.expectOne(`${API}universe/screen`);
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual(request);
+      req.flush(payload);
+
+      expect(result).toEqual(payload);
+    });
+
+    it('propagates 422 errors from /universe/screen', () => {
+      let error: unknown;
+      svc.screen({}).subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}universe/screen`)
+        .flush(
+          { detail: 'invalid config' },
+          { status: 422, statusText: 'Unprocessable' },
+        );
+
+      expect(error).toBeDefined();
     });
   });
 

@@ -1,41 +1,42 @@
-<div class="space-y-6">
-  <!-- Drift Table -->
-  <div class="bg-surface-raised border border-border rounded-lg p-4">
-    <h3 class="text-data-sm font-medium text-text mb-3">Asset Drift Report</h3>
-    <app-data-table
-      [columns]="driftColumns"
-      [rows]="driftRows()"
-      [total]="driftRows().length"
-      [pageSize]="15"
-      [dense]="true"
-      [showExport]="true"
-      exportFilename="drift-report"
-    />
-  </div>
+<div class="space-y-4">
 
-  <!-- Current vs Target Bar Chart -->
-  <div class="bg-surface-raised border border-border rounded-lg p-4">
-    <h3 class="text-data-sm font-medium text-text mb-3">Current vs Target Weights</h3>
-    <app-chart-toolbar [showDataTable]="false">
-      <div #driftChart class="w-full" style="height: 280px"></div>
-    </app-chart-toolbar>
-  </div>
-
-  <!-- Trigger Status -->
-  <div class="bg-surface-raised border border-border rounded-lg p-4">
-    <h3 class="text-data-sm font-medium text-text mb-3">Trigger Status</h3>
-    <div class="flex items-center gap-3">
-      @if (hasBreaches()) {
-        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-data-sm font-medium bg-red-500/15 text-red-600 dark:text-red-400">
-          <span class="w-2 h-2 rounded-full bg-red-400 animate-pulse motion-reduce:animate-none"></span>
-          {{ breachedCount() }} asset{{ breachedCount() === 1 ? '' : 's' }} breached — rebalancing recommended
-        </span>
-      } @else {
-        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-data-sm font-medium bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-          All assets within threshold — no rebalancing required
-        </span>
-      }
+  <!-- Threshold selector -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4 flex items-center gap-4">
+    <div>
+      <label for="driftThreshold" class="text-xs text-text-secondary block mb-1">Drift threshold</label>
+      <input id="driftThreshold" type="number" min="0" max="1" step="0.01"
+        [ngModel]="threshold()"
+        (ngModelChange)="onThresholdInput(+$event)"
+        class="w-32 px-3 py-1.5 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+    </div>
+    <div class="ml-auto text-xs text-text-secondary">
+      Total drift: <span class="font-mono text-text">{{ (totalDrift() * 100).toFixed(2) }}%</span>
+      · Breached: <span class="font-mono text-loss">{{ breachedCount() }}</span>
     </div>
   </div>
+
+  @if (driftEntries().length > 0) {
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">Target vs Actual Weights</h3>
+      <app-echarts-rebalancing-diff [data]="diffData()" [height]="320" />
+    </div>
+
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">Drift breakdown</h3>
+      <app-data-table
+        [columns]="driftColumns"
+        [rows]="driftRows()"
+        [total]="driftRows().length"
+        [pageSize]="20"
+        [dense]="true"
+        [stickyFirstColumn]="true" />
+    </div>
+  } @else {
+    <div class="bg-surface-raised border border-border rounded-lg p-8 text-center">
+      <p class="text-xs text-text-secondary">
+        No drift data. Select a portfolio with target weights to see the drift analysis.
+      </p>
+    </div>
+  }
+
 </div>

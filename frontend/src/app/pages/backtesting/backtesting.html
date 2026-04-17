@@ -46,13 +46,29 @@
       </div>
 
       <!-- Run button -->
-      <button
-        class="sm:ml-auto inline-flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors w-full sm:w-auto">
+      <button type="button"
+        (click)="onRunBacktest(['AAPL','MSFT','GOOGL','AMZN','NVDA'])"
+        [disabled]="isRunning()"
+        class="sm:ml-auto inline-flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors w-full sm:w-auto">
         <i-lucide name="play" />
-        Run Backtest
+        @if (isRunning()) { Running… } @else { Run Backtest }
       </button>
     </div>
   </div>
+
+  <!-- Run status banners -->
+  @if (runError(); as err) {
+    <div class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+      Backtest failed: {{ err }}
+    </div>
+  }
+  @if (runJobId(); as id) {
+    <div class="bg-surface-raised border border-border rounded-lg p-3">
+      <app-job-progress-tracker [jobId]="id"
+        (completed)="onJobCompleted()"
+        (failed)="onJobFailed($event.error ?? 'Job failed')" />
+    </div>
+  }
 
   @if (isLoading()) {
   <!-- Loading skeleton -->
@@ -90,21 +106,21 @@
 
   <!-- KPI Stat Cards -->
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-4">
-    <app-stat-card label="Total Return" [value]="formatPct(result.metrics.totalReturn)"
-      subtitle="vs {{ formatPct(0.482) }} benchmark" [delta]="result.metrics.totalReturn - 0.482"
-      [trend]="result.metrics.totalReturn >= 0.482 ? 'up' : 'down'" deltaLabel="vs SPY" />
+    <app-stat-card label="Total Return" [value]="formatPct(result().metrics.totalReturn)"
+      subtitle="vs {{ formatPct(0.482) }} benchmark" [delta]="result().metrics.totalReturn - 0.482"
+      [trend]="result().metrics.totalReturn >= 0.482 ? 'up' : 'down'" deltaLabel="vs SPY" />
 
-    <app-stat-card label="Sharpe Ratio" [value]="formatRatio(result.metrics.sharpe)"
-      subtitle="Sortino: {{ formatRatio(result.metrics.sortino) }}" [delta]="result.metrics.sharpe - 0.471"
-      [trend]="result.metrics.sharpe >= 0.471 ? 'up' : 'down'" deltaLabel="vs SPY" />
+    <app-stat-card label="Sharpe Ratio" [value]="formatRatio(result().metrics.sharpe)"
+      subtitle="Sortino: {{ formatRatio(result().metrics.sortino) }}" [delta]="result().metrics.sharpe - 0.471"
+      [trend]="result().metrics.sharpe >= 0.471 ? 'up' : 'down'" deltaLabel="vs SPY" />
 
-    <app-stat-card label="Max Drawdown" [value]="formatPct(result.metrics.maxDrawdown)"
-      subtitle="Calmar: {{ formatRatio(result.metrics.calmar) }}" [delta]="result.metrics.maxDrawdown - (-0.247)"
-      [trend]="result.metrics.maxDrawdown > -0.247 ? 'up' : 'down'" deltaLabel="vs SPY" />
+    <app-stat-card label="Max Drawdown" [value]="formatPct(result().metrics.maxDrawdown)"
+      subtitle="Calmar: {{ formatRatio(result().metrics.calmar) }}" [delta]="result().metrics.maxDrawdown - (-0.247)"
+      [trend]="result().metrics.maxDrawdown > -0.247 ? 'up' : 'down'" deltaLabel="vs SPY" />
 
-    <app-stat-card label="Information Ratio" [value]="formatRatio(result.metrics.informationRatio)"
-      subtitle="TE: {{ formatPct(result.metrics.trackingError) }}" [delta]="result.metrics.informationRatio"
-      [trend]="result.metrics.informationRatio > 0 ? 'up' : 'down'" deltaLabel="vs benchmark" />
+    <app-stat-card label="Information Ratio" [value]="formatRatio(result().metrics.informationRatio)"
+      subtitle="TE: {{ formatPct(result().metrics.trackingError) }}" [delta]="result().metrics.informationRatio"
+      [trend]="result().metrics.informationRatio > 0 ? 'up' : 'down'" deltaLabel="vs benchmark" />
   </div>
 
   <!-- Tab Group -->
@@ -128,15 +144,15 @@
         </div>
         <div>
           <p class="text-xs text-text-tertiary">Initial Capital</p>
-          <p class="font-mono text-data-sm text-text mt-0.5">{{ formatCurrency(config.initialCapital) }}</p>
+          <p class="font-mono text-data-sm text-text mt-0.5">{{ formatCurrency(config().initialCapital) }}</p>
         </div>
         <div>
           <p class="text-xs text-text-tertiary">Rebalancing</p>
-          <p class="font-mono text-data-sm text-text mt-0.5 capitalize">{{ config.rebalanceFrequency }}</p>
+          <p class="font-mono text-data-sm text-text mt-0.5 capitalize">{{ config().rebalanceFrequency }}</p>
         </div>
         <div>
           <p class="text-xs text-text-tertiary">Transaction Costs</p>
-          <p class="font-mono text-data-sm text-text mt-0.5">{{ config.transactionCostBps }} bps</p>
+          <p class="font-mono text-data-sm text-text mt-0.5">{{ config().transactionCostBps }} bps</p>
         </div>
         <div>
           <p class="text-xs text-text-tertiary">Benchmark</p>
@@ -299,6 +315,12 @@
       </div>
     </div>
 
+    <!-- Underwater curve (EchartsDrawdownComponent) -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h2 class="text-data-lg font-medium text-text mb-3">Underwater Curve</h2>
+      <app-echarts-drawdown [data]="drawdownSeries()" [height]="240" />
+    </div>
+
     <!-- Drawdown Depth Histogram -->
     <div class="bg-surface-raised border border-border rounded-lg p-4">
       <h2 class="text-data-lg font-medium text-text mb-3">Drawdown Depth Distribution</h2>
@@ -348,7 +370,7 @@
     <!-- Rolling Beta -->
     <div class="bg-surface-raised border border-border rounded-lg p-4">
       <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Rolling Beta vs {{
-        config.benchmark }} (252d)</h2>
+        config().benchmark }} (252d)</h2>
       <app-chart-toolbar>
         <div #rollingBetaChart class="w-full" style="height: 200px;"></div>
       </app-chart-toolbar>
@@ -512,6 +534,12 @@
 
   </div>
   }
+
+  <!-- Walk-forward cross-validation -->
+  <app-walk-forward-panel
+    [tickers]="['AAPL','MSFT','GOOGL','AMZN','NVDA']"
+    [startDate]="selectedStartDate()"
+    [endDate]="selectedEndDate()" />
 
   } <!-- end @else -->
 

@@ -1,29 +1,47 @@
 <div class="space-y-5">
-  <!-- Objective and Risk Measure -->
+  <!-- Optimizer / Objective / Risk Measure -->
   <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-4">
     <h3 class="text-sm font-semibold text-text">Optimizer Configuration</h3>
 
-    <!-- Objective Function -->
+    <!-- Optimizer Type -->
     <div>
       <div class="flex items-center gap-2 mb-2">
-        <label for="objective" class="text-xs font-medium text-text-secondary">Objective Function</label>
+        <label for="optimizerType" class="text-xs font-medium text-text-secondary">Optimizer</label>
         <app-help-tooltip
-          text="The optimization objective. Max Sharpe maximizes risk-adjusted return. Risk Parity equalizes risk contributions. HRP/HERC/NCO are hierarchical clustering methods that require no expected returns." />
+          text="Selects the backend optimizer. mean_risk / robust_mean_risk / dr_cvar are convex; hrp / herc / nco are hierarchical; equal_weighted / inverse_volatility / risk_budgeting are heuristics; stacking / regime_blended are ensembles." />
       </div>
-      <select id="objective" [ngModel]="objective()" (ngModelChange)="setObjective($event)"
+      <select id="optimizerType" [ngModel]="optimizerType()" (ngModelChange)="setOptimizerType($event)"
         class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
-        @for (opt of objectiveFunctions; track opt) {
-        <option [value]="opt">{{ objectiveLabels[opt] }}</option>
+        @for (opt of optimizerTypes; track opt) {
+        <option [value]="opt">{{ optimizerLabels[opt] }}</option>
         }
       </select>
     </div>
 
-    <!-- Risk Measure -->
+    <!-- Objective Function (convex optimizers only) -->
+    @if (showObjective()) {
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <label for="objective" class="text-xs font-medium text-text-secondary">Objective Function</label>
+        <app-help-tooltip
+          text="Maps to ObjectiveFunctionType: minimize_risk, maximize_return, maximize_utility, maximize_ratio." />
+      </div>
+      <select id="objective" [ngModel]="objective()" (ngModelChange)="setObjective($event)"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
+        @for (obj of objectiveFunctions; track obj) {
+        <option [value]="obj">{{ objectiveLabels[obj] }}</option>
+        }
+      </select>
+    </div>
+    }
+
+    <!-- Risk Measure (mean-risk / robust / risk-budgeting) -->
+    @if (showRiskMeasure()) {
     <div>
       <div class="flex items-center gap-2 mb-2">
         <label for="riskMeasure" class="text-xs font-medium text-text-secondary">Risk Measure</label>
         <app-help-tooltip
-          text="The risk measure used in the objective or constraints. CVaR (Expected Shortfall) captures tail risk. Drawdown measures capture path-dependent risk. Variance is the classical Markowitz measure." />
+          text="Maps to RiskMeasureType. 15 convex measures available: variance, semi_variance, standard_deviation, semi_deviation, mean_absolute_deviation, first_lower_partial_moment, cvar, evar, worst_realization, cdar, max_drawdown, average_drawdown, edar, ulcer_index, gini_mean_difference." />
       </div>
       <select id="riskMeasure" [ngModel]="riskMeasure()" (ngModelChange)="setRiskMeasure($event)"
         class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
@@ -32,14 +50,16 @@
         }
       </select>
     </div>
+    }
 
-    <!-- Risk Aversion -->
+    <!-- Risk Aversion (L2 coefficient) for mean_risk -->
+    @if (optimizerType() === 'mean_risk') {
     <div>
       <div class="flex items-center justify-between mb-2">
         <div class="flex items-center gap-2">
-          <label for="riskAversion" class="text-xs font-medium text-text-secondary">Risk Aversion (lambda)</label>
+          <label for="riskAversion" class="text-xs font-medium text-text-secondary">L2 coefficient (λ)</label>
           <app-help-tooltip
-            text="Controls the return-risk tradeoff in mean-risk objectives. Higher values penalize risk more heavily, resulting in more conservative portfolios." />
+            text="Controls the return-risk tradeoff. Higher values penalise risk more heavily." />
         </div>
         <span class="text-xs font-mono text-accent">{{ riskAversion() }}</span>
       </div>
@@ -50,14 +70,14 @@
         <span class="text-xs text-text-tertiary">Conservative (5.0)</span>
       </div>
     </div>
+    }
 
     <!-- CVaR Beta (conditional) -->
     @if (showCvarBeta()) {
     <div>
       <div class="flex items-center gap-2 mb-2">
         <label for="cvarBeta" class="text-xs font-medium text-text-secondary">CVaR Beta</label>
-        <app-help-tooltip
-          text="Confidence level for CVaR/EVaR calculation. Beta=0.95 means we measure the expected loss in the worst 5% of scenarios." />
+        <app-help-tooltip text="Confidence level for tail-risk measures. Beta=0.95 means worst 5% of scenarios." />
       </div>
       <input id="cvarBeta" type="number" min="0.90" max="0.99" step="0.01" [ngModel]="cvarBeta()"
         (ngModelChange)="cvarBeta.set(+$event)"
@@ -65,17 +85,43 @@
     </div>
     }
 
-    <!-- Robust Kappa (conditional) -->
+    <!-- Robust Kappa slider (robust_mean_risk only) -->
     @if (showRobustKappa()) {
     <div>
-      <div class="flex items-center gap-2 mb-2">
-        <label for="robustKappa" class="text-xs font-medium text-text-secondary">Robust Kappa</label>
-        <app-help-tooltip
-          text="Uncertainty radius for robust optimization. kappa=0 recovers standard MeanRisk. Higher values create larger ellipsoidal uncertainty sets around the estimated mu, yielding more conservative portfolios." />
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <label for="robustKappa" class="text-xs font-medium text-text-secondary">Uncertainty Radius (κ)</label>
+          <app-help-tooltip
+            text="Ellipsoidal uncertainty radius for the μ estimate. kappa=0 recovers standard MeanRisk; higher values yield more conservative portfolios. Presets: 0.5 aggressive, 1.0 moderate, 2.0 conservative." />
+        </div>
+        <span class="text-xs font-mono text-accent">{{ robustKappa() }}</span>
       </div>
-      <input id="robustKappa" type="number" min="0" max="3" step="0.1" [ngModel]="robustKappa()"
-        (ngModelChange)="robustKappa.set(+$event)"
-        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+      <input id="robustKappa" type="range" min="0" max="3" step="0.1" [ngModel]="robustKappa()"
+        (ngModelChange)="robustKappa.set(+$event)" class="w-full accent-accent" />
+      <div class="flex justify-between mt-1">
+        <span class="text-xs text-text-tertiary">Standard (0)</span>
+        <span class="text-xs text-text-tertiary">Conservative (3)</span>
+      </div>
+    </div>
+    }
+
+    <!-- DR-CVaR Epsilon slider (dr_cvar only) -->
+    @if (showDrCvarEpsilon()) {
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <label for="drCvarEpsilon" class="text-xs font-medium text-text-secondary">Wasserstein Radius (ε)</label>
+          <app-help-tooltip
+            text="Distributionally-robust radius around the empirical CVaR distribution. epsilon=0 falls back to standard empirical CVaR; higher values yield more robust but more conservative portfolios." />
+        </div>
+        <span class="text-xs font-mono text-accent">{{ drCvarEpsilon() }}</span>
+      </div>
+      <input id="drCvarEpsilon" type="range" min="0" max="1" step="0.01" [ngModel]="drCvarEpsilon()"
+        (ngModelChange)="drCvarEpsilon.set(+$event)" class="w-full accent-accent" />
+      <div class="flex justify-between mt-1">
+        <span class="text-xs text-text-tertiary">Standard (0)</span>
+        <span class="text-xs text-text-tertiary">Robust (1)</span>
+      </div>
     </div>
     }
   </div>
@@ -84,8 +130,7 @@
   <div class="bg-surface-raised border border-border rounded-lg p-4">
     <div class="flex items-center gap-2 mb-3">
       <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide">Active Constraints</h4>
-      <app-help-tooltip
-        text="Constraints applied to the optimization problem. These define the feasible set of portfolio weights." />
+      <app-help-tooltip text="Constraints applied to the optimization problem. These define the feasible set of portfolio weights." />
     </div>
     <ul class="space-y-1.5">
       @for (constraint of activeConstraints; track constraint) {
@@ -97,5 +142,11 @@
     </ul>
   </div>
 
-  <!-- Run Pipeline via header button -->
+  <!-- Inline Run button (used when a panel is expanded) -->
+  <div class="flex justify-end">
+    <button type="button" (click)="emitRun()"
+      class="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors">
+      Run Optimization
+    </button>
+  </div>
 </div>

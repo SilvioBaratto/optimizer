@@ -1,0 +1,107 @@
+@if (instrumentId()) {
+  <aside
+    class="fixed inset-y-0 right-0 w-full max-w-md bg-surface border-l border-border shadow-xl z-[250] overflow-y-auto"
+    role="dialog"
+    aria-label="Instrument detail">
+    <header class="sticky top-0 bg-surface border-b border-border p-4 flex items-center justify-between">
+      <div>
+        <h3 class="text-sm font-semibold text-text">
+          {{ profile()?.long_name ?? profile()?.short_name ?? profile()?.symbol ?? 'Instrument' }}
+        </h3>
+        @if (profile()?.sector) {
+          <p class="text-xs text-text-secondary">
+            {{ profile()!.sector }}
+            @if (profile()!.industry) { · {{ profile()!.industry }} }
+          </p>
+        }
+      </div>
+      <button type="button" (click)="onClose()"
+        class="p-1.5 rounded-md text-text-secondary hover:bg-surface-inset transition-colors"
+        aria-label="Close detail flyout">
+        <i-lucide name="x" [size]="16" />
+      </button>
+    </header>
+
+    <div class="p-4 space-y-4">
+      @if (profile(); as p) {
+        <section class="grid grid-cols-2 gap-3">
+          <div>
+            <div class="text-xs text-text-tertiary uppercase tracking-wide">Price</div>
+            <div class="text-lg font-semibold text-text">
+              @if (p.current_price !== null) {
+                {{ p.currency ?? '' }} {{ p.current_price.toFixed(2) }}
+              } @else { — }
+            </div>
+          </div>
+          <div>
+            <div class="text-xs text-text-tertiary uppercase tracking-wide">Market Cap</div>
+            <div class="text-sm font-medium text-text">
+              @if (p.market_cap !== null) { {{ (p.market_cap / 1_000_000_000).toFixed(1) }}B } @else { — }
+            </div>
+          </div>
+          <div>
+            <div class="text-xs text-text-tertiary uppercase tracking-wide">Trailing P/E</div>
+            <div class="text-sm font-medium text-text">
+              @if (p.trailing_pe !== null) { {{ p.trailing_pe.toFixed(2) }} } @else { — }
+            </div>
+          </div>
+          <div>
+            <div class="text-xs text-text-tertiary uppercase tracking-wide">Beta</div>
+            <div class="text-sm font-medium text-text">
+              @if (p.beta !== null) { {{ p.beta.toFixed(2) }} } @else { — }
+            </div>
+          </div>
+        </section>
+      } @else {
+        <p class="text-xs text-text-tertiary">No profile available.</p>
+      }
+
+      <!-- Sparkline of last 90 closes -->
+      @if (prices().length > 0) {
+        <section>
+          <div class="text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
+            Price history ({{ prices().length }} closes)
+          </div>
+          <svg viewBox="0 0 100 30" class="w-full h-16 text-accent" preserveAspectRatio="none">
+            <path [attr.d]="spark().path" fill="none" stroke="currentColor" stroke-width="1.2" />
+          </svg>
+          <div class="flex justify-between text-xs text-text-tertiary">
+            <span>min {{ spark().min.toFixed(2) }}</span>
+            <span>max {{ spark().max.toFixed(2) }}</span>
+          </div>
+        </section>
+      }
+
+      <!-- Analyst recommendation latest -->
+      @if (latestRecommendation(); as rec) {
+        <section>
+          <div class="text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
+            Latest analyst consensus
+          </div>
+          <dl class="grid grid-cols-5 gap-2 text-center text-xs">
+            <div>
+              <dt class="text-text-tertiary">Str Buy</dt>
+              <dd class="font-mono text-gain">{{ rec.strong_buy ?? 0 }}</dd>
+            </div>
+            <div>
+              <dt class="text-text-tertiary">Buy</dt>
+              <dd class="font-mono text-gain">{{ rec.buy ?? 0 }}</dd>
+            </div>
+            <div>
+              <dt class="text-text-tertiary">Hold</dt>
+              <dd class="font-mono text-text">{{ rec.hold ?? 0 }}</dd>
+            </div>
+            <div>
+              <dt class="text-text-tertiary">Sell</dt>
+              <dd class="font-mono text-loss">{{ rec.sell ?? 0 }}</dd>
+            </div>
+            <div>
+              <dt class="text-text-tertiary">Str Sell</dt>
+              <dd class="font-mono text-loss">{{ rec.strong_sell ?? 0 }}</dd>
+            </div>
+          </dl>
+        </section>
+      }
+    </div>
+  </aside>
+}

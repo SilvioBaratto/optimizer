@@ -73,3 +73,72 @@ export interface FactorLoading {
   tStat: number;
   pValue: number;
 }
+
+// ── Backend API DTOs (mirror api/app/schemas/{backtest,validation}.py) ──────
+
+export interface BacktestApiRequest {
+  tickers: string[];
+  start_date: string;
+  end_date: string;
+  pipeline_config?: Record<string, unknown>;
+}
+
+export interface BacktestAsyncResponse {
+  jobId: string;
+  runId: string;
+  status: string;
+  message: string;
+}
+
+export interface BacktestProgressResponse {
+  job_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  current: number;
+  total: number;
+  errors: string[];
+  result: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export type CvType = 'walk_forward' | 'cpcv' | 'multiple_randomized';
+
+export interface ValidateApiRequest {
+  tickers: string[];
+  start_date: string;
+  end_date: string;
+  cv_type?: CvType;
+  cv_config?: Record<string, unknown>;
+  optimizer_type?: string;
+  optimizer_config?: Record<string, unknown>;
+}
+
+export interface ValidateAsyncResponse {
+  job_id: string;
+  status: string;
+  message: string;
+}
+
+export interface ValidateFoldResult {
+  weights: Record<string, number>;
+  measures: Record<string, number>;
+}
+
+export interface ValidateProgressResponse {
+  job_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  current: number;
+  total: number;
+  current_fold: number;
+  total_folds: number;
+  errors: string[];
+  result: {
+    folds?: ValidateFoldResult[];
+    aggregate?: Record<string, number>;
+  } | null;
+  error: string | null;
+}
+
+export interface EquityCurvePoint {
+  date: string;
+  value: number;
+}

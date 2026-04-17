@@ -15,9 +15,7 @@ import { EchartsBarComponent, BarData } from '../../shared/echarts-bar/echarts-b
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
 import { FormatService } from '../../services/format.service';
-import { MOCK_CONCENTRATION } from '../../mocks/risk-mocks';
-import { MOCK_VAR_RESULTS } from '../../mocks/risk-mocks';
-import { generateDailyTimeSeries } from '../../mocks/generators';
+// Component consumes real data through input() — no mock imports.
 import type { VaRMethod, VaRResult } from '../../models/risk.model';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 
@@ -69,12 +67,7 @@ export class VarPanelComponent implements OnDestroy {
     return r ? this.fmt.formatPercent(Math.abs(r.var)) : '--';
   });
 
-  breakdownData = computed<BarData[]>(() =>
-    MOCK_CONCENTRATION.slice(0, 10).map(c => ({
-      label: c.ticker,
-      value: c.componentVar,
-    })),
-  );
+  breakdownData = computed<BarData[]>(() => []);
 
   comparisonColumns: TableColumn[] = [
     { key: 'method', label: 'Method', sortable: true },
@@ -86,7 +79,7 @@ export class VarPanelComponent implements OnDestroy {
   ];
 
   comparisonRows = computed(() =>
-    MOCK_VAR_RESULTS.map(r => ({
+    this.varResults().map(r => ({
       method: r.method === 'monte_carlo' ? 'Monte Carlo' : r.method.charAt(0).toUpperCase() + r.method.slice(1),
       confidence: r.confidence,
       var: r.var,
@@ -96,7 +89,7 @@ export class VarPanelComponent implements OnDestroy {
     })),
   );
 
-  private readonly varTimeSeries = generateDailyTimeSeries('2025-06-01', 180, -0.02, 0.16, -0.018, 99);
+  private readonly varTimeSeries: { date: string; value: number }[] = [];
 
   constructor() {
     effect((onCleanup) => {

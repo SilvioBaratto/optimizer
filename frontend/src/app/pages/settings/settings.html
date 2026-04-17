@@ -1,72 +1,19 @@
 <div class="flex-1 overflow-y-auto p-6">
-  <!-- Header -->
   <app-page-header title="Settings" subtitle="Application configuration and preferences" />
 
-  @if (isLoading()) {
-  <!-- Loading skeleton -->
-  <div class="space-y-6">
-    <div class="h-10 skeleton rounded-lg w-full max-w-md"></div>
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div class="h-64 skeleton rounded-lg"></div>
-      <div class="h-64 skeleton rounded-lg"></div>
-    </div>
-    <div class="h-48 skeleton rounded-lg"></div>
-    <div class="h-32 skeleton rounded-lg"></div>
-  </div>
-  } @else if (hasError()) {
-  <!-- Error state -->
-  <div class="flex flex-col items-center justify-center py-20 px-4">
-    <i-lucide name="triangle-alert" [size]="48" class="text-loss mb-4" />
-    <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
-    <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
-    <button (click)="retry()"
-      class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors">
-      Try Again
-    </button>
-  </div>
-  } @else {
-  <!-- Tabs -->
   <app-tab-group [tabs]="tabs" [activeTab]="activeTab()" (tabChange)="onTabChange($event)" />
 
   <div class="mt-6">
-    <!-- ═══ DATA MANAGEMENT TAB ═══ -->
-    @if (activeTab() === 'data') {
-    <!-- Data Sources Table -->
-    <div class="mb-6">
-      <h3 class="text-data-sm font-medium text-text mb-3">Data Sources</h3>
-      <div class="overflow-x-auto rounded-lg">
-        <app-data-table [columns]="dataSourceColumns" [rows]="dataSourceRows" [total]="dataSourceRows.length"
-          [pageSize]="10" [showExport]="true" exportFilename="data-sources" />
-      </div>
-    </div>
-
-    <!-- CSV Upload Dropzone (mock UI) -->
-    <div class="bg-surface-raised border border-border rounded-lg p-6 mb-6">
-      <h3 class="text-data-sm font-medium text-text mb-3">Import Data</h3>
-      <div
-        class="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-accent/50 transition-colors cursor-pointer">
-        <i-lucide name="upload" [size]="40" class="mx-auto text-text-tertiary mb-3" />
-        <p class="text-data-sm text-text-secondary">Drop CSV or Excel files here</p>
-        <p class="text-label text-text-tertiary mt-1">Supports .csv, .xlsx, .xls formats</p>
-      </div>
-    </div>
-
-    <!-- Cache Management -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <div class="flex items-center justify-between">
-        <div>
-          <h3 class="text-data-sm font-medium text-text">Cache Management</h3>
-          <p class="text-data-xs text-text-secondary mt-0.5">Clear cached price data and computed results</p>
-        </div>
-        <button type="button" class="px-4 py-2 rounded-lg text-data-xs font-medium transition-colors"
-          [class]="cacheCleared() ? 'bg-gain/15 text-gain' : 'bg-loss/15 text-loss hover:bg-loss/25'"
-          (click)="clearCache()">
-          {{ cacheCleared() ? 'Cleared' : 'Clear Cache' }}
-        </button>
-      </div>
-    </div>
+    @switch (activeTab()) {
+      @case ('data') {
+        <app-data-management-panel />
+      }
+      @case ('portfolios') {
+        <app-portfolios-panel />
+      }
+      @case ('scheduler') {
+        <app-scheduler-status-panel />
+      }
     }
-
   </div>
-  }
 </div>

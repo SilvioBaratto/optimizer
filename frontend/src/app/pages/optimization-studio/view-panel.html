@@ -3,58 +3,144 @@
   <div class="bg-surface-raised border border-border rounded-lg p-4">
     <div class="flex items-center gap-2 mb-3">
       <h3 class="text-sm font-semibold text-text">View Framework</h3>
-      <app-help-tooltip text="Select a Bayesian view framework to incorporate analyst views into the prior distribution. Black-Litterman blends views with equilibrium returns. Entropy Pooling tilts the full distribution." />
+      <app-help-tooltip
+        text="Black-Litterman = LLM-generated structured views. Opinion Pool = IC-weighted combination of multiple personas. Entropy Pooling = tilts the full return distribution." />
     </div>
     <div class="flex gap-3 flex-wrap">
       @for (option of viewFrameworkOptions; track option) {
         <label class="flex items-center gap-2 cursor-pointer">
-          <input
-            type="radio"
-            name="viewFramework"
-            [value]="option"
+          <input type="radio" name="viewFramework" [value]="option"
             [checked]="selectedViewFramework() === option"
-            (change)="setViewFramework(option)"
-            class="accent-accent" />
+            (change)="setViewFramework(option)" class="accent-accent" />
           <span class="text-xs text-text">{{ viewFrameworkLabels[option] }}</span>
         </label>
       }
     </div>
   </div>
 
-  <!-- View Builder Table -->
-  @if (selectedViewFramework() !== 'none') {
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide">Active Views</h4>
-          <app-help-tooltip text="Each view expresses a belief about expected returns. Absolute views set a target return for an asset. Relative views express a return differential between two assets." />
+  <!-- Shared Inputs -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-3">
+    <div>
+      <label for="tickersRaw" class="text-xs text-text-secondary block mb-1">
+        Tickers (comma-separated)
+      </label>
+      <input id="tickersRaw" type="text" [ngModel]="tickersRaw()" (ngModelChange)="tickersRaw.set($event)"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+    </div>
+    @if (selectedViewFramework() === 'entropy_pooling') {
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label for="viewStartDate" class="text-xs text-text-secondary block mb-1">Start date</label>
+          <input id="viewStartDate" type="date" [ngModel]="startDate()" (ngModelChange)="startDate.set($event)"
+            class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent" />
         </div>
-        <button
-          type="button"
-          (click)="addView()"
-          class="px-3 py-1.5 text-xs font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors">
-          + Add View
-        </button>
+        <div>
+          <label for="viewEndDate" class="text-xs text-text-secondary block mb-1">End date</label>
+          <input id="viewEndDate" type="date" [ngModel]="endDate()" (ngModelChange)="endDate.set($event)"
+            class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+        </div>
       </div>
-      <app-data-table
-        [columns]="viewTableColumns"
-        [rows]="viewTableRows()"
-        [total]="viewTableRows().length"
-        [dense]="true" />
+    }
+  </div>
+
+  <!-- Black-Litterman -->
+  @if (selectedViewFramework() === 'black_litterman') {
+    <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-3">
+      <div class="flex items-center gap-2">
+        <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide">Generate BL views</h4>
+        <app-help-tooltip text="POST /views/generate. Fetches factor signals from DB and returns P, Q, view_confidences ready for build_black_litterman()." />
+      </div>
+      <button type="button" (click)="runBlackLitterman()" [disabled]="blLoading()"
+        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors">
+        @if (blLoading()) { Generating… } @else { Generate views }
+      </button>
+      @if (blError(); as err) {
+        <p class="text-xs text-loss">{{ err }}</p>
+      }
+      @if (blResponse()?.tickers_missing?.length) {
+        <p class="text-xs text-warning">Missing factor data: {{ blResponse()!.tickers_missing.join(', ') }}</p>
+      }
+      @if (blViewRows().length > 0) {
+        <app-data-table [columns]="viewTableColumns" [rows]="blViewRows()"
+          [total]="blViewRows().length" [dense]="true" />
+      }
     </div>
   }
 
-  <!-- Prior vs Posterior Returns -->
-  @if (selectedViewFramework() !== 'none') {
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div class="bg-surface-raised border border-border rounded-lg p-4">
-        <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide mb-3">Prior Returns</h4>
-        <app-echarts-bar [data]="priorBarData()" [height]="160" />
+  <!-- Opinion Pool -->
+  @if (selectedViewFramework() === 'opinion_pool') {
+    <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-3">
+      <div class="flex items-center gap-2">
+        <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide">Run Opinion Pool</h4>
+        <app-help-tooltip text="POST /views/opinion-pool. Runs N LLM personas and combines views via IC-calibrated Opinion Pooling. At least 2 personas required." />
       </div>
-      <div class="bg-surface-raised border border-border rounded-lg p-4">
-        <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide mb-3">Posterior Returns</h4>
-        <app-echarts-bar [data]="posteriorBarData()" [height]="160" />
+      <label for="personasRaw" class="text-xs text-text-secondary block">Personas (comma-separated, ≥2)</label>
+      <input id="personasRaw" type="text" [ngModel]="personasRaw()" (ngModelChange)="personasRaw.set($event)"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+      <button type="button" (click)="runOpinionPool()" [disabled]="opinionLoading()"
+        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors">
+        @if (opinionLoading()) { Running… } @else { Run opinion pool }
+      </button>
+      @if (opinionError(); as err) {
+        <p class="text-xs text-loss">{{ err }}</p>
+      }
+      @if (personaWeightsEntries().length > 0) {
+        <div class="text-xs text-text">
+          <span class="font-medium">Persona weights:</span>
+          <ul class="mt-1 space-y-0.5">
+            @for (entry of personaWeightsEntries(); track entry[0]) {
+              <li class="flex justify-between">
+                <span>{{ entry[0] }}</span>
+                <span class="font-mono text-accent">{{ entry[1].toFixed(3) }}</span>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+      @if (opinionViewRows().length > 0) {
+        <app-data-table [columns]="viewTableColumns" [rows]="opinionViewRows()"
+          [total]="opinionViewRows().length" [dense]="true" />
+      }
+    </div>
+  }
+
+  <!-- Entropy Pooling -->
+  @if (selectedViewFramework() === 'entropy_pooling') {
+    <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-3">
+      <div class="flex items-center gap-2">
+        <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide">Run Entropy Pooling</h4>
+        <app-help-tooltip text="POST /views/entropy-pooling. Supports mean/variance/correlation/skew/cvar views like 'AAPL == 0.10' or '(AAPL, MSFT) == 0.3'. One per line." />
       </div>
+      <label for="meanViewsRaw" class="text-xs text-text-secondary block">Mean views (one per line)</label>
+      <textarea id="meanViewsRaw" rows="2" [ngModel]="meanViewsRaw()" (ngModelChange)="meanViewsRaw.set($event)"
+        placeholder="AAPL == 0.10"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"></textarea>
+      <label for="varianceViewsRaw" class="text-xs text-text-secondary block">Variance views (one per line)</label>
+      <textarea id="varianceViewsRaw" rows="2" [ngModel]="varianceViewsRaw()" (ngModelChange)="varianceViewsRaw.set($event)"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"></textarea>
+      <label for="cvarViewsRaw" class="text-xs text-text-secondary block">CVaR views (one per line)</label>
+      <textarea id="cvarViewsRaw" rows="2" [ngModel]="cvarViewsRaw()" (ngModelChange)="cvarViewsRaw.set($event)"
+        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"></textarea>
+      <button type="button" (click)="runEntropyPooling()" [disabled]="entropyLoading()"
+        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors">
+        @if (entropyLoading()) { Running… } @else { Run entropy pooling }
+      </button>
+      @if (entropyError(); as err) {
+        <p class="text-xs text-loss">{{ err }}</p>
+      }
+      @if (entropyResponse(); as res) {
+        <div class="text-xs text-text">
+          <p class="font-medium mb-1">Effective sample size: <span class="font-mono text-accent">{{ res.effective_sample_size }}</span></p>
+          <ul class="space-y-0.5">
+            @for (entry of entropyMuEntries(); track entry.ticker) {
+              <li class="flex justify-between">
+                <span>{{ entry.ticker }}</span>
+                <span class="font-mono text-accent">{{ (entry.mu * 100).toFixed(2) }}%</span>
+              </li>
+            }
+          </ul>
+        </div>
+      }
     </div>
   }
 </div>

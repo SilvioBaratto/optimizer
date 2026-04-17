@@ -1,16 +1,17 @@
 import {
-  Component,
-  input,
-  computed,
-  inject,
   ChangeDetectionStrategy,
+  Component,
+  computed,
+  input,
 } from '@angular/core';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
 import { EchartsWaterfallComponent } from '../../shared/echarts-waterfall/echarts-waterfall';
-import { FormatService } from '../../services/format.service';
-import type { TradePreview, TradeSummary } from '../../models/rebalancing.model';
+import type {
+  RebalancePreviewApiResponse,
+  TradeItemDto,
+} from '../../models/rebalancing.model';
 
 @Component({
   selector: 'app-trade-preview-panel',
@@ -19,72 +20,58 @@ import type { TradePreview, TradeSummary } from '../../models/rebalancing.model'
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TradePreviewPanelComponent {
-  trades = input<TradePreview[]>([]);
-  summary = input<TradeSummary | null>(null);
-
-  private fmt = inject(FormatService);
+  readonly preview = input<RebalancePreviewApiResponse | null>(null);
 
   readonly tradeColumns: TableColumn[] = [
     { key: 'ticker', label: 'Ticker', sortable: true },
-    { key: 'name', label: 'Name', sortable: true },
     {
-      key: 'action',
-      label: 'Action',
+      key: 'side',
+      label: 'Side',
       type: 'badge',
       sortable: true,
       badgeMap: {
-        buy: { value: 'BUY', colorClass: 'bg-emerald-500/15 text-emerald-400' },
-        sell: { value: 'SELL', colorClass: 'bg-red-500/15 text-red-400' },
+        buy: { value: 'BUY', colorClass: 'bg-gain/15 text-gain' },
+        sell: { value: 'SELL', colorClass: 'bg-loss/15 text-loss' },
       },
     },
-    { key: 'shares', label: 'Shares', type: 'number', sortable: true },
-    { key: 'notional', label: 'Notional', type: 'currency', sortable: true },
-    { key: 'fromWeight', label: 'From Weight', type: 'percentage', sortable: true },
-    { key: 'toWeight', label: 'To Weight', type: 'percentage', sortable: true },
-    { key: 'estimatedCost', label: 'Est. Cost', type: 'currency', sortable: true },
+    { key: 'currentWeight', label: 'Current', type: 'percentage', sortable: true, align: 'right' },
+    { key: 'targetWeight', label: 'Target', type: 'percentage', sortable: true, align: 'right' },
+    { key: 'weightDelta', label: 'Δ weight', type: 'percentage', sortable: true, align: 'right', colorBySign: true },
+    { key: 'shares', label: 'Shares', align: 'right' },
   ];
 
-  tradeRows = computed(() =>
-    this.trades().map(t => ({
+  readonly trades = computed<TradeItemDto[]>(() => this.preview()?.trades ?? []);
+
+  readonly totalTurnover = computed(() => {
+    const prev = this.preview();
+    if (!prev) return 0;
+    return (
+      prev.trades.reduce((sum, t) => sum + Math.abs(t.weightDelta), 0) / 2
+    );
+  });
+
+  readonly tradeRows = computed(() => {
+    const prev = this.preview();
+    if (!prev) return [];
+    return prev.trades.map((t) => ({
       ticker: t.ticker,
-      name: t.name,
-      action: t.action,
-      shares: t.shares,
-      notional: t.notional,
-      fromWeight: t.fromWeight,
-      toWeight: t.toWeight,
-      estimatedCost: t.estimatedCost,
-    })),
+      side: t.side,
+      currentWeight: prev.currentWeights[t.ticker] ?? 0,
+      targetWeight: prev.targetWeights[t.ticker] ?? 0,
+      weightDelta: t.weightDelta,
+      shares: t.shares !== null ? t.shares.toFixed(2) : '—',
+    }) as Record<string, unknown>);
+  });
+
+  readonly waterfallCategories = computed(() => this.trades().map((t) => t.ticker));
+  readonly waterfallValues = computed(() =>
+    this.trades().map((t) => Math.round(t.weightDelta * 10000)),
   );
 
-  waterfallCategories = computed(() => this.trades().map(t => t.ticker));
-
-  waterfallValues = computed(() =>
-    this.trades().map(t => Math.round((t.toWeight - t.fromWeight) * 10000)),
-  );
-
-  kpiTurnover = computed(() => {
-    const s = this.summary();
-    return s ? this.fmt.formatPercent(s.totalTurnover) : '--';
-  });
-
-  kpiCost = computed(() => {
-    const s = this.summary();
-    return s ? this.fmt.formatCurrency(s.totalCost) : '--';
-  });
-
-  kpiBuys = computed(() => {
-    const s = this.summary();
-    return s ? String(s.buys) : '--';
-  });
-
-  kpiSells = computed(() => {
-    const s = this.summary();
-    return s ? String(s.sells) : '--';
-  });
-
-  kpiNetCashFlow = computed(() => {
-    const s = this.summary();
-    return s ? this.fmt.formatCurrency(s.netCashFlow) : '--';
+  readonly kpiTurnover = computed(() => `${(this.totalTurnover() * 100).toFixed(2)}%`);
+  readonly kpiTradeCount = computed(() => String(this.trades().length));
+  readonly kpiPortfolioValue = computed(() => {
+    const v = this.preview()?.portfolioValue;
+    return v !== null && v !== undefined ? v.toLocaleString() : '—';
   });
 }

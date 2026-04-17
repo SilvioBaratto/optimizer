@@ -1,35 +1,40 @@
 import { Component, signal, output, computed, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HelpTooltipComponent } from '../../shared/help-tooltip/help-tooltip';
-import { RiskMeasureType } from '../../models/optimization.model';
-import { MOCK_OPTIMIZATION_CONFIG } from '../../mocks/optimization-mocks';
+import type {
+  ObjectiveFunctionType,
+  OptimizerType,
+  RiskMeasureType,
+} from '../../models/optimization.model';
 
-type ObjectiveFunction =
-  | 'max_sharpe'
-  | 'min_variance'
-  | 'min_cvar'
-  | 'max_return'
-  | 'risk_parity'
-  | 'risk_budgeting'
-  | 'max_diversification'
-  | 'equal_weight'
-  | 'inverse_volatility'
-  | 'hrp'
-  | 'herc'
-  | 'nco'
-  | 'benchmark_tracking'
-  | 'robust_mean_risk'
-  | 'dr_cvar';
+// All optimizer types exposed to the UI (matches backend OPTIMIZER_REGISTRY
+// in api/app/services/optimization_service.py plus tracker/benchmark/max_sharpe
+// aliases that the backend resolves internally).
+const OPTIMIZER_TYPES: readonly OptimizerType[] = [
+  'mean_risk',
+  'risk_budgeting',
+  'max_diversification',
+  'equal_weighted',
+  'inverse_volatility',
+  'hrp',
+  'herc',
+  'nco',
+  'stacking',
+  'regime_blended',
+  'benchmark_tracking',
+  'max_sharpe',
+  'min_variance',
+  'robust_mean_risk',
+  'dr_cvar',
+];
 
-const OBJECTIVE_LABELS: Record<ObjectiveFunction, string> = {
+const OPTIMIZER_LABELS: Record<OptimizerType, string> = {
+  mean_risk: 'Mean-Risk (Markowitz)',
   max_sharpe: 'Max Sharpe Ratio',
   min_variance: 'Min Variance',
-  min_cvar: 'Min CVaR',
-  max_return: 'Max Return',
-  risk_parity: 'Risk Parity',
   risk_budgeting: 'Risk Budgeting',
   max_diversification: 'Max Diversification',
-  equal_weight: 'Equal Weight',
+  equal_weighted: 'Equal Weight',
   inverse_volatility: 'Inverse Volatility',
   hrp: 'Hierarchical Risk Parity (HRP)',
   herc: 'Hierarchical Equal Risk Contribution (HERC)',
@@ -37,7 +42,44 @@ const OBJECTIVE_LABELS: Record<ObjectiveFunction, string> = {
   benchmark_tracking: 'Benchmark Tracking',
   robust_mean_risk: 'Robust MeanRisk',
   dr_cvar: 'DR-CVaR (Wasserstein)',
+  stacking: 'Stacking Optimizer',
+  regime_blended: 'Regime-Blended Optimizer',
 };
+
+// All 4 ObjectiveFunctionType values from optimizer/optimization/_config.py.
+// Applicable only to convex mean-risk optimizers.
+const OBJECTIVE_FUNCTIONS: readonly ObjectiveFunctionType[] = [
+  'minimize_risk',
+  'maximize_return',
+  'maximize_utility',
+  'maximize_ratio',
+];
+
+const OBJECTIVE_LABELS: Record<ObjectiveFunctionType, string> = {
+  minimize_risk: 'Minimize Risk',
+  maximize_return: 'Maximize Return',
+  maximize_utility: 'Maximize Utility',
+  maximize_ratio: 'Maximize Ratio (Sharpe-like)',
+};
+
+// All 15 convex risk measures — mirrors RiskMeasureType enum.
+const RISK_MEASURES: readonly RiskMeasureType[] = [
+  'variance',
+  'semi_variance',
+  'standard_deviation',
+  'semi_deviation',
+  'mean_absolute_deviation',
+  'first_lower_partial_moment',
+  'cvar',
+  'evar',
+  'worst_realization',
+  'cdar',
+  'max_drawdown',
+  'average_drawdown',
+  'edar',
+  'ulcer_index',
+  'gini_mean_difference',
+];
 
 const RISK_MEASURE_LABELS: Record<RiskMeasureType, string> = {
   variance: 'Variance',
@@ -57,6 +99,11 @@ const RISK_MEASURE_LABELS: Record<RiskMeasureType, string> = {
   gini_mean_difference: 'Gini Mean Difference',
 };
 
+export interface OptimizerRunRequest {
+  optimizerType: OptimizerType;
+  config: Record<string, unknown>;
+}
+
 @Component({
   selector: 'app-optimizer-panel',
   imports: [FormsModule, HelpTooltipComponent],
@@ -64,37 +111,39 @@ const RISK_MEASURE_LABELS: Record<RiskMeasureType, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OptimizerPanelComponent {
-  readonly objectiveFunctions: ObjectiveFunction[] = [
-    'max_sharpe', 'min_variance', 'min_cvar', 'max_return',
-    'risk_parity', 'risk_budgeting', 'max_diversification',
-    'equal_weight', 'inverse_volatility', 'hrp', 'herc', 'nco',
-    'benchmark_tracking', 'robust_mean_risk', 'dr_cvar',
-  ];
-  readonly riskMeasures: RiskMeasureType[] = [
-    'variance', 'semi_variance', 'standard_deviation', 'semi_deviation',
-    'mean_absolute_deviation', 'first_lower_partial_moment', 'cvar', 'evar',
-    'worst_realization', 'cdar', 'max_drawdown', 'average_drawdown',
-    'edar', 'ulcer_index', 'gini_mean_difference',
-  ];
+  readonly optimizerTypes = OPTIMIZER_TYPES;
+  readonly optimizerLabels = OPTIMIZER_LABELS;
+  readonly objectiveFunctions = OBJECTIVE_FUNCTIONS;
   readonly objectiveLabels = OBJECTIVE_LABELS;
+  readonly riskMeasures = RISK_MEASURES;
   readonly riskMeasureLabels = RISK_MEASURE_LABELS;
 
-  objective = signal<ObjectiveFunction>(MOCK_OPTIMIZATION_CONFIG.strategy as ObjectiveFunction);
-  riskMeasure = signal<RiskMeasureType>(MOCK_OPTIMIZATION_CONFIG.riskMeasure);
-  riskAversion = signal<number>(MOCK_OPTIMIZATION_CONFIG.riskAversion);
-  cvarBeta = signal<number>(MOCK_OPTIMIZATION_CONFIG.cvarBeta);
-  robustKappa = signal<number>(MOCK_OPTIMIZATION_CONFIG.robustKappa);
+  readonly optimizerType = signal<OptimizerType>('mean_risk');
+  readonly objective = signal<ObjectiveFunctionType>('maximize_ratio');
+  readonly riskMeasure = signal<RiskMeasureType>('variance');
+  readonly riskAversion = signal<number>(1.0);
+  readonly cvarBeta = signal<number>(0.95);
+  readonly robustKappa = signal<number>(1.0);
+  readonly drCvarEpsilon = signal<number>(0.1);
 
-  runOptimization = output<void>();
+  readonly runOptimization = output<OptimizerRunRequest>();
 
-  readonly showCvarBeta = computed(() =>
-    ['cvar', 'evar', 'min_cvar', 'dr_cvar'].includes(this.riskMeasure()) ||
-    this.objective() === 'min_cvar' || this.objective() === 'dr_cvar',
-  );
+  readonly showObjective = computed(() => this.supportsObjective(this.optimizerType()));
+  readonly showRiskMeasure = computed(() => this.supportsRiskMeasure(this.optimizerType()));
 
-  readonly showRobustKappa = computed(() =>
-    this.objective() === 'robust_mean_risk',
-  );
+  readonly showCvarBeta = computed(() => {
+    const rm = this.riskMeasure();
+    return (
+      this.optimizerType() === 'dr_cvar' ||
+      rm === 'cvar' ||
+      rm === 'evar' ||
+      rm === 'cdar' ||
+      rm === 'edar'
+    );
+  });
+
+  readonly showRobustKappa = computed(() => this.optimizerType() === 'robust_mean_risk');
+  readonly showDrCvarEpsilon = computed(() => this.optimizerType() === 'dr_cvar');
 
   readonly activeConstraints = [
     'Long-only (weights ≥ 0)',
@@ -102,11 +151,48 @@ export class OptimizerPanelComponent {
     'Max weight per asset: 30%',
   ];
 
+  setOptimizerType(value: string): void {
+    this.optimizerType.set(value as OptimizerType);
+  }
+
   setObjective(value: string): void {
-    this.objective.set(value as ObjectiveFunction);
+    this.objective.set(value as ObjectiveFunctionType);
   }
 
   setRiskMeasure(value: string): void {
     this.riskMeasure.set(value as RiskMeasureType);
+  }
+
+  emitRun(): void {
+    this.runOptimization.emit({
+      optimizerType: this.optimizerType(),
+      config: this.buildConfig(),
+    });
+  }
+
+  private buildConfig(): Record<string, unknown> {
+    const type = this.optimizerType();
+    const config: Record<string, unknown> = {};
+    if (this.supportsObjective(type)) config['objective'] = this.objective();
+    if (this.supportsRiskMeasure(type)) config['risk_measure'] = this.riskMeasure();
+    if (type === 'mean_risk') config['l2_coef'] = this.riskAversion();
+    if (type === 'robust_mean_risk') config['kappa'] = this.robustKappa();
+    if (type === 'dr_cvar') config['epsilon'] = this.drCvarEpsilon();
+    if (this.showCvarBeta()) config['beta'] = this.cvarBeta();
+    return config;
+  }
+
+  private supportsObjective(type: OptimizerType): boolean {
+    return (
+      type === 'mean_risk' ||
+      type === 'max_sharpe' ||
+      type === 'min_variance' ||
+      type === 'robust_mean_risk' ||
+      type === 'benchmark_tracking'
+    );
+  }
+
+  private supportsRiskMeasure(type: OptimizerType): boolean {
+    return type === 'mean_risk' || type === 'robust_mean_risk' || type === 'risk_budgeting';
   }
 }

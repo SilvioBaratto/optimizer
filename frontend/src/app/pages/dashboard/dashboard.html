@@ -2,19 +2,49 @@
 
   <!-- 1. Page Header — always visible -->
   <app-page-header [title]="portfolioName()" [subtitle]="subtitle()">
-    <div actions class="flex items-center gap-2">
-      <span
-        class="inline-flex items-center gap-1.5 text-data-xs text-text-tertiary bg-surface-inset px-2.5 py-1 rounded-full">
-        <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
-        Last rebalanced 2d ago
-      </span>
-      <button (click)="openReportModal()"
+    <div actions class="flex items-center gap-2 flex-wrap">
+      <app-period-selector [value]="period()" (valueChange)="onPeriodChange($event)" />
+      @if (benchmarkOptions().length > 0) {
+        <select [ngModel]="benchmark()" (ngModelChange)="onBenchmarkChange($event)"
+          aria-label="Benchmark selector"
+          class="px-3 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
+          @for (opt of benchmarkOptions(); track opt.ticker) {
+            <option [value]="opt.ticker">{{ opt.ticker }} — {{ opt.name ?? opt.ticker }}</option>
+          }
+        </select>
+      }
+      <button type="button" (click)="onGenerateReport()" [disabled]="isGeneratingReport()"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors">
+        <i-lucide name="file-down" />
+        @if (isGeneratingReport()) { Generating… } @else { Generate Report }
+      </button>
+      <button type="button" (click)="openReportModal()"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
         <i-lucide name="download" />
         Export Report
       </button>
     </div>
   </app-page-header>
+
+  @if (reportError(); as err) {
+    <div class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+      Report failed: {{ err }}
+    </div>
+  }
+  @if (reportJobId(); as id) {
+    <div class="bg-surface-raised border border-border rounded-lg p-3">
+      <app-job-progress-tracker [jobId]="id"
+        (completed)="onReportJobCompleted()"
+        (failed)="onReportJobFailed($event.error ?? 'Report failed')" />
+    </div>
+  }
+  @if (reportDownloadUrl(); as url) {
+    <a [href]="url" target="_blank" rel="noopener"
+      class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors">
+      <i-lucide name="file-down" />
+      Download report
+    </a>
+  }
 
   <!-- Loading skeleton -->
   @if (isLoading()) {
@@ -60,10 +90,18 @@
   <!-- 3. Equity Curve + Allocation (equal 2-col grid) -->
   @if (revealIndex() >= 2) {
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 reveal">
-    <!-- Left: Equity Curve -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <h2 class="text-data-lg font-medium text-text mb-3">Portfolio Performance</h2>
-      <div #equityCurve class="w-full" style="height: 320px;"></div>
+    <!-- Left: Equity Curve + Drawdown (stacked) -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-4">
+      <div>
+        <h2 class="text-data-lg font-medium text-text mb-3">Portfolio Performance ({{ period() }} vs {{ benchmark() }})</h2>
+        <div #equityCurve class="w-full" style="height: 320px;"></div>
+      </div>
+      @if (drawdownSeries().length > 0) {
+        <div>
+          <h2 class="text-data-lg font-medium text-text mb-3">Underwater Curve</h2>
+          <app-echarts-drawdown [data]="drawdownSeries()" [height]="220" />
+        </div>
+      }
     </div>
 
     <!-- Right: Asset Allocation — chart + sector legend -->

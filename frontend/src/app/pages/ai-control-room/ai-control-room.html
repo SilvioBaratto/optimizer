@@ -38,13 +38,15 @@
     </button>
   </div>
   } @else {
-  <!-- KPI Row -->
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-    <app-stat-card label="Decisions Today" [value]="totalDecisionsToday()" subtitle="Across all agents" />
-    <app-stat-card label="Active Agents" [value]="activeAgentCount() + ' / ' + agents.length"
-      subtitle="Currently running" />
-    <app-stat-card label="Avg Confidence" [value]="avgConfidence()" subtitle="Weighted by decisions" />
-  </div>
+  <!-- KPI Row — only renders when the decision-log feature flag is on. -->
+  @if (decisionLogEnabled) {
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <app-stat-card label="Decisions Today" [value]="totalDecisionsToday()" subtitle="Across all agents" />
+      <app-stat-card label="Active Agents" [value]="activeAgentCount() + ' / ' + agents.length"
+        subtitle="Currently running" />
+      <app-stat-card label="Avg Confidence" [value]="avgConfidence()" subtitle="Weighted by decisions" />
+    </div>
+  }
 
   <!-- Tabs -->
   <app-tab-group [tabs]="tabs()" [activeTab]="activeTab()" (tabChange)="onTabChange($event)" />

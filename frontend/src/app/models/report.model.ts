@@ -34,6 +34,49 @@ export interface ReportJob {
   downloadUrl?: string;
 }
 
+// ── Backend API DTOs (mirror api/app/schemas/reports.py) ───────────────────
+
+export type ApiReportTemplate = 'standard' | 'executive' | 'detailed';
+export type ApiReportFormat = 'pdf';
+export type ApiReportOrientation = 'portrait' | 'landscape';
+
+export type ApiReportSectionId =
+  | 'portfolio_summary'
+  | 'weights'
+  | 'performance_metrics'
+  | 'risk_analytics';
+
+export interface ApiReportBranding {
+  company_name?: string;
+  primary_color?: string;
+  include_disclaimer?: boolean;
+}
+
+export interface ReportGenerateRequest {
+  template?: ApiReportTemplate;
+  sections: ApiReportSectionId[];
+  branding?: ApiReportBranding;
+  format?: ApiReportFormat;
+  orientation?: ApiReportOrientation;
+  portfolio_id?: string;
+}
+
+export interface ReportJobCreateResponse {
+  job_id: string;
+  status: string;
+  message: string;
+}
+
+export interface ReportJobProgress {
+  job_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  current: number;
+  total: number;
+  errors: string[];
+  result: { report_id?: string; download_url?: string } | null;
+  error: string | null;
+}
+
 export const REPORT_SECTIONS: ReportSection[] = [
   { id: 'summary', label: 'Executive Summary', description: 'Portfolio overview and KPIs', default: true },
   { id: 'performance', label: 'Performance Analysis', description: 'Returns, drawdowns, and benchmarks', default: true },

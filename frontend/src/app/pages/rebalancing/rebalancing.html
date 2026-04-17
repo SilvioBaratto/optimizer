@@ -1,70 +1,97 @@
 <div class="flex-1 overflow-y-auto p-6">
-  <app-page-header title="Rebalancing" subtitle="Portfolio rebalancing schedules and execution" />
+  <app-page-header title="Rebalancing" subtitle="Drift monitoring, policies, trade preview, and what-if analysis">
+    <div actions class="flex items-center gap-2">
+      @if (portfolios().length > 0) {
+        <select [ngModel]="selectedPortfolio()"
+          (ngModelChange)="onPortfolioSelect($event)"
+          class="px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
+          @for (p of portfolios(); track p.id) {
+            <option [value]="p.name">{{ p.name }}</option>
+          }
+        </select>
+      }
+    </div>
+  </app-page-header>
 
   @if (isLoading()) {
-    <!-- Loading skeleton -->
-    <div class="space-y-6">
+    <div class="space-y-6 mt-6">
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         @for (i of [1,2,3,4]; track i) {
           <div class="h-24 skeleton rounded-lg"></div>
         }
       </div>
-      <div class="h-10 skeleton rounded-lg w-full max-w-md"></div>
-      <div class="h-80 skeleton rounded-lg"></div>
     </div>
   } @else if (hasError()) {
-    <!-- Error state -->
     <div class="flex flex-col items-center justify-center py-20 px-4">
       <i-lucide name="triangle-alert" [size]="48" class="text-loss mb-4" />
       <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
       <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
-      <button (click)="retry()" class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors">
+      <button type="button" (click)="retry()"
+        class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
         Try Again
       </button>
     </div>
   } @else {
-    <!-- KPI Cards -->
-    <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
+    <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-6 mt-6">
       <app-stat-card label="Max Drift" [value]="kpiMaxDrift()" subtitle="Largest absolute deviation" />
       <app-stat-card label="Breached Assets" [value]="kpiBreachedAssets()" subtitle="Above threshold" />
       <app-stat-card label="Active Policy" [value]="kpiActivePolicy()" subtitle="Current rebalancing rule" />
-      <app-stat-card label="Est. Rebal Cost" [value]="kpiEstRebalCost()" subtitle="Estimated transaction cost" />
+      <app-stat-card label="Est. Cost" [value]="kpiEstRebalCost()" subtitle="Last decide" />
     </div>
 
-    <!-- Tab Navigation -->
     <app-tab-group [tabs]="tabs" [activeTab]="activeTab()" (tabChange)="activeTab.set($event)" />
 
-    <!-- Tab Content -->
     <div class="mt-6">
       @if (activeTab() === 'status') {
-        <app-status-panel [driftEntries]="driftEntries" />
+        <app-status-panel [drift]="driftResponse()" [threshold]="driftThreshold()"
+          (thresholdChange)="onThresholdChange($event)" />
       }
 
       @if (activeTab() === 'policy') {
         <app-policy-panel
           [policies]="policies()"
-          (activatePolicy)="onActivatePolicy($event)"
-        />
+          (requestActivate)="requestActivate($event)"
+          (createPolicy)="onCreatePolicy($event)" />
       }
 
       @if (activeTab() === 'trade-preview') {
-        <app-trade-preview-panel
-          [trades]="trades"
-          [summary]="summary"
-        />
+        <app-trade-preview-panel [preview]="previewResponse()" />
       }
 
       @if (activeTab() === 'history') {
-        <app-history-panel [history]="history" />
+        <app-history-panel [snapshots]="snapshots()" />
       }
 
       @if (activeTab() === 'what-if') {
         <app-whatif-panel
-          [trades]="trades"
-          [summary]="summary"
-          [driftEntries]="driftEntries"
-        />
+          [decideResponse]="decideResponse()"
+          (runDecide)="onRunDecide($event)" />
       }
+    </div>
+  }
+
+  <!-- Confirmation dialog for policy activation -->
+  @if (pendingActivateId(); as id) {
+    <div class="fixed inset-0 z-[260] bg-black/40 flex items-center justify-center p-4"
+      role="dialog" aria-label="Confirm activate policy">
+      <div class="bg-surface border border-border rounded-lg shadow-xl w-full max-w-sm p-5 space-y-4">
+        <h3 class="text-sm font-semibold text-text">Activate this policy?</h3>
+        <p class="text-xs text-text-secondary">
+          The currently active policy (if any) will become inactive. This decision
+          drives the next automated rebalance run.
+        </p>
+        <div class="flex justify-end gap-2">
+          <button type="button" (click)="cancelActivate()"
+            class="px-3 py-1.5 text-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+            Cancel
+          </button>
+          <button type="button" (click)="confirmActivate()"
+            data-testid="confirm-activate"
+            class="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/90 transition-colors">
+            Activate
+          </button>
+        </div>
+      </div>
     </div>
   }
 </div>

@@ -37,6 +37,31 @@ export type CovEstimatorType =
   | 'implied'
   | 'hmm_blended';
 
+// Mirrors `OPTIMIZER_REGISTRY` in api/app/services/optimization_service.py.
+export type OptimizerType =
+  | 'mean_risk'
+  | 'robust_mean_risk'
+  | 'dr_cvar'
+  | 'hrp'
+  | 'herc'
+  | 'nco'
+  | 'risk_budgeting'
+  | 'max_diversification'
+  | 'equal_weighted'
+  | 'inverse_volatility'
+  | 'stacking'
+  | 'regime_blended'
+  | 'benchmark_tracking'
+  | 'max_sharpe'
+  | 'min_variance';
+
+// Mirrors ObjectiveFunctionType in optimizer/optimization/_config.py.
+export type ObjectiveFunctionType =
+  | 'minimize_risk'
+  | 'maximize_return'
+  | 'maximize_utility'
+  | 'maximize_ratio';
+
 export type PipelineNodeStatus = 'pending' | 'running' | 'completed' | 'error';
 
 export interface PipelineNode {
@@ -90,4 +115,137 @@ export interface StrategyComparison {
   sharpe: number;
   maxDrawdown: number;
   cvar95: number;
+}
+
+// ── Backend request / response DTOs ──────────────────────────────────────────
+
+export interface OptimizeRequest {
+  tickers: string[];
+  start_date: string;
+  end_date: string;
+  optimizer_type: OptimizerType | string;
+  config?: Record<string, unknown>;
+  constraints?: Record<string, unknown> | null;
+}
+
+export interface OptimizationRunResponse {
+  id: string;
+  portfolioId: string | null;
+  jobId: string | null;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  optimizerType: string;
+  universeTickers: string[];
+  config: Record<string, unknown>;
+  weights: Record<string, number>;
+  metrics: Record<string, unknown>;
+  riskContributions: Record<string, number>;
+  efficientFrontier: EfficientFrontierPoint[] | null;
+  errorMessage: string | null;
+  solverLog: string | null;
+  durationSeconds: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OptimizeAsyncResponse {
+  job_id: string;
+  run_id: string;
+}
+
+export interface TuneRequest {
+  tickers: string[];
+  start_date: string;
+  end_date: string;
+  optimizer_type: OptimizerType | string;
+  search_space: Record<string, unknown>;
+  search_type?: 'grid' | 'randomized';
+  scorer?: string;
+  cv_config?: Record<string, unknown>;
+}
+
+export interface TuneJobCreateResponse {
+  job_id: string;
+  status: string;
+  message: string;
+}
+
+// ── LLM moments request / response shapes ────────────────────────────────────
+
+export interface CalibrateDeltaRequest {
+  macro_text: string;
+}
+
+export interface CalibrateDeltaResponse {
+  delta: number;
+  rationale: string;
+}
+
+export interface AdaptFactorWeightsRequest {
+  macro_indicators: Record<string, number>;
+  factor_groups: string[];
+}
+
+export interface AdaptFactorWeightsResponse {
+  phase: string;
+  weights: Record<string, number>;
+  rationale: string;
+}
+
+export interface SelectCovRegimeRequest {
+  news_headlines: string[];
+  avg_sentiment_score: number;
+  realized_vol_30d: number;
+}
+
+export interface SelectCovRegimeResponse {
+  estimator_type: CovEstimatorType;
+  rationale: string;
+}
+
+// ── Views request / response shapes ──────────────────────────────────────────
+
+export interface GenerateViewsRequest {
+  tickers: string[];
+}
+
+export interface GenerateViewsResponse {
+  P: number[][];
+  Q: number[];
+  view_confidences: number[];
+  idzorek_alphas: number[];
+  tickers: string[];
+  tickers_missing: string[];
+  rationale?: string;
+}
+
+export interface EntropyPoolingRequest {
+  tickers: string[];
+  start_date: string;
+  end_date: string;
+  mean_views?: string[];
+  variance_views?: string[];
+  correlation_views?: string[];
+  skew_views?: string[];
+  cvar_views?: string[];
+}
+
+export interface EntropyPoolingResponse {
+  tickers: string[];
+  mu: number[];
+  covariance: number[][];
+  effective_sample_size: number;
+}
+
+export interface OpinionPoolRequest {
+  tickers: string[];
+  personas: string[];
+  ic_histories?: Record<string, number[]>;
+}
+
+export interface OpinionPoolResponse {
+  P: number[][];
+  Q: number[];
+  view_confidences: number[];
+  persona_weights: Record<string, number>;
+  rationale?: string;
 }

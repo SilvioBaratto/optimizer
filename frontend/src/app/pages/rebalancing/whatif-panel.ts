@@ -1,76 +1,121 @@
-import { Component, input, signal, computed, inject, ChangeDetectionStrategy } from '@angular/core';
-import { EchartsBarComponent, BarData } from '../../shared/echarts-bar/echarts-bar';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  input,
+  output,
+  signal,
+} from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
-import { FormatService } from '../../services/format.service';
-import type { TradePreview, TradeSummary, DriftEntry } from '../../models/rebalancing.model';
+import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
+import type {
+  PolicyType,
+  RebalanceDecideApiResponse,
+  RebalanceDecideRequest,
+} from '../../models/rebalancing.model';
 
-const THRESHOLD_LEVELS_BPS = [100, 200, 300, 400, 500] as const;
+interface WeightRow extends Record<string, unknown> {
+  ticker: string;
+  delta: string;
+}
+
+function parseWeights(raw: string): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const pair of raw.split(',')) {
+    const [key, value] = pair.split(':').map((s) => s.trim());
+    const num = Number(value);
+    if (key && Number.isFinite(num)) result[key.toUpperCase()] = num;
+  }
+  return result;
+}
+
+function weightsSumTolerant(weights: Record<string, number>): boolean {
+  if (Object.keys(weights).length === 0) return false;
+  const sum = Object.values(weights).reduce((a, b) => a + b, 0);
+  return Math.abs(sum - 1) < 0.02;
+}
 
 @Component({
   selector: 'app-whatif-panel',
-  imports: [EchartsBarComponent, StatCardComponent],
+  imports: [FormsModule, StatCardComponent, DataTableComponent],
   templateUrl: './whatif-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WhatifPanelComponent {
-  trades      = input<TradePreview[]>([]);
-  summary     = input.required<TradeSummary>();
-  driftEntries = input<DriftEntry[]>([]);
+  readonly decideResponse = input<RebalanceDecideApiResponse | null>(null);
 
-  private fmt = inject(FormatService);
+  readonly runDecide = output<RebalanceDecideRequest>();
 
-  readonly partialRebalPct   = signal(100);
-  readonly thresholdOverride = signal(250);
-  readonly costMultiplier    = signal(100);
+  readonly currentRaw = signal<string>('AAPL:0.5, MSFT:0.5');
+  readonly targetRaw = signal<string>('AAPL:0.6, MSFT:0.4');
+  readonly policyType = signal<PolicyType>('threshold');
+  readonly thresholdValue = signal<number>(0.05);
+  readonly frequencyDays = signal<number>(63);
 
-  readonly adjustedTurnover = computed(() => {
-    const raw = this.summary().totalTurnover * (this.partialRebalPct() / 100);
-    return this.fmt.formatPercent(raw);
-  });
+  readonly currentWeights = computed(() => parseWeights(this.currentRaw()));
+  readonly targetWeights = computed(() => parseWeights(this.targetRaw()));
 
-  readonly adjustedCost = computed(() => {
-    const raw = this.summary().totalCost
-      * (this.partialRebalPct() / 100)
-      * (this.costMultiplier() / 100);
-    return this.fmt.formatCurrency(raw);
-  });
-
-  readonly remainingDrift = computed(() => {
-    const entries = this.driftEntries();
-    const maxDrift = entries.length > 0
-      ? Math.max(...entries.map(e => e.driftAbsolute))
-      : 0;
-    const remaining = maxDrift * (1 - this.partialRebalPct() / 100);
-    return this.fmt.formatBps(remaining);
-  });
-
-  readonly tradesAffected = computed(() =>
-    String(Math.round(this.summary().totalTrades * this.partialRebalPct() / 100)),
+  readonly isFormValid = computed(() =>
+    weightsSumTolerant(this.currentWeights()) && weightsSumTolerant(this.targetWeights()),
   );
 
-  readonly thresholdSensitivityData = computed((): BarData[] => {
-    const entries = this.driftEntries();
-    const total = entries.length || 1;
-
-    return THRESHOLD_LEVELS_BPS.map(bps => {
-      const threshold = bps / 10000;
-      const count = entries.filter(e => e.driftAbsolute > threshold).length;
-      return {
-        label: `${bps} bps`,
-        value: count / total,
-      };
-    });
+  readonly kpiShouldRebalance = computed(() => {
+    const r = this.decideResponse();
+    if (!r) return '—';
+    return r.shouldRebalance ? 'YES' : 'NO';
   });
 
-  onPartialRebalChange(event: Event) {
-    this.partialRebalPct.set(+(event.target as HTMLInputElement).value);
+  readonly kpiTurnover = computed(() => {
+    const r = this.decideResponse();
+    return r ? `${(r.turnover * 100).toFixed(2)}%` : '—';
+  });
+
+  readonly kpiEstCost = computed(() => {
+    const r = this.decideResponse();
+    return r ? `${(r.estimatedCost * 100).toFixed(3)}%` : '—';
+  });
+
+  readonly tradeColumns: TableColumn[] = [
+    { key: 'ticker', label: 'Ticker' },
+    { key: 'delta', label: 'Δ weight', align: 'right' },
+  ];
+
+  readonly tradeRows = computed<WeightRow[]>(() => {
+    const r = this.decideResponse();
+    if (!r) return [];
+    return Object.entries(r.tradeWeights)
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+      .map(([ticker, delta]) => ({
+        ticker,
+        delta: `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(2)}%`,
+      }));
+  });
+
+  submit(): void {
+    if (!this.isFormValid()) return;
+    const body: RebalanceDecideRequest = {
+      current_weights: this.currentWeights(),
+      target_weights: this.targetWeights(),
+      policy_type: this.policyType(),
+      policy_config: this.buildPolicyConfig(),
+    };
+    if (this.policyType() === 'hybrid') {
+      const today = new Date().toISOString().slice(0, 10);
+      body.current_date = today;
+      body.last_review_date = today;
+    }
+    this.runDecide.emit(body);
   }
 
-  onThresholdOverrideChange(event: Event) {
-    this.thresholdOverride.set(+(event.target as HTMLInputElement).value);
-  }
-
-  onCostMultiplierChange(event: Event) {
-    this.costMultiplier.set(+(event.target as HTMLInputElement).value);
+  private buildPolicyConfig(): Record<string, unknown> {
+    const type = this.policyType();
+    if (type === 'calendar') return { frequency_days: this.frequencyDays() };
+    if (type === 'threshold') return { threshold: this.thresholdValue(), kind: 'absolute' };
+    return {
+      frequency_days: this.frequencyDays(),
+      threshold: this.thresholdValue(),
+      kind: 'absolute',
+    };
   }
 }

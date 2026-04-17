@@ -1,8 +1,7 @@
 <div class="flex-1 overflow-y-auto p-4 sm:p-6">
-  <app-page-header title="Factor Research" subtitle="Regime detection and tactical asset allocation signals" />
+  <app-page-header title="Factor Research" subtitle="Regime detection, TAA signals, and factor analytics" />
 
   @if (isLoading()) {
-    <!-- Loading skeleton -->
     <div class="space-y-6">
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         @for (i of [1,2,3,4]; track i) {
@@ -13,47 +12,90 @@
       <div class="h-80 skeleton rounded-lg"></div>
     </div>
   } @else if (hasError()) {
-    <!-- Error state -->
     <div class="flex flex-col items-center justify-center py-20 px-4">
       <i-lucide name="triangle-alert" [size]="48" class="text-loss mb-4" />
       <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
       <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
-      <button (click)="retry()" class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors">
+      <button type="button" (click)="retry()"
+        class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors">
         Try Again
       </button>
     </div>
   } @else {
-    <!-- KPI Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
-      <app-stat-card label="Current Regime" [value]="currentRegime()" subtitle="HMM State" />
-      <app-stat-card label="Regime Confidence" [value]="regimeConfidence()" subtitle="Max probability" />
-      <app-stat-card label="Active Signals" [value]="activeSignalsCount()" subtitle="Non-zero delta" />
-      <app-stat-card label="Avg Tilt Magnitude" [value]="avgTiltMagnitude()" subtitle="Mean |delta|" />
+
+    <!-- Compute bar -->
+    <div class="bg-surface-raised border border-border rounded-lg p-3 mb-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-text-secondary">Factor compute:</span>
+        <select [ngModel]="country()" (ngModelChange)="country.set($event)"
+          class="px-3 py-1.5 text-xs bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent">
+          <option value="USA">USA</option>
+          <option value="UK">UK</option>
+          <option value="DEU">Germany</option>
+          <option value="JPN">Japan</option>
+        </select>
+      </div>
+      <button type="button" (click)="onRunCompute()" [disabled]="computeJobId()"
+        class="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors">
+        @if (computeJobId()) { Running… } @else { Run Factor Compute }
+      </button>
     </div>
 
-    <!-- Tab Navigation -->
+    @if (computeError(); as err) {
+      <div class="mb-4 bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+        Compute failed: {{ err }}
+      </div>
+    }
+    @if (computeJobId(); as id) {
+      <div class="mb-4 bg-surface-raised border border-border rounded-lg p-3">
+        <app-job-progress-tracker [jobId]="id"
+          (completed)="onComputeCompleted()"
+          (failed)="onComputeFailed($event.error ?? 'Job failed')" />
+      </div>
+    }
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+      <app-stat-card label="Current Regime" [value]="currentRegime()" subtitle="HMM state" />
+      <app-stat-card label="Regime Confidence" [value]="regimeConfidence()" subtitle="Max probability" />
+      <app-stat-card label="Macro δ" [value]="macroDelta()" subtitle="BL risk aversion" />
+      <app-stat-card label="Tilted groups" [value]="tiltedGroupsCount()" subtitle="Regime-tilt active" />
+    </div>
+
     <app-tab-group [tabs]="tabs" [activeTab]="activeTab()" (tabChange)="activeTab.set($event)" />
 
-    <!-- Tab Content -->
     <div class="mt-6">
       @if (activeTab() === 'regime') {
-        <app-regime-panel [regimeHistory]="regimeHistory" />
+        <app-regime-panel
+          [regimeHistory]="[]"
+          [regimeHistoryApi]="regimeHistory()"
+          [regimeTilt]="regimeTiltResult()"
+          (runRegimeTilt)="onRunRegimeTilt($event)" />
       }
 
       @if (activeTab() === 'taa') {
-        <app-taa-panel [signals]="taaSignals" [factorReturns]="factorReturns" />
+        <app-taa-panel [signals]="[]" [factorReturns]="[]"
+          [macroCalibration]="macroCalibration()" />
       }
 
       @if (activeTab() === 'factor-analysis') {
-        <app-factor-analysis-panel [factorReturns]="factorReturns" [icReports]="icReports" />
+        <app-factor-analysis-panel
+          [factorReturns]="[]"
+          [icReports]="[]"
+          [validateReport]="validateReport()"
+          [quintileSpread]="quintileSpread()"
+          [factorName]="selectedFactor()"
+          (validate)="onValidate($event)"
+          (runQuintileSpread)="onQuintileSpread($event)" />
       }
 
       @if (activeTab() === 'cma-builder') {
-        <app-cma-builder-panel [cmaSets]="cmaSets" />
+        <app-cma-builder-panel [cmaSets]="[]" />
       }
 
       @if (activeTab() === 'screener') {
-        <app-asset-screener-panel [icReports]="icReports" />
+        <app-asset-screener-panel [icReports]="[]"
+          [teObservations]="teObservations()"
+          (fetchTe)="onFetchTe()" />
       }
     </div>
   }
