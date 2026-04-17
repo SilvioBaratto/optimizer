@@ -42,3 +42,41 @@ export interface BuildResult {
   instruments_added: number;
   duration_seconds: number;
 }
+
+// ── Universe screen (POST /universe/screen) ────────────────────────────────
+// Mirrors api/app/schemas/universe_screen.py.
+
+export type ScreenPreset =
+  | 'developed_markets'
+  | 'broad_universe'
+  | 'small_cap'
+  | 'large_cap';
+
+export interface HysteresisThreshold {
+  entry: number;
+  exit: number;
+}
+
+export interface UniverseScreenRequest {
+  preset?: ScreenPreset;
+  market_cap?: HysteresisThreshold;
+  addv_12m?: HysteresisThreshold;
+  addv_3m?: HysteresisThreshold;
+  trading_frequency?: HysteresisThreshold;
+  price_us?: HysteresisThreshold;
+  price_europe?: HysteresisThreshold;
+  min_trading_history?: number;
+  min_ipo_seasoning?: number;
+  min_annual_reports?: number;
+  min_quarterly_reports?: number;
+  exchange_region?: string;
+  mcap_percentile_entry?: number;
+  mcap_percentile_exit?: number;
+  current_members?: string[];
+}
+
+export interface UniverseScreenResponse {
+  passingTickers: string[];
+  totalScreened: number;
+  diagnostics: Record<string, Record<string, boolean>>;
+}

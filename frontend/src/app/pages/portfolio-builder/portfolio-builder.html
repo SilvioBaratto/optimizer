@@ -1,76 +1,120 @@
-<div class="flex-1 overflow-y-auto p-6">
+<div class="flex-1 overflow-y-auto p-6 relative">
 
-  <!-- Page Header — always visible -->
+  <!-- Page Header -->
   <app-page-header title="Portfolio Builder" subtitle="Construct and manage investment portfolios">
-    <div actions class="flex gap-2">
-      <button
-        class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors">
-        Import CSV
+    <div actions class="flex gap-2 items-center">
+      @if (portfolios().length > 0) {
+        <select class="px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"
+          [ngModel]="activePortfolio()?.name ?? ''"
+          (ngModelChange)="onActiveSelect($event)">
+          @for (p of portfolios(); track p.id) {
+            <option [value]="p.name">{{ p.name }}</option>
+          }
+        </select>
+      }
+      <button type="button" (click)="saveSnapshot()"
+        [disabled]="!activePortfolio() || snapshotStatus() === 'saving'"
+        class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset disabled:opacity-50 transition-colors">
+        @if (snapshotStatus() === 'saving') { Saving… } @else { Save as Snapshot }
       </button>
-      <button
+      <button type="button" (click)="openCreateModal()"
         class="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors">
-        Save Portfolio
+        Create Portfolio
       </button>
     </div>
   </app-page-header>
 
+  @if (snapshotStatus() === 'success') {
+    <p class="mt-2 text-xs text-gain">Snapshot saved.</p>
+  }
+  @if (snapshotError(); as err) {
+    <p class="mt-2 text-xs text-loss">Snapshot failed: {{ err }}</p>
+  }
+
   @if (isLoading()) {
-  <!-- Loading skeleton -->
-  <div class="mt-6 space-y-4">
-    <!-- Tab group skeleton -->
-    <div class="flex gap-2 border-b border-border pb-2">
-      @for (i of [1,2,3]; track i) {
-      <div class="h-8 w-32 skeleton rounded-md"></div>
+    <div class="mt-6 space-y-4">
+      <div class="h-96 skeleton rounded-lg"></div>
+    </div>
+  } @else if (hasError()) {
+    <div class="flex flex-col items-center justify-center py-20 px-4">
+      <i-lucide name="triangle-alert" [size]="48" class="text-loss mb-4" />
+      <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
+      <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
+      <button type="button" (click)="retry()"
+        class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
+        Try Again
+      </button>
+    </div>
+  } @else {
+    <app-tab-group [tabs]="tabs" [activeTab]="activeTab()" (tabChange)="activeTab.set($event)" />
+
+    <div class="mt-6">
+      @switch (activeTab()) {
+        @case ('universe') {
+          <app-universe-panel (tickerSelected)="onTickerSelected($event)" />
+        }
+        @case ('weights') {
+          <app-weight-panel [tickers]="[]" [constraints]="[]" (constraintsChange)="noopConstraints($event)" />
+        }
+        @case ('ips') {
+          <app-ips-panel [ips]="defaultIps" [tickerCount]="0" [totalWeight]="0" (ipsChange)="noopIps($event)" />
+        }
       }
     </div>
-    <!-- Content area skeleton -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div class="lg:col-span-2 h-96 skeleton rounded-lg"></div>
-      <div class="space-y-3">
-        <div class="h-12 skeleton rounded-lg"></div>
-        <div class="h-12 skeleton rounded-lg"></div>
-        <div class="h-12 skeleton rounded-lg"></div>
-        <div class="h-12 skeleton rounded-lg"></div>
+  }
+
+  <!-- Create Portfolio modal -->
+  @if (showCreateModal()) {
+    <div class="fixed inset-0 z-[240] bg-black/40 flex items-center justify-center p-4">
+      <div class="bg-surface border border-border rounded-lg shadow-xl w-full max-w-md p-5 space-y-4"
+        role="dialog" aria-label="Create portfolio">
+        <h3 class="text-sm font-semibold text-text">Create new portfolio</h3>
+        @if (formError(); as err) {
+          <p class="text-xs text-loss">{{ err }}</p>
+        }
+        <div>
+          <label for="formName" class="text-xs text-text-secondary block mb-1">Name*</label>
+          <input id="formName" type="text" [ngModel]="formName()" (ngModelChange)="formName.set($event)"
+            maxlength="64"
+            class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+        </div>
+        <div>
+          <label for="formDescription" class="text-xs text-text-secondary block mb-1">Description</label>
+          <textarea id="formDescription" rows="2"
+            [ngModel]="formDescription()" (ngModelChange)="formDescription.set($event)"
+            class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"></textarea>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="formCurrency" class="text-xs text-text-secondary block mb-1">Currency*</label>
+            <select id="formCurrency" [ngModel]="formCurrency()" (ngModelChange)="formCurrency.set($event)"
+              class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
+              @for (code of currencyCodes; track code) {
+                <option [value]="code">{{ code }}</option>
+              }
+            </select>
+          </div>
+          <div>
+            <label for="formBenchmark" class="text-xs text-text-secondary block mb-1">Benchmark ticker</label>
+            <input id="formBenchmark" type="text" [ngModel]="formBenchmark()" (ngModelChange)="formBenchmark.set($event)"
+              class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" (click)="closeCreateModal()"
+            class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+            Cancel
+          </button>
+          <button type="button" (click)="submitCreate()"
+            [disabled]="!formIsValid() || formStatus() === 'creating'"
+            class="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors">
+            @if (formStatus() === 'creating') { Creating… } @else { Create }
+          </button>
+        </div>
       </div>
     </div>
-  </div>
-  } @else if (hasError()) {
-  <!-- Error state -->
-  <div class="flex flex-col items-center justify-center py-20 px-4">
-    <i-lucide name="triangle-alert" [size]="48" class="text-loss mb-4" />
-    <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
-    <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
-    <button (click)="retry()"
-      class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
-      Try Again
-    </button>
-  </div>
-  } @else {
+  }
 
-  <!-- Tab Navigation -->
-  <app-tab-group [tabs]="tabs" [activeTab]="activeTab()" (tabChange)="activeTab.set($event)" />
-
-  <!-- Tab Content -->
-  <div class="mt-6">
-    @switch (activeTab()) {
-
-    @case ('universe') {
-    <app-universe-panel [tickers]="selectedTickers()" (tickersChange)="onTickersChange($event)" />
-    }
-
-    @case ('weights') {
-    <app-weight-panel [tickers]="selectedTickers()" [constraints]="constraints()"
-      (constraintsChange)="onConstraintsChange($event)" />
-    }
-
-    @case ('ips') {
-    <app-ips-panel [ips]="ips()" [tickerCount]="selectedCount()" [totalWeight]="totalWeight()"
-      (ipsChange)="onIpsChange($event)" />
-    }
-
-    }
-  </div>
-
-  } <!-- end @else -->
-
+  <!-- Ticker flyout -->
+  <app-instrument-detail-flyout [instrumentId]="flyoutInstrumentId()" (closed)="closeFlyout()" />
 </div>

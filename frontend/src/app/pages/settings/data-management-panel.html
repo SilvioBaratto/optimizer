@@ -1,0 +1,84 @@
+<div class="space-y-4">
+  <!-- Health summary -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+    <div>
+      <div class="text-xs text-text-tertiary uppercase tracking-wide">Health</div>
+      <div class="text-sm font-medium"
+        [class]="healthIsHealthy() ? 'text-gain' : 'text-loss'">
+        {{ healthLabel() }}
+      </div>
+    </div>
+    @if (health(); as h) {
+      <div>
+        <div class="text-xs text-text-tertiary uppercase tracking-wide">Latency</div>
+        <div class="text-sm font-mono text-text">{{ h.latency_ms }} ms</div>
+      </div>
+      <div>
+        <div class="text-xs text-text-tertiary uppercase tracking-wide">Version</div>
+        <div class="text-sm font-mono text-text">{{ h.version }}</div>
+      </div>
+    }
+    @if (status(); as st) {
+      <div class="md:col-span-3">
+        <div class="text-xs text-text-tertiary uppercase tracking-wide">Total size</div>
+        <div class="text-sm font-mono text-text">{{ st.total_size_pretty }}</div>
+      </div>
+    }
+  </div>
+
+  @if (loadError(); as err) {
+    <p class="text-xs text-loss">{{ err }}</p>
+  }
+
+  @if (deleteSuccess(); as msg) {
+    <p class="text-xs text-gain">{{ msg }}</p>
+  }
+
+  <!-- Tables list -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-3">
+    <div class="flex items-center justify-between">
+      <h3 class="text-data-sm font-medium text-text">Tables</h3>
+      <button type="button" (click)="refresh()" [disabled]="loading()"
+        class="px-3 py-1.5 text-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset disabled:opacity-50 transition-colors">
+        Refresh
+      </button>
+    </div>
+    @if (tables().length > 0) {
+      <app-data-table
+        [columns]="tableColumns"
+        [rows]="tableRows()"
+        [total]="tableRows().length"
+        [pageSize]="20"
+        [dense]="true" />
+      <p class="text-xs text-text-tertiary">
+        Select a table row to open the truncate confirmation dialog.
+      </p>
+      <ul class="space-y-1">
+        @for (t of tables(); track t.name) {
+          <li class="flex items-center justify-between text-xs border-b border-border-muted py-1">
+            <span class="font-mono text-text">{{ t.name }}</span>
+            <button type="button" (click)="requestDelete(t)"
+              [attr.data-testid]="'truncate-' + t.name"
+              class="text-loss hover:underline">Truncate</button>
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="text-xs text-text-tertiary">No tables listed.</p>
+    }
+  </div>
+
+  <app-confirmation-dialog
+    [open]="pendingDelete() !== null"
+    title="Truncate table?"
+    [message]="deleteMessage()"
+    confirmLabel="Truncate"
+    [destructive]="true"
+    [inflight]="deleting()"
+    (confirmed)="confirmDelete()"
+    (cancelled)="cancelDelete()" />
+
+  @if (deleteError(); as err) {
+    <p class="text-xs text-loss">Truncate failed: {{ err }}</p>
+  }
+</div>

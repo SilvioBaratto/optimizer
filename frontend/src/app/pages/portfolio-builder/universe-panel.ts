@@ -1,17 +1,45 @@
 import {
   Component,
+  DestroyRef,
+  ChangeDetectionStrategy,
+  computed,
   inject,
-  input,
   output,
   signal,
-  computed,
-  ChangeDetectionStrategy,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
+import { Subject } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
-import { UniverseTicker } from '../../models/portfolio-builder.model';
-import { FormatService } from '../../services/format.service';
+import { UniverseService } from '../../services/universe.service';
+import type {
+  Instrument,
+  ScreenPreset,
+  UniverseScreenResponse,
+} from '../../models/universe.model';
+
+const SCREEN_PRESETS: readonly ScreenPreset[] = [
+  'developed_markets',
+  'broad_universe',
+  'small_cap',
+  'large_cap',
+];
+
+interface ScreenRow extends Record<string, unknown> {
+  ticker: string;
+  marketCap: string;
+  addv3m: string;
+  tradingFrequency: string;
+  ipoSeasoning: string;
+  priceFloor: string;
+}
+
+function flag(value: boolean | undefined): string {
+  if (value === undefined) return '—';
+  return value ? '✓' : '✗';
+}
 
 @Component({
   selector: 'app-universe-panel',
@@ -20,109 +48,93 @@ import { FormatService } from '../../services/format.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UniversePanelComponent {
-  private readonly fmt = inject(FormatService);
+  private readonly universe = inject(UniverseService);
+  private readonly destroyRef = inject(DestroyRef);
 
-  tickers = input.required<UniverseTicker[]>();
-  tickersChange = output<UniverseTicker[]>();
+  readonly searchTerm = signal('');
+  readonly searchResults = signal<Instrument[]>([]);
+  readonly selectedPreset = signal<ScreenPreset>('developed_markets');
+  readonly screenLoading = signal<boolean>(false);
+  readonly screenError = signal<string | null>(null);
+  readonly screenResponse = signal<UniverseScreenResponse | null>(null);
 
-  searchTerm = signal('');
-  filterSector = signal('all');
+  readonly tickerSelected = output<Instrument>();
 
-  uniqueSectors = computed(() => {
-    const sectors = this.tickers().map((t) => t.sector);
-    return ['all', ...Array.from(new Set(sectors)).sort()];
-  });
+  readonly presets = SCREEN_PRESETS;
 
-  filteredTickers = computed(() => {
-    const search = this.searchTerm().toLowerCase().trim();
-    const sector = this.filterSector();
-    return this.tickers().filter((t) => {
-      const matchesSearch =
-        !search ||
-        t.ticker.toLowerCase().includes(search) ||
-        t.name.toLowerCase().includes(search);
-      const matchesSector = sector === 'all' || t.sector === sector;
-      return matchesSearch && matchesSector;
-    });
-  });
+  private readonly searchSubject = new Subject<string>();
 
-  selectedCount = computed(
-    () => this.tickers().filter((t) => t.selected).length,
+  readonly passingCount = computed(
+    () => this.screenResponse()?.passingTickers.length ?? 0,
   );
+  readonly totalScreened = computed(() => this.screenResponse()?.totalScreened ?? 0);
+  readonly hasScreenResult = computed(() => this.screenResponse() !== null);
 
-  tableColumns: TableColumn[] = [
-    { key: 'ticker', label: 'Ticker', sortable: true, type: 'text' },
-    { key: 'name', label: 'Name', sortable: true, type: 'text' },
-    { key: 'sector', label: 'Sector', sortable: true, type: 'text' },
-    {
-      key: 'marketCap',
-      label: 'Market Cap',
-      sortable: true,
-      align: 'right',
-      format: (val: unknown) =>
-        typeof val === 'number' ? this.fmt.formatCurrencyCompact(val) : '--',
-    },
-    {
-      key: 'weight',
-      label: 'Weight',
-      sortable: true,
-      align: 'right',
-      type: 'percentage',
-    },
-    {
-      key: 'selectedLabel',
-      label: 'Selected',
-      align: 'right',
-      type: 'badge',
-      badgeMap: {
-        Yes: { value: 'Yes', colorClass: 'inline-flex items-center px-2 py-0.5 rounded-full text-label bg-gain-bg text-gain font-medium' },
-        No: { value: 'No', colorClass: 'inline-flex items-center px-2 py-0.5 rounded-full text-label bg-surface-inset text-text-secondary font-medium' },
-      },
-    },
+  readonly screenColumns: TableColumn[] = [
+    { key: 'ticker', label: 'Ticker', sortable: true },
+    { key: 'marketCap', label: 'Market cap', align: 'right' },
+    { key: 'addv3m', label: 'ADDV 3m', align: 'right' },
+    { key: 'tradingFrequency', label: 'Trading freq.', align: 'right' },
+    { key: 'ipoSeasoning', label: 'IPO seasoning', align: 'right' },
+    { key: 'priceFloor', label: 'Price floor', align: 'right' },
   ];
 
-  tableRows = computed(() =>
-    this.filteredTickers().map((t) => ({
-      ticker: t.ticker,
-      name: t.name,
-      sector: t.sector,
-      marketCap: t.marketCap,
-      weight: t.weight,
-      selectedLabel: t.selected ? 'Yes' : 'No',
-    })),
-  );
+  readonly screenRows = computed<ScreenRow[]>(() => {
+    const res = this.screenResponse();
+    if (!res) return [];
+    return res.passingTickers.map((ticker) => this.buildRow(ticker, res.diagnostics));
+  });
 
-  applyPreset(preset: 'sp500' | 'msci' | 'sector_leaders') {
-    const limits: Record<typeof preset, number> = {
-      sp500: 30,
-      msci: 50,
-      sector_leaders: 15,
+  constructor() {
+    this.universe
+      .searchTickers(this.searchSubject.asObservable())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((list) => this.searchResults.set(list.items));
+  }
+
+  onSearchInput(value: string): void {
+    this.searchTerm.set(value);
+    this.searchSubject.next(value);
+  }
+
+  setPreset(preset: string): void {
+    this.selectedPreset.set(preset as ScreenPreset);
+  }
+
+  runScreen(): void {
+    this.screenLoading.set(true);
+    this.screenError.set(null);
+    this.universe
+      .screen({ preset: this.selectedPreset() })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.screenResponse.set(res);
+          this.screenLoading.set(false);
+        },
+        error: (err: Error) => {
+          this.screenError.set(err.message ?? 'Screen failed');
+          this.screenLoading.set(false);
+        },
+      });
+  }
+
+  onTickerClick(instrument: Instrument): void {
+    this.tickerSelected.emit(instrument);
+  }
+
+  private buildRow(
+    ticker: string,
+    diagnostics: Record<string, Record<string, boolean>>,
+  ): ScreenRow {
+    const diag = diagnostics[ticker] ?? {};
+    return {
+      ticker,
+      marketCap: flag(diag['market_cap']),
+      addv3m: flag(diag['addv_3m'] ?? diag['addv_12m']),
+      tradingFrequency: flag(diag['trading_frequency']),
+      ipoSeasoning: flag(diag['ipo_seasoning'] ?? diag['min_ipo_seasoning']),
+      priceFloor: flag(diag['price_us'] ?? diag['price_europe']),
     };
-    const limit = limits[preset];
-    const updated = this.tickers().map((t, i) => ({
-      ...t,
-      selected: i < limit,
-    }));
-    this.tickersChange.emit(updated);
-  }
-
-  selectAll() {
-    const filtered = this.filteredTickers();
-    const filteredTickers = new Set(filtered.map((t) => t.ticker));
-    const updated = this.tickers().map((t) => ({
-      ...t,
-      selected: filteredTickers.has(t.ticker) ? true : t.selected,
-    }));
-    this.tickersChange.emit(updated);
-  }
-
-  deselectAll() {
-    const filtered = this.filteredTickers();
-    const filteredTickers = new Set(filtered.map((t) => t.ticker));
-    const updated = this.tickers().map((t) => ({
-      ...t,
-      selected: filteredTickers.has(t.ticker) ? false : t.selected,
-    }));
-    this.tickersChange.emit(updated);
   }
 }

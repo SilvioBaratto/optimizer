@@ -1,48 +1,21 @@
-<div class="space-y-6">
-
-  <!-- Rebalancing Log Table -->
-  <div class="bg-surface-raised border border-border rounded-lg p-4">
-    <p class="text-data-sm font-medium text-text mb-3">Rebalancing Log</p>
-    <app-data-table
-      [columns]="columns"
-      [rows]="tableRows()"
-      [total]="tableRows().length"
-      [dense]="true"
-      [showExport]="true"
-      exportFilename="rebalancing-history"
-    />
-  </div>
-
-  <!-- Cumulative Charts -->
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-    <!-- Cumulative Turnover -->
+<div class="space-y-4">
+  @if (snapshots().length > 0) {
     <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <p class="text-data-sm font-medium text-text mb-3">Cumulative Turnover</p>
-      <app-chart-toolbar [showDataTable]="false">
-        <app-echarts-line
-          [labels]="chartLabels()"
-          [values]="cumulativeTurnoverValues()"
-          [height]="220"
-          [areaFill]="true"
-        />
-      </app-chart-toolbar>
+      <h3 class="text-data-sm font-medium text-text mb-3">Snapshots feed (most recent first)</h3>
+      <app-data-table
+        [columns]="columns"
+        [rows]="tableRows()"
+        [total]="tableRows().length"
+        [pageSize]="20"
+        [dense]="true"
+        [showExport]="true"
+        exportFilename="snapshots" />
     </div>
-
-    <!-- Cumulative Cost -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <p class="text-data-sm font-medium text-text mb-3">Cumulative Cost</p>
-      <app-chart-toolbar [showDataTable]="false">
-        <app-echarts-line
-          [labels]="chartLabels()"
-          [values]="cumulativeCostValues()"
-          [height]="220"
-          [areaFill]="true"
-          yAxisPrefix="$"
-        />
-      </app-chart-toolbar>
+  } @else {
+    <div class="bg-surface-raised border border-border rounded-lg p-8 text-center">
+      <p class="text-xs text-text-secondary">
+        No snapshot history for this portfolio yet.
+      </p>
     </div>
-
-  </div>
-
+  }
 </div>

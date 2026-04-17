@@ -1,5 +1,55 @@
 <div class="space-y-6">
 
+  <!-- Validate + quintile spread controls -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-3">
+    <div class="flex items-center gap-2">
+      <label for="analysisFactor" class="text-xs text-text-secondary">Factor:</label>
+      <input id="analysisFactor" type="text"
+        [ngModel]="formFactor()" (ngModelChange)="formFactor.set($event)"
+        placeholder="e.g. momentum_12_1"
+        class="px-3 py-1.5 text-xs bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent flex-1" />
+      <button type="button" (click)="submitValidate()"
+        class="px-3 py-1.5 text-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+        Run validate
+      </button>
+      <button type="button" (click)="submitQuintile()"
+        class="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/90 transition-colors">
+        Run quintile spread
+      </button>
+    </div>
+  </div>
+
+  <!-- IC / ICIR report (from POST /factors/validate) -->
+  @if (validateRows().length > 0) {
+    <div class="bg-surface-raised border border-border rounded-lg p-4">
+      <h3 class="text-data-sm font-medium text-text mb-3">IC / ICIR report</h3>
+      <app-data-table
+        [columns]="validateColumns"
+        [rows]="validateRows()"
+        [total]="validateRows().length"
+        [dense]="true" />
+    </div>
+  }
+
+  <!-- Quintile spread (from POST /factors/quintile-spread) -->
+  @if (quintileSpread(); as qs) {
+    <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-3">
+      <h3 class="text-data-sm font-medium text-text">
+        Quintile spread
+        <span class="ml-2 text-xs text-text-secondary">Annualised: {{ ((annualizedSpread() ?? 0) * 100).toFixed(2) }}%</span>
+      </h3>
+      <div class="text-xs text-text-secondary">
+        Buckets:
+        @for (label of quintileLabels(); track label) {
+          <span class="font-mono mr-2">{{ label }}</span>
+        }
+      </div>
+      <div class="text-xs text-text-tertiary font-mono">
+        Spread path length: {{ spreadSeries().length }} observations
+      </div>
+    </div>
+  }
+
   <!-- Section 1: Multi-factor Cumulative Return Chart -->
   <div class="bg-surface-raised border border-border rounded-lg p-4">
     <h3 class="text-data-sm font-medium text-text mb-3">Multi-Factor Cumulative Returns</h3>

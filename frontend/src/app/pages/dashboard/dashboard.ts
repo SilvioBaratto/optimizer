@@ -10,6 +10,7 @@ import {
   DestroyRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
@@ -18,20 +19,38 @@ import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { EchartsSunburstComponent, SunburstNode } from '../../shared/echarts-sunburst/echarts-sunburst';
+import { EchartsDrawdownComponent } from '../../shared/echarts-drawdown/echarts-drawdown';
+import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
 import { FormatService } from '../../services/format.service';
 import { DashboardService } from '../../services/dashboard.service';
+import { MarketService } from '../../services/market.service';
+import { ReportsService } from '../../services/reports.service';
 import { PortfolioContextService } from '../../services/portfolio-context.service';
 import { readCssVar } from '../../shared/charts/echarts-theme';
 import type { DashboardKPI, ActivityType, MarketRegime } from '../../models/dashboard.model';
 import type { ActivityFeedItem, MarketContext, RegimeInfo, DriftEntry, EquityCurvePoint, AssetClassReturn } from '../../models/dashboard.model';
+import type { ReferenceIndexItem } from '../../models/dashboard-api.model';
+import type { ApiReportSectionId } from '../../models/report.model';
 import { ModalService } from '../../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../../shared/modal/export-report-modal';
+import { PeriodSelectorComponent, type DashboardPeriod } from './period-selector';
+import { computeDrawdownSeries } from './drawdown';
 
 const MARKET_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
 
 @Component({
   selector: 'app-dashboard',
-  imports: [RouterLink, LucideAngularModule, StatCardComponent, PageHeaderComponent, EchartsSunburstComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    LucideAngularModule,
+    StatCardComponent,
+    PageHeaderComponent,
+    EchartsSunburstComponent,
+    EchartsDrawdownComponent,
+    JobProgressTrackerComponent,
+    PeriodSelectorComponent,
+  ],
   templateUrl: './dashboard.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -39,8 +58,26 @@ export class DashboardComponent implements OnDestroy {
   readonly fmt = inject(FormatService);
   private readonly modalService = inject(ModalService);
   private readonly dashboardSvc = inject(DashboardService);
+  private readonly marketSvc = inject(MarketService);
+  private readonly reportsSvc = inject(ReportsService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly portfolioCtx = inject(PortfolioContextService);
+
+  // Period + benchmark selectors (drive equity curve + drawdown + rolling KPIs)
+  readonly period = signal<DashboardPeriod>('1Y');
+  readonly benchmark = signal<string>('SPY');
+  readonly benchmarkOptions = signal<ReferenceIndexItem[]>([]);
+  readonly benchmarkLoading = signal<boolean>(false);
+  readonly benchmarkError = signal<string | null>(null);
+
+  // Report generation state
+  readonly reportJobId = signal<string | null>(null);
+  readonly reportDownloadUrl = signal<string | null>(null);
+  readonly reportError = signal<string | null>(null);
+  readonly reportLoading = signal<boolean>(false);
+  readonly isGeneratingReport = computed(
+    () => this.reportLoading() || this.reportJobId() !== null,
+  );
 
   // Portfolio name from context. Null when no portfolio has been selected
   // (no portfolios exist yet, or bootstrap hasn't run).
@@ -133,7 +170,18 @@ export class DashboardComponent implements OnDestroy {
   private equityChart?: EChartsType;
   private equityRo?: ResizeObserver;
 
+  // Drawdown series derived from the equity curve (client-side reduction).
+  readonly drawdownSeries = computed(() =>
+    computeDrawdownSeries(
+      this.equityCurve().map((p) => ({
+        date: p.date,
+        value: p.portfolio ?? 0,
+      })),
+    ),
+  );
+
   constructor() {
+    this.loadBenchmarks();
     this.loadPortfolioData();
     this.startMarketRefresh();
 
@@ -149,6 +197,113 @@ export class DashboardComponent implements OnDestroy {
         this.equityRo = undefined;
       });
     });
+  }
+
+  onPeriodChange(period: DashboardPeriod): void {
+    this.period.set(period);
+    this.refetchEquityCurve();
+  }
+
+  onBenchmarkChange(ticker: string): void {
+    this.benchmark.set(ticker);
+    this.refetchEquityCurve();
+  }
+
+  onGenerateReport(): void {
+    if (this.isGeneratingReport()) return;
+    this.reportError.set(null);
+    this.reportDownloadUrl.set(null);
+    this.reportLoading.set(true);
+    const sections: ApiReportSectionId[] = [
+      'portfolio_summary',
+      'weights',
+      'performance_metrics',
+      'risk_analytics',
+    ];
+    this.reportsSvc
+      .generate({ template: 'standard', sections, format: 'pdf', orientation: 'portrait' })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.reportJobId.set(res.job_id);
+          this.reportLoading.set(false);
+        },
+        error: (err: Error) => this.onReportError(err.message ?? 'Report generation failed'),
+      });
+  }
+
+  onReportJobCompleted(): void {
+    const jobId = this.reportJobId();
+    this.reportJobId.set(null);
+    if (!jobId) return;
+    this.reportsSvc
+      .pollJob(jobId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (progress) => this.applyReportResult(progress.result ?? null),
+        error: (err: Error) => this.onReportError(err.message ?? 'Failed to fetch report'),
+      });
+  }
+
+  onReportJobFailed(message: string): void {
+    this.onReportError(message || 'Report job failed');
+  }
+
+  private applyReportResult(result: { report_id?: string; download_url?: string } | null): void {
+    const id = result?.report_id;
+    if (id) {
+      this.reportDownloadUrl.set(this.reportsSvc.downloadUrl(id));
+      return;
+    }
+    if (result?.download_url) this.reportDownloadUrl.set(result.download_url);
+  }
+
+  private onReportError(message: string): void {
+    this.reportError.set(message);
+    this.reportJobId.set(null);
+    this.reportLoading.set(false);
+  }
+
+  private refetchEquityCurve(): void {
+    const name = this.portfolioCtx.currentPortfolioId();
+    if (!name) return;
+    this.dashboardSvc
+      .getEquityCurve(name, this.benchmark(), this.period())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.equityCurve.set(res.points as EquityCurvePoint[]);
+          if (this.equityChart) {
+            this.equityChart.setOption(this.buildEquityCurveOption());
+          }
+        },
+        error: () => { /* non-critical */ },
+      });
+  }
+
+  private loadBenchmarks(): void {
+    this.benchmarkLoading.set(true);
+    this.benchmarkError.set(null);
+    this.marketSvc
+      .getIndices()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.benchmarkOptions.set(res.indices);
+          if (res.indices.length > 0 && !this.hasSelectedBenchmark(res.indices)) {
+            this.benchmark.set(res.indices[0].ticker);
+          }
+          this.benchmarkLoading.set(false);
+        },
+        error: (err: Error) => {
+          this.benchmarkError.set(err.message ?? 'Failed to load benchmarks');
+          this.benchmarkLoading.set(false);
+        },
+      });
+  }
+
+  private hasSelectedBenchmark(indices: ReferenceIndexItem[]): boolean {
+    return indices.some((i) => i.ticker === this.benchmark());
   }
 
   private loadPortfolioData(): void {
@@ -194,7 +349,7 @@ export class DashboardComponent implements OnDestroy {
         error: onError,
       });
 
-    this.dashboardSvc.getEquityCurve(name, 'SPY', '3Y')
+    this.dashboardSvc.getEquityCurve(name, this.benchmark(), this.period())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: res => {

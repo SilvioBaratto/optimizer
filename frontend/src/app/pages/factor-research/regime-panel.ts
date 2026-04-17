@@ -1,15 +1,24 @@
 import {
   Component,
   input,
+  output,
   computed,
+  signal,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { EchartsStackedAreaComponent, AreaSeries } from '../../shared/echarts-stacked-area/echarts-stacked-area';
 import { EchartsHeatmapComponent } from '../../shared/echarts-heatmap/echarts-heatmap';
+import { EchartsRegimeTimelineComponent } from '../../shared/echarts-regime-timeline/echarts-regime-timeline';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
 import { readCssVar } from '../../shared/charts/echarts-theme';
-import type { RegimeDetection, HmmState } from '../../models/factor.model';
+import type {
+  FactorRegimeTiltApiResponse,
+  HmmState,
+  RegimeDetection,
+  RegimeHistoryApiResponse,
+} from '../../models/factor.model';
 
 const STATE_LABELS: Record<HmmState, string> = {
   low_vol: 'Low Vol',
@@ -21,12 +30,62 @@ const STATES: HmmState[] = ['low_vol', 'medium_vol', 'high_vol'];
 
 @Component({
   selector: 'app-regime-panel',
-  imports: [EchartsStackedAreaComponent, EchartsHeatmapComponent, DataTableComponent, ChartToolbarComponent],
+  imports: [
+    FormsModule,
+    EchartsStackedAreaComponent,
+    EchartsHeatmapComponent,
+    EchartsRegimeTimelineComponent,
+    DataTableComponent,
+    ChartToolbarComponent,
+  ],
   templateUrl: './regime-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RegimePanelComponent {
   regimeHistory = input<RegimeDetection[]>([]);
+  regimeHistoryApi = input<RegimeHistoryApiResponse | null>(null);
+  regimeTilt = input<FactorRegimeTiltApiResponse | null>(null);
+
+  runRegimeTilt = output<Record<string, number>>();
+
+  readonly groupWeightsRaw = signal<string>('value:1,momentum:1,low_risk:1,quality:1');
+
+  readonly regimeTimelinePoints = computed(() => {
+    const api = this.regimeHistoryApi();
+    if (!api) return [];
+    return api.points.map((p) => ({
+      date: p.date,
+      probabilities: [p.bullProb, p.bearProb, p.sidewaysProb, p.volatileProb],
+    }));
+  });
+
+  readonly regimeLabels = ['Bull', 'Bear', 'Sideways', 'Volatile'];
+
+  readonly tiltEntries = computed(() => {
+    const tilt = this.regimeTilt();
+    if (!tilt) return [];
+    return Object.entries(tilt.tilted_weights).map(([group, weight]) => ({
+      group,
+      weight,
+      multiplier: tilt.tilt_multipliers[group] ?? 1,
+    }));
+  });
+
+  submitRegimeTilt(): void {
+    const parsed = this.parseGroupWeights(this.groupWeightsRaw());
+    if (Object.keys(parsed).length === 0) return;
+    this.runRegimeTilt.emit(parsed);
+  }
+
+  private parseGroupWeights(raw: string): Record<string, number> {
+    const result: Record<string, number> = {};
+    for (const pair of raw.split(',')) {
+      const [key, value] = pair.split(':').map((s) => s.trim());
+      const num = Number(value);
+      if (key && Number.isFinite(num)) result[key] = num;
+    }
+    return result;
+  }
 
   readonly stateLabels = Object.values(STATE_LABELS);
 

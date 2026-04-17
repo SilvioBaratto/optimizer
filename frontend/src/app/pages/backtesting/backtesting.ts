@@ -18,13 +18,47 @@ import { EchartsCalendarHeatmapComponent } from '../../shared/echarts-calendar-h
 import { EchartsHistogramComponent } from '../../shared/echarts-histogram/echarts-histogram';
 import { EchartsBarComponent, BarData } from '../../shared/echarts-bar/echarts-bar';
 import { EchartsStackedAreaComponent, AreaSeries } from '../../shared/echarts-stacked-area/echarts-stacked-area';
+import { EchartsDrawdownComponent } from '../../shared/echarts-drawdown/echarts-drawdown';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
+import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
 import { FormatService } from '../../services/format.service';
+import { BacktestService } from '../../services/backtest.service';
 import { readCssVar } from '../../shared/charts/echarts-theme';
 import { CHART_EXPORTABLE, type ChartExportable } from '../../shared/charts/chart-export.token';
-import { MOCK_BACKTEST_CONFIG, MOCK_BACKTEST_RESULT } from '../../mocks/backtest-mocks';
 import { ModalService } from '../../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../../shared/modal/export-report-modal';
+import { DestroyRef } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { WalkForwardPanelComponent } from './walk-forward-panel';
+import type {
+  BacktestConfig,
+  BacktestResult,
+} from '../../models/backtest.model';
+
+// Empty defaults used until a backtest run completes — signals swap them
+// for real data fetched via BacktestService.
+const DEFAULT_CONFIG: BacktestConfig = {
+  startDate: '2021-03-01',
+  endDate: '2026-02-25',
+  initialCapital: 10_000_000,
+  rebalanceFrequency: 'quarterly',
+  transactionCostBps: 10,
+  benchmark: 'SPY',
+};
+
+const EMPTY_RESULT: BacktestResult = {
+  equity: [],
+  metrics: {
+    totalReturn: 0, annualizedReturn: 0, annualizedVol: 0, sharpe: 0,
+    sortino: 0, maxDrawdown: 0, calmar: 0, cvar95: 0,
+    trackingError: 0, informationRatio: 0, winRate: 0, profitFactor: 0,
+  },
+  drawdowns: [],
+  monthlyReturns: [],
+  rollingMetrics: [],
+  returnDistribution: [],
+  factorLoadings: [],
+};
 
 interface MetricsRow {
   metric: string;
@@ -45,7 +79,10 @@ interface MetricsRow {
     EchartsHistogramComponent,
     EchartsBarComponent,
     EchartsStackedAreaComponent,
+    EchartsDrawdownComponent,
     ChartToolbarComponent,
+    JobProgressTrackerComponent,
+    WalkForwardPanelComponent,
   ],
   templateUrl: './backtesting.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -56,11 +93,19 @@ interface MetricsRow {
 export class BacktestingComponent implements OnDestroy, ChartExportable {
   private readonly fmt = inject(FormatService);
   private readonly modalService = inject(ModalService);
+  private readonly backtest = inject(BacktestService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // ── Loading / error state ──────────────────────────────────────────────────
-  readonly isLoading = signal(true);
+  readonly isLoading = signal(false);
   readonly hasError = signal(false);
   readonly errorMessage = signal('');
+
+  // ── Run state ─────────────────────────────────────────────────────────────
+  readonly runJobId = signal<string | null>(null);
+  readonly runRunId = signal<string | null>(null);
+  readonly runError = signal<string | null>(null);
+  readonly isRunning = computed(() => this.runJobId() !== null);
 
   // ── State ──────────────────────────────────────────────────────────────────
   readonly activeTab = signal('overview');
@@ -81,13 +126,15 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     { label: 'IWM', value: 'IWM' },
   ];
 
-  // ── Static data ────────────────────────────────────────────────────────────
-  readonly config = MOCK_BACKTEST_CONFIG;
-  readonly result = MOCK_BACKTEST_RESULT;
+  // ── Reactive data (signals replaced when a backtest run completes) ───────
+  readonly config = signal<BacktestConfig>(DEFAULT_CONFIG);
+  readonly result = signal<BacktestResult>(EMPTY_RESULT);
+
+  readonly hasResult = computed(() => this.result().equity.length > 0);
 
   // ── Tab definitions (computed for dynamic badge) ─────────────────────────
   readonly drawdownCount = computed(() =>
-    [...this.result.drawdowns].sort((a, b) => a.depth - b.depth).slice(0, 10).length
+    [...this.result().drawdowns].sort((a, b) => a.depth - b.depth).slice(0, 10).length
   );
 
   readonly tabs = computed<Tab[]>(() => [
@@ -102,15 +149,15 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   // ── Equity curve data ──────────────────────────────────────────────────────
   readonly equityLabels = computed(() =>
-    this.result.equity.map(p => p.date)
+    this.result().equity.map(p => p.date)
   );
 
   readonly portfolioValues = computed(() =>
-    this.result.equity.map(p => p.portfolio)
+    this.result().equity.map(p => p.portfolio)
   );
 
   readonly benchmarkValues = computed(() =>
-    this.result.equity.map(p => p.benchmark)
+    this.result().equity.map(p => p.benchmark)
   );
 
   readonly underwaterValues = computed(() => {
@@ -124,7 +171,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   // ── Monthly heatmap data ───────────────────────────────────────────────────
   readonly monthlyHeatmapYears = computed(() => {
-    const years = [...new Set(this.result.monthlyReturns.map(c => String(c.year)))];
+    const years = [...new Set(this.result().monthlyReturns.map(c => String(c.year)))];
     return years.sort();
   });
 
@@ -134,7 +181,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   readonly monthlyHeatmapData = computed(() => {
     const years = this.monthlyHeatmapYears();
-    const cells = this.result.monthlyReturns;
+    const cells = this.result().monthlyReturns;
     const byKey = new Map<string, number>();
     for (const cell of cells) {
       byKey.set(`${cell.year}-${cell.month}`, cell.value);
@@ -146,7 +193,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   // ── Metrics table ──────────────────────────────────────────────────────────
   readonly metricsTableRows = computed<MetricsRow[]>(() => {
-    const m = this.result.metrics;
+    const m = this.result().metrics;
     const pct = (v: number) => this.fmt.formatPercent(v);
     const ratio = (v: number) => this.fmt.formatRatio(v);
 
@@ -168,7 +215,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   // ── Drawdown table ─────────────────────────────────────────────────────────
   readonly drawdownTableRows = computed(() =>
-    [...this.result.drawdowns]
+    [...this.result().drawdowns]
       .sort((a, b) => a.depth - b.depth)
       .slice(0, 10)
       .map((d, i) => ({
@@ -183,13 +230,25 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   );
 
   // ── Drawdown depth histogram values ───────────────────────────────────────
+  // Drawdown time series wired to EchartsDrawdownComponent (underwater curve)
+  readonly drawdownSeries = computed(() => {
+    const portfolio = this.portfolioValues();
+    const labels = this.equityLabels();
+    let peak = portfolio[0] ?? 0;
+    return labels.map((date, i) => {
+      const v = portfolio[i] ?? peak;
+      if (v > peak) peak = v;
+      return { date, drawdown: peak > 0 ? (v - peak) / peak : 0 };
+    });
+  });
+
   readonly drawdownDepthValues = computed(() =>
-    this.result.drawdowns.map(d => d.depth)
+    this.result().drawdowns.map(d => d.depth)
   );
 
   // ── Rolling metrics (uses rollingWindow) ──────────────────────────────────
   private filterByWindow(window: '1Y' | '3Y') {
-    const metrics = this.result.rollingMetrics;
+    const metrics = this.result().rollingMetrics;
     const cutoffMonths = window === '1Y' ? 12 : 36;
     const last = metrics[metrics.length - 1];
     if (!last) return [];
@@ -221,12 +280,12 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   // ── Distribution data ──────────────────────────────────────────────────────
   readonly distributionValues = computed(() =>
-    this.result.returnDistribution.map(b => (b.binStart + b.binEnd) / 2)
+    this.result().returnDistribution.map(b => (b.binStart + b.binEnd) / 2)
   );
 
   readonly distributionFullValues = computed(() => {
     const result: number[] = [];
-    for (const bin of this.result.returnDistribution) {
+    for (const bin of this.result().returnDistribution) {
       const mid = (bin.binStart + bin.binEnd) / 2;
       for (let i = 0; i < bin.count; i++) {
         result.push(mid);
@@ -275,14 +334,14 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   // ── Factor loadings bar & table ────────────────────────────────────────────
   readonly factorBarData = computed<BarData[]>(() =>
-    this.result.factorLoadings.map(f => ({
+    this.result().factorLoadings.map(f => ({
       label: f.factor,
       value: f.loading,
     }))
   );
 
   readonly factorTableRows = computed(() =>
-    this.result.factorLoadings.map(f => ({
+    this.result().factorLoadings.map(f => ({
       factor: f.factor,
       loading: f.loading,
       tStat: f.tStat,
@@ -296,7 +355,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     const chartColors = Array.from({ length: 6 }, (_, i) =>
       readCssVar(`--color-chart-${i + 1}`)
     );
-    return this.result.factorLoadings.map((f, i) => ({
+    return this.result().factorLoadings.map((f, i) => ({
       name: f.factor,
       values: this.styleLabels().map((_, j) =>
         parseFloat((f.loading + Math.sin(j * 0.05 + i) * 0.03).toFixed(3))
@@ -785,6 +844,53 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     if (sig === '**') return 'bg-accent/10 text-text-secondary';
     if (sig === '*') return 'bg-surface-inset text-text-tertiary';
     return 'bg-surface-inset text-text-tertiary opacity-50';
+  }
+
+  // ── Run / progress integration ────────────────────────────────────────────
+  onRunBacktest(tickers: string[]): void {
+    if (this.isRunning()) return;
+    this.runError.set(null);
+    this.backtest
+      .runBacktest({
+        tickers,
+        start_date: this.selectedStartDate(),
+        end_date: this.selectedEndDate(),
+        pipeline_config: {},
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.runJobId.set(res.jobId);
+          this.runRunId.set(res.runId);
+        },
+        error: (err: Error) => this.runError.set(err.message ?? 'Backtest failed'),
+      });
+  }
+
+  onJobCompleted(): void {
+    const runId = this.runRunId();
+    this.runJobId.set(null);
+    if (!runId) return;
+    this.backtest
+      .pollBacktest(runId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (progress) => this.applyRunResult(progress.result),
+        error: () => this.runError.set('Failed to load completed run'),
+      });
+  }
+
+  onJobFailed(message: string): void {
+    this.runError.set(message || 'Backtest job failed');
+    this.runJobId.set(null);
+  }
+
+  private applyRunResult(payload: Record<string, unknown> | null): void {
+    if (!payload) return;
+    // Backend emits skfolio-native keys; we do not attempt a deep shape
+    // normalisation here — that's a follow-up story.
+    const partial = payload as Partial<BacktestResult>;
+    this.result.update((current) => ({ ...current, ...partial }));
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────

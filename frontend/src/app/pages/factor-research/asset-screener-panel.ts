@@ -1,13 +1,17 @@
 import {
   Component,
   input,
+  output,
   signal,
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { EchartsScatterComponent, ScatterPoint } from '../../shared/echarts-scatter/echarts-scatter';
-import type { FactorICReport } from '../../models/factor.model';
+import type {
+  FactorICReport,
+  TradingEconomicsObservation,
+} from '../../models/factor.model';
 
 const IC_BADGE_MAP: Record<string, { value: string; colorClass: string }> = {
   true: { value: 'YES', colorClass: 'bg-emerald-500/15 text-emerald-400' },
@@ -22,8 +26,31 @@ const IC_BADGE_MAP: Record<string, { value: string; colorClass: string }> = {
 })
 export class AssetScreenerPanelComponent {
   icReports = input<FactorICReport[]>([]);
+  teObservations = input<TradingEconomicsObservation[]>([]);
+
+  fetchTe = output<void>();
 
   activeFilters = signal<string[]>([]);
+
+  readonly teColumns: TableColumn[] = [
+    { key: 'country', label: 'Country', sortable: true },
+    { key: 'indicator_key', label: 'Indicator', sortable: true },
+    { key: 'date', label: 'Date', sortable: true },
+    { key: 'value', label: 'Value', align: 'right' },
+  ];
+
+  readonly teRows = computed(() =>
+    this.teObservations().map((obs) => ({
+      country: obs.country,
+      indicator_key: obs.indicator_key,
+      date: obs.date,
+      value: obs.value !== null ? obs.value.toFixed(3) : '—',
+    }) as Record<string, unknown>),
+  );
+
+  onFetchTe(): void {
+    this.fetchTe.emit();
+  }
 
   availableGroups = computed(() => {
     const groups = this.icReports().map(r => r.group);

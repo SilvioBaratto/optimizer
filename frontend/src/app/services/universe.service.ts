@@ -8,6 +8,8 @@ import {
   BuildProgress,
   Exchange,
   InstrumentList,
+  UniverseScreenRequest,
+  UniverseScreenResponse,
   UniverseStats,
 } from '../models/universe.model';
 
@@ -95,6 +97,13 @@ export class UniverseService {
       debounceTime(this.debounceMs),
       distinctUntilChanged(),
       switchMap((search) => this.getInstruments({ search })),
+    );
+  }
+
+  screen(request: UniverseScreenRequest): Observable<UniverseScreenResponse> {
+    return this.http.post<UniverseScreenResponse>(
+      `${this.apiBase}universe/screen`,
+      request,
     );
   }
 }

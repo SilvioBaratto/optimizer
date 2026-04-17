@@ -2,8 +2,44 @@
   <!-- Limits Table -->
   <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
     <div class="px-4 py-3 border-b border-border flex items-center justify-between">
-      <h3 class="text-data-sm font-medium text-text">Risk Limits</h3>
+      <h3 class="text-data-sm font-medium text-text">
+        Risk Limits
+        @if (breachCount() > 0) {
+          <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-data-xs font-medium bg-loss/10 text-loss"
+            data-testid="breach-badge">
+            {{ breachCount() }} breached
+          </span>
+        }
+      </h3>
+      <button type="button" (click)="toggleCreateForm()"
+        class="px-3 py-1.5 text-data-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+        {{ showCreateForm() ? 'Cancel' : '+ Add Limit' }}
+      </button>
     </div>
+    @if (showCreateForm()) {
+      <div class="p-4 grid grid-cols-1 md:grid-cols-4 gap-3 border-b border-border bg-surface">
+        <input type="text"
+          [ngModel]="createForm().metric"
+          (ngModelChange)="updateFormField('metric', $event)"
+          placeholder="Metric (e.g. max_drawdown)"
+          class="px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+        <select [ngModel]="createForm().limit_type"
+          (ngModelChange)="updateFormField('limit_type', $event)"
+          class="px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent">
+          <option value="upper">Upper</option>
+          <option value="lower">Lower</option>
+        </select>
+        <input type="number" step="0.001" min="0"
+          [ngModel]="createForm().threshold"
+          (ngModelChange)="updateFormField('threshold', +$event)"
+          placeholder="Threshold"
+          class="px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+        <button type="button" (click)="submitCreate()" [disabled]="!isFormValid()"
+          class="px-3 py-2 text-sm font-medium rounded-md bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors">
+          Create
+        </button>
+      </div>
+    }
     <div class="relative">
       <div class="pointer-events-none absolute inset-y-0 right-0 w-8 bg-linear-to-l from-surface-raised to-transparent z-10 md:hidden"></div>
     <div class="overflow-x-auto">
@@ -16,6 +52,7 @@
             <th class="px-4 py-2 text-right font-medium text-text-secondary">Current</th>
             <th class="px-4 py-2 font-medium text-text-secondary" style="min-width: 120px">Utilization</th>
             <th class="px-4 py-2 text-center font-medium text-text-secondary">Status</th>
+            <th class="px-4 py-2 text-right font-medium text-text-secondary">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -43,9 +80,17 @@
                 <span
                   class="inline-flex items-center px-2 py-0.5 rounded-full text-data-xs font-medium capitalize"
                   [class]="getBadgeClasses(limit.status)"
+                  [attr.data-testid]="'status-badge-' + limit.id"
                 >
                   {{ limit.status }}
                 </span>
+              </td>
+              <td class="px-4 py-2.5 text-right">
+                <button type="button" (click)="requestDelete(limit.id)"
+                  [attr.data-testid]="'delete-btn-' + limit.id"
+                  class="text-xs text-loss hover:underline">
+                  Delete
+                </button>
               </td>
             </tr>
           }
@@ -98,4 +143,27 @@
       }
     </div>
   </div>
+
+  @if (pendingDeleteId(); as id) {
+    <div class="fixed inset-0 z-[260] bg-black/40 flex items-center justify-center p-4"
+      role="dialog" aria-label="Confirm delete risk limit">
+      <div class="bg-surface border border-border rounded-lg shadow-xl w-full max-w-sm p-5 space-y-4">
+        <h3 class="text-sm font-semibold text-text">Delete risk limit?</h3>
+        <p class="text-xs text-text-secondary">
+          This action is permanent. The limit will be removed and will no longer trigger breach alerts.
+        </p>
+        <div class="flex justify-end gap-2">
+          <button type="button" (click)="cancelDelete()"
+            class="px-3 py-1.5 text-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+            Cancel
+          </button>
+          <button type="button" (click)="confirmDelete()"
+            data-testid="confirm-delete"
+            class="px-3 py-1.5 text-xs font-medium rounded-md bg-loss text-white hover:bg-loss/90 transition-colors">
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  }
 </div>

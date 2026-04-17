@@ -1,0 +1,93 @@
+<div class="space-y-4">
+  <!-- Header row -->
+  <div class="flex items-center justify-between">
+    <h3 class="text-data-sm font-medium text-text">Portfolios</h3>
+    <div class="flex items-center gap-2">
+      <button type="button" (click)="refresh()" [disabled]="loading()"
+        class="px-3 py-1.5 text-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset disabled:opacity-50 transition-colors">
+        Refresh
+      </button>
+      <button type="button" (click)="toggleCreate()"
+        data-testid="toggle-create-portfolio"
+        class="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/90 transition-colors">
+        {{ showCreate() ? 'Close' : '+ New portfolio' }}
+      </button>
+    </div>
+  </div>
+
+  @if (loadError(); as err) {
+    <p class="text-xs text-loss">{{ err }}</p>
+  }
+
+  <!-- Create form -->
+  @if (showCreate()) {
+    <form (submit)="$event.preventDefault(); submit()"
+      class="bg-surface-raised border border-border rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 gap-3"
+      data-testid="create-portfolio-form">
+      <label class="flex flex-col gap-1 md:col-span-2">
+        <span class="text-xs text-text-tertiary uppercase tracking-wide">Name</span>
+        <input type="text" required minlength="2"
+          [ngModel]="form().name" (ngModelChange)="updateField('name', $event)"
+          name="name" data-testid="portfolio-name"
+          class="px-2 py-1.5 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:border-accent" />
+      </label>
+      <label class="flex flex-col gap-1 md:col-span-2">
+        <span class="text-xs text-text-tertiary uppercase tracking-wide">Description</span>
+        <input type="text"
+          [ngModel]="form().description" (ngModelChange)="updateField('description', $event)"
+          name="description"
+          class="px-2 py-1.5 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:border-accent" />
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-text-tertiary uppercase tracking-wide">Currency</span>
+        <select
+          [ngModel]="form().currency" (ngModelChange)="updateField('currency', $event)"
+          name="currency"
+          class="px-2 py-1.5 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:border-accent">
+          @for (c of currencies; track c) {
+            <option [value]="c">{{ c }}</option>
+          }
+        </select>
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-text-tertiary uppercase tracking-wide">Benchmark ticker</span>
+        <input type="text"
+          [ngModel]="form().benchmark_ticker" (ngModelChange)="updateField('benchmark_ticker', $event)"
+          name="benchmark_ticker"
+          class="px-2 py-1.5 text-sm bg-surface border border-border rounded-md text-text font-mono uppercase focus:outline-none focus:border-accent" />
+      </label>
+
+      @if (createError(); as err) {
+        <p class="text-xs text-loss md:col-span-2">{{ err }}</p>
+      }
+
+      <div class="md:col-span-2 flex justify-end gap-2 pt-1">
+        <button type="button" (click)="toggleCreate()"
+          class="px-3 py-1.5 text-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+          Cancel
+        </button>
+        <button type="submit" [disabled]="!isFormValid() || creating()"
+          data-testid="submit-portfolio"
+          class="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          {{ creating() ? 'Creating...' : 'Create' }}
+        </button>
+      </div>
+    </form>
+  }
+
+  <!-- Portfolio list -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-3">
+    @if (loading() && portfolios().length === 0) {
+      <p class="text-xs text-text-tertiary">Loading portfolios...</p>
+    } @else if (portfolios().length === 0) {
+      <p class="text-xs text-text-tertiary">No portfolios yet. Create your first one.</p>
+    } @else {
+      <app-data-table
+        [columns]="tableColumns"
+        [rows]="tableRows()"
+        [total]="tableRows().length"
+        [pageSize]="20"
+        [dense]="true" />
+    }
+  </div>
+</div>

@@ -11,7 +11,12 @@ import {
 } from '@angular/core';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { readCssVar } from '../../shared/charts/echarts-theme';
-import type { TAASignal, FactorReturnSeries, MacroRegime } from '../../models/factor.model';
+import type {
+  FactorReturnSeries,
+  MacroCalibrationResponse,
+  MacroRegime,
+  TAASignal,
+} from '../../models/factor.model';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 
 const REGIME_BADGE_MAP: Record<MacroRegime, { value: string; colorClass: string }> = {
@@ -30,6 +35,7 @@ const REGIME_BADGE_MAP: Record<MacroRegime, { value: string; colorClass: string 
 export class TaaPanelComponent implements OnDestroy {
   signals = input<TAASignal[]>([]);
   factorReturns = input<FactorReturnSeries[]>([]);
+  macroCalibration = input<MacroCalibrationResponse | null>(null);
 
   private readonly barChartContainer = viewChild<ElementRef<HTMLElement>>('barChart');
   private readonly lineChartContainer = viewChild<ElementRef<HTMLElement>>('lineChart');

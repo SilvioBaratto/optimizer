@@ -9,7 +9,37 @@ import {
 import { FormsModule } from '@angular/forms';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { IPS, RiskProfile } from '../../models/portfolio-builder.model';
-import { MOCK_IPS_PRESETS } from '../../mocks/portfolio-builder-mocks';
+
+// IPS preset catalogue — static defaults for the summary panel.
+const IPS_PRESETS: readonly IPS[] = [
+  {
+    name: 'Conservative Income',
+    riskProfile: 'conservative',
+    targetReturn: 0.06,
+    maxVolatility: 0.1,
+    maxDrawdown: -0.08,
+    rebalanceFrequency: 'quarterly',
+    constraints: [],
+  },
+  {
+    name: 'Balanced Growth',
+    riskProfile: 'moderate',
+    targetReturn: 0.1,
+    maxVolatility: 0.16,
+    maxDrawdown: -0.15,
+    rebalanceFrequency: 'quarterly',
+    constraints: [],
+  },
+  {
+    name: 'Aggressive Growth',
+    riskProfile: 'aggressive',
+    targetReturn: 0.15,
+    maxVolatility: 0.22,
+    maxDrawdown: -0.25,
+    rebalanceFrequency: 'monthly',
+    constraints: [],
+  },
+];
 
 type ObjectiveType =
   | 'max_sharpe'
@@ -44,7 +74,7 @@ export class IpsPanelComponent {
   totalWeight = input.required<number>();
   ipsChange = output<IPS>();
 
-  readonly presets = MOCK_IPS_PRESETS;
+  readonly presets = IPS_PRESETS;
 
   objective = signal<ObjectiveType>('max_sharpe');
   timeHorizon = signal<TimeHorizon>('5Y');

@@ -2,6 +2,7 @@ import {
   Component,
   signal,
   computed,
+  inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
@@ -12,6 +13,7 @@ import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { PipelineStatusComponent } from './pipeline-status/pipeline-status';
 import type { AgentRole } from '../../models/ai-control.model';
+import { FEATURE_AI_DECISION_LOG_TOKEN } from '../../config/feature-flags';
 import {
   MOCK_AGENT_STATUSES,
   MOCK_DECISION_FEED,
@@ -65,28 +67,40 @@ const TYPE_BADGE: Record<string, { value: string; colorClass: string }> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AiControlRoomComponent {
+  // Compile-time feature flag gating the Overview/History/Agents tabs and the
+  // decision-log KPI row. Overridable in tests via
+  // `TestBed.configureTestingModule` provider swap.
+  readonly decisionLogEnabled = inject(FEATURE_AI_DECISION_LOG_TOKEN);
+
   // ── Loading state ──
   isLoading = signal(true);
   hasError = signal(false);
   errorMessage = signal('');
 
   // ── State ──
-  readonly activeTab = signal<ControlTab>('overview');
+  readonly activeTab = signal<ControlTab>(
+    this.decisionLogEnabled ? 'overview' : 'pipeline',
+  );
   readonly feedFilter = signal<AgentRole | 'all'>('all');
   readonly expandedDecisions = signal<Set<string>>(new Set());
 
-  // ── Static data ──
+  // ── Static data (only used when decisionLogEnabled) ──
   readonly agents = MOCK_AGENT_STATUSES;
   readonly feed = MOCK_DECISION_FEED;
   readonly vetoLog = MOCK_VETO_LOG;
 
   // ── Tabs ──
-  readonly tabs = computed<Tab[]>(() => [
-    { id: 'overview', label: 'Overview' },
-    { id: 'history', label: 'History', badge: this.feed.length },
-    { id: 'agents', label: 'Agents' },
-    { id: 'pipeline', label: 'Pipeline' },
-  ]);
+  readonly tabs = computed<Tab[]>(() => {
+    if (!this.decisionLogEnabled) {
+      return [{ id: 'pipeline', label: 'Pipeline' }];
+    }
+    return [
+      { id: 'overview', label: 'Overview' },
+      { id: 'history', label: 'History', badge: this.feed.length },
+      { id: 'agents', label: 'Agents' },
+      { id: 'pipeline', label: 'Pipeline' },
+    ];
+  });
 
   // ── Top-level stats ──
   readonly totalDecisionsToday = computed(() =>

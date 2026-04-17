@@ -1,79 +1,221 @@
-import { Component, signal, computed, ChangeDetectionStrategy } from '@angular/core';
+import {
+  Component,
+  signal,
+  computed,
+  inject,
+  ChangeDetectionStrategy,
+  DestroyRef,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HelpTooltipComponent } from '../../shared/help-tooltip/help-tooltip';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
-import { EchartsBarComponent } from '../../shared/echarts-bar/echarts-bar';
-import { BarData } from '../../shared/bar-chart/bar-chart';
-import { ViewFormation } from '../../models/optimization.model';
-import { MOCK_VIEW_FORMATIONS, MOCK_MOMENT_OUTPUT } from '../../mocks/optimization-mocks';
+import { OptimizationService } from '../../services/optimization.service';
+import type {
+  GenerateViewsResponse,
+  EntropyPoolingResponse,
+  OpinionPoolResponse,
+} from '../../models/optimization.model';
 
-type ViewFramework = 'none' | 'black_litterman' | 'entropy_pooling';
+export type ViewFramework = 'black_litterman' | 'opinion_pool' | 'entropy_pooling';
 
 const VIEW_FRAMEWORK_LABELS: Record<ViewFramework, string> = {
-  none: 'None',
-  black_litterman: 'Black-Litterman',
-  entropy_pooling: 'Entropy Pooling',
+  black_litterman: 'Black-Litterman (LLM-generated views)',
+  opinion_pool: 'Opinion Pool (multi-persona)',
+  entropy_pooling: 'Entropy Pooling (distribution tilt)',
 };
+
+interface ViewRow extends Record<string, unknown> {
+  index: string;
+  assetExposure: string;
+  targetReturn: string;
+  confidence: string;
+}
+
+function parseTickers(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter((s) => s.length > 0);
+}
+
+function parseLines(raw: string): string[] {
+  return raw
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function formatMatrixRow(row: number[], tickers: string[]): string {
+  return row
+    .map((w, i) => (Math.abs(w) > 1e-9 ? `${w > 0 ? '+' : ''}${w.toFixed(2)}·${tickers[i]}` : null))
+    .filter((x): x is string => x !== null)
+    .join(' ');
+}
 
 @Component({
   selector: 'app-view-panel',
-  imports: [FormsModule, HelpTooltipComponent, DataTableComponent, EchartsBarComponent],
+  imports: [FormsModule, HelpTooltipComponent, DataTableComponent],
   templateUrl: './view-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ViewPanelComponent {
-  readonly viewFrameworkOptions: ViewFramework[] = ['none', 'black_litterman', 'entropy_pooling'];
+  private readonly optimization = inject(OptimizationService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  readonly viewFrameworkOptions: ViewFramework[] = [
+    'black_litterman',
+    'opinion_pool',
+    'entropy_pooling',
+  ];
   readonly viewFrameworkLabels = VIEW_FRAMEWORK_LABELS;
 
-  selectedViewFramework = signal<ViewFramework>('black_litterman');
-  views = signal<ViewFormation[]>(MOCK_VIEW_FORMATIONS);
+  readonly selectedViewFramework = signal<ViewFramework>('black_litterman');
+
+  // Shared state
+  readonly tickersRaw = signal<string>('AAPL, MSFT, GOOGL, AMZN, NVDA');
+  readonly startDate = signal<string>(this.defaultStart());
+  readonly endDate = signal<string>(this.todayIso());
+
+  // BL views
+  readonly blLoading = signal<boolean>(false);
+  readonly blError = signal<string | null>(null);
+  readonly blResponse = signal<GenerateViewsResponse | null>(null);
+
+  // Opinion pool
+  readonly personasRaw = signal<string>('value, momentum, macro');
+  readonly opinionLoading = signal<boolean>(false);
+  readonly opinionError = signal<string | null>(null);
+  readonly opinionResponse = signal<OpinionPoolResponse | null>(null);
+
+  // Entropy pooling
+  readonly meanViewsRaw = signal<string>('');
+  readonly varianceViewsRaw = signal<string>('');
+  readonly cvarViewsRaw = signal<string>('');
+  readonly entropyLoading = signal<boolean>(false);
+  readonly entropyError = signal<string | null>(null);
+  readonly entropyResponse = signal<EntropyPoolingResponse | null>(null);
 
   readonly viewTableColumns: TableColumn[] = [
-    { key: 'type', label: 'Type', type: 'badge', badgeMap: {
-      absolute: { value: 'Absolute', colorClass: 'inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-accent/10 text-accent' },
-      relative: { value: 'Relative', colorClass: 'inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-text-tertiary/10 text-text-secondary' },
-    }},
-    { key: 'assetsDisplay', label: 'Assets' },
-    { key: 'valueDisplay', label: 'Value (%)', align: 'right' },
-    { key: 'confidenceDisplay', label: 'Confidence', align: 'right' },
-    { key: 'source', label: 'Source' },
+    { key: 'index', label: '#' },
+    { key: 'assetExposure', label: 'Exposure' },
+    { key: 'targetReturn', label: 'Target return', align: 'right' },
+    { key: 'confidence', label: 'Confidence', align: 'right' },
   ];
 
-  readonly viewTableRows = computed(() =>
-    this.views().map(v => ({
-      ...v,
-      assetsDisplay: v.assets.join(' vs '),
-      valueDisplay: `${(v.value * 100).toFixed(1)}%`,
-      confidenceDisplay: `${(v.confidence * 100).toFixed(0)}%`,
-    })),
-  );
+  readonly blViewRows = computed<ViewRow[]>(() => {
+    const res = this.blResponse();
+    if (!res) return [];
+    return res.P.map((row, i) => ({
+      index: `${i + 1}`,
+      assetExposure: formatMatrixRow(row, res.tickers),
+      targetReturn: `${(res.Q[i] * 100).toFixed(2)}%`,
+      confidence: `${(res.view_confidences[i] * 100).toFixed(0)}%`,
+    }));
+  });
 
-  readonly priorBarData = computed<BarData[]>(() =>
-    MOCK_MOMENT_OUTPUT.expectedReturns.map(e => ({ label: e.ticker, value: e.value })),
-  );
+  readonly opinionViewRows = computed<ViewRow[]>(() => {
+    const res = this.opinionResponse();
+    if (!res) return [];
+    const tickers = parseTickers(this.tickersRaw());
+    return res.P.map((row, i) => ({
+      index: `${i + 1}`,
+      assetExposure: formatMatrixRow(row, tickers),
+      targetReturn: `${(res.Q[i] * 100).toFixed(2)}%`,
+      confidence: `${(res.view_confidences[i] * 100).toFixed(0)}%`,
+    }));
+  });
 
-  readonly posteriorBarData = computed<BarData[]>(() => {
-    const views = this.views();
-    return MOCK_MOMENT_OUTPUT.expectedReturns.map(e => {
-      const view = views.find(v => v.assets.includes(e.ticker));
-      const adjustment = view ? (view.value - e.value) * view.confidence * 0.3 : 0;
-      return { label: e.ticker, value: +(e.value + adjustment).toFixed(4) };
-    });
+  readonly personaWeightsEntries = computed(() => {
+    const res = this.opinionResponse();
+    return res ? Object.entries(res.persona_weights) : [];
+  });
+
+  readonly entropyMuEntries = computed(() => {
+    const res = this.entropyResponse();
+    if (!res) return [];
+    return res.tickers.map((ticker, i) => ({ ticker, mu: res.mu[i] }));
   });
 
   setViewFramework(value: ViewFramework): void {
     this.selectedViewFramework.set(value);
   }
 
-  addView(): void {
-    const newView: ViewFormation = {
-      id: `v${Date.now()}`,
-      type: 'absolute',
-      assets: ['AAPL'],
-      value: 0.10,
-      confidence: 0.5,
-      source: 'Manual',
-    };
-    this.views.update(views => [...views, newView]);
+  runBlackLitterman(): void {
+    const tickers = parseTickers(this.tickersRaw());
+    if (tickers.length === 0) return;
+    this.blLoading.set(true);
+    this.blError.set(null);
+    this.optimization
+      .generateViews({ tickers })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.blResponse.set(res);
+          this.blLoading.set(false);
+        },
+        error: (err: Error) => {
+          this.blError.set(err.message ?? '/views/generate failed');
+          this.blLoading.set(false);
+        },
+      });
+  }
+
+  runOpinionPool(): void {
+    const tickers = parseTickers(this.tickersRaw());
+    const personas = parseTickers(this.personasRaw()).map((p) => p.toLowerCase());
+    if (tickers.length === 0 || personas.length < 2) return;
+    this.opinionLoading.set(true);
+    this.opinionError.set(null);
+    this.optimization
+      .opinionPool({ tickers, personas })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.opinionResponse.set(res);
+          this.opinionLoading.set(false);
+        },
+        error: (err: Error) => {
+          this.opinionError.set(err.message ?? '/views/opinion-pool failed');
+          this.opinionLoading.set(false);
+        },
+      });
+  }
+
+  runEntropyPooling(): void {
+    const tickers = parseTickers(this.tickersRaw());
+    if (tickers.length === 0) return;
+    this.entropyLoading.set(true);
+    this.entropyError.set(null);
+    this.optimization
+      .entropyPooling({
+        tickers,
+        start_date: this.startDate(),
+        end_date: this.endDate(),
+        mean_views: parseLines(this.meanViewsRaw()),
+        variance_views: parseLines(this.varianceViewsRaw()),
+        cvar_views: parseLines(this.cvarViewsRaw()),
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.entropyResponse.set(res);
+          this.entropyLoading.set(false);
+        },
+        error: (err: Error) => {
+          this.entropyError.set(err.message ?? '/views/entropy-pooling failed');
+          this.entropyLoading.set(false);
+        },
+      });
+  }
+
+  private defaultStart(): string {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 3);
+    return d.toISOString().slice(0, 10);
+  }
+
+  private todayIso(): string {
+    return new Date().toISOString().slice(0, 10);
   }
 }

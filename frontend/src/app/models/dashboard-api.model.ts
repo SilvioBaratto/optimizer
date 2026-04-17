@@ -119,3 +119,15 @@ export interface ApiAssetClassReturnsResponse {
   returns: ApiAssetClassReturnRow[];
   asOf: string;
 }
+
+// GET /api/v1/market/indices
+export interface ReferenceIndexItem {
+  ticker: string;
+  name: string | null;
+  instrumentType: string | null;
+}
+
+export interface ReferenceIndicesResponse {
+  indices: ReferenceIndexItem[];
+  total: number;
+}

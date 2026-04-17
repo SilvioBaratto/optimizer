@@ -1,57 +1,126 @@
 <div class="space-y-6">
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-    @for (policy of policies(); track policy.id) {
-    <div class="bg-surface-raised border border-border rounded-lg p-5 flex flex-col"
-      [class]="policy.active ? 'ring-2 ring-chart-1' : ''">
-      <!-- Header -->
-      <div class="flex items-start justify-between gap-2 mb-3">
-        <h3 class="text-data-sm font-semibold text-text leading-snug">{{ policy.name }}</h3>
-        <span class="inline-block shrink-0 text-xs px-2 py-0.5 rounded-full font-medium"
-          [class]="getPolicyBadge(policy.trigger).colorClass">
-          {{ getPolicyBadge(policy.trigger).label }}
-        </span>
+
+  <!-- Create-policy toolbar -->
+  <div class="bg-surface-raised border border-border rounded-lg p-4 flex items-center justify-between">
+    <div>
+      <h3 class="text-data-sm font-medium text-text">Rebalancing policies</h3>
+      <p class="text-xs text-text-secondary">List + create + activate (backend supports list/create/activate only).</p>
+    </div>
+    <button type="button" (click)="toggleCreate()"
+      class="px-3 py-1.5 text-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset transition-colors">
+      {{ showCreate() ? 'Cancel' : '+ New policy' }}
+    </button>
+  </div>
+
+  @if (showCreate()) {
+    <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-3">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label for="newPolicyName" class="text-xs text-text-secondary block mb-1">Name*</label>
+          <input id="newPolicyName" type="text"
+            [ngModel]="form().name" (ngModelChange)="updateField('name', $event)"
+            class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+        </div>
+        <div>
+          <label for="newPolicyType" class="text-xs text-text-secondary block mb-1">Type*</label>
+          <select id="newPolicyType"
+            [ngModel]="form().policy_type" (ngModelChange)="updateField('policy_type', $event)"
+            class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent">
+            <option value="calendar">Calendar</option>
+            <option value="threshold">Threshold</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
+        </div>
       </div>
 
-      <!-- Settings Summary -->
-      <dl class="space-y-1.5 mb-4 flex-1">
-        @if (policy.frequency) {
-        <div class="flex justify-between text-data-sm">
-          <dt class="text-text-secondary">Frequency</dt>
-          <dd class="text-text font-medium capitalize">{{ policy.frequency }}</dd>
+      @if (form().policy_type === 'calendar' || form().policy_type === 'hybrid') {
+        <div>
+          <label for="freqDays" class="text-xs text-text-secondary block mb-1">
+            Frequency days (21 monthly · 63 quarterly · 126 semi-annual · 252 annual)
+          </label>
+          <select id="freqDays"
+            [ngModel]="form().frequency_days" (ngModelChange)="updateField('frequency_days', +$event)"
+            class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent">
+            <option [ngValue]="21">21</option>
+            <option [ngValue]="63">63</option>
+            <option [ngValue]="126">126</option>
+            <option [ngValue]="252">252</option>
+          </select>
         </div>
-        }
-        @if (policy.thresholdAbsolute != null) {
-        <div class="flex justify-between text-data-sm">
-          <dt class="text-text-secondary">Abs. Threshold</dt>
-          <dd class="text-text font-medium">{{ (policy.thresholdAbsolute * 100).toFixed(1) }}%</dd>
-        </div>
-        }
-        @if (policy.thresholdRelative != null) {
-        <div class="flex justify-between text-data-sm">
-          <dt class="text-text-secondary">Rel. Threshold</dt>
-          <dd class="text-text font-medium">{{ (policy.thresholdRelative * 100).toFixed(0) }}%</dd>
-        </div>
-        }
-        <div class="flex justify-between text-data-sm">
-          <dt class="text-text-secondary">Cost Budget</dt>
-          <dd class="text-text font-medium">{{ policy.costBudgetBps }} bps</dd>
-        </div>
-      </dl>
+      }
 
-      <!-- Activate Button -->
-      @if (policy.active) {
-      <button type="button" disabled
-        class="mt-auto w-full py-2 text-sm rounded-lg font-medium bg-chart-1/20 text-chart-1 cursor-default">
-        Active
-      </button>
-      } @else {
-      <button type="button"
-        class="mt-auto w-full py-2 text-sm rounded-lg font-medium bg-surface-inset text-text-secondary hover:bg-chart-1/15 hover:text-chart-1 focus:ring-2 focus:ring-chart-1 focus:ring-offset-2 focus:outline-none transition-colors"
-        (click)="activatePolicy.emit(policy.id)">
-        Activate
-      </button>
+      @if (form().policy_type === 'threshold' || form().policy_type === 'hybrid') {
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="thresholdValue" class="text-xs text-text-secondary block mb-1">Threshold (0–1)</label>
+            <input id="thresholdValue" type="number" step="0.01" min="0" max="0.999"
+              [ngModel]="form().threshold" (ngModelChange)="updateField('threshold', +$event)"
+              class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+          </div>
+          <div>
+            <label for="thresholdKind" class="text-xs text-text-secondary block mb-1">Kind</label>
+            <select id="thresholdKind"
+              [ngModel]="form().kind" (ngModelChange)="updateField('kind', $event)"
+              class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent">
+              <option value="absolute">Absolute</option>
+              <option value="relative">Relative</option>
+            </select>
+          </div>
+        </div>
+      }
+
+      <div class="flex justify-end">
+        <button type="button" (click)="submit()" [disabled]="!isFormValid()"
+          class="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors">
+          Create policy
+        </button>
+      </div>
+    </div>
+  }
+
+  <!-- Policy cards -->
+  @if (policies().length > 0) {
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      @for (policy of policies(); track policy.id) {
+        <div class="bg-surface-raised border border-border rounded-lg p-5 flex flex-col"
+          [class]="policy.isActive ? 'ring-2 ring-chart-1' : ''">
+          <div class="flex items-start justify-between gap-2 mb-3">
+            <h3 class="text-data-sm font-semibold text-text leading-snug">{{ policy.name }}</h3>
+            <span class="inline-block shrink-0 text-xs px-2 py-0.5 rounded-full font-medium"
+              [class]="getPolicyBadge(policy.policyType).colorClass">
+              {{ getPolicyBadge(policy.policyType).label }}
+            </span>
+          </div>
+          <dl class="space-y-1.5 mb-4 flex-1 text-xs">
+            @for (entry of (policy.config | keyvalue); track entry.key) {
+              <div class="flex justify-between">
+                <dt class="text-text-secondary">{{ entry.key }}</dt>
+                <dd class="text-text font-mono">{{ entry.value }}</dd>
+              </div>
+            }
+          </dl>
+          @if (policy.isActive) {
+            <button type="button" disabled
+              class="mt-auto w-full py-2 text-sm rounded-lg font-medium bg-chart-1/20 text-chart-1 cursor-default"
+              [attr.data-testid]="'active-' + policy.id">
+              Active
+            </button>
+          } @else {
+            <button type="button"
+              (click)="activate(policy.id)"
+              [attr.data-testid]="'activate-' + policy.id"
+              class="mt-auto w-full py-2 text-sm rounded-lg font-medium bg-surface-inset text-text-secondary hover:bg-chart-1/15 hover:text-chart-1 transition-colors">
+              Activate
+            </button>
+          }
+        </div>
       }
     </div>
-    }
-  </div>
+  } @else {
+    <div class="bg-surface-raised border border-border rounded-lg p-8 text-center">
+      <p class="text-xs text-text-secondary">
+        No policies yet. Click <span class="font-medium">+ New policy</span> to create one.
+      </p>
+    </div>
+  }
 </div>
