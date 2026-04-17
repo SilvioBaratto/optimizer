@@ -1,5 +1,7 @@
 import { Routes } from '@angular/router';
 
+import { portfolioRequiredGuard } from './guards/portfolio-required.guard';
+
 export const routes: Routes = [
   {
     path: '',
@@ -9,6 +11,7 @@ export const routes: Routes = [
         path: '',
         loadComponent: () => import('./pages/dashboard/dashboard').then((m) => m.DashboardComponent),
         title: 'Dashboard',
+        canActivate: [portfolioRequiredGuard],
       },
       {
         path: 'portfolio-builder',
@@ -24,11 +27,13 @@ export const routes: Routes = [
         path: 'backtesting',
         loadComponent: () => import('./pages/backtesting/backtesting').then((m) => m.BacktestingComponent),
         title: 'Backtesting',
+        canActivate: [portfolioRequiredGuard],
       },
       {
         path: 'risk-center',
         loadComponent: () => import('./pages/risk-center/risk-center').then((m) => m.RiskCenterComponent),
         title: 'Risk Center',
+        canActivate: [portfolioRequiredGuard],
       },
       {
         path: 'factor-research',
@@ -39,11 +44,13 @@ export const routes: Routes = [
         path: 'rebalancing',
         loadComponent: () => import('./pages/rebalancing/rebalancing').then((m) => m.RebalancingComponent),
         title: 'Rebalancing',
+        canActivate: [portfolioRequiredGuard],
       },
       {
         path: 'attribution',
         loadComponent: () => import('./pages/attribution/attribution').then((m) => m.AttributionComponent),
         title: 'Attribution',
+        canActivate: [portfolioRequiredGuard],
       },
       {
         path: 'macro-intelligence',
@@ -61,13 +68,24 @@ export const routes: Routes = [
         title: 'Settings',
       },
       {
+        path: 'portfolio/:name',
+        loadComponent: () => import('./pages/portfolio-detail/portfolio-detail').then((m) => m.PortfolioDetailComponent),
+        title: 'Portfolio',
+      },
+      {
+        path: 'instrument/:id',
+        loadComponent: () => import('./pages/instrument-detail/instrument-detail').then((m) => m.InstrumentDetailComponent),
+        title: 'Instrument',
+      },
+      {
         path: 'optimize',
         redirectTo: 'optimization-studio',
       },
+      {
+        path: '**',
+        loadComponent: () => import('./shared/not-found/page-not-found').then((m) => m.PageNotFoundComponent),
+        title: 'Page Not Found',
+      },
     ],
-  },
-  {
-    path: '**',
-    redirectTo: '',
   },
 ];

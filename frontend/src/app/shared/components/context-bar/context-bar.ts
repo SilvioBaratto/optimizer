@@ -3,12 +3,12 @@ import { LucideAngularModule } from 'lucide-angular';
 import {
   PortfolioContextService,
   PortfolioMode,
-  DateRangePreset,
 } from '../../../services/portfolio-context.service';
+import { DateRangePickerComponent } from '../../date-range-picker/date-range-picker';
 
 @Component({
   selector: 'app-context-bar',
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, DateRangePickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="border-b border-border bg-surface-raised px-4 py-2">
@@ -29,18 +29,8 @@ import {
 
         <span class="text-border">|</span>
 
-        <!-- Date range pills -->
-        <div class="flex gap-1">
-          @for (preset of datePresets; track preset) {
-            <button
-              [class]="ctx.dateRange().preset === preset
-                ? 'px-2 py-0.5 rounded bg-accent text-surface-raised font-medium'
-                : 'px-2 py-0.5 rounded text-text-secondary hover:text-text hover:bg-surface-inset transition-colors'"
-              (click)="ctx.setPreset(preset)">
-              {{ preset }}
-            </button>
-          }
-        </div>
+        <!-- Date range picker -->
+        <app-date-range-picker />
 
         <span class="text-border">|</span>
 
@@ -76,17 +66,8 @@ import {
 
         <!-- Row 2: Date pills + benchmark -->
         <div class="flex items-center gap-2">
-          <div class="flex gap-1 overflow-x-auto scrollbar-hide flex-1 text-data-sm">
-            @for (preset of datePresets; track preset) {
-              <button
-                class="shrink-0"
-                [class]="ctx.dateRange().preset === preset
-                  ? 'px-2 py-0.5 rounded bg-accent text-surface-raised font-medium shrink-0'
-                  : 'px-2 py-0.5 rounded text-text-secondary shrink-0 hover:bg-surface-inset transition-colors'"
-                (click)="ctx.setPreset(preset)">
-                {{ preset }}
-              </button>
-            }
+          <div class="flex-1 overflow-x-auto scrollbar-hide">
+            <app-date-range-picker />
           </div>
 
           <div class="relative shrink-0">
@@ -112,10 +93,6 @@ export class ContextBarComponent {
     { label: 'Live', value: 'live' },
     { label: 'Backtest', value: 'backtest' },
     { label: 'Paper', value: 'paper' },
-  ];
-
-  readonly datePresets: DateRangePreset[] = [
-    '1D', '1W', '1M', '3M', '6M', 'YTD', '1Y', '3Y', '5Y', 'Max',
   ];
 
   readonly benchmarks = [

@@ -1,23 +1,36 @@
-import { Injectable } from '@angular/core';
-import { Observable, of, delay } from 'rxjs';
-import { HealthCheck, TableInfo, DatabaseStatus } from '../models/database.model';
-import { MOCK_HEALTH, MOCK_TABLES } from '../mocks/mock-data';
+import { Injectable, inject } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Observable } from 'rxjs';
+
+import { environment } from '../../environments/environment';
+import {
+  DatabaseStatus,
+  HealthCheck,
+  TableInfo,
+  TruncateResponse,
+} from '../models/database.model';
 
 @Injectable({ providedIn: 'root' })
 export class DatabaseService {
+  private readonly http = inject(HttpClient);
+  private readonly base = `${environment.apiUrl}database`;
+
   getHealth(): Observable<HealthCheck> {
-    return of(MOCK_HEALTH).pipe(delay(300));
+    return this.http.get<HealthCheck>(`${this.base}/health`);
   }
 
   getTables(): Observable<TableInfo[]> {
-    return of(MOCK_TABLES).pipe(delay(400));
+    return this.http.get<TableInfo[]>(`${this.base}/tables`);
   }
 
   getStatus(): Observable<DatabaseStatus> {
-    return of({
-      health: MOCK_HEALTH,
-      tables: MOCK_TABLES,
-      total_size_pretty: '843 MB',
-    }).pipe(delay(350));
+    return this.http.get<DatabaseStatus>(`${this.base}/status`);
+  }
+
+  truncateTable(name: string): Observable<TruncateResponse> {
+    return this.http.delete<TruncateResponse>(
+      `${this.base}/tables/${encodeURIComponent(name)}`,
+      { params: new HttpParams().set('confirm', 'true') },
+    );
   }
 }

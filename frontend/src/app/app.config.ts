@@ -1,15 +1,18 @@
 import {
   ApplicationConfig,
+  ErrorHandler,
   provideBrowserGlobalErrorListeners,
   provideZonelessChangeDetection,
   APP_INITIALIZER,
 } from '@angular/core';
-import { provideRouter } from '@angular/router';
-import { provideHttpClient } from '@angular/common/http';
+import { provideRouter, withComponentInputBinding } from '@angular/router';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimations } from '@angular/platform-browser/animations';
 import { firstValueFrom } from 'rxjs';
 
 import { routes } from './app.routes';
+import { apiHttpInterceptor } from './interceptors/api-http.interceptor';
+import { GlobalErrorHandler } from './error-handling/global-error-handler';
 import { registerPortfolioTheme } from './shared/charts/echarts-theme';
 import { ICON_PROVIDER } from './icons';
 import { LucideIconConfig } from 'lucide-angular';
@@ -60,9 +63,10 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideZonelessChangeDetection(),
-    provideRouter(routes),
-    provideHttpClient(),
+    provideRouter(routes, withComponentInputBinding()),
+    provideHttpClient(withInterceptors([apiHttpInterceptor])),
     provideAnimations(),
+    { provide: ErrorHandler, useClass: GlobalErrorHandler },
     ICON_PROVIDER,
     {
       provide: LucideIconConfig,

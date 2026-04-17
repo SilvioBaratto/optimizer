@@ -7,7 +7,6 @@ import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-gr
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 
 import { FormatService } from '../../services/format.service';
-import { MockFetchService } from '../../services/mock-fetch.service';
 import { VarPanelComponent } from './var-panel';
 import { StressPanelComponent } from './stress-panel';
 import { CorrelationPanelComponent } from './correlation-panel';
@@ -49,7 +48,6 @@ import type { VaRMethod, RiskAlert, RiskLimit } from '../../models/risk.model';
 export class RiskCenterComponent {
   private fmt = inject(FormatService);
   private readonly modalService = inject(ModalService);
-  private readonly mockFetch = inject(MockFetchService);
 
   readonly isLoading = signal(true);
   readonly hasError = signal(false);
@@ -67,21 +65,8 @@ export class RiskCenterComponent {
   }
 
   loadData(): void {
-    this.isLoading.set(true);
     this.hasError.set(false);
-
-    this.mockFetch.fetch({
-      alerts: MOCK_RISK_ALERTS,
-      limits: MOCK_RISK_LIMITS,
-    }).then(data => {
-      this.alerts.set(data.alerts);
-      this.limits.set(data.limits);
-      this.isLoading.set(false);
-    }).catch((err: Error) => {
-      this.hasError.set(true);
-      this.errorMessage.set(err.message);
-      this.isLoading.set(false);
-    });
+    this.isLoading.set(false);
   }
 
   retry(): void {

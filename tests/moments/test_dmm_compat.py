@@ -51,8 +51,9 @@ class TestRequireDmm:
         """Error message must contain the pip install hint."""
         from optimizer.moments._dmm_compat import require_dmm
 
-        with patch("optimizer.moments._dmm_compat.HAS_DMM", False), pytest.raises(
-            ImportError, match='pip install "portopt\\[dmm\\]"'
+        with (
+            patch("optimizer.moments._dmm_compat.HAS_DMM", False),
+            pytest.raises(ImportError, match='pip install "portopt\\[dmm\\]"'),
         ):
             require_dmm()
 
@@ -91,8 +92,9 @@ class TestDmmModuleImportable:
             columns=["A", "B"],
         )
 
-        with patch("optimizer.moments._dmm_compat.HAS_DMM", False), pytest.raises(
-            ImportError, match='pip install "portopt\\[dmm\\]"'
+        with (
+            patch("optimizer.moments._dmm_compat.HAS_DMM", False),
+            pytest.raises(ImportError, match='pip install "portopt\\[dmm\\]"'),
         ):
             fit_dmm(dummy)
 
@@ -115,8 +117,9 @@ class TestDmmModuleImportable:
             input_std=np.array([]),
         )
 
-        with patch("optimizer.moments._dmm_compat.HAS_DMM", False), pytest.raises(
-            ImportError, match='pip install "portopt\\[dmm\\]"'
+        with (
+            patch("optimizer.moments._dmm_compat.HAS_DMM", False),
+            pytest.raises(ImportError, match='pip install "portopt\\[dmm\\]"'),
         ):
             blend_moments_dmm(dummy_result)
 

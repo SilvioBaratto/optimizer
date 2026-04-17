@@ -1,7 +1,7 @@
 import { Component, signal, computed, inject, ChangeDetectionStrategy } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import { ModalService } from './modal.service';
-import { ReportGeneratorService } from '../../services/report-generator.service';
+import { NotificationService } from '../notification/notification.service';
 import {
   REPORT_SECTIONS,
   type ReportTemplate,
@@ -142,9 +142,7 @@ const TEMPLATE_OPTIONS: TemplateOption[] = [
       </div>
 
       <!-- Validation message -->
-      @if (selectedSections().length === 0) {
-        <p class="text-xs text-warning">Select at least one section to generate a report.</p>
-      }
+      <p class="text-xs text-warning">Report generation coming soon.</p>
 
       <!-- Actions -->
       <div class="flex justify-end gap-3 pt-2 border-t border-border">
@@ -169,7 +167,7 @@ const TEMPLATE_OPTIONS: TemplateOption[] = [
 })
 export class ExportReportModalComponent {
   private readonly modalService = inject(ModalService);
-  private readonly reportGenerator = inject(ReportGeneratorService);
+  private readonly notifications = inject(NotificationService);
 
   readonly templateOptions = TEMPLATE_OPTIONS;
   readonly reportSections = REPORT_SECTIONS;
@@ -195,7 +193,7 @@ export class ExportReportModalComponent {
   readonly format = signal<ReportFormat>('pdf');
   readonly orientation = signal<ReportOrientation>('portrait');
 
-  readonly cannotGenerate = computed(() => this.selectedSections().length === 0);
+  readonly cannotGenerate = computed(() => true);
 
   isSectionSelected(id: string): boolean {
     return this.selectedSections().includes(id);
@@ -210,20 +208,7 @@ export class ExportReportModalComponent {
   }
 
   onGenerate(): void {
-    if (this.cannotGenerate()) return;
-
-    this.reportGenerator.generateReport({
-      template: this.template(),
-      sections: this.selectedSections(),
-      branding: {
-        companyName: this.companyName(),
-        primaryColor: this.primaryColor(),
-        includeDisclaimer: this.includeDisclaimer(),
-      },
-      format: this.format(),
-      orientation: this.orientation(),
-    });
-
+    this.notifications.info('Report generation coming soon');
     this.modalService.close();
   }
 

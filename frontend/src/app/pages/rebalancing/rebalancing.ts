@@ -4,7 +4,6 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { FormatService } from '../../services/format.service';
-import { MockFetchService } from '../../services/mock-fetch.service';
 import { StatusPanelComponent } from './status-panel';
 import { PolicyPanelComponent } from './policy-panel';
 import { TradePreviewPanelComponent } from './trade-preview-panel';
@@ -37,7 +36,6 @@ import type { RebalancingPolicy } from '../../models/rebalancing.model';
 })
 export class RebalancingComponent {
   private fmt = inject(FormatService);
-  private readonly mockFetch = inject(MockFetchService);
 
   isLoading = signal(true);
   hasError = signal(false);
@@ -56,24 +54,8 @@ export class RebalancingComponent {
   }
 
   loadData(): void {
-    this.isLoading.set(true);
     this.hasError.set(false);
-    this.mockFetch
-      .fetch({
-        driftEntries: MOCK_DRIFT_TABLE,
-        policies: MOCK_REBALANCING_POLICIES,
-        trades: MOCK_TRADE_PREVIEW,
-        summary: MOCK_TRADE_SUMMARY,
-        history: MOCK_REBALANCING_HISTORY,
-      })
-      .then(() => {
-        this.isLoading.set(false);
-      })
-      .catch((err: Error) => {
-        this.hasError.set(true);
-        this.errorMessage.set(err.message);
-        this.isLoading.set(false);
-      });
+    this.isLoading.set(false);
   }
 
   retry(): void {

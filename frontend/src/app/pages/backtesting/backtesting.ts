@@ -25,7 +25,6 @@ import { CHART_EXPORTABLE, type ChartExportable } from '../../shared/charts/char
 import { MOCK_BACKTEST_CONFIG, MOCK_BACKTEST_RESULT } from '../../mocks/backtest-mocks';
 import { ModalService } from '../../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../../shared/modal/export-report-modal';
-import { MockFetchService } from '../../services/mock-fetch.service';
 
 interface MetricsRow {
   metric: string;
@@ -57,7 +56,6 @@ interface MetricsRow {
 export class BacktestingComponent implements OnDestroy, ChartExportable {
   private readonly fmt = inject(FormatService);
   private readonly modalService = inject(ModalService);
-  private readonly mockFetch = inject(MockFetchService);
 
   // ── Loading / error state ──────────────────────────────────────────────────
   readonly isLoading = signal(true);
@@ -424,19 +422,8 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   }
 
   loadData(): void {
-    this.isLoading.set(true);
     this.hasError.set(false);
-
-    this.mockFetch.fetch({
-      config: MOCK_BACKTEST_CONFIG,
-      result: MOCK_BACKTEST_RESULT,
-    }).then(() => {
-      this.isLoading.set(false);
-    }).catch((err: Error) => {
-      this.hasError.set(true);
-      this.errorMessage.set(err.message);
-      this.isLoading.set(false);
-    });
+    this.isLoading.set(false);
   }
 
   retry(): void {

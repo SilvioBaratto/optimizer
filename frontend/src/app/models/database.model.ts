@@ -18,3 +18,8 @@ export interface DatabaseStatus {
   tables: TableInfo[];
   total_size_pretty: string;
 }
+
+export interface TruncateResponse {
+  table: string;
+  status: string;
+}

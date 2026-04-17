@@ -2,7 +2,6 @@ import {
   Component,
   signal,
   computed,
-  inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
@@ -11,7 +10,6 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
-import { MockFetchService } from '../../services/mock-fetch.service';
 import { PipelineStatusComponent } from './pipeline-status/pipeline-status';
 import type { AgentRole } from '../../models/ai-control.model';
 import {
@@ -67,8 +65,6 @@ const TYPE_BADGE: Record<string, { value: string; colorClass: string }> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AiControlRoomComponent {
-  private readonly mockFetch = inject(MockFetchService);
-
   // ── Loading state ──
   isLoading = signal(true);
   hasError = signal(false);
@@ -166,22 +162,8 @@ export class AiControlRoomComponent {
   }
 
   loadData(): void {
-    this.isLoading.set(true);
     this.hasError.set(false);
-    this.mockFetch
-      .fetch({
-        agents: MOCK_AGENT_STATUSES,
-        feed: MOCK_DECISION_FEED,
-        vetoLog: MOCK_VETO_LOG,
-      })
-      .then(() => {
-        this.isLoading.set(false);
-      })
-      .catch((err: Error) => {
-        this.hasError.set(true);
-        this.errorMessage.set(err.message);
-        this.isLoading.set(false);
-      });
+    this.isLoading.set(false);
   }
 
   retry(): void {

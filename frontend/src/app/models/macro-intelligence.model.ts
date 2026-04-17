@@ -24,47 +24,79 @@ export interface BlackLittermanBlConfig {
   prior_config: BlackLittermanPriorConfig;
 }
 
+export interface MacroCalibrationApiResponse {
+  phase: string;
+  delta: number;
+  tau: number;
+  confidence: number;
+  rationale: string;
+  macro_summary: string;
+  bl_config: BlackLittermanBlConfig;
+}
+
+export interface EconomicIndicatorApiResponse {
+  id: string;
+  country: string;
+  last_inflation: number | null;
+  inflation_6m: number | null;
+  inflation_10y_avg: number | null;
+  gdp_growth_6m: number | null;
+  earnings_12m: number | null;
+  eps_expected_12m: number | null;
+  peg_ratio: number | null;
+  lt_rate_forecast: number | null;
+  reference_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Unified shape for both the `/te-observations` list endpoint (carries `date`)
+ * and the `/countries/{country}` summary endpoint (carries `previous`, `unit`,
+ * `reference`, `raw_name`). Divergent fields are marked optional.
+ */
+export interface TeObservationApiResponse {
+  id: string;
+  country: string;
+  indicator_key: string;
+  value: number | null;
+  date?: string;
+  previous?: number | null;
+  unit?: string | null;
+  reference?: string | null;
+  raw_name?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BondYieldApiResponse {
+  id: string;
+  country: string;
+  maturity: string;
+  yield_value: number | null;
+  day_change: number | null;
+  month_change: number | null;
+  year_change: number | null;
+  reference_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BondYieldObservationApiResponse {
+  id: string;
+  country: string;
+  maturity: string;
+  date: string;
+  yield_value: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CountryMacroSummaryResponse {
   country: string;
-  economic_indicators: Array<{
-    id: string;
-    country: string;
-    last_inflation: number | null;
-    inflation_6m: number | null;
-    inflation_10y_avg: number | null;
-    gdp_growth_6m: number | null;
-    earnings_12m: number | null;
-    eps_expected_12m: number | null;
-    peg_ratio: number | null;
-    lt_rate_forecast: number | null;
-    reference_date: string | null;
-    created_at: string;
-    updated_at: string;
-  }>;
-  te_indicators: Array<{
-    id: string;
-    country: string;
-    indicator_key: string;
-    value: number | null;
-    previous: number | null;
-    unit: string | null;
-    reference: string | null;
-    raw_name: string | null;
-    created_at: string;
-    updated_at: string;
-  }>;
-  bond_yields: Array<{
-    id: string;
-    country: string;
-    maturity: string;
-    yield_value: number | null;
-    day_change: number | null;
-    month_change: number | null;
-    year_change: number | null;
-    reference_date: string | null;
-    created_at: string;
-    updated_at: string;
-  }>;
+  economic_indicators: EconomicIndicatorApiResponse[];
+  te_indicators: TeObservationApiResponse[];
+  bond_yields: BondYieldApiResponse[];
 }
 
 export interface MacroNewsApiResponse {

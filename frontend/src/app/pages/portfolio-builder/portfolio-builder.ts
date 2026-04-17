@@ -2,7 +2,6 @@ import {
   Component,
   signal,
   computed,
-  inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
@@ -10,7 +9,6 @@ import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-gr
 import { UniversePanelComponent } from './universe-panel';
 import { WeightPanelComponent } from './weight-panel';
 import { IpsPanelComponent } from './ips-panel';
-import { MockFetchService } from '../../services/mock-fetch.service';
 import { UniverseTicker, Constraint, IPS } from '../../models/portfolio-builder.model';
 import { LucideAngularModule } from 'lucide-angular';
 import {
@@ -26,8 +24,6 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PortfolioBuilderComponent {
-  private readonly mockFetch = inject(MockFetchService);
-
   readonly isLoading = signal(true);
   readonly hasError = signal(false);
   readonly errorMessage = signal('');
@@ -49,23 +45,8 @@ export class PortfolioBuilderComponent {
   }
 
   loadData(): void {
-    this.isLoading.set(true);
     this.hasError.set(false);
-
-    this.mockFetch.fetch({
-      tickers: MOCK_UNIVERSE_TICKERS,
-      constraints: MOCK_CONSTRAINTS_MODERATE,
-      ips: MOCK_IPS_PRESETS[0],
-    }).then(data => {
-      this.selectedTickers.set(data.tickers);
-      this.constraints.set(data.constraints);
-      this.ips.set(data.ips);
-      this.isLoading.set(false);
-    }).catch((err: Error) => {
-      this.hasError.set(true);
-      this.errorMessage.set(err.message);
-      this.isLoading.set(false);
-    });
+    this.isLoading.set(false);
   }
 
   retry(): void {

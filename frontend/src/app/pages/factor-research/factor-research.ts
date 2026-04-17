@@ -4,7 +4,6 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { FormatService } from '../../services/format.service';
-import { MockFetchService } from '../../services/mock-fetch.service';
 import { RegimePanelComponent } from './regime-panel';
 import { TaaPanelComponent } from './taa-panel';
 import { FactorAnalysisPanelComponent } from './factor-analysis-panel';
@@ -36,7 +35,6 @@ import {
 })
 export class FactorResearchComponent {
   private fmt = inject(FormatService);
-  private readonly mockFetch = inject(MockFetchService);
 
   isLoading = signal(true);
   hasError = signal(false);
@@ -63,24 +61,8 @@ export class FactorResearchComponent {
   }
 
   loadData(): void {
-    this.isLoading.set(true);
     this.hasError.set(false);
-    this.mockFetch
-      .fetch({
-        regimeHistory: MOCK_REGIME_HISTORY,
-        taaSignals: MOCK_TAA_SIGNALS,
-        factorReturns: MOCK_FACTOR_RETURN_SERIES,
-        cmaSets: MOCK_CMA_SETS,
-        icReports: MOCK_FACTOR_IC_REPORTS,
-      })
-      .then(() => {
-        this.isLoading.set(false);
-      })
-      .catch((err: Error) => {
-        this.hasError.set(true);
-        this.errorMessage.set(err.message);
-        this.isLoading.set(false);
-      });
+    this.isLoading.set(false);
   }
 
   retry(): void {

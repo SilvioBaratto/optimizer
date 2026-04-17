@@ -6,7 +6,6 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { FormatService } from '../../services/format.service';
-import { MockFetchService } from '../../services/mock-fetch.service';
 import { BrinsonPanelComponent } from './brinson-panel';
 import { SaaTaaPanelComponent } from './saa-taa-panel';
 import { FactorAttributionPanelComponent } from './factor-attribution-panel';
@@ -36,7 +35,6 @@ import {
 export class AttributionComponent {
   private fmt = inject(FormatService);
   private readonly modalService = inject(ModalService);
-  private readonly mockFetch = inject(MockFetchService);
 
   isLoading = signal(true);
   hasError = signal(false);
@@ -66,23 +64,8 @@ export class AttributionComponent {
   }
 
   loadData(): void {
-    this.isLoading.set(true);
     this.hasError.set(false);
-    this.mockFetch
-      .fetch({
-        brinson: MOCK_BRINSON_ATTRIBUTION,
-        multiLevel: MOCK_MULTI_LEVEL_ATTRIBUTION,
-        factorAttribution: MOCK_FACTOR_ATTRIBUTION,
-        holdingsAttribution: MOCK_HOLDINGS_ATTRIBUTION,
-      })
-      .then(() => {
-        this.isLoading.set(false);
-      })
-      .catch((err: Error) => {
-        this.hasError.set(true);
-        this.errorMessage.set(err.message);
-        this.isLoading.set(false);
-      });
+    this.isLoading.set(false);
   }
 
   retry(): void {
