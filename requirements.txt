@@ -1,5 +1,5 @@
 # Database - Optimized for Supabase Transaction Pooler
-SQLAlchemy==2.0.48
+SQLAlchemy==2.0.49
 psycopg2-binary==2.9.11
 alembic==1.18.4
 
