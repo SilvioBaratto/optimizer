@@ -521,9 +521,15 @@ export class MacroIntelligenceComponent implements OnDestroy {
     return `${diffDay}d ago`;
   }
 
-  parseMacroSummary(summary: string): { label: string; value: string }[] {
-    if (!summary.trim()) return [];
-    return summary.split('|').map(segment => {
+  // Defensive contract (issue #439): the backend ``macro_summary`` field is
+  // sometimes ``null`` / missing, and the template binds it directly into
+  // this method. The early-return on a falsy / whitespace-only input keeps
+  // ``parseMacroSummary`` total — no caller has to gate it with ``?? ''``.
+  parseMacroSummary(
+    summary: string | null | undefined,
+  ): { label: string; value: string }[] {
+    if (!summary || !summary.trim()) return [];
+    return summary.split('|').map((segment) => {
       const trimmed = segment.trim();
       const colonIdx = trimmed.indexOf(':');
       if (colonIdx === -1) return { label: trimmed, value: '' };

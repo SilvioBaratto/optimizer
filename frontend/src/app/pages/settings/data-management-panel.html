@@ -14,8 +14,8 @@
         <div class="text-sm font-mono text-text">{{ h.latency_ms }} ms</div>
       </div>
       <div>
-        <div class="text-xs text-text-tertiary uppercase tracking-wide">Version</div>
-        <div class="text-sm font-mono text-text">{{ h.version }}</div>
+        <div class="text-xs text-text-tertiary uppercase tracking-wide">Connection</div>
+        <div class="text-sm font-mono text-text truncate" [title]="h.database_url">{{ h.database_url }}</div>
       </div>
     }
     @if (status(); as st) {

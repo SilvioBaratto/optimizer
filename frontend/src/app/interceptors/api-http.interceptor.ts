@@ -1,5 +1,6 @@
 import { inject, InjectionToken } from '@angular/core';
 import {
+  HttpContextToken,
   HttpErrorResponse,
   HttpInterceptorFn,
   HttpRequest,
@@ -15,6 +16,22 @@ const MAX_RETRIES = 3;
 const BASE_BACKOFF_MS = 1000;
 const RETRIABLE_STATUSES = new Set([0, 408]);
 const SILENT_STATUSES = new Set([401, 409]);
+
+/**
+ * Per-call opt-out token: any HTTP status listed here will NOT trigger an
+ * error toast even when it would otherwise. The error is still normalized
+ * and rethrown as ``ApiError`` so the page can render a contextual
+ * empty state. See issue #438.
+ *
+ * Usage:
+ * ```ts
+ * const ctx = new HttpContext().set(SUPPRESS_TOAST_STATUSES, [404]);
+ * this.http.get(url, { context: ctx });
+ * ```
+ */
+export const SUPPRESS_TOAST_STATUSES = new HttpContextToken<readonly number[]>(
+  () => [],
+);
 
 export type BackoffFn = (attempt: number) => Observable<number>;
 
@@ -65,19 +82,21 @@ function normalize(error: HttpErrorResponse): ApiError {
   };
 }
 
-function notifyIfNeeded(error: ApiError, notifier: NotificationService): void {
-  if (SILENT_STATUSES.has(error.status)) {
-    return;
-  }
-  if (error.status >= 400) {
-    notifier.error(error.message);
-  }
+function notifyIfNeeded(
+  error: ApiError,
+  notifier: NotificationService,
+  suppressedStatuses: readonly number[],
+): void {
+  if (SILENT_STATUSES.has(error.status)) return;
+  if (suppressedStatuses.includes(error.status)) return;
+  if (error.status >= 400) notifier.error(error.message);
 }
 
 export const apiHttpInterceptor: HttpInterceptorFn = (req, next) => {
   const notifier = inject(NotificationService);
   const backoff = inject(RETRY_BACKOFF);
   const authed = withApiKey(req);
+  const suppressed = authed.context.get(SUPPRESS_TOAST_STATUSES);
 
   return next(authed).pipe(
     retry({
@@ -92,7 +111,7 @@ export const apiHttpInterceptor: HttpInterceptorFn = (req, next) => {
         return throwError(() => err);
       }
       const apiError = normalize(err);
-      notifyIfNeeded(apiError, notifier);
+      notifyIfNeeded(apiError, notifier, suppressed);
       return throwError(() => apiError);
     }),
   );

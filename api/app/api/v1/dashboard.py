@@ -37,8 +37,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/portfolio-analytics", tags=["Dashboard"])
 market_router = APIRouter(prefix="/market", tags=["Market"])
 
-HISTORY_LOOKBACK_YEARS = 3
-
 _PERIOD_DAYS: dict[str, int | None] = {
     "1Y": 365,
     "3Y": 365 * 3,
@@ -76,12 +74,18 @@ def get_performance_metrics(
         default_factory=lambda: settings.default_benchmark_ticker,
         description="Benchmark ticker",
     ),
+    period: Literal["1Y", "3Y", "5Y", "MAX"] = Query(
+        default="3Y",
+        description="Lookback period for KPI computation",
+    ),
     db: Session = Depends(get_db),
 ) -> PerformanceMetricsResponse:
     """Return 7 KPIs for the dashboard strip.
 
     Requires at least one portfolio snapshot from the optimization
-    or broker sync pipeline.
+    or broker sync pipeline. The ``period`` query parameter scopes the
+    price history used to compute every KPI so the dashboard period
+    selector can refresh KPIs alongside the equity curve (issue #433).
     """
     portfolio_repo = PortfolioRepository(db)
     dashboard_repo = DashboardRepository(db)
@@ -108,10 +112,13 @@ def get_performance_metrics(
     account = portfolio_repo.get_latest_account_snapshot(portfolio.id)
     nav = account.total if account else None
 
-    # --- Fetch price history ---
+    # --- Fetch price history scoped to the requested period ---
     tickers = list(set(list(weights.keys()) + [benchmark]))
     end_date = date.today()
-    start_date = end_date - timedelta(days=365 * HISTORY_LOOKBACK_YEARS)
+    days = _PERIOD_DAYS[period]
+    start_date = (
+        end_date - timedelta(days=days) if days is not None else _MAX_FLOOR_DATE
+    )
 
     prices = dashboard_repo.get_multi_ticker_prices(tickers, start_date, end_date)
 

@@ -34,6 +34,17 @@ import type {
   RebalancingPolicyDto,
 } from '../../models/rebalancing.model';
 import type { PortfolioDto, SnapshotDto } from '../../models/portfolio-api.model';
+import type { ApiError } from '../../models/api-error.model';
+
+function friendlyPreviewError(err: ApiError, portfolioName: string): string {
+  if (err.status === 404) {
+    return `No preview available for '${portfolioName}' yet — run a rebalance first.`;
+  }
+  if (err.status >= 500) {
+    return `Preview is temporarily unavailable: ${err.message}`;
+  }
+  return err.message || 'Preview failed';
+}
 
 @Component({
   selector: 'app-rebalancing',
@@ -238,7 +249,8 @@ export class RebalancingComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => this.previewResponse.set(res),
-        error: (err: Error) => this.setPanelError('preview', err.message ?? 'Preview failed'),
+        error: (err: ApiError) =>
+          this.setPanelError('preview', friendlyPreviewError(err, name)),
       });
   }
 

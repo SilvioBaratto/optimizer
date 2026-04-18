@@ -1,8 +1,15 @@
+/**
+ * Mirrors the response from ``GET /api/v1/database/health``.
+ *
+ * Backend contract (api/app/api/v1/database.py:42-51):
+ *   { healthy: bool, latency_ms: float, database_url: str }
+ *
+ * The ``database_url`` is password-masked server-side.
+ */
 export interface HealthCheck {
-  status: 'healthy' | 'unhealthy';
+  healthy: boolean;
   latency_ms: number;
-  database: string;
-  version: string;
+  database_url: string;
 }
 
 export interface TableInfo {

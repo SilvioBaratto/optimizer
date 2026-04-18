@@ -50,6 +50,56 @@ describe('SchedulerStatusPanelComponent', () => {
     expect(fx.componentInstance.isEmpty()).toBe(false);
   });
 
+  it('renders each scheduled job exactly once — not twice (issue #437)', () => {
+    const fx = TestBed.createComponent(SchedulerStatusPanelComponent);
+    fx.detectChanges();
+
+    const jobs = [
+      { jobId: 'a', name: 'Daily pipeline', nextRunTime: '2026-04-18T07:00:00Z',
+        lastRunTime: '2026-04-17T07:00:00Z', lastStatus: 'completed', trigger: 'cron[hour=7]' },
+      { jobId: 'b', name: 'Weekly refetch', nextRunTime: null,
+        lastRunTime: null, lastStatus: null, trigger: 'cron[day_of_week=sun]' },
+      { jobId: 'c', name: 'Midday news', nextRunTime: '2026-04-18T14:00:00Z',
+        lastRunTime: '2026-04-17T14:00:00Z', lastStatus: 'completed', trigger: 'cron[hour=14]' },
+    ];
+    http.expectOne(`${API}scheduler/status`).flush({ schedulerRunning: true, jobs });
+    fx.detectChanges();
+
+    const host: HTMLElement = fx.nativeElement;
+    // Count rendered <tr> rows that carry a job name in the data-table body.
+    // A leftover `<ul>`/`<li>` duplicate would push this count past jobs.length.
+    const renderedNameCells = host.querySelectorAll('tbody tr');
+    expect(renderedNameCells.length).toBe(jobs.length);
+
+    // Belt-and-braces: ensure no orphan <ul> with per-job <li> survived.
+    const orphanList = host.querySelectorAll('ul li');
+    expect(orphanList.length)
+      .withContext('the duplicated <ul> rendering must be removed')
+      .toBe(0);
+  });
+
+  it('formats nextRunTime / lastRunTime in the data-table cells (issue #437)', () => {
+    const fx = TestBed.createComponent(SchedulerStatusPanelComponent);
+    fx.detectChanges();
+
+    http.expectOne(`${API}scheduler/status`).flush({
+      schedulerRunning: true,
+      jobs: [{
+        jobId: 'a', name: 'Daily pipeline', nextRunTime: '2026-04-18T07:00:00Z',
+        lastRunTime: '2026-04-17T07:00:00Z', lastStatus: 'completed', trigger: 'cron[hour=7]',
+      }],
+    });
+
+    // The chosen presentation must keep the timestamp columns visible.
+    const labels = fx.componentInstance.tableColumns.map((c) => c.label);
+    expect(labels).toContain('Next run');
+    expect(labels).toContain('Last run');
+
+    const row = fx.componentInstance.tableRows()[0];
+    expect(row['next_run_time']).toBe('2026-04-18T07:00:00Z');
+    expect(row['last_run_time']).toBe('2026-04-17T07:00:00Z');
+  });
+
   it('shows the empty state when scheduler is not running', () => {
     const fx = TestBed.createComponent(SchedulerStatusPanelComponent);
     fx.detectChanges();

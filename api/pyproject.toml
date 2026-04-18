@@ -9,8 +9,8 @@ description = "Optimizer Platform API and CLI"
 requires-python = ">=3.10"
 
 dependencies = [
-    "fastapi",
-    "httpx>=0.28",
+    "fastapi>=0.136.0",
+    "httpx>=0.28.1",
 ]
 
 [tool.setuptools.packages.find]

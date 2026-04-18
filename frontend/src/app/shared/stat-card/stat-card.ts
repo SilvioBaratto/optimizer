@@ -47,6 +47,7 @@ export class StatCardComponent {
   subtitle = input<string>('');
   sparklineData = input<number[]>([]);
   delta = input<number | null>(null);
+  deltaFormat = input<'percent' | 'absolute'>('percent');
   trend = input<'up' | 'down' | 'flat'>('flat');
   deltaLabel = input<string>('vs prior period');
 
@@ -88,8 +89,10 @@ export class StatCardComponent {
   deltaFormatted = computed(() => {
     const d = this.delta();
     if (d == null) return '';
-    const pct = (d * 100).toFixed(2);
-    return d > 0 ? `+${pct}%` : `${pct}%`;
+    const isPercent = this.deltaFormat() === 'percent';
+    const formatted = (isPercent ? d * 100 : d).toFixed(2);
+    const suffix = isPercent ? '%' : '';
+    return d > 0 ? `+${formatted}${suffix}` : `${formatted}${suffix}`;
   });
 
   deltaColorClass = computed(() => {

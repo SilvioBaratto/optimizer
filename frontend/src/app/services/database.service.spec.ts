@@ -41,10 +41,9 @@ describe('DatabaseService', () => {
   describe('getHealth()', () => {
     it('calls GET /database/health and returns the payload', () => {
       const payload: HealthCheck = {
-        status: 'healthy',
+        healthy: true,
         latency_ms: 12,
-        database: 'optimizer_db',
-        version: 'PostgreSQL 16',
+        database_url: 'postgresql://postgres:***@localhost:54320/optimizer_db',
       };
       let result: HealthCheck | undefined;
       svc.getHealth().subscribe((r) => (result = r));
@@ -66,6 +65,28 @@ describe('DatabaseService', () => {
 
       expect(error).toBeDefined();
     });
+
+    it('contract: HealthCheck has the keys returned by GET /database/health (issue #436)', () => {
+      // Freezes the contract that the backend's db_health() returns:
+      //   { healthy: bool, latency_ms: float, database_url: str }
+      // — see api/app/api/v1/database.py:42-51
+      const payload: HealthCheck = {
+        healthy: true,
+        latency_ms: 1.23,
+        database_url: 'postgresql://postgres:***@localhost:54320/optimizer_db',
+      };
+      let result: HealthCheck | undefined;
+      svc.getHealth().subscribe((r) => (result = r));
+      http.expectOne(`${BASE}/health`).flush(payload);
+
+      expect(result).toBeDefined();
+      expect(Object.keys(result!).sort()).toEqual(
+        ['database_url', 'healthy', 'latency_ms'],
+      );
+      expect(typeof result!.healthy).toBe('boolean');
+      expect(typeof result!.latency_ms).toBe('number');
+      expect(typeof result!.database_url).toBe('string');
+    });
   });
 
   describe('getTables()', () => {
@@ -85,7 +106,7 @@ describe('DatabaseService', () => {
   describe('getStatus()', () => {
     it('calls GET /database/status and returns the payload', () => {
       const payload: DatabaseStatus = {
-        health: { status: 'healthy', latency_ms: 5, database: 'd', version: '16' },
+        health: { healthy: true, latency_ms: 5, database_url: 'postgresql://***@h/d' },
         tables: [],
         total_size_pretty: '0 B',
       };

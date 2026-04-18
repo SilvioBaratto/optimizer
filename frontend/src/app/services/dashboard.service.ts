@@ -19,10 +19,15 @@ export class DashboardService {
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiUrl;
 
-  getPerformanceMetrics(name: string): Observable<ApiPerformanceMetricsResponse> {
+  getPerformanceMetrics(
+    name: string,
+    period: '1Y' | '3Y' | '5Y' | 'MAX' = '1Y',
+  ): Observable<ApiPerformanceMetricsResponse> {
+    const params = new HttpParams().set('period', period);
     return this.http
       .get<ApiPerformanceMetricsResponse>(
         `${this.base}portfolio-analytics/${encodeURIComponent(name)}/performance-metrics`,
+        { params },
       )
       .pipe(catchError(err => throwError(() => new Error(
         err.error?.detail ?? 'Failed to load performance metrics',

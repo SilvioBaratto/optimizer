@@ -137,16 +137,36 @@ def _sparkline_rolling_cvar(returns: pd.Series) -> list[float]:
 # Change delta (month-over-month)
 # ---------------------------------------------------------------------------
 
+# Sanity bound on per-window KPI magnitudes. Real-world ratios (Sharpe,
+# Calmar, …) sit well below this; values beyond it indicate numerical
+# instability — e.g. a near-flat prior window inflates Sharpe to 1e+16
+# because float std() returns ~1e-23 instead of exactly 0.
+_KPI_MAGNITUDE_LIMIT: float = 1e3
+
 
 def _compute_change(returns: pd.Series, kpi_fn, lookback: int = 21) -> float:
-    """Compute change = current_period_kpi - prior_period_kpi."""
+    """Compute change = current_period_kpi - prior_period_kpi.
+
+    Defensive against near-zero baselines: if either window's KPI is
+    non-finite or its magnitude exceeds ``_KPI_MAGNITUDE_LIMIT`` (signalling
+    numerical noise from a degenerate window), the function returns 0.0.
+    Keeping this absolute-difference contract bounded is what stops the
+    Dashboard KPI delta from rendering values like ``Sharpe ▼ -1263.85 %``
+    (issue #432).
+    """
     n = len(returns)
     if n < 2 * lookback:
-        # Not enough data for MoM — return 0
         return 0.0
     current = kpi_fn(returns.iloc[-lookback:])
     prior = kpi_fn(returns.iloc[-2 * lookback : -lookback])
+    if not _is_plausible(current) or not _is_plausible(prior):
+        return 0.0
     return round(current - prior, 6)
+
+
+def _is_plausible(value: float) -> bool:
+    """Return True when ``value`` is finite and within the KPI sanity bound."""
+    return math.isfinite(value) and abs(value) <= _KPI_MAGNITUDE_LIMIT
 
 
 # ---------------------------------------------------------------------------

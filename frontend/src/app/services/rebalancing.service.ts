@@ -1,8 +1,9 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../environments/environment';
+import { SUPPRESS_TOAST_STATUSES } from '../interceptors/api-http.interceptor';
 import type {
   DriftApiResponse,
   RebalanceDecideApiResponse,
@@ -60,8 +61,13 @@ export class RebalancingService {
   }
 
   getPreview(portfolioName: string): Observable<RebalancePreviewApiResponse> {
+    // 404 means "no preview yet" or "portfolio not found" — both are
+    // expected empty-state conditions. The Rebalancing page renders a
+    // friendly inline message rather than a global toast (issue #438).
+    const context = new HttpContext().set(SUPPRESS_TOAST_STATUSES, [404]);
     return this.http.get<RebalancePreviewApiResponse>(
       `${this.api}rebalance/preview/${encodeURIComponent(portfolioName)}`,
+      { context },
     );
   }
 

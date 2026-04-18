@@ -38,6 +38,20 @@ APP_TABLES: list[str] = [
 
 _ALLOWED_TABLES: frozenset[str] = frozenset(APP_TABLES)
 
+_PUBLIC_SCHEMA: str = "public"
+
+
+def _missing_table_row(table_name: str) -> dict[str, Any]:
+    """Placeholder row for a table that is allowlisted but absent from the DB."""
+    return {
+        "name": table_name,
+        "schema": _PUBLIC_SCHEMA,
+        "exists": False,
+        "row_count": None,
+        "size_bytes": None,
+        "size_pretty": "—",
+    }
+
 
 class DatabaseAdminRepository(RepositoryBase):
     """Sync repository for database introspection and truncation."""
@@ -59,35 +73,76 @@ class DatabaseAdminRepository(RepositoryBase):
             return False, latency_ms
 
     def get_table_info(self, table_names: list[str]) -> list[dict[str, Any]]:
-        """Return existence and row counts for each table in *table_names*."""
-        tables: list[dict[str, Any]] = []
-        for table_name in table_names:
-            exists_result = self.session.execute(
-                text(
-                    "SELECT EXISTS ("
-                    "  SELECT 1 FROM information_schema.tables "
-                    "  WHERE table_schema = 'public' AND table_name = :name"
-                    ")"
-                ),
-                {"name": table_name},
-            )
-            exists = exists_result.scalar()
+        """Return introspection rows for the Settings → Data Management table.
 
-            row_count: int | None = None
-            if exists:
-                count_result = self.session.execute(
-                    text(f'SELECT COUNT(*) FROM "{table_name}"')  # noqa: S608
-                )
-                row_count = count_result.scalar()
+        Each row carries the keys consumed by ``frontend/src/app/models/
+        database.model.ts::TableInfo``:
 
-            tables.append(
-                {
-                    "table_name": table_name,
-                    "exists": bool(exists),
-                    "row_count": row_count,
-                }
-            )
-        return tables
+        * ``name`` — table name (matches the frontend model)
+        * ``schema`` — Postgres schema (always ``"public"`` for managed tables)
+        * ``exists`` — whether the table is present in ``information_schema``
+        * ``row_count`` — exact row count (``None`` when the table is missing)
+        * ``size_bytes`` — total relation size in bytes
+          (``pg_total_relation_size``); ``None`` when the table is missing
+        * ``size_pretty`` — human-readable size (``pg_size_pretty``);
+          ``"—"`` when the table is missing
+        """
+        return [self._table_row(name) for name in table_names]
+
+    def _table_row(self, table_name: str) -> dict[str, Any]:
+        """Build a single ``TableInfo`` row for *table_name*."""
+        if not self._table_exists(table_name):
+            return _missing_table_row(table_name)
+        return {
+            "name": table_name,
+            "schema": _PUBLIC_SCHEMA,
+            "exists": True,
+            "row_count": self._row_count(table_name),
+            "size_bytes": self._size_bytes(table_name),
+            "size_pretty": self._size_pretty(table_name),
+        }
+
+    def _table_exists(self, table_name: str) -> bool:
+        result = self.session.execute(
+            text(
+                "SELECT EXISTS ("
+                "  SELECT 1 FROM information_schema.tables "
+                "  WHERE table_schema = :schema AND table_name = :name"
+                ")"
+            ),
+            {"schema": _PUBLIC_SCHEMA, "name": table_name},
+        )
+        return bool(result.scalar())
+
+    def _row_count(self, table_name: str) -> int | None:
+        # NB: table_name is sourced from the APP_TABLES allowlist in the
+        # caller (database.py route), which is enforced at module load.
+        result = self.session.execute(
+            text(f'SELECT COUNT(*) FROM "{table_name}"')  # noqa: S608
+        )
+        return result.scalar()
+
+    def _size_bytes(self, table_name: str) -> int | None:
+        result = self.session.execute(
+            text(
+                "SELECT pg_total_relation_size("
+                "  format('%I.%I', :schema, :name)::regclass"
+                ")"
+            ),
+            {"schema": _PUBLIC_SCHEMA, "name": table_name},
+        )
+        return result.scalar()
+
+    def _size_pretty(self, table_name: str) -> str:
+        result = self.session.execute(
+            text(
+                "SELECT pg_size_pretty(pg_total_relation_size("
+                "  format('%I.%I', :schema, :name)::regclass"
+                "))"
+            ),
+            {"schema": _PUBLIC_SCHEMA, "name": table_name},
+        )
+        return str(result.scalar() or "—")
 
     def truncate_table(self, table_name: str) -> None:
         """Truncate a single table (with CASCADE).
