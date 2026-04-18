@@ -114,6 +114,49 @@ class TestResolveOptimizer:
         # HRP does not have the parameter — resolver must not set it
         assert not hasattr(optimizer, "efficient_frontier_size")
 
+    def test_mean_risk_with_risk_measure_in_config_does_not_raise(self) -> None:
+        """Regression for #419: config dict holding risk_measure must not collide.
+
+        Previously the service did ``factory(**config)`` which let
+        ``risk_measure`` land in ``**kwargs`` and collide with the
+        factory's own explicit ``risk_measure=`` argument inside the
+        ``MeanRisk(...)`` constructor call.
+        """
+        from skfolio.measures import RiskMeasure
+
+        from app.services.optimization_service import resolve_optimizer
+
+        optimizer = resolve_optimizer("mean_risk", {"risk_measure": "cvar"})
+
+        assert optimizer.risk_measure == RiskMeasure.CVAR
+
+    @pytest.mark.parametrize(
+        ("config_dict", "expected_field", "expected_value"),
+        [
+            ({"risk_measure": "variance"}, "risk_measure", "VARIANCE"),
+            ({"risk_measure": "standard_deviation"}, "risk_measure", "STANDARD_DEVIATION"),
+            ({"objective": "maximize_ratio"}, "objective_function", "MAXIMIZE_RATIO"),
+            ({"min_weights": -0.2, "max_weights": 0.6}, "min_weights", -0.2),
+            ({"budget": 0.8}, "budget", 0.8),
+        ],
+    )
+    def test_mean_risk_honors_config_dict_fields(
+        self,
+        config_dict: dict,
+        expected_field: str,
+        expected_value: Any,
+    ) -> None:
+        """Service must translate config-dict primitives into typed MeanRiskConfig."""
+        from app.services.optimization_service import resolve_optimizer
+
+        optimizer = resolve_optimizer("mean_risk", config_dict)
+
+        actual = getattr(optimizer, expected_field)
+        if hasattr(actual, "name"):
+            assert actual.name == expected_value
+        else:
+            assert actual == expected_value
+
 
 # ---------------------------------------------------------------------------
 # TestExtractResults

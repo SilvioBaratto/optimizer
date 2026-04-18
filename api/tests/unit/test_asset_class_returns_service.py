@@ -176,3 +176,25 @@ class TestComputeAssetClassReturns:
             # Should have at most 6 decimal places
             val = row[key]
             assert val == round(val, 6)
+
+    def test_ytd_cutoff_works_when_index_is_datetime64us_and_today_is_date(self):
+        """Regression for #420.
+
+        pandas 3.x rejects direct comparisons between a ``datetime64[us]``
+        index and a bare ``datetime.date``. The YTD cutoff must therefore
+        coerce ``today`` into a ``pd.Timestamp`` before filtering. This
+        test locks that behaviour in so the coercion is not silently
+        stripped again.
+        """
+        dates = pd.bdate_range("2026-01-02", periods=60)
+        assert str(dates.dtype) == "datetime64[us]"
+        prices = pd.DataFrame(
+            {"AAPL": np.linspace(100.0, 110.0, len(dates))}, index=dates
+        )
+
+        result = compute_asset_class_returns(
+            {"AAPL": 1.0}, {"AAPL": "Tech"}, prices, date(2026, 3, 18)
+        )
+
+        assert "YTD" in result["returns"][0]
+        assert isinstance(result["returns"][0]["YTD"], float)

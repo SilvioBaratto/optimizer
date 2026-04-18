@@ -11,11 +11,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-# Ensure the api package is importable.
-_api_path = Path(__file__).parent.parent.parent / "app"
-_api_root = Path(__file__).parent.parent.parent
-if str(_api_root) not in sys.path:
-    sys.path.insert(0, str(_api_root))
+# Ensure the repo root is on sys.path so ``cli.data_assembly`` resolves
+# without relying on the optimizer editable install.
+_repo_root = Path(__file__).parent.parent.parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
 
 from cli.data_assembly import _apply_delisting_returns  # noqa: E402
 
