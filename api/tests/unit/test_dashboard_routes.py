@@ -445,3 +445,109 @@ class TestGetAllocation:
         # snake_case keys absent
         assert "total_positions" not in body
         assert "total_sectors" not in body
+
+
+class TestGetRollingMetrics:
+    def test_success(self, client: TestClient):
+        portfolio = _make_portfolio()
+        snapshot = _make_snapshot()
+        prices = _make_prices(["AAPL", "MSFT", "GOOG", "SPY"])
+
+        with (
+            patch(_PORTFOLIO_REPO) as MockPortRepo,
+            patch(_DASHBOARD_REPO) as MockDashRepo,
+        ):
+            repo = MockPortRepo.return_value
+            repo.get_by_name.return_value = portfolio
+            repo.get_latest_snapshot.return_value = snapshot
+
+            MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
+
+            resp = client.get(f"{BASE_URL}/test/rolling-metrics")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body.keys()) == {"window", "sharpe", "volatility", "beta"}
+        assert body["window"] == 63
+        assert isinstance(body["sharpe"], list)
+        assert len(body["sharpe"]) > 0
+        # Each point shape: { date, value }
+        first = body["sharpe"][0]
+        assert set(first.keys()) == {"date", "value"}
+
+    def test_accepts_window_query_param(self, client: TestClient):
+        portfolio = _make_portfolio()
+        snapshot = _make_snapshot()
+        prices = _make_prices(["AAPL", "MSFT", "GOOG", "SPY"])
+
+        with (
+            patch(_PORTFOLIO_REPO) as MockPortRepo,
+            patch(_DASHBOARD_REPO) as MockDashRepo,
+        ):
+            MockPortRepo.return_value.get_by_name.return_value = portfolio
+            MockPortRepo.return_value.get_latest_snapshot.return_value = snapshot
+            MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
+
+            resp = client.get(f"{BASE_URL}/test/rolling-metrics?window=21")
+
+        assert resp.status_code == 200
+        assert resp.json()["window"] == 21
+
+    def test_rejects_window_below_minimum(self, client: TestClient):
+        resp = client.get(f"{BASE_URL}/test/rolling-metrics?window=1")
+        assert resp.status_code == 422
+
+    def test_portfolio_not_found(self, client: TestClient):
+        with patch(_PORTFOLIO_REPO) as MockPortRepo:
+            MockPortRepo.return_value.get_by_name.return_value = None
+
+            resp = client.get(f"{BASE_URL}/missing/rolling-metrics")
+
+        assert resp.status_code == 404
+
+    def test_no_snapshot(self, client: TestClient):
+        portfolio = _make_portfolio()
+        with patch(_PORTFOLIO_REPO) as MockPortRepo:
+            repo = MockPortRepo.return_value
+            repo.get_by_name.return_value = portfolio
+            repo.get_latest_snapshot.return_value = None
+
+            resp = client.get(f"{BASE_URL}/test/rolling-metrics")
+
+        assert resp.status_code == 404
+
+    def test_no_price_data(self, client: TestClient):
+        portfolio = _make_portfolio()
+        snapshot = _make_snapshot()
+
+        with (
+            patch(_PORTFOLIO_REPO) as MockPortRepo,
+            patch(_DASHBOARD_REPO) as MockDashRepo,
+        ):
+            MockPortRepo.return_value.get_by_name.return_value = portfolio
+            MockPortRepo.return_value.get_latest_snapshot.return_value = snapshot
+            MockDashRepo.return_value.get_multi_ticker_prices.return_value = (
+                pd.DataFrame()
+            )
+
+            resp = client.get(f"{BASE_URL}/test/rolling-metrics")
+
+        assert resp.status_code == 422
+
+    def test_benchmark_missing(self, client: TestClient):
+        portfolio = _make_portfolio()
+        snapshot = _make_snapshot()
+        # Prices only contain portfolio tickers, not the benchmark
+        prices = _make_prices(["AAPL", "MSFT", "GOOG"])
+
+        with (
+            patch(_PORTFOLIO_REPO) as MockPortRepo,
+            patch(_DASHBOARD_REPO) as MockDashRepo,
+        ):
+            MockPortRepo.return_value.get_by_name.return_value = portfolio
+            MockPortRepo.return_value.get_latest_snapshot.return_value = snapshot
+            MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
+
+            resp = client.get(f"{BASE_URL}/test/rolling-metrics?benchmark=URTH")
+
+        assert resp.status_code == 422

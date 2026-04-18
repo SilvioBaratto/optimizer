@@ -20,6 +20,10 @@ import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { EchartsSunburstComponent, SunburstNode } from '../../shared/echarts-sunburst/echarts-sunburst';
 import { EchartsDrawdownComponent } from '../../shared/echarts-drawdown/echarts-drawdown';
+import {
+  EchartsRollingMetricsComponent,
+  type RollingMetricSeries,
+} from '../../shared/echarts-rolling-metrics/echarts-rolling-metrics';
 import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
 import { FormatService } from '../../services/format.service';
 import { DashboardService } from '../../services/dashboard.service';
@@ -29,7 +33,10 @@ import { PortfolioContextService } from '../../services/portfolio-context.servic
 import { readCssVar } from '../../shared/charts/echarts-theme';
 import type { DashboardKPI, ActivityType, MarketRegime } from '../../models/dashboard.model';
 import type { ActivityFeedItem, MarketContext, RegimeInfo, DriftEntry, EquityCurvePoint, AssetClassReturn } from '../../models/dashboard.model';
-import type { ReferenceIndexItem } from '../../models/dashboard-api.model';
+import type {
+  ApiRollingMetricsResponse,
+  ReferenceIndexItem,
+} from '../../models/dashboard-api.model';
 import type { ApiReportSectionId } from '../../models/report.model';
 import { ModalService } from '../../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../../shared/modal/export-report-modal';
@@ -48,6 +55,7 @@ const MARKET_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
     PageHeaderComponent,
     EchartsSunburstComponent,
     EchartsDrawdownComponent,
+    EchartsRollingMetricsComponent,
     JobProgressTrackerComponent,
     PeriodSelectorComponent,
   ],
@@ -180,6 +188,24 @@ export class DashboardComponent implements OnDestroy {
     ),
   );
 
+  // Rolling metrics (Sharpe / volatility / beta) fetched from
+  // GET /portfolio-analytics/{name}/rolling-metrics. The card refetches on
+  // portfolio-name or date-range changes via a dedicated effect in the
+  // constructor.
+  readonly rollingMetrics = signal<ApiRollingMetricsResponse | null>(null);
+  readonly rollingMetricsLoading = signal<boolean>(false);
+  readonly rollingMetricsError = signal<string | null>(null);
+
+  readonly rollingMetricsSeries = computed<RollingMetricSeries[]>(() => {
+    const res = this.rollingMetrics();
+    if (!res) return [];
+    return [
+      { name: 'Sharpe', formatter: 'ratio', values: res.sharpe },
+      { name: 'Volatility', formatter: 'percent', values: res.volatility },
+      { name: 'Beta', formatter: 'unit', values: res.beta },
+    ];
+  });
+
   constructor() {
     this.loadBenchmarks();
     this.loadPortfolioData();
@@ -197,6 +223,38 @@ export class DashboardComponent implements OnDestroy {
         this.equityRo = undefined;
       });
     });
+
+    // Refetch rolling metrics whenever the active portfolio, the dashboard
+    // period, or the global date-range preset changes.
+    effect(() => {
+      const name = this.portfolioCtx.currentPortfolioId();
+      void this.portfolioCtx.dateRange().preset;
+      void this.period();
+      if (name === null) {
+        this.rollingMetrics.set(null);
+        return;
+      }
+      this.refetchRollingMetrics(name);
+    });
+  }
+
+  private refetchRollingMetrics(name: string): void {
+    this.rollingMetricsLoading.set(true);
+    this.rollingMetricsError.set(null);
+    this.dashboardSvc
+      .getRollingMetrics(name, this.period())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.rollingMetrics.set(res);
+          this.rollingMetricsLoading.set(false);
+        },
+        error: (err: Error) => {
+          this.rollingMetrics.set(null);
+          this.rollingMetricsError.set(err?.message ?? 'Failed to load rolling metrics');
+          this.rollingMetricsLoading.set(false);
+        },
+      });
   }
 
   onPeriodChange(period: DashboardPeriod): void {

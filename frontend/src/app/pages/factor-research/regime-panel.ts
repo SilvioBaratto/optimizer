@@ -9,7 +9,11 @@ import {
 import { FormsModule } from '@angular/forms';
 import { EchartsStackedAreaComponent, AreaSeries } from '../../shared/echarts-stacked-area/echarts-stacked-area';
 import { EchartsHeatmapComponent } from '../../shared/echarts-heatmap/echarts-heatmap';
-import { EchartsRegimeTimelineComponent } from '../../shared/echarts-regime-timeline/echarts-regime-timeline';
+import {
+  EchartsRegimeTimelineComponent,
+  REGIME_LABELS,
+  regimeHistoryApiToTimelinePoints,
+} from '../../shared/echarts-regime-timeline/echarts-regime-timeline';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
 import { readCssVar } from '../../shared/charts/echarts-theme';
@@ -50,16 +54,11 @@ export class RegimePanelComponent {
 
   readonly groupWeightsRaw = signal<string>('value:1,momentum:1,low_risk:1,quality:1');
 
-  readonly regimeTimelinePoints = computed(() => {
-    const api = this.regimeHistoryApi();
-    if (!api) return [];
-    return api.points.map((p) => ({
-      date: p.date,
-      probabilities: [p.bullProb, p.bearProb, p.sidewaysProb, p.volatileProb],
-    }));
-  });
+  readonly regimeTimelinePoints = computed(() =>
+    regimeHistoryApiToTimelinePoints(this.regimeHistoryApi()),
+  );
 
-  readonly regimeLabels = ['Bull', 'Bear', 'Sideways', 'Volatile'];
+  readonly regimeLabels: string[] = REGIME_LABELS;
 
   readonly tiltEntries = computed(() => {
     const tilt = this.regimeTilt();

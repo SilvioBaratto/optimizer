@@ -22,10 +22,19 @@ import { TaaPanelComponent } from './taa-panel';
 import { FactorAnalysisPanelComponent } from './factor-analysis-panel';
 import { CmaBuilderPanelComponent } from './cma-builder-panel';
 import { AssetScreenerPanelComponent } from './asset-screener-panel';
+import { ScorePanelComponent } from './score-panel';
+import { SelectPanelComponent } from './select-panel';
+import { ExposureConstraintsPanelComponent } from './exposure-constraints-panel';
 
 import type {
+  FactorExposureConstraintsApiResponse,
+  FactorExposureConstraintsRequest,
   FactorQuintileSpreadApiResponse,
   FactorRegimeTiltApiResponse,
+  FactorScoreApiResponse,
+  FactorScoreRequest,
+  FactorSelectApiResponse,
+  FactorSelectRequest,
   FactorValidateResponse,
   MacroCalibrationResponse,
   RegimeHistoryApiResponse,
@@ -49,6 +58,9 @@ const DEFAULT_FACTOR = 'momentum_12_1';
     FactorAnalysisPanelComponent,
     CmaBuilderPanelComponent,
     AssetScreenerPanelComponent,
+    ScorePanelComponent,
+    SelectPanelComponent,
+    ExposureConstraintsPanelComponent,
   ],
   templateUrl: './factor-research.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -82,6 +94,12 @@ export class FactorResearchComponent {
   readonly regimeHistory = signal<RegimeHistoryApiResponse | null>(null);
   readonly macroCalibration = signal<MacroCalibrationResponse | null>(null);
   readonly teObservations = signal<TradingEconomicsObservation[]>([]);
+  readonly scoreResult = signal<FactorScoreApiResponse | null>(null);
+  readonly scoreLoading = signal<boolean>(false);
+  readonly selectResult = signal<FactorSelectApiResponse | null>(null);
+  readonly selectLoading = signal<boolean>(false);
+  readonly exposureConstraintsResult = signal<FactorExposureConstraintsApiResponse | null>(null);
+  readonly exposureConstraintsLoading = signal<boolean>(false);
 
   // Per-panel error state
   readonly panelErrors = signal<Record<string, string | null>>({});
@@ -92,6 +110,9 @@ export class FactorResearchComponent {
     { id: 'factor-analysis', label: 'Factor Analysis' },
     { id: 'cma-builder', label: 'CMA Builder' },
     { id: 'screener', label: 'Asset Screener' },
+    { id: 'score', label: 'Scoring' },
+    { id: 'select', label: 'Selection' },
+    { id: 'exposure-constraints', label: 'Exposure Constraints' },
   ];
 
   readonly currentRegime = computed(() => {
@@ -195,6 +216,63 @@ export class FactorResearchComponent {
       });
   }
 
+  onRunScore(payload: FactorScoreRequest): void {
+    this.scoreLoading.set(true);
+    this.setPanelError('score', null);
+    this.factors
+      .score(payload)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.scoreResult.set(res);
+          this.scoreLoading.set(false);
+        },
+        error: (err: Error) => {
+          this.scoreLoading.set(false);
+          this.setPanelError('score', err.message ?? 'Score run failed');
+        },
+      });
+  }
+
+  onRunSelect(payload: FactorSelectRequest): void {
+    this.selectLoading.set(true);
+    this.setPanelError('select', null);
+    this.factors
+      .select(payload)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.selectResult.set(res);
+          this.selectLoading.set(false);
+        },
+        error: (err: Error) => {
+          this.selectLoading.set(false);
+          this.setPanelError('select', err.message ?? 'Select run failed');
+        },
+      });
+  }
+
+  onRunExposureConstraints(payload: FactorExposureConstraintsRequest): void {
+    this.exposureConstraintsLoading.set(true);
+    this.setPanelError('exposure-constraints', null);
+    this.factors
+      .exposureConstraints(payload)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.exposureConstraintsResult.set(res);
+          this.exposureConstraintsLoading.set(false);
+        },
+        error: (err: Error) => {
+          this.exposureConstraintsLoading.set(false);
+          this.setPanelError(
+            'exposure-constraints',
+            err.message ?? 'Exposure constraints run failed',
+          );
+        },
+      });
+  }
+
   onFetchTe(): void {
     this.factors
       .teObservations({ country: this.country(), limit: 500 })
@@ -227,7 +305,7 @@ export class FactorResearchComponent {
       });
   }
 
-  private setPanelError(key: string, message: string): void {
+  private setPanelError(key: string, message: string | null): void {
     this.panelErrors.update((prev) => ({ ...prev, [key]: message }));
   }
 

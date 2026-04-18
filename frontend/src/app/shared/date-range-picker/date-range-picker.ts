@@ -23,6 +23,9 @@ const BTN_INACTIVE =
 @Component({
   selector: 'app-date-range-picker',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '(document:keydown.escape)': 'closeCustomPanel()',
+  },
   template: `
     <div class="relative flex items-center gap-1 text-data-sm">
       @for (preset of presets; track preset) {
@@ -107,6 +110,10 @@ export class DateRangePickerComponent {
 
   toggleCustom(): void {
     this.showCustomPanel.update((v) => !v);
+  }
+
+  closeCustomPanel(): void {
+    this.showCustomPanel.set(false);
   }
 
   onStartInput(event: Event): void {

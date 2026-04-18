@@ -194,3 +194,73 @@ describe('JobsService', () => {
     });
   });
 });
+
+describe('JobsService.listJobs()', () => {
+  let svc: JobsService;
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        JobsService,
+      ],
+    });
+    svc = TestBed.inject(JobsService);
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => http.verify());
+
+  const emptyResponse = { jobs: [], total: 0, limit: 25, offset: 0 };
+
+  it('sends limit and offset as query params and no domain/status when empty', () => {
+    svc.listJobs({ limit: 25, offset: 0 }).subscribe();
+
+    const req = http.expectOne((r) => r.url === JOBS_URL);
+    expect(req.request.method).toBe('GET');
+    expect(req.request.params.get('limit')).toBe('25');
+    expect(req.request.params.get('offset')).toBe('0');
+    expect(req.request.params.has('domain')).toBe(false);
+    expect(req.request.params.has('status')).toBe(false);
+    req.flush(emptyResponse);
+  });
+
+  it('emits one domain= param per selected domain (multi-value)', () => {
+    svc
+      .listJobs({
+        domain: ['yfinance_fetch', 'macro_fetch'],
+        limit: 10,
+        offset: 0,
+      })
+      .subscribe();
+
+    const req = http.expectOne((r) => r.url === JOBS_URL);
+    expect(req.request.params.getAll('domain')).toEqual([
+      'yfinance_fetch',
+      'macro_fetch',
+    ]);
+    req.flush(emptyResponse);
+  });
+
+  it('emits one status= param per selected status (multi-value)', () => {
+    svc
+      .listJobs({ status: ['running', 'failed'], limit: 10, offset: 0 })
+      .subscribe();
+
+    const req = http.expectOne((r) => r.url === JOBS_URL);
+    expect(req.request.params.getAll('status')).toEqual(['running', 'failed']);
+    req.flush(emptyResponse);
+  });
+
+  it('forwards explicit limit/offset', () => {
+    svc.listJobs({ limit: 50, offset: 100 }).subscribe();
+
+    const req = http.expectOne((r) => r.url === JOBS_URL);
+    expect(req.request.params.get('limit')).toBe('50');
+    expect(req.request.params.get('offset')).toBe('100');
+    req.flush(emptyResponse);
+  });
+});

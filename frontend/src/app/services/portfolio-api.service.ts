@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { catchError, shareReplay, tap } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
 import {
@@ -30,10 +30,27 @@ export class PortfolioApiService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}portfolio`;
 
+  // Shared stream that deduplicates concurrent `list()` subscribers. `refCount:
+  // true` in shareReplay would clear the cache when the last subscriber leaves
+  // and replay the value while any subscriber is active. We go one step further
+  // and null the field after the stream completes so a later `list()` call
+  // triggers a fresh HTTP request (no stale snapshots from a previous session).
+  private cachedList$: Observable<PortfolioListResponseDto> | null = null;
+
   list(): Observable<PortfolioListResponseDto> {
-    return this.http
-      .get<PortfolioListResponseDto>(`${this.base}/`)
-      .pipe(catchError(wrapError('Failed to load portfolio list')));
+    if (!this.cachedList$) {
+      this.cachedList$ = this.http
+        .get<PortfolioListResponseDto>(`${this.base}/`)
+        .pipe(
+          catchError((err: { error?: { detail?: string } }) => {
+            this.cachedList$ = null;
+            return wrapError('Failed to load portfolio list')(err);
+          }),
+          tap({ complete: () => (this.cachedList$ = null) }),
+          shareReplay({ bufferSize: 1, refCount: true }),
+        );
+    }
+    return this.cachedList$;
   }
 
   get(name: string): Observable<PortfolioDto> {
@@ -43,9 +60,12 @@ export class PortfolioApiService {
   }
 
   create(payload: CreatePortfolioDto): Observable<PortfolioDto> {
-    return this.http
-      .post<PortfolioDto>(`${this.base}/`, payload)
-      .pipe(catchError(wrapError('Failed to create portfolio')));
+    return this.http.post<PortfolioDto>(`${this.base}/`, payload).pipe(
+      tap(() => {
+        this.cachedList$ = null;
+      }),
+      catchError(wrapError('Failed to create portfolio')),
+    );
   }
 
   getSnapshots(name: string): Observable<SnapshotListResponseDto> {

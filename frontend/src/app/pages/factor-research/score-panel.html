@@ -1,0 +1,40 @@
+<div class="space-y-4">
+  @if (errorMessage(); as err) {
+    <div
+      data-testid="score-error"
+      class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+      {{ err }}
+    </div>
+  }
+
+  <div class="flex flex-wrap items-end gap-3">
+    <label class="flex flex-col gap-1 text-data-sm">
+      <span class="text-text-secondary uppercase tracking-wide text-xs">Composite method</span>
+      <select
+        data-testid="composite-method"
+        class="bg-surface-raised border border-border rounded px-3 py-1.5 text-data-sm text-text focus:outline-none focus:ring-1 focus:ring-accent"
+        [ngModel]="method()"
+        (ngModelChange)="method.set($event)">
+        @for (m of methods; track m) {
+          <option [value]="m">{{ m }}</option>
+        }
+      </select>
+    </label>
+
+    <button
+      type="button"
+      data-testid="run-score-btn"
+      class="px-4 py-1.5 rounded-md bg-accent text-surface-raised text-data-sm font-medium hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+      [disabled]="loading()"
+      (click)="run()">
+      @if (loading()) { Running… } @else { Run Score }
+    </button>
+  </div>
+
+  <app-data-table
+    [columns]="columns"
+    [rows]="tableRows()"
+    [total]="tableRows().length"
+    [loading]="loading()"
+    [pageSize]="25" />
+</div>

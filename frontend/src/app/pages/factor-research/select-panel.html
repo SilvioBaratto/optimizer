@@ -1,0 +1,104 @@
+<form class="space-y-4" [formGroup]="form" (ngSubmit)="run()">
+  @if (errorMessage(); as err) {
+    <div
+      data-testid="select-error"
+      class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+      {{ err }}
+    </div>
+  }
+
+  <div class="flex flex-wrap items-end gap-3">
+    <label class="flex flex-col gap-1 text-data-sm">
+      <span class="text-text-secondary uppercase tracking-wide text-xs">Method</span>
+      <select
+        data-testid="select-method"
+        formControlName="method"
+        class="bg-surface-raised border border-border rounded px-3 py-1.5 text-data-sm text-text focus:outline-none focus:ring-1 focus:ring-accent">
+        <option value="fixed_count">fixed_count</option>
+        <option value="quantile">quantile</option>
+      </select>
+    </label>
+
+    @if (method() === 'fixed_count') {
+      <label class="flex flex-col gap-1 text-data-sm">
+        <span class="text-text-secondary uppercase tracking-wide text-xs">Target count</span>
+        <input
+          data-testid="target-count"
+          type="number"
+          min="1"
+          formControlName="targetCount"
+          class="w-28 bg-surface-raised border border-border rounded px-3 py-1.5 text-data-sm text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+      </label>
+    }
+
+    @if (method() === 'quantile') {
+      <label class="flex flex-col gap-1 text-data-sm">
+        <span class="text-text-secondary uppercase tracking-wide text-xs">Target quantile</span>
+        <input
+          data-testid="target-quantile"
+          type="number"
+          min="0"
+          max="1"
+          step="0.01"
+          formControlName="targetQuantile"
+          class="w-28 bg-surface-raised border border-border rounded px-3 py-1.5 text-data-sm text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+      </label>
+    }
+
+    <label class="flex items-center gap-2 text-data-sm">
+      <input
+        data-testid="buffer-enabled"
+        type="checkbox"
+        formControlName="bufferEnabled"
+        class="accent-accent" />
+      <span>Buffer-zone hysteresis</span>
+    </label>
+
+    @if (bufferEnabled()) {
+      <label class="flex flex-col gap-1 text-data-sm">
+        <span class="text-text-secondary uppercase tracking-wide text-xs">Buffer fraction</span>
+        <input
+          data-testid="buffer-fraction"
+          type="number"
+          min="0"
+          max="1"
+          step="0.01"
+          formControlName="bufferFraction"
+          class="w-28 bg-surface-raised border border-border rounded px-3 py-1.5 text-data-sm text-text focus:outline-none focus:ring-1 focus:ring-accent" />
+      </label>
+    }
+
+    <label class="flex items-center gap-2 text-data-sm">
+      <input
+        data-testid="sector-balance"
+        type="checkbox"
+        formControlName="sectorBalance"
+        class="accent-accent" />
+      <span>Sector balance</span>
+    </label>
+
+    <button
+      type="submit"
+      data-testid="run-select-btn"
+      class="px-4 py-1.5 rounded-md bg-accent text-surface-raised text-data-sm font-medium hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+      [disabled]="loading()">
+      @if (loading()) { Running… } @else { Run Selection }
+    </button>
+  </div>
+
+  @if (summary(); as s) {
+    <div
+      data-testid="select-summary"
+      class="flex flex-wrap items-baseline gap-4 text-data-sm text-text-secondary border-t border-border pt-3">
+      <span>Count: <span class="text-text font-mono tabular-nums">{{ s.count }}</span></span>
+      <span>Turnover: <span class="text-text font-mono tabular-nums">{{ s.turnover }}</span></span>
+    </div>
+  }
+
+  <app-data-table
+    [columns]="columns"
+    [rows]="tableRows()"
+    [total]="tableRows().length"
+    [loading]="loading()"
+    [pageSize]="25" />
+</form>

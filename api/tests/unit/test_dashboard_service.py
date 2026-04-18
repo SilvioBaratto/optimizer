@@ -19,6 +19,7 @@ from app.services.dashboard_service import (
     _volatility,
     compute_allocation,
     compute_performance_metrics,
+    compute_rolling_metrics,
 )
 
 
@@ -326,3 +327,63 @@ class TestComputeAllocation:
         mapping = {"AAPL": "Tech"}
         result = compute_allocation(weights, mapping)
         assert result["nodes"][0]["children"][0]["value"] == pytest.approx(50.0)
+
+
+# ---------------------------------------------------------------------------
+# compute_rolling_metrics
+# ---------------------------------------------------------------------------
+
+
+class TestComputeRollingMetrics:
+    def test_returns_three_aligned_series(self, prices_df: pd.DataFrame):
+        weights = {"AAPL": 0.5, "MSFT": 0.5}
+        result = compute_rolling_metrics(
+            weights=weights, prices=prices_df, benchmark="SPY", window=21
+        )
+        assert "window" in result
+        assert result["window"] == 21
+        assert {"sharpe", "volatility", "beta"}.issubset(result.keys())
+        assert len(result["sharpe"]) > 0
+        # All three series share the same dates after the rolling warm-up.
+        sharpe_dates = [p["date"] for p in result["sharpe"]]
+        vol_dates = [p["date"] for p in result["volatility"]]
+        beta_dates = [p["date"] for p in result["beta"]]
+        assert sharpe_dates == vol_dates == beta_dates
+
+    def test_points_have_date_and_value_keys(self, prices_df: pd.DataFrame):
+        weights = {"AAPL": 1.0}
+        result = compute_rolling_metrics(
+            weights=weights, prices=prices_df, benchmark="SPY", window=21
+        )
+        for pt in result["sharpe"]:
+            assert set(pt.keys()) == {"date", "value"}
+            assert isinstance(pt["value"], float)
+
+    def test_raises_when_window_exceeds_data(self, prices_df: pd.DataFrame):
+        weights = {"AAPL": 1.0}
+        with pytest.raises(ValueError, match="Insufficient"):
+            compute_rolling_metrics(
+                weights=weights, prices=prices_df, benchmark="SPY", window=500
+            )
+
+    def test_volatility_is_non_negative(self, prices_df: pd.DataFrame):
+        weights = {"AAPL": 0.5, "MSFT": 0.5}
+        result = compute_rolling_metrics(
+            weights=weights, prices=prices_df, benchmark="SPY", window=21
+        )
+        for pt in result["volatility"]:
+            assert pt["value"] >= 0
+
+    def test_beta_vs_benchmark_is_near_one_when_portfolio_equals_benchmark(
+        self, prices_df: pd.DataFrame
+    ):
+        # Single-ticker portfolio equal to the benchmark → rolling beta ≈ 1.
+        weights = {"SPY": 1.0}
+        result = compute_rolling_metrics(
+            weights=weights, prices=prices_df, benchmark="SPY", window=21
+        )
+        betas = [pt["value"] for pt in result["beta"]]
+        assert len(betas) > 0
+        # Allow a small numerical tolerance
+        for b in betas:
+            assert b == pytest.approx(1.0, abs=1e-6)

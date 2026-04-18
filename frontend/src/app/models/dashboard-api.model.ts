@@ -32,6 +32,18 @@ export interface ApiEquityCurveResponse {
   benchmarkTotalReturn: number;
 }
 
+export interface ApiRollingMetricPoint {
+  date: string;
+  value: number;
+}
+
+export interface ApiRollingMetricsResponse {
+  window: number;
+  sharpe: ApiRollingMetricPoint[];
+  volatility: ApiRollingMetricPoint[];
+  beta: ApiRollingMetricPoint[];
+}
+
 export interface ApiAllocationChild {
   name: string;
   value: number;

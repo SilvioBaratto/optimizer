@@ -466,9 +466,17 @@
       <!-- Bar Chart -->
       <div class="bg-surface-raised border border-border rounded-lg p-4">
         <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Factor Loadings</h2>
-        <app-chart-toolbar>
-          <app-echarts-bar [data]="factorBarData()" [height]="260" />
-        </app-chart-toolbar>
+        @if (factorLoadingBars().length > 0) {
+          <app-chart-toolbar>
+            <app-echarts-bar [data]="factorLoadingBars()" [height]="260" />
+          </app-chart-toolbar>
+        } @else {
+          <div
+            data-testid="factor-loadings-empty"
+            class="text-sm text-text-secondary italic text-center py-12">
+            No factor loadings available for this backtest.
+          </div>
+        }
       </div>
 
       <!-- Factor Table -->
@@ -516,25 +524,34 @@
 
     </div>
 
-    <!-- Rolling Factor Exposure Stacked Area -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide">Rolling Factor Exposures</h2>
-        <div class="flex rounded overflow-hidden border border-border">
-          <button type="button" class="px-3 py-1.5 text-data-xs transition-colors"
-            [class]="styleWindow() === '1Y' ? 'bg-accent text-white font-medium' : 'bg-surface-raised text-text-secondary hover:text-text'"
-            (click)="setStyleWindow('1Y')">1Y</button>
-          <button type="button" class="px-3 py-1.5 text-data-xs transition-colors border-l border-border"
-            [class]="styleWindow() === '3Y' ? 'bg-accent text-white font-medium' : 'bg-surface-raised text-text-secondary hover:text-text'"
-            (click)="setStyleWindow('3Y')">3Y</button>
-        </div>
-      </div>
-      <app-chart-toolbar>
-        <app-echarts-stacked-area [labels]="styleLabels()" [series]="rollingExposureSeries()" [height]="280" />
-      </app-chart-toolbar>
-    </div>
-
   </div>
+  }
+
+  <!-- ── Tab: Regimes ────────────────────────────────────────────────────── -->
+  @if (activeTab() === 'regimes') {
+    @if (!hasResult()) {
+      <div class="bg-surface-raised border border-border rounded-lg p-6 text-center text-sm text-text-secondary">
+        Run a backtest to see the HMM regime timeline for the backtest window.
+      </div>
+    } @else if (regimeError(); as err) {
+      <div class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+        Failed to load regime history: {{ err }}
+      </div>
+    } @else {
+      <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-3">
+        <div>
+          <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide">HMM Regime Timeline</h2>
+          <p class="text-xs text-text-tertiary mt-1">Stacked posterior probability for each market regime, aligned to the
+            backtest window.</p>
+        </div>
+        <app-chart-toolbar>
+          <app-echarts-regime-timeline
+            [data]="regimeTimelinePoints()"
+            [regimeLabels]="regimeLabels"
+            [height]="260" />
+        </app-chart-toolbar>
+      </div>
+    }
   }
 
   <!-- Walk-forward validation -->

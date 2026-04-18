@@ -1,7 +1,7 @@
 import { Component, input, computed, ChangeDetectionStrategy } from '@angular/core';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
-import { EchartsScatterComponent, ScatterPoint } from '../../shared/echarts-scatter/echarts-scatter';
+import { EchartsEfficientFrontierComponent } from '../../shared/echarts-efficient-frontier/echarts-efficient-frontier';
 import type {
   OptimizationRunResponse,
   EfficientFrontierPoint,
@@ -36,7 +36,7 @@ function formatPercent(value: unknown, digits = 2): string {
 
 @Component({
   selector: 'app-results-panel',
-  imports: [StatCardComponent, DataTableComponent, EchartsScatterComponent],
+  imports: [StatCardComponent, DataTableComponent, EchartsEfficientFrontierComponent],
   templateUrl: './results-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -55,22 +55,18 @@ export class ResultsPanelComponent {
     { key: 'value', label: 'Value', align: 'right' },
   ];
 
-  readonly frontierPoints = computed<ScatterPoint[]>(() =>
-    this.normalizedFrontier().map((p) => ({ x: p.risk, y: p.return, label: p.label })),
-  );
+  readonly frontier = computed<EfficientFrontierPoint[]>(() => this.normalizedFrontier());
 
-  readonly optimalPoint = computed<ScatterPoint | null>(() => {
-    const pts = this.normalizedFrontier();
+  readonly optimal = computed<EfficientFrontierPoint | null>(() => {
+    const pts = this.frontier();
     if (pts.length === 0) return null;
-    const best = pts.reduce((acc, p) => (p.sharpe > acc.sharpe ? p : acc), pts[0]);
-    return { x: best.risk, y: best.return, label: 'Max Sharpe' };
+    return pts.reduce((acc, p) => (p.sharpe > acc.sharpe ? p : acc), pts[0]);
   });
 
-  readonly highlightedPoints = computed<ScatterPoint[]>(() => {
-    const pts = this.normalizedFrontier();
+  readonly assetMarkers = computed<EfficientFrontierPoint[]>(() => {
+    const pts = this.frontier();
     if (pts.length === 0) return [];
-    const minRisk = pts.reduce((acc, p) => (p.risk < acc.risk ? p : acc), pts[0]);
-    return [{ x: minRisk.risk, y: minRisk.return, label: 'Min Variance' }];
+    return [pts.reduce((acc, p) => (p.risk < acc.risk ? p : acc), pts[0])];
   });
 
   readonly statsCards = computed<StatCard[]>(() => {

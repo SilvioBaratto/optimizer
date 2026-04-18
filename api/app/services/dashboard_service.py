@@ -341,6 +341,89 @@ def compute_equity_curve(
 
 
 # ---------------------------------------------------------------------------
+# Rolling metrics (Sharpe / volatility / beta time series)
+# ---------------------------------------------------------------------------
+
+
+def _rolling_sharpe(port_rets: pd.Series, window: int) -> pd.Series:
+    mean = port_rets.rolling(window).mean()
+    std = port_rets.rolling(window).std()
+    return (mean / std.replace(0, np.nan)) * math.sqrt(ANNUALIZATION_FACTOR)
+
+
+def _rolling_volatility(port_rets: pd.Series, window: int) -> pd.Series:
+    return port_rets.rolling(window).std() * math.sqrt(ANNUALIZATION_FACTOR)
+
+
+def _rolling_beta(
+    port_rets: pd.Series,
+    bench_rets: pd.Series,
+    window: int,
+) -> pd.Series:
+    cov = port_rets.rolling(window).cov(bench_rets)
+    var = bench_rets.rolling(window).var()
+    return cov / var.replace(0, np.nan)
+
+
+def compute_rolling_metrics(
+    weights: dict[str, float],
+    prices: pd.DataFrame,
+    benchmark: str,
+    window: int = ROLLING_SHARPE_WINDOW,
+) -> dict:
+    """Compute rolling Sharpe, annualized vol, and beta series over *window* days.
+
+    The three series are returned on a shared date index, i.e. the index
+    produced by the rolling computation after dropping leading NaNs.
+
+    Args:
+        weights: {ticker: weight} from the latest portfolio snapshot.
+        prices: DataFrame[date × ticker → close] including the benchmark column.
+        benchmark: Benchmark ticker column name in *prices*.
+        window: Rolling-window length in trading days (default: 63 ≈ 3 months).
+
+    Returns:
+        Dict matching ``RollingMetricsResponse`` schema shape.
+    """
+    port_rets = _portfolio_returns(prices, weights)
+    bench_prices = prices[benchmark].reindex(port_rets.index)
+    bench_rets = bench_prices.pct_change().dropna()
+
+    common_idx = port_rets.index.intersection(bench_rets.index)
+    if len(common_idx) < window + 1:
+        raise ValueError(
+            f"Insufficient overlapping price data for a {window}-day rolling window",
+        )
+
+    port_rets = port_rets.loc[common_idx]
+    bench_rets = bench_rets.loc[common_idx]
+
+    sharpe = _rolling_sharpe(port_rets, window).dropna()
+    vol = _rolling_volatility(port_rets, window).dropna()
+    beta = _rolling_beta(port_rets, bench_rets, window).dropna()
+
+    shared = sharpe.index.intersection(vol.index).intersection(beta.index)
+
+    return {
+        "window": window,
+        "sharpe": _series_to_points(sharpe, shared),
+        "volatility": _series_to_points(vol, shared),
+        "beta": _series_to_points(beta, shared),
+    }
+
+
+def _series_to_points(series: pd.Series, index: pd.Index) -> list[dict]:
+    trimmed = series.loc[index]
+    return [
+        {
+            "date": idx.date() if hasattr(idx, "date") else idx,
+            "value": round(float(value), 6),
+        }
+        for idx, value in zip(trimmed.index, trimmed.values)
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Allocation sunburst
 # ---------------------------------------------------------------------------
 
@@ -599,7 +682,11 @@ def _find_since_date(
         else:
             break
     d = dates[run_start]
-    return d.date() if hasattr(d, "date") else d
+    if isinstance(d, pd.Timestamp):
+        return d.date()
+    if isinstance(d, date):
+        return d
+    return date.fromisoformat(str(d))
 
 
 def _sector_return_for_period(

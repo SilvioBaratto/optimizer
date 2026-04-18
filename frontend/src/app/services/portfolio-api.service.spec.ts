@@ -60,6 +60,81 @@ describe('PortfolioApiService', () => {
     });
   });
 
+  describe('list() deduplication', () => {
+    it('issues exactly one HTTP call when two subscribers attach in the same tick', () => {
+      svc.list().subscribe();
+      svc.list().subscribe();
+
+      // expectOne throws if more than one request matches the URL
+      const req = http.expectOne(`${BASE}/`);
+      expect(req.request.method).toBe('GET');
+      req.flush({ items: [], total: 0 });
+    });
+
+    it('both parallel subscribers receive the same emitted value', () => {
+      const payload = { items: [{ name: 'alpha' }], total: 1 };
+      let first: unknown;
+      let second: unknown;
+
+      svc.list().subscribe((v) => (first = v));
+      svc.list().subscribe((v) => (second = v));
+
+      http.expectOne(`${BASE}/`).flush(payload);
+
+      expect(first).toEqual(payload);
+      expect(second).toEqual(payload);
+      expect(first).toBe(second);
+    });
+
+    it('issues a new HTTP call for a later list() call after the previous subscribers complete', () => {
+      svc.list().subscribe();
+      http.expectOne(`${BASE}/`).flush({ items: [], total: 0 });
+
+      svc.list().subscribe();
+      const req = http.expectOne(`${BASE}/`);
+      expect(req.request.method).toBe('GET');
+      req.flush({ items: [], total: 0 });
+    });
+
+    it('busts the cache after a successful create() so the next list() refetches', () => {
+      svc.list().subscribe();
+      http.expectOne(`${BASE}/`).flush({ items: [], total: 0 });
+
+      svc
+        .create({
+          name: 'beta',
+          description: null,
+          currency: 'USD',
+          benchmark_ticker: 'SPY',
+        })
+        .subscribe();
+      http.expectOne((r) => r.url === `${BASE}/` && r.method === 'POST').flush(
+        {} as PortfolioDto,
+      );
+
+      svc.list().subscribe();
+      const listReq = http.expectOne(
+        (r) => r.url === `${BASE}/` && r.method === 'GET',
+      );
+      expect(listReq.request.method).toBe('GET');
+      listReq.flush({ items: [], total: 0 });
+    });
+
+    it('does not poison the cache on error: the next list() issues a new HTTP call and succeeds', () => {
+      let firstError: Error | undefined;
+      svc.list().subscribe({ error: (e: Error) => (firstError = e) });
+      http
+        .expectOne(`${BASE}/`)
+        .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+      expect(firstError?.message).toContain('boom');
+
+      let secondResult: unknown;
+      svc.list().subscribe((v) => (secondResult = v));
+      http.expectOne(`${BASE}/`).flush({ items: [], total: 0 });
+      expect(secondResult).toEqual({ items: [], total: 0 });
+    });
+  });
+
   describe('create()', () => {
     it('POSTs the payload to /portfolio/', () => {
       const payload: CreatePortfolioDto = {
