@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import database_manager, get_db
+from app.metrics import time_endpoint
 from app.repositories.execution_repository import ExecutionRepository
 from app.schemas.optimization import OptimizationRunResponse, OptimizeRequest
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
@@ -140,10 +141,11 @@ def post_optimize(
     - **≤ threshold tickers** (default 50): synchronous, returns 200 + result.
     - **> threshold tickers**: background job, returns 202 + job_id.
     """
-    _validate_optimizer_type(request.optimizer_type)
-    if len(request.tickers) <= _sync_threshold():
-        return _handle_sync(request, db)
-    return _handle_async(request, db)
+    with time_endpoint("optimize"):
+        _validate_optimizer_type(request.optimizer_type)
+        if len(request.tickers) <= _sync_threshold():
+            return _handle_sync(request, db)
+        return _handle_async(request, db)
 
 
 @router.get(

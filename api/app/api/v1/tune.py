@@ -11,6 +11,7 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 
 from app.database import database_manager
+from app.metrics import time_endpoint
 from app.schemas.base_job import AsyncJobCreateResponse, AsyncJobProgress
 from app.schemas.tuning import TuneRequest, TuneResult
 from app.services._progress import make_progress
@@ -57,15 +58,16 @@ def _run_tune_bg(job_id: str, request: TuneRequest) -> None:
 @router.post("", status_code=202, response_model=AsyncJobCreateResponse)
 def post_tune(request: TuneRequest) -> AsyncJobCreateResponse:
     """Launch a background hyperparameter search job."""
-    _validate_optimizer_type(request.optimizer_type)
-    try:
-        job_id = _tune_job_service.create_job()
-    except JobAlreadyRunningError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
-    _tune_job_service.start_background(_run_tune_bg, args=(job_id, request))
-    return AsyncJobCreateResponse(job_id=job_id, status="pending", message="")
+    with time_endpoint("tune"):
+        _validate_optimizer_type(request.optimizer_type)
+        try:
+            job_id = _tune_job_service.create_job()
+        except JobAlreadyRunningError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            ) from exc
+        _tune_job_service.start_background(_run_tune_bg, args=(job_id, request))
+        return AsyncJobCreateResponse(job_id=job_id, status="pending", message="")
 
 
 @router.get("/{job_id}", response_model=AsyncJobProgress)

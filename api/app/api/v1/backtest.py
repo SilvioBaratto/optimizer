@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.database import database_manager, get_db
+from app.metrics import time_endpoint
 from app.repositories.execution_repository import ExecutionRepository
 from app.schemas.backtest import (
     BacktestProgressResponse,
@@ -87,44 +88,45 @@ def start_backtest(
     db: Session = Depends(get_db),
 ):
     """Start a backtest as a background job. Returns 202 + job_id + run_id."""
-    repo = ExecutionRepository(db)
-    pending_run = repo.create_backtest_run(
-        {
-            "status": "pending",
-            "config": request.pipeline_config,
-            "equity_curve": {},
-            "drawdowns": {},
-            "monthly_returns": {},
-            "yearly_returns": {},
-            "rolling_metrics": {},
-            "turnover_history": {},
-            "summary_stats": {},
-        }
-    )
-    db.commit()
+    with time_endpoint("backtest"):
+        repo = ExecutionRepository(db)
+        pending_run = repo.create_backtest_run(
+            {
+                "status": "pending",
+                "config": request.pipeline_config,
+                "equity_curve": {},
+                "drawdowns": {},
+                "monthly_returns": {},
+                "yearly_returns": {},
+                "rolling_metrics": {},
+                "turnover_history": {},
+                "summary_stats": {},
+            }
+        )
+        db.commit()
 
-    try:
-        job_id = _job_service.create_job()
-    except JobAlreadyRunningError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
+        try:
+            job_id = _job_service.create_job()
+        except JobAlreadyRunningError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
 
-    _job_service.start_background(
-        target=_run_backtest_bg,
-        args=(job_id, str(pending_run.id), request),
-    )
+        _job_service.start_background(
+            target=_run_backtest_bg,
+            args=(job_id, str(pending_run.id), request),
+        )
 
-    return JSONResponse(
-        status_code=status.HTTP_202_ACCEPTED,
-        content={
-            "jobId": job_id,
-            "runId": str(pending_run.id),
-            "status": "pending",
-            "message": f"Backtest started. Poll GET /backtest/{job_id} for progress.",
-        },
-    )
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "jobId": job_id,
+                "runId": str(pending_run.id),
+                "status": "pending",
+                "message": f"Backtest started. Poll GET /backtest/{job_id} for progress.",
+            },
+        )
 
 
 @router.get("/{job_id}", response_model=BacktestProgressResponse)

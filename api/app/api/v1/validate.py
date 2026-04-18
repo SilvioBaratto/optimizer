@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from app.database import database_manager
+from app.metrics import time_endpoint
 from app.schemas.validation import (
     ValidateJobResponse,
     ValidateProgress,
@@ -91,30 +92,31 @@ def start_walk_forward(request: ValidateRequest) -> JSONResponse:
 
     Returns 202 + job_id immediately. Poll GET /validate/walk-forward/{job_id}.
     """
-    try:
-        job_id = _job_service.create_job(current_fold=0, total_folds=0)
-    except JobAlreadyRunningError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
+    with time_endpoint("validate"):
+        try:
+            job_id = _job_service.create_job(current_fold=0, total_folds=0)
+        except JobAlreadyRunningError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
 
-    _job_service.start_background(
-        target=_run_walk_forward_bg,
-        args=(job_id, request),
-    )
+        _job_service.start_background(
+            target=_run_walk_forward_bg,
+            args=(job_id, request),
+        )
 
-    return JSONResponse(
-        status_code=status.HTTP_202_ACCEPTED,
-        content={
-            "job_id": job_id,
-            "status": "pending",
-            "message": (
-                f"Walk-forward validation started. "
-                f"Poll GET /validate/walk-forward/{job_id} for progress."
-            ),
-        },
-    )
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "job_id": job_id,
+                "status": "pending",
+                "message": (
+                    f"Walk-forward validation started. "
+                    f"Poll GET /validate/walk-forward/{job_id} for progress."
+                ),
+            },
+        )
 
 
 @router.get(
