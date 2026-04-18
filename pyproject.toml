@@ -77,6 +77,10 @@ ignore = ["RUF002", "RUF003"]  # allow unicode in docstrings/comments (mathemati
 "optimizer/__init__.py" = ["E402"]  # logging NullHandler must precede module imports
 "optimizer/**" = ["N803", "N806"]  # sklearn convention: X, y parameter names
 "tests/**" = ["N803", "N806", "S101"]
+# Scheduler tests intentionally shell out to `sh -n` / `sh -c` for script
+# validation; the subprocess S-rules and raw-shell-snippet E501 would add
+# nothing here.
+"tests/scheduler/**" = ["N803", "N806", "S101", "S603", "S607", "E501"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -127,7 +131,7 @@ source = ["optimizer"]
 omit = ["optimizer/moments/_dmm.py"]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 90
 show_missing = true
 skip_empty = true
 exclude_lines = [

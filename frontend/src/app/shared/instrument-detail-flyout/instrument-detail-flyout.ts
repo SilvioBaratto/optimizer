@@ -26,6 +26,9 @@ const DEFAULT_PRICE_LIMIT = 90;
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './instrument-detail-flyout.html',
+  host: {
+    '(document:keydown.escape)': 'onEscape()',
+  },
 })
 export class InstrumentDetailFlyoutComponent {
   private readonly yfinance = inject(YfinanceService);
@@ -33,6 +36,10 @@ export class InstrumentDetailFlyoutComponent {
 
   readonly instrumentId = input<string | null>(null);
   readonly closed = output<void>();
+
+  onEscape(): void {
+    if (this.instrumentId()) this.closed.emit();
+  }
 
   readonly profile = signal<TickerProfile | null>(null);
   readonly prices = signal<PriceHistory[]>([]);

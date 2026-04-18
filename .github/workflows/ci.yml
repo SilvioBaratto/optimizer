@@ -67,7 +67,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
       - run: pip install -e ".[test]"
-      - run: pytest tests/ -v --tb=short --cov=optimizer --cov-report=xml --cov-report=term-missing
+      - run: pytest tests/ -v --tb=short --cov=optimizer --cov-report=xml --cov-report=term-missing --cov-fail-under=90
       - if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v5
         with:

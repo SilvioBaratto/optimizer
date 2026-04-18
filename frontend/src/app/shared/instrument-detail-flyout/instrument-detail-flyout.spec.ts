@@ -116,6 +116,32 @@ describe('InstrumentDetailFlyoutComponent', () => {
     expect(closed).toBe(true);
   });
 
+  it('emits closed when the user presses Escape while the flyout is open', () => {
+    const fx = createFixture('abc');
+    let closed = false;
+    fx.componentInstance.closed.subscribe(() => (closed = true));
+
+    http.expectOne(`${BASE}/abc/profile`).flush(null);
+    http.expectOne((r) => r.url === `${BASE}/abc/prices`).flush([]);
+    http.expectOne(`${BASE}/abc/recommendations`).flush([]);
+
+    const event = new KeyboardEvent('keydown', { key: 'Escape' });
+    document.dispatchEvent(event);
+
+    expect(closed).toBe(true);
+  });
+
+  it('ignores Escape key when no instrument is selected', () => {
+    const fx = createFixture(null);
+    let closed = false;
+    fx.componentInstance.closed.subscribe(() => (closed = true));
+
+    const event = new KeyboardEvent('keydown', { key: 'Escape' });
+    document.dispatchEvent(event);
+
+    expect(closed).toBe(false);
+  });
+
   it('falls back to empty arrays when endpoints return errors', () => {
     const fx = createFixture('abc');
 

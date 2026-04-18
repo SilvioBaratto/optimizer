@@ -52,14 +52,16 @@ const BTN_INACTIVE =
           <input
             type="date"
             data-testid="custom-start"
+            aria-label="Start date"
             class="rounded border border-border bg-surface px-2 py-1 text-data-sm text-text focus:outline-none focus:ring-1 focus:ring-accent"
             [value]="startStr()"
             (input)="onStartInput($event)"
           />
-          <span class="text-text-tertiary">—</span>
+          <span aria-hidden="true" class="text-text-tertiary">—</span>
           <input
             type="date"
             data-testid="custom-end"
+            aria-label="End date"
             class="rounded border border-border bg-surface px-2 py-1 text-data-sm text-text focus:outline-none focus:ring-1 focus:ring-accent"
             [value]="endStr()"
             (input)="onEndInput($event)"
