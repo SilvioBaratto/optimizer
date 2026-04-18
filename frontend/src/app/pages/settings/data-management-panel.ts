@@ -54,8 +54,12 @@ export class DataManagementPanelComponent {
     }) as Record<string, unknown>),
   );
 
-  readonly healthLabel = computed(() => this.health()?.status ?? 'unknown');
-  readonly healthIsHealthy = computed(() => this.health()?.status === 'healthy');
+  readonly healthLabel = computed(() => {
+    const h = this.health();
+    if (h == null) return 'unknown';
+    return h.healthy ? 'healthy' : 'unhealthy';
+  });
+  readonly healthIsHealthy = computed(() => this.health()?.healthy === true);
 
   readonly deleteMessage = computed(() => {
     const t = this.pendingDelete();

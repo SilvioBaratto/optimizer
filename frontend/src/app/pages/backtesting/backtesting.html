@@ -107,20 +107,22 @@
   <!-- KPI Stat Cards -->
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-4">
     <app-stat-card label="Total Return" [value]="formatPct(result().metrics.totalReturn)"
-      subtitle="vs {{ formatPct(0.482) }} benchmark" [delta]="result().metrics.totalReturn - 0.482"
-      [trend]="result().metrics.totalReturn >= 0.482 ? 'up' : 'down'" deltaLabel="vs SPY" />
+      [subtitle]="benchmarkSubtitle('totalReturn')"
+      [delta]="benchmarkDelta('totalReturn')"
+      [trend]="benchmarkTrend('totalReturn')" deltaLabel="vs benchmark" />
 
     <app-stat-card label="Sharpe Ratio" [value]="formatRatio(result().metrics.sharpe)"
-      subtitle="Sortino: {{ formatRatio(result().metrics.sortino) }}" [delta]="result().metrics.sharpe - 0.471"
-      [trend]="result().metrics.sharpe >= 0.471 ? 'up' : 'down'" deltaLabel="vs SPY" />
+      subtitle="Sortino: {{ formatRatio(result().metrics.sortino) }}"
+      [delta]="benchmarkDelta('sharpe')"
+      [trend]="benchmarkTrend('sharpe')" deltaLabel="vs benchmark" />
 
     <app-stat-card label="Max Drawdown" [value]="formatPct(result().metrics.maxDrawdown)"
-      subtitle="Calmar: {{ formatRatio(result().metrics.calmar) }}" [delta]="result().metrics.maxDrawdown - (-0.247)"
-      [trend]="result().metrics.maxDrawdown > -0.247 ? 'up' : 'down'" deltaLabel="vs SPY" />
+      subtitle="Calmar: {{ formatRatio(result().metrics.calmar) }}"
+      [delta]="benchmarkDelta('maxDrawdown')"
+      [trend]="benchmarkTrend('maxDrawdown')" deltaLabel="vs benchmark" />
 
     <app-stat-card label="Information Ratio" [value]="formatRatio(result().metrics.informationRatio)"
-      subtitle="TE: {{ formatPct(result().metrics.trackingError) }}" [delta]="result().metrics.informationRatio"
-      [trend]="result().metrics.informationRatio > 0 ? 'up' : 'down'" deltaLabel="vs benchmark" />
+      subtitle="TE: {{ formatPct(result().metrics.trackingError) }}" />
   </div>
 
   <!-- Tab Group -->

@@ -17,10 +17,15 @@ import type {
 const API = environment.apiUrl;
 
 const HEALTH: HealthCheck = {
-  status: 'healthy',
+  healthy: true,
   latency_ms: 3,
-  database: 'optimizer_db',
-  version: 'PostgreSQL 16',
+  database_url: 'postgresql://postgres:***@localhost:54320/optimizer_db',
+};
+
+const UNHEALTHY: HealthCheck = {
+  healthy: false,
+  latency_ms: 9999,
+  database_url: 'postgresql://postgres:***@localhost:54320/optimizer_db',
 };
 
 const STATUS: DatabaseStatus = {
@@ -61,10 +66,69 @@ describe('DataManagementPanelComponent', () => {
     fx.detectChanges();
     flushInitialLoad();
 
-    expect(fx.componentInstance.health()?.status).toBe('healthy');
+    expect(fx.componentInstance.health()?.healthy).toBe(true);
     expect(fx.componentInstance.status()?.total_size_pretty).toBe('12 MB');
     expect(fx.componentInstance.tables().length).toBe(2);
     expect(fx.componentInstance.healthIsHealthy()).toBe(true);
+  });
+
+  describe('healthLabel + healthIsHealthy (issue #436)', () => {
+    function loadWithHealth(payload: HealthCheck) {
+      const fx = TestBed.createComponent(DataManagementPanelComponent);
+      fx.detectChanges();
+      http.expectOne(`${API}database/health`).flush(payload);
+      http.expectOne(`${API}database/status`).flush(STATUS);
+      http.expectOne(`${API}database/tables`).flush([]);
+      return fx.componentInstance;
+    }
+
+    it('renders "healthy" in green when /database/health returns healthy: true', () => {
+      const c = loadWithHealth(HEALTH);
+      expect(c.healthLabel()).toBe('healthy');
+      expect(c.healthIsHealthy()).toBe(true);
+    });
+
+    it('renders "unhealthy" in red when /database/health returns healthy: false', () => {
+      const c = loadWithHealth(UNHEALTHY);
+      expect(c.healthLabel()).toBe('unhealthy');
+      expect(c.healthIsHealthy()).toBe(false);
+    });
+
+    it('renders "unknown" while the health response is still null', () => {
+      // Build the component but never flush health → health() stays null
+      const fx = TestBed.createComponent(DataManagementPanelComponent);
+      fx.detectChanges();
+      // Drain the in-flight requests so afterEach http.verify() passes
+      http.expectOne(`${API}database/health`).flush(HEALTH); // populate
+      http.expectOne(`${API}database/status`).flush(STATUS);
+      http.expectOne(`${API}database/tables`).flush([]);
+      // Reset the signal to simulate the pre-load state
+      fx.componentInstance.health.set(null);
+      expect(fx.componentInstance.healthLabel()).toBe('unknown');
+      expect(fx.componentInstance.healthIsHealthy()).toBe(false);
+    });
+  });
+
+  it('populates name, schema, row_count, and size_pretty on every table row (issue #435)', () => {
+    const fx = TestBed.createComponent(DataManagementPanelComponent);
+    fx.detectChanges();
+    flushInitialLoad();
+
+    const rows = fx.componentInstance.tableRows();
+    expect(rows.length).toBe(2);
+    for (const row of rows) {
+      expect(row['name']).toBeTruthy();
+      expect(row['schema']).toBeTruthy();
+      expect(typeof row['row_count']).toBe('number');
+      expect(row['size_pretty']).toBeTruthy();
+    }
+
+    // Sanity: the first row's values come from the realistic API payload.
+    const first = rows[0];
+    expect(first['name']).toBe('prices');
+    expect(first['schema']).toBe('public');
+    expect(first['row_count']).toBe(1000);
+    expect(first['size_pretty']).toBe('10 KB');
   });
 
   it('gates truncate behind a confirmation dialog and sends confirm=true', () => {

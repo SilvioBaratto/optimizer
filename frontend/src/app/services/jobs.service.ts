@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, of } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
 import type {
@@ -19,6 +19,10 @@ const FALLBACK_META: Omit<DomainMeta, 'domain' | 'label'> = {
   criticalThresholdHours: 720,
 };
 
+const KNOWN_META: ReadonlyMap<string, DomainMeta> = new Map(
+  DOMAIN_META.map((meta) => [meta.domain, meta]),
+);
+
 function titleCase(raw: string): string {
   return raw
     .split('_')
@@ -27,18 +31,32 @@ function titleCase(raw: string): string {
     .join(' ');
 }
 
+function syntheticMeta(domain: string): DomainMeta {
+  return { domain, label: titleCase(domain), ...FALLBACK_META };
+}
+
+function metaFor(domain: string): DomainMeta {
+  return KNOWN_META.get(domain) ?? syntheticMeta(domain);
+}
+
 @Injectable({ providedIn: 'root' })
 export class JobsService {
   private readonly http = inject(HttpClient);
   private readonly apiBase = environment.apiUrl;
 
+  /**
+   * Fetch domain-level status entries for the Pipeline Health grid.
+   *
+   * Issue #440: returns only the domains that have jobs in the API
+   * response. An empty response yields an empty array — the page renders
+   * a single "no pipeline activity yet" tile rather than fanning out a
+   * placeholder card per known domain. HTTP errors are propagated so
+   * the caller can render a banner instead of pretending to have data.
+   */
   getDomainStatuses(): Observable<DomainStatus[]> {
     return this.http
       .get<JobListResponse>(`${this.apiBase}jobs`, { params: { limit: '100' } })
-      .pipe(
-        map((res) => this.buildDomainStatuses(res.jobs)),
-        catchError(() => of(DOMAIN_META.map((meta) => this.emptyDomainStatus(meta)))),
-      );
+      .pipe(map((res) => this.buildDomainStatuses(res.jobs)));
   }
 
   getJob(id: string): Observable<JobSummary> {
@@ -49,8 +67,9 @@ export class JobsService {
 
   private buildDomainStatuses(jobs: JobSummary[]): DomainStatus[] {
     const byDomain = this.groupByDomain(jobs);
-    const metas = this.metasFor(byDomain);
-    return metas.map((meta) => this.statusFor(meta, byDomain.get(meta.domain) ?? []));
+    return [...byDomain.entries()].map(([domain, domainJobs]) =>
+      this.statusFor(metaFor(domain), domainJobs),
+    );
   }
 
   private groupByDomain(jobs: JobSummary[]): Map<string, JobSummary[]> {
@@ -61,18 +80,6 @@ export class JobsService {
       byDomain.set(job.domain, group);
     }
     return byDomain;
-  }
-
-  private metasFor(byDomain: Map<string, JobSummary[]>): DomainMeta[] {
-    const known = new Set(DOMAIN_META.map((m) => m.domain));
-    const extras = [...byDomain.keys()]
-      .filter((d) => !known.has(d))
-      .map((d) => this.syntheticMeta(d));
-    return [...DOMAIN_META, ...extras];
-  }
-
-  private syntheticMeta(domain: string): DomainMeta {
-    return { domain, label: titleCase(domain), ...FALLBACK_META };
   }
 
   private statusFor(meta: DomainMeta, domainJobs: JobSummary[]): DomainStatus {
@@ -109,16 +116,5 @@ export class JobsService {
     if (ageHours >= meta.criticalThresholdHours) return { freshness: 'critical', ageHours };
     if (ageHours >= meta.staleThresholdHours) return { freshness: 'stale', ageHours };
     return { freshness: 'fresh', ageHours };
-  }
-
-  private emptyDomainStatus(meta: DomainMeta): DomainStatus {
-    return {
-      meta,
-      lastSuccess: null,
-      running: null,
-      recentFailures: [],
-      freshness: 'unknown',
-      lastSuccessAgeHours: null,
-    };
   }
 }

@@ -82,7 +82,8 @@
   <div class="grid grid-cols-2 sm:grid-cols-4 2xl:grid-cols-7 gap-3 reveal">
     @for (kpi of kpis(); track kpi.label) {
     <app-stat-card [label]="kpi.label" [value]="formatKpiValue(kpi)" [sparklineData]="kpi.sparkline"
-      [delta]="kpiDelta(kpi)" [trend]="kpiTrend(kpi)" [deltaLabel]="kpi.changeLabel" />
+      [delta]="kpiDelta(kpi)" [deltaFormat]="kpiDeltaFormat(kpi)" [trend]="kpiTrend(kpi)"
+      [deltaLabel]="kpi.changeLabel" />
     }
   </div>
   }

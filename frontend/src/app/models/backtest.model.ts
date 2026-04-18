@@ -16,6 +16,12 @@ export interface BacktestEquityPoint {
 export interface BacktestResult {
   equity: BacktestEquityPoint[];
   metrics: BacktestMetrics;
+  /**
+   * Benchmark KPIs aligned with `metrics`. Optional because the backend
+   * doesn't compute them today (issue #434); when absent, the UI falls back
+   * to a dash for every benchmark cell rather than synthetic placeholders.
+   */
+  benchmarkMetrics?: BacktestMetrics;
   drawdowns: Drawdown[];
   monthlyReturns: MonthlyReturnCell[];
   rollingMetrics: RollingMetric[];

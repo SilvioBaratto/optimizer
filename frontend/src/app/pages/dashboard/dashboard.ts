@@ -201,6 +201,7 @@ export class DashboardComponent implements OnDestroy {
 
   onPeriodChange(period: DashboardPeriod): void {
     this.period.set(period);
+    this.refetchPerformanceMetrics();
     this.refetchEquityCurve();
   }
 
@@ -281,6 +282,23 @@ export class DashboardComponent implements OnDestroy {
       });
   }
 
+  private refetchPerformanceMetrics(): void {
+    const name = this.portfolioCtx.currentPortfolioId();
+    if (!name) return;
+    this.dashboardSvc
+      .getPerformanceMetrics(name, this.period())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.kpis.set(res.kpis as DashboardKPI[]);
+          this.nav.set(res.nav);
+          this.dailyChange.set(res.navChangePct);
+          this.currency.set(res.currency ?? 'EUR');
+        },
+        error: () => { /* non-critical */ },
+      });
+  }
+
   private loadBenchmarks(): void {
     this.benchmarkLoading.set(true);
     this.benchmarkError.set(null);
@@ -336,7 +354,7 @@ export class DashboardComponent implements OnDestroy {
       onComplete();
     };
 
-    this.dashboardSvc.getPerformanceMetrics(name)
+    this.dashboardSvc.getPerformanceMetrics(name, this.period())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: res => {
@@ -484,6 +502,18 @@ export class DashboardComponent implements OnDestroy {
       return navVal ? kpi.change / navVal : 0;
     }
     return kpi.change;
+  }
+
+  // StatCard renders `delta` as either a percentage (decimal × 100 + "%") or
+  // a raw absolute value. Percent and currency KPIs are already decimals (the
+  // currency branch divides by NAV); ratio/number KPIs carry an absolute
+  // change (e.g. Sharpe -12.64) that must NOT be multiplied by 100.
+  // See issue #432 — without this switch a Sharpe diff of -12.64 rendered as
+  // -1264 %.
+  kpiDeltaFormat(kpi: DashboardKPI): 'percent' | 'absolute' {
+    return kpi.format === 'percent' || kpi.format === 'currency'
+      ? 'percent'
+      : 'absolute';
   }
 
   openReportModal(): void {

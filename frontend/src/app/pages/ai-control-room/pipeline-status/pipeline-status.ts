@@ -52,6 +52,10 @@ export class PipelineStatusComponent {
 
   readonly hasRunning = computed(() => this.runningJobs().length > 0);
   readonly hasFailures = computed(() => this.failedJobs().length > 0);
+  // Issue #440: distinguishes "loaded with no jobs" from "still loading"
+  // and "errored". The template renders a single empty-state tile when
+  // hasNoData() && !isLoading() && !pollError().
+  readonly hasNoData = computed(() => this.domainStatuses().length === 0);
 
   constructor() {
     this.loadOnce();

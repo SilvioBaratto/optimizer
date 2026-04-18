@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import {
   HttpClient,
+  HttpContext,
   HttpErrorResponse,
   provideHttpClient,
   withInterceptors,
@@ -15,6 +16,7 @@ import { of } from 'rxjs';
 import {
   apiHttpInterceptor,
   RETRY_BACKOFF,
+  SUPPRESS_TOAST_STATUSES,
   BackoffFn,
 } from './api-http.interceptor';
 import { environment } from '../../environments/environment';
@@ -256,6 +258,66 @@ describe('apiHttpInterceptor', () => {
       httpMock.expectOne(apiEndpoint).flush({});
 
       expect(notifications.error).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('per-call toast suppression via SUPPRESS_TOAST_STATUSES (issue #438)', () => {
+    function suppressing(statuses: readonly number[]): HttpContext {
+      return new HttpContext().set(SUPPRESS_TOAST_STATUSES, statuses);
+    }
+
+    it('suppresses the toast when the response status is in the per-call list', () => {
+      http.get(apiEndpoint, { context: suppressing([404]) }).subscribe({
+        error: () => {},
+      });
+
+      httpMock
+        .expectOne(apiEndpoint)
+        .flush(null, { status: 404, statusText: 'Not Found' });
+
+      expect(notifications.error).not.toHaveBeenCalled();
+    });
+
+    it('still toasts other statuses when 404 is suppressed (e.g. 500)', () => {
+      // 5xx is retriable for GET, so the interceptor will retry MAX_RETRIES
+      // times. Flush every attempt with the same 500 to drive the chain to
+      // its final propagated error.
+      http.get(apiEndpoint, { context: suppressing([404]) }).subscribe({
+        error: () => {},
+      });
+
+      for (let i = 0; i < 4; i++) {
+        httpMock
+          .expectOne(apiEndpoint)
+          .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+      }
+
+      expect(notifications.error).toHaveBeenCalledTimes(1);
+      expect(notifications.error.calls.mostRecent().args[0]).toContain('boom');
+    });
+
+    it('still propagates the ApiError downstream so the page can render an empty state', () => {
+      let error: ApiError | undefined;
+      http.get(apiEndpoint, { context: suppressing([404]) }).subscribe({
+        error: (e: ApiError) => (error = e),
+      });
+
+      httpMock
+        .expectOne(apiEndpoint)
+        .flush({ detail: 'gone' }, { status: 404, statusText: 'Not Found' });
+
+      expect(error?.status).toBe(404);
+      expect(error?.message).toBe('gone');
+    });
+
+    it('does not affect other requests that did not opt in', () => {
+      http.get(apiEndpoint).subscribe({ error: () => {} });
+
+      httpMock
+        .expectOne(apiEndpoint)
+        .flush({ detail: 'missing' }, { status: 404, statusText: 'Not Found' });
+
+      expect(notifications.error).toHaveBeenCalledTimes(1);
     });
   });
 });

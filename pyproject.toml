@@ -26,11 +26,11 @@ classifiers = [
 ]
 
 dependencies = [
-    "numpy>=1.24",
-    "pandas>=2.0",
-    "scipy>=1.11",
-    "scikit-learn>=1.6",
-    "skfolio>=0.5",
+    "numpy>=2.4.4",
+    "pandas>=3.0.2",
+    "scipy>=1.17.1",
+    "scikit-learn>=1.8.0",
+    "skfolio>=0.19.0",
     "hmmlearn>=0.3.3",
     "arch>=8.0.0",
 ]
@@ -43,17 +43,17 @@ Issues = "https://github.com/SilvioBaratto/optimizer/issues"
 Changelog = "https://github.com/SilvioBaratto/optimizer/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-test = ["pytest>=7.4", "pytest-cov>=4.0", "hypothesis>=6.0", "pyyaml>=6.0"]
-lint = ["ruff>=0.1", "pip-audit>=2.6"]
-typecheck = ["mypy>=1.5", "pyright[nodejs]==1.1.408"]
+test = ["pytest>=9.0.3", "pytest-cov>=7.1.0", "hypothesis>=6.151.9", "pyyaml>=6.0.3"]
+lint = ["ruff>=0.15.6", "pip-audit>=2.10.0"]
+typecheck = ["mypy>=1.19.1", "pyright[nodejs]==1.1.408"]
 docs = [
-    "mkdocs-material>=9.0",
-    "mkdocstrings[python]>=0.24",
-    "mkdocs-gen-files>=0.5",
-    "mkdocs-literate-nav>=0.6",
+    "mkdocs-material>=9.7.2",
+    "mkdocstrings[python]>=1.0.3",
+    "mkdocs-gen-files>=0.6.1",
+    "mkdocs-literate-nav>=0.6.3",
 ]
-dmm = ["torch>=2.0", "pyro-ppl>=1.9"]
-dev = ["portopt[test,lint,typecheck,docs]", "pre-commit>=3.5"]
+dmm = ["torch>=2.11.0", "pyro-ppl>=1.9.1"]
+dev = ["portopt[test,lint,typecheck,docs]", "pre-commit>=4.5.1"]
 
 [project.scripts]
 optimizer = "cli:app"

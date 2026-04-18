@@ -41,31 +41,6 @@
         [total]="tableRows().length"
         [pageSize]="20"
         [dense]="true" />
-
-      <ul class="divide-y divide-border-muted">
-        @for (job of jobs(); track job.jobId) {
-          <li class="py-2 grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
-            <span class="font-medium text-text">{{ job.name }}</span>
-            <span class="font-mono text-text-secondary">{{ job.trigger }}</span>
-            <span class="text-text-secondary">
-              Next:
-              @if (job.nextRunTime) {
-                <span class="font-mono">{{ job.nextRunTime | date:'short' }}</span>
-              } @else {
-                <span class="text-text-tertiary">—</span>
-              }
-            </span>
-            <span class="text-text-secondary">
-              Last:
-              @if (job.lastRunTime) {
-                <span class="font-mono">{{ job.lastRunTime | date:'short' }}</span>
-              } @else {
-                <span class="text-text-tertiary">—</span>
-              }
-            </span>
-          </li>
-        }
-      </ul>
     }
   </div>
 </div>

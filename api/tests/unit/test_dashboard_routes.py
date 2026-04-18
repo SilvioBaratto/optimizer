@@ -209,6 +209,93 @@ class TestGetPerformanceMetrics:
         # NAV should be a normalised index (not 0 or None)
         assert resp.json()["nav"] > 0
 
+    @pytest.mark.parametrize("period", ["1Y", "3Y", "5Y", "MAX"])
+    def test_accepts_period_query_param(
+        self, client: TestClient, period: str,
+    ):
+        """Issue #433: performance-metrics must honor a ``period`` query param.
+
+        Mirrors the existing equity-curve route contract so the dashboard
+        period selector can refresh both endpoints in lockstep.
+        """
+        portfolio = _make_portfolio("myport")
+        snapshot = _make_snapshot()
+        prices = _make_prices(["AAPL", "MSFT", "GOOG", "SPY"])
+
+        with (
+            patch(_PORTFOLIO_REPO) as MockPortRepo,
+            patch(_DASHBOARD_REPO) as MockDashRepo,
+        ):
+            repo = MockPortRepo.return_value
+            repo.get_by_name.return_value = portfolio
+            repo.get_latest_snapshot.return_value = snapshot
+            repo.get_latest_account_snapshot.return_value = None
+
+            MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
+
+            resp = client.get(
+                f"{BASE_URL}/myport/performance-metrics?period={period}"
+            )
+
+        assert resp.status_code == 200
+
+    def test_rejects_invalid_period(self, client: TestClient):
+        portfolio = _make_portfolio("myport")
+        snapshot = _make_snapshot()
+
+        with patch(_PORTFOLIO_REPO) as MockPortRepo:
+            repo = MockPortRepo.return_value
+            repo.get_by_name.return_value = portfolio
+            repo.get_latest_snapshot.return_value = snapshot
+
+            resp = client.get(
+                f"{BASE_URL}/myport/performance-metrics?period=10Y"
+            )
+
+        assert resp.status_code == 422
+
+    @pytest.mark.parametrize(
+        "period,expected_lookback_days",
+        [("1Y", 365), ("3Y", 365 * 3), ("5Y", 365 * 5)],
+    )
+    def test_period_filters_price_window(
+        self,
+        client: TestClient,
+        period: str,
+        expected_lookback_days: int,
+    ):
+        """The ``period`` query param must drive the price lookback window.
+
+        Asserts the repository call uses ``today - period`` as the start date,
+        mirroring the equity-curve route at ``dashboard.py:191-194``.
+        """
+        portfolio = _make_portfolio("myport")
+        snapshot = _make_snapshot()
+        prices = _make_prices(["AAPL", "MSFT", "GOOG", "SPY"])
+
+        with (
+            patch(_PORTFOLIO_REPO) as MockPortRepo,
+            patch(_DASHBOARD_REPO) as MockDashRepo,
+        ):
+            repo = MockPortRepo.return_value
+            repo.get_by_name.return_value = portfolio
+            repo.get_latest_snapshot.return_value = snapshot
+            repo.get_latest_account_snapshot.return_value = None
+
+            dash = MockDashRepo.return_value
+            dash.get_multi_ticker_prices.return_value = prices
+
+            resp = client.get(
+                f"{BASE_URL}/myport/performance-metrics?period={period}"
+            )
+
+        assert resp.status_code == 200
+        call_args = dash.get_multi_ticker_prices.call_args
+        # Signature: get_multi_ticker_prices(tickers, start_date, end_date)
+        start_date, end_date = call_args.args[1], call_args.args[2]
+        actual_lookback = (end_date - start_date).days
+        assert actual_lookback == expected_lookback_days
+
 
 # ---------------------------------------------------------------------------
 # Allocation sunburst

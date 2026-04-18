@@ -32,6 +32,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { WalkForwardPanelComponent } from './walk-forward-panel';
 import type {
   BacktestConfig,
+  BacktestMetrics,
   BacktestResult,
 } from '../../models/backtest.model';
 
@@ -192,26 +193,72 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   });
 
   // ── Metrics table ──────────────────────────────────────────────────────────
+  // Per-metric benchmark availability: tracking error and information ratio
+  // are portfolio-vs-benchmark constructs and have no benchmark counterpart.
+  private static readonly BENCHMARK_LESS_METRICS: ReadonlySet<keyof BacktestMetrics> =
+    new Set(['trackingError', 'informationRatio']);
+
   readonly metricsTableRows = computed<MetricsRow[]>(() => {
     const m = this.result().metrics;
     const pct = (v: number) => this.fmt.formatPercent(v);
     const ratio = (v: number) => this.fmt.formatRatio(v);
 
     return [
-      { metric: 'Total Return', portfolio: pct(m.totalReturn), benchmark: pct(0.482), portfolioRaw: m.totalReturn, benchmarkRaw: 0.482 },
-      { metric: 'Annualized Return', portfolio: pct(m.annualizedReturn), benchmark: pct(0.081), portfolioRaw: m.annualizedReturn, benchmarkRaw: 0.081 },
-      { metric: 'Annualized Volatility', portfolio: pct(m.annualizedVol), benchmark: pct(0.172), portfolioRaw: m.annualizedVol, benchmarkRaw: 0.172 },
-      { metric: 'Sharpe Ratio', portfolio: ratio(m.sharpe), benchmark: ratio(0.471), portfolioRaw: m.sharpe, benchmarkRaw: 0.471 },
-      { metric: 'Sortino Ratio', portfolio: ratio(m.sortino), benchmark: ratio(0.648), portfolioRaw: m.sortino, benchmarkRaw: 0.648 },
-      { metric: 'Max Drawdown', portfolio: pct(m.maxDrawdown), benchmark: pct(-0.247), portfolioRaw: m.maxDrawdown, benchmarkRaw: -0.247 },
-      { metric: 'Calmar Ratio', portfolio: ratio(m.calmar), benchmark: ratio(0.328), portfolioRaw: m.calmar, benchmarkRaw: 0.328 },
-      { metric: 'CVaR 95%', portfolio: pct(m.cvar95), benchmark: pct(-0.031), portfolioRaw: m.cvar95, benchmarkRaw: -0.031 },
-      { metric: 'Tracking Error', portfolio: pct(m.trackingError), benchmark: '—', portfolioRaw: m.trackingError, benchmarkRaw: null },
-      { metric: 'Information Ratio', portfolio: ratio(m.informationRatio), benchmark: '—', portfolioRaw: m.informationRatio, benchmarkRaw: null },
-      { metric: 'Win Rate', portfolio: pct(m.winRate), benchmark: pct(0.522), portfolioRaw: m.winRate, benchmarkRaw: 0.522 },
-      { metric: 'Profit Factor', portfolio: ratio(m.profitFactor), benchmark: ratio(1.18), portfolioRaw: m.profitFactor, benchmarkRaw: 1.18 },
+      this.metricsRow('Total Return', 'totalReturn', pct, m),
+      this.metricsRow('Annualized Return', 'annualizedReturn', pct, m),
+      this.metricsRow('Annualized Volatility', 'annualizedVol', pct, m),
+      this.metricsRow('Sharpe Ratio', 'sharpe', ratio, m),
+      this.metricsRow('Sortino Ratio', 'sortino', ratio, m),
+      this.metricsRow('Max Drawdown', 'maxDrawdown', pct, m),
+      this.metricsRow('Calmar Ratio', 'calmar', ratio, m),
+      this.metricsRow('CVaR 95%', 'cvar95', pct, m),
+      this.metricsRow('Tracking Error', 'trackingError', pct, m),
+      this.metricsRow('Information Ratio', 'informationRatio', ratio, m),
+      this.metricsRow('Win Rate', 'winRate', pct, m),
+      this.metricsRow('Profit Factor', 'profitFactor', ratio, m),
     ];
   });
+
+  private metricsRow(
+    label: string,
+    key: keyof BacktestMetrics,
+    formatter: (v: number) => string,
+    metrics: BacktestMetrics,
+  ): MetricsRow {
+    const portfolioRaw = metrics[key];
+    const benchmarkRaw = this.benchmarkValue(key);
+    return {
+      metric: label,
+      portfolio: formatter(portfolioRaw),
+      benchmark: benchmarkRaw == null ? '—' : formatter(benchmarkRaw),
+      portfolioRaw,
+      benchmarkRaw,
+    };
+  }
+
+  private benchmarkValue(key: keyof BacktestMetrics): number | null {
+    if (BacktestingComponent.BENCHMARK_LESS_METRICS.has(key)) return null;
+    return this.result().benchmarkMetrics?.[key] ?? null;
+  }
+
+  // ── KPI strip benchmark helpers (issue #434) ─────────────────────────────
+  benchmarkDelta(key: keyof BacktestMetrics): number | null {
+    const benchmark = this.result().benchmarkMetrics;
+    if (!benchmark) return null;
+    return this.result().metrics[key] - benchmark[key];
+  }
+
+  benchmarkTrend(key: keyof BacktestMetrics): 'up' | 'down' | 'flat' {
+    const delta = this.benchmarkDelta(key);
+    if (delta === null || delta === 0) return 'flat';
+    return delta > 0 ? 'up' : 'down';
+  }
+
+  benchmarkSubtitle(key: keyof BacktestMetrics): string {
+    const benchmark = this.result().benchmarkMetrics;
+    if (!benchmark) return '';
+    return `vs ${this.fmt.formatPercent(benchmark[key])} benchmark`;
+  }
 
   // ── Drawdown table ─────────────────────────────────────────────────────────
   readonly drawdownTableRows = computed(() =>

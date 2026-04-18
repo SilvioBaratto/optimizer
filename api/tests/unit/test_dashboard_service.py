@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from app.services.dashboard_service import (
     _annualized_return,
+    _compute_change,
     _cvar_95,
     _max_drawdown,
     _portfolio_returns,
@@ -130,6 +133,68 @@ class TestPortfolioReturns:
         weights = {"FAKE1": 0.5, "FAKE2": 0.5}
         with pytest.raises(ValueError, match="No price data"):
             _portfolio_returns(prices_df, weights)
+
+
+# ---------------------------------------------------------------------------
+# Change delta (issue #432)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeChange:
+    """Defensive contract: _compute_change returns a finite, bounded float.
+
+    The function returns the *absolute* difference between current and prior
+    period KPIs (the frontend handles per-format presentation). The acceptance
+    criteria require the value to stay finite and bounded even when the
+    prior-period baseline is zero or near-zero.
+    """
+
+    def test_normal_case_returns_signed_difference(self):
+        # Two windows with clearly different means → non-trivial difference
+        returns = pd.Series([0.001] * 21 + [0.005] * 21)
+        result = _compute_change(returns, _total_return, lookback=21)
+        assert isinstance(result, float)
+        assert result > 0  # current window has higher total return
+
+    def test_insufficient_data_returns_zero(self):
+        returns = pd.Series([0.001] * 10)
+        assert _compute_change(returns, _total_return, lookback=21) == 0.0
+
+    def test_zero_baseline_does_not_explode(self):
+        # Prior window all zeros → baseline KPI is exactly zero
+        returns = pd.Series([0.0] * 21 + [0.002] * 21)
+        result = _compute_change(returns, _total_return, lookback=21)
+        assert math.isfinite(result)
+        # Absolute change is small when the current window is small
+        assert abs(result) < 1.0
+
+    def test_near_zero_baseline_stays_bounded(self):
+        # Prior window has ~0 returns, current has small positive returns
+        returns = pd.Series([1e-7] * 21 + [0.001] * 21)
+        result = _compute_change(returns, _sharpe_ratio, lookback=21)
+        assert math.isfinite(result)
+        # Sharpe ratio is bounded; the diff should be a reasonable scalar
+        assert abs(result) < 100.0
+
+    def test_sign_change_returns_signed_delta(self):
+        # Prior window negative drift, current positive
+        returns = pd.Series([-0.002] * 21 + [0.002] * 21)
+        result = _compute_change(returns, _total_return, lookback=21)
+        assert math.isfinite(result)
+        assert result > 0  # current is better than prior
+
+    def test_non_finite_kpi_returns_zero(self):
+        # A KPI function that yields NaN / inf must not propagate to the delta
+        returns = pd.Series([0.001] * 42)
+
+        def nan_kpi(_window: pd.Series) -> float:
+            return float("nan")
+
+        def inf_kpi(_window: pd.Series) -> float:
+            return float("inf")
+
+        assert _compute_change(returns, nan_kpi, lookback=21) == 0.0
+        assert _compute_change(returns, inf_kpi, lookback=21) == 0.0
 
 
 # ---------------------------------------------------------------------------

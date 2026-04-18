@@ -85,7 +85,11 @@ describe('JobsService', () => {
   });
 
   describe('getDomainStatuses()', () => {
-    it('builds a status entry for each known DOMAIN_META domain', () => {
+    it('returns an empty array when the API reports no jobs (issue #440)', () => {
+      // Regression: previously the service would fan out the empty result
+      // over every DOMAIN_META entry, producing 15 placeholder cards in the
+      // Pipeline Health grid. The contract is now: no jobs → no statuses,
+      // letting the page render its single "no pipeline activity yet" tile.
       let result: DomainStatus[] | undefined;
       svc.getDomainStatuses().subscribe((r) => (result = r));
 
@@ -96,10 +100,27 @@ describe('JobsService', () => {
         offset: 0,
       });
 
-      expect(result!.length).toBeGreaterThanOrEqual(DOMAIN_META.length);
-      for (const meta of DOMAIN_META) {
-        expect(result!.some((s) => s.meta.domain === meta.domain)).toBe(true);
-      }
+      expect(result).toEqual([]);
+    });
+
+    it('builds one status per domain present in the API response', () => {
+      let result: DomainStatus[] | undefined;
+      svc.getDomainStatuses().subscribe((r) => (result = r));
+
+      http.expectOne((r) => r.url === JOBS_URL).flush({
+        jobs: [
+          job({ id: 'a', domain: 'optimize', status: 'completed' }),
+          job({ id: 'b', domain: 'yfinance_fetch', status: 'completed' }),
+        ],
+        total: 2,
+        limit: 100,
+        offset: 0,
+      });
+
+      expect(result!.length).toBe(2);
+      expect(result!.map((s) => s.meta.domain).sort()).toEqual(
+        ['optimize', 'yfinance_fetch'].sort(),
+      );
     });
 
     it('groups running/completed/failed jobs by underscore domain name', () => {
@@ -140,18 +161,22 @@ describe('JobsService', () => {
       expect(unknown!.running?.id).toBe('x');
     });
 
-    it('falls back to empty statuses for all known domains on error', () => {
-      let result: DomainStatus[] | undefined;
-      svc.getDomainStatuses().subscribe((r) => (result = r));
+    it('propagates the error so the caller can render a banner (issue #440)', () => {
+      // Regression: the previous silent catchError fallback masked HTTP errors
+      // as "15 empty cards" — indistinguishable from a successful empty result.
+      let error: unknown;
+      let next: DomainStatus[] | undefined;
+      svc.getDomainStatuses().subscribe({
+        next: (r) => (next = r),
+        error: (e) => (error = e),
+      });
 
       http
         .expectOne((r) => r.url === JOBS_URL)
         .error(new ProgressEvent('network'), { status: 500 });
 
-      expect(result!.length).toBe(DOMAIN_META.length);
-      expect(result!.every((s) => s.lastSuccess === null && s.running === null)).toBe(
-        true,
-      );
+      expect(next).toBeUndefined();
+      expect(error).toBeDefined();
     });
   });
 
