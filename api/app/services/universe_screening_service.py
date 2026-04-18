@@ -62,7 +62,13 @@ _PRESET_FACTORIES: dict[ScreenPreset, Any] = {
 
 
 def _assemble_fundamentals(session: Session) -> pd.DataFrame:
-    """Return DataFrame indexed by yfinance_ticker with market_cap, current_price, exchange."""
+    """Return DataFrame indexed by yfinance_ticker with market_cap, current_price, exchange.
+
+    Multiple ``instruments`` rows can share the same ``yfinance_ticker`` (e.g. one
+    symbol listed on two exchanges), which produces a duplicated index and breaks
+    downstream Series alignment with ``Can only compare identically-labeled Series
+    objects``. Deduplicate on ``yfinance_ticker`` so the index is unique (#426).
+    """
     stmt = (
         select(
             Instrument.yfinance_ticker,
@@ -79,11 +85,19 @@ def _assemble_fundamentals(session: Session) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(columns=["market_cap", "current_price", "exchange"])
     df = pd.DataFrame(rows, columns=["yfinance_ticker", "market_cap", "current_price", "exchange"])
+    df = df.drop_duplicates(subset=["yfinance_ticker"], keep="first")
     return df.set_index("yfinance_ticker")
 
 
 def _assemble_price_volume(session: Session) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Return (close_df, volume_df) both shaped (dates × tickers)."""
+    """Return (close_df, volume_df) both shaped (dates × tickers).
+
+    Multiple ``instruments`` rows can map to the same ``yfinance_ticker``
+    (e.g. one symbol listed on two exchanges), which produces duplicate
+    ``(ticker, date)`` tuples in the join and breaks ``df.pivot`` with
+    ``Index contains duplicate entries, cannot reshape``. Deduplicate at
+    the hydration boundary so the pivot is always well-defined (issue #426).
+    """
     stmt = (
         select(
             Instrument.yfinance_ticker,
@@ -100,6 +114,7 @@ def _assemble_price_volume(session: Session) -> tuple[pd.DataFrame, pd.DataFrame
     if not rows:
         return pd.DataFrame(), pd.DataFrame()
     df = pd.DataFrame(rows, columns=["ticker", "date", "close", "volume"])
+    df = df.drop_duplicates(subset=["ticker", "date"], keep="first")
     close_df = df.pivot(index="date", columns="ticker", values="close").astype(float)
     volume_df = df.pivot(index="date", columns="ticker", values="volume").astype(float)
     return close_df, volume_df

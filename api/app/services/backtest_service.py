@@ -1,10 +1,11 @@
 """Backtest service: wraps run_full_pipeline / run_full_pipeline_with_selection.
 
 Stateless functions following Single Responsibility Principle:
-  - validate_prices  — guard against empty/missing price data
-  - build_optimizer  — map pipeline_config to an optimizer instance
-  - extract_backtest_metrics  — convert PortfolioResult to BacktestRun fields
-  - run_and_persist  — full lifecycle: fetch → validate → run → persist
+  - validate_prices          — guard against empty/missing price data
+  - _ensure_datetime_index   — coerce ``prices.index`` to tz-naive DatetimeIndex
+  - build_optimizer          — map pipeline_config to an optimizer instance
+  - extract_backtest_metrics — convert PortfolioResult to BacktestRun fields
+  - run_and_persist          — full lifecycle: fetch → validate → run → persist
 """
 
 from __future__ import annotations
@@ -58,6 +59,21 @@ def validate_prices(prices: pd.DataFrame, tickers: list[str]) -> None:
             f"Price data missing for tickers: {', '.join(absent)}. "
             "Run yfinance fetch first."
         )
+
+
+def _ensure_datetime_index(prices: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of ``prices`` with a tz-naive ``DatetimeIndex``.
+
+    ``fetch_close_prices`` returns a DataFrame whose index is a plain
+    ``Index[object]`` of ``datetime.date``; ``run_full_pipeline`` requires a
+    ``DatetimeIndex``. Coercion happens at the service boundary (issue #422).
+    """
+    normalised = prices.copy()
+    idx = pd.DatetimeIndex(pd.to_datetime(normalised.index))
+    if idx.tz is not None:
+        idx = idx.tz_convert("UTC").tz_localize(None)
+    normalised.index = idx
+    return normalised
 
 
 def build_optimizer(pipeline_config: dict[str, Any]) -> Any:
@@ -138,6 +154,7 @@ def run_and_persist(
     """
     prices = fetch_close_prices(tickers, session, start_date=start_date, end_date=end_date)
     validate_prices(prices, tickers)
+    prices = _ensure_datetime_index(prices)
 
     optimizer = build_optimizer(pipeline_config)
     cv_config = WalkForwardConfig() if pipeline_config.get("run_cv", True) else None

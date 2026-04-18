@@ -55,10 +55,10 @@ function fmtPct(value: number | undefined): string {
       <div class="bg-surface-raised border border-border rounded-lg p-4 flex items-center gap-3">
         <div class="flex-1">
           <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide">
-            Walk-forward cross-validation
+            Walk-forward validation
           </h4>
           <p class="text-xs text-text-tertiary mt-1">
-            Runs a background CV job via POST /validate/cross-validation with cv_type=walk_forward.
+            Runs a background job via POST /validate/walk-forward with cv_type=walk_forward.
           </p>
         </div>
         <button type="button" (click)="onRun()" [disabled]="isRunning()"
@@ -168,7 +168,7 @@ export class WalkForwardPanelComponent {
     }
     this.error.set(null);
     this.backtest
-      .runCrossValidation({
+      .runWalkForward({
         tickers,
         start_date: this.startDate(),
         end_date: this.endDate(),
@@ -187,7 +187,7 @@ export class WalkForwardPanelComponent {
     this.jobId.set(null);
     if (!id) return;
     this.backtest
-      .pollCrossValidation(id)
+      .pollWalkForward(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (progress) => this.applyResult(progress),

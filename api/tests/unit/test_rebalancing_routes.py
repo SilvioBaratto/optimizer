@@ -319,13 +319,19 @@ class TestDecideUnknownPolicy:
 # ---------------------------------------------------------------------------
 
 
-class TestPreview404:
+class TestPreviewSemantics:
+    """Regression for #425: preview returns 200 with empty state when the
+    portfolio exists but the optional resources (policy, snapshots) don't.
+
+    404 is preserved strictly for the 'portfolio itself does not exist' case.
+    """
+
     def test_portfolio_not_found_returns_404(self, client: TestClient) -> None:
         resp = client.get(f"{BASE_PREVIEW}/nonexistent-portfolio")
 
         assert resp.status_code == 404
 
-    def test_no_active_policy_returns_404(
+    def test_no_active_policy_returns_200_with_no_active_policy_status(
         self, client: TestClient, db_session: Session
     ) -> None:
         portfolio = _make_portfolio(db_session)
@@ -333,9 +339,12 @@ class TestPreview404:
 
         resp = client.get(f"{BASE_PREVIEW}/{portfolio.name}")
 
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "no_active_policy"
+        assert body["trades"] == []
 
-    def test_no_snapshots_returns_404(
+    def test_no_snapshots_returns_200_with_no_snapshots_status(
         self, client: TestClient, db_session: Session
     ) -> None:
         portfolio = _make_portfolio(db_session)
@@ -344,7 +353,37 @@ class TestPreview404:
 
         resp = client.get(f"{BASE_PREVIEW}/{portfolio.name}")
 
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "no_snapshots"
+        assert body["trades"] == []
+
+    def test_no_snapshots_response_still_carries_policy_type(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """When a policy exists but no snapshot, policy_type should still be populated."""
+        portfolio = _make_portfolio(db_session)
+        _make_policy(db_session, portfolio.id, policy_type="threshold", is_active=True)
+
+        resp = client.get(f"{BASE_PREVIEW}/{portfolio.name}")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        key = "policyType" if "policyType" in body else "policy_type"
+        assert body[key] == "threshold"
+
+    def test_happy_path_status_is_null(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """When policy + snapshot both exist, status must be null (no empty state)."""
+        portfolio = _make_portfolio(db_session)
+        _make_policy(db_session, portfolio.id, is_active=True)
+        _make_snapshot(db_session, portfolio.id)
+
+        resp = client.get(f"{BASE_PREVIEW}/{portfolio.name}")
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] is None
 
 
 # ---------------------------------------------------------------------------

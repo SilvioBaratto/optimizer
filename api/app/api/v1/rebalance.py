@@ -78,12 +78,11 @@ def get_rebalance_preview(
 ) -> RebalancePreviewResponse:
     """Produce a trade list from the latest snapshot and active policy.
 
-    Returns 404 when:
-    - The portfolio does not exist.
-    - No active rebalancing policy is set.
-    - No snapshots exist for the portfolio.
-
-    Returns an empty trade list when no broker positions are synced.
+    Returns 404 **only** when the portfolio itself does not exist. Empty-state
+    semantics (issue #425): when the portfolio exists but an active policy or
+    a snapshot is missing, the response is 200 with empty fields and a
+    ``status`` reason (``'no_active_policy'`` / ``'no_snapshots'``). This lets
+    the UI render a contextual empty state instead of an HTTP error toast.
     """
     portfolio_repo = PortfolioRepository(db)
     rebalancing_repo = RebalancingRepository(db)
@@ -97,16 +96,17 @@ def get_rebalance_preview(
 
     policy = rebalancing_repo.get_active_policy(portfolio.id)
     if policy is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No active rebalancing policy for portfolio '{portfolio_name}'",
+        return RebalancePreviewResponse(
+            portfolio_name=portfolio_name,
+            status="no_active_policy",
         )
 
     snapshot = portfolio_repo.get_latest_snapshot(portfolio.id)
     if snapshot is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No snapshots found for portfolio '{portfolio_name}'",
+        return RebalancePreviewResponse(
+            portfolio_name=portfolio_name,
+            policy_type=policy.policy_type,
+            status="no_snapshots",
         )
 
     target_weights = snapshot.weights

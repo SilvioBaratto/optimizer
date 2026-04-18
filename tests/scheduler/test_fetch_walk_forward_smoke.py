@@ -1,7 +1,7 @@
 """Structural + syntax tests for the walk-forward smoke stage in scheduler/fetch.sh.
 
 The smoke stage is opt-in (flag / env var) and calls
-``POST /api/v1/validate/cross-validation`` after the five fetch stages succeed.
+``POST /api/v1/validate/walk-forward`` after the five fetch stages succeed.
 
 These tests verify the script's shape and syntax rather than end-to-end behavior,
 which would require mocking 6 HTTP endpoints. They catch the concrete failure
@@ -58,13 +58,14 @@ class TestWalkForwardSmokeStage:
     def test_smoke_end_date_env_var_is_consulted(self, script_source: str) -> None:
         assert "SMOKE_END_DATE" in script_source
 
-    def test_targets_cross_validation_endpoint(self, script_source: str) -> None:
-        assert "/validate/cross-validation" in script_source
+    def test_targets_walk_forward_endpoint(self, script_source: str) -> None:
+        assert "/validate/walk-forward" in script_source
 
-    def test_never_references_the_nonexistent_walk_forward_endpoint(
+    def test_never_references_the_old_cross_validation_endpoint(
         self, script_source: str
     ) -> None:
-        assert "/validate/walk-forward" not in script_source
+        """Post-#428 the endpoint was renamed; the old path must not linger."""
+        assert "/validate/cross-validation" not in script_source
 
     def test_cv_type_is_hardcoded_to_walk_forward(self, script_source: str) -> None:
         assert re.search(r"cv_type.*walk_forward", script_source)

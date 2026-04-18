@@ -1,7 +1,7 @@
-"""Pydantic v2 schemas for cross-validation endpoints.
+"""Pydantic v2 schemas for walk-forward validation endpoints.
 
-Covers request/response shapes for POST /validate/cross-validation
-and GET /validate/cross-validation/{job_id}.
+Covers request/response shapes for POST /validate/walk-forward
+and GET /validate/walk-forward/{job_id}.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ class CvType(str, Enum):
 
 
 class ValidateRequest(BaseModel):
-    """Request body for POST /validate/cross-validation."""
+    """Request body for POST /validate/walk-forward."""
 
     tickers: list[str] = Field(
         ..., min_length=1, description="Non-empty list of universe tickers"
@@ -61,11 +61,11 @@ class FoldResult(BaseModel):
 
 
 class ValidateJobResponse(AsyncJobCreateResponse):
-    """Returned when a cross-validation background job is created."""
+    """Returned when a walk-forward validation background job is created."""
 
 
 class ValidateProgress(AsyncJobProgress):
-    """Progress polled via GET /validate/cross-validation/{job_id}."""
+    """Progress polled via GET /validate/walk-forward/{job_id}."""
 
     current_fold: int = Field(0, description="Folds completed so far")
     total_folds: int = Field(0, description="Total folds to process")

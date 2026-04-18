@@ -13,6 +13,7 @@ from app.config import settings
 from app.database import get_db
 from app.repositories.dashboard_repository import DashboardRepository
 from app.repositories.portfolio_repository import PortfolioRepository
+from app.services._sector_resolver import resolve_sector_map
 from app.schemas.dashboard import (
     ActivityFeedResponse,
     ActivityItem,
@@ -250,9 +251,9 @@ def get_allocation(
         )
 
     weights: dict[str, float] = snapshot.weights
-    sector_mapping: dict[str, str] | None = snapshot.sector_mapping
+    snapshot_mapping: dict[str, str] | None = snapshot.sector_mapping
 
-    if sector_mapping is None:
+    if snapshot_mapping is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
@@ -260,6 +261,14 @@ def get_allocation(
                 " run optimization with sector data"
             ),
         )
+
+    # Shared resolver (issue #427): snapshot-first with TickerProfile fallback
+    # for any ticker the snapshot didn't cover.
+    sector_mapping = resolve_sector_map(
+        session=db,
+        tickers=weights.keys(),
+        snapshot_mapping=snapshot_mapping,
+    )
 
     try:
         result = dashboard_service.compute_allocation(
@@ -432,9 +441,9 @@ def get_asset_class_returns(
         )
 
     weights: dict[str, float] = snapshot.weights
-    sector_mapping: dict[str, str] | None = snapshot.sector_mapping
+    snapshot_mapping: dict[str, str] | None = snapshot.sector_mapping
 
-    if sector_mapping is None:
+    if snapshot_mapping is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
@@ -442,6 +451,13 @@ def get_asset_class_returns(
                 " run optimization with sector data"
             ),
         )
+
+    # Shared resolver (issue #427): snapshot-first with TickerProfile fallback.
+    sector_mapping = resolve_sector_map(
+        session=db,
+        tickers=weights.keys(),
+        snapshot_mapping=snapshot_mapping,
+    )
 
     # Lookback must cover from Jan 1 of current year at minimum
     tickers = list(weights.keys())

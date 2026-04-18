@@ -26,10 +26,6 @@ _CONFIDENCE_LEVELS = (0.90, 0.95, 0.99)
 _CONFIDENCE_KEYS = ("90", "95", "99")
 
 
-class FactorScoresNotFoundError(Exception):
-    """Raised when no factor scores exist for the requested portfolio assets."""
-
-
 class RiskAnalyticsService:
     """Compute risk analytics from stored price and factor data.
 
@@ -98,17 +94,19 @@ class RiskAnalyticsService:
             Dict with ``assets``, ``matrix``, ``cluster_labels``.
 
         Raises:
-            ValueError: When fewer than 2 assets are present.
+            ValueError: When fewer than 2 assets have usable price data.
         """
         logger.debug("compute_correlation portfolio_id=%s lookback=%d", portfolio_id, lookback)
         prices = self._fetch_prices(weights, lookback)
-        tickers = list(weights.keys())
-        _assert_at_least_two_assets(tickers)
+        available = _surviving_tickers(weights, prices)
+        _assert_at_least_two_assets(available)
 
-        prices = prices.reindex(columns=tickers).dropna()
+        prices = prices[available].dropna()
+        _assert_at_least_two_assets(list(prices.columns))
+
         corr_matrix = _compute_corr_matrix(prices)
         ordered_assets, reordered_corr, cluster_labels = _cluster_and_reorder(
-            tickers, corr_matrix
+            available, corr_matrix
         )
 
         return {
@@ -124,27 +122,22 @@ class RiskAnalyticsService:
     ) -> dict[str, Any]:
         """Compute portfolio-weighted factor exposures.
 
+        Returns empty ``exposures`` and ``asset_exposures`` dicts when no factor
+        scores have been persisted for any ticker yet (empty-state semantics,
+        issue #424 — the portfolio exists; the computation simply has no input).
+
         Args:
             portfolio_id: Portfolio UUID string.
             weights: Dict of ticker → portfolio weight.
 
         Returns:
-            Dict with ``exposures`` and ``asset_exposures``.
-
-        Raises:
-            FactorScoresNotFoundError: When no factor scores exist.
+            Dict with ``exposures`` and ``asset_exposures``. Both are empty
+            dicts when no scores are available.
         """
         logger.debug("compute_factor_exposure portfolio_id=%s", portfolio_id)
         scores = self._fetch_latest_factor_scores(list(weights.keys()))
-        if not scores:
-            raise FactorScoresNotFoundError(
-                "No factor scores found for portfolio assets. "
-                "Run factor computation first."
-            )
-
         asset_exposures = _build_asset_exposures(scores)
         exposures = _compute_weighted_exposures(weights, asset_exposures)
-
         return {"exposures": exposures, "asset_exposures": asset_exposures}
 
     def compute_concentration(
@@ -202,13 +195,22 @@ class RiskAnalyticsService:
     def _fetch_weighted_returns(
         self, weights: dict[str, float], lookback: int
     ) -> pd.Series:
-        """Fetch close prices and compute portfolio-weighted daily returns."""
+        """Fetch close prices and compute portfolio-weighted daily returns.
+
+        Tickers without any price data are silently skipped so a single missing
+        instrument (e.g. newly delisted or not yet ingested) does not collapse
+        the entire weighted-return series. Remaining assets keep their original
+        weights; the missing asset contributes 0 to the weighted risk measure.
+        """
         prices = self._fetch_prices(weights, lookback)
-        tickers = list(weights.keys())
-        prices = prices.reindex(columns=tickers).dropna()
+        available = _surviving_tickers(weights, prices)
+        if not available:
+            return pd.Series(dtype=float)
+
+        prices = prices[available].dropna()
         returns = prices.pct_change().dropna()
-        weight_array = np.array([weights.get(t, 0.0) for t in returns.columns])
-        weighted = (returns.values @ weight_array)
+        weight_array = np.array([weights[t] for t in returns.columns])
+        weighted = returns.values @ weight_array
         return pd.Series(weighted, index=returns.index)
 
     def _fetch_prices(
@@ -284,6 +286,16 @@ def _assert_at_least_two_assets(tickers: list[str]) -> None:
         raise ValueError(
             f"At least 2 assets required for correlation; got {len(tickers)}."
         )
+
+
+def _surviving_tickers(
+    weights: dict[str, float],
+    prices: pd.DataFrame,
+) -> list[str]:
+    """Return weight tickers that actually have a column of prices (preserving weight order)."""
+    if prices.empty:
+        return []
+    return [t for t in weights if t in prices.columns]
 
 
 def _historical_var_cvar(

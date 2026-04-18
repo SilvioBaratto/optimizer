@@ -429,26 +429,10 @@ def _compute_factor_return(
 
 
 def _fetch_sector_map(session: Session, tickers: list[str]) -> dict[str, str]:
-    """Fetch sector from TickerProfile via Instrument.ticker."""
-    from sqlalchemy import select
+    """Resolve sector per ticker via the shared two-tier resolver (issue #427)."""
+    from app.services._sector_resolver import resolve_sector_map
 
-    from app.models.universe import Instrument
-    from app.models.yfinance_data import TickerProfile
-
-    stmt = (
-        select(Instrument.ticker, TickerProfile.sector)
-        .join(TickerProfile, TickerProfile.instrument_id == Instrument.id)
-        .where(Instrument.ticker.in_(tickers))
-    )
-    rows = session.execute(stmt).all()
-    sector_map = {
-        row.ticker: (row.sector if row.sector else _UNCLASSIFIED)
-        for row in rows
-    }
-    for ticker in tickers:
-        if ticker not in sector_map:
-            sector_map[ticker] = _UNCLASSIFIED
-    return sector_map
+    return resolve_sector_map(session, tickers)
 
 
 def _fetch_ticker_returns(

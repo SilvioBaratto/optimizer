@@ -29,10 +29,7 @@ from app.schemas.risk_analytics import (
     LiquidityResponse,
     VarResponse,
 )
-from app.services.risk_analytics_service import (
-    FactorScoresNotFoundError,
-    RiskAnalyticsService,
-)
+from app.services.risk_analytics_service import RiskAnalyticsService
 
 logger = logging.getLogger(__name__)
 
@@ -174,21 +171,19 @@ def get_factor_exposure(
     repo: PortfolioRepository = Depends(get_portfolio_repository),
     service: RiskAnalyticsService = Depends(get_risk_analytics_service),
 ) -> FactorExposureResponse:
-    """Return portfolio-weighted factor exposures based on stored factor scores."""
+    """Return portfolio-weighted factor exposures based on stored factor scores.
+
+    Empty-state semantics (issue #424): when no factor scores exist for the
+    portfolio's tickers, the service returns empty ``exposures`` / ``asset_exposures``
+    mappings and this route responds 200. The 404 path is reserved for the
+    portfolio / snapshot not existing (the real not-found resources).
+    """
     portfolio = _get_portfolio_or_404(name, repo)
     weights = _get_snapshot_weights_or_404(name, portfolio, repo)
-
-    try:
-        result = service.compute_factor_exposure(
-            portfolio_id=str(portfolio.id),
-            weights=weights,
-        )
-    except FactorScoresNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
+    result = service.compute_factor_exposure(
+        portfolio_id=str(portfolio.id),
+        weights=weights,
+    )
     return FactorExposureResponse(**result)
 
 
