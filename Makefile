@@ -11,10 +11,10 @@ typecheck:
 	mypy optimizer/
 
 test:
-	pytest tests/ -v --cov=optimizer --cov-report=term-missing
+	pytest tests/ -v --cov=optimizer --cov-report=term-missing --cov-fail-under=90
 
 coverage:
-	pytest tests/ --cov=optimizer --cov-report=html
+	pytest tests/ --cov=optimizer --cov-report=html --cov-fail-under=90
 	@echo "Coverage report generated in htmlcov/index.html"
 
 all: lint typecheck test

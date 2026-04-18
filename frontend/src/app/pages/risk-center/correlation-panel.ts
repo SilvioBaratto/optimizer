@@ -10,9 +10,13 @@ import {
 } from '@angular/core';
 import { EchartsHeatmapComponent } from '../../shared/echarts-heatmap/echarts-heatmap';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
-import { generateDailyTimeSeries } from '../../mocks/generators';
 import type { CorrelationData } from '../../models/risk.model';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
+
+interface RollingCorrPoint {
+  date: string;
+  value: number;
+}
 
 @Component({
   selector: 'app-correlation-panel',
@@ -35,8 +39,11 @@ export class CorrelationPanelComponent implements OnDestroy {
     { value: 'kendall' as const, label: 'Kendall' },
   ];
 
-  private readonly rollingCorr1 = generateDailyTimeSeries('2025-06-01', 180, 0, 0.05, 0.45, 201);
-  private readonly rollingCorr2 = generateDailyTimeSeries('2025-06-01', 180, 0, 0.04, 0.30, 202);
+  // No rolling-correlation endpoint exists on the backend yet. The chart
+  // renders an empty placeholder until the endpoint is wired up — see
+  // follow-up tracked in frontend/docs/a11y-audit.md / backlog.
+  private readonly rollingCorr1: RollingCorrPoint[] = [];
+  private readonly rollingCorr2: RollingCorrPoint[] = [];
 
   constructor() {
     effect((onCleanup) => {

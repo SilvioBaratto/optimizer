@@ -12,13 +12,13 @@ import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-gr
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { PipelineStatusComponent } from './pipeline-status/pipeline-status';
-import type { AgentRole } from '../../models/ai-control.model';
+import type {
+  AgentRole,
+  AgentStatus,
+  DecisionFeedItem,
+  VetoLogEntry,
+} from '../../models/ai-control.model';
 import { FEATURE_AI_DECISION_LOG_TOKEN } from '../../config/feature-flags';
-import {
-  MOCK_AGENT_STATUSES,
-  MOCK_DECISION_FEED,
-  MOCK_VETO_LOG,
-} from '../../mocks/ai-control-mocks';
 
 type ControlTab = 'overview' | 'history' | 'agents' | 'pipeline';
 
@@ -84,10 +84,16 @@ export class AiControlRoomComponent {
   readonly feedFilter = signal<AgentRole | 'all'>('all');
   readonly expandedDecisions = signal<Set<string>>(new Set());
 
-  // ── Static data (only used when decisionLogEnabled) ──
-  readonly agents = MOCK_AGENT_STATUSES;
-  readonly feed = MOCK_DECISION_FEED;
-  readonly vetoLog = MOCK_VETO_LOG;
+  // ── Decision-log data sources ──
+  // These three arrays back the Overview / History / Agents tabs, which are
+  // only rendered when `decisionLogEnabled` (FEATURE_AI_DECISION_LOG) is true.
+  // No backend endpoint exists yet for agent statuses, the decision feed, or
+  // the veto log; the feature flag ships OFF so production never shows stale
+  // data. When the endpoints land, wire a service here — see the follow-up
+  // tracked under milestone "Cycle 5 — Observability" in the audit backlog.
+  readonly agents: AgentStatus[] = [];
+  readonly feed: DecisionFeedItem[] = [];
+  readonly vetoLog: VetoLogEntry[] = [];
 
   // ── Tabs ──
   readonly tabs = computed<Tab[]>(() => {
@@ -110,6 +116,7 @@ export class AiControlRoomComponent {
     this.agents.filter(a => a.status === 'active').length
   );
   readonly avgConfidence = computed(() => {
+    if (this.agents.length === 0) return '0.0%';
     const c = this.agents.reduce((sum, a) => sum + a.confidence, 0) / this.agents.length;
     return (c * 100).toFixed(1) + '%';
   });

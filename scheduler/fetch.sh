@@ -146,6 +146,52 @@ else
     CALIBRATE_EXIT=1
 fi
 
+# ── Walk-forward smoke stage (opt-in) ────────────────────────────
+# Opt-in via ENABLE_WALK_FORWARD_SMOKE=1. When set AND every upstream
+# fetch stage succeeded, POSTs a small walk-forward cross-validation
+# against ${OPTIMIZER_API_URL}/api/v1/validate/cross-validation as a
+# daily sanity check that execution-layer CV metrics still compute on
+# fresh data. Default behavior (variable unset) is unchanged — no
+# validate call is made.
+#
+# Configurable via env vars with defaults:
+#   SMOKE_TICKERS     comma-separated tickers (default: SPY,QQQ,IWM,EFA,TLT)
+#   SMOKE_START_DATE  ISO date (default: 2020-01-01)
+#   SMOKE_END_DATE    ISO date (default: today UTC)
+#
+# cv_type is hardcoded to walk_forward; cv_config / optimizer_type /
+# optimizer_config are omitted to take server defaults.
+run_walk_forward_smoke() {
+    tickers="${SMOKE_TICKERS:-SPY,QQQ,IWM,EFA,TLT}"
+    start_date="${SMOKE_START_DATE:-2020-01-01}"
+    end_date="${SMOKE_END_DATE:-$(date -u '+%Y-%m-%d')}"
+
+    # Build the ticker JSON array from the comma-separated list via jq
+    # so raw ticker strings cannot break JSON quoting.
+    tickers_json=$(echo "$tickers" | jq -R -c 'split(",") | map(. | gsub("^\\s+|\\s+$"; ""))')
+
+    body=$(jq -n \
+        --argjson tickers "$tickers_json" \
+        --arg start_date "$start_date" \
+        --arg end_date "$end_date" \
+        '{tickers: $tickers, start_date: $start_date, end_date: $end_date, cv_type: "walk_forward"}')
+
+    fire_and_poll "smoke-walk-forward" "/validate/cross-validation" "$body"
+}
+
+SMOKE_EXIT=0
+if [ "${ENABLE_WALK_FORWARD_SMOKE:-0}" = "1" ]; then
+    if [ $YFINANCE_EXIT -eq 0 ] && [ $MACRO_EXIT -eq 0 ] && \
+       [ $NEWS_EXIT -eq 0 ] && [ $SUMMARIZE_EXIT -eq 0 ] && \
+       [ $CALIBRATE_EXIT -eq 0 ]; then
+        run_walk_forward_smoke
+        SMOKE_EXIT=$?
+    else
+        echo "--- smoke-walk-forward: SKIPPED (upstream stage failed) ---"
+        SMOKE_EXIT=1
+    fi
+fi
+
 # ── Summary ──────────────────────────────────────────────────────
 echo "=== Fetch summary ==="
 echo "  yfinance:   $([ $YFINANCE_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $YFINANCE_EXIT)")"
@@ -153,8 +199,14 @@ echo "  macro:      $([ $MACRO_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $
 echo "  news:       $([ $NEWS_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $NEWS_EXIT)")"
 echo "  summarize:  $([ $SUMMARIZE_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $SUMMARIZE_EXIT)")"
 echo "  calibrate:  $([ $CALIBRATE_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $CALIBRATE_EXIT)")"
+if [ "${ENABLE_WALK_FORWARD_SMOKE:-0}" = "1" ]; then
+    echo "  smoke-wf:   $([ $SMOKE_EXIT -eq 0 ] && echo 'OK' || echo "FAILED (exit $SMOKE_EXIT)")"
+fi
 echo "=== Data fetch finished at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ==="
 
-# Exit with failure if any fetch failed
+# Exit non-zero if any fetch stage OR the opt-in smoke stage failed.
+# A failing smoke stage does NOT roll back the committed upstream data —
+# it only signals cron/ops via a non-zero exit code.
 [ $YFINANCE_EXIT -eq 0 ] && [ $MACRO_EXIT -eq 0 ] && \
-[ $NEWS_EXIT -eq 0 ] && [ $SUMMARIZE_EXIT -eq 0 ] && [ $CALIBRATE_EXIT -eq 0 ]
+[ $NEWS_EXIT -eq 0 ] && [ $SUMMARIZE_EXIT -eq 0 ] && \
+[ $CALIBRATE_EXIT -eq 0 ] && [ $SMOKE_EXIT -eq 0 ]

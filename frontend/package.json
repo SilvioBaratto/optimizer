@@ -6,7 +6,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "a11y": "node scripts/a11y.mjs"
   },
   "prettier": {
     "printWidth": 100,
@@ -48,6 +49,7 @@
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.1.0",
     "tailwindcss": "^4.1.18",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "@axe-core/cli": "^4.11.2"
   }
 }
