@@ -1,8 +1,12 @@
-"""FastAPI router for cross-validation endpoints.
+"""FastAPI router for walk-forward validation endpoints.
 
 Endpoints:
-  POST /validate/cross-validation  — start background CV job, returns 202 + job_id
-  GET  /validate/cross-validation/{job_id} — poll status and progress
+  POST /validate/walk-forward  — start background CV job, returns 202 + job_id
+  GET  /validate/walk-forward/{job_id} — poll status and progress
+
+The route is named after its primary CV strategy (walk-forward) per the spec,
+but the underlying service supports multiple CV strategies via
+``request.cv_type`` (walk_forward | cpcv | multiple_randomized).
 """
 
 from __future__ import annotations
@@ -39,8 +43,8 @@ _job_service = BackgroundJobService(
 # ---------------------------------------------------------------------------
 
 
-def _run_cross_val_bg(job_id: str, request: ValidateRequest) -> None:
-    """Execute cross-validation in a daemon thread with its own DB session."""
+def _run_walk_forward_bg(job_id: str, request: ValidateRequest) -> None:
+    """Execute walk-forward validation in a daemon thread with its own DB session."""
     _job_service.update_job(job_id, status="running")
     try:
         with database_manager.get_session() as session:
@@ -61,9 +65,9 @@ def _run_cross_val_bg(job_id: str, request: ValidateRequest) -> None:
             finished_at=datetime.now(timezone.utc).isoformat(),
             result=result,
         )
-        logger.info("Cross-validation job %s completed", job_id)
+        logger.info("Walk-forward validation job %s completed", job_id)
     except Exception as exc:
-        logger.error("Cross-validation job %s failed: %s", job_id, exc)
+        logger.error("Walk-forward validation job %s failed: %s", job_id, exc)
         _job_service.update_job(
             job_id,
             status="failed",
@@ -78,14 +82,14 @@ def _run_cross_val_bg(job_id: str, request: ValidateRequest) -> None:
 
 
 @router.post(
-    "/cross-validation",
+    "/walk-forward",
     response_model=ValidateJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def start_cross_validation(request: ValidateRequest) -> JSONResponse:
-    """Start a cross-validation background job.
+def start_walk_forward(request: ValidateRequest) -> JSONResponse:
+    """Start a walk-forward validation background job.
 
-    Returns 202 + job_id immediately. Poll GET /validate/cross-validation/{job_id}.
+    Returns 202 + job_id immediately. Poll GET /validate/walk-forward/{job_id}.
     """
     try:
         job_id = _job_service.create_job(current_fold=0, total_folds=0)
@@ -96,7 +100,7 @@ def start_cross_validation(request: ValidateRequest) -> JSONResponse:
         ) from exc
 
     _job_service.start_background(
-        target=_run_cross_val_bg,
+        target=_run_walk_forward_bg,
         args=(job_id, request),
     )
 
@@ -106,24 +110,24 @@ def start_cross_validation(request: ValidateRequest) -> JSONResponse:
             "job_id": job_id,
             "status": "pending",
             "message": (
-                f"Cross-validation started. "
-                f"Poll GET /validate/cross-validation/{job_id} for progress."
+                f"Walk-forward validation started. "
+                f"Poll GET /validate/walk-forward/{job_id} for progress."
             ),
         },
     )
 
 
 @router.get(
-    "/cross-validation/{job_id}",
+    "/walk-forward/{job_id}",
     response_model=ValidateProgress,
 )
-def get_cross_validation_status(job_id: str) -> ValidateProgress:
-    """Poll the status and progress of a cross-validation job."""
+def get_walk_forward_status(job_id: str) -> ValidateProgress:
+    """Poll the status and progress of a walk-forward validation job."""
     job = _job_service.get_job(job_id)
     if job is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Cross-validation job '{job_id}' not found",
+            detail=f"Walk-forward validation job '{job_id}' not found",
         )
 
     return ValidateProgress(

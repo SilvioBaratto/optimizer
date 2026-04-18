@@ -36,11 +36,11 @@ describe('WalkForwardPanelComponent', () => {
     return fx;
   }
 
-  it('POSTs /validate/cross-validation with cv_type=walk_forward', () => {
+  it('POSTs /validate/walk-forward with cv_type=walk_forward', () => {
     const fx = createPanel();
     fx.componentInstance.onRun();
 
-    const req = http.expectOne(`${API}validate/cross-validation`);
+    const req = http.expectOne(`${API}validate/walk-forward`);
     expect(req.request.method).toBe('POST');
     expect(req.request.body.cv_type).toBe('walk_forward');
     expect(req.request.body.tickers).toEqual(['AAPL', 'MSFT']);
@@ -50,12 +50,12 @@ describe('WalkForwardPanelComponent', () => {
     expect(fx.componentInstance.isRunning()).toBe(true);
   });
 
-  it('surfaces the error when cross-validation POST fails', () => {
+  it('surfaces the error when walk-forward POST fails', () => {
     const fx = createPanel();
     fx.componentInstance.onRun();
 
     http
-      .expectOne(`${API}validate/cross-validation`)
+      .expectOne(`${API}validate/walk-forward`)
       .flush({ detail: 'busy' }, { status: 409, statusText: 'Conflict' });
 
     expect(fx.componentInstance.error()).toBeTruthy();
@@ -70,21 +70,21 @@ describe('WalkForwardPanelComponent', () => {
     fx.detectChanges();
 
     fx.componentInstance.onRun();
-    http.expectNone((r) => r.url.includes('/validate/cross-validation'));
+    http.expectNone((r) => r.url.includes('/validate/walk-forward'));
     expect(fx.componentInstance.error()).toBe('No tickers provided');
   });
 
   it('fetches the completed CV result and renders per-fold + aggregate rows', () => {
     const fx = createPanel();
     fx.componentInstance.onRun();
-    http.expectOne(`${API}validate/cross-validation`).flush({
+    http.expectOne(`${API}validate/walk-forward`).flush({
       job_id: 'v1',
       status: 'pending',
       message: '',
     });
 
     fx.componentInstance.onJobCompleted();
-    const poll = http.expectOne(`${API}validate/cross-validation/v1`);
+    const poll = http.expectOne(`${API}validate/walk-forward/v1`);
     poll.flush({
       job_id: 'v1',
       status: 'completed',
@@ -133,7 +133,7 @@ describe('WalkForwardPanelComponent', () => {
   it('handles a failed job by clearing jobId and storing the error', () => {
     const fx = createPanel();
     fx.componentInstance.onRun();
-    http.expectOne(`${API}validate/cross-validation`).flush({
+    http.expectOne(`${API}validate/walk-forward`).flush({
       job_id: 'v1', status: 'pending', message: '',
     });
 

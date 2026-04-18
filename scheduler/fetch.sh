@@ -148,11 +148,11 @@ fi
 
 # ── Walk-forward smoke stage (opt-in) ────────────────────────────
 # Opt-in via ENABLE_WALK_FORWARD_SMOKE=1. When set AND every upstream
-# fetch stage succeeded, POSTs a small walk-forward cross-validation
-# against ${OPTIMIZER_API_URL}/api/v1/validate/cross-validation as a
-# daily sanity check that execution-layer CV metrics still compute on
-# fresh data. Default behavior (variable unset) is unchanged — no
-# validate call is made.
+# fetch stage succeeded, POSTs a small walk-forward validation against
+# ${OPTIMIZER_API_URL}/api/v1/validate/walk-forward as a daily sanity
+# check that execution-layer CV metrics still compute on fresh data.
+# Default behavior (variable unset) is unchanged — no validate call is
+# made.
 #
 # Configurable via env vars with defaults:
 #   SMOKE_TICKERS     comma-separated tickers (default: SPY,QQQ,IWM,EFA,TLT)
@@ -176,7 +176,7 @@ run_walk_forward_smoke() {
         --arg end_date "$end_date" \
         '{tickers: $tickers, start_date: $start_date, end_date: $end_date, cv_type: "walk_forward"}')
 
-    fire_and_poll "smoke-walk-forward" "/validate/cross-validation" "$body"
+    fire_and_poll "smoke-walk-forward" "/validate/walk-forward" "$body"
 }
 
 SMOKE_EXIT=0

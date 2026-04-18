@@ -1,4 +1,4 @@
-"""Unit tests for POST /api/v1/validate/cross-validation and GET /api/v1/validate/cross-validation/{job_id}.
+"""Unit tests for POST /api/v1/validate/walk-forward and GET /api/v1/validate/walk-forward/{job_id}.
 
 Covers:
   - POST: returns 202 + job_id (happy path)
@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-BASE_URL = "/api/v1/validate/cross-validation"
+BASE_URL = "/api/v1/validate/walk-forward"
 
 _JOB_SVC_CREATE = "app.api.v1.validate._job_service.create_job"
 _JOB_SVC_START = "app.api.v1.validate._job_service.start_background"
@@ -48,12 +48,12 @@ _MULTIPLE_RANDOMIZED_REQUEST: dict[str, Any] = {
 
 
 # ---------------------------------------------------------------------------
-# POST /validate/cross-validation
+# POST /validate/walk-forward
 # ---------------------------------------------------------------------------
 
 
-class TestPostValidateCrossValidation:
-    """POST /api/v1/validate/cross-validation starts a background job."""
+class TestPostValidateWalkForward:
+    """POST /api/v1/validate/walk-forward starts a background job."""
 
     def test_walk_forward_returns_202(self, client: TestClient) -> None:
         with (
@@ -133,12 +133,12 @@ class TestPostValidateCrossValidation:
 
 
 # ---------------------------------------------------------------------------
-# GET /validate/cross-validation/{job_id}
+# GET /validate/walk-forward/{job_id}
 # ---------------------------------------------------------------------------
 
 
-class TestGetValidateCrossValidation:
-    """GET /api/v1/validate/cross-validation/{job_id} polls job progress."""
+class TestGetValidateWalkForward:
+    """GET /api/v1/validate/walk-forward/{job_id} polls job progress."""
 
     def test_existing_pending_job_returns_200(self, client: TestClient) -> None:
         mock_job = _pending_job(_MOCK_JOB_ID)

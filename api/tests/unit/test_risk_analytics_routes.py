@@ -364,20 +364,25 @@ class TestFactorExposureEndpoint:
 
         assert resp.status_code == 404
 
-    def test_no_factor_scores_returns_404(self, client: TestClient) -> None:
-        from app.services.risk_analytics_service import FactorScoresNotFoundError
-
+    def test_no_factor_scores_returns_200_with_empty_exposures(
+        self, client: TestClient
+    ) -> None:
+        """Regression for #424: absence of scores must surface as empty state, not 404."""
         with (
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
-            MockSvc.return_value.compute_factor_exposure.side_effect = (
-                FactorScoresNotFoundError("No factor scores found")
-            )
+            MockSvc.return_value.compute_factor_exposure.return_value = {
+                "exposures": {},
+                "asset_exposures": {},
+            }
             resp = client.get(f"{_BASE}/factor-exposure")
 
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["exposures"] == {}
+        assert body["assetExposures"] == {}
 
     def test_exposures_sum_correctly(self, client: TestClient) -> None:
         """Weighted exposure should equal sum(weight_i * exposure_i) for each factor."""

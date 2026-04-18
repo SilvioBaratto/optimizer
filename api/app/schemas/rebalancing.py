@@ -139,21 +139,40 @@ class TradeItem(CamelCaseModel):
 
 
 class RebalancePreviewResponse(CamelCaseModel):
-    """Response body for GET /api/v1/rebalance/preview/{portfolio_name}."""
+    """Response body for GET /api/v1/rebalance/preview/{portfolio_name}.
+
+    Empty-state semantics (issue #425): when the portfolio exists but a
+    policy or snapshot is missing, ``status`` carries a machine-readable
+    reason and the other fields default to empty (portfolio is not 404 —
+    the computation simply has no input yet). ``status`` is ``None`` on the
+    happy path.
+    """
 
     portfolio_name: str = Field(..., description="Portfolio name")
-    policy_type: str = Field(..., description="Active rebalancing policy type")
+    policy_type: str | None = Field(
+        default=None,
+        description="Active rebalancing policy type, null when no active policy",
+    )
     target_weights: dict[str, float] = Field(
-        ..., description="Target weights from latest snapshot"
+        default_factory=dict,
+        description="Target weights from latest snapshot (empty without a snapshot)",
     )
     current_weights: dict[str, float] = Field(
-        ..., description="Current broker weights (empty when no positions)"
+        default_factory=dict,
+        description="Current broker weights (empty when no positions)",
     )
     trades: list[TradeItem] = Field(
         default_factory=list,
-        description="Trade list (empty when no broker positions)",
+        description="Trade list (empty when no broker positions / policy / snapshot)",
     )
     portfolio_value: float | None = Field(
         default=None,
         description="Total portfolio value used for share-count conversion",
+    )
+    status: str | None = Field(
+        default=None,
+        description=(
+            "Empty-state reason when the preview is not computable. "
+            "One of 'no_active_policy', 'no_snapshots', or null on the happy path."
+        ),
     )

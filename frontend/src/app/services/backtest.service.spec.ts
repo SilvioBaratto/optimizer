@@ -120,8 +120,8 @@ describe('BacktestService', () => {
     });
   });
 
-  describe('runCrossValidation()', () => {
-    it('POSTs to /validate/cross-validation with cv_type and returns 202 payload', () => {
+  describe('runWalkForward()', () => {
+    it('POSTs to /validate/walk-forward with cv_type and returns 202 payload', () => {
       const body: ValidateApiRequest = {
         tickers: ['AAPL'],
         start_date: '2024-01-01',
@@ -129,9 +129,9 @@ describe('BacktestService', () => {
         cv_type: 'walk_forward',
       };
       let result: ValidateAsyncResponse | undefined;
-      svc.runCrossValidation(body).subscribe((r) => (result = r));
+      svc.runWalkForward(body).subscribe((r) => (result = r));
 
-      const req = http.expectOne(`${API}validate/cross-validation`);
+      const req = http.expectOne(`${API}validate/walk-forward`);
       expect(req.request.method).toBe('POST');
       expect(req.request.body.cv_type).toBe('walk_forward');
       req.flush(
@@ -144,7 +144,7 @@ describe('BacktestService', () => {
     it('propagates 409 when a CV job is already running', () => {
       let error: HttpErrorResponse | undefined;
       svc
-        .runCrossValidation({
+        .runWalkForward({
           tickers: ['AAPL'],
           start_date: '2024-01-01',
           end_date: '2024-12-31',
@@ -154,19 +154,19 @@ describe('BacktestService', () => {
         });
 
       http
-        .expectOne(`${API}validate/cross-validation`)
+        .expectOne(`${API}validate/walk-forward`)
         .flush({ detail: 'busy' }, { status: 409, statusText: 'Conflict' });
 
       expect(error?.status).toBe(409);
     });
   });
 
-  describe('pollCrossValidation()', () => {
-    it('GETs /validate/cross-validation/{job_id} and returns progress', () => {
+  describe('pollWalkForward()', () => {
+    it('GETs /validate/walk-forward/{job_id} and returns progress', () => {
       let result: ValidateProgressResponse | undefined;
-      svc.pollCrossValidation('v1').subscribe((r) => (result = r));
+      svc.pollWalkForward('v1').subscribe((r) => (result = r));
 
-      const req = http.expectOne(`${API}validate/cross-validation/v1`);
+      const req = http.expectOne(`${API}validate/walk-forward/v1`);
       expect(req.request.method).toBe('GET');
       req.flush({
         job_id: 'v1',

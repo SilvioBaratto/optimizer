@@ -14,10 +14,10 @@ import type {
 } from '../models/backtest.model';
 
 /**
- * HTTP client for /api/v1/backtest and /api/v1/validate/cross-validation.
+ * HTTP client for /api/v1/backtest and /api/v1/validate/walk-forward.
  *
- * Both endpoints are 202 + job_id flows. Walk-forward is a value of the
- * `cv_type` field on the cross-validation request, not a distinct URL.
+ * Both endpoints are 202 + job_id flows. The validation route supports
+ * multiple CV strategies via the `cv_type` field on the request body.
  */
 @Injectable({ providedIn: 'root' })
 export class BacktestService {
@@ -33,17 +33,17 @@ export class BacktestService {
     return this.http.get<BacktestProgressResponse>(`${this.api}backtest/${encoded}`);
   }
 
-  runCrossValidation(body: ValidateApiRequest): Observable<ValidateAsyncResponse> {
+  runWalkForward(body: ValidateApiRequest): Observable<ValidateAsyncResponse> {
     return this.http.post<ValidateAsyncResponse>(
-      `${this.api}validate/cross-validation`,
+      `${this.api}validate/walk-forward`,
       body,
     );
   }
 
-  pollCrossValidation(jobId: string): Observable<ValidateProgressResponse> {
+  pollWalkForward(jobId: string): Observable<ValidateProgressResponse> {
     const encoded = encodeURIComponent(jobId);
     return this.http.get<ValidateProgressResponse>(
-      `${this.api}validate/cross-validation/${encoded}`,
+      `${this.api}validate/walk-forward/${encoded}`,
     );
   }
 

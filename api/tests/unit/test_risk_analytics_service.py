@@ -21,10 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.services.risk_analytics_service import (
-    FactorScoresNotFoundError,
-    RiskAnalyticsService,
-)
+from app.services.risk_analytics_service import RiskAnalyticsService
 
 _PORTFOLIO_ID = "00000000-0000-0000-0000-000000000001"
 _WEIGHTS = {"AAPL": 0.6, "MSFT": 0.4}
@@ -66,6 +63,147 @@ def _make_factor_scores(
             s.score_date = score_date
             scores.append(s)
     return scores
+
+
+# ===========================================================================
+# Regression: #423 — portfolio with one ticker missing from price_history
+# ===========================================================================
+
+
+class TestFetchWeightedReturnsSkipsMissingTickers:
+    """_fetch_weighted_returns must survive when some weight tickers have no DB prices.
+
+    Regression for #423: trading212 portfolio contains EDV.L which has zero rows in
+    price_history. The previous implementation called ``prices.reindex(columns=tickers)``
+    which reintroduced the missing ticker as an all-NaN column, then ``.dropna()``
+    deleted every row and the downstream VaR/correlation computation failed with 400.
+    """
+
+    def setup_method(self) -> None:
+        self.session = MagicMock()
+        self.service = RiskAnalyticsService(self.session)
+
+    def test_returns_nonempty_series_when_one_ticker_missing(self) -> None:
+        """19 tickers have data, 1 is absent entirely — weighted series must still be built."""
+        rng = np.random.default_rng(7)
+        dates = pd.date_range("2024-01-02", periods=260, freq="B")
+        prices = pd.DataFrame(
+            {
+                "AAPL": 100 * np.cumprod(1 + rng.normal(0.0005, 0.01, 260)),
+                "MSFT": 200 * np.cumprod(1 + rng.normal(0.0004, 0.01, 260)),
+                # NOTE: EDV.L intentionally absent — simulates DB gap
+            },
+            index=dates,
+        )
+        weights = {"AAPL": 0.6, "MSFT": 0.3, "EDV.L": 0.1}
+
+        with patch.object(self.service, "_fetch_prices", return_value=prices):
+            returns = self.service._fetch_weighted_returns(weights, lookback=252)
+
+        assert not returns.empty
+        assert len(returns) >= 250
+
+    def test_compute_var_happy_path_with_missing_ticker(self) -> None:
+        rng = np.random.default_rng(11)
+        dates = pd.date_range("2024-01-02", periods=260, freq="B")
+        prices = pd.DataFrame(
+            {
+                "AAPL": 100 * np.cumprod(1 + rng.normal(0.0005, 0.01, 260)),
+                "MSFT": 200 * np.cumprod(1 + rng.normal(0.0004, 0.01, 260)),
+            },
+            index=dates,
+        )
+        weights = {"AAPL": 0.6, "MSFT": 0.3, "EDV.L": 0.1}
+
+        with patch.object(self.service, "_fetch_prices", return_value=prices):
+            result = self.service.compute_var(
+                portfolio_id=_PORTFOLIO_ID,
+                weights=weights,
+                lookback=252,
+                method="historical",
+            )
+
+        assert result["var"]["95"] > 0
+        assert result["var"]["99"] > 0
+        assert result["cvar"]["95"] > 0
+
+    def test_compute_var_raises_when_all_tickers_missing(self) -> None:
+        """When every weight ticker is absent from price_history, the 400 path must still fire."""
+        empty = pd.DataFrame()
+        with patch.object(self.service, "_fetch_prices", return_value=empty):
+            with pytest.raises(ValueError, match="[Ii]nsufficient|[Nn]o price data"):
+                self.service.compute_var(
+                    portfolio_id=_PORTFOLIO_ID,
+                    weights={"EDV.L": 1.0},
+                    lookback=252,
+                    method="historical",
+                )
+
+    def test_compute_correlation_happy_path_with_missing_ticker(self) -> None:
+        rng = np.random.default_rng(13)
+        dates = pd.date_range("2024-01-02", periods=260, freq="B")
+        prices = pd.DataFrame(
+            {
+                "AAPL": 100 * np.cumprod(1 + rng.normal(0.0005, 0.01, 260)),
+                "MSFT": 200 * np.cumprod(1 + rng.normal(0.0004, 0.01, 260)),
+                "GOOG": 150 * np.cumprod(1 + rng.normal(0.0003, 0.01, 260)),
+            },
+            index=dates,
+        )
+        weights = {"AAPL": 0.4, "MSFT": 0.3, "GOOG": 0.2, "EDV.L": 0.1}
+
+        with patch.object(self.service, "_fetch_prices", return_value=prices):
+            result = self.service.compute_correlation(
+                portfolio_id=_PORTFOLIO_ID,
+                weights=weights,
+                lookback=252,
+            )
+
+        assert set(result["assets"]) == {"AAPL", "MSFT", "GOOG"}
+        mat = np.array(result["matrix"])
+        assert np.isfinite(mat).all()
+
+    def test_compute_correlation_raises_when_under_two_tickers_survive(self) -> None:
+        """If only one ticker has DB prices, correlation must raise the existing 'at least 2' error."""
+        rng = np.random.default_rng(17)
+        dates = pd.date_range("2024-01-02", periods=260, freq="B")
+        prices = pd.DataFrame(
+            {"AAPL": 100 * np.cumprod(1 + rng.normal(0.0005, 0.01, 260))},
+            index=dates,
+        )
+        weights = {"AAPL": 0.5, "EDV.L": 0.5}
+
+        with patch.object(self.service, "_fetch_prices", return_value=prices):
+            with pytest.raises(ValueError, match="[Aa]t least 2"):
+                self.service.compute_correlation(
+                    portfolio_id=_PORTFOLIO_ID,
+                    weights=weights,
+                    lookback=252,
+                )
+
+    def test_compute_var_short_lookback_smaller_than_history(self) -> None:
+        """Short-lookback edge case: 30-day lookback should succeed when history is abundant."""
+        rng = np.random.default_rng(19)
+        dates = pd.date_range("2024-01-02", periods=260, freq="B")
+        prices = pd.DataFrame(
+            {
+                "AAPL": 100 * np.cumprod(1 + rng.normal(0.0005, 0.01, 260)),
+                "MSFT": 200 * np.cumprod(1 + rng.normal(0.0004, 0.01, 260)),
+            },
+            index=dates,
+        )
+        weights = {"AAPL": 0.6, "MSFT": 0.4}
+
+        with patch.object(self.service, "_fetch_prices", return_value=prices):
+            result = self.service.compute_var(
+                portfolio_id=_PORTFOLIO_ID,
+                weights=weights,
+                lookback=30,
+                method="historical",
+            )
+
+        assert result["lookback"] == 30
+        assert result["var"]["95"] > 0
 
 
 # ===========================================================================
@@ -368,13 +506,18 @@ class TestComputeFactorExposure:
             )
         assert abs(result["exposures"]["momentum"] - expected) < 1e-9
 
-    def test_raises_when_no_factor_scores(self) -> None:
+    def test_returns_empty_when_no_factor_scores(self) -> None:
+        """Regression for #424: absence of factor scores is an empty state, not 404.
+
+        The portfolio exists; there just isn't a computation to show yet. The
+        frontend renders 'no data yet' rather than a navigation error.
+        """
         with patch.object(self.service, "_fetch_latest_factor_scores", return_value=[]):
-            with pytest.raises(FactorScoresNotFoundError):
-                self.service.compute_factor_exposure(
-                    portfolio_id=_PORTFOLIO_ID,
-                    weights=_WEIGHTS,
-                )
+            result = self.service.compute_factor_exposure(
+                portfolio_id=_PORTFOLIO_ID,
+                weights=_WEIGHTS,
+            )
+        assert result == {"exposures": {}, "asset_exposures": {}}
 
     def test_asset_exposures_contain_all_weights_tickers(self) -> None:
         scores = _make_factor_scores(["AAPL", "MSFT"], ["momentum"])
