@@ -106,173 +106,174 @@ class DMMResult:
 
 
 # ---------------------------------------------------------------------------
-# Neural network components
+# Neural network components (only defined when torch + pyro are available)
 # ---------------------------------------------------------------------------
 
 
-class Emitter(nn.Module):
-    """Maps latent z_t to (loc, scale) of the observed return distribution."""
+if HAS_DMM:
 
-    def __init__(self, input_dim: int, z_dim: int, emission_dim: int) -> None:
-        super().__init__()
-        self.lin_z_h1 = nn.Linear(z_dim, emission_dim)
-        self.lin_h1_h2 = nn.Linear(emission_dim, emission_dim)
-        self.lin_h2_loc = nn.Linear(emission_dim, input_dim)
-        self.lin_h2_scale = nn.Linear(emission_dim, input_dim)
-        self.relu = nn.ReLU()
-        self.softplus = nn.Softplus()
+    class Emitter(nn.Module):
+        """Maps latent z_t to (loc, scale) of the observed return distribution."""
 
-    def forward(self, z_t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        h1 = self.relu(self.lin_z_h1(z_t))
-        h2 = self.relu(self.lin_h1_h2(h1))
-        loc = self.lin_h2_loc(h2)
-        scale = self.softplus(self.lin_h2_scale(h2)) + 1e-5
-        return loc, scale
+        def __init__(self, input_dim: int, z_dim: int, emission_dim: int) -> None:
+            super().__init__()
+            self.lin_z_h1 = nn.Linear(z_dim, emission_dim)
+            self.lin_h1_h2 = nn.Linear(emission_dim, emission_dim)
+            self.lin_h2_loc = nn.Linear(emission_dim, input_dim)
+            self.lin_h2_scale = nn.Linear(emission_dim, input_dim)
+            self.relu = nn.ReLU()
+            self.softplus = nn.Softplus()
 
+        def forward(self, z_t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+            h1 = self.relu(self.lin_z_h1(z_t))
+            h2 = self.relu(self.lin_h1_h2(h1))
+            loc = self.lin_h2_loc(h2)
+            scale = self.softplus(self.lin_h2_scale(h2)) + 1e-5
+            return loc, scale
 
-class GatedTransition(nn.Module):
-    """Gated transition p(z_t | z_{t-1}) with learned interpolation gate.
+    class GatedTransition(nn.Module):
+        """Gated transition p(z_t | z_{t-1}) with learned interpolation gate.
 
-    The gate interpolates between a linear residual (identity-initialised)
-    and a nonlinear proposed mean, giving stable gradients at initialisation.
-    """
+        The gate interpolates between a linear residual (identity-initialised)
+        and a nonlinear proposed mean, giving stable gradients at initialisation.
+        """
 
-    def __init__(self, z_dim: int, transition_dim: int) -> None:
-        super().__init__()
-        self.lin_gate_zh = nn.Linear(z_dim, transition_dim)
-        self.lin_gate_hz = nn.Linear(transition_dim, z_dim)
-        self.lin_prop_zh = nn.Linear(z_dim, transition_dim)
-        self.lin_prop_hz = nn.Linear(transition_dim, z_dim)
-        self.lin_scale = nn.Linear(z_dim, z_dim)
-        self.lin_residual = nn.Linear(z_dim, z_dim)
-        nn.init.eye_(self.lin_residual.weight)
-        nn.init.zeros_(self.lin_residual.bias)
-        self.relu = nn.ReLU()
-        self.softplus = nn.Softplus()
+        def __init__(self, z_dim: int, transition_dim: int) -> None:
+            super().__init__()
+            self.lin_gate_zh = nn.Linear(z_dim, transition_dim)
+            self.lin_gate_hz = nn.Linear(transition_dim, z_dim)
+            self.lin_prop_zh = nn.Linear(z_dim, transition_dim)
+            self.lin_prop_hz = nn.Linear(transition_dim, z_dim)
+            self.lin_scale = nn.Linear(z_dim, z_dim)
+            self.lin_residual = nn.Linear(z_dim, z_dim)
+            nn.init.eye_(self.lin_residual.weight)
+            nn.init.zeros_(self.lin_residual.bias)
+            self.relu = nn.ReLU()
+            self.softplus = nn.Softplus()
 
-    def forward(self, z_prev: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        gate = torch.sigmoid(self.lin_gate_hz(self.relu(self.lin_gate_zh(z_prev))))
-        proposed = self.lin_prop_hz(self.relu(self.lin_prop_zh(z_prev)))
-        loc = (1.0 - gate) * self.lin_residual(z_prev) + gate * proposed
-        scale = self.softplus(self.lin_scale(self.relu(proposed))) + 1e-5
-        return loc, scale
+        def forward(self, z_prev: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+            gate = torch.sigmoid(self.lin_gate_hz(self.relu(self.lin_gate_zh(z_prev))))
+            proposed = self.lin_prop_hz(self.relu(self.lin_prop_zh(z_prev)))
+            loc = (1.0 - gate) * self.lin_residual(z_prev) + gate * proposed
+            scale = self.softplus(self.lin_scale(self.relu(proposed))) + 1e-5
+            return loc, scale
 
+    class Combiner(nn.Module):
+        """Inference network: fuses z_{t-1} and backward RNN context.
 
-class Combiner(nn.Module):
-    """Inference network: fuses z_{t-1} and backward RNN context.
+        Produces q(z_t | z_{t-1}, x_{t:T}) parameters by averaging the
+        tanh-projected previous latent with the RNN hidden state h_t.
+        """
 
-    Produces q(z_t | z_{t-1}, x_{t:T}) parameters by averaging the
-    tanh-projected previous latent with the RNN hidden state h_t.
-    """
+        def __init__(self, z_dim: int, rnn_dim: int) -> None:
+            super().__init__()
+            self.lin_z_h = nn.Linear(z_dim, rnn_dim)
+            self.lin_h_loc = nn.Linear(rnn_dim, z_dim)
+            self.lin_h_scale = nn.Linear(rnn_dim, z_dim)
+            self.tanh = nn.Tanh()
+            self.softplus = nn.Softplus()
 
-    def __init__(self, z_dim: int, rnn_dim: int) -> None:
-        super().__init__()
-        self.lin_z_h = nn.Linear(z_dim, rnn_dim)
-        self.lin_h_loc = nn.Linear(rnn_dim, z_dim)
-        self.lin_h_scale = nn.Linear(rnn_dim, z_dim)
-        self.tanh = nn.Tanh()
-        self.softplus = nn.Softplus()
+        def forward(
+            self, z_prev: torch.Tensor, h_rnn: torch.Tensor
+        ) -> tuple[torch.Tensor, torch.Tensor]:
+            h = 0.5 * (self.tanh(self.lin_z_h(z_prev)) + h_rnn)
+            loc = self.lin_h_loc(h)
+            scale = self.softplus(self.lin_h_scale(h)) + 1e-5
+            return loc, scale
 
-    def forward(
-        self, z_prev: torch.Tensor, h_rnn: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        h = 0.5 * (self.tanh(self.lin_z_h(z_prev)) + h_rnn)
-        loc = self.lin_h_loc(h)
-        scale = self.softplus(self.lin_h_scale(h)) + 1e-5
-        return loc, scale
+    # -----------------------------------------------------------------------
+    # DMM Pyro module
+    # -----------------------------------------------------------------------
 
+    class DMM(nn.Module):
+        """Deep Markov Model with gated transitions and amortised variational inference.
 
-# ---------------------------------------------------------------------------
-# DMM Pyro module
-# ---------------------------------------------------------------------------
+        The generative model factorises as::
 
+            p(x_{1:T}, z_{1:T}) = p(z_1) * prod_t p(z_t|z_{t-1}) * p(x_t|z_t)
 
-class DMM(nn.Module):
-    """Deep Markov Model with gated transitions and amortised variational inference.
+        The variational guide uses a backward-RNN inference network::
 
-    The generative model factorises as::
+            q(z_{1:T}|x_{1:T}) = prod_t q(z_t | z_{t-1}, h_rnn_t)
 
-        p(x_{1:T}, z_{1:T}) = p(z_1) * prod_t p(z_t|z_{t-1}) * p(x_t|z_t)
+        where h_rnn_t encodes the future context x_t, ..., x_T.
+        """
 
-    The variational guide uses a backward-RNN inference network::
+        def __init__(self, input_dim: int, config: DMMConfig) -> None:
+            super().__init__()
+            self.input_dim = input_dim
+            self.config = config
+            self.emitter = Emitter(input_dim, config.z_dim, config.emission_dim)
+            self.trans = GatedTransition(config.z_dim, config.transition_dim)
+            self.combiner = Combiner(config.z_dim, config.rnn_dim)
+            self.rnn = nn.GRU(input_dim, config.rnn_dim, batch_first=True)
+            self.z_0 = nn.Parameter(torch.zeros(config.z_dim))
+            self.z_q_0 = nn.Parameter(torch.zeros(config.z_dim))
 
-        q(z_{1:T}|x_{1:T}) = prod_t q(z_t | z_{t-1}, h_rnn_t)
-
-    where h_rnn_t encodes the future context x_t, ..., x_T.
-    """
-
-    def __init__(self, input_dim: int, config: DMMConfig) -> None:
-        super().__init__()
-        self.input_dim = input_dim
-        self.config = config
-        self.emitter = Emitter(input_dim, config.z_dim, config.emission_dim)
-        self.trans = GatedTransition(config.z_dim, config.transition_dim)
-        self.combiner = Combiner(config.z_dim, config.rnn_dim)
-        self.rnn = nn.GRU(input_dim, config.rnn_dim, batch_first=True)
-        self.z_0 = nn.Parameter(torch.zeros(config.z_dim))
-        self.z_q_0 = nn.Parameter(torch.zeros(config.z_dim))
-
-    def model(
-        self,
-        x: torch.Tensor,
-        x_reversed: torch.Tensor,
-        annealing_factor: float = 1.0,
-    ) -> None:
-        """Pyro generative model p(x, z)."""
-        pyro.module("dmm", self)
-        T = x.shape[0]
-        z_prev: torch.Tensor = self.z_0
-        for t in pyro.markov(range(1, T + 1)):
-            z_loc, z_scale = self.trans(z_prev)
-            with poutine.scale(scale=annealing_factor):
-                z_t = pyro.sample(
-                    f"z_{t}",
-                    dist.Normal(z_loc, z_scale).to_event(1),
+        def model(
+            self,
+            x: torch.Tensor,
+            x_reversed: torch.Tensor,
+            annealing_factor: float = 1.0,
+        ) -> None:
+            """Pyro generative model p(x, z)."""
+            pyro.module("dmm", self)
+            T = x.shape[0]
+            z_prev: torch.Tensor = self.z_0
+            for t in pyro.markov(range(1, T + 1)):
+                z_loc, z_scale = self.trans(z_prev)
+                with poutine.scale(scale=annealing_factor):
+                    z_t = pyro.sample(
+                        f"z_{t}",
+                        dist.Normal(z_loc, z_scale).to_event(1),
+                    )
+                emission_loc, emission_scale = self.emitter(z_t)
+                pyro.sample(
+                    f"obs_x_{t}",
+                    dist.Normal(emission_loc, emission_scale).to_event(1),
+                    obs=x[t - 1],
                 )
-            emission_loc, emission_scale = self.emitter(z_t)
-            pyro.sample(
-                f"obs_x_{t}",
-                dist.Normal(emission_loc, emission_scale).to_event(1),
-                obs=x[t - 1],
-            )
-            z_prev = z_t
+                z_prev = z_t
 
-    def guide(
-        self,
-        x: torch.Tensor,
-        x_reversed: torch.Tensor,
-        annealing_factor: float = 1.0,
-    ) -> None:
-        """Pyro variational guide q(z | x) with backward-RNN inference."""
-        pyro.module("dmm", self)
-        T = x.shape[0]
-        # Process reversed sequence; re-reverse output to forward time
-        rnn_out, _ = self.rnn(x_reversed.unsqueeze(0))
-        rnn_out = rnn_out.squeeze(0).flip(0)  # (T, rnn_dim)
-        z_prev: torch.Tensor = self.z_q_0
-        for t in pyro.markov(range(1, T + 1)):
-            z_loc, z_scale = self.combiner(z_prev, rnn_out[t - 1])
-            with poutine.scale(scale=annealing_factor):
-                z_t = pyro.sample(
-                    f"z_{t}",
-                    dist.Normal(z_loc, z_scale).to_event(1),
-                )
-            z_prev = z_t
+        def guide(
+            self,
+            x: torch.Tensor,
+            x_reversed: torch.Tensor,
+            annealing_factor: float = 1.0,
+        ) -> None:
+            """Pyro variational guide q(z | x) with backward-RNN inference."""
+            pyro.module("dmm", self)
+            T = x.shape[0]
+            # Process reversed sequence; re-reverse output to forward time
+            rnn_out, _ = self.rnn(x_reversed.unsqueeze(0))
+            rnn_out = rnn_out.squeeze(0).flip(0)  # (T, rnn_dim)
+            z_prev: torch.Tensor = self.z_q_0
+            for t in pyro.markov(range(1, T + 1)):
+                z_loc, z_scale = self.combiner(z_prev, rnn_out[t - 1])
+                with poutine.scale(scale=annealing_factor):
+                    z_t = pyro.sample(
+                        f"z_{t}",
+                        dist.Normal(z_loc, z_scale).to_event(1),
+                    )
+                z_prev = z_t
 
-    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Encode a sequence to variational posterior means/stds, shape (T, z_dim)."""
-        x_rev = x.flip(0)
-        rnn_out, _ = self.rnn(x_rev.unsqueeze(0))
-        rnn_out = rnn_out.squeeze(0).flip(0)  # (T, rnn_dim)
-        z_prev = self.z_q_0
-        locs: list[torch.Tensor] = []
-        scales: list[torch.Tensor] = []
-        for i in range(x.shape[0]):
-            z_loc, z_scale = self.combiner(z_prev, rnn_out[i])
-            locs.append(z_loc)
-            scales.append(z_scale)
-            z_prev = z_loc  # deterministic mean propagation
-        return torch.stack(locs), torch.stack(scales)
+        def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+            """Encode a sequence to variational posterior means/stds.
+
+            Returns shape ``(T, z_dim)``.
+            """
+            x_rev = x.flip(0)
+            rnn_out, _ = self.rnn(x_rev.unsqueeze(0))
+            rnn_out = rnn_out.squeeze(0).flip(0)  # (T, rnn_dim)
+            z_prev = self.z_q_0
+            locs: list[torch.Tensor] = []
+            scales: list[torch.Tensor] = []
+            for i in range(x.shape[0]):
+                z_loc, z_scale = self.combiner(z_prev, rnn_out[i])
+                locs.append(z_loc)
+                scales.append(z_scale)
+                z_prev = z_loc  # deterministic mean propagation
+            return torch.stack(locs), torch.stack(scales)
 
 
 # ---------------------------------------------------------------------------

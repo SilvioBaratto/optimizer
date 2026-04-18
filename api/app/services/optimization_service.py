@@ -20,7 +20,18 @@ from sklearn.pipeline import Pipeline
 from sqlalchemy.orm import Session
 
 from app.services._price_fetcher import fetch_close_prices
-from optimizer.optimization._dr_cvar import build_dr_cvar
+from optimizer.optimization._config import (
+    EqualWeightedConfig,
+    HERCConfig,
+    HRPConfig,
+    InverseVolatilityConfig,
+    MaxDiversificationConfig,
+    MeanRiskConfig,
+    NCOConfig,
+    RiskBudgetingConfig,
+    StackingConfig,
+)
+from optimizer.optimization._dr_cvar import DRCVaRConfig, build_dr_cvar
 from optimizer.optimization._factory import (
     build_equal_weighted,
     build_herc,
@@ -32,8 +43,11 @@ from optimizer.optimization._factory import (
     build_risk_budgeting,
     build_stacking,
 )
-from optimizer.optimization._regime_risk import build_regime_blended_optimizer
-from optimizer.optimization._robust import build_robust_mean_risk
+from optimizer.optimization._regime_risk import (
+    RegimeRiskConfig,
+    build_regime_blended_optimizer,
+)
+from optimizer.optimization._robust import RobustConfig, build_robust_mean_risk
 from optimizer.pre_selection._pipeline import build_preselection_pipeline
 
 logger = logging.getLogger(__name__)
@@ -57,6 +71,25 @@ OPTIMIZER_REGISTRY: dict[str, Any] = {
     "regime_blended": build_regime_blended_optimizer,
 }
 
+# Maps optimizer_type → its frozen Config dataclass. Each builder owns the
+# enum → skfolio translation, so the service must hand the builder a typed
+# config rather than spreading a raw dict (which would collide with the
+# builder's explicit kwargs — see issue #419).
+_CONFIG_CLASSES: dict[str, type] = {
+    "mean_risk": MeanRiskConfig,
+    "robust_mean_risk": RobustConfig,
+    "dr_cvar": DRCVaRConfig,
+    "hrp": HRPConfig,
+    "herc": HERCConfig,
+    "nco": NCOConfig,
+    "risk_budgeting": RiskBudgetingConfig,
+    "max_diversification": MaxDiversificationConfig,
+    "equal_weighted": EqualWeightedConfig,
+    "inverse_volatility": InverseVolatilityConfig,
+    "stacking": StackingConfig,
+    "regime_blended": RegimeRiskConfig,
+}
+
 # Types that support efficient frontier computation.
 _FRONTIER_TYPES: frozenset[str] = frozenset({"mean_risk", "robust_mean_risk"})
 _FRONTIER_SIZE: int = 20
@@ -72,10 +105,26 @@ def resolve_optimizer(optimizer_type: str, config: dict) -> Any:
     factory = OPTIMIZER_REGISTRY.get(optimizer_type)
     if factory is None:
         raise ValueError(f"Unknown optimizer_type: {optimizer_type!r}")
-    optimizer = factory(**config)
+    typed_config = _build_typed_config(optimizer_type, config)
+    optimizer = factory(typed_config) if typed_config is not None else factory()
     if optimizer_type in _FRONTIER_TYPES:
         optimizer.set_params(efficient_frontier_size=_FRONTIER_SIZE)
     return optimizer
+
+
+def _build_typed_config(optimizer_type: str, config: dict) -> Any | None:
+    """Instantiate the frozen Config dataclass for *optimizer_type* from *config*.
+
+    Returns ``None`` when *config* is empty so the builder picks its own
+    default. Unknown fields raise :class:`TypeError` via the dataclass
+    constructor — callers must send only config-level primitives.
+    """
+    if not config:
+        return None
+    config_class = _CONFIG_CLASSES.get(optimizer_type)
+    if config_class is None:
+        return None
+    return config_class(**config)
 
 
 def build_pipeline(
