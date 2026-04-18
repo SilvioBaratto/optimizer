@@ -16,13 +16,13 @@
     </div>
 
     <!-- Efficient Frontier -->
-    @if (frontierPoints().length > 0) {
+    @if (frontier().length > 0) {
       <div class="bg-surface-raised border border-border rounded-lg p-4">
         <h4 class="text-xs font-medium text-text-secondary uppercase tracking-wide mb-3">Efficient Frontier</h4>
-        <app-echarts-scatter
-          [frontierPoints]="frontierPoints()"
-          [optimalPoint]="optimalPoint()"
-          [highlightedPoints]="highlightedPoints()"
+        <app-echarts-efficient-frontier
+          [frontier]="frontier()"
+          [optimal]="optimal()"
+          [assetMarkers]="assetMarkers()"
           [height]="280" />
       </div>
     }

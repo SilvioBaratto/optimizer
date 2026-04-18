@@ -8,6 +8,7 @@ import { ModalContainerComponent } from '../modal/modal-container';
 import { GlobalSearchComponent } from '../global-search/global-search';
 import { GlobalSearchService } from '../global-search/global-search.service';
 import { BottomTabBarComponent } from '../bottom-tab-bar/bottom-tab-bar';
+import { ContextBarComponent } from '../components/context-bar/context-bar';
 import { BreakpointService } from '../../services/breakpoint.service';
 
 const routerTransition = trigger('routerTransition', [
@@ -42,6 +43,7 @@ const PAGE_ROUTES = [
     ModalContainerComponent,
     GlobalSearchComponent,
     BottomTabBarComponent,
+    ContextBarComponent,
   ],
   templateUrl: './layout.html',
   styleUrl: './layout.css',

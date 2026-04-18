@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
@@ -9,9 +9,22 @@ import type {
   DomainStatus,
   FreshnessLevel,
   JobListResponse,
+  JobStatus,
   JobSummary,
 } from '../models/jobs.model';
 import { DOMAIN_META } from '../models/jobs.model';
+
+/**
+ * Query for the generic list endpoint. `domain` / `status` are emitted as
+ * zero-or-more repeated query params; `limit` and `offset` control
+ * pagination (zero-indexed offset).
+ */
+export interface ListJobsQuery {
+  domain?: readonly string[];
+  status?: readonly JobStatus[];
+  limit: number;
+  offset: number;
+}
 
 const FALLBACK_META: Omit<DomainMeta, 'domain' | 'label'> = {
   icon: 'activity',
@@ -62,6 +75,14 @@ export class JobsService {
   getJob(id: string): Observable<JobSummary> {
     return this.http.get<JobSummary>(
       `${this.apiBase}jobs/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /** Paginated list with optional domain/status multi-value filters. */
+  listJobs(query: ListJobsQuery): Observable<JobListResponse> {
+    return this.http.get<JobListResponse>(
+      `${this.apiBase}jobs`,
+      { params: buildListJobsParams(query) },
     );
   }
 
@@ -117,4 +138,17 @@ export class JobsService {
     if (ageHours >= meta.staleThresholdHours) return { freshness: 'stale', ageHours };
     return { freshness: 'fresh', ageHours };
   }
+}
+
+function buildListJobsParams(query: ListJobsQuery): HttpParams {
+  let params = new HttpParams()
+    .set('limit', String(query.limit))
+    .set('offset', String(query.offset));
+  if (query.domain && query.domain.length > 0) {
+    params = params.appendAll({ domain: [...query.domain] });
+  }
+  if (query.status && query.status.length > 0) {
+    params = params.appendAll({ status: [...query.status] });
+  }
+  return params;
 }

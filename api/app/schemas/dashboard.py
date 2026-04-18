@@ -44,6 +44,22 @@ class EquityCurveResponse(CamelCaseModel):
     benchmark_total_return: float
 
 
+class RollingMetricPoint(CamelCaseModel):
+    """Single dated observation for a rolling metric series."""
+
+    date: Date
+    value: float
+
+
+class RollingMetricsResponse(CamelCaseModel):
+    """Response for GET /portfolio/{name}/rolling-metrics."""
+
+    window: int
+    sharpe: list[RollingMetricPoint]
+    volatility: list[RollingMetricPoint]
+    beta: list[RollingMetricPoint]
+
+
 class AllocationChild(CamelCaseModel):
     """Leaf node in the sunburst allocation tree (single ticker)."""
 

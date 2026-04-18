@@ -103,6 +103,19 @@
           <app-echarts-drawdown [data]="drawdownSeries()" [height]="220" />
         </div>
       }
+      <div>
+        <h2 class="text-data-lg font-medium text-text mb-3">Rolling Metrics (Sharpe / Vol / Beta)</h2>
+        @if (rollingMetricsError(); as err) {
+          <div class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+            {{ err }}
+          </div>
+        } @else {
+          <app-echarts-rolling-metrics
+            [series]="rollingMetricsSeries()"
+            [loading]="rollingMetricsLoading()"
+            [height]="260" />
+        }
+      </div>
     </div>
 
     <!-- Right: Asset Allocation — chart + sector legend -->

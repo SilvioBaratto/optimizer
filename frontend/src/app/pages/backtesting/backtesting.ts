@@ -17,12 +17,17 @@ import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { EchartsCalendarHeatmapComponent } from '../../shared/echarts-calendar-heatmap/echarts-calendar-heatmap';
 import { EchartsHistogramComponent } from '../../shared/echarts-histogram/echarts-histogram';
 import { EchartsBarComponent, BarData } from '../../shared/echarts-bar/echarts-bar';
-import { EchartsStackedAreaComponent, AreaSeries } from '../../shared/echarts-stacked-area/echarts-stacked-area';
 import { EchartsDrawdownComponent } from '../../shared/echarts-drawdown/echarts-drawdown';
+import {
+  EchartsRegimeTimelineComponent,
+  REGIME_LABELS,
+  regimeHistoryApiToTimelinePoints,
+} from '../../shared/echarts-regime-timeline/echarts-regime-timeline';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
 import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
 import { FormatService } from '../../services/format.service';
 import { BacktestService } from '../../services/backtest.service';
+import { FactorsService } from '../../services/factors.service';
 import { readCssVar } from '../../shared/charts/echarts-theme';
 import { CHART_EXPORTABLE, type ChartExportable } from '../../shared/charts/chart-export.token';
 import { ModalService } from '../../shared/modal/modal.service';
@@ -34,7 +39,9 @@ import type {
   BacktestConfig,
   BacktestMetrics,
   BacktestResult,
+  FactorLoading,
 } from '../../models/backtest.model';
+import type { RegimeHistoryApiResponse } from '../../models/factor.model';
 
 // Empty defaults used until a backtest run completes — signals swap them
 // for real data fetched via BacktestService.
@@ -79,8 +86,8 @@ interface MetricsRow {
     EchartsCalendarHeatmapComponent,
     EchartsHistogramComponent,
     EchartsBarComponent,
-    EchartsStackedAreaComponent,
     EchartsDrawdownComponent,
+    EchartsRegimeTimelineComponent,
     ChartToolbarComponent,
     JobProgressTrackerComponent,
     WalkForwardPanelComponent,
@@ -111,7 +118,6 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   // ── State ──────────────────────────────────────────────────────────────────
   readonly activeTab = signal('overview');
   readonly rollingWindow = signal<'1Y' | '3Y'>('1Y');
-  readonly styleWindow = signal<'1Y' | '3Y'>('1Y');
   readonly logScale = signal(false);
 
   // ── Backtest configuration (user-selectable) ─────────────────────────────
@@ -146,7 +152,23 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     { id: 'rolling', label: 'Rolling Metrics' },
     { id: 'distribution', label: 'Distribution' },
     { id: 'style', label: 'Style Analysis' },
+    { id: 'regimes', label: 'Regimes' },
   ]);
+
+  // ── Regime timeline (Regimes tab) ────────────────────────────────────────
+  private readonly factors = inject(FactorsService);
+  readonly regimeHistory = signal<RegimeHistoryApiResponse | null>(null);
+  readonly regimeError = signal<string | null>(null);
+  readonly regimeLabels: string[] = REGIME_LABELS;
+  readonly regimeTimelinePoints = computed(() =>
+    regimeHistoryApiToTimelinePoints(this.regimeHistory()),
+  );
+
+  // Identity-compared guard: re-fetch only when the backtest result reference
+  // changes (i.e. a new run completes). Switching tabs back and forth with
+  // the same `result()` reuses the cached `regimeHistory()`.
+  private lastFetchedFor: BacktestResult | null = null;
+  private regimeRequestToken = 0;
 
   // ── Equity curve data ──────────────────────────────────────────────────────
   readonly equityLabels = computed(() =>
@@ -320,11 +342,6 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     this.filterByWindow(this.rollingWindow()).map(m => m.beta)
   );
 
-  // ── Style tab rolling exposure (uses independent styleWindow) ─────────────
-  readonly styleLabels = computed(() =>
-    this.filterByWindow(this.styleWindow()).map(m => m.date)
-  );
-
   // ── Distribution data ──────────────────────────────────────────────────────
   readonly distributionValues = computed(() =>
     this.result().returnDistribution.map(b => (b.binStart + b.binEnd) / 2)
@@ -380,11 +397,8 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   });
 
   // ── Factor loadings bar & table ────────────────────────────────────────────
-  readonly factorBarData = computed<BarData[]>(() =>
-    this.result().factorLoadings.map(f => ({
-      label: f.factor,
-      value: f.loading,
-    }))
+  readonly factorLoadingBars = computed<BarData[]>(() =>
+    toFactorLoadingSeries(this.result().factorLoadings),
   );
 
   readonly factorTableRows = computed(() =>
@@ -396,20 +410,6 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
       significance: f.pValue < 0.001 ? '***' : f.pValue < 0.01 ? '**' : f.pValue < 0.05 ? '*' : 'ns',
     }))
   );
-
-  // ── Rolling factor exposure stacked area (uses styleWindow) ──────────────
-  readonly rollingExposureSeries = computed<AreaSeries[]>(() => {
-    const chartColors = Array.from({ length: 6 }, (_, i) =>
-      readCssVar(`--color-chart-${i + 1}`)
-    );
-    return this.result().factorLoadings.map((f, i) => ({
-      name: f.factor,
-      values: this.styleLabels().map((_, j) =>
-        parseFloat((f.loading + Math.sin(j * 0.05 + i) * 0.03).toFixed(3))
-      ),
-      color: chartColors[i % chartColors.length],
-    }));
-  });
 
   // ── Inline ECharts: Overview tab (always rendered first) ──────────────────
   private readonly equityContainer = viewChild<ElementRef<HTMLElement>>('equityChart');
@@ -442,6 +442,28 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   constructor() {
     this.loadData();
+
+    // Regimes tab: when the user activates the tab and a backtest result is
+    // available, fetch the HMM regime history aligned to the backtest window.
+    // The fetch is skipped if we already have data for this `result()` ref.
+    effect(() => {
+      const tab = this.activeTab();
+      const r = this.result();
+      if (tab !== 'regimes') return;
+      if (r.equity.length === 0) return;
+      if (this.lastFetchedFor === r) return;
+      this.fetchRegimeHistory(r);
+    });
+
+    // Reset cached regime data whenever a new backtest result arrives so
+    // stale data does not flash while the next fetch is in flight.
+    effect(() => {
+      const r = this.result();
+      if (this.lastFetchedFor !== null && this.lastFetchedFor !== r) {
+        this.regimeHistory.set(null);
+        this.regimeError.set(null);
+      }
+    });
 
     // Init/dispose overview charts when containers appear/disappear (tab or loading change)
     effect((onCleanup) => {
@@ -534,6 +556,28 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   retry(): void {
     this.loadData();
+  }
+
+  private fetchRegimeHistory(result: BacktestResult): void {
+    this.lastFetchedFor = result;
+    this.regimeError.set(null);
+    this.regimeHistory.set(null);
+    const startDate = result.equity[0].date;
+    const endDate = result.equity[result.equity.length - 1].date;
+    const token = ++this.regimeRequestToken;
+    this.factors
+      .regimeHistory({ startDate, endDate })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (api) => {
+          if (token !== this.regimeRequestToken) return;
+          this.regimeHistory.set(api);
+        },
+        error: (err: Error) => {
+          if (token !== this.regimeRequestToken) return;
+          this.regimeError.set(err?.message ?? 'Failed to load regime history');
+        },
+      });
   }
 
   private async initOverviewCharts() {
@@ -859,10 +903,6 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     this.rollingWindow.set(w);
   }
 
-  setStyleWindow(w: '1Y' | '3Y'): void {
-    this.styleWindow.set(w);
-  }
-
   toggleLogScale(): void {
     this.logScale.update(v => !v);
   }
@@ -955,6 +995,13 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     this.qqRo?.disconnect();
     this.qqChart?.dispose();
   }
+}
+
+// ── Pure transform: factor loadings → sorted horizontal bar data ──────────
+export function toFactorLoadingSeries(loadings: readonly FactorLoading[]): BarData[] {
+  return [...loadings]
+    .sort((a, b) => b.loading - a.loading)
+    .map((f) => ({ label: f.factor, value: f.loading }));
 }
 
 // ── Utility: inverse normal CDF (Beasley-Springer-Moro approximation) ──────

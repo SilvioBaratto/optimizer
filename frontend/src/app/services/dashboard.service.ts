@@ -12,6 +12,7 @@ import type {
   ApiMarketSnapshotResponse,
   ApiMarketRegimeResponse,
   ApiAssetClassReturnsResponse,
+  ApiRollingMetricsResponse,
 } from '../models/dashboard-api.model';
 
 @Injectable({ providedIn: 'root' })
@@ -31,6 +32,25 @@ export class DashboardService {
       )
       .pipe(catchError(err => throwError(() => new Error(
         err.error?.detail ?? 'Failed to load performance metrics',
+      ))));
+  }
+
+  getRollingMetrics(
+    name: string,
+    period: '1Y' | '3Y' | '5Y' | 'MAX' = '3Y',
+    window?: number,
+  ): Observable<ApiRollingMetricsResponse> {
+    let params = new HttpParams().set('period', period);
+    if (window !== undefined) {
+      params = params.set('window', String(window));
+    }
+    return this.http
+      .get<ApiRollingMetricsResponse>(
+        `${this.base}portfolio-analytics/${encodeURIComponent(name)}/rolling-metrics`,
+        { params },
+      )
+      .pipe(catchError(err => throwError(() => new Error(
+        err.error?.detail ?? 'Failed to load rolling metrics',
       ))));
   }
 

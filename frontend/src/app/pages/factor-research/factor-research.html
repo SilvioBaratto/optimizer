@@ -97,6 +97,33 @@
           [teObservations]="teObservations()"
           (fetchTe)="onFetchTe()" />
       }
+
+      @if (activeTab() === 'score') {
+        <app-score-panel
+          [tickers]="tickers()"
+          [scoreResult]="scoreResult()"
+          [loading]="scoreLoading()"
+          [errorMessage]="panelErrors()['score'] ?? null"
+          (runScore)="onRunScore($event)" />
+      }
+
+      @if (activeTab() === 'select') {
+        <app-select-panel
+          [tickers]="tickers()"
+          [selectResult]="selectResult()"
+          [loading]="selectLoading()"
+          [errorMessage]="panelErrors()['select'] ?? null"
+          (runSelect)="onRunSelect($event)" />
+      }
+
+      @if (activeTab() === 'exposure-constraints') {
+        <app-exposure-constraints-panel
+          [tickers]="tickers()"
+          [result]="exposureConstraintsResult()"
+          [loading]="exposureConstraintsLoading()"
+          [errorMessage]="panelErrors()['exposure-constraints'] ?? null"
+          (runConstraints)="onRunExposureConstraints($event)" />
+      }
     </div>
   }
 </div>

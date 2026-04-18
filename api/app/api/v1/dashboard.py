@@ -28,6 +28,7 @@ from app.schemas.dashboard import (
     ReferenceIndicesResponse,
     RegimeHistoryPoint,
     RegimeHistoryResponse,
+    RollingMetricsResponse,
 )
 from app.services import dashboard_service
 from optimizer.moments._hmm import HMMConfig, fit_hmm
@@ -228,6 +229,90 @@ def get_equity_curve(
         ) from exc
 
     return EquityCurveResponse(**result)
+
+
+_DEFAULT_ROLLING_WINDOW = 63
+
+
+@router.get(
+    "/{name}/rolling-metrics",
+    response_model=RollingMetricsResponse,
+    response_model_by_alias=True,
+    summary="Rolling Sharpe / volatility / beta series for the dashboard",
+)
+def get_rolling_metrics(
+    name: str,
+    benchmark: str = Query(
+        default_factory=lambda: settings.default_benchmark_ticker,
+        description="Benchmark ticker symbol",
+    ),
+    period: Literal["1Y", "3Y", "5Y", "MAX"] = Query(
+        default="3Y",
+        description="Lookback period for the rolling series",
+    ),
+    window: int = Query(
+        default=_DEFAULT_ROLLING_WINDOW,
+        ge=5,
+        le=252,
+        description="Rolling window length in trading days (default 63 ≈ 3 months)",
+    ),
+    db: Session = Depends(get_db),
+) -> RollingMetricsResponse:
+    """Return dated rolling Sharpe, annualized volatility, and beta series."""
+    portfolio_repo = PortfolioRepository(db)
+    dashboard_repo = DashboardRepository(db)
+
+    portfolio = portfolio_repo.get_by_name(name)
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Portfolio '{name}' not found",
+        )
+
+    snapshot = portfolio_repo.get_latest_snapshot(portfolio.id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No portfolio snapshot found; run optimization first",
+        )
+
+    weights: dict[str, float] = snapshot.weights
+    tickers = list(set(list(weights.keys()) + [benchmark]))
+
+    end_date = date.today()
+    days = _PERIOD_DAYS[period]
+    start_date = (
+        end_date - timedelta(days=days) if days is not None else _MAX_FLOOR_DATE
+    )
+
+    prices = dashboard_repo.get_multi_ticker_prices(tickers, start_date, end_date)
+
+    if prices.empty:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No price data available for portfolio tickers",
+        )
+
+    if benchmark not in prices.columns:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Benchmark ticker '{benchmark}' has no price data",
+        )
+
+    try:
+        result = dashboard_service.compute_rolling_metrics(
+            weights=weights,
+            prices=prices,
+            benchmark=benchmark,
+            window=window,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return RollingMetricsResponse(**result)
 
 
 @router.get(

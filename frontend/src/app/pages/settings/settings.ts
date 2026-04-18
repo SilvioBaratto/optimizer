@@ -8,8 +8,9 @@ import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-gr
 import { DataManagementPanelComponent } from './data-management-panel';
 import { PortfoliosPanelComponent } from './portfolios-panel';
 import { SchedulerStatusPanelComponent } from './scheduler-status-panel';
+import { JobsPanelComponent } from './jobs-panel';
 
-type SettingsTab = 'data' | 'portfolios' | 'scheduler';
+type SettingsTab = 'data' | 'portfolios' | 'scheduler' | 'jobs';
 
 @Component({
   selector: 'app-settings',
@@ -19,6 +20,7 @@ type SettingsTab = 'data' | 'portfolios' | 'scheduler';
     DataManagementPanelComponent,
     PortfoliosPanelComponent,
     SchedulerStatusPanelComponent,
+    JobsPanelComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './settings.html',
@@ -30,6 +32,7 @@ export class SettingsComponent {
     { id: 'data', label: 'Data Management' },
     { id: 'portfolios', label: 'Portfolios' },
     { id: 'scheduler', label: 'Scheduler' },
+    { id: 'jobs', label: 'Jobs' },
   ];
 
   onTabChange(tab: string): void {

@@ -9,6 +9,7 @@ import { TestBed } from '@angular/core/testing';
 import { DashboardComponent } from './dashboard';
 import { PortfolioContextService } from '../../services/portfolio-context.service';
 import { environment } from '../../../environments/environment';
+import { ICON_PROVIDER } from '../../icons';
 import type { DashboardKPI } from '../../models/dashboard.model';
 
 function makeKpi(overrides: Partial<DashboardKPI>): DashboardKPI {
@@ -150,6 +151,9 @@ describe('DashboardComponent — period selector wiring (issue #433)', () => {
     if (url.includes('/drift')) return { entries: [], breachedCount: 0, threshold: 0.05 };
     if (url.includes('/activity')) return { items: [], total: 0 };
     if (url.includes('/asset-class-returns')) return { returns: [] };
+    if (url.includes('/rolling-metrics')) {
+      return { window: 63, sharpe: [], volatility: [], beta: [] };
+    }
     return {};
   }
 
@@ -189,5 +193,175 @@ describe('DashboardComponent — period selector wiring (issue #433)', () => {
       (r) => r.url === `${API}portfolio-analytics/${PORTFOLIO}/equity-curve`,
     );
     equityReq.flush({ points: [] });
+  });
+});
+
+describe('DashboardComponent — rolling-metrics wiring (issue #453)', () => {
+  let fixture: ReturnType<typeof TestBed.createComponent<DashboardComponent>>;
+  let component: DashboardComponent;
+  let http: HttpTestingController;
+  let ctx: PortfolioContextService;
+  const API = environment.apiUrl;
+  const PORTFOLIO = 'alpha';
+
+  function rollingBody() {
+    return {
+      window: 63,
+      sharpe: [{ date: '2026-01-01', value: 1.2 }],
+      volatility: [{ date: '2026-01-01', value: 0.15 }],
+      beta: [{ date: '2026-01-01', value: 1.05 }],
+    };
+  }
+
+  function stubBody(url: string): Record<string, unknown> {
+    if (url.includes('/market/indices')) return { indices: [], total: 0 };
+    if (url.includes('/market/snapshot')) {
+      return {
+        vix: 0,
+        vixChange: 0,
+        sp500Return: 0,
+        tenYearYield: 0,
+        yieldChange: 0,
+        usdIndex: 0,
+        usdChange: 0,
+        asOf: new Date().toISOString(),
+      };
+    }
+    if (url.includes('/market/regime')) {
+      return {
+        current: 'bull',
+        probability: 1,
+        since: new Date().toISOString(),
+        hmmStates: [],
+        modelInfo: { nStates: 4, lastFitted: new Date().toISOString() },
+      };
+    }
+    if (url.includes('/equity-curve')) return { points: [] };
+    if (url.includes('/performance-metrics')) {
+      return { kpis: [], nav: 0, navChangePct: 0, currency: 'EUR' };
+    }
+    if (url.includes('/allocation')) return { nodes: [], totalPositions: 0, totalSectors: 0 };
+    if (url.includes('/drift')) return { entries: [], breachedCount: 0, threshold: 0.05 };
+    if (url.includes('/activity')) return { items: [], total: 0 };
+    if (url.includes('/asset-class-returns')) return { returns: [] };
+    if (url.includes('/rolling-metrics')) return rollingBody();
+    return {};
+  }
+
+  function drainExcept(urlFragment: string): void {
+    const open = http.match((r) => !r.url.includes(urlFragment));
+    for (const req of open) {
+      req.flush(stubBody(req.request.url));
+    }
+  }
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [DashboardComponent],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        ICON_PROVIDER,
+      ],
+    }).compileComponents();
+
+    ctx = TestBed.inject(PortfolioContextService);
+    ctx.currentPortfolioId.set(PORTFOLIO);
+    http = TestBed.inject(HttpTestingController);
+    fixture = TestBed.createComponent(DashboardComponent);
+    component = fixture.componentInstance;
+    // Trigger change detection so the refetch effect registered in the
+    // constructor runs and fires the initial rolling-metrics request.
+    fixture.detectChanges();
+  });
+
+  afterEach(() => http.verify());
+
+  it('issues a rolling-metrics request for the active portfolio on bootstrap', () => {
+    const rolling = http.match(
+      (r) => r.url === `${API}portfolio-analytics/${PORTFOLIO}/rolling-metrics`,
+    );
+    expect(rolling.length).toBeGreaterThanOrEqual(1);
+    rolling[0].flush(rollingBody());
+    // Drain the remaining bootstrap requests to keep verify() happy.
+    const remaining = http.match(() => true);
+    for (const r of remaining) r.flush(stubBody(r.request.url));
+  });
+
+  function flushAllRollingMetrics(urlFragment: string, body: Record<string, unknown>): number {
+    const reqs = http.match((r) => r.url.includes(urlFragment));
+    for (const r of reqs) r.flush(body);
+    return reqs.length;
+  }
+
+  it("maps the response into RollingMetricSeries with 'ratio'|'percent'|'unit' formatters", () => {
+    const count = flushAllRollingMetrics('/rolling-metrics', rollingBody());
+    expect(count).toBeGreaterThanOrEqual(1);
+    drainExcept('/rolling-metrics');
+    fixture.detectChanges();
+
+    const series = component.rollingMetricsSeries();
+    expect(series.length).toBe(3);
+    const byName = new Map(series.map((s) => [s.name, s.formatter]));
+    expect(byName.get('Sharpe')).toBe('ratio');
+    expect(byName.get('Volatility')).toBe('percent');
+    expect(byName.get('Beta')).toBe('unit');
+  });
+
+  it('renders exactly one <app-echarts-rolling-metrics> element in the template', () => {
+    flushAllRollingMetrics('/rolling-metrics', rollingBody());
+    drainExcept('/rolling-metrics');
+    // Skip the staggered reveal animation so the card's parent @if unlocks.
+    component.revealIndex.set(10);
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelectorAll('app-echarts-rolling-metrics').length).toBe(1);
+  });
+
+  it('refetches rolling metrics when the active portfolio changes', () => {
+    flushAllRollingMetrics('/rolling-metrics', rollingBody());
+    drainExcept('/rolling-metrics');
+
+    ctx.currentPortfolioId.set('beta');
+    fixture.detectChanges();
+
+    const second = http.match(
+      (r) => r.url === `${API}portfolio-analytics/beta/rolling-metrics`,
+    );
+    expect(second.length).toBeGreaterThanOrEqual(1);
+    for (const r of second) r.flush(rollingBody());
+  });
+
+  it('refetches rolling metrics when the PortfolioContextService.dateRange() preset changes', () => {
+    const initialCount = flushAllRollingMetrics('/rolling-metrics', rollingBody());
+    expect(initialCount).toBeGreaterThanOrEqual(1);
+    drainExcept('/rolling-metrics');
+
+    ctx.setPreset('3Y');
+    fixture.detectChanges();
+
+    const after = http.match(
+      (r) => r.url === `${API}portfolio-analytics/${PORTFOLIO}/rolling-metrics`,
+    );
+    expect(after.length).toBeGreaterThanOrEqual(1);
+    for (const r of after) r.flush(rollingBody());
+  });
+
+  it('sets the rolling-metrics error signal when the request fails', () => {
+    const reqs = http.match(
+      (r) => r.url.includes('/rolling-metrics'),
+    );
+    expect(reqs.length).toBeGreaterThanOrEqual(1);
+    reqs[0].flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+    for (const r of reqs.slice(1)) r.flush(rollingBody());
+    drainExcept('/rolling-metrics');
+    fixture.detectChanges();
+
+    expect(component.rollingMetricsError()).toContain('boom');
+    expect(component.rollingMetrics()).toBeNull();
+    expect(component.rollingMetricsLoading()).toBe(false);
   });
 });

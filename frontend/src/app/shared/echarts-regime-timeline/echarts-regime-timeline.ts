@@ -12,10 +12,33 @@ import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 
 import { readCssVar } from '../charts/echarts-theme';
 import { CHART_EXPORTABLE, type ChartExportable } from '../charts/chart-export.token';
+import type { RegimeHistoryApiResponse } from '../../models/factor.model';
 
 export interface RegimeTimelinePoint {
   date: string;
   probabilities: number[];
+}
+
+/**
+ * Canonical labels for the four HMM regimes emitted by
+ * `GET /market/regime/history`. Shared by every consumer of
+ * {@link EchartsRegimeTimelineComponent} so labels stay consistent.
+ */
+export const REGIME_LABELS: string[] = ['Bull', 'Bear', 'Sideways', 'Volatile'];
+
+/**
+ * Pure mapping from the API response shape to the chart input shape.
+ * Extracted so both Factor Research and Backtesting reuse the same
+ * transformation (no per-page duplication).
+ */
+export function regimeHistoryApiToTimelinePoints(
+  api: RegimeHistoryApiResponse | null,
+): RegimeTimelinePoint[] {
+  if (!api) return [];
+  return api.points.map((p) => ({
+    date: p.date,
+    probabilities: [p.bullProb, p.bearProb, p.sidewaysProb, p.volatileProb],
+  }));
 }
 
 @Component({
