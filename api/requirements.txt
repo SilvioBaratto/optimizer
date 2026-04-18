@@ -41,7 +41,7 @@ arch==8.0.0
 xlsxwriter==3.2.9
 networkx==3.6.1
 astropy==7.2.0
-pybind11==3.0.2
+pybind11==3.0.3
 
 # Skfolio
 skfolio==0.16.1
