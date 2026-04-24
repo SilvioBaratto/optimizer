@@ -198,3 +198,31 @@ class TestComputeAssetClassReturns:
 
         assert "YTD" in result["returns"][0]
         assert isinstance(result["returns"][0]["YTD"], float)
+
+    def test_datetime_date_index_does_not_raise_typeerror(self):
+        """Regression for #459.
+
+        ``dashboard_repository.get_multi_ticker_prices`` pivots on the
+        ``PriceHistory.date`` column which yields ``datetime.date`` objects
+        as the index — not ``pd.Timestamp``.  The YTD comparison
+        ``prices.index >= pd.Timestamp(ytd_cutoff)`` must not raise
+        ``TypeError: Cannot compare Timestamp with datetime.date``.
+        """
+        # Build a DatetimeIndex then convert to plain datetime.date
+        # to mimic what get_multi_ticker_prices returns.
+        dti = pd.bdate_range("2026-01-02", periods=60)
+        date_index = [ts.date() for ts in dti]
+        prices = pd.DataFrame(
+            {"AAPL": np.linspace(100.0, 110.0, len(date_index))},
+            index=date_index,
+        )
+        # Sanity: the index really holds datetime.date, not Timestamp
+        assert isinstance(prices.index[0], date)
+        assert not isinstance(prices.index[0], pd.Timestamp)
+
+        result = compute_asset_class_returns(
+            {"AAPL": 1.0}, {"AAPL": "Tech"}, prices, date(2026, 3, 18)
+        )
+
+        assert "YTD" in result["returns"][0]
+        assert isinstance(result["returns"][0]["YTD"], float)

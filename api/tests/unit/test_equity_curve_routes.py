@@ -184,7 +184,36 @@ class TestGetEquityCurve:
         msg = resp.json()["error"]["message"]
         assert "price data" in msg.lower()
 
-    def test_benchmark_missing(self, client: TestClient):
+    def test_benchmark_not_in_instruments_returns_422(self, client: TestClient):
+        """Issue #460: benchmark ticker absent from instruments table."""
+        portfolio = _make_portfolio()
+        snapshot = _make_snapshot()
+        # Must provide non-empty prices so the prices.empty check passes
+        prices = _make_prices(["AAPL", "MSFT", "GOOG"])
+
+        with (
+            patch(_PORTFOLIO_REPO) as MockPortRepo,
+            patch(_DASHBOARD_REPO) as MockDashRepo,
+        ):
+            repo = MockPortRepo.return_value
+            repo.get_by_name.return_value = portfolio
+            repo.get_latest_snapshot.return_value = snapshot
+
+            dash = MockDashRepo.return_value
+            dash.instrument_exists.return_value = False
+            dash.get_multi_ticker_prices.return_value = prices
+
+            resp = client.get(
+                f"{BASE_URL}/test/equity-curve?benchmark=FAKE"
+            )
+
+        assert resp.status_code == 422
+        msg = resp.json()["error"]["message"].lower()
+        assert "not found" in msg
+        assert "instruments" in msg
+
+    def test_benchmark_no_price_data_returns_422(self, client: TestClient):
+        """Issue #460: benchmark exists in instruments but has no price rows."""
         portfolio = _make_portfolio()
         snapshot = _make_snapshot()
         prices = _make_prices(["AAPL", "MSFT", "GOOG"])
@@ -197,15 +226,18 @@ class TestGetEquityCurve:
             repo.get_by_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
-            MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
+            dash = MockDashRepo.return_value
+            dash.instrument_exists.return_value = True
+            dash.get_multi_ticker_prices.return_value = prices
 
             resp = client.get(
                 f"{BASE_URL}/test/equity-curve?benchmark=SPY"
             )
 
         assert resp.status_code == 422
-        msg = resp.json()["error"]["message"]
-        assert "benchmark" in msg.lower()
+        msg = resp.json()["error"]["message"].lower()
+        assert "benchmark" in msg
+        assert "price data" in msg
 
     def test_custom_benchmark(self, client: TestClient):
         portfolio = _make_portfolio()

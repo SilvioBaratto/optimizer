@@ -137,6 +137,15 @@ class DashboardRepository(RepositoryBase):
     # Price data
     # ------------------------------------------------------------------
 
+    def instrument_exists(self, ticker: str) -> bool:
+        """Return True if an Instrument row with the given yfinance_ticker exists."""
+        stmt = (
+            select(Instrument.id)
+            .where(Instrument.yfinance_ticker == ticker)
+            .limit(1)
+        )
+        return self.session.execute(stmt).scalar_one_or_none() is not None
+
     def get_multi_ticker_prices(
         self,
         tickers: list[str],
@@ -171,7 +180,9 @@ class DashboardRepository(RepositoryBase):
 
         df = pd.DataFrame(rows, columns=["ticker", "date", "close"])
         df["close"] = df["close"].astype(float)
-        return df.pivot(index="date", columns="ticker", values="close").sort_index()
+        pivoted = df.pivot(index="date", columns="ticker", values="close").sort_index()
+        pivoted.index = pd.to_datetime(pivoted.index)
+        return pivoted
 
     # ------------------------------------------------------------------
     # Regime history

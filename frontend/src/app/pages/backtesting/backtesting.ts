@@ -35,10 +35,12 @@ import { ExportReportModalComponent } from '../../shared/modal/export-report-mod
 import { DestroyRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { WalkForwardPanelComponent } from './walk-forward-panel';
+import { BacktestResultsPanelComponent } from './backtest-results-panel';
 import type {
   BacktestConfig,
   BacktestMetrics,
   BacktestResult,
+  BacktestRunResponse,
   FactorLoading,
 } from '../../models/backtest.model';
 import type { RegimeHistoryApiResponse } from '../../models/factor.model';
@@ -91,6 +93,7 @@ interface MetricsRow {
     ChartToolbarComponent,
     JobProgressTrackerComponent,
     WalkForwardPanelComponent,
+    BacktestResultsPanelComponent,
   ],
   templateUrl: './backtesting.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -114,6 +117,13 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   readonly runRunId = signal<string | null>(null);
   readonly runError = signal<string | null>(null);
   readonly isRunning = computed(() => this.runJobId() !== null);
+
+  // Results panel state (issue #465): populated by `getBacktestRun` after
+  // the job completes. `runResponseLoading` / `runResponseError` drive the
+  // panel's skeleton and error banner.
+  readonly runResponse = signal<BacktestRunResponse | null>(null);
+  readonly runResponseLoading = signal(false);
+  readonly runResponseError = signal<string | null>(null);
 
   // ── State ──────────────────────────────────────────────────────────────────
   readonly activeTab = signal('overview');
@@ -958,26 +968,30 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     const runId = this.runRunId();
     this.runJobId.set(null);
     if (!runId) return;
+    // Fetch the persisted BacktestRun via the canonical runs endpoint
+    // (issue #465) — the previous `pollBacktest(runId)` call mis-used a
+    // job-progress endpoint with a run UUID.
+    this.runResponse.set(null);
+    this.runResponseError.set(null);
+    this.runResponseLoading.set(true);
     this.backtest
-      .pollBacktest(runId)
+      .getBacktestRun(runId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (progress) => this.applyRunResult(progress.result),
-        error: () => this.runError.set('Failed to load completed run'),
+        next: (run) => {
+          this.runResponse.set(run);
+          this.runResponseLoading.set(false);
+        },
+        error: (err: Error) => {
+          this.runResponseLoading.set(false);
+          this.runResponseError.set(err?.message ?? 'Failed to load completed run');
+        },
       });
   }
 
   onJobFailed(message: string): void {
     this.runError.set(message || 'Backtest job failed');
     this.runJobId.set(null);
-  }
-
-  private applyRunResult(payload: Record<string, unknown> | null): void {
-    if (!payload) return;
-    // Backend emits skfolio-native keys; we do not attempt a deep shape
-    // normalisation here — that's a follow-up story.
-    const partial = payload as Partial<BacktestResult>;
-    this.result.update((current) => ({ ...current, ...partial }));
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────

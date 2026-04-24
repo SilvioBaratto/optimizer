@@ -7,6 +7,7 @@ import type {
   BacktestApiRequest,
   BacktestAsyncResponse,
   BacktestProgressResponse,
+  BacktestRunResponse,
   EquityCurvePoint,
   ValidateApiRequest,
   ValidateAsyncResponse,
@@ -31,6 +32,18 @@ export class BacktestService {
   pollBacktest(jobId: string): Observable<BacktestProgressResponse> {
     const encoded = encodeURIComponent(jobId);
     return this.http.get<BacktestProgressResponse>(`${this.api}backtest/${encoded}`);
+  }
+
+  /**
+   * Fetch the persisted BacktestRun row for a completed backtest (issue #464/#465).
+   *
+   * This is the canonical endpoint for run data — distinct from
+   * `pollBacktest(jobId)` which returns in-memory job progress keyed by
+   * `BackgroundJob.id`, not `BacktestRun.id`.
+   */
+  getBacktestRun(runId: string): Observable<BacktestRunResponse> {
+    const encoded = encodeURIComponent(runId);
+    return this.http.get<BacktestRunResponse>(`${this.api}backtest/runs/${encoded}`);
   }
 
   runWalkForward(body: ValidateApiRequest): Observable<ValidateAsyncResponse> {

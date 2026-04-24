@@ -70,6 +70,14 @@
     </div>
   }
 
+  <!-- Results panel: live data from GET /backtest/runs/{run_id} (issue #465) -->
+  @if (runResponseLoading() || runResponseError() || runResponse()) {
+    <app-backtest-results-panel
+      [run]="runResponse()"
+      [loading]="runResponseLoading()"
+      [error]="runResponseError()" />
+  }
+
   @if (isLoading()) {
   <!-- Loading skeleton -->
   <div class="space-y-6">
