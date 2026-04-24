@@ -750,6 +750,12 @@ def compute_asset_class_returns(
             f"Insufficient price data: {n_rows} rows (minimum 2 required)"
         )
 
+    # Defensive: ensure DatetimeIndex so that Timestamp comparisons work
+    # even if the caller passed a DataFrame with a plain date index.
+    if not isinstance(prices.index, pd.DatetimeIndex):
+        prices = prices.copy()
+        prices.index = pd.to_datetime(prices.index)
+
     # --- YTD start index ---
     ytd_cutoff = date(today.year, 1, 1)
     ytd_candidates = prices.index[prices.index >= pd.Timestamp(ytd_cutoff)]

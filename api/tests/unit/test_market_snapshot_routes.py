@@ -122,3 +122,29 @@ class TestGetMarketSnapshot:
             resp = client.get(f"{BASE_URL}/snapshot")
 
         assert resp.status_code == 503
+
+    def test_benchmark_not_in_instruments_returns_422(self, client: TestClient):
+        """Issue #461: benchmark ticker absent from instruments table."""
+        with patch(_DASHBOARD_REPO) as MockDashRepo:
+            repo = self._mock_repo(MockDashRepo)
+            repo.instrument_exists.return_value = False
+
+            resp = client.get(f"{BASE_URL}/snapshot")
+
+        assert resp.status_code == 422
+        msg = resp.json()["error"]["message"].lower()
+        assert "not found" in msg
+        assert "instruments" in msg
+
+    def test_benchmark_exists_but_no_prices_returns_503(self, client: TestClient):
+        """Issue #461: instrument exists but has insufficient price data."""
+        with patch(_DASHBOARD_REPO) as MockDashRepo:
+            repo = self._mock_repo(MockDashRepo)
+            repo.instrument_exists.return_value = True
+            repo.get_benchmark_prices.return_value = []
+
+            resp = client.get(f"{BASE_URL}/snapshot")
+
+        assert resp.status_code == 503
+        msg = resp.json()["error"]["message"].lower()
+        assert "price data" in msg

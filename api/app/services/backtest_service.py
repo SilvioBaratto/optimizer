@@ -20,6 +20,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.repositories.execution_repository import ExecutionRepository
+from app.services._json_safe import safe_float
 from app.services._price_fetcher import fetch_close_prices
 from app.services.optimization_service import resolve_optimizer
 from optimizer.pipeline import PortfolioResult, run_full_pipeline
@@ -196,27 +197,26 @@ def _returns_series(portfolio: Any) -> pd.Series:
     return returns_df
 
 
-def _equity_curve(portfolio: Any) -> dict[str, float]:
-    """Convert cumulative_returns_df to {date_str: float}."""
-    series = portfolio.cumulative_returns_df
-    return _series_to_dict(series)
+def _equity_curve(portfolio: Any) -> dict[str, float | None]:
+    """Convert cumulative_returns_df to ``{date_str: float | None}``."""
+    return _series_to_dict(portfolio.cumulative_returns_df)
 
 
 def _drawdowns(portfolio: Any) -> dict[str, Any]:
-    """Drawdown series + summary {date_str: float, max_drawdown: float}."""
+    """Drawdown series + summary with NaN-safe ``max_drawdown``."""
     dd_series = _series_to_dict(portfolio.drawdowns_df)
-    return {**dd_series, "max_drawdown": float(portfolio.max_drawdown)}
+    return {**dd_series, "max_drawdown": safe_float(portfolio.max_drawdown)}
 
 
-def _resample_returns(returns: pd.Series, freq: str) -> dict[str, float]:
+def _resample_returns(returns: pd.Series, freq: str) -> dict[str, float | None]:
     """Compound returns at *freq* ('ME' = month-end, 'YE' = year-end)."""
     if returns.empty:
         return {}
     compounded = (1 + returns).resample(freq).prod() - 1
-    return {str(dt.date()): round(float(v), 6) for dt, v in compounded.items()}
+    return {str(dt.date()): safe_float(v, ndigits=6) for dt, v in compounded.items()}
 
 
-def _rolling_metrics(portfolio: Any) -> dict[str, dict[str, float]]:
+def _rolling_metrics(portfolio: Any) -> dict[str, dict[str, float | None]]:
     """Rolling Sharpe and annualised volatility over _ROLLING_WINDOW periods."""
     from skfolio.measures import RatioMeasure, RiskMeasure
 
@@ -232,7 +232,7 @@ def _rolling_metrics(portfolio: Any) -> dict[str, dict[str, float]]:
     }
 
 
-def _turnover_history(result: PortfolioResult) -> dict[str, float]:
+def _turnover_history(result: PortfolioResult) -> dict[str, float | None]:
     """Per-period turnover from weight_history; empty when unavailable."""
     if result.weight_history is None:
         return {}
@@ -249,7 +249,7 @@ def _cv_fold_metrics(result: PortfolioResult) -> list[dict[str, Any]] | None:
     try:
         for fold_portfolio in result.backtest:
             summary = fold_portfolio.summary(formatted=False)
-            folds.append({str(k): float(v) for k, v in summary.items()})
+            folds.append({str(k): safe_float(v) for k, v in summary.items()})
     except Exception:
         return None
     return folds or None
@@ -258,22 +258,25 @@ def _cv_fold_metrics(result: PortfolioResult) -> list[dict[str, Any]] | None:
 def _summary_stats(result: PortfolioResult) -> dict[str, Any]:
     """Aggregate summary from result.summary + in-sample portfolio."""
     stats: dict[str, Any] = {
-        str(k): float(v) for k, v in (result.summary or {}).items()
+        str(k): safe_float(v) for k, v in (result.summary or {}).items()
     }
     try:
         in_sample = result.portfolio.summary(formatted=False)
-        stats["in_sample"] = {str(k): float(v) for k, v in in_sample.items()}
+        stats["in_sample"] = {str(k): safe_float(v) for k, v in in_sample.items()}
     except Exception:
         pass
     return stats
 
 
-def _series_to_dict(series: pd.Series) -> dict[str, float]:
-    """Convert a date-indexed pandas Series to {date_str: float}."""
-    result: dict[str, float] = {}
+def _series_to_dict(series: pd.Series) -> dict[str, float | None]:
+    """Convert a date-indexed pandas Series to ``{date_str: float | None}``.
+
+    NaN/Inf values are sanitised to ``None`` (issue #462): PostgreSQL
+    JSONB rejects non-finite literals, so every numeric that flows into a
+    ``backtest_runs`` JSONB column must be finite or SQL null.
+    """
+    result: dict[str, float | None] = {}
     for idx, val in series.items():
-        try:
-            result[str(idx.date())] = round(float(val), 6)
-        except (AttributeError, TypeError, ValueError):
-            result[str(idx)] = round(float(val), 6)
+        key = str(idx.date()) if hasattr(idx, "date") else str(idx)
+        result[key] = safe_float(val, ndigits=6)
     return result

@@ -6,6 +6,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -13,7 +14,6 @@ from app.config import settings
 from app.database import get_db
 from app.repositories.dashboard_repository import DashboardRepository
 from app.repositories.portfolio_repository import PortfolioRepository
-from app.services._sector_resolver import resolve_sector_map
 from app.schemas.dashboard import (
     ActivityFeedResponse,
     ActivityItem,
@@ -31,6 +31,7 @@ from app.schemas.dashboard import (
     RollingMetricsResponse,
 )
 from app.services import dashboard_service
+from app.services._sector_resolver import resolve_sector_map
 from optimizer.moments._hmm import HMMConfig, fit_hmm
 
 logger = logging.getLogger(__name__)
@@ -50,17 +51,62 @@ _MAX_FLOOR_DATE = date(2000, 1, 1)
 def _require_benchmark_prices(
     repo: DashboardRepository, ticker: str, n: int = 2,
 ) -> list[float]:
-    """Load *n* most recent prices for a benchmark ticker or raise 503."""
+    """Load *n* most recent prices for a benchmark ticker.
+
+    Raises 422 if the ticker is absent from the instruments table
+    (seed it first) and 503 if the instrument exists but has fewer than
+    *n* price rows (run yfinance fetch first). Distinguishing the two
+    tells the caller which upstream step is missing (issue #461).
+    """
+    if not repo.instrument_exists(ticker):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Benchmark ticker '{ticker}' not found in instruments "
+                "table — seed it first"
+            ),
+        )
     prices = repo.get_benchmark_prices(ticker, n=n)
     if len(prices) < n:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
-                f"{ticker} price data not yet available; "
-                "run yfinance fetch first"
+                f"Benchmark ticker '{ticker}' exists but has no price "
+                "data; run yfinance fetch first"
             ),
         )
     return prices
+
+
+def _validate_benchmark(
+    repo: DashboardRepository,
+    benchmark: str,
+    prices: pd.DataFrame,
+) -> None:
+    """Validate that a benchmark ticker exists and has price data.
+
+    Raises 422 with a distinct message for:
+      - Ticker not found in the instruments table (seed it first)
+      - Ticker found but absent from price data (fetch needed)
+
+    Args:
+        repo: Dashboard repository for instrument lookups.
+        benchmark: Benchmark ticker symbol to validate.
+        prices: Price DataFrame whose columns are available tickers.
+    """
+    if not repo.instrument_exists(benchmark):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Benchmark ticker '{benchmark}' not found in instruments "
+                "table — seed it first"
+            ),
+        )
+    if benchmark not in prices.columns:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Benchmark ticker '{benchmark}' has no price data",
+        )
 
 
 @router.get(
@@ -129,11 +175,7 @@ def get_performance_metrics(
             detail="No price data available for portfolio tickers",
         )
 
-    if benchmark not in prices.columns:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Benchmark ticker '{benchmark}' has no price data",
-        )
+    _validate_benchmark(dashboard_repo, benchmark, prices)
 
     # --- Compute metrics ---
     try:
@@ -210,11 +252,7 @@ def get_equity_curve(
             detail="No price data available for portfolio tickers",
         )
 
-    if benchmark not in prices.columns:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Benchmark ticker '{benchmark}' has no price data",
-        )
+    _validate_benchmark(dashboard_repo, benchmark, prices)
 
     try:
         result = dashboard_service.compute_equity_curve(
@@ -293,11 +331,7 @@ def get_rolling_metrics(
             detail="No price data available for portfolio tickers",
         )
 
-    if benchmark not in prices.columns:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Benchmark ticker '{benchmark}' has no price data",
-        )
+    _validate_benchmark(dashboard_repo, benchmark, prices)
 
     try:
         result = dashboard_service.compute_rolling_metrics(

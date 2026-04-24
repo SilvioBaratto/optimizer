@@ -130,6 +130,11 @@ class ExecutionRepository(RepositoryBase):
     # BacktestRun
     # ------------------------------------------------------------------
 
+    def get_backtest_run(self, run_id: uuid.UUID) -> BacktestRun | None:
+        """Return a single BacktestRun by its primary-key UUID, or None."""
+        stmt = select(BacktestRun).where(BacktestRun.id == run_id)
+        return self.session.execute(stmt).scalar_one_or_none()
+
     def get_backtest_runs(
         self,
         portfolio_id: uuid.UUID | None = None,

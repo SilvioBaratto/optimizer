@@ -20,6 +20,7 @@ from app.repositories.execution_repository import ExecutionRepository
 from app.schemas.backtest import (
     BacktestProgressResponse,
     BacktestRequest,
+    BacktestRunResponse,
 )
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.backtest_service import run_and_persist
@@ -127,6 +128,32 @@ def start_backtest(
                 "message": f"Backtest started. Poll GET /backtest/{job_id} for progress.",
             },
         )
+
+
+@router.get(
+    "/runs/{run_id}",
+    response_model=BacktestRunResponse,
+    response_model_by_alias=True,
+    summary="Fetch a persisted backtest run by its primary-key UUID",
+)
+def get_backtest_run(
+    run_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> BacktestRunResponse:
+    """Return the :class:`BacktestRun` row with matching ``run_id`` (issue #464).
+
+    Serves ``backtest_runs`` data directly — distinct from
+    ``GET /backtest/{job_id}`` which polls the in-memory background job
+    progress. The frontend uses the ``runId`` returned by
+    ``POST /backtest`` to retrieve completed metrics here.
+    """
+    run = ExecutionRepository(db).get_backtest_run(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Backtest run '{run_id}' not found",
+        )
+    return BacktestRunResponse.model_validate(run)
 
 
 @router.get("/{job_id}", response_model=BacktestProgressResponse)

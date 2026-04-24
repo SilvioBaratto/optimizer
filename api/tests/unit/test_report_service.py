@@ -157,6 +157,104 @@ class TestReportDataAggregatorNoRawSQL:
         execution_repo.get_backtest_runs.assert_not_called()
 
 
+class TestAdHocBacktestFallback:
+    """Regression for issue #463.
+
+    Ad-hoc backtests create :class:`BacktestRun` rows without a
+    ``portfolio_id``. ``_fetch_performance_metrics`` previously short-
+    circuited to ``_NO_DATA`` whenever ``portfolio_id`` was ``None``, so
+    reports for ad-hoc runs always claimed no data was available. The
+    fix is to forward ``portfolio_id=None`` to the repository (which
+    then returns the latest completed run across all portfolios) and
+    only call a run "no data" when ``summary_stats`` / ``weights`` is
+    actually ``None`` — never when it is an empty dict.
+    """
+
+    def test_performance_metrics_falls_back_when_portfolio_id_is_none(
+        self,
+    ) -> None:
+        from app.services.report_service import ReportDataAggregator
+
+        stats = {"sharpe": 1.5, "cagr": 0.12}
+        backtest_run = _make_backtest_run(stats)
+        portfolio_repo, execution_repo = _make_repos(backtest_runs=[backtest_run])
+        aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
+
+        result = aggregator.get_performance_metrics(portfolio_id=None)
+
+        assert result["available"] is True
+        assert result["metrics"] == stats
+        # Repository must be queried with portfolio_id=None (no filter)
+        # so ad-hoc runs are retrieved.
+        call_kwargs = execution_repo.get_backtest_runs.call_args.kwargs
+        assert call_kwargs.get("portfolio_id") is None
+
+    def test_performance_metrics_empty_summary_stats_is_not_no_data(self) -> None:
+        """Empty ``summary_stats`` dict is valid data, not a missing run."""
+        from app.services.report_service import ReportDataAggregator
+
+        # BacktestRun.summary_stats defaults to {} on creation, not None.
+        backtest_run = _make_backtest_run({})
+        portfolio_repo, execution_repo = _make_repos(backtest_runs=[backtest_run])
+        aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
+
+        result = aggregator.get_performance_metrics(portfolio_id=str(uuid.uuid4()))
+
+        assert result["available"] is True
+        assert result["metrics"] == {}
+
+    def test_performance_metrics_none_summary_stats_is_no_data(self) -> None:
+        """When ``summary_stats`` is explicitly ``None``, fall back to placeholder."""
+        from app.services.report_service import ReportDataAggregator
+
+        backtest_run = _make_backtest_run(None)  # type: ignore[arg-type]
+        portfolio_repo, execution_repo = _make_repos(backtest_runs=[backtest_run])
+        aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
+
+        result = aggregator.get_performance_metrics(portfolio_id=str(uuid.uuid4()))
+
+        assert result["available"] is False
+
+    def test_weights_falls_back_when_portfolio_id_is_none(self) -> None:
+        from app.services.report_service import ReportDataAggregator
+
+        opt_run = _make_optimization_run({"AAPL": 0.6, "MSFT": 0.4})
+        portfolio_repo, execution_repo = _make_repos(opt_runs=[opt_run])
+        aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
+
+        result = aggregator.get_weights(portfolio_id=None)
+
+        assert result["available"] is True
+        assert len(result["items"]) == 2
+        call_kwargs = execution_repo.get_optimization_runs.call_args.kwargs
+        assert call_kwargs.get("portfolio_id") is None
+
+    def test_weights_empty_dict_is_not_no_data(self) -> None:
+        """Empty ``weights`` dict is valid data (run completed, items just empty)."""
+        from app.services.report_service import ReportDataAggregator
+
+        opt_run = _make_optimization_run({})
+        portfolio_repo, execution_repo = _make_repos(opt_runs=[opt_run])
+        aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
+
+        result = aggregator.get_weights(portfolio_id=str(uuid.uuid4()))
+
+        assert result["available"] is True
+        assert result["items"] == []
+
+    def test_weights_none_weights_is_no_data(self) -> None:
+        """When ``weights`` is explicitly ``None``, fall back to placeholder."""
+        from app.services.report_service import ReportDataAggregator
+
+        opt_run = _make_optimization_run(None)  # type: ignore[arg-type]
+        portfolio_repo, execution_repo = _make_repos(opt_runs=[opt_run])
+        aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
+
+        result = aggregator.get_weights(portfolio_id=str(uuid.uuid4()))
+
+        assert result["available"] is False
+
+
 class TestReportDataAggregator:
     """ReportDataAggregator collects section data from repositories."""
 

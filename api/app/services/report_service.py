@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 _NO_DATA: dict[str, Any] = {"available": False, "message": "No data available"}
 
 
+def _to_uuid(portfolio_id: str | None) -> uuid.UUID | None:
+    """Parse an optional UUID string. ``None`` passes through (issue #463)."""
+    return uuid.UUID(portfolio_id) if portfolio_id is not None else None
+
+
 # ---------------------------------------------------------------------------
 # Data aggregator (SRP: only knows how to fetch data)
 # ---------------------------------------------------------------------------
@@ -133,33 +138,40 @@ class ReportDataAggregator:
         }
 
     def _fetch_weights(self, portfolio_id: str | None) -> dict[str, Any]:
-        """Query latest completed optimization run weights via ExecutionRepository."""
-        if portfolio_id is None:
-            return dict(_NO_DATA)
+        """Query latest completed optimization run weights via ExecutionRepository.
 
+        When *portfolio_id* is ``None`` (ad-hoc run), the repository is
+        queried without a portfolio filter so the most recent completed
+        run is returned regardless of portfolio (issue #463). Empty
+        ``weights`` dicts are still treated as valid data — only
+        ``None`` triggers the placeholder.
+        """
         runs = self._execution_repo.get_optimization_runs(
-            portfolio_id=uuid.UUID(portfolio_id),
+            portfolio_id=_to_uuid(portfolio_id),
             status="completed",
             limit=1,
         )
-        if not runs or not runs[0].weights:
+        if not runs or runs[0].weights is None:
             return dict(_NO_DATA)
 
-        weights = runs[0].weights
-        items = [{"ticker": k, "weight": v} for k, v in weights.items()]
+        items = [{"ticker": k, "weight": v} for k, v in runs[0].weights.items()]
         return {"available": True, "items": items}
 
     def _fetch_performance_metrics(self, portfolio_id: str | None) -> dict[str, Any]:
-        """Query latest completed backtest summary_stats via ExecutionRepository."""
-        if portfolio_id is None:
-            return dict(_NO_DATA)
+        """Query latest completed backtest summary_stats via ExecutionRepository.
 
+        When *portfolio_id* is ``None`` (ad-hoc run), the repository is
+        queried without a portfolio filter so the most recent completed
+        run is returned regardless of portfolio (issue #463). Empty
+        ``summary_stats`` dicts are still treated as valid data — only
+        ``None`` triggers the placeholder.
+        """
         runs = self._execution_repo.get_backtest_runs(
-            portfolio_id=uuid.UUID(portfolio_id),
+            portfolio_id=_to_uuid(portfolio_id),
             status="completed",
             limit=1,
         )
-        if not runs or not runs[0].summary_stats:
+        if not runs or runs[0].summary_stats is None:
             return dict(_NO_DATA)
 
         return {"available": True, "metrics": runs[0].summary_stats}

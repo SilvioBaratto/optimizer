@@ -6,13 +6,18 @@ Covers:
   - extract_backtest_metrics returns all required BacktestRun keys
   - build_optimizer builds a valid skfolio optimizer
   - _ensure_datetime_index coerces a plain Index of datetime.date to DatetimeIndex
+  - _series_to_dict sanitises NaN/Inf values to None (issue #462)
+  - extract_backtest_metrics output is strict-JSON safe (issue #462)
 """
 
 from __future__ import annotations
 
+import json
+import math
 from datetime import date
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -210,16 +215,158 @@ class TestExtractBacktestMetrics:
         assert metrics.get("cv_fold_metrics") is None
 
 
+class TestSeriesToDictSanitisesNonFiniteValues:
+    """_series_to_dict replaces NaN/Inf/-Inf with None (issue #462).
+
+    PostgreSQL rejects NaN/Infinity literals in JSONB columns, so every
+    float written into the backtest_runs table must be finite or null.
+    """
+
+    def test_nan_value_becomes_none(self) -> None:
+        from app.services.backtest_service import _series_to_dict
+
+        series = pd.Series(
+            [1.0, float("nan"), 2.0],
+            index=pd.to_datetime(["2020-01-01", "2020-01-02", "2020-01-03"]),
+        )
+
+        out = _series_to_dict(series)
+
+        assert out["2020-01-02"] is None
+        assert out["2020-01-01"] == 1.0
+        assert out["2020-01-03"] == 2.0
+
+    def test_positive_infinity_becomes_none(self) -> None:
+        from app.services.backtest_service import _series_to_dict
+
+        series = pd.Series(
+            [float("inf"), 1.0],
+            index=pd.to_datetime(["2020-01-01", "2020-01-02"]),
+        )
+
+        out = _series_to_dict(series)
+
+        assert out["2020-01-01"] is None
+
+    def test_negative_infinity_becomes_none(self) -> None:
+        from app.services.backtest_service import _series_to_dict
+
+        series = pd.Series(
+            [float("-inf"), 1.0],
+            index=pd.to_datetime(["2020-01-01", "2020-01-02"]),
+        )
+
+        out = _series_to_dict(series)
+
+        assert out["2020-01-01"] is None
+
+    def test_numpy_nan_becomes_none(self) -> None:
+        """numpy.nan propagated through arithmetic must also be sanitised."""
+        from app.services.backtest_service import _series_to_dict
+
+        series = pd.Series(
+            [np.nan, 1.5],
+            index=pd.to_datetime(["2020-01-01", "2020-01-02"]),
+        )
+
+        out = _series_to_dict(series)
+
+        assert out["2020-01-01"] is None
+        assert out["2020-01-02"] == 1.5
+
+    def test_output_is_strict_json_safe(self) -> None:
+        """Strict JSON (allow_nan=False) must succeed for mixed input."""
+        from app.services.backtest_service import _series_to_dict
+
+        series = pd.Series(
+            [1.0, float("nan"), float("inf"), float("-inf"), 2.5],
+            index=pd.to_datetime(
+                ["2020-01-01", "2020-01-02", "2020-01-03", "2020-01-04", "2020-01-05"]
+            ),
+        )
+
+        out = _series_to_dict(series)
+
+        # allow_nan=False mirrors PostgreSQL JSONB strictness.
+        json.dumps(out, allow_nan=False)
+
+
+class TestExtractBacktestMetricsIsJsonSafe:
+    """extract_backtest_metrics output survives strict-JSON serialisation.
+
+    Regression for issue #462: backtest persistence crashed with
+    psycopg2.errors.InvalidTextRepresentation because NaN values leaked
+    through _series_to_dict and related helpers into JSONB columns.
+    """
+
+    def test_metrics_with_nan_values_serialise_to_strict_json(self) -> None:
+        from app.services.backtest_service import extract_backtest_metrics
+
+        result = _make_mock_result_with_nans()
+        metrics = extract_backtest_metrics(result)
+
+        # allow_nan=False rejects NaN/Infinity — the exact constraint
+        # PostgreSQL JSONB imposes.
+        json.dumps(metrics, allow_nan=False, default=str)
+
+    def test_equity_curve_nan_entry_is_none(self) -> None:
+        from app.services.backtest_service import extract_backtest_metrics
+
+        result = _make_mock_result_with_nans()
+        metrics = extract_backtest_metrics(result)
+
+        equity = metrics["equity_curve"]
+        assert any(v is None for v in equity.values())
+
+    def test_monthly_returns_handle_nan(self) -> None:
+        from app.services.backtest_service import extract_backtest_metrics
+
+        result = _make_mock_result_with_nans()
+        metrics = extract_backtest_metrics(result)
+
+        for v in metrics["monthly_returns"].values():
+            assert v is None or (isinstance(v, float) and math.isfinite(v))
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
+def _make_mock_portfolio_with_nans() -> MagicMock:
+    """Portfolio whose series contain NaN/Inf to exercise sanitisation."""
+    dates = pd.date_range("2020-01-01", periods=5, freq="B")
+    portfolio = MagicMock()
+    portfolio.cumulative_returns_df = pd.Series(
+        [1.0, float("nan"), 1.02, float("inf"), 1.04], index=dates
+    )
+    portfolio.drawdowns_df = pd.Series(
+        [0.0, -0.01, float("nan"), -0.03, -0.04], index=dates
+    )
+    portfolio.returns_df = pd.Series(
+        [0.01, float("nan"), 0.02, 0.01, 0.01], index=dates
+    )
+    portfolio.rolling_measure.return_value = pd.Series(
+        [1.0, float("nan"), 1.1, 1.2, float("inf")], index=dates
+    )
+    portfolio.summary.return_value = pd.Series(
+        {"Annualized Sharpe Ratio": float("nan"), "Max Drawdown": -0.05}
+    )
+    portfolio.max_drawdown = float("nan")
+    return portfolio
+
+
+def _make_mock_result_with_nans() -> MagicMock:
+    result = MagicMock()
+    result.portfolio = _make_mock_portfolio_with_nans()
+    result.backtest = _make_mock_portfolio_with_nans()
+    result.summary = {"annualized_sharpe_ratio": float("nan"), "max_drawdown": -0.05}
+    result.weight_history = None
+    return result
+
+
 def _make_mock_portfolio() -> MagicMock:
     """Return a mock skfolio Portfolio with required attributes."""
-    import numpy as np
-    import pandas as pd
-
     dates = pd.date_range("2020-01-01", periods=10, freq="B")
     portfolio = MagicMock()
     portfolio.cumulative_returns_df = pd.Series(
@@ -248,8 +395,6 @@ def _make_mock_portfolio() -> MagicMock:
 
 
 def _make_mock_result(with_backtest: bool = True) -> MagicMock:
-    import pandas as pd
-
     result = MagicMock()
     result.portfolio = _make_mock_portfolio()
     result.backtest = _make_mock_portfolio() if with_backtest else None

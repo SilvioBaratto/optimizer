@@ -159,6 +159,55 @@ class TestGetBacktestJob:
         assert resp.status_code == 404
 
 
+class TestGetBacktestRun:
+    """GET /api/v1/backtest/runs/{run_id} returns the persisted BacktestRun (issue #464)."""
+
+    def test_existing_run_returns_200(self, client: TestClient, db_session: Session) -> None:
+        run = _create_backtest_run(db_session)
+
+        resp = client.get(f"{BASE_URL}/runs/{run.id}")
+
+        assert resp.status_code == 200
+
+    def test_response_contains_run_id_and_status(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        run = _create_backtest_run(db_session, status="completed")
+
+        resp = client.get(f"{BASE_URL}/runs/{run.id}")
+
+        body = resp.json()
+        assert body["id"] == str(run.id)
+        assert body["status"] == "completed"
+
+    def test_response_contains_camel_case_result_fields(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        run = _create_backtest_run(
+            db_session,
+            equity_curve={"2024-01-02": 100.0},
+            summary_stats={"sharpe": 1.25},
+        )
+
+        resp = client.get(f"{BASE_URL}/runs/{run.id}")
+
+        body = resp.json()
+        assert body["equityCurve"] == {"2024-01-02": 100.0}
+        assert body["summaryStats"] == {"sharpe": 1.25}
+
+    def test_missing_run_returns_404(self, client: TestClient) -> None:
+        random_uuid = str(uuid.uuid4())
+
+        resp = client.get(f"{BASE_URL}/runs/{random_uuid}")
+
+        assert resp.status_code == 404
+
+    def test_invalid_uuid_returns_422(self, client: TestClient) -> None:
+        resp = client.get(f"{BASE_URL}/runs/not-a-uuid")
+
+        assert resp.status_code == 422
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -174,3 +223,29 @@ def _pending_job(job_id: str) -> dict[str, Any]:
         "result": None,
         "error": None,
     }
+
+
+def _create_backtest_run(
+    session: Session,
+    status: str = "completed",
+    equity_curve: dict[str, Any] | None = None,
+    summary_stats: dict[str, Any] | None = None,
+) -> Any:
+    """Insert a minimal BacktestRun row covering every NOT NULL column."""
+    from app.models.execution import BacktestRun
+
+    run = BacktestRun(
+        status=status,
+        config={"optimizer_type": "hrp"},
+        equity_curve=equity_curve or {},
+        drawdowns={},
+        monthly_returns={},
+        yearly_returns={},
+        rolling_metrics={},
+        turnover_history={},
+        summary_stats=summary_stats or {},
+    )
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    return run

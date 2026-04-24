@@ -148,3 +148,30 @@ export interface EquityCurvePoint {
   date: string;
   value: number;
 }
+
+/**
+ * Response payload of `GET /api/v1/backtest/runs/{run_id}` (issue #464/#465).
+ *
+ * Mirrors the backend `BacktestRunResponse` (CamelCaseModel): every field
+ * is camelCase in the JSON. Numeric dict values may be `null` for NaN/Inf
+ * sanitised at the service layer; consumers must handle that.
+ */
+export interface BacktestRunResponse {
+  id: string;
+  portfolioId: string | null;
+  jobId: string | null;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  config: Record<string, unknown>;
+  equityCurve: Record<string, number | null>;
+  drawdowns: Record<string, number | null>;
+  monthlyReturns: Record<string, number | null>;
+  yearlyReturns: Record<string, number | null>;
+  rollingMetrics: Record<string, Record<string, number | null>>;
+  turnoverHistory: Record<string, number | null>;
+  cvFoldMetrics: Array<Record<string, number | null>> | null;
+  summaryStats: Record<string, number | null>;
+  errorMessage: string | null;
+  durationSeconds: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
