@@ -1,5 +1,5 @@
 # Core Framework
-fastapi==0.136.0
+fastapi==0.136.1
 uvicorn==0.44.0
 python-dotenv==1.2.2
 
