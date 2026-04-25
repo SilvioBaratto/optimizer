@@ -45,7 +45,7 @@ Changelog = "https://github.com/SilvioBaratto/optimizer/blob/main/CHANGELOG.md"
 [project.optional-dependencies]
 test = ["pytest>=9.0.3", "pytest-cov>=7.1.0", "hypothesis>=6.151.9", "pyyaml>=6.0.3"]
 lint = ["ruff>=0.15.6", "pip-audit>=2.10.0"]
-typecheck = ["mypy>=1.19.1", "pyright[nodejs]==1.1.408"]
+typecheck = ["mypy>=1.19.1", "pyright[nodejs]==1.1.409"]
 docs = [
     "mkdocs-material>=9.7.2",
     "mkdocstrings[python]>=1.0.3",
