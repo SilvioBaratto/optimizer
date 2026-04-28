@@ -139,8 +139,6 @@ describe('DashboardComponent — period selector wiring (issue #433)', () => {
         current: 'bull',
         probability: 1,
         since: new Date().toISOString(),
-        hmmStates: [],
-        modelInfo: { nStates: 4, lastFitted: new Date().toISOString() },
       };
     }
     if (url.includes('/equity-curve')) return { points: [] };
@@ -232,8 +230,6 @@ describe('DashboardComponent — rolling-metrics wiring (issue #453)', () => {
         current: 'bull',
         probability: 1,
         since: new Date().toISOString(),
-        hmmStates: [],
-        modelInfo: { nStates: 4, lastFitted: new Date().toISOString() },
       };
     }
     if (url.includes('/equity-curve')) return { points: [] };

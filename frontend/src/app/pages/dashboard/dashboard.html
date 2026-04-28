@@ -227,20 +227,6 @@
           <span class="text-data-sm text-text-secondary font-mono">{{ fmt.formatPercent(regimeInfo().probability, 0) }}
             confidence</span>
         </div>
-        <div class="space-y-1.5">
-          @for (state of regimeInfo().hmmStates; track state.regime) {
-          <div class="flex items-center gap-2">
-            <span class="text-data-xs text-text-secondary capitalize w-16">{{ state.regime }}</span>
-            <div class="flex-1 bg-surface-inset rounded-full h-2 overflow-hidden">
-              <div class="h-full rounded-full transition-all" [class]="regimeBarColor(state.regime)"
-                [style.width.%]="state.probability * 100">
-              </div>
-            </div>
-            <span class="text-data-xs font-mono text-text-tertiary w-10 text-right">{{ (state.probability *
-              100).toFixed(0) }}%</span>
-          </div>
-          }
-        </div>
       </div>
     </div>
   </div>

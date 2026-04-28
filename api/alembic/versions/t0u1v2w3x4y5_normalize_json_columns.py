@@ -5,9 +5,10 @@ Revises: s9t0u1v2w3x4
 Create Date: 2026-03-18
 """
 
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "t0u1v2w3x4y5"

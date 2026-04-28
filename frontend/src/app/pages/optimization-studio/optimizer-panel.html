@@ -3,19 +3,12 @@
   <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-4">
     <h3 class="text-sm font-semibold text-text">Optimizer Configuration</h3>
 
-    <!-- Optimizer Type -->
-    <div>
-      <div class="flex items-center gap-2 mb-2">
-        <label for="optimizerType" class="text-xs font-medium text-text-secondary">Optimizer</label>
-        <app-help-tooltip
-          text="Selects the backend optimizer. mean_risk / robust_mean_risk / dr_cvar are convex; hrp / herc / nco are hierarchical; equal_weighted / inverse_volatility / risk_budgeting are heuristics; stacking / regime_blended are ensembles." />
-      </div>
-      <select id="optimizerType" [ngModel]="optimizerType()" (ngModelChange)="setOptimizerType($event)"
-        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
-        @for (opt of optimizerTypes; track opt) {
-        <option [value]="opt">{{ optimizerLabels[opt] }}</option>
-        }
-      </select>
+    <!-- Strategy (single supported pipeline — no selector) -->
+    <div class="flex items-center gap-2">
+      <span class="text-xs font-medium text-text-secondary">Strategy</span>
+      <span class="px-2 py-0.5 text-xs rounded bg-accent/10 text-accent font-medium">
+        {{ optimizerLabels[optimizerType()] }}
+      </span>
     </div>
 
     <!-- Objective Function (convex optimizers only) -->
@@ -85,45 +78,6 @@
     </div>
     }
 
-    <!-- Robust Kappa slider (robust_mean_risk only) -->
-    @if (showRobustKappa()) {
-    <div>
-      <div class="flex items-center justify-between mb-2">
-        <div class="flex items-center gap-2">
-          <label for="robustKappa" class="text-xs font-medium text-text-secondary">Uncertainty Radius (κ)</label>
-          <app-help-tooltip
-            text="Ellipsoidal uncertainty radius for the μ estimate. kappa=0 recovers standard MeanRisk; higher values yield more conservative portfolios. Presets: 0.5 aggressive, 1.0 moderate, 2.0 conservative." />
-        </div>
-        <span class="text-xs font-mono text-accent">{{ robustKappa() }}</span>
-      </div>
-      <input id="robustKappa" type="range" min="0" max="3" step="0.1" [ngModel]="robustKappa()"
-        (ngModelChange)="robustKappa.set(+$event)" class="w-full accent-accent" />
-      <div class="flex justify-between mt-1">
-        <span class="text-xs text-text-tertiary">Standard (0)</span>
-        <span class="text-xs text-text-tertiary">Conservative (3)</span>
-      </div>
-    </div>
-    }
-
-    <!-- DR-CVaR Epsilon slider (dr_cvar only) -->
-    @if (showDrCvarEpsilon()) {
-    <div>
-      <div class="flex items-center justify-between mb-2">
-        <div class="flex items-center gap-2">
-          <label for="drCvarEpsilon" class="text-xs font-medium text-text-secondary">Wasserstein Radius (ε)</label>
-          <app-help-tooltip
-            text="Distributionally-robust radius around the empirical CVaR distribution. epsilon=0 falls back to standard empirical CVaR; higher values yield more robust but more conservative portfolios." />
-        </div>
-        <span class="text-xs font-mono text-accent">{{ drCvarEpsilon() }}</span>
-      </div>
-      <input id="drCvarEpsilon" type="range" min="0" max="1" step="0.01" [ngModel]="drCvarEpsilon()"
-        (ngModelChange)="drCvarEpsilon.set(+$event)" class="w-full accent-accent" />
-      <div class="flex justify-between mt-1">
-        <span class="text-xs text-text-tertiary">Standard (0)</span>
-        <span class="text-xs text-text-tertiary">Robust (1)</span>
-      </div>
-    </div>
-    }
   </div>
 
   <!-- Active Constraints -->

@@ -52,14 +52,6 @@ export const FACTOR_TYPES: readonly FactorType[] = [
 
 export type MacroRegime = 'expansion' | 'slowdown' | 'recession' | 'recovery';
 
-export type HmmState = 'low_vol' | 'medium_vol' | 'high_vol';
-
-export interface RegimeDetection {
-  date: string;
-  state: HmmState;
-  probabilities: Record<HmmState, number>;
-}
-
 export interface TAASignal {
   factor: FactorGroupType;
   currentWeight: number;
@@ -330,32 +322,6 @@ export interface FactorRegimeTiltApiResponse {
   regime: string;
   tilted_weights: Record<string, number>;
   tilt_multipliers: Record<string, number>;
-}
-
-// ── Macro / regime API DTOs (from dashboard + macro_regime + macro_calibration)
-
-export interface MacroCalibrationResponse {
-  phase: string;
-  delta: number;
-  tau: number;
-  confidence: number;
-  rationale: string;
-  macroSummary: string;
-  blConfig: Record<string, unknown>;
-}
-
-export interface RegimeHistoryPoint {
-  date: string;
-  regime: string;
-  bullProb: number;
-  bearProb: number;
-  sidewaysProb: number;
-  volatileProb: number;
-}
-
-export interface RegimeHistoryApiResponse {
-  points: RegimeHistoryPoint[];
-  total: number;
 }
 
 export interface TradingEconomicsObservation {

@@ -17,7 +17,6 @@ const MU_ESTIMATOR_LABELS: Record<MuEstimatorType, string> = {
   shrunk: 'Shrinkage Estimator',
   ew: 'Exponentially Weighted',
   equilibrium: 'CAPM Equilibrium',
-  hmm_blended: 'HMM Regime Blended',
 };
 
 const COV_ESTIMATOR_LABELS: Record<CovEstimatorType, string> = {
@@ -31,7 +30,6 @@ const COV_ESTIMATOR_LABELS: Record<CovEstimatorType, string> = {
   denoise: 'Random Matrix Denoised',
   detone: 'Detoned Covariance',
   implied: 'Implied Covariance',
-  hmm_blended: 'HMM Regime Blended',
 };
 
 @Component({
@@ -49,7 +47,6 @@ export class MomentPanelComponent {
     'shrunk',
     'ew',
     'equilibrium',
-    'hmm_blended',
   ];
 
   readonly covEstimatorOptions: CovEstimatorType[] = [
@@ -63,7 +60,6 @@ export class MomentPanelComponent {
     'denoise',
     'detone',
     'implied',
-    'hmm_blended',
   ];
 
   readonly muEstimatorLabels = MU_ESTIMATOR_LABELS;

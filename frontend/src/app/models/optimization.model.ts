@@ -21,8 +21,7 @@ export type MuEstimatorType =
   | 'empirical'
   | 'shrunk'
   | 'ew'
-  | 'equilibrium'
-  | 'hmm_blended';
+  | 'equilibrium';
 
 export type CovEstimatorType =
   | 'empirical'
@@ -34,26 +33,10 @@ export type CovEstimatorType =
   | 'graphical_lasso_cv'
   | 'denoise'
   | 'detone'
-  | 'implied'
-  | 'hmm_blended';
+  | 'implied';
 
-// Mirrors `OPTIMIZER_REGISTRY` in api/app/services/optimization_service.py.
-export type OptimizerType =
-  | 'mean_risk'
-  | 'robust_mean_risk'
-  | 'dr_cvar'
-  | 'hrp'
-  | 'herc'
-  | 'nco'
-  | 'risk_budgeting'
-  | 'max_diversification'
-  | 'equal_weighted'
-  | 'inverse_volatility'
-  | 'stacking'
-  | 'regime_blended'
-  | 'benchmark_tracking'
-  | 'max_sharpe'
-  | 'min_variance';
+// Mirrors `OptimizeRequest.optimizer_type` Literal in api/app/models/optimization.py.
+export type OptimizerType = 'mean_risk' | 'regime_blended';
 
 // Mirrors ObjectiveFunctionType in optimizer/optimization/_config.py.
 export type ObjectiveFunctionType =

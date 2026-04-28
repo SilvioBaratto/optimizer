@@ -8,8 +8,6 @@ import type {
   CorrelationApiResponse,
   FactorExposureApiResponse,
   LiquidityApiResponse,
-  RiskBudgetApiResponse,
-  RiskBudgetRequest,
   RiskLimitCreatePayload,
   RiskLimitDto,
   RiskLimitListResponse,
@@ -112,13 +110,6 @@ export class RiskService {
   ): Observable<StressScenarioApiResponse> {
     return this.http.post<StressScenarioApiResponse>(
       `${this.api}risk/stress-scenarios`,
-      body,
-    );
-  }
-
-  calibrateBudget(body: RiskBudgetRequest): Observable<RiskBudgetApiResponse> {
-    return this.http.post<RiskBudgetApiResponse>(
-      `${this.api}risk/budget-calibration`,
       body,
     );
   }

@@ -33,9 +33,10 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "api"))
 
-import yfinance as yf  # noqa: E402
-from app.services.yfinance.news.macro_news import MACRO_SEARCH_QUERIES  # noqa: E402
-from dateutil import parser as dateutil_parser  # noqa: E402
+import yfinance as yf
+from dateutil import parser as dateutil_parser
+
+from app.services.yfinance.news.macro_news import MACRO_SEARCH_QUERIES
 
 _MAX_AGE_DAYS = 60
 _DEFAULT_MAX_RESULTS = 8

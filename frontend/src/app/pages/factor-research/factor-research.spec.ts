@@ -15,6 +15,7 @@ import type {
   FactorSelectApiResponse,
   FactorSelectRequest,
 } from '../../models/factor.model';
+import type { MacroCalibrationResponse, BlackLittermanBlConfig } from '../../models/macro-intelligence.model';
 
 function scoreResponse(): FactorScoreApiResponse {
   return {
@@ -258,5 +259,65 @@ describe('FactorResearchComponent — Exposure Constraints tab wiring (#456)', (
 
     expect(component.exposureConstraintsResult()).toEqual(constraintsResponse());
     expect(component.exposureConstraintsLoading()).toBe(false);
+  });
+});
+
+describe('FactorResearchComponent — macro-calibration stat-card computeds (#494)', () => {
+  let component: FactorResearchComponent;
+
+  const blConfig: BlackLittermanBlConfig = {
+    views: [],
+    tau: 0.05,
+    prior_config: { mu_estimator: 'shrunk', risk_aversion: 3.5, cov_estimator: 'ledoit_wolf' },
+  };
+  const cal: MacroCalibrationResponse = {
+    phase: 'EARLY_EXPANSION',
+    delta: 3.5,
+    tau: 0.05,
+    confidence: 0.78,
+    rationale: 'Leading indicators positive',
+    macro_summary: 'PMI above 55',
+    timestamp: '2026-04-28T00:00:00Z',
+    bl_config: blConfig,
+  };
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [FactorResearchComponent],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        ICON_PROVIDER,
+      ],
+    }).compileComponents();
+    component = TestBed.createComponent(FactorResearchComponent).componentInstance;
+  });
+
+  it('macroPhase returns "—" when macroCalibration is null', () => {
+    expect(component.macroPhase()).toBe('—');
+  });
+
+  it('macroPhase returns the phase string when calibration is set', () => {
+    component.macroCalibration.set(cal);
+    expect(component.macroPhase()).toBe('EARLY_EXPANSION');
+  });
+
+  it('macroConfidence returns "—" when macroCalibration is null', () => {
+    expect(component.macroConfidence()).toBe('—');
+  });
+
+  it('macroConfidence formats confidence as integer percentage string', () => {
+    component.macroCalibration.set(cal);
+    expect(component.macroConfidence()).toBe('78%');
+  });
+
+  it('macroDelta returns "—" when macroCalibration is null', () => {
+    expect(component.macroDelta()).toBe('—');
+  });
+
+  it('macroDelta formats delta with two decimal places', () => {
+    component.macroCalibration.set(cal);
+    expect(component.macroDelta()).toBe('3.50');
   });
 });

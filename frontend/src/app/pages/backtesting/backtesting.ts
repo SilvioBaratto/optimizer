@@ -18,16 +18,10 @@ import { EchartsCalendarHeatmapComponent } from '../../shared/echarts-calendar-h
 import { EchartsHistogramComponent } from '../../shared/echarts-histogram/echarts-histogram';
 import { EchartsBarComponent, BarData } from '../../shared/echarts-bar/echarts-bar';
 import { EchartsDrawdownComponent } from '../../shared/echarts-drawdown/echarts-drawdown';
-import {
-  EchartsRegimeTimelineComponent,
-  REGIME_LABELS,
-  regimeHistoryApiToTimelinePoints,
-} from '../../shared/echarts-regime-timeline/echarts-regime-timeline';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
 import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
 import { FormatService } from '../../services/format.service';
 import { BacktestService } from '../../services/backtest.service';
-import { FactorsService } from '../../services/factors.service';
 import { readCssVar } from '../../shared/charts/echarts-theme';
 import { CHART_EXPORTABLE, type ChartExportable } from '../../shared/charts/chart-export.token';
 import { ModalService } from '../../shared/modal/modal.service';
@@ -43,7 +37,6 @@ import type {
   BacktestRunResponse,
   FactorLoading,
 } from '../../models/backtest.model';
-import type { RegimeHistoryApiResponse } from '../../models/factor.model';
 
 // Empty defaults used until a backtest run completes — signals swap them
 // for real data fetched via BacktestService.
@@ -89,7 +82,6 @@ interface MetricsRow {
     EchartsHistogramComponent,
     EchartsBarComponent,
     EchartsDrawdownComponent,
-    EchartsRegimeTimelineComponent,
     ChartToolbarComponent,
     JobProgressTrackerComponent,
     WalkForwardPanelComponent,
@@ -164,21 +156,6 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     { id: 'style', label: 'Style Analysis' },
     { id: 'regimes', label: 'Regimes' },
   ]);
-
-  // ── Regime timeline (Regimes tab) ────────────────────────────────────────
-  private readonly factors = inject(FactorsService);
-  readonly regimeHistory = signal<RegimeHistoryApiResponse | null>(null);
-  readonly regimeError = signal<string | null>(null);
-  readonly regimeLabels: string[] = REGIME_LABELS;
-  readonly regimeTimelinePoints = computed(() =>
-    regimeHistoryApiToTimelinePoints(this.regimeHistory()),
-  );
-
-  // Identity-compared guard: re-fetch only when the backtest result reference
-  // changes (i.e. a new run completes). Switching tabs back and forth with
-  // the same `result()` reuses the cached `regimeHistory()`.
-  private lastFetchedFor: BacktestResult | null = null;
-  private regimeRequestToken = 0;
 
   // ── Equity curve data ──────────────────────────────────────────────────────
   readonly equityLabels = computed(() =>
@@ -453,28 +430,6 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   constructor() {
     this.loadData();
 
-    // Regimes tab: when the user activates the tab and a backtest result is
-    // available, fetch the HMM regime history aligned to the backtest window.
-    // The fetch is skipped if we already have data for this `result()` ref.
-    effect(() => {
-      const tab = this.activeTab();
-      const r = this.result();
-      if (tab !== 'regimes') return;
-      if (r.equity.length === 0) return;
-      if (this.lastFetchedFor === r) return;
-      this.fetchRegimeHistory(r);
-    });
-
-    // Reset cached regime data whenever a new backtest result arrives so
-    // stale data does not flash while the next fetch is in flight.
-    effect(() => {
-      const r = this.result();
-      if (this.lastFetchedFor !== null && this.lastFetchedFor !== r) {
-        this.regimeHistory.set(null);
-        this.regimeError.set(null);
-      }
-    });
-
     // Init/dispose overview charts when containers appear/disappear (tab or loading change)
     effect((onCleanup) => {
       const eqEl = this.equityContainer();
@@ -566,28 +521,6 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   retry(): void {
     this.loadData();
-  }
-
-  private fetchRegimeHistory(result: BacktestResult): void {
-    this.lastFetchedFor = result;
-    this.regimeError.set(null);
-    this.regimeHistory.set(null);
-    const startDate = result.equity[0].date;
-    const endDate = result.equity[result.equity.length - 1].date;
-    const token = ++this.regimeRequestToken;
-    this.factors
-      .regimeHistory({ startDate, endDate })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (api) => {
-          if (token !== this.regimeRequestToken) return;
-          this.regimeHistory.set(api);
-        },
-        error: (err: Error) => {
-          if (token !== this.regimeRequestToken) return;
-          this.regimeError.set(err?.message ?? 'Failed to load regime history');
-        },
-      });
   }
 
   private async initOverviewCharts() {

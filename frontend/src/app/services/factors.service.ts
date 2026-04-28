@@ -19,20 +19,14 @@ import type {
   FactorSelectRequest,
   FactorValidateRequest,
   FactorValidateResponse,
-  MacroCalibrationResponse,
-  RegimeHistoryApiResponse,
   TradingEconomicsObservation,
 } from '../models/factor.model';
+import type { MacroCalibrationResponse } from '../models/macro-intelligence.model';
 
 interface MacroCalibrationQuery {
   country?: string;
   macroText?: string;
   refresh?: boolean;
-}
-
-interface RegimeHistoryQuery {
-  startDate?: string;
-  endDate?: string;
 }
 
 interface TeObservationsQuery {
@@ -123,16 +117,6 @@ export class FactorsService {
     if (query.refresh !== undefined) params = params.set('refresh', String(query.refresh));
     return this.http.get<MacroCalibrationResponse>(
       `${this.api}views/macro-calibration`,
-      params.keys().length ? { params } : {},
-    );
-  }
-
-  regimeHistory(query: RegimeHistoryQuery = {}): Observable<RegimeHistoryApiResponse> {
-    let params = new HttpParams();
-    if (query.startDate) params = params.set('start_date', query.startDate);
-    if (query.endDate) params = params.set('end_date', query.endDate);
-    return this.http.get<RegimeHistoryApiResponse>(
-      `${this.api}market/regime/history`,
       params.keys().length ? { params } : {},
     );
   }

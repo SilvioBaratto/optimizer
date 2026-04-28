@@ -13,10 +13,10 @@ import { DataTableComponent, TableColumn } from '../../shared/data-table/data-ta
 import { readCssVar } from '../../shared/charts/echarts-theme';
 import type {
   FactorReturnSeries,
-  MacroCalibrationResponse,
   MacroRegime,
   TAASignal,
 } from '../../models/factor.model';
+import type { MacroCalibrationResponse } from '../../models/macro-intelligence.model';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 
 const REGIME_BADGE_MAP: Record<MacroRegime, { value: string; colorClass: string }> = {

@@ -33,15 +33,9 @@ https://boundaryml.com/discord
 with EnsureBamlPyImport(__version__) as e:
   e.raise_if_incompatible_version(__version__)
 
-  from . import types
-  from . import tracing
-  from . import stream_types
-  from . import config
+  from . import config, stream_types, tracing, types, watchers
   from .config import reset_baml_env_vars
-  
   from .sync_client import b
-  
-  from . import watchers
 
 
 # FOR LEGACY COMPATIBILITY, expose "partial_types" as an alias for "stream_types"
@@ -50,11 +44,11 @@ partial_types = stream_types
 
 __all__ = [
   "b",
-  "stream_types",
+  "config",
   "partial_types",
+  "reset_baml_env_vars",
+  "stream_types",
   "tracing",
   "types",
-  "reset_baml_env_vars",
-  "config",
   "watchers",
 ]

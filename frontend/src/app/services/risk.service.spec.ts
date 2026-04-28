@@ -12,7 +12,6 @@ import type {
   RiskLimitDto,
   RiskLimitListResponse,
   StressScenarioRequest,
-  RiskBudgetRequest,
 } from '../models/risk.model';
 
 const API = environment.apiUrl;
@@ -157,25 +156,6 @@ describe('RiskService', () => {
         .expectOne(`${API}risk/stress-scenarios`)
         .flush({ detail: 'llm down' }, { status: 502, statusText: 'Bad Gateway' });
       expect(error?.status).toBe(502);
-    });
-  });
-
-  describe('calibrateBudget()', () => {
-    it('POSTs /risk/budget-calibration', () => {
-      const body: RiskBudgetRequest = {
-        sector_outlook: 'Overweight Tech; Underweight Energy',
-        sector_universe: ['Tech', 'Energy'],
-        asset_sector_map: { AAPL: 'Tech', XOM: 'Energy' },
-      };
-      svc.calibrateBudget(body).subscribe();
-      const req = http.expectOne(`${API}risk/budget-calibration`);
-      expect(req.request.method).toBe('POST');
-      req.flush({
-        nAssets: 2,
-        assets: ['AAPL', 'XOM'],
-        budgetVector: [0.6, 0.4],
-        budgetSum: 1.0,
-      });
     });
   });
 

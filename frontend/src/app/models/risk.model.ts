@@ -191,15 +191,3 @@ export interface StressScenarioApiResponse {
   scenarios: StressScenarioItemApi[];
 }
 
-export interface RiskBudgetRequest {
-  sector_outlook: string;
-  sector_universe: string[];
-  asset_sector_map: Record<string, string>;
-}
-
-export interface RiskBudgetApiResponse {
-  nAssets: number;
-  assets: string[];
-  budgetVector: number[];
-  budgetSum: number;
-}

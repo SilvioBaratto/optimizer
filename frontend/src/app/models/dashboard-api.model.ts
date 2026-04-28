@@ -101,22 +101,10 @@ export interface ApiMarketSnapshotResponse {
   asOf: string;
 }
 
-export interface ApiHmmStateItem {
-  regime: string;
-  probability: number;
-}
-
-export interface ApiRegimeModelInfo {
-  nStates: number;
-  lastFitted: string;
-}
-
 export interface ApiMarketRegimeResponse {
   current: string;
   probability: number;
   since: string;
-  hmmStates: ApiHmmStateItem[];
-  modelInfo: ApiRegimeModelInfo;
 }
 
 export interface ApiAssetClassReturnRow {

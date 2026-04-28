@@ -2,17 +2,14 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { of, Subject, throwError } from 'rxjs';
 
 import { BacktestingComponent, toFactorLoadingSeries } from './backtesting';
-import { FactorsService } from '../../services/factors.service';
 import { ICON_PROVIDER } from '../../icons';
 import type {
   BacktestMetrics,
   BacktestResult,
   FactorLoading,
 } from '../../models/backtest.model';
-import type { RegimeHistoryApiResponse } from '../../models/factor.model';
 
 const EMPTY_METRICS: BacktestMetrics = {
   totalReturn: 0.12,
@@ -151,162 +148,6 @@ describe('BacktestingComponent — benchmark literals removal (issue #434)', () 
   });
 });
 
-function makeRegimeApi(): RegimeHistoryApiResponse {
-  return {
-    points: [
-      {
-        date: '2024-01-01',
-        regime: 'Bull',
-        bullProb: 0.7,
-        bearProb: 0.1,
-        sidewaysProb: 0.15,
-        volatileProb: 0.05,
-      },
-      {
-        date: '2024-12-31',
-        regime: 'Sideways',
-        bullProb: 0.2,
-        bearProb: 0.1,
-        sidewaysProb: 0.6,
-        volatileProb: 0.1,
-      },
-    ],
-    total: 2,
-  };
-}
-
-describe('BacktestingComponent — Regimes tab (issue #451)', () => {
-  let fixture: ComponentFixture<BacktestingComponent>;
-  let component: BacktestingComponent;
-  let regimeSpy: jasmine.Spy;
-  let factors: FactorsService;
-
-  beforeEach(async () => {
-    await TestBed.configureTestingModule({
-      imports: [BacktestingComponent],
-      providers: [
-        provideZonelessChangeDetection(),
-        provideHttpClient(),
-        provideHttpClientTesting(),
-        ICON_PROVIDER,
-      ],
-    }).compileComponents();
-
-    factors = TestBed.inject(FactorsService);
-    regimeSpy = spyOn(factors, 'regimeHistory').and.returnValue(of(makeRegimeApi()));
-    fixture = TestBed.createComponent(BacktestingComponent);
-    component = fixture.componentInstance;
-    fixture.detectChanges();
-  });
-
-  it("adds a 'regimes' tab labeled 'Regimes'", () => {
-    const ids = component.tabs().map((t) => t.id);
-    expect(ids).toContain('regimes');
-    const regimesTab = component.tabs().find((t) => t.id === 'regimes');
-    expect(regimesTab?.label).toBe('Regimes');
-  });
-
-  it('when activeTab=regimes and hasResult is true, fetches with startDate/endDate derived from equity', () => {
-    component.result.set(makeResult());
-    component.activeTab.set('regimes');
-    fixture.detectChanges();
-
-    expect(regimeSpy).toHaveBeenCalledTimes(1);
-    expect(regimeSpy).toHaveBeenCalledWith({
-      startDate: '2024-01-01',
-      endDate: '2024-12-31',
-    });
-  });
-
-  it('exposes regimeTimelinePoints and regimeLabels after the fetch completes', () => {
-    component.result.set(makeResult());
-    component.activeTab.set('regimes');
-    fixture.detectChanges();
-
-    expect(component.regimeTimelinePoints().length).toBe(2);
-    expect(component.regimeTimelinePoints()[0].probabilities.length).toBe(4);
-    expect(component.regimeLabels).toEqual(['Bull', 'Bear', 'Sideways', 'Volatile']);
-  });
-
-  it('does not re-fetch when the user switches back to regimes for the same backtest result', () => {
-    component.result.set(makeResult());
-    component.activeTab.set('regimes');
-    fixture.detectChanges();
-    component.activeTab.set('overview');
-    fixture.detectChanges();
-    component.activeTab.set('regimes');
-    fixture.detectChanges();
-
-    expect(regimeSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('re-fetches when a new backtest result is set', () => {
-    component.result.set(makeResult());
-    component.activeTab.set('regimes');
-    fixture.detectChanges();
-    expect(regimeSpy).toHaveBeenCalledTimes(1);
-
-    component.result.set(
-      makeResult({
-        equity: [
-          { date: '2025-01-01', portfolio: 100, benchmark: 100 },
-          { date: '2025-12-31', portfolio: 120, benchmark: 115 },
-        ],
-      }),
-    );
-    fixture.detectChanges();
-
-    expect(regimeSpy).toHaveBeenCalledTimes(2);
-    expect(regimeSpy.calls.mostRecent().args[0]).toEqual({
-      startDate: '2025-01-01',
-      endDate: '2025-12-31',
-    });
-  });
-
-  it('does not fetch when hasResult is false', () => {
-    component.activeTab.set('regimes');
-    fixture.detectChanges();
-    expect(regimeSpy).not.toHaveBeenCalled();
-    expect(component.regimeTimelinePoints()).toEqual([]);
-  });
-
-  it('sets regimeError and leaves regimeHistory null when the API errors', () => {
-    regimeSpy.and.returnValue(throwError(() => new Error('boom')));
-    component.result.set(makeResult());
-    component.activeTab.set('regimes');
-    fixture.detectChanges();
-
-    expect(component.regimeError()).toContain('boom');
-    expect(component.regimeHistory()).toBeNull();
-    expect(component.regimeTimelinePoints()).toEqual([]);
-  });
-
-  it('ignores late responses from a previous backtest when a newer run has arrived', () => {
-    const firstResponse$ = new Subject<RegimeHistoryApiResponse>();
-    regimeSpy.and.returnValues(firstResponse$, of(makeRegimeApi()));
-
-    component.result.set(makeResult());
-    component.activeTab.set('regimes');
-    fixture.detectChanges();
-
-    component.result.set(
-      makeResult({
-        equity: [
-          { date: '2025-03-01', portfolio: 100, benchmark: 100 },
-          { date: '2025-06-30', portfolio: 105, benchmark: 103 },
-        ],
-      }),
-    );
-    fixture.detectChanges();
-
-    expect(regimeSpy).toHaveBeenCalledTimes(2);
-    firstResponse$.next({ points: [], total: 0 }); // late stale response
-    fixture.detectChanges();
-
-    // Data reflects the second fetch, not the stale first response.
-    expect(component.regimeTimelinePoints().length).toBe(2);
-  });
-});
 
 describe('toFactorLoadingSeries helper (issue #458)', () => {
   it('maps each loading to BarData { label, value }', () => {

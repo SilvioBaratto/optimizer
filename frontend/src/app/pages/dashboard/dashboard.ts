@@ -141,7 +141,7 @@ export class DashboardComponent implements OnDestroy {
     tenYearYield: 0, yieldChange: 0, usdIndex: 0, usdChange: 0,
   });
   readonly regimeInfo = signal<RegimeInfo>({
-    current: 'sideways', probability: 0, since: '', hmmStates: [],
+    current: 'sideways', probability: 0, since: '',
   });
   readonly assetClassReturns = signal<AssetClassReturn[]>([]);
 
@@ -514,7 +514,6 @@ export class DashboardComponent implements OnDestroy {
             current: res.current as MarketRegime,
             probability: res.probability,
             since: res.since,
-            hmmStates: res.hmmStates as { regime: MarketRegime; probability: number }[],
           });
         },
         error: () => { /* regime failure is non-critical */ },

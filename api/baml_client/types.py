@@ -11,14 +11,10 @@
 # baml-cli is available with the baml package.
 
 import typing
-import typing_extensions
 from enum import Enum
 
-
-from pydantic import BaseModel, ConfigDict, Field
-
-
-import baml_py
+import typing_extensions
+from pydantic import BaseModel, Field
 
 CheckT = typing_extensions.TypeVar('CheckT')
 CheckName = typing_extensions.TypeVar('CheckName', bound=str)
@@ -29,12 +25,12 @@ class Check(BaseModel):
     status: str
 class Checked(BaseModel, typing.Generic[CheckT, CheckName]):
     value: CheckT
-    checks: typing.Dict[CheckName, Check]
+    checks: dict[CheckName, Check]
 
-def get_checks(checks: typing.Dict[CheckName, Check]) -> typing.List[Check]:
+def get_checks(checks: dict[CheckName, Check]) -> list[Check]:
     return list(checks.values())
 
-def all_succeeded(checks: typing.Dict[CheckName, Check]) -> bool:
+def all_succeeded(checks: dict[CheckName, Check]) -> bool:
     return all(check.status == "succeeded" for check in get_checks(checks))
 # #########################################################################
 # Generated enums (4)
@@ -75,22 +71,22 @@ class SentimentLabel(str, Enum):
 
 class AssetFactorData(BaseModel):
     ticker: str = Field(description='Asset ticker symbol (e.g. \'AAPL\').')
-    trailing_pe: typing.Optional[float] = Field(default=None, description='Trailing price-to-earnings ratio.')
-    price_to_book: typing.Optional[float] = Field(default=None, description='Price-to-book ratio.')
-    ev_to_ebitda: typing.Optional[float] = Field(default=None, description='Enterprise value / EBITDA ratio.')
-    momentum_12_1m: typing.Optional[float] = Field(default=None, description='12-1 month price momentum (decimal, e.g. 0.18 = +18%).')
-    momentum_1m: typing.Optional[float] = Field(default=None, description='1-month price momentum (decimal). Negative = recent reversal.')
-    rsi_14: typing.Optional[float] = Field(default=None, description='14-day RSI in [0, 100]. >70 overbought, <30 oversold.')
-    return_on_equity: typing.Optional[float] = Field(default=None, description='Return on equity (decimal, e.g. 0.15 = 15%).')
-    debt_to_equity: typing.Optional[float] = Field(default=None, description='Debt-to-equity ratio.')
-    profit_margins: typing.Optional[float] = Field(default=None, description='Net profit margin (decimal).')
-    revenue_growth_yoy: typing.Optional[float] = Field(default=None, description='Revenue growth year-over-year (decimal).')
-    earnings_growth_yoy: typing.Optional[float] = Field(default=None, description='Earnings growth year-over-year (decimal).')
-    pct_from_52w_high: typing.Optional[float] = Field(default=None, description='Distance from 52-week high (negative means below high, e.g. -0.15 = 15% below).')
-    pct_from_52w_low: typing.Optional[float] = Field(default=None, description='Distance from 52-week low (positive, e.g. 0.30 = 30% above low).')
-    recommendation_mean: typing.Optional[float] = Field(default=None, description='Mean analyst recommendation: 1=Strong Buy, 2=Buy, 3=Hold, 4=Sell, 5=Strong Sell.')
-    target_upside: typing.Optional[float] = Field(default=None, description='(target_mean_price - current_price) / current_price. Positive = upside.')
-    analyst_count: typing.Optional[int] = Field(default=None, description='Number of analysts covering the stock.')
+    trailing_pe: float | None = Field(default=None, description='Trailing price-to-earnings ratio.')
+    price_to_book: float | None = Field(default=None, description='Price-to-book ratio.')
+    ev_to_ebitda: float | None = Field(default=None, description='Enterprise value / EBITDA ratio.')
+    momentum_12_1m: float | None = Field(default=None, description='12-1 month price momentum (decimal, e.g. 0.18 = +18%).')
+    momentum_1m: float | None = Field(default=None, description='1-month price momentum (decimal). Negative = recent reversal.')
+    rsi_14: float | None = Field(default=None, description='14-day RSI in [0, 100]. >70 overbought, <30 oversold.')
+    return_on_equity: float | None = Field(default=None, description='Return on equity (decimal, e.g. 0.15 = 15%).')
+    debt_to_equity: float | None = Field(default=None, description='Debt-to-equity ratio.')
+    profit_margins: float | None = Field(default=None, description='Net profit margin (decimal).')
+    revenue_growth_yoy: float | None = Field(default=None, description='Revenue growth year-over-year (decimal).')
+    earnings_growth_yoy: float | None = Field(default=None, description='Earnings growth year-over-year (decimal).')
+    pct_from_52w_high: float | None = Field(default=None, description='Distance from 52-week high (negative means below high, e.g. -0.15 = 15% below).')
+    pct_from_52w_low: float | None = Field(default=None, description='Distance from 52-week low (positive, e.g. 0.30 = 30% above low).')
+    recommendation_mean: float | None = Field(default=None, description='Mean analyst recommendation: 1=Strong Buy, 2=Buy, 3=Hold, 4=Sell, 5=Strong Sell.')
+    target_upside: float | None = Field(default=None, description='(target_mean_price - current_price) / current_price. Positive = upside.')
+    analyst_count: int | None = Field(default=None, description='Number of analysts covering the stock.')
 
 class AssetView(BaseModel):
     asset: str = Field(description='Ticker symbol of the asset this view is about.')
@@ -115,7 +111,7 @@ class DeltaCalibration(BaseModel):
 
 class FactorWeightAdaptation(BaseModel):
     phase: BusinessCyclePhase = Field(description='Detected business cycle phase.')
-    weights: typing.Dict[str, float] = Field(description='Factor group -> relative weight multiplier. Higher = overweight, lower = underweight.')
+    weights: dict[str, float] = Field(description='Factor group -> relative weight multiplier. Higher = overweight, lower = underweight.')
     rationale: str = Field(description='Brief explanation of the phase classification and weight adjustments.')
 
 class MacroRegimeCalibration(BaseModel):
@@ -129,19 +125,19 @@ class NewsArticle(BaseModel):
     title: str = Field(description='News headline to score.')
 
 class NewsSentimentOutput(BaseModel):
-    scores: typing.List[float] = Field(description='Sentiment score for each article: +1=strongly bullish, -1=strongly bearish, 0=neutral.')
+    scores: list[float] = Field(description='Sentiment score for each article: +1=strongly bullish, -1=strongly bearish, 0=neutral.')
     reasoning: str = Field(description='Brief overall summary of the sentiment assessment.')
 
 class StressScenario(BaseModel):
     name: str = Field(description='Short label for the scenario, e.g. \'Global Recession 2026\'.')
     description: str = Field(description='2-4 sentence narrative explaining the macro/geopolitical trigger.')
-    shocks: typing.Dict[str, float] = Field(description='Ticker → expected return shock over the horizon. Values in (-1, 1). E.g. {"SPY": -0.15, "GLD": 0.08}.')
+    shocks: dict[str, float] = Field(description='Ticker → expected return shock over the horizon. Values in (-1, 1). E.g. {"SPY": -0.15, "GLD": 0.08}.')
     probability: float = Field(description='Subjective probability that this scenario materialises. Must be in (0, 1).')
     horizon_days: int = Field(description='Time horizon over which the shocks occur, in trading days.')
 
 class ViewOutput(BaseModel):
-    views: typing.List["AssetView"] = Field(description='List of asset views. Only include assets with sufficiently strong factor evidence.')
-    idzorek_alphas: typing.Dict[str, float] = Field(description='Asset ticker -> Idzorek alpha_k in (0, 1). Must include an entry for every asset in views[].')
+    views: list["AssetView"] = Field(description='List of asset views. Only include assets with sufficiently strong factor evidence.')
+    idzorek_alphas: dict[str, float] = Field(description='Asset ticker -> Idzorek alpha_k in (0, 1). Must include an entry for every asset in views[].')
     rationale: str = Field(description='Brief overall narrative explaining the view generation process and dominant themes.')
 
 # #########################################################################

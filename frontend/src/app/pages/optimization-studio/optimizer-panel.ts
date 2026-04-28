@@ -7,43 +7,11 @@ import type {
   RiskMeasureType,
 } from '../../models/optimization.model';
 
-// All optimizer types exposed to the UI (matches backend OPTIMIZER_REGISTRY
-// in api/app/services/optimization_service.py plus tracker/benchmark/max_sharpe
-// aliases that the backend resolves internally).
-const OPTIMIZER_TYPES: readonly OptimizerType[] = [
-  'mean_risk',
-  'risk_budgeting',
-  'max_diversification',
-  'equal_weighted',
-  'inverse_volatility',
-  'hrp',
-  'herc',
-  'nco',
-  'stacking',
-  'regime_blended',
-  'benchmark_tracking',
-  'max_sharpe',
-  'min_variance',
-  'robust_mean_risk',
-  'dr_cvar',
-];
+const OPTIMIZER_TYPES: readonly OptimizerType[] = ['mean_risk', 'regime_blended'];
 
 const OPTIMIZER_LABELS: Record<OptimizerType, string> = {
   mean_risk: 'Mean-Risk (Markowitz)',
-  max_sharpe: 'Max Sharpe Ratio',
-  min_variance: 'Min Variance',
-  risk_budgeting: 'Risk Budgeting',
-  max_diversification: 'Max Diversification',
-  equal_weighted: 'Equal Weight',
-  inverse_volatility: 'Inverse Volatility',
-  hrp: 'Hierarchical Risk Parity (HRP)',
-  herc: 'Hierarchical Equal Risk Contribution (HERC)',
-  nco: 'Nested Cluster Optimization (NCO)',
-  benchmark_tracking: 'Benchmark Tracking',
-  robust_mean_risk: 'Robust MeanRisk',
-  dr_cvar: 'DR-CVaR (Wasserstein)',
-  stacking: 'Stacking Optimizer',
-  regime_blended: 'Regime-Blended Optimizer',
+  regime_blended: 'Regime-Blended Mean-Risk',
 };
 
 // All 4 ObjectiveFunctionType values from optimizer/optimization/_config.py.
@@ -123,8 +91,6 @@ export class OptimizerPanelComponent {
   readonly riskMeasure = signal<RiskMeasureType>('variance');
   readonly riskAversion = signal<number>(1.0);
   readonly cvarBeta = signal<number>(0.95);
-  readonly robustKappa = signal<number>(1.0);
-  readonly drCvarEpsilon = signal<number>(0.1);
 
   readonly runOptimization = output<OptimizerRunRequest>();
 
@@ -133,17 +99,8 @@ export class OptimizerPanelComponent {
 
   readonly showCvarBeta = computed(() => {
     const rm = this.riskMeasure();
-    return (
-      this.optimizerType() === 'dr_cvar' ||
-      rm === 'cvar' ||
-      rm === 'evar' ||
-      rm === 'cdar' ||
-      rm === 'edar'
-    );
+    return rm === 'cvar' || rm === 'evar' || rm === 'cdar' || rm === 'edar';
   });
-
-  readonly showRobustKappa = computed(() => this.optimizerType() === 'robust_mean_risk');
-  readonly showDrCvarEpsilon = computed(() => this.optimizerType() === 'dr_cvar');
 
   readonly activeConstraints = [
     'Long-only (weights ≥ 0)',
@@ -176,23 +133,15 @@ export class OptimizerPanelComponent {
     if (this.supportsObjective(type)) config['objective'] = this.objective();
     if (this.supportsRiskMeasure(type)) config['risk_measure'] = this.riskMeasure();
     if (type === 'mean_risk') config['l2_coef'] = this.riskAversion();
-    if (type === 'robust_mean_risk') config['kappa'] = this.robustKappa();
-    if (type === 'dr_cvar') config['epsilon'] = this.drCvarEpsilon();
     if (this.showCvarBeta()) config['beta'] = this.cvarBeta();
     return config;
   }
 
   private supportsObjective(type: OptimizerType): boolean {
-    return (
-      type === 'mean_risk' ||
-      type === 'max_sharpe' ||
-      type === 'min_variance' ||
-      type === 'robust_mean_risk' ||
-      type === 'benchmark_tracking'
-    );
+    return type === 'mean_risk';
   }
 
   private supportsRiskMeasure(type: OptimizerType): boolean {
-    return type === 'mean_risk' || type === 'robust_mean_risk' || type === 'risk_budgeting';
+    return type === 'mean_risk';
   }
 }

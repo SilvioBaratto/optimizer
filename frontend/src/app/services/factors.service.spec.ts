@@ -218,21 +218,10 @@ describe('FactorsService', () => {
         phase: 'EARLY_EXPANSION',
         delta: 3.0, tau: 0.05, confidence: 0.8,
         rationale: 'growth accelerating',
-        macroSummary: 'pmi above 55',
-        blConfig: {},
+        macro_summary: 'pmi above 55',
+        timestamp: '2026-04-28T00:00:00Z',
+        bl_config: { views: [], tau: 0.05, prior_config: { mu_estimator: 'shrunk', risk_aversion: 3.0, cov_estimator: 'ledoit_wolf' } },
       });
-    });
-  });
-
-  describe('regimeHistory()', () => {
-    it('GETs /market/regime/history with optional date range', () => {
-      svc.regimeHistory({ startDate: '2024-01-01', endDate: '2024-12-31' }).subscribe();
-      const req = http.expectOne(
-        (r) => r.url === `${API}market/regime/history`,
-      );
-      expect(req.request.params.get('start_date')).toBe('2024-01-01');
-      expect(req.request.params.get('end_date')).toBe('2024-12-31');
-      req.flush({ points: [], total: 0 });
     });
   });
 

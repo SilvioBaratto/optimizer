@@ -11,13 +11,16 @@
 # baml-cli is available with the baml package.
 
 import typing
-import typing_extensions
+
 import baml_py
 
-from . import stream_types, types, type_builder
+from . import stream_types, type_builder, types
+from .globals import (
+    DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME as __runtime__,
+)
 from .parser import LlmResponseParser, LlmStreamParser
-from .runtime import DoNotUseDirectlyCallManager, BamlCallOptions
-from .globals import DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME as __runtime__
+from .runtime import BamlCallOptions, DoNotUseDirectlyCallManager
+
 
 class BamlSyncClient:
     __options: DoNotUseDirectlyCallManager
@@ -49,13 +52,13 @@ class BamlSyncClient:
         self.__llm_stream_parser = LlmStreamParser(self.__options)
 
     def with_options(self,
-        tb: typing.Optional[type_builder.TypeBuilder] = None,
-        client_registry: typing.Optional[baml_py.baml_py.ClientRegistry] = None,
-        client: typing.Optional[str] = None,
-        collector: typing.Optional[typing.Union[baml_py.baml_py.Collector, typing.List[baml_py.baml_py.Collector]]] = None,
-        env: typing.Optional[typing.Dict[str, typing.Optional[str]]] = None,
-        tags: typing.Optional[typing.Dict[str, str]] = None,
-        on_tick: typing.Optional[typing.Callable[[str, baml_py.baml_py.FunctionLog], None]] = None,
+        tb: type_builder.TypeBuilder | None = None,
+        client_registry: baml_py.baml_py.ClientRegistry | None = None,
+        client: str | None = None,
+        collector: baml_py.baml_py.Collector | list[baml_py.baml_py.Collector] | None = None,
+        env: dict[str, str | None] | None = None,
+        tags: dict[str, str] | None = None,
+        on_tick: typing.Callable[[str, baml_py.baml_py.FunctionLog], None] | None = None,
     ) -> "BamlSyncClient":
         options: BamlCallOptions = {}
         if tb is not None:
@@ -94,7 +97,7 @@ class BamlSyncClient:
     def parse_stream(self):
       return self.__llm_stream_parser
 
-    def AdaptFactorWeights(self, macro_indicators: str,factor_groups: typing.List[str],
+    def AdaptFactorWeights(self, macro_indicators: str,factor_groups: list[str],
         baml_options: BamlCallOptions = {},
     ) -> types.FactorWeightAdaptation:
         # Check if on_tick is provided
@@ -136,9 +139,9 @@ class BamlSyncClient:
                 "macro_summary": macro_summary,
             })
             return typing.cast(types.MacroRegimeCalibration, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
+    def DesignStressScenarios(self, tickers: list[str],macro_context: str,n_scenarios: int,
         baml_options: BamlCallOptions = {},
-    ) -> typing.List["types.StressScenario"]:
+    ) -> list["types.StressScenario"]:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
             __stream__ = self.stream.DesignStressScenarios(tickers=tickers,macro_context=macro_context,n_scenarios=n_scenarios,
@@ -149,8 +152,8 @@ class BamlSyncClient:
             __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="DesignStressScenarios", args={
                 "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
             })
-            return typing.cast(typing.List["types.StressScenario"], __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,
+            return typing.cast(list["types.StressScenario"], __result__.cast_to(types, types, stream_types, False, __runtime__))
+    def GenerateExpertView(self, assets: list["types.AssetFactorData"],persona: types.ExpertPersona,
         baml_options: BamlCallOptions = {},
     ) -> types.ViewOutput:
         # Check if on_tick is provided
@@ -164,7 +167,7 @@ class BamlSyncClient:
                 "assets": assets,"persona": persona,
             })
             return typing.cast(types.ViewOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def GenerateMacroView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateMacroView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> types.ViewOutput:
         # Check if on_tick is provided
@@ -178,7 +181,7 @@ class BamlSyncClient:
                 "assets": assets,
             })
             return typing.cast(types.ViewOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def GenerateMomentumView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateMomentumView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> types.ViewOutput:
         # Check if on_tick is provided
@@ -192,7 +195,7 @@ class BamlSyncClient:
                 "assets": assets,
             })
             return typing.cast(types.ViewOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def GenerateValueView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateValueView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> types.ViewOutput:
         # Check if on_tick is provided
@@ -206,7 +209,7 @@ class BamlSyncClient:
                 "assets": assets,
             })
             return typing.cast(types.ViewOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def GenerateViews(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateViews(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> types.ViewOutput:
         # Check if on_tick is provided
@@ -220,7 +223,7 @@ class BamlSyncClient:
                 "assets": assets,
             })
             return typing.cast(types.ViewOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def ScoreNewsSentiment(self, ticker: str,articles: typing.List["types.NewsArticle"],
+    def ScoreNewsSentiment(self, ticker: str,articles: list["types.NewsArticle"],
         baml_options: BamlCallOptions = {},
     ) -> types.NewsSentimentOutput:
         # Check if on_tick is provided
@@ -234,7 +237,7 @@ class BamlSyncClient:
                 "ticker": ticker,"articles": articles,
             })
             return typing.cast(types.NewsSentimentOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def SelectCovRegime(self, news_headlines: typing.List[str],avg_sentiment_score: float,realized_vol_30d: float,
+    def SelectCovRegime(self, news_headlines: list[str],avg_sentiment_score: float,realized_vol_30d: float,
         baml_options: BamlCallOptions = {},
     ) -> types.CovRegimeSelection:
         # Check if on_tick is provided
@@ -262,7 +265,7 @@ class BamlSyncClient:
                 "country": country,"news_text": news_text,
             })
             return typing.cast(types.CountryNewsSummary, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def Test(self, 
+    def Test(self,
         baml_options: BamlCallOptions = {},
     ) -> str:
         # Check if on_tick is provided
@@ -273,10 +276,10 @@ class BamlSyncClient:
         else:
             # Original non-streaming code
             __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="Test", args={
-                
+
             })
             return typing.cast(str, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    
+
 
 
 class BamlStreamClient:
@@ -285,7 +288,7 @@ class BamlStreamClient:
     def __init__(self, options: DoNotUseDirectlyCallManager):
         self.__options = options
 
-    def AdaptFactorWeights(self, macro_indicators: str,factor_groups: typing.List[str],
+    def AdaptFactorWeights(self, macro_indicators: str,factor_groups: list[str],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.FactorWeightAdaptation, types.FactorWeightAdaptation]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="AdaptFactorWeights", args={
@@ -321,19 +324,19 @@ class BamlStreamClient:
           lambda x: typing.cast(types.MacroRegimeCalibration, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
+    def DesignStressScenarios(self, tickers: list[str],macro_context: str,n_scenarios: int,
         baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlSyncStream[typing.List["stream_types.StressScenario"], typing.List["types.StressScenario"]]:
+    ) -> baml_py.BamlSyncStream[list["stream_types.StressScenario"], list["types.StressScenario"]]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="DesignStressScenarios", args={
             "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
         })
-        return baml_py.BamlSyncStream[typing.List["stream_types.StressScenario"], typing.List["types.StressScenario"]](
+        return baml_py.BamlSyncStream[list["stream_types.StressScenario"], list["types.StressScenario"]](
           __result__,
-          lambda x: typing.cast(typing.List["stream_types.StressScenario"], x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(typing.List["types.StressScenario"], x.cast_to(types, types, stream_types, False, __runtime__)),
+          lambda x: typing.cast(list["stream_types.StressScenario"], x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(list["types.StressScenario"], x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,
+    def GenerateExpertView(self, assets: list["types.AssetFactorData"],persona: types.ExpertPersona,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.ViewOutput, types.ViewOutput]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="GenerateExpertView", args={
@@ -345,7 +348,7 @@ class BamlStreamClient:
           lambda x: typing.cast(types.ViewOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def GenerateMacroView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateMacroView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.ViewOutput, types.ViewOutput]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="GenerateMacroView", args={
@@ -357,7 +360,7 @@ class BamlStreamClient:
           lambda x: typing.cast(types.ViewOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def GenerateMomentumView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateMomentumView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.ViewOutput, types.ViewOutput]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="GenerateMomentumView", args={
@@ -369,7 +372,7 @@ class BamlStreamClient:
           lambda x: typing.cast(types.ViewOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def GenerateValueView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateValueView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.ViewOutput, types.ViewOutput]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="GenerateValueView", args={
@@ -381,7 +384,7 @@ class BamlStreamClient:
           lambda x: typing.cast(types.ViewOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def GenerateViews(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateViews(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.ViewOutput, types.ViewOutput]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="GenerateViews", args={
@@ -393,7 +396,7 @@ class BamlStreamClient:
           lambda x: typing.cast(types.ViewOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def ScoreNewsSentiment(self, ticker: str,articles: typing.List["types.NewsArticle"],
+    def ScoreNewsSentiment(self, ticker: str,articles: list["types.NewsArticle"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.NewsSentimentOutput, types.NewsSentimentOutput]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="ScoreNewsSentiment", args={
@@ -405,7 +408,7 @@ class BamlStreamClient:
           lambda x: typing.cast(types.NewsSentimentOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def SelectCovRegime(self, news_headlines: typing.List[str],avg_sentiment_score: float,realized_vol_30d: float,
+    def SelectCovRegime(self, news_headlines: list[str],avg_sentiment_score: float,realized_vol_30d: float,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.CovRegimeSelection, types.CovRegimeSelection]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="SelectCovRegime", args={
@@ -429,11 +432,11 @@ class BamlStreamClient:
           lambda x: typing.cast(types.CountryNewsSummary, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def Test(self, 
+    def Test(self,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[str, str]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="Test", args={
-            
+
         })
         return baml_py.BamlSyncStream[str, str](
           __result__,
@@ -441,7 +444,7 @@ class BamlStreamClient:
           lambda x: typing.cast(str, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    
+
 
 class BamlHttpRequestClient:
     __options: DoNotUseDirectlyCallManager
@@ -449,7 +452,7 @@ class BamlHttpRequestClient:
     def __init__(self, options: DoNotUseDirectlyCallManager):
         self.__options = options
 
-    def AdaptFactorWeights(self, macro_indicators: str,factor_groups: typing.List[str],
+    def AdaptFactorWeights(self, macro_indicators: str,factor_groups: list[str],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="AdaptFactorWeights", args={
@@ -470,56 +473,56 @@ class BamlHttpRequestClient:
             "macro_summary": macro_summary,
         }, mode="request")
         return __result__
-    def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
+    def DesignStressScenarios(self, tickers: list[str],macro_context: str,n_scenarios: int,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="DesignStressScenarios", args={
             "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
         }, mode="request")
         return __result__
-    def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,
+    def GenerateExpertView(self, assets: list["types.AssetFactorData"],persona: types.ExpertPersona,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="GenerateExpertView", args={
             "assets": assets,"persona": persona,
         }, mode="request")
         return __result__
-    def GenerateMacroView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateMacroView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="GenerateMacroView", args={
             "assets": assets,
         }, mode="request")
         return __result__
-    def GenerateMomentumView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateMomentumView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="GenerateMomentumView", args={
             "assets": assets,
         }, mode="request")
         return __result__
-    def GenerateValueView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateValueView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="GenerateValueView", args={
             "assets": assets,
         }, mode="request")
         return __result__
-    def GenerateViews(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateViews(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="GenerateViews", args={
             "assets": assets,
         }, mode="request")
         return __result__
-    def ScoreNewsSentiment(self, ticker: str,articles: typing.List["types.NewsArticle"],
+    def ScoreNewsSentiment(self, ticker: str,articles: list["types.NewsArticle"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="ScoreNewsSentiment", args={
             "ticker": ticker,"articles": articles,
         }, mode="request")
         return __result__
-    def SelectCovRegime(self, news_headlines: typing.List[str],avg_sentiment_score: float,realized_vol_30d: float,
+    def SelectCovRegime(self, news_headlines: list[str],avg_sentiment_score: float,realized_vol_30d: float,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="SelectCovRegime", args={
@@ -533,14 +536,14 @@ class BamlHttpRequestClient:
             "country": country,"news_text": news_text,
         }, mode="request")
         return __result__
-    def Test(self, 
+    def Test(self,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="Test", args={
-            
+
         }, mode="request")
         return __result__
-    
+
 
 class BamlHttpStreamRequestClient:
     __options: DoNotUseDirectlyCallManager
@@ -548,7 +551,7 @@ class BamlHttpStreamRequestClient:
     def __init__(self, options: DoNotUseDirectlyCallManager):
         self.__options = options
 
-    def AdaptFactorWeights(self, macro_indicators: str,factor_groups: typing.List[str],
+    def AdaptFactorWeights(self, macro_indicators: str,factor_groups: list[str],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="AdaptFactorWeights", args={
@@ -569,56 +572,56 @@ class BamlHttpStreamRequestClient:
             "macro_summary": macro_summary,
         }, mode="stream")
         return __result__
-    def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
+    def DesignStressScenarios(self, tickers: list[str],macro_context: str,n_scenarios: int,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="DesignStressScenarios", args={
             "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
         }, mode="stream")
         return __result__
-    def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,
+    def GenerateExpertView(self, assets: list["types.AssetFactorData"],persona: types.ExpertPersona,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="GenerateExpertView", args={
             "assets": assets,"persona": persona,
         }, mode="stream")
         return __result__
-    def GenerateMacroView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateMacroView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="GenerateMacroView", args={
             "assets": assets,
         }, mode="stream")
         return __result__
-    def GenerateMomentumView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateMomentumView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="GenerateMomentumView", args={
             "assets": assets,
         }, mode="stream")
         return __result__
-    def GenerateValueView(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateValueView(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="GenerateValueView", args={
             "assets": assets,
         }, mode="stream")
         return __result__
-    def GenerateViews(self, assets: typing.List["types.AssetFactorData"],
+    def GenerateViews(self, assets: list["types.AssetFactorData"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="GenerateViews", args={
             "assets": assets,
         }, mode="stream")
         return __result__
-    def ScoreNewsSentiment(self, ticker: str,articles: typing.List["types.NewsArticle"],
+    def ScoreNewsSentiment(self, ticker: str,articles: list["types.NewsArticle"],
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="ScoreNewsSentiment", args={
             "ticker": ticker,"articles": articles,
         }, mode="stream")
         return __result__
-    def SelectCovRegime(self, news_headlines: typing.List[str],avg_sentiment_score: float,realized_vol_30d: float,
+    def SelectCovRegime(self, news_headlines: list[str],avg_sentiment_score: float,realized_vol_30d: float,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="SelectCovRegime", args={
@@ -632,13 +635,13 @@ class BamlHttpStreamRequestClient:
             "country": country,"news_text": news_text,
         }, mode="stream")
         return __result__
-    def Test(self, 
+    def Test(self,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="Test", args={
-            
+
         }, mode="stream")
         return __result__
-    
+
 
 b = BamlSyncClient(DoNotUseDirectlyCallManager({}))

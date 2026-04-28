@@ -17,7 +17,6 @@ import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/j
 import { FormatService } from '../../services/format.service';
 import { FactorsService } from '../../services/factors.service';
 
-import { RegimePanelComponent } from './regime-panel';
 import { TaaPanelComponent } from './taa-panel';
 import { FactorAnalysisPanelComponent } from './factor-analysis-panel';
 import { CmaBuilderPanelComponent } from './cma-builder-panel';
@@ -30,16 +29,14 @@ import type {
   FactorExposureConstraintsApiResponse,
   FactorExposureConstraintsRequest,
   FactorQuintileSpreadApiResponse,
-  FactorRegimeTiltApiResponse,
   FactorScoreApiResponse,
   FactorScoreRequest,
   FactorSelectApiResponse,
   FactorSelectRequest,
   FactorValidateResponse,
-  MacroCalibrationResponse,
-  RegimeHistoryApiResponse,
   TradingEconomicsObservation,
 } from '../../models/factor.model';
+import type { MacroCalibrationResponse } from '../../models/macro-intelligence.model';
 
 const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'JPM', 'V'];
 const DEFAULT_FACTOR = 'momentum_12_1';
@@ -53,7 +50,6 @@ const DEFAULT_FACTOR = 'momentum_12_1';
     TabGroupComponent,
     StatCardComponent,
     JobProgressTrackerComponent,
-    RegimePanelComponent,
     TaaPanelComponent,
     FactorAnalysisPanelComponent,
     CmaBuilderPanelComponent,
@@ -90,8 +86,6 @@ export class FactorResearchComponent {
   // Response signals
   readonly validateReport = signal<FactorValidateResponse | null>(null);
   readonly quintileSpread = signal<FactorQuintileSpreadApiResponse | null>(null);
-  readonly regimeTiltResult = signal<FactorRegimeTiltApiResponse | null>(null);
-  readonly regimeHistory = signal<RegimeHistoryApiResponse | null>(null);
   readonly macroCalibration = signal<MacroCalibrationResponse | null>(null);
   readonly teObservations = signal<TradingEconomicsObservation[]>([]);
   readonly scoreResult = signal<FactorScoreApiResponse | null>(null);
@@ -115,23 +109,11 @@ export class FactorResearchComponent {
     { id: 'exposure-constraints', label: 'Exposure Constraints' },
   ];
 
-  readonly currentRegime = computed(() => {
-    const pts = this.regimeHistory()?.points ?? [];
-    const last = pts[pts.length - 1];
-    return last?.regime ?? '—';
-  });
+  readonly macroPhase = computed(() => this.macroCalibration()?.phase ?? '—');
 
-  readonly regimeConfidence = computed(() => {
-    const pts = this.regimeHistory()?.points ?? [];
-    const last = pts[pts.length - 1];
-    if (!last) return '—';
-    const max = Math.max(last.bullProb, last.bearProb, last.sidewaysProb, last.volatileProb);
-    return this.fmt.formatPercent(max);
-  });
-
-  readonly tiltedGroupsCount = computed(() => {
-    const tilts = this.regimeTiltResult()?.tilt_multipliers ?? {};
-    return Object.values(tilts).filter((m) => Math.abs(m - 1) > 1e-6).length;
+  readonly macroConfidence = computed(() => {
+    const cal = this.macroCalibration();
+    return cal ? `${(cal.confidence * 100).toFixed(0)}%` : '—';
   });
 
   readonly macroDelta = computed(() => {
@@ -140,7 +122,6 @@ export class FactorResearchComponent {
   });
 
   ngOnInit(): void {
-    this.fetchRegimeHistory();
     this.fetchMacroCalibration();
   }
 
@@ -202,17 +183,6 @@ export class FactorResearchComponent {
         next: (res) => this.quintileSpread.set(res),
         error: (err: Error) =>
           this.setPanelError('quintile', err.message ?? 'Quintile spread failed'),
-      });
-  }
-
-  onRunRegimeTilt(groupWeights: Record<string, number>): void {
-    this.factors
-      .regimeTilt({ group_weights: groupWeights })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => this.regimeTiltResult.set(res),
-        error: (err: Error) =>
-          this.setPanelError('regime-tilt', err.message ?? 'Regime tilt failed'),
       });
   }
 
@@ -280,17 +250,6 @@ export class FactorResearchComponent {
       .subscribe({
         next: (rows) => this.teObservations.set(rows),
         error: (err: Error) => this.setPanelError('te', err.message ?? 'TE fetch failed'),
-      });
-  }
-
-  private fetchRegimeHistory(): void {
-    this.factors
-      .regimeHistory({})
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => this.regimeHistory.set(res),
-        error: (err: Error) =>
-          this.setPanelError('regime-history', err.message ?? 'Regime history failed'),
       });
   }
 

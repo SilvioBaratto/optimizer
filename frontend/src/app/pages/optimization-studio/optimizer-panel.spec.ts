@@ -54,10 +54,9 @@ describe('OptimizerPanelComponent', () => {
     );
   });
 
-  it('exposes both robust_mean_risk and dr_cvar as optimizer types', () => {
+  it('exposes only mean_risk and regime_blended as optimizer types', () => {
     const panel = buildPanel();
-    expect(panel.optimizerTypes).toContain('robust_mean_risk');
-    expect(panel.optimizerTypes).toContain('dr_cvar');
+    expect([...panel.optimizerTypes].sort()).toEqual(['mean_risk', 'regime_blended']);
   });
 
   it('emits the selected objective and risk measure in the run payload', () => {
@@ -76,60 +75,10 @@ describe('OptimizerPanelComponent', () => {
     expect(emitted!.config['risk_measure']).toBe('cvar');
   });
 
-  it('posts kappa to the backend payload when optimizer is robust_mean_risk', () => {
-    const panel = buildPanel();
-    panel.setOptimizerType('robust_mean_risk');
-    panel.robustKappa.set(1.5);
-
-    let emitted: OptimizerRunRequest | undefined;
-    panel.runOptimization.subscribe((req) => (emitted = req));
-    panel.emitRun();
-
-    expect(emitted!.optimizerType).toBe('robust_mean_risk');
-    expect(emitted!.config['kappa']).toBe(1.5);
-  });
-
-  it('posts epsilon to the backend payload when optimizer is dr_cvar', () => {
-    const panel = buildPanel();
-    panel.setOptimizerType('dr_cvar');
-    panel.drCvarEpsilon.set(0.25);
-
-    let emitted: OptimizerRunRequest | undefined;
-    panel.runOptimization.subscribe((req) => (emitted = req));
-    panel.emitRun();
-
-    expect(emitted!.optimizerType).toBe('dr_cvar');
-    expect(emitted!.config['epsilon']).toBe(0.25);
-  });
-
-  it('does not include kappa when optimizer is not robust_mean_risk', () => {
-    const panel = buildPanel();
-    panel.setOptimizerType('mean_risk');
-    panel.robustKappa.set(2.0);
-
-    let emitted: OptimizerRunRequest | undefined;
-    panel.runOptimization.subscribe((req) => (emitted = req));
-    panel.emitRun();
-
-    expect(Object.keys(emitted!.config)).not.toContain('kappa');
-  });
-
-  it('does not include epsilon when optimizer is not dr_cvar', () => {
-    const panel = buildPanel();
-    panel.setOptimizerType('mean_risk');
-    panel.drCvarEpsilon.set(0.4);
-
-    let emitted: OptimizerRunRequest | undefined;
-    panel.runOptimization.subscribe((req) => (emitted = req));
-    panel.emitRun();
-
-    expect(Object.keys(emitted!.config)).not.toContain('epsilon');
-  });
-
-  it('hides objective+risk measure for optimizers that do not support them', () => {
+  it('hides objective+risk measure when optimizer is regime_blended', () => {
     const panel = buildPanel();
 
-    panel.setOptimizerType('hrp');
+    panel.setOptimizerType('regime_blended');
     expect(panel.showObjective()).toBe(false);
     expect(panel.showRiskMeasure()).toBe(false);
 

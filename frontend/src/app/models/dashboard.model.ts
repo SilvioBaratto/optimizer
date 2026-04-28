@@ -45,7 +45,6 @@ export interface RegimeInfo {
   current: MarketRegime;
   probability: number;
   since: string;
-  hmmStates: { regime: MarketRegime; probability: number }[];
 }
 
 export interface AllocationNode {
