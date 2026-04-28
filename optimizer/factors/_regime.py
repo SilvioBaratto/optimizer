@@ -6,15 +6,10 @@ SLOWDOWN, RECESSION, RECOVERY, UNKNOWN) based on observable macro indicators (PM
 yield curve, credit spreads, sentiment).  The resulting regime drives
 ``RegimeTiltConfig`` multiplicative tilts on factor group weights.
 
-A separate **statistical** regime system exists in ``optimizer.moments``
-(``HMMBlendedMu``, ``HMMBlendedCovariance``, ``RegimeRiskConfig``).  That
-system fits a Gaussian HMM on return data and produces integer-labelled
-latent states that control moment estimation and risk-measure selection.
-
-The two systems are intentionally independent: macro indicators capture
-fundamental economic conditions while the HMM captures statistical regimes
-in asset returns.  They can and will disagree.  Use
-:func:`check_regime_disagreement` to surface such disagreements.
+The macro-indicator regime system is intentionally independent from
+statistical regime systems (such as the regime-blended covariance in
+``optimizer.optimization``).  Use :func:`check_regime_disagreement`
+to surface disagreements between any two regime classifications.
 """
 
 from __future__ import annotations
@@ -333,7 +328,7 @@ def check_regime_disagreement(
 ) -> bool:
     """Check whether two regime classifications disagree.
 
-    When the macro-indicator and HMM-based (or any two) regime systems
+    When two regime systems (e.g., macro-indicator and statistical)
     produce different classifications, this function logs a ``WARNING``
     and returns ``True``.  Returns ``False`` when they agree.
 

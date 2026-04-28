@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-
-from optimizer.moments._hmm import HMMConfig
 
 
 class MuEstimatorType(str, Enum):
@@ -15,7 +13,6 @@ class MuEstimatorType(str, Enum):
     SHRUNK = "shrunk"
     EW = "ew"
     EQUILIBRIUM = "equilibrium"
-    HMM_BLENDED = "hmm_blended"
 
 
 class CovEstimatorType(str, Enum):
@@ -31,7 +28,6 @@ class CovEstimatorType(str, Enum):
     DENOISE = "denoise"
     DETONE = "detone"
     IMPLIED = "implied"
-    HMM_BLENDED = "hmm_blended"
 
 
 class ShrinkageMethod(str, Enum):
@@ -97,9 +93,6 @@ class MomentEstimationConfig:
     is_log_normal: bool = False
     investment_horizon: float | None = None
 
-    # -- HMM blended estimators --
-    hmm_config: HMMConfig = field(default_factory=HMMConfig)
-
     # -- Factor model --
     use_factor_model: bool = False
     residual_variance: bool = True
@@ -131,11 +124,3 @@ class MomentEstimationConfig:
             cov_estimator=CovEstimatorType.EW,
         )
 
-    @classmethod
-    def for_hmm_blended(cls, n_states: int = 2) -> MomentEstimationConfig:
-        """HMM-blended prior: regime-probability-weighted mu and covariance."""
-        return cls(
-            mu_estimator=MuEstimatorType.HMM_BLENDED,
-            cov_estimator=CovEstimatorType.HMM_BLENDED,
-            hmm_config=HMMConfig(n_states=n_states),
-        )

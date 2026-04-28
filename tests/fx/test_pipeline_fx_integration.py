@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 import pytest
+from skfolio.optimization import EqualWeighted
 
 from optimizer.fx._config import BaseCurrency, FxConfig, FxConversionMode
-from optimizer.optimization import EqualWeightedConfig, build_equal_weighted
 from optimizer.pipeline._orchestrator import (
     run_full_pipeline,
     run_full_pipeline_with_selection,
@@ -64,7 +64,7 @@ class TestRunFullPipelineFxConversion:
         currency_map: dict[str, str],
         fx_rates: pd.DataFrame,
     ) -> None:
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig.for_eur_base()
 
         result = run_full_pipeline(
@@ -85,7 +85,7 @@ class TestRunFullPipelineFxConversion:
         currency_map: dict[str, str],
         fx_rates: pd.DataFrame,
     ) -> None:
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig.for_decomposition(BaseCurrency.EUR)
 
         result = run_full_pipeline(
@@ -105,7 +105,7 @@ class TestRunFullPipelineFxConversion:
         currency_map: dict[str, str],
         fx_rates: pd.DataFrame,
     ) -> None:
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
 
         result = run_full_pipeline(
             prices=local_prices,
@@ -126,7 +126,7 @@ class TestRunFullPipelineFxConversion:
     ) -> None:
         import logging
 
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig.for_eur_base()
 
         _log = "optimizer.pipeline._orchestrator"
@@ -151,7 +151,7 @@ class TestRunFullPipelineFxConversion:
     ) -> None:
         import logging
 
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig.for_eur_base()
 
         _log = "optimizer.pipeline._orchestrator"
@@ -173,7 +173,7 @@ class TestRunFullPipelineFxConversion:
         currency_map: dict[str, str],
         fx_rates: pd.DataFrame,
     ) -> None:
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig(mode=FxConversionMode.NONE)
 
         result = run_full_pipeline(
@@ -197,7 +197,7 @@ class TestFxStrictMode:
     ) -> None:
         from optimizer.exceptions import ConfigurationError
 
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig(
             mode=FxConversionMode.TO_BASE,
             base_currency=BaseCurrency.EUR,
@@ -219,7 +219,7 @@ class TestFxStrictMode:
     ) -> None:
         from optimizer.exceptions import ConfigurationError
 
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig(
             mode=FxConversionMode.TO_BASE,
             base_currency=BaseCurrency.EUR,
@@ -240,7 +240,7 @@ class TestFxStrictMode:
     ) -> None:
         from optimizer.exceptions import ConfigurationError
 
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig(
             mode=FxConversionMode.TO_BASE,
             base_currency=BaseCurrency.EUR,
@@ -263,7 +263,7 @@ class TestFxStrictMode:
     ) -> None:
         import logging
 
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig(
             mode=FxConversionMode.TO_BASE,
             base_currency=BaseCurrency.EUR,
@@ -293,7 +293,7 @@ class TestFxStrictMode:
         assert fx_config.strict is True
         assert fx_config.mode == FxConversionMode.TO_BASE
 
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         with pytest.raises(ConfigurationError):
             run_full_pipeline(
                 prices=local_prices,
@@ -315,7 +315,7 @@ class TestRunFullPipelineWithSelectionFxSlicing:
     ) -> None:
         """When fundamentals are provided, currency_map should only contain
         tickers that survived selection."""
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig.for_eur_base()
 
         # Provide minimal fundamentals so stock selection runs and selects
@@ -463,7 +463,7 @@ class TestBenchmarkCurrencyConversion:
         passing the parameter at all (backward compatibility)."""
         import pandas.testing as pdt
 
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig.for_eur_base()
         bench_prices = local_prices[["SPY"]].copy()
 
@@ -498,7 +498,7 @@ class TestBenchmarkCurrencyConversion:
         """benchmark_currency has no effect when fx_config is None."""
         import pandas.testing as pdt
 
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         bench_prices = local_prices[["SPY"]].copy()
 
         result_a = run_full_pipeline(
@@ -536,7 +536,7 @@ class TestBenchmarkCurrencyConversion:
         We verify this by omitting SPY from the portfolio currency_map so the
         old code path would leave it unconverted; the new path must override
         this by injecting benchmark_currency into the bench_map."""
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig.for_eur_base()
 
         portfolio_prices = local_prices[["LLOY.L", "ORA.PA"]].copy()
@@ -584,7 +584,7 @@ class TestBenchmarkCurrencyConversion:
         unchanged to run_full_pipeline."""
         import contextlib
 
-        optimizer = build_equal_weighted(EqualWeightedConfig())
+        optimizer = EqualWeighted()
         fx_config = FxConfig.for_eur_base()
         bench_prices = local_prices[["SPY"]].copy()
 

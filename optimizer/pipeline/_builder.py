@@ -27,8 +27,8 @@ def build_portfolio_pipeline(
     Parameters
     ----------
     optimizer : BaseOptimization
-        A skfolio optimiser (e.g. from ``build_mean_risk()``,
-        ``build_hrp()``, etc.) used as the final pipeline estimator.
+        A skfolio optimiser (e.g. from ``build_mean_risk()``)
+        used as the final pipeline estimator.
     pre_selection_config : PreSelectionConfig or None
         Pre-selection configuration.  ``None`` uses default settings.
     sector_mapping : dict[str, str] or None

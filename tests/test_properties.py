@@ -1,23 +1,20 @@
 """Property-based tests for the optimizer library using Hypothesis.
 
 Each test encodes a mathematical invariant that must hold for all valid
-inputs.  Fast tests use max_examples=100; slow HMM tests use max_examples=5
-with a generous deadline to accommodate EM convergence.
+inputs.  Fast tests use max_examples=100; slower tests use max_examples=5.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
-from hypothesis import assume, given, settings
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from optimizer.factors._standardization import (
     winsorize_cross_section,
     z_score_standardize,
 )
-from optimizer.moments._hmm import HMMConfig, fit_hmm
 from optimizer.rebalancing._rebalancer import (
     compute_drifted_weights,
     compute_rebalancing_cost,
@@ -66,47 +63,6 @@ def _returns_array(n: int) -> st.SearchStrategy[np.ndarray]:
         min_size=n,
         max_size=n,
     ).map(lambda v: np.array(v, dtype=np.float64))
-
-
-def _hmm_returns_df(
-    min_rows: int = 100,
-    max_rows: int = 200,
-    min_cols: int = 2,
-    max_cols: int = 5,
-) -> st.SearchStrategy[pd.DataFrame]:
-    """Strategy producing a returns DataFrame suitable for fit_hmm.
-
-    Rows are dates; columns are assets.  All values are finite and drawn
-    from a realistic daily-return range to keep HMM fitting numerically
-    stable.
-    """
-
-    @st.composite
-    def _make(draw: st.DrawFn) -> pd.DataFrame:
-        n_rows = draw(st.integers(min_value=min_rows, max_value=max_rows))
-        n_cols = draw(st.integers(min_value=min_cols, max_value=max_cols))
-        data = draw(
-            st.lists(
-                st.floats(
-                    min_value=-0.15,
-                    max_value=0.15,
-                    allow_nan=False,
-                    allow_infinity=False,
-                ),
-                min_size=n_rows * n_cols,
-                max_size=n_rows * n_cols,
-            )
-        )
-        arr = np.array(data, dtype=np.float64).reshape(n_rows, n_cols)
-        # Discard degenerate matrices where any column has near-zero variance;
-        # hmmlearn requires positive-definite covariances during Cholesky
-        # decomposition and will raise ValueError for constant columns.
-        assume(np.all(arr.std(axis=0) > 1e-6))
-        dates = pd.date_range("2010-01-01", periods=n_rows, freq="B")
-        cols = [f"A{i}" for i in range(n_cols)]
-        return pd.DataFrame(arr, index=dates, columns=cols)
-
-    return _make()
 
 
 # ---------------------------------------------------------------------------
@@ -391,54 +347,3 @@ def test_rank_percentile_bounded_zero_to_one(raw: list[float]) -> None:
     rank_scores = scores.rank() / n
     assert (rank_scores >= 0.0).all(), "Rank-percentile values must be >= 0"
     assert (rank_scores <= 1.0 + 1e-12).all(), "Rank-percentile values must be <= 1"
-
-
-# ---------------------------------------------------------------------------
-# Test 9: HMM transition matrix is row-stochastic
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.slow
-@given(returns=_hmm_returns_df())
-@settings(max_examples=5, deadline=30000)
-def test_hmm_transition_matrix_row_stochastic(returns: pd.DataFrame) -> None:
-    """fit_hmm produces a row-stochastic transition matrix.
-
-    Each row of the transition matrix encodes P(z_t = j | z_{t-1} = i) for
-    all states j.  These are conditional probabilities and must:
-      - sum to exactly 1 across each row, and
-      - be non-negative for every entry.
-    """
-    config = HMMConfig(n_states=2, n_iter=50, random_state=0)
-    result = fit_hmm(returns, config)
-    A = result.transition_matrix
-    row_sums = A.sum(axis=1)
-    assert np.allclose(row_sums, np.ones(config.n_states), atol=1e-8), (
-        "Each row of the HMM transition matrix must sum to 1"
-    )
-    assert np.all(A >= -1e-10), (
-        "All entries of the HMM transition matrix must be non-negative"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Test 10: HMM filtered probabilities sum to 1 per row
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.slow
-@given(returns=_hmm_returns_df())
-@settings(max_examples=5, deadline=30000)
-def test_hmm_filtered_probabilities_sum_to_one(returns: pd.DataFrame) -> None:
-    """fit_hmm filtered_probs rows sum to 1 (proper probability distributions).
-
-    The forward-filtered probabilities alpha_t(s) are normalized at each
-    time step so that sum_s alpha_t(s) = 1.  This invariant must hold for
-    every row (time step) of the filtered_probs DataFrame.
-    """
-    config = HMMConfig(n_states=2, n_iter=50, random_state=0)
-    result = fit_hmm(returns, config)
-    row_sums = result.filtered_probs.sum(axis=1).to_numpy()
-    assert np.allclose(row_sums, np.ones(len(row_sums)), atol=1e-8), (
-        "Every row of filtered_probs must sum to 1"
-    )

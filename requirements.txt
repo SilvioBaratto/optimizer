@@ -29,8 +29,6 @@ matplotlib==3.10.8
 cvxpy==1.8.2
 clarabel==0.11.1
 statsmodels==0.14.6
-hmmlearn==0.3.3
-arch==8.0.0
 xlsxwriter==3.2.9
 networkx==3.6.1
 astropy==7.2.0
@@ -38,10 +36,6 @@ pybind11==3.0.3
 
 # Skfolio
 skfolio==0.19.0
-
-# Deep Markov Models
-torch==2.11.0
-pyro-ppl==1.9.1
 
 # HTTP & Web Scraping
 httpx==0.28.1

@@ -71,19 +71,17 @@ def _build_optimizer(strategy: Strategy, rf_daily: float = 0.0) -> Any:
         Daily risk-free rate (decimal).  Applied to ratio-maximising
         strategies (MAX_SHARPE, MAX_UTILITY).
     """
-    from optimizer.optimization import (
-        HERCConfig,
-        HRPConfig,
-        MeanRiskConfig,
-        RiskBudgetingConfig,
-        build_equal_weighted,
-        build_herc,
-        build_hrp,
-        build_inverse_volatility,
-        build_max_diversification,
-        build_mean_risk,
-        build_risk_budgeting,
+    from skfolio.measures import RiskMeasure
+    from skfolio.optimization import (
+        EqualWeighted,
+        HierarchicalEqualRiskContribution,
+        HierarchicalRiskParity,
+        InverseVolatility,
+        MaximumDiversification,
+        RiskBudgeting,
     )
+
+    from optimizer.optimization import MeanRiskConfig, build_mean_risk
 
     match strategy:
         case Strategy.MAX_SHARPE:
@@ -97,19 +95,19 @@ def _build_optimizer(strategy: Strategy, rf_daily: float = 0.0) -> Any:
             cfg = MeanRiskConfig.for_max_utility()
             return build_mean_risk(dataclasses.replace(cfg, risk_free_rate=rf_daily))
         case Strategy.RISK_PARITY:
-            return build_risk_budgeting(RiskBudgetingConfig.for_risk_parity())
+            return RiskBudgeting(risk_measure=RiskMeasure.VARIANCE)
         case Strategy.CVAR_PARITY:
-            return build_risk_budgeting(RiskBudgetingConfig.for_cvar_parity())
+            return RiskBudgeting(risk_measure=RiskMeasure.CVAR)
         case Strategy.HRP:
-            return build_hrp(HRPConfig.for_cvar())
+            return HierarchicalRiskParity(risk_measure=RiskMeasure.CVAR)
         case Strategy.HERC:
-            return build_herc(HERCConfig.for_cvar())
+            return HierarchicalEqualRiskContribution(risk_measure=RiskMeasure.CVAR)
         case Strategy.MAX_DIVERSIFICATION:
-            return build_max_diversification()
+            return MaximumDiversification()
         case Strategy.EQUAL_WEIGHT:
-            return build_equal_weighted()
+            return EqualWeighted()
         case Strategy.INVERSE_VOL:
-            return build_inverse_volatility()
+            return InverseVolatility()
 
 
 def _get_db_manager() -> Any:

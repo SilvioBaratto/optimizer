@@ -23,7 +23,7 @@ from skfolio.moments import (
 from skfolio.moments.covariance._base import BaseCovariance
 from skfolio.moments.expected_returns._base import BaseMu
 from skfolio.moments.expected_returns._shrunk_mu import ShrunkMuMethods
-from skfolio.prior import EmpiricalPrior, FactorModel
+from skfolio.prior import EmpiricalPrior, TimeSeriesFactorModel
 from skfolio.prior._base import BasePrior
 
 from optimizer.moments._config import (
@@ -32,7 +32,6 @@ from optimizer.moments._config import (
     MuEstimatorType,
     ShrinkageMethod,
 )
-from optimizer.moments._hmm import HMMBlendedCovariance, HMMBlendedMu
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +64,6 @@ def build_mu_estimator(config: MomentEstimationConfig) -> BaseMu:
             return EWMu(alpha=config.ew_mu_alpha)
         case MuEstimatorType.EQUILIBRIUM:
             return EquilibriumMu(risk_aversion=config.risk_aversion)
-        case MuEstimatorType.HMM_BLENDED:
-            return HMMBlendedMu(hmm_config=config.hmm_config)
 
 
 def build_cov_estimator(config: MomentEstimationConfig) -> BaseCovariance:
@@ -107,15 +104,13 @@ def build_cov_estimator(config: MomentEstimationConfig) -> BaseCovariance:
             )
         case CovEstimatorType.IMPLIED:
             return ImpliedCovariance()
-        case CovEstimatorType.HMM_BLENDED:
-            return HMMBlendedCovariance(hmm_config=config.hmm_config)
 
 
 def build_prior(config: MomentEstimationConfig | None = None) -> BasePrior:
     """Build a complete prior estimator from *config*.
 
     Composes expected return and covariance estimators into an
-    ``EmpiricalPrior``, optionally wrapping it in a ``FactorModel``
+    ``EmpiricalPrior``, optionally wrapping it in a ``TimeSeriesFactorModel``
     when ``config.use_factor_model`` is ``True``.
 
     Parameters
@@ -143,7 +138,7 @@ def build_prior(config: MomentEstimationConfig | None = None) -> BasePrior:
     )
 
     if config.use_factor_model:
-        return FactorModel(
+        return TimeSeriesFactorModel(
             factor_prior_estimator=empirical_prior,
             residual_variance=config.residual_variance,
         )

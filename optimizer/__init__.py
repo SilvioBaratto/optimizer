@@ -20,9 +20,8 @@ views
     View integration frameworks (Black-Litterman, Entropy Pooling,
     Opinion Pooling).
 optimization
-    Portfolio optimization models (Mean-Risk, Risk Budgeting,
-    Maximum Diversification, HRP, HERC, NCO, Benchmark Tracking,
-    naive baselines, and ensemble stacking).
+    Portfolio optimization models (Mean-Risk, regime-blended
+    Mean-Risk with factor prior).
 synthetic
     Synthetic data generation, vine copula models, and conditional
     stress testing.

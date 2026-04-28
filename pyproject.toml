@@ -31,8 +31,6 @@ dependencies = [
     "scipy>=1.17.1",
     "scikit-learn>=1.8.0",
     "skfolio>=0.19.0",
-    "hmmlearn>=0.3.3",
-    "arch>=8.0.0",
 ]
 
 [project.urls]
@@ -52,7 +50,6 @@ docs = [
     "mkdocs-gen-files>=0.6.1",
     "mkdocs-literate-nav>=0.6.3",
 ]
-dmm = ["torch>=2.11.0", "pyro-ppl>=1.9.1"]
 dev = ["portopt[test,lint,typecheck,docs]", "pre-commit>=4.5.1"]
 
 [project.scripts]
@@ -94,20 +91,13 @@ ignore_missing_imports = true
 module = ["optimizer.preprocessing.*", "optimizer.fx.*"]
 disallow_subclassing_any = false
 
-# skfolio BaseMu / BaseCovariance / BlackLitterman lack type stubs — suppress subclassing errors
+# skfolio BaseMu / BaseCovariance lack type stubs — suppress subclassing errors
 [[tool.mypy.overrides]]
 module = [
-    "optimizer.moments._hmm",
+    "optimizer.optimization._regime_blended_mean_risk",
     "optimizer.views._factory",
 ]
 disallow_subclassing_any = false
-
-# torch/pyro have incomplete stubs — suppress all strict errors for the DMM module
-[[tool.mypy.overrides]]
-module = "optimizer.moments._dmm"
-disallow_subclassing_any = false
-disallow_untyped_calls = false
-warn_return_any = false
 
 [[tool.mypy.overrides]]
 module = [
@@ -128,7 +118,7 @@ line-ending = "auto"
 [tool.coverage.run]
 branch = true
 source = ["optimizer"]
-omit = ["optimizer/moments/_dmm.py"]
+omit = []
 
 [tool.coverage.report]
 fail_under = 90
@@ -150,10 +140,9 @@ typeCheckingMode = "standard"
 include = ["optimizer", "examples"]
 exclude = [
     "**/__pycache__",
-    "optimizer/moments/_dmm.py",
 ]
 
-# Libraries with missing/incomplete stubs (sklearn, skfolio, hmmlearn, arch)
+# Libraries with missing/incomplete stubs (sklearn, skfolio)
 reportMissingTypeStubs = false
 reportMissingImports = false
 

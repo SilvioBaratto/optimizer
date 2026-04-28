@@ -9,12 +9,41 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from skfolio.measures import RatioMeasure
 from skfolio.metrics import make_scorer as _skfolio_make_scorer
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.optimization._config import RatioMeasureType
-from optimizer.optimization._factory import _RATIO_MEASURE_MAP
 from optimizer.scoring._config import ScorerConfig
+
+_RATIO_MEASURE_MAP: dict[RatioMeasureType, RatioMeasure] = {
+    RatioMeasureType.SHARPE_RATIO: RatioMeasure.SHARPE_RATIO,
+    RatioMeasureType.ANNUALIZED_SHARPE_RATIO: RatioMeasure.ANNUALIZED_SHARPE_RATIO,
+    RatioMeasureType.SORTINO_RATIO: RatioMeasure.SORTINO_RATIO,
+    RatioMeasureType.ANNUALIZED_SORTINO_RATIO: RatioMeasure.ANNUALIZED_SORTINO_RATIO,
+    RatioMeasureType.MEAN_ABSOLUTE_DEVIATION_RATIO: (
+        RatioMeasure.MEAN_ABSOLUTE_DEVIATION_RATIO
+    ),
+    RatioMeasureType.FIRST_LOWER_PARTIAL_MOMENT_RATIO: (
+        RatioMeasure.FIRST_LOWER_PARTIAL_MOMENT_RATIO
+    ),
+    RatioMeasureType.VALUE_AT_RISK_RATIO: RatioMeasure.VALUE_AT_RISK_RATIO,
+    RatioMeasureType.CVAR_RATIO: RatioMeasure.CVAR_RATIO,
+    RatioMeasureType.ENTROPIC_RISK_MEASURE_RATIO: (
+        RatioMeasure.ENTROPIC_RISK_MEASURE_RATIO
+    ),
+    RatioMeasureType.EVAR_RATIO: RatioMeasure.EVAR_RATIO,
+    RatioMeasureType.WORST_REALIZATION_RATIO: RatioMeasure.WORST_REALIZATION_RATIO,
+    RatioMeasureType.DRAWDOWN_AT_RISK_RATIO: RatioMeasure.DRAWDOWN_AT_RISK_RATIO,
+    RatioMeasureType.CDAR_RATIO: RatioMeasure.CDAR_RATIO,
+    RatioMeasureType.CALMAR_RATIO: RatioMeasure.CALMAR_RATIO,
+    RatioMeasureType.AVERAGE_DRAWDOWN_RATIO: RatioMeasure.AVERAGE_DRAWDOWN_RATIO,
+    RatioMeasureType.EDAR_RATIO: RatioMeasure.EDAR_RATIO,
+    RatioMeasureType.ULCER_INDEX_RATIO: RatioMeasure.ULCER_INDEX_RATIO,
+    RatioMeasureType.GINI_MEAN_DIFFERENCE_RATIO: (
+        RatioMeasure.GINI_MEAN_DIFFERENCE_RATIO
+    ),
+}
 
 logger = logging.getLogger(__name__)
 
