@@ -7,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.macro_regime import BondYield, FredObservation
-from app.models.portfolio import RegimeState
 from app.models.universe import Instrument
 from app.models.yfinance_data import PriceHistory
 from app.repositories.base import RepositoryBase
@@ -183,27 +182,6 @@ class DashboardRepository(RepositoryBase):
         pivoted = df.pivot(index="date", columns="ticker", values="close").sort_index()
         pivoted.index = pd.to_datetime(pivoted.index)
         return pivoted
-
-    # ------------------------------------------------------------------
-    # Regime history
-    # ------------------------------------------------------------------
-
-    def get_regime_history(
-        self,
-        start_date: date | None = None,
-        end_date: date | None = None,
-    ) -> list[RegimeState]:
-        """Return RegimeState rows (with probability_entries loaded) in date order."""
-        stmt = (
-            select(RegimeState)
-            .where(RegimeState.model_type == "hmm")
-            .order_by(RegimeState.state_date)
-        )
-        if start_date is not None:
-            stmt = stmt.where(RegimeState.state_date >= start_date)
-        if end_date is not None:
-            stmt = stmt.where(RegimeState.state_date <= end_date)
-        return list(self.session.execute(stmt).scalars().all())
 
     # ------------------------------------------------------------------
     # Reference indices

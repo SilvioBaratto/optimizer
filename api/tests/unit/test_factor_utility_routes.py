@@ -405,7 +405,7 @@ class TestPostRegimeTilt:
         result_nine = {
             "regime": "expansion",
             "tilted_weights": nine_groups,
-            "tilt_multipliers": {k: 1.0 for k in nine_groups},
+            "tilt_multipliers": dict.fromkeys(nine_groups, 1.0),
         }
         with patch(_SERVICE_REGIME, return_value=result_nine):
             resp = client.post(BASE_REGIME, json=_VALID_REGIME_REQUEST)

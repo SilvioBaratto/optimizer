@@ -527,6 +527,10 @@ def run_bulk_yfinance_fetch(
             ticker = instrument.yfinance_ticker
             on_progress(current=idx, current_ticker=ticker)
 
+            if not ticker:
+                all_errors.append(f"{instrument.id}: missing yfinance_ticker, skipped")
+                continue
+
             try:
                 result = service.fetch_and_store(
                     instrument_id=instrument.id,

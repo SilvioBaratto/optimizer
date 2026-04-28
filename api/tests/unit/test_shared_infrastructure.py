@@ -13,7 +13,6 @@ from app.services.infrastructure import (
 )
 from app.services.infrastructure.retry import is_transient_network_error
 
-
 # ---------------------------------------------------------------------------
 # CircuitBreaker
 # ---------------------------------------------------------------------------

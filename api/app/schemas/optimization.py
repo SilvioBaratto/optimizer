@@ -4,7 +4,7 @@ Covers optimization_runs ORM model.
 """
 
 import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,8 +19,8 @@ class OptimizeRequest(BaseModel):
     )
     start_date: datetime.date = Field(..., description="Start of price history window")
     end_date: datetime.date = Field(..., description="End of price history window")
-    optimizer_type: str = Field(
-        ..., description="Optimizer identifier (e.g. mean_risk, hrp, herc)"
+    optimizer_type: Literal["mean_risk"] = Field(
+        ..., description="Optimizer strategy: 'mean_risk'"
     )
     config: dict[str, Any] = Field(
         default_factory=dict, description="Optimizer-specific parameter overrides"

@@ -18,6 +18,7 @@ Acceptance criteria (issue #441):
 from __future__ import annotations
 
 import time
+from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
@@ -157,7 +158,7 @@ class TestTimeEndpointContextManager:
         before = _count(name, {"status": "accepted"})
 
         with metrics.time_endpoint(endpoint):
-            time.sleep(0)  # noqa: ASYNC101 — synchronous noop
+            time.sleep(0)
 
         assert _count(name, {"status": "accepted"}) == before + 1
 
@@ -166,9 +167,8 @@ class TestTimeEndpointContextManager:
         name = f"{endpoint}_request_duration_seconds"
         before = _count(name, {"status": "rejected"})
 
-        with pytest.raises(HTTPException):
-            with metrics.time_endpoint(endpoint):
-                raise HTTPException(status_code=409, detail="conflict")
+        with pytest.raises(HTTPException), metrics.time_endpoint(endpoint):
+            raise HTTPException(status_code=409, detail="conflict")
 
         assert _count(name, {"status": "rejected"}) == before + 1
 
@@ -177,9 +177,8 @@ class TestTimeEndpointContextManager:
         name = f"{endpoint}_request_duration_seconds"
         before = _count(name, {"status": "error"})
 
-        with pytest.raises(HTTPException):
-            with metrics.time_endpoint(endpoint):
-                raise HTTPException(status_code=500, detail="boom")
+        with pytest.raises(HTTPException), metrics.time_endpoint(endpoint):
+            raise HTTPException(status_code=500, detail="boom")
 
         assert _count(name, {"status": "error"}) == before + 1
 
@@ -188,9 +187,8 @@ class TestTimeEndpointContextManager:
         name = f"{endpoint}_request_duration_seconds"
         before = _count(name, {"status": "error"})
 
-        with pytest.raises(RuntimeError):
-            with metrics.time_endpoint(endpoint):
-                raise RuntimeError("oops")
+        with pytest.raises(RuntimeError), metrics.time_endpoint(endpoint):
+            raise RuntimeError("oops")
 
         assert _count(name, {"status": "error"}) == before + 1
 
@@ -260,30 +258,35 @@ class TestMetricsEndpointExposesHistograms:
 class TestRouteHandlersEmitObservations:
     """Each execution route must record a sample on its dedicated histogram.
 
-    These tests target the *handler-internal* failure path of each route — an
-    in-handler ``HTTPException`` raised by ``_validate_optimizer_type``.  The
-    Pydantic-validation 422 path fires *before* the handler body and is not
-    expected to be measured; that is correct behavior for handler-only timing.
+    The optimize test uses a mocked service error to trigger the ``error``
+    status path inside ``time_endpoint``.  The tune test sends an invalid
+    optimizer type that passes Pydantic (``TuneRequest.optimizer_type`` is
+    ``str``) but is rejected in-handler, exercising the ``rejected`` path.
     """
 
     def test_post_optimize_records_into_optimize_histogram(self, client) -> None:
+        from fastapi import HTTPException as _HTTPException
+
         before = _count(
-            "optimize_request_duration_seconds", {"status": "rejected"}
+            "optimize_request_duration_seconds", {"status": "error"}
         )
-        response = client.post(
-            "/api/v1/optimize",
-            json={
-                "optimizer_type": "definitely-not-a-real-optimizer",
-                "tickers": ["AAPL"],
-                "start_date": "2024-01-01",
-                "end_date": "2024-02-01",
-                "config": {},
-            },
-        )
-        # In-handler ``_validate_optimizer_type`` raises HTTPException(422).
-        assert response.status_code == 422
+        with patch(
+            "app.api.v1.optimize.build_pipeline",
+            side_effect=_HTTPException(status_code=500, detail="forced error"),
+        ):
+            response = client.post(
+                "/api/v1/optimize",
+                json={
+                    "optimizer_type": "mean_risk",
+                    "tickers": ["AAPL"],
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-02-01",
+                    "config": {},
+                },
+            )
+        assert response.status_code == 500
         after = _count(
-            "optimize_request_duration_seconds", {"status": "rejected"}
+            "optimize_request_duration_seconds", {"status": "error"}
         )
         assert after == before + 1
 

@@ -12,7 +12,6 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 
-import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 

@@ -48,11 +48,13 @@ class TestValidatePrices:
 class TestBuildOptimizer:
     """build_optimizer maps pipeline_config to an optimizer instance."""
 
-    def test_hrp_config_builds_optimizer(self) -> None:
+    def test_mean_risk_config_builds_optimizer(self) -> None:
+        from skfolio.optimization import MeanRisk
+
         from app.services.backtest_service import build_optimizer
 
-        opt = build_optimizer({"optimizer_type": "hrp"})
-        assert opt is not None
+        opt = build_optimizer({"optimizer_type": "mean_risk"})
+        assert isinstance(opt, MeanRisk)
 
     def test_default_type_when_missing(self) -> None:
         from app.services.backtest_service import build_optimizer
@@ -63,7 +65,7 @@ class TestBuildOptimizer:
     def test_unknown_type_raises(self) -> None:
         from app.services.backtest_service import build_optimizer
 
-        with pytest.raises(ValueError, match="Unknown"):
+        with pytest.raises(ValueError, match="Unsupported optimizer_type"):
             build_optimizer({"optimizer_type": "unknown_xyz"})
 
 
@@ -173,7 +175,7 @@ class TestRunAndPersistCoercesPrices:
                 tickers=["AAPL", "MSFT"],
                 start_date=date(2020, 1, 1),
                 end_date=date(2020, 1, 2),
-                pipeline_config={"optimizer_type": "hrp", "run_cv": False},
+                pipeline_config={"optimizer_type": "mean_risk", "run_cv": False},
                 session=session,
                 run_id=__import__("uuid").uuid4(),
             )

@@ -64,25 +64,25 @@ class TestBacktestRunResponse:
     """BacktestRunResponse serialises ORM rows to camelCase JSON."""
 
     def _make_orm(self, **overrides: Any) -> SimpleNamespace:
-        defaults = dict(
-            id=uuid.uuid4(),
-            portfolio_id=None,
-            job_id=None,
-            status="completed",
-            config={"optimizer_type": "hrp"},
-            equity_curve={"2024-01-01": 1.0, "2024-06-01": 1.1},
-            drawdowns={"max_drawdown": -0.05},
-            monthly_returns={"2024-01": 0.02},
-            yearly_returns={"2024": 0.12},
-            rolling_metrics={"sharpe_1y": 1.3},
-            turnover_history={"2024-01-01": 0.1},
-            cv_fold_metrics=None,
-            summary_stats={"sharpe": 1.2, "cagr": 0.14},
-            error_message=None,
-            duration_seconds=15.3,
-            created_at=datetime.datetime(2024, 1, 16, 0, 0, 0),
-            updated_at=datetime.datetime(2024, 1, 16, 0, 0, 0),
-        )
+        defaults = {
+            "id": uuid.uuid4(),
+            "portfolio_id": None,
+            "job_id": None,
+            "status": "completed",
+            "config": {"optimizer_type": "hrp"},
+            "equity_curve": {"2024-01-01": 1.0, "2024-06-01": 1.1},
+            "drawdowns": {"max_drawdown": -0.05},
+            "monthly_returns": {"2024-01": 0.02},
+            "yearly_returns": {"2024": 0.12},
+            "rolling_metrics": {"sharpe_1y": 1.3},
+            "turnover_history": {"2024-01-01": 0.1},
+            "cv_fold_metrics": None,
+            "summary_stats": {"sharpe": 1.2, "cagr": 0.14},
+            "error_message": None,
+            "duration_seconds": 15.3,
+            "created_at": datetime.datetime(2024, 1, 16, 0, 0, 0),
+            "updated_at": datetime.datetime(2024, 1, 16, 0, 0, 0),
+        }
         defaults.update(overrides)
         return SimpleNamespace(**defaults)
 

@@ -15,7 +15,6 @@ from app.models.portfolio import Portfolio
 from app.models.rebalancing import RebalancingPolicy
 from app.repositories.rebalancing_repository import RebalancingRepository
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import pytest
-from baml_client.types import AssetFactorData, AssetView, ExpertPersona, ViewOutput
 from fastapi.testclient import TestClient
+
+from baml_client.types import AssetFactorData, AssetView, ExpertPersona, ViewOutput
+
+if TYPE_CHECKING:
+    from app.services.opinion_pooling import OpinionPoolResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -261,8 +266,9 @@ class TestRunLLMExperts:
         )
 
     def test_expert_prior_is_black_litterman(self) -> None:
-        from app.services.opinion_pooling import run_llm_experts
         from skfolio.prior import BlackLitterman
+
+        from app.services.opinion_pooling import run_llm_experts
 
         assets = [_make_asset_factor_data("AAPL")]
 
@@ -352,8 +358,9 @@ class TestBuildLLMOpinionPool:
                 build_llm_opinion_pool(assets, TICKERS, ic_histories=ic)
 
     def test_opinion_pool_is_skfolio_estimator(self) -> None:
-        from app.services.opinion_pooling import build_llm_opinion_pool
         from skfolio.prior import OpinionPooling
+
+        from app.services.opinion_pooling import build_llm_opinion_pool
 
         assets = [_make_asset_factor_data(t) for t in TICKERS]
 
@@ -390,8 +397,9 @@ _BUILD = "app.api.v1.opinion_pooling.build_llm_opinion_pool"
 
 
 def _make_pool_result(n_experts: int = 3) -> OpinionPoolResult:
-    from app.services.opinion_pooling import ExpertViewResult, OpinionPoolResult
     from skfolio.prior import BlackLitterman, OpinionPooling
+
+    from app.services.opinion_pooling import ExpertViewResult, OpinionPoolResult
 
     persona_list = [
         ExpertPersona.VALUE_INVESTOR,

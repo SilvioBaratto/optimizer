@@ -58,9 +58,48 @@ class TestOptimizeRequest:
             tickers=["AAPL"],
             start_date=datetime.date(2020, 1, 1),
             end_date=datetime.date(2024, 1, 1),
-            optimizer_type="hrp",
+            optimizer_type="mean_risk",
         )
         assert req.config == {}
+
+    def test_supported_optimizer_type_parses_successfully(self) -> None:
+        from app.schemas.optimization import OptimizeRequest
+
+        req = OptimizeRequest(
+            tickers=["AAPL"],
+            start_date=datetime.date(2020, 1, 1),
+            end_date=datetime.date(2024, 1, 1),
+            optimizer_type="mean_risk",
+        )
+        assert req.optimizer_type == "mean_risk"
+
+    @pytest.mark.parametrize(
+        "bad_type",
+        [
+            "regime_blended",
+            "hrp",
+            "herc",
+            "nco",
+            "risk_budgeting",
+            "max_diversification",
+            "equal_weighted",
+            "inverse_volatility",
+            "stacking",
+            "robust_mean_risk",
+            "dr_cvar",
+            "regime_risk_budgeting",
+        ],
+    )
+    def test_removed_optimizer_types_raise_validation_error(self, bad_type: str) -> None:
+        from app.schemas.optimization import OptimizeRequest
+
+        with pytest.raises(ValidationError):
+            OptimizeRequest(
+                tickers=["AAPL"],
+                start_date=datetime.date(2020, 1, 1),
+                end_date=datetime.date(2024, 1, 1),
+                optimizer_type=bad_type,  # type: ignore[arg-type]
+            )
 
     def test_optional_constraints(self) -> None:
         from app.schemas.optimization import OptimizeRequest
@@ -79,24 +118,24 @@ class TestOptimizationRunResponse:
     """OptimizationRunResponse serialises ORM rows to camelCase JSON."""
 
     def _make_orm(self, **overrides: Any) -> SimpleNamespace:
-        defaults = dict(
-            id=uuid.uuid4(),
-            portfolio_id=None,
-            job_id=None,
-            status="completed",
-            optimizer_type="mean_risk",
-            universe_tickers=["AAPL", "MSFT"],
-            config={"risk_measure": "variance"},
-            weights={"AAPL": 0.6, "MSFT": 0.4},
-            metrics={"sharpe": 1.2, "volatility": 0.15},
-            risk_contributions={"AAPL": 0.55, "MSFT": 0.45},
-            efficient_frontier=None,
-            error_message=None,
-            solver_log=None,
-            duration_seconds=2.5,
-            created_at=datetime.datetime(2024, 1, 16, 0, 0, 0),
-            updated_at=datetime.datetime(2024, 1, 16, 0, 0, 0),
-        )
+        defaults = {
+            "id": uuid.uuid4(),
+            "portfolio_id": None,
+            "job_id": None,
+            "status": "completed",
+            "optimizer_type": "mean_risk",
+            "universe_tickers": ["AAPL", "MSFT"],
+            "config": {"risk_measure": "variance"},
+            "weights": {"AAPL": 0.6, "MSFT": 0.4},
+            "metrics": {"sharpe": 1.2, "volatility": 0.15},
+            "risk_contributions": {"AAPL": 0.55, "MSFT": 0.45},
+            "efficient_frontier": None,
+            "error_message": None,
+            "solver_log": None,
+            "duration_seconds": 2.5,
+            "created_at": datetime.datetime(2024, 1, 16, 0, 0, 0),
+            "updated_at": datetime.datetime(2024, 1, 16, 0, 0, 0),
+        }
         defaults.update(overrides)
         return SimpleNamespace(**defaults)
 

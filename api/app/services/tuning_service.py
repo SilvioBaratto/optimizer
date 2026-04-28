@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.tuning import TuneRequest, TuneResult
 from app.services._progress import ProgressCallback, _noop
-from app.services.optimization_service import build_pipeline, resolve_optimizer
+from app.services.optimization_service import build_pipeline
 from optimizer.tuning._factory import build_grid_search_cv, build_randomized_search_cv
 
 logger = logging.getLogger(__name__)
@@ -30,9 +30,9 @@ def run_tune(
     on_progress = on_progress or _noop
     on_progress(current=0, total=1, status="running")
 
-    optimizer = resolve_optimizer(request.optimizer_type, request.optimizer_config)
     pipeline, returns_df = build_pipeline(
-        request.tickers, request.start_date, request.end_date, optimizer, session
+        request.tickers, request.start_date, request.end_date,
+        request.optimizer_type, request.optimizer_config, session,
     )
     search_cv = _build_search(request, pipeline)
     search_cv.fit(returns_df)
@@ -57,7 +57,7 @@ def _extract_tune_results(search_cv: Any, top_n: int) -> TuneResult:
     """Extract best_params, best_score, top_n candidates, and cv summary."""
     cv_results = search_cv.cv_results_
     ranked = sorted(
-        zip(cv_results["rank_test_score"], cv_results["params"]),
+        zip(cv_results["rank_test_score"], cv_results["params"], strict=False),
         key=lambda x: x[0],
     )
     top_n_items = [

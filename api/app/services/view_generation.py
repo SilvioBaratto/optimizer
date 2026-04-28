@@ -13,11 +13,11 @@ import logging
 import math
 
 import numpy as np
-from baml_client import b
-from baml_client.types import AssetFactorData, AssetView, ViewOutput
 
 from app.models.yfinance_data import TickerProfile
 from app.repositories.view_generation_repository import ViewGenerationRepository
+from baml_client import b
+from baml_client.types import AssetFactorData, AssetView, ViewOutput
 
 logger = logging.getLogger(__name__)
 

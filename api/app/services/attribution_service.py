@@ -143,7 +143,7 @@ def compute_brinson_attribution(
 
     all_sectors = sector_portfolio_weights.keys() | sector_benchmark_weights.keys()
 
-    sector_rows = []
+    sector_rows: list[dict[str, Any]] = []
     for sector in sorted(all_sectors):
         w_p = sector_portfolio_weights.get(sector, 0.0)
         w_b = sector_benchmark_weights.get(sector, 0.0)

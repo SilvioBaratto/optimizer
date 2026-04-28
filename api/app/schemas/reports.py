@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.base_job import AsyncJobProgress
-
 
 # ---------------------------------------------------------------------------
 # Allowed values

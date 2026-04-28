@@ -10,8 +10,7 @@ This avoids reliance on sub-second timing precision in SQLite.
 
 import datetime
 
-import pytest
-from sqlalchemy import select, text, update
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.models.macro_regime import (
@@ -179,7 +178,6 @@ class TestUpsertUpdatedAtStamping:
                 TradingEconomicsObservation.date == obs_date,
             )
         ).scalar_one()
-        original_updated_at = row.updated_at
 
         # Force updated_at to a sentinel, then upsert — it must stay at sentinel
         # because 'updated_at' is not in the update_columns for this method.

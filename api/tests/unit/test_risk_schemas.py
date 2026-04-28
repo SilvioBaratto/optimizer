@@ -72,18 +72,18 @@ class TestRiskLimitResponse:
     """RiskLimitResponse serialises ORM rows to camelCase JSON."""
 
     def _make_orm(self, **overrides: Any) -> SimpleNamespace:
-        defaults = dict(
-            id=uuid.uuid4(),
-            portfolio_id=uuid.uuid4(),
-            metric="max_drawdown",
-            limit_type="upper",
-            threshold=0.15,
-            current_value=0.08,
-            is_breached=False,
-            last_checked_at=datetime.datetime(2024, 1, 15, 10, 0, 0),
-            created_at=datetime.datetime(2024, 1, 1, 0, 0, 0),
-            updated_at=datetime.datetime(2024, 1, 15, 10, 0, 0),
-        )
+        defaults = {
+            "id": uuid.uuid4(),
+            "portfolio_id": uuid.uuid4(),
+            "metric": "max_drawdown",
+            "limit_type": "upper",
+            "threshold": 0.15,
+            "current_value": 0.08,
+            "is_breached": False,
+            "last_checked_at": datetime.datetime(2024, 1, 15, 10, 0, 0),
+            "created_at": datetime.datetime(2024, 1, 1, 0, 0, 0),
+            "updated_at": datetime.datetime(2024, 1, 15, 10, 0, 0),
+        }
         defaults.update(overrides)
         return SimpleNamespace(**defaults)
 

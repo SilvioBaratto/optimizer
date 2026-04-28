@@ -15,3 +15,85 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_configs = true
+# Suppress warnings for untyped third-party libraries (requests, dateutil, etc.)
+# that are installed but lack py.typed marker or stub packages.
+disallow_untyped_calls = false
+
+# FastAPI endpoints, SQLAlchemy models, and third-party integrations (requests,
+# reportlab, dateutil, APScheduler) use patterns incompatible with full strict
+# mode. The settings below enable the checks that add real value while disabling
+# those that produce only noise against legitimate patterns in this codebase.
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+disallow_any_generics = false
+warn_return_any = false
+no_implicit_reexport = false
+
+# SQLAlchemy Column/relationship descriptors return Any at runtime; suppress
+# the subclassing errors that arise from inheriting untyped bases.
+[[tool.mypy.overrides]]
+module = ["app.models.*"]
+disallow_subclassing_any = false
+
+# Generic base repository uses dynamic SQLAlchemy attributes (__table__, id,
+# created_at) that are only available at runtime via the ORM descriptor
+# protocol — mypy cannot statically verify these on type[ModelType].
+[[tool.mypy.overrides]]
+module = ["app.repositories.*"]
+disallow_subclassing_any = false
+warn_return_any = false
+
+# Scrapers, trading212 client, and yfinance sub-clients use heavy third-party
+# libs (requests, bs4, selenium) that have no stubs; widen the checker there.
+[[tool.mypy.overrides]]
+module = [
+    "app.services.scrapers.*",
+    "app.services.trading212.*",
+    "app.services.yfinance.*",
+]
+disallow_subclassing_any = false
+warn_return_any = false
+ignore_missing_imports = true
+
+# Files that import untyped third-party libraries (requests, dateutil).
+# mypy 1.4+ differentiates import-missing vs import-untyped; suppress both.
+[[tool.mypy.overrides]]
+module = [
+    "app.repositories.yfinance_repository",
+    "app.services.scrapers.fred_scraper",
+    "app.services.scrapers.ilsole_scraper",
+    "app.services.scrapers.tradingeconomics_scraper",
+    "app.services.trading212.client",
+    "app.services.yfinance.news.aggregator",
+    "app.services.yfinance.news.scraper",
+]
+ignore_missing_imports = true
+
+# Third-party libraries that are installed but lack stubs or py.typed markers.
+# Setting ignore_missing_imports here suppresses both import-missing and
+# import-untyped errors for these packages.
+[[tool.mypy.overrides]]
+module = [
+    "requests",
+    "requests.*",
+    "dateutil",
+    "dateutil.*",
+    "bs4",
+    "bs4.*",
+    "reportlab",
+    "reportlab.*",
+    "apscheduler",
+    "apscheduler.*",
+    "baml_client",
+    "baml_client.*",
+    "sqlalchemy_utils",
+    "sqlalchemy_utils.*",
+]
+ignore_missing_imports = true
+ignore_errors = true

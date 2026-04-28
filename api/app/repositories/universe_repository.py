@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.universe import Exchange, Instrument
@@ -104,7 +105,7 @@ class UniverseRepository(RepositoryBase):
         bool
             ``True`` if the record was updated, ``False`` if not found.
         """
-        result = self.session.execute(
+        result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
             update(Instrument)
             .where(Instrument.ticker == ticker)
             .where(Instrument.exchange_id == exchange_id)

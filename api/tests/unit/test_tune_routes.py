@@ -21,7 +21,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 BASE_URL = "/api/v1/tune"
@@ -36,7 +35,7 @@ _VALID_REQUEST: dict[str, Any] = {
     "tickers": ["AAPL", "MSFT"],
     "start_date": "2020-01-01",
     "end_date": "2024-01-01",
-    "optimizer_type": "hrp",
+    "optimizer_type": "mean_risk",
     "param_grid": {"optimizer__risk_measure": ["variance", "cvar"]},
     "search_type": "grid",
     "top_n": 3,

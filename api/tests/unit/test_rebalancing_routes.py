@@ -21,9 +21,8 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 

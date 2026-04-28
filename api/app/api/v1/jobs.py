@@ -71,11 +71,11 @@ def get_job(
 ) -> JobSummary:
     try:
         uid = uuid.UUID(job_id)
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Invalid job ID format",
-        )
+        ) from exc
 
     row = repo.get(uid)
     if row is None:
@@ -129,11 +129,11 @@ async def stream_job(
     """Stream job progress as SSE: ``event: progress`` while running, ``event: done`` on terminal."""
     try:
         uid = uuid.UUID(job_id)
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Invalid job ID format",
-        )
+        ) from exc
 
     # Pre-flight check: fail fast with 404 if job doesn't exist
     loop = asyncio.get_running_loop()

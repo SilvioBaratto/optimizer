@@ -11,19 +11,19 @@ from collections.abc import Callable
 from typing import Any, NamedTuple
 
 __all__ = [
-    "FactorDataError",
-    "ProgressCallback",
-    "PriceRow",
     "_PERIOD_DATE_COL",
     "_TICKER_COL",
-    "_find_instrument",
-    "_notify",
-    "_fetch_price_rows",
-    "_build_returns_from_price_rows",
-    "_build_standardized_scores_df",
+    "FactorDataError",
+    "PriceRow",
+    "ProgressCallback",
     "_build_factor_scores_dict",
     "_build_multiindex_factor_df",
     "_build_multiindex_returns",
+    "_build_returns_from_price_rows",
+    "_build_standardized_scores_df",
+    "_fetch_price_rows",
+    "_find_instrument",
+    "_notify",
 ]
 
 import pandas as pd

@@ -22,7 +22,6 @@ from app.services.universe_screening_service import (
     run_universe_screen,
 )
 
-
 # ---------------------------------------------------------------------------
 # _assemble_price_volume — dedup guard at hydration boundary
 # ---------------------------------------------------------------------------

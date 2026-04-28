@@ -20,13 +20,15 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import pandas as pd
-from baml_client import b
-from baml_client.types import NewsArticle
 
 from app.repositories.sentiment_repository import SentimentRepository
+from baml_client import b
+from baml_client.types import NewsArticle
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +146,7 @@ def fetch_news_sentiment(
         return pd.Series(dtype=float)
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-    rows = repo.get_recent_news(instrument_id, cutoff)
+    rows: Sequence[Any] = repo.get_recent_news(instrument_id, cutoff)
 
     if not rows:
         logger.debug("No ticker_news for %s, trying macro_news fallback", ticker)

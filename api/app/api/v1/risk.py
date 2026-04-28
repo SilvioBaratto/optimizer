@@ -1,7 +1,6 @@
 """FastAPI router for risk limits CRUD endpoints (issue #370).
 
 Routes are resource-centric under /risk/{portfolio_name}/limits.
-Separate from risk_budget.py which handles LLM budget calibration.
 """
 
 from __future__ import annotations
@@ -91,7 +90,7 @@ def create_limit(
             }
         )
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -99,7 +98,7 @@ def create_limit(
                 f"Risk limit for metric '{body.metric}' with type "
                 f"'{body.limit_type}' already exists for portfolio '{portfolio_name}'"
             ),
-        )
+        ) from exc
     return RiskLimitResponse.model_validate(limit)
 
 
@@ -124,11 +123,11 @@ def update_limit(
             is_breached=body.is_breached,
         )
         db.commit()
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Risk limit '{limit_id}' not found",
-        )
+        ) from exc
     return RiskLimitResponse.model_validate(limit)
 
 

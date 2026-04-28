@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from app.repositories.execution_repository import ExecutionRepository
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

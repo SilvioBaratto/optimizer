@@ -7,9 +7,9 @@ with correct base classes and preserved validators.
 from __future__ import annotations
 
 import inspect
+
 import pytest
 from pydantic import BaseModel
-
 
 # ===========================================================================
 # views.py schema file
@@ -255,76 +255,6 @@ class TestStressSchemasValidatorsPreserved:
 
 
 # ===========================================================================
-# risk_budget.py schema file
-# ===========================================================================
-
-
-class TestRiskBudgetSchemasModuleExists:
-    """api/app/schemas/risk_budget.py must exist with expected schemas."""
-
-    def test_risk_budget_request_importable(self):
-        from app.schemas.risk_budget import RiskBudgetRequest  # noqa: F401
-
-    def test_risk_budget_response_importable(self):
-        from app.schemas.risk_budget import RiskBudgetResponse  # noqa: F401
-
-
-class TestRiskBudgetSchemasBaseClasses:
-    """Correct base classes for risk budget schemas."""
-
-    def test_risk_budget_request_uses_base_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.risk_budget import RiskBudgetRequest
-
-        assert issubclass(RiskBudgetRequest, BaseModel)
-        assert not issubclass(RiskBudgetRequest, CamelCaseModel)
-
-    def test_risk_budget_response_extends_camel_case_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.risk_budget import RiskBudgetResponse
-
-        assert issubclass(RiskBudgetResponse, CamelCaseModel)
-
-
-class TestRiskBudgetSchemasValidatorsPreserved:
-    """Validators preserved after migration."""
-
-    def test_risk_budget_request_normalises_asset_sector_map(self):
-        from app.schemas.risk_budget import RiskBudgetRequest
-
-        req = RiskBudgetRequest(
-            sector_outlook="Overweight Technology.",
-            sector_universe=["Technology"],
-            asset_sector_map={"  aapl  ": "Technology"},
-        )
-        assert "AAPL" in req.asset_sector_map
-
-    def test_risk_budget_request_rejects_empty_asset_map(self):
-        from app.schemas.risk_budget import RiskBudgetRequest
-
-        with pytest.raises(Exception):
-            RiskBudgetRequest(
-                sector_outlook="Overweight Technology.",
-                sector_universe=["Technology"],
-                asset_sector_map={"  ": "Technology"},
-            )
-
-    def test_risk_budget_response_serialises_to_camel_case(self):
-        from app.schemas.risk_budget import RiskBudgetResponse
-
-        resp = RiskBudgetResponse(
-            n_assets=2,
-            assets=["AAPL", "MSFT"],
-            budget_vector=[0.5, 0.5],
-            budget_sum=1.0,
-        )
-        data = resp.model_dump(by_alias=True)
-        assert "nAssets" in data
-        assert "budgetVector" in data
-        assert "budgetSum" in data
-
-
-# ===========================================================================
 # llm_moments.py schema file
 # ===========================================================================
 
@@ -480,12 +410,6 @@ class TestRouteFilesNoInlineSchemas:
         assert "class StressScenarioItem" not in source
         assert "class StressScenarioResponse" not in source
 
-    def test_risk_budget_route_imports_from_schema_module(self):
-        source = self._get_source("app.api.v1.risk_budget")
-        assert "from app.schemas.risk_budget import" in source
-        assert "class RiskBudgetRequest" not in source
-        assert "class RiskBudgetResponse" not in source
-
     def test_llm_moments_route_imports_from_schema_module(self):
         source = self._get_source("app.api.v1.llm_moments")
         assert "from app.schemas.llm_moments import" in source
@@ -506,30 +430,32 @@ class TestInitReexportsNewSchemas:
     """api/app/schemas/__init__.py must re-export the new schemas."""
 
     def test_views_schemas_importable_from_package(self):
-        from app.schemas import GenerateViewsRequest  # noqa: F401
-        from app.schemas import AssetViewResponse  # noqa: F401
-        from app.schemas import GenerateViewsResponse  # noqa: F401
-        from app.schemas import ICHistory  # noqa: F401
-        from app.schemas import ExpertViewSummary  # noqa: F401
-        from app.schemas import OpinionPoolRequest  # noqa: F401
-        from app.schemas import OpinionPoolResponse  # noqa: F401
+        from app.schemas import (
+            AssetViewResponse,  # noqa: F401
+            ExpertViewSummary,  # noqa: F401
+            GenerateViewsRequest,  # noqa: F401
+            GenerateViewsResponse,  # noqa: F401
+            ICHistory,  # noqa: F401
+            OpinionPoolRequest,  # noqa: F401
+            OpinionPoolResponse,  # noqa: F401
+        )
 
     def test_macro_calibration_response_importable_from_package(self):
         from app.schemas import MacroCalibrationResponse  # noqa: F401
 
     def test_stress_scenarios_schemas_importable_from_package(self):
-        from app.schemas import StressScenarioRequest  # noqa: F401
-        from app.schemas import StressScenarioItem  # noqa: F401
-        from app.schemas import StressScenarioResponse  # noqa: F401
-
-    def test_risk_budget_schemas_importable_from_package(self):
-        from app.schemas import RiskBudgetRequest  # noqa: F401
-        from app.schemas import RiskBudgetResponse  # noqa: F401
+        from app.schemas import (
+            StressScenarioItem,  # noqa: F401
+            StressScenarioRequest,  # noqa: F401
+            StressScenarioResponse,  # noqa: F401
+        )
 
     def test_llm_moments_schemas_importable_from_package(self):
-        from app.schemas import CalibrateDeltaRequest  # noqa: F401
-        from app.schemas import CalibrateDeltaResponse  # noqa: F401
-        from app.schemas import AdaptFactorWeightsRequest  # noqa: F401
-        from app.schemas import AdaptFactorWeightsResponse  # noqa: F401
-        from app.schemas import SelectCovRegimeRequest  # noqa: F401
-        from app.schemas import SelectCovRegimeResponse  # noqa: F401
+        from app.schemas import (
+            AdaptFactorWeightsRequest,  # noqa: F401
+            AdaptFactorWeightsResponse,  # noqa: F401
+            CalibrateDeltaRequest,  # noqa: F401
+            CalibrateDeltaResponse,  # noqa: F401
+            SelectCovRegimeRequest,  # noqa: F401
+            SelectCovRegimeResponse,  # noqa: F401
+        )

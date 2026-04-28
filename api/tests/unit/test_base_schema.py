@@ -1,6 +1,5 @@
 """Tests for api/app/schemas/base.py — CamelCaseModel extraction (issue #345)."""
 
-import pytest
 from pydantic import BaseModel
 
 
@@ -48,16 +47,16 @@ class TestDashboardImportsCamelCaseModelFromBase:
 
     def test_dashboard_imports_camel_case_model_from_base(self):
         """Acceptance criterion: dashboard.py imports CamelCaseModel from base."""
-        import inspect
 
-        import app.schemas.dashboard as dashboard_module
         import app.schemas.base as base_module
+        import app.schemas.dashboard as dashboard_module
 
         assert dashboard_module.CamelCaseModel is base_module.CamelCaseModel
 
     def test_camel_case_model_not_defined_inline_in_dashboard(self):
         """CamelCaseModel must be imported, not defined in dashboard.py itself."""
         import inspect
+
         import app.schemas.dashboard as dashboard_module
 
         source = inspect.getsourcefile(dashboard_module.CamelCaseModel)
@@ -86,9 +85,8 @@ class TestDashboardSchemasStillWork:
         assert "changeLabel" in data
 
     def test_equity_curve_response_serialises_to_camel_case(self):
-        from app.schemas.dashboard import EquityCurveResponse
 
-        from datetime import date
+        from app.schemas.dashboard import EquityCurveResponse
 
         resp = EquityCurveResponse(
             points=[],

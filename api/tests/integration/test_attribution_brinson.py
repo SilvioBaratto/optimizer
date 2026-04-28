@@ -13,10 +13,11 @@ from collections.abc import Generator
 from datetime import date, timedelta
 
 import pytest
-from app.models.universe import Exchange, Instrument
-from app.models.yfinance_data import PriceHistory, TickerProfile
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from app.models.universe import Exchange, Instrument
+from app.models.yfinance_data import PriceHistory, TickerProfile
 
 BASE = "/api/v1/attribution/brinson"
 
@@ -34,7 +35,7 @@ def seeded_trading212_like(db_session: Session) -> Generator[None, None, None]:
         ("AAPL", "AAPL", "Technology"),
     ]
     instruments: list[Instrument] = []
-    for ticker, yf_ticker, sector in tickers_data:
+    for ticker, yf_ticker, _sector in tickers_data:
         inst = Instrument(
             ticker=ticker,
             short_name=ticker,

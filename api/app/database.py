@@ -95,7 +95,7 @@ class DatabaseManager:
             "pool_reset_on_return": settings.database_pool_reset_on_return,
         }
 
-        self._engine = create_engine(**engine_kwargs)
+        self._engine = create_engine(**engine_kwargs)  # type: ignore[call-overload]
 
         logger.info("Database engine created:")
         logger.info("  - Pool class: QueuePool")
@@ -205,7 +205,7 @@ class DatabaseManager:
         Returns:
             Dict with connection pool status, health, and configuration info
         """
-        status = {
+        status: dict[str, Any] = {
             "initialized": self._is_initialized,
             "engine_created": self._engine is not None,
             "pool_class": (

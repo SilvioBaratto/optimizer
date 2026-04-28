@@ -94,12 +94,16 @@ def generate_bl_views(
     n_assets = len(tickers)
 
     if n_views > 0:
-        assert result.P.shape == (n_views, n_assets), (
-            f"P shape mismatch: expected ({n_views}, {n_assets}), got {result.P.shape}"
-        )
-        assert result.Q.shape == (n_views,), (
-            f"Q shape mismatch: expected ({n_views},), got {result.Q.shape}"
-        )
+        if result.P.shape != (n_views, n_assets):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"P shape mismatch: expected ({n_views}, {n_assets}), got {result.P.shape}",
+            )
+        if result.Q.shape != (n_views,):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Q shape mismatch: expected ({n_views},), got {result.Q.shape}",
+            )
 
     return GenerateViewsResponse(
         n_views=n_views,

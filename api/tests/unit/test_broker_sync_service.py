@@ -5,8 +5,6 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from app.services.broker_sync_service import BrokerSyncResult, sync_portfolio
 
 

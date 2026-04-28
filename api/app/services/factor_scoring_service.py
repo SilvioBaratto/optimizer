@@ -21,9 +21,9 @@ from app.services._factor_helpers import (
     _build_factor_scores_dict,
     _build_multiindex_factor_df,
     _build_multiindex_returns,
+    _build_returns_from_price_rows,
     _build_standardized_scores_df,
     _fetch_price_rows,
-    _build_returns_from_price_rows,
 )
 from optimizer.factors import (
     compute_composite_score,

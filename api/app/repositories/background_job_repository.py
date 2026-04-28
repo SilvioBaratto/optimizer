@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import delete, exists, func, insert, literal, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.models.background_job import BackgroundJob, BackgroundJobError
@@ -115,7 +116,7 @@ class BackgroundJobRepository(RepositoryBase):
         now = datetime.now(timezone.utc)
         extra_value = initial_extra if initial_extra else None
 
-        tbl = BackgroundJob.__table__
+        tbl = BackgroundJob.__table__  # type: ignore[attr-defined]
 
         conflict_exists = exists().where(
             BackgroundJob.job_type == job_type,
@@ -134,13 +135,13 @@ class BackgroundJobRepository(RepositoryBase):
             literal(now, type_=tbl.c.updated_at.type).label("updated_at"),
         ).where(~conflict_exists)
 
-        stmt = insert(tbl).from_select(
+        stmt = insert(tbl).from_select(  # type: ignore[arg-type]
             ["id", "job_type", "status", "current", "total", "extra",
              "started_at", "created_at", "updated_at"],
             source,
         )
 
-        result = self.session.execute(stmt)
+        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
         self.session.flush()
         if result.rowcount == 1:
             return new_id
@@ -208,6 +209,6 @@ class BackgroundJobRepository(RepositoryBase):
                 BackgroundJob.finished_at < cutoff,
             )
         )
-        result = self.session.execute(stmt)
+        result2: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
         self.session.flush()
-        return result.rowcount  # type: ignore[return-value]
+        return result2.rowcount  # type: ignore[return-value]

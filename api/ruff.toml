@@ -1,0 +1,56 @@
+extend = "../pyproject.toml"
+
+[lint]
+# Ignore rules that are intentional FastAPI/SQLAlchemy/test patterns
+# or that conflict with the project's established conventions.
+extend-ignore = [
+    # FastAPI dependency injection uses Depends()/Query() in function defaults
+    # by design — this is the documented pattern for FastAPI DI.
+    "B008",
+    # SQLAlchemy ORM models use mutable class-level defaults
+    # (e.g. relationship(), Column()) which are handled by SA's descriptor protocol.
+    "RUF012",
+    # Line-length: api code has longer docstrings and error messages; 88 is
+    # already the configured maximum but legacy lines exceed it.
+    "E501",
+    # Unicode characters in strings: api code uses mathematical notation and
+    # locale-specific content in responses and docstrings.
+    "RUF001",
+    # Module-level imports after code: FastAPI app factories (lifespan, routers)
+    # require conditional/deferred imports in some places.
+    "E402",
+    # Suspicious bind-all-interfaces: 0.0.0.0 binding is correct for Docker.
+    "S104",
+    # Non-cryptographic random: used for job ID generation, not security.
+    "S311",
+    # Uppercase variable names: SQLAlchemy/sklearn convention (P, Q, X, y, etc.)
+    "N806",
+    "N803",
+    # Single-letter lower-cased import: sqlalchemy-specific aliases (e.g. `orm`)
+    "N812",
+    # Exception names: some internal names predate the suffix convention
+    "N818",
+    # Invalid function name: SQLAlchemy event listeners use snake-case conventions
+    "N802",
+]
+
+[lint.per-file-ignores]
+# Test files: assert statements are standard pytest idiom
+"tests/**" = [
+    "S101",   # assert
+    "S106",   # hardcoded-password-func-arg (test fixtures use dummy passwords)
+    "S608",   # hardcoded-sql-expression (raw SQL in tests is intentional)
+    "B017",   # assert-raises-exception (pytest.raises without match= is common)
+    "RUF043", # pytest-raises-ambiguous-pattern
+    "RUF059", # unused-unpacked-variable (common in test helpers)
+    "RUF022", # unsorted-dunder-all
+    "SIM117", # multiple-with-statements (test clarity over brevity)
+    "S110",   # try-except-pass (intentional in test helpers)
+    "S112",   # try-except-continue
+]
+# App models and services: SQLAlchemy/ORM-specific patterns
+"app/models/**" = ["RUF012", "N806"]
+"app/repositories/**" = ["S608"]
+# __all__ with intentional categorical grouping — categories are documentation
+"app/services/yfinance/__init__.py" = ["RUF022"]
+"app/services/__init__.py" = ["RUF022"]

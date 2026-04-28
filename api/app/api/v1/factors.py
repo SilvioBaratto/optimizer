@@ -32,9 +32,9 @@ from app.schemas.factors import (
     FactorValidateRequest,
     FactorValidateResponse,
 )
+from app.services._factor_helpers import FactorDataError
 from app.services._progress import make_progress
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
-from app.services._factor_helpers import FactorDataError
 from app.services.factor_analysis_service import (
     build_exposure_constraints_for_tickers,
     compute_quintile_spread_for_tickers,

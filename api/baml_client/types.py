@@ -70,7 +70,7 @@ class SentimentLabel(str, Enum):
     MIXED = "MIXED"
 
 # #########################################################################
-# Generated classes (12)
+# Generated classes (11)
 # #########################################################################
 
 class AssetFactorData(BaseModel):
@@ -131,11 +131,6 @@ class NewsArticle(BaseModel):
 class NewsSentimentOutput(BaseModel):
     scores: typing.List[float] = Field(description='Sentiment score for each article: +1=strongly bullish, -1=strongly bearish, 0=neutral.')
     reasoning: str = Field(description='Brief overall summary of the sentiment assessment.')
-
-class RiskBudgetOutput(BaseModel):
-    sector_budgets: typing.Dict[str, float] = Field(description='Sector name → relative risk budget weight. All values are non-negative. Higher = more risk budget.')
-    asset_budgets: typing.Dict[str, float] = Field(description='Asset ticker → relative risk budget weight. All values are non-negative. Higher = more risk budget.')
-    rationale: str = Field(description='2-4 sentence explanation of the budget allocation rationale.')
 
 class StressScenario(BaseModel):
     name: str = Field(description='Short label for the scenario, e.g. \'Global Recession 2026\'.')

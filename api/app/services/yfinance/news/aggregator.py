@@ -6,6 +6,7 @@ accept dependencies via constructor injection.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -125,6 +126,9 @@ class CountryNewsFetcher:
                     if article_dict is not None:
                         all_news.append(article_dict)
             except Exception:
+                logging.getLogger(__name__).debug(
+                    "Skipping ticker %s due to fetch error", ticker, exc_info=True
+                )
                 continue
 
         all_news.sort(key=lambda x: x["date"], reverse=True)

@@ -34,17 +34,17 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 import pytest
-from app.config import settings
-from app.database import get_db
-from app.main import create_application
-from app.models.api_key import ApiKey
-from app.models.base import Base
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.config import settings
+from app.database import get_db
+from app.main import create_application
+from app.models.api_key import ApiKey
+from app.models.base import Base
 
 # ---------------------------------------------------------------------------
 # Fixtures — isolated SQLite engine + production app factory

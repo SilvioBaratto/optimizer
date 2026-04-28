@@ -16,19 +16,17 @@ Covers:
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 import types
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
 MIGRATION_FILENAME = "a7b8c9d0e1f2_seed_reference_indices_expanded.py"
-MIGRATION_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "..", "alembic", "versions"
-)
-MIGRATION_PATH = os.path.abspath(os.path.join(MIGRATION_DIR, MIGRATION_FILENAME))
+MIGRATION_DIR = Path(__file__).parent / ".." / ".." / "alembic" / "versions"
+MIGRATION_PATH = str((MIGRATION_DIR / MIGRATION_FILENAME).resolve())
 
 EXPECTED_REVISION = "a7b8c9d0e1f2"
 EXPECTED_DOWN_REVISION = "z6a7b8c9d0e1"

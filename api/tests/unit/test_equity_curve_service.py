@@ -8,7 +8,6 @@ import pytest
 
 from app.services.dashboard_service import compute_equity_curve
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

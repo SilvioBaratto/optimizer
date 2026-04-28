@@ -16,8 +16,9 @@ from app.schemas.base_job import AsyncJobCreateResponse, AsyncJobProgress
 from app.schemas.tuning import TuneRequest, TuneResult
 from app.services._progress import make_progress
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
-from app.services.optimization_service import OPTIMIZER_REGISTRY
 from app.services.tuning_service import run_tune
+
+_SUPPORTED_OPTIMIZER_TYPES: frozenset[str] = frozenset({"mean_risk"})
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +87,11 @@ def get_tune_job(job_id: str) -> AsyncJobProgress:
 
 def _validate_optimizer_type(optimizer_type: str) -> None:
     """Raise 422 for unknown optimizer_type strings."""
-    if optimizer_type not in OPTIMIZER_REGISTRY:
+    if optimizer_type not in _SUPPORTED_OPTIMIZER_TYPES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
                 f"Unknown optimizer_type: {optimizer_type!r}. "
-                f"Valid types: {sorted(OPTIMIZER_REGISTRY)}"
+                f"Valid types: {sorted(_SUPPORTED_OPTIMIZER_TYPES)}"
             ),
         )

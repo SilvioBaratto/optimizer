@@ -87,7 +87,7 @@ def _ensure_market_drawdown(scenarios: list[StressScenario]) -> list[StressScena
         probability=first.probability,
         horizon_days=first.horizon_days,
     )
-    return [patched] + scenarios[1:]
+    return [patched, *scenarios[1:]]
 
 
 # ---------------------------------------------------------------------------

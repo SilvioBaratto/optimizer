@@ -10,7 +10,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy.orm import Session
 
 from app.repositories.background_job_repository import BackgroundJobRepository

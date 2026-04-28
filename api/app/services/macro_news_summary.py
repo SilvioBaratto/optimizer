@@ -18,13 +18,13 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal
 
-from baml_client import b
-from baml_client.types import CountryNewsSummary
 from sqlalchemy.orm import Session
 
 from app.models.macro_regime import MacroNews
 from app.repositories.macro_regime_repository import MacroRegimeRepository
 from app.services._progress import ProgressCallback, _noop
+from baml_client import b
+from baml_client.types import CountryNewsSummary
 
 logger = logging.getLogger(__name__)
 

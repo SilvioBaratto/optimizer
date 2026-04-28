@@ -149,12 +149,12 @@ async def create_item(item: ItemCreate):
 
     return ItemResponse(
         id=item_id,
-        name=item_data["name"],
-        description=item_data["description"],
-        price=item_data["price"],
-        is_active=item_data["is_active"],
-        created_at=item_data["created_at"],
-        updated_at=item_data["updated_at"],
+        name=str(item_data["name"]),
+        description=item_data.get("description"),  # type: ignore[arg-type]
+        price=item_data.get("price"),  # type: ignore[arg-type]
+        is_active=bool(item_data["is_active"]),
+        created_at=item_data["created_at"],  # type: ignore[arg-type]
+        updated_at=item_data["updated_at"],  # type: ignore[arg-type]
     )
 
 

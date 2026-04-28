@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import numpy as np
 import pytest
-from baml_client.types import AssetFactorData, AssetView, ViewOutput
 from fastapi.testclient import TestClient
+
+from baml_client.types import AssetFactorData, AssetView, ViewOutput
+
+if TYPE_CHECKING:
+    from app.services.view_generation import GeneratedViews
 
 # ---------------------------------------------------------------------------
 # Helpers — fixture factories

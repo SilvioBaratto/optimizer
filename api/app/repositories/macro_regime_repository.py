@@ -18,8 +18,8 @@ from app.models.macro_regime import (
     FredObservation,
     MacroCalibration,
     MacroNews,
-    MacroNewsTheme,
     MacroNewsSummary,
+    MacroNewsTheme,
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
 )

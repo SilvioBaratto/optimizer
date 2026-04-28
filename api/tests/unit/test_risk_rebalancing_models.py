@@ -25,7 +25,6 @@ from app.models.base import Base
 from app.models.rebalancing import RebalancingPolicy
 from app.models.risk import RiskLimit
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

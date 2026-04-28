@@ -21,8 +21,8 @@ methods must be mocked at the module level (same pattern as test_backtest_routes
 
 from __future__ import annotations
 
-import os
 import tempfile
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -269,7 +269,7 @@ class TestGetReportDownload:
 
             assert resp.status_code == 200
         finally:
-            os.unlink(tmp_path)
+            Path(tmp_path).unlink(missing_ok=True)
 
     def test_existing_report_has_pdf_content_type(self, client: TestClient) -> None:
         report_id = "test-report-002"
@@ -288,7 +288,7 @@ class TestGetReportDownload:
 
             assert "application/pdf" in resp.headers["content-type"]
         finally:
-            os.unlink(tmp_path)
+            Path(tmp_path).unlink(missing_ok=True)
 
     def test_existing_report_has_content_disposition_header(
         self, client: TestClient
@@ -310,7 +310,7 @@ class TestGetReportDownload:
             assert "content-disposition" in resp.headers
             assert "attachment" in resp.headers["content-disposition"]
         finally:
-            os.unlink(tmp_path)
+            Path(tmp_path).unlink(missing_ok=True)
 
     def test_missing_report_returns_404(self, client: TestClient) -> None:
         with patch(

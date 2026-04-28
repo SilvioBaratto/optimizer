@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 _BUILD_PIPELINE = "app.services.tuning_service.build_pipeline"
-_RESOLVE_OPTIMIZER = "app.services.tuning_service.resolve_optimizer"
 _BUILD_GRID = "app.services.tuning_service.build_grid_search_cv"
 _BUILD_RAND = "app.services.tuning_service.build_randomized_search_cv"
 
@@ -28,7 +27,7 @@ def _make_request(search_type: str = "grid", **overrides: Any):
         "tickers": ["AAPL", "MSFT"],
         "start_date": date(2020, 1, 1),
         "end_date": date(2024, 1, 1),
-        "optimizer_type": "hrp",
+        "optimizer_type": "mean_risk",
         "optimizer_config": {},
         "search_type": search_type,
         "param_grid": {"optimizer__risk_measure": ["variance"]},
@@ -74,7 +73,6 @@ class TestRunTuneGrid:
         search_cv = _mock_search_cv()
 
         with (
-            patch(_RESOLVE_OPTIMIZER, return_value=MagicMock()),
             patch(_BUILD_PIPELINE, return_value=(mock_pipe, mock_returns)),
             patch(_BUILD_GRID, return_value=search_cv) as mock_grid,
             patch(_BUILD_RAND) as mock_rand,
@@ -97,7 +95,6 @@ class TestRunTuneRandomized:
         search_cv = _mock_search_cv()
 
         with (
-            patch(_RESOLVE_OPTIMIZER, return_value=MagicMock()),
             patch(_BUILD_PIPELINE, return_value=(mock_pipe, mock_returns)),
             patch(_BUILD_GRID) as mock_grid,
             patch(_BUILD_RAND, return_value=search_cv) as mock_rand,
@@ -111,14 +108,14 @@ class TestRunTuneRandomized:
 
 
 class TestRunTuneUnknownOptimizer:
-    """Unknown optimizer_type causes resolve_optimizer to raise ValueError."""
+    """Unknown optimizer_type causes build_pipeline to raise ValueError."""
 
     def test_run_tune_unknown_optimizer_raises_value_error(self) -> None:
         request = _make_request(optimizer_type="not_real")
         session = MagicMock()
 
-        with patch(_RESOLVE_OPTIMIZER, side_effect=ValueError("Unknown optimizer_type")):
+        with patch(_BUILD_PIPELINE, side_effect=ValueError("Unsupported optimizer_type")):
             from app.services.tuning_service import run_tune
 
-            with pytest.raises(ValueError, match="Unknown optimizer_type"):
+            with pytest.raises(ValueError, match="Unsupported optimizer_type"):
                 run_tune(session, request)

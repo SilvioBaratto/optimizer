@@ -43,9 +43,6 @@ type_map = {
     "types.NewsSentimentOutput": types.NewsSentimentOutput,
     "stream_types.NewsSentimentOutput": stream_types.NewsSentimentOutput,
 
-    "types.RiskBudgetOutput": types.RiskBudgetOutput,
-    "stream_types.RiskBudgetOutput": stream_types.RiskBudgetOutput,
-
     "types.StressScenario": types.StressScenario,
     "stream_types.StressScenario": stream_types.StressScenario,
 

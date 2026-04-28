@@ -1,8 +1,9 @@
 """Pydantic v2 schemas for macro regime data endpoints."""
 
+import datetime as dt
 import uuid
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -123,7 +124,7 @@ class EconomicIndicatorObservationResponse(BaseModel):
 
     id: uuid.UUID
     country: str
-    date: date
+    date: dt.date
     last_inflation: float | None = None
     inflation_6m: float | None = None
     inflation_10y_avg: float | None = None
@@ -132,7 +133,7 @@ class EconomicIndicatorObservationResponse(BaseModel):
     eps_expected_12m: float | None = None
     peg_ratio: float | None = None
     lt_rate_forecast: float | None = None
-    reference_date: date | None = None
+    reference_date: dt.date | None = None
     created_at: datetime
     updated_at: datetime
 

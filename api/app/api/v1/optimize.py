@@ -21,10 +21,13 @@ from app.repositories.execution_repository import ExecutionRepository
 from app.schemas.optimization import OptimizationRunResponse, OptimizeRequest
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.optimization_service import (
+    FRONTIER_SIZE,
+    FRONTIER_TYPES,
     build_pipeline,
     extract_results,
-    resolve_optimizer,
 )
+
+_SUPPORTED_TYPES: frozenset[str] = frozenset({"mean_risk"})
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +77,12 @@ def _execute_and_persist(
     job_id: str | None = None,
 ) -> OptimizationRun:  # type: ignore[name-defined]  # noqa: F821
     """Run optimization and persist results. Returns the completed OptimizationRun."""
-    optimizer = resolve_optimizer(request.optimizer_type, request.config)
     pipeline, returns_df = build_pipeline(
-        request.tickers, request.start_date, request.end_date, optimizer, session
+        request.tickers, request.start_date, request.end_date,
+        request.optimizer_type, request.config, session,
     )
+    if request.optimizer_type in FRONTIER_TYPES:
+        pipeline.named_steps["optimizer"].set_params(efficient_frontier_size=FRONTIER_SIZE)
     t0 = time.monotonic()
     pipeline.fit(returns_df)
     duration = time.monotonic() - t0
@@ -175,14 +180,12 @@ def get_optimize_run(
 
 def _validate_optimizer_type(optimizer_type: str) -> None:
     """Raise 422 for unknown optimizer_type strings."""
-    from app.services.optimization_service import OPTIMIZER_REGISTRY
-
-    if optimizer_type not in OPTIMIZER_REGISTRY:
+    if optimizer_type not in _SUPPORTED_TYPES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
                 f"Unknown optimizer_type: {optimizer_type!r}. "
-                f"Valid types: {sorted(OPTIMIZER_REGISTRY)}"
+                f"Valid types: {sorted(_SUPPORTED_TYPES)}"
             ),
         )
 

@@ -305,7 +305,7 @@ def _historical_var_cvar(
     losses = -returns.values
     var_dict: dict[str, float] = {}
     cvar_dict: dict[str, float] = {}
-    for key, level in zip(_CONFIDENCE_KEYS, _CONFIDENCE_LEVELS):
+    for key, level in zip(_CONFIDENCE_KEYS, _CONFIDENCE_LEVELS, strict=False):
         var_val = float(np.quantile(losses, level))
         cvar_val = float(losses[losses >= var_val].mean())
         var_dict[key] = round(var_val, 8)
@@ -322,7 +322,7 @@ def _parametric_var_cvar(
     sigma = float(arr.std())
     var_dict: dict[str, float] = {}
     cvar_dict: dict[str, float] = {}
-    for key, level in zip(_CONFIDENCE_KEYS, _CONFIDENCE_LEVELS):
+    for key, level in zip(_CONFIDENCE_KEYS, _CONFIDENCE_LEVELS, strict=False):
         z = norm.ppf(level)
         var_val = -(mu - z * sigma)
         cvar_val = -(mu - sigma * norm.pdf(z) / (1 - level))

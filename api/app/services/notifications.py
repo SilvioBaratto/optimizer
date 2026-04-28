@@ -39,5 +39,5 @@ def notify_failure(
     }
     try:
         httpx.post(webhook_url, json=payload, timeout=10)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Failed to send webhook notification: %s", exc)

@@ -353,7 +353,7 @@ def _intersect_all_screens(
 ) -> pd.Index:
     """Return tickers passing every non-empty screen."""
     passing = set(all_tickers.tolist())
-    for name, passed in screen_results.items():
+    for _name, passed in screen_results.items():
         if passed:
             passing &= passed
     return pd.Index(sorted(passing))

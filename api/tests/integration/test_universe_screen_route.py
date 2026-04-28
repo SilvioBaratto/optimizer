@@ -17,10 +17,11 @@ from collections.abc import Generator
 from datetime import date, timedelta
 
 import pytest
-from app.models.universe import Exchange, Instrument
-from app.models.yfinance_data import PriceHistory, TickerProfile
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from app.models.universe import Exchange, Instrument
+from app.models.yfinance_data import PriceHistory, TickerProfile
 
 BASE = "/api/v1/universe/screen"
 

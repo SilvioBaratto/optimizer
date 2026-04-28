@@ -46,16 +46,16 @@ class Portfolio(BaseModel):
     )
 
     # Relationships
-    snapshots: Mapped[list["PortfolioSnapshot"]] = relationship(
+    snapshots: Mapped[list[PortfolioSnapshot]] = relationship(
         back_populates="portfolio", cascade="all, delete-orphan",
     )
-    positions: Mapped[list["BrokerPosition"]] = relationship(
+    positions: Mapped[list[BrokerPosition]] = relationship(
         back_populates="portfolio", cascade="all, delete-orphan",
     )
-    account_snapshots: Mapped[list["BrokerAccountSnapshot"]] = relationship(
+    account_snapshots: Mapped[list[BrokerAccountSnapshot]] = relationship(
         back_populates="portfolio", cascade="all, delete-orphan",
     )
-    events: Mapped[list["ActivityEvent"]] = relationship(
+    events: Mapped[list[ActivityEvent]] = relationship(
         back_populates="portfolio", cascade="all, delete-orphan",
     )
 
@@ -158,7 +158,7 @@ class BrokerPosition(BaseModel):
     )
 
     # Relationship
-    portfolio: Mapped["Portfolio"] = relationship(back_populates="positions")
+    portfolio: Mapped[Portfolio] = relationship(back_populates="positions")
 
 
 class BrokerAccountSnapshot(BaseModel):
@@ -195,7 +195,7 @@ class BrokerAccountSnapshot(BaseModel):
     )
 
     # Relationship
-    portfolio: Mapped["Portfolio"] = relationship(back_populates="account_snapshots")
+    portfolio: Mapped[Portfolio] = relationship(back_populates="account_snapshots")
 
 
 class ActivityEvent(BaseModel):
@@ -235,57 +235,6 @@ class ActivityEvent(BaseModel):
         if not self.metadata_entries:
             return None
         return {e.key: json.loads(e.value_text) for e in self.metadata_entries}
-
-
-class RegimeState(BaseModel):
-    """Cached HMM regime state for the market regime endpoint."""
-
-    __tablename__ = "regime_states"
-    __table_args__ = (
-        UniqueConstraint(
-            "state_date", "model_type",
-            name="uq_regime_state_date_model",
-        ),
-    )
-
-    state_date: Mapped[date] = mapped_column(Date, nullable=False)
-    regime: Mapped[str] = mapped_column(
-        String(20), nullable=False,
-    )  # "bull" | "bear" | "sideways" | "volatile"
-    model_type: Mapped[str] = mapped_column(
-        String(30), nullable=False, server_default="hmm",
-    )
-    # Scalar columns extracted from the old metadata JSONB
-    since: Mapped[date | None] = mapped_column(Date, nullable=True)
-    n_states: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    last_fitted: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
-    )
-
-    # Relationships
-    probability_entries: Mapped[list[RegimeStateProbability]] = relationship(
-        back_populates="regime_state", cascade="all, delete-orphan", lazy="selectin",
-    )
-
-    @property
-    def probabilities(self) -> list[dict]:
-        return [
-            {"regime": e.regime, "probability": e.probability}
-            for e in self.probability_entries
-        ]
-
-    @property
-    def metadata_(self) -> dict | None:
-        if self.since is None and self.n_states is None and self.last_fitted is None:
-            return None
-        d: dict[str, Any] = {}
-        if self.since is not None:
-            d["since"] = self.since.isoformat()
-        if self.n_states is not None:
-            d["n_states"] = self.n_states
-        if self.last_fitted is not None:
-            d["last_fitted"] = self.last_fitted.isoformat()
-        return d
 
 
 # ------------------------------------------------------------------
@@ -403,25 +352,3 @@ class ActivityEventDetail(BaseModel):
     event: Mapped[ActivityEvent] = relationship(back_populates="metadata_entries")
 
 
-class RegimeStateProbability(BaseModel):
-    """Individual regime probability for a regime state."""
-
-    __tablename__ = "regime_state_probabilities"
-    __table_args__ = (
-        UniqueConstraint(
-            "regime_state_id", "regime", name="uq_regime_state_prob_regime",
-        ),
-        Index("ix_regime_state_probs_state_id", "regime_state_id"),
-    )
-
-    regime_state_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("regime_states.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    regime: Mapped[str] = mapped_column(String(20), nullable=False)
-    probability: Mapped[float] = mapped_column(Float, nullable=False)
-
-    regime_state: Mapped[RegimeState] = relationship(
-        back_populates="probability_entries",
-    )

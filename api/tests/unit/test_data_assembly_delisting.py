@@ -17,7 +17,7 @@ _repo_root = Path(__file__).parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from cli.data_assembly import _apply_delisting_returns  # noqa: E402
+from cli.data_assembly import _apply_delisting_returns
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -68,7 +68,6 @@ class TestApplyDelistingReturns:
     def test_bankruptcy_return_minus_100_pct(self) -> None:
         """A -1.0 return produces a near-zero synthetic price."""
         df = _price_df(["A"])
-        last_price = float(df["A"].iloc[-1])
         delisting_date = df.index[-1] + pd.Timedelta(days=1)
 
         out = _apply_delisting_returns(df, [("A", delisting_date, -1.0)])
@@ -131,7 +130,6 @@ class TestApplyDelistingReturns:
         out = _apply_delisting_returns(df, delistings)
 
         last_a = float(df["A"].iloc[-1])
-        last_b = float(df["B"].iloc[-1])
         assert out.loc[delisting_date, "A"] == pytest.approx(last_a * 0.70)
         assert out.loc[delisting_date, "B"] == pytest.approx(0.0, abs=1e-9)
         # C is untouched: NaN on delisting_date

@@ -15,12 +15,12 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from baml_client import b
-from baml_client.types import AssetFactorData, ExpertPersona, ViewOutput
 from skfolio.prior import BlackLitterman
 from skfolio.prior._base import BasePrior
 
 from app.services.view_generation import _validate_idzorek_alphas, _views_to_arrays
+from baml_client import b
+from baml_client.types import AssetFactorData, ExpertPersona, ViewOutput
 from optimizer.views._config import OpinionPoolingConfig
 from optimizer.views._factory import build_opinion_pooling
 

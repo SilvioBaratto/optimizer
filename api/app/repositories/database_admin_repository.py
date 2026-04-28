@@ -118,7 +118,7 @@ class DatabaseAdminRepository(RepositoryBase):
         # NB: table_name is sourced from the APP_TABLES allowlist in the
         # caller (database.py route), which is enforced at module load.
         result = self.session.execute(
-            text(f'SELECT COUNT(*) FROM "{table_name}"')  # noqa: S608
+            text(f'SELECT COUNT(*) FROM "{table_name}"')
         )
         return result.scalar()
 

@@ -22,9 +22,10 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import pytest
-from app.models.execution import BacktestRun
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from app.models.execution import BacktestRun
 
 BASE_URL = "/api/v1/backtest"
 _TICKERS = ["AAPL", "MSFT", "GOOG"]
@@ -75,7 +76,7 @@ def _payload() -> dict:
         "tickers": _TICKERS,
         "start_date": "2023-01-02",
         "end_date": "2023-12-31",
-        "pipeline_config": {"optimizer_type": "hrp", "run_cv": False},
+        "pipeline_config": {"optimizer_type": "mean_risk", "run_cv": False},
     }
 
 

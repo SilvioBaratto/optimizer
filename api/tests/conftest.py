@@ -9,13 +9,14 @@ from collections.abc import Generator
 from unittest.mock import MagicMock
 
 import pytest
-from app.database import get_db
-from app.main import app
-from app.models.base import Base
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+from app.database import get_db
+from app.main import app
+from app.models.base import Base
 
 # Test database URL - use SQLite for fast tests
 TEST_DATABASE_URL = "sqlite:///:memory:"

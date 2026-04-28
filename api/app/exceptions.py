@@ -232,7 +232,6 @@ class SuspiciousActivityError(SecurityViolationError):
     """Raised when suspicious activity is detected"""
 
     def __init__(self, activity_type: str, client_ip: str | None = None):
-        message = f"Suspicious activity detected: {activity_type}"
         details = {}
         if client_ip:
             details["client_ip"] = client_ip
@@ -587,7 +586,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
         """Handle Pydantic validation errors"""
 
         # Format validation errors
-        errors = {}
+        errors: dict[str, list[str]] = {}
         for error in exc.errors():
             field = ".".join(str(loc) for loc in error["loc"][1:])
             if field not in errors:

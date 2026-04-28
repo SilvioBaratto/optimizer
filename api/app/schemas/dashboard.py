@@ -1,6 +1,7 @@
 """Pydantic v2 schemas for dashboard endpoints (camelCase serialization)."""
 
-from datetime import date as Date, datetime
+from datetime import date as Date
+from datetime import datetime
 from typing import Literal
 
 from pydantic import Field
@@ -133,30 +134,6 @@ class MarketSnapshotResponse(CamelCaseModel):
     as_of: datetime
 
 
-class HmmStateItem(CamelCaseModel):
-    """Single HMM state in the regime probability distribution."""
-
-    regime: str
-    probability: float
-
-
-class RegimeModelInfo(CamelCaseModel):
-    """Metadata about the fitted HMM model."""
-
-    n_states: int
-    last_fitted: datetime
-
-
-class MarketRegimeResponse(CamelCaseModel):
-    """Response for GET /market/regime."""
-
-    current: str
-    probability: float
-    since: Date
-    hmm_states: list[HmmStateItem]
-    model_info: RegimeModelInfo
-
-
 class AssetClassReturnRow(CamelCaseModel):
     """Single sector row for the asset-class returns heatmap."""
 
@@ -172,24 +149,6 @@ class AssetClassReturnsResponse(CamelCaseModel):
 
     returns: list[AssetClassReturnRow]
     as_of: Date
-
-
-class RegimeHistoryPoint(CamelCaseModel):
-    """Single date entry in the HMM regime history time series."""
-
-    date: Date
-    regime: str
-    bull_prob: float
-    bear_prob: float
-    sideways_prob: float
-    volatile_prob: float
-
-
-class RegimeHistoryResponse(CamelCaseModel):
-    """Response for GET /market/regime/history."""
-
-    points: list[RegimeHistoryPoint]
-    total: int
 
 
 class ReferenceIndexItem(CamelCaseModel):

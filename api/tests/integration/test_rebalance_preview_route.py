@@ -19,10 +19,11 @@ from collections.abc import Generator
 from datetime import date
 
 import pytest
-from app.models.portfolio import Portfolio, PortfolioSnapshot, SnapshotWeight
-from app.models.rebalancing import RebalancingPolicy
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from app.models.portfolio import Portfolio, PortfolioSnapshot, SnapshotWeight
+from app.models.rebalancing import RebalancingPolicy
 
 BASE = "/api/v1/rebalance/preview"
 

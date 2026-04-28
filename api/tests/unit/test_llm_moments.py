@@ -5,6 +5,8 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+from fastapi.testclient import TestClient
+
 from app.main import app
 from baml_client.types import (
     BusinessCyclePhase,
@@ -13,7 +15,6 @@ from baml_client.types import (
     DeltaCalibration,
     FactorWeightAdaptation,
 )
-from fastapi.testclient import TestClient
 
 client = TestClient(app)
 

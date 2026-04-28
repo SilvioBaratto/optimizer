@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime, time, timezone
+from typing import Any
 
 import numpy as np
-import numpy.typing as npt
 import pandas as pd
 
-from optimizer.moments._hmm import HMMResult
 from optimizer.rebalancing import compute_drifted_weights
 
 ANNUALIZATION_FACTOR = 252
@@ -327,7 +326,7 @@ def compute_equity_curve(
             "portfolio": round(float(p), 4),
             "benchmark": round(float(b), 4),
         }
-        for idx, p, b in zip(common_idx, port_cum, bench_cum)
+        for idx, p, b in zip(common_idx, port_cum, bench_cum, strict=False)
     ]
 
     port_total_return = round(float(port_cum.iloc[-1] / 100 - 1), 6)
@@ -419,7 +418,7 @@ def _series_to_points(series: pd.Series, index: pd.Index) -> list[dict]:
             "date": idx.date() if hasattr(idx, "date") else idx,
             "value": round(float(value), 6),
         }
-        for idx, value in zip(trimmed.index, trimmed.values)
+        for idx, value in zip(trimmed.index, trimmed.values, strict=False)
     ]
 
 
@@ -448,7 +447,7 @@ def compute_allocation(
         sector_tickers.setdefault(sector, []).append((ticker, weight * 100))
 
     # Build nodes with children sorted by value descending
-    nodes = []
+    nodes: list[dict[str, Any]] = []
     for sector, tickers in sector_tickers.items():
         tickers.sort(key=lambda t: t[1], reverse=True)
         children = [{"name": t, "value": round(v, 4)} for t, v in tickers]
@@ -456,7 +455,7 @@ def compute_allocation(
         nodes.append({"name": sector, "value": sector_value, "children": children})
 
     # Sort sectors by total weight descending
-    nodes.sort(key=lambda n: n["value"], reverse=True)
+    nodes.sort(key=lambda n: float(n["value"]), reverse=True)
 
     return {
         "nodes": nodes,
@@ -556,7 +555,7 @@ def compute_drift(
         actual = _actual_weights_from_prices(target_weights, prices_df)
 
     # Build per-ticker drift entries
-    entries = []
+    entries: list[dict[str, Any]] = []
     for ticker, target_w in target_weights.items():
         actual_w = actual.get(ticker, 0.0)
         drift_val = actual_w - target_w
@@ -570,10 +569,10 @@ def compute_drift(
         })
 
     # Sort by abs(drift) descending
-    entries.sort(key=lambda e: abs(e["drift"]), reverse=True)
+    entries.sort(key=lambda e: abs(float(e["drift"])), reverse=True)
 
-    total_drift = round(sum(abs(e["drift"]) for e in entries), 6)
-    breached_count = sum(1 for e in entries if e["breached"])
+    total_drift = round(sum(abs(float(e["drift"])) for e in entries), 6)
+    breached_count = sum(1 for e in entries if bool(e["breached"]))
 
     return {
         "entries": entries,
@@ -622,73 +621,6 @@ def get_market_snapshot(
     }
 
 
-# ---------------------------------------------------------------------------
-# Market regime (HMM)
-# ---------------------------------------------------------------------------
-
-
-def _label_states(
-    regime_means: pd.DataFrame,
-    regime_covariances: npt.NDArray[np.float64],
-) -> dict[int, str]:
-    """Map integer HMM state indices to regime label strings.
-
-    Heuristic (priority-based, greedy):
-    - Highest mean return  → "bull"
-    - Lowest mean return   → "bear"
-    - Highest variance     → "volatile"
-    - Remainder            → "sideways"
-    """
-    n_states = len(regime_means)
-    mean_returns: np.ndarray = regime_means.mean(axis=1).to_numpy()
-    variances: np.ndarray = np.array(
-        [np.diag(regime_covariances[s]).mean() for s in range(n_states)]
-    )
-
-    labels: dict[int, str] = {}
-    available = set(range(n_states))
-
-    bull_idx = int(np.argmax(mean_returns))
-    labels[bull_idx] = "bull"
-    available.discard(bull_idx)
-
-    bear_idx = int(np.argmin(mean_returns))
-    if bear_idx in available:
-        labels[bear_idx] = "bear"
-        available.discard(bear_idx)
-
-    if available:
-        volatile_idx = max(available, key=lambda s: variances[s])
-        labels[volatile_idx] = "volatile"
-        available.discard(volatile_idx)
-
-    for s in available:
-        labels[s] = "sideways"
-
-    return labels
-
-
-def _find_since_date(
-    decoded: pd.Series,
-    current_state: int,
-) -> date:
-    """Find the first date of the current consecutive run of *current_state*."""
-    dates = decoded.index
-    n = len(decoded)
-    run_start = n - 1
-    for i in range(n - 2, -1, -1):
-        if decoded.iloc[i] == current_state:
-            run_start = i
-        else:
-            break
-    d = dates[run_start]
-    if isinstance(d, pd.Timestamp):
-        return d.date()
-    if isinstance(d, date):
-        return d
-    return date.fromisoformat(str(d))
-
-
 def _sector_return_for_period(
     tickers_in_sector: list[str],
     sector_weights: list[float],
@@ -702,13 +634,13 @@ def _sector_return_for_period(
     """
     available = [
         (t, w)
-        for t, w in zip(tickers_in_sector, sector_weights)
+        for t, w in zip(tickers_in_sector, sector_weights, strict=False)
         if t in prices.columns
     ]
     if not available:
         return 0.0
 
-    tickers, weights = zip(*available)
+    tickers, weights = zip(*available, strict=False)
     total_w = sum(weights)
     if total_w == 0.0:
         return 0.0
@@ -718,7 +650,7 @@ def _sector_return_for_period(
     ticker_returns = (end_prices / start_prices - 1).fillna(0.0)
 
     return float(
-        sum((w / total_w) * ticker_returns[t] for t, w in zip(tickers, weights))
+        sum((w / total_w) * ticker_returns[t] for t, w in zip(tickers, weights, strict=False))
     )
 
 
@@ -819,55 +751,3 @@ def compute_asset_class_returns(
     as_of_date = as_of.date() if hasattr(as_of, "date") else as_of
 
     return {"returns": rows, "as_of": as_of_date}
-
-
-# ---------------------------------------------------------------------------
-# Market regime (HMM)
-# ---------------------------------------------------------------------------
-
-
-def compute_market_regime(
-    hmm_result: HMMResult,
-    fitted_at: datetime,
-) -> dict:
-    """Derive the current market regime from a fitted HMM.
-
-    Args:
-        hmm_result: Output of fit_hmm() on SPY daily returns.
-        fitted_at:  UTC datetime when fit_hmm() was called.
-
-    Returns:
-        Dict matching MarketRegimeResponse schema (snake_case keys).
-    """
-    n_states = len(hmm_result.regime_means)
-    state_labels = _label_states(
-        hmm_result.regime_means,
-        hmm_result.regime_covariances,
-    )
-
-    current_probs: np.ndarray = (
-        hmm_result.filtered_probs.iloc[-1].to_numpy(dtype=np.float64)
-    )
-    dominant_state = int(np.argmax(current_probs))
-    dominant_prob = float(current_probs[dominant_state])
-    current_label = state_labels[dominant_state]
-
-    decoded: pd.Series = hmm_result.smoothed_probs.idxmax(axis=1)
-    since_date = _find_since_date(decoded, dominant_state)
-
-    hmm_states = [
-        {"regime": state_labels[s], "probability": round(float(current_probs[s]), 6)}
-        for s in range(n_states)
-    ]
-    hmm_states.sort(key=lambda x: x["probability"], reverse=True)
-
-    return {
-        "current": current_label,
-        "probability": round(dominant_prob, 6),
-        "since": since_date,
-        "hmm_states": hmm_states,
-        "model_info": {
-            "n_states": n_states,
-            "last_fitted": fitted_at,
-        },
-    }

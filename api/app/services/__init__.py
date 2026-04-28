@@ -249,12 +249,12 @@ from app.services.trading212 import (
 )
 
 __all__ = [
-    # "UserService",
     # "AuthService",
-    "UniverseBuilder",
-    "BuildResult",
+    # "UserService",
     "BuildProgress",
+    "BuildResult",
     "Trading212Client",
-    "YFinanceTickerMapper",
+    "UniverseBuilder",
     "UniverseBuilderConfig",
+    "YFinanceTickerMapper",
 ]

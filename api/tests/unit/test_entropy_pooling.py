@@ -380,9 +380,9 @@ class TestRunEntropyPoolingService:
     """Direct unit tests for the service function."""
 
     def test_returns_dict_with_mu_covariance_tickers(self) -> None:
-        from app.services.entropy_pooling_service import run_entropy_pooling
-
         import pandas as pd
+
+        from app.services.entropy_pooling_service import run_entropy_pooling
 
         np.random.seed(0)
         dates = pd.date_range("2022-01-01", periods=300, freq="B")
@@ -412,9 +412,9 @@ class TestRunEntropyPoolingService:
         assert "tickers" in result
 
     def test_mu_length_matches_tickers(self) -> None:
-        from app.services.entropy_pooling_service import run_entropy_pooling
-
         import pandas as pd
+
+        from app.services.entropy_pooling_service import run_entropy_pooling
 
         np.random.seed(1)
         dates = pd.date_range("2022-01-01", periods=300, freq="B")
@@ -443,9 +443,9 @@ class TestRunEntropyPoolingService:
         assert len(result["tickers"]) == 3
 
     def test_covariance_is_square_matrix(self) -> None:
-        from app.services.entropy_pooling_service import run_entropy_pooling
-
         import pandas as pd
+
+        from app.services.entropy_pooling_service import run_entropy_pooling
 
         np.random.seed(2)
         dates = pd.date_range("2022-01-01", periods=300, freq="B")

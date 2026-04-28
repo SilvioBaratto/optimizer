@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import io
 import logging
-import os
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from reportlab.lib import colors
@@ -373,7 +373,7 @@ class ReportService:
         )
         self._builder = PdfBuilder()
         self._output_dir = output_dir
-        os.makedirs(output_dir, exist_ok=True)
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     def generate(
         self,
@@ -395,8 +395,8 @@ class ReportService:
             orientation=orientation,
         )
         filename = f"report_{report_id}.pdf"
-        file_path = os.path.join(self._output_dir, filename)
-        with open(file_path, "wb") as f:
-            f.write(pdf_bytes)
+        file_path = Path(self._output_dir) / filename
+        with file_path.open("wb") as fh:
+            fh.write(pdf_bytes)
         logger.info("Report %s saved to %s", report_id, file_path)
         return report_id

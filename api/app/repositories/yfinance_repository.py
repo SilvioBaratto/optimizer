@@ -1,10 +1,11 @@
 """Repository for yfinance data access with PostgreSQL upsert support."""
 
+import contextlib
 import logging
 import math
 from collections.abc import Sequence
 from datetime import date, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import pandas as pd
@@ -240,7 +241,7 @@ class YFinanceRepository(RepositoryBase):
         rows = []
         for idx, row_data in history_df.iterrows():
             dt = idx
-            if isinstance(dt, pd.Timestamp) or isinstance(dt, datetime):
+            if isinstance(dt, (pd.Timestamp, datetime)):
                 dt = dt.date()
 
             rows.append(
@@ -666,10 +667,8 @@ class YFinanceRepository(RepositoryBase):
             if publish_time is None:
                 pt = article.get("providerPublishTime")
                 if pt is not None:
-                    try:
+                    with contextlib.suppress(ValueError, TypeError, OSError):
                         publish_time = datetime.fromtimestamp(int(pt))
-                    except (ValueError, TypeError, OSError):
-                        pass
 
             # News type
             news_type = _safe_str(
@@ -744,8 +743,8 @@ class YFinanceRepository(RepositoryBase):
 
         for category, model in category_models:
             val = self.session.execute(
-                select(func.max(model.updated_at)).where(
-                    model.instrument_id == instrument_id
+                select(func.max(cast(Any, model).updated_at)).where(
+                    cast(Any, model).instrument_id == instrument_id
                 )
             ).scalar_one_or_none()
             result[f"{category}_updated_at"] = val

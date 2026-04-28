@@ -1,5 +1,6 @@
 """FastAPI router for database management endpoints."""
 
+import contextlib
 import logging
 from typing import Any
 
@@ -20,13 +21,11 @@ router = APIRouter(prefix="/database", tags=["Database"])
 
 def _mask_url(url: str) -> str:
     """Mask password in a database URL."""
-    try:
+    with contextlib.suppress(Exception):
         if "@" in url and ":" in url.split("@")[0]:
             prefix, rest = url.split("@", 1)
             scheme_user, _ = prefix.rsplit(":", 1)
             return f"{scheme_user}:***@{rest}"
-    except Exception:
-        pass
     return "***"
 
 

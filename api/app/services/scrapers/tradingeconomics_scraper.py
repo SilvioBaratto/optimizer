@@ -847,7 +847,7 @@ class TradingEconomicsIndicatorsScraper:
                     capacity_result.get("error"),
                 )
 
-        for i, country in enumerate(countries):
+        for _i, country in enumerate(countries):
             results[country] = self.get_country_indicators(
                 country, include_bonds=include_bonds
             )

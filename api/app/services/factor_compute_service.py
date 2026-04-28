@@ -18,9 +18,9 @@ from sqlalchemy.orm import Session
 from app.repositories.factor_repository import FactorRepository
 from app.repositories.yfinance_repository import YFinanceRepository
 from app.services._factor_helpers import (
-    ProgressCallback,
     _PERIOD_DATE_COL,
     _TICKER_COL,
+    ProgressCallback,
     _find_instrument,
     _notify,
 )

@@ -304,14 +304,13 @@ class TestComputeVarHistorical:
         empty_series = pd.Series(dtype=float)
         with patch.object(
             self.service, "_fetch_weighted_returns", return_value=empty_series
-        ):
-            with pytest.raises(ValueError, match="[Ii]nsufficient"):
-                self.service.compute_var(
-                    portfolio_id=_PORTFOLIO_ID,
-                    weights=_WEIGHTS,
-                    lookback=252,
-                    method="historical",
-                )
+        ), pytest.raises(ValueError, match="[Ii]nsufficient"):
+            self.service.compute_var(
+                portfolio_id=_PORTFOLIO_ID,
+                weights=_WEIGHTS,
+                lookback=252,
+                method="historical",
+            )
 
 
 # ===========================================================================
@@ -445,13 +444,12 @@ class TestComputeCorrelation:
         single_asset_prices = self.prices[["AAPL"]]
         with patch.object(
             self.service, "_fetch_prices", return_value=single_asset_prices
-        ):
-            with pytest.raises(ValueError, match="[Aa]t least 2"):
-                self.service.compute_correlation(
-                    portfolio_id=_PORTFOLIO_ID,
-                    weights={"AAPL": 1.0},
-                    lookback=252,
-                )
+        ), pytest.raises(ValueError, match="[Aa]t least 2"):
+            self.service.compute_correlation(
+                portfolio_id=_PORTFOLIO_ID,
+                weights={"AAPL": 1.0},
+                lookback=252,
+            )
 
 
 # ===========================================================================

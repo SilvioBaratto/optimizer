@@ -10,6 +10,7 @@ Stateless functions following Single Responsibility Principle:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 import uuid
@@ -22,13 +23,13 @@ from sqlalchemy.orm import Session
 from app.repositories.execution_repository import ExecutionRepository
 from app.services._json_safe import safe_float
 from app.services._price_fetcher import fetch_close_prices
-from app.services.optimization_service import resolve_optimizer
+from app.services.optimization_service import _build_optimizer
 from optimizer.pipeline import PortfolioResult, run_full_pipeline
 from optimizer.validation import WalkForwardConfig
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_OPTIMIZER_TYPE = "hrp"
+_DEFAULT_OPTIMIZER_TYPE = "mean_risk"
 _ROLLING_WINDOW = 63  # ~1 quarter
 
 
@@ -80,9 +81,9 @@ def _ensure_datetime_index(prices: pd.DataFrame) -> pd.DataFrame:
 def build_optimizer(pipeline_config: dict[str, Any]) -> Any:
     """Map pipeline_config dict to a skfolio optimizer instance.
 
-    Extracts ``optimizer_type`` (default ``"hrp"``) and
+    Extracts ``optimizer_type`` (default ``"mean_risk"``) and
     ``optimizer_config`` from *pipeline_config* and delegates to
-    :func:`resolve_optimizer`.
+    :func:`_build_optimizer`.
 
     Args:
         pipeline_config: Dict with optional ``optimizer_type`` and
@@ -96,7 +97,7 @@ def build_optimizer(pipeline_config: dict[str, Any]) -> Any:
     """
     optimizer_type = pipeline_config.get("optimizer_type", _DEFAULT_OPTIMIZER_TYPE)
     optimizer_config = pipeline_config.get("optimizer_config", {})
-    return resolve_optimizer(optimizer_type, optimizer_config)
+    return _build_optimizer(optimizer_type, optimizer_config)
 
 
 def extract_backtest_metrics(result: PortfolioResult) -> dict[str, Any]:
@@ -260,11 +261,9 @@ def _summary_stats(result: PortfolioResult) -> dict[str, Any]:
     stats: dict[str, Any] = {
         str(k): safe_float(v) for k, v in (result.summary or {}).items()
     }
-    try:
+    with contextlib.suppress(Exception):
         in_sample = result.portfolio.summary(formatted=False)
         stats["in_sample"] = {str(k): safe_float(v) for k, v in in_sample.items()}
-    except Exception:
-        pass
     return stats
 
 

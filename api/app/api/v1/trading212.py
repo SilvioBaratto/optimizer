@@ -186,7 +186,7 @@ def list_instruments(
     """List instruments with optional exchange filter and pagination."""
     items = repo.get_instruments(exchange_name=exchange, skip=skip, limit=limit)
     total = repo.get_instrument_count()
-    return InstrumentListResponse(items=items, total=total)
+    return InstrumentListResponse(items=items, total=total)  # type: ignore[arg-type]
 
 
 @router.post(

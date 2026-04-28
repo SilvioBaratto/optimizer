@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
@@ -34,10 +35,7 @@ _report_job_service = BackgroundJobService(
 )
 
 # Default output directory — configurable via env var.
-_DEFAULT_OUTPUT_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "reports",
-)
+_DEFAULT_OUTPUT_DIR = str(Path(__file__).parent.parent.parent.parent / "reports")
 _REPORT_OUTPUT_DIR = os.environ.get("REPORT_OUTPUT_DIR", _DEFAULT_OUTPUT_DIR)
 
 
@@ -48,9 +46,9 @@ _REPORT_OUTPUT_DIR = os.environ.get("REPORT_OUTPUT_DIR", _DEFAULT_OUTPUT_DIR)
 
 def _find_report_path(report_id: str) -> str | None:
     """Return the absolute path to the report file, or None if not found."""
-    expected = os.path.join(_REPORT_OUTPUT_DIR, f"report_{report_id}.pdf")
-    if os.path.isfile(expected):
-        return expected
+    expected = Path(_REPORT_OUTPUT_DIR) / f"report_{report_id}.pdf"
+    if expected.is_file():
+        return str(expected)
     return None
 
 

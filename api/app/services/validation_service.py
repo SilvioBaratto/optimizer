@@ -9,6 +9,7 @@ Stateless functions following Single Responsibility Principle:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import date
 from typing import Any
@@ -18,7 +19,7 @@ from skfolio.preprocessing import prices_to_returns
 from sqlalchemy.orm import Session
 
 from app.services._price_fetcher import fetch_close_prices
-from app.services.optimization_service import resolve_optimizer
+from app.services.optimization_service import _build_optimizer
 from optimizer.validation import (
     CPCVConfig,
     MultipleRandomizedCVConfig,
@@ -138,7 +139,7 @@ def run_validation(
         Dict with ``fold_results`` (list) and ``aggregate_score`` (float).
     """
     returns = fetch_returns(tickers, start_date, end_date, session)
-    estimator = resolve_optimizer(optimizer_type, optimizer_config)
+    estimator = _build_optimizer(optimizer_type, optimizer_config)
     cv = build_cv(cv_type, cv_config)
 
     population = run_cross_val(estimator, returns, cv=cv)
@@ -179,14 +180,10 @@ def _compute_aggregate_score(population: Any) -> float:
     sharpe_values: list[float] = []
     try:
         for portfolio in population:
-            try:
+            with contextlib.suppress(Exception):
                 sharpe_values.append(float(portfolio.annualized_sharpe_ratio))
-            except Exception:
-                pass
     except TypeError:
-        try:
+        with contextlib.suppress(Exception):
             sharpe_values.append(float(population.annualized_sharpe_ratio))
-        except Exception:
-            pass
 
     return sum(sharpe_values) / len(sharpe_values) if sharpe_values else 0.0

@@ -206,7 +206,10 @@ def run_midday_news_refresh() -> None:
     """News fetch + summarize — catches afternoon market news."""
     logger.info("midday_news: starting")
 
-    from app.schemas.macro_regime import MacroNewsFetchRequest, MacroNewsSummarizeRequest
+    from app.schemas.macro_regime import (
+        MacroNewsFetchRequest,
+        MacroNewsSummarizeRequest,
+    )
 
     news_ok = _run_step(
         "news",

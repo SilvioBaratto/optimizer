@@ -271,5 +271,5 @@ def compute_broker_weights(
 
     total_value = portfolio_value or sum(totals.values())
     if total_value == 0.0:
-        return {t: 0.0 for t in totals}
+        return dict.fromkeys(totals, 0.0)
     return {t: v / total_value for t, v in totals.items()}

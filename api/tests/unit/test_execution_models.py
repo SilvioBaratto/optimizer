@@ -24,7 +24,6 @@ from sqlalchemy.pool import StaticPool
 from app.models.base import Base
 from app.models.execution import BacktestRun, OptimizationRun
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

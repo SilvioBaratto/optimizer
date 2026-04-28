@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+
 from app.services.sentiment import (
     _ALPHA_MAX,
     _ALPHA_MIN,

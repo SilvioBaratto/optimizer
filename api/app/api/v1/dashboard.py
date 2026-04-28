@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from typing import Literal
 
 import pandas as pd
@@ -21,18 +21,14 @@ from app.schemas.dashboard import (
     AssetClassReturnsResponse,
     DriftResponse,
     EquityCurveResponse,
-    MarketRegimeResponse,
     MarketSnapshotResponse,
     PerformanceMetricsResponse,
     ReferenceIndexItem,
     ReferenceIndicesResponse,
-    RegimeHistoryPoint,
-    RegimeHistoryResponse,
     RollingMetricsResponse,
 )
 from app.services import dashboard_service
 from app.services._sector_resolver import resolve_sector_map
-from optimizer.moments._hmm import HMMConfig, fit_hmm
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +156,7 @@ def get_performance_metrics(
     nav = account.total if account else None
 
     # --- Fetch price history scoped to the requested period ---
-    tickers = list(set(list(weights.keys()) + [benchmark]))
+    tickers = list({*weights.keys(), benchmark})
     end_date = date.today()
     days = _PERIOD_DAYS[period]
     start_date = (
@@ -236,7 +232,7 @@ def get_equity_curve(
         )
 
     weights: dict[str, float] = snapshot.weights
-    tickers = list(set(list(weights.keys()) + [benchmark]))
+    tickers = list({*weights.keys(), benchmark})
 
     end_date = date.today()
     days = _PERIOD_DAYS[period]
@@ -315,7 +311,7 @@ def get_rolling_metrics(
         )
 
     weights: dict[str, float] = snapshot.weights
-    tickers = list(set(list(weights.keys()) + [benchmark]))
+    tickers = list({*weights.keys(), benchmark})
 
     end_date = date.today()
     days = _PERIOD_DAYS[period]
@@ -673,166 +669,6 @@ def get_market_snapshot(
     )
 
     return MarketSnapshotResponse(**result)
-
-
-# ---------------------------------------------------------------------------
-# Market regime (HMM)
-# ---------------------------------------------------------------------------
-
-_HMM_LOOKBACK_DAYS = 365 * 2
-_HMM_N_STATES = 4
-_HMM_CACHE_TTL_DAYS = 1
-
-
-@market_router.get(
-    "/regime",
-    response_model=MarketRegimeResponse,
-    response_model_by_alias=True,
-    summary="Current HMM market regime state with probabilities",
-)
-def get_market_regime(
-    db: Session = Depends(get_db),
-) -> MarketRegimeResponse:
-    """Return the current HMM-derived market regime (bull/bear/sideways/volatile).
-
-    Checks the regime_states cache first (TTL 24h). On a cache miss,
-    fits a 4-state Gaussian HMM to 2 years of SPY daily returns,
-    labels states by statistical properties, saves the result, and returns.
-    """
-    portfolio_repo = PortfolioRepository(db)
-    dashboard_repo = DashboardRepository(db)
-
-    # --- Cache-aside: check for a fresh entry ---
-    cached = portfolio_repo.get_latest_regime("hmm")
-    if cached is not None:
-        age_days = (date.today() - cached.state_date).days
-        if age_days < _HMM_CACHE_TTL_DAYS:
-            probs: list[dict] = cached.probabilities
-            meta: dict = cached.metadata_ or {}
-            return MarketRegimeResponse(
-                current=cached.regime,
-                probability=max(p["probability"] for p in probs),
-                since=meta.get("since", cached.state_date),
-                hmm_states=probs,
-                model_info={
-                    "n_states": meta.get("n_states", _HMM_N_STATES),
-                    "last_fitted": meta.get(
-                        "last_fitted",
-                        datetime.combine(
-                            cached.state_date, datetime.min.time(),
-                        ).replace(tzinfo=timezone.utc),
-                    ),
-                },
-            )
-
-    # --- Cache miss: fetch SPY prices and fit HMM ---
-    end_date = date.today()
-    start_date = end_date - timedelta(days=_HMM_LOOKBACK_DAYS)
-
-    benchmark_ticker = settings.default_benchmark_ticker
-    spy_prices_df = dashboard_repo.get_multi_ticker_prices(
-        [benchmark_ticker], start_date, end_date,
-    )
-
-    if spy_prices_df.empty or benchmark_ticker not in spy_prices_df.columns:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                f"{benchmark_ticker} price data not yet available; "
-                "run yfinance fetch first"
-            ),
-        )
-
-    spy_returns = spy_prices_df[[benchmark_ticker]].pct_change().dropna()
-
-    if len(spy_returns) < _HMM_N_STATES + 1:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                f"Insufficient SPY return data: {len(spy_returns)} rows "
-                f"(minimum {_HMM_N_STATES + 1} required)"
-            ),
-        )
-
-    try:
-        config = HMMConfig(n_states=_HMM_N_STATES, random_state=42)
-        hmm_result = fit_hmm(spy_returns, config)
-    except Exception as exc:
-        logger.exception("HMM fitting failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"HMM fitting failed: {exc}",
-        ) from exc
-
-    fitted_at = datetime.now(tz=timezone.utc)
-
-    try:
-        result = dashboard_service.compute_market_regime(hmm_result, fitted_at)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
-        ) from exc
-
-    # --- Persist to cache ---
-    portfolio_repo.upsert_regime_state(
-        state_date=date.today(),
-        regime=result["current"],
-        probabilities=result["hmm_states"],
-        model_type="hmm",
-        metadata={
-            "since": result["since"].isoformat(),
-            "n_states": result["model_info"]["n_states"],
-            "last_fitted": fitted_at.isoformat(),
-        },
-    )
-    db.commit()
-
-    return MarketRegimeResponse(**result)
-
-
-# ---------------------------------------------------------------------------
-# Regime history (full time series)
-# ---------------------------------------------------------------------------
-
-
-def _pivot_regime_probs(state: object) -> dict[str, float]:
-    """Extract per-label probabilities from probability_entries into a flat dict."""
-    return {e.regime: e.probability for e in state.probability_entries}
-
-
-@market_router.get(
-    "/regime/history",
-    response_model=RegimeHistoryResponse,
-    response_model_by_alias=True,
-    summary="Full HMM posterior probability time series",
-)
-def get_regime_history(
-    start_date: date | None = Query(default=None, description="Filter start date (inclusive)"),
-    end_date: date | None = Query(default=None, description="Filter end date (inclusive)"),
-    db: Session = Depends(get_db),
-) -> RegimeHistoryResponse:
-    """Return the full HMM posterior probability time series for the regime timeline chart.
-
-    Joins regime_states ↔ regime_state_probabilities and pivots per-regime rows
-    into a flat {date, bull_prob, bear_prob, sideways_prob, volatile_prob} shape.
-    Supports optional start_date/end_date query params to avoid unbounded responses.
-    """
-    repo = DashboardRepository(db)
-    states = repo.get_regime_history(start_date=start_date, end_date=end_date)
-
-    points = [
-        RegimeHistoryPoint(
-            date=state.state_date,
-            regime=state.regime,
-            bull_prob=_pivot_regime_probs(state).get("bull", 0.0),
-            bear_prob=_pivot_regime_probs(state).get("bear", 0.0),
-            sideways_prob=_pivot_regime_probs(state).get("sideways", 0.0),
-            volatile_prob=_pivot_regime_probs(state).get("volatile", 0.0),
-        )
-        for state in states
-    ]
-    return RegimeHistoryResponse(points=points, total=len(points))
 
 
 # ---------------------------------------------------------------------------

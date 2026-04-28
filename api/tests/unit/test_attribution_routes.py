@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 BASE_BRINSON = "/api/v1/attribution/brinson"

@@ -35,12 +35,6 @@ class LlmResponseParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="CalibrateDelta", llm_response=llm_response, mode="request")
         return typing.cast(types.DeltaCalibration, __result__)
 
-    def CalibrateRiskBudget(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> types.RiskBudgetOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="CalibrateRiskBudget", llm_response=llm_response, mode="request")
-        return typing.cast(types.RiskBudgetOutput, __result__)
-
     def ClassifyMacroRegime(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.MacroRegimeCalibration:
@@ -126,12 +120,6 @@ class LlmStreamParser:
     ) -> stream_types.DeltaCalibration:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="CalibrateDelta", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.DeltaCalibration, __result__)
-
-    def CalibrateRiskBudget(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> stream_types.RiskBudgetOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="CalibrateRiskBudget", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.RiskBudgetOutput, __result__)
 
     def ClassifyMacroRegime(
         self, llm_response: str, baml_options: BamlCallOptions = {},

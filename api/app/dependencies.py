@@ -44,7 +44,7 @@ def get_optional_user(
         User data if provided, None otherwise
     """
     if x_user_id:
-        return get_current_user(x_user_id=x_user_id, db=db)
+        return get_current_user(x_user_id=x_user_id)
     return None
 
 
@@ -98,7 +98,7 @@ class RateLimiter:
         self.requests = requests
         self.window = window
         self.per_user = per_user
-        self._in_memory_cache = {}
+        self._in_memory_cache: dict[str, list[float]] = {}
 
     def __call__(self, request: Request, current_user: dict | None = None):
         """Check rate limit for the request"""

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.database import database_manager, get_db  # noqa: F401 — get_db used as dep
+from app.database import database_manager, get_db
 from app.schemas.macro_regime import (
     MacroCalibrateBatchJobResponse,
     MacroCalibrateBatchProgress,

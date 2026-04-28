@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
-from baml_client.types import CountryNewsSummary, SentimentLabel
 
 from app.models.macro_regime import MacroNews
 from app.services.macro_news_summary import (
@@ -20,7 +19,7 @@ from app.services.macro_news_summary import (
     _validate_llm_output,
     generate_country_summaries,
 )
-
+from baml_client.types import CountryNewsSummary, SentimentLabel
 
 # ---------------------------------------------------------------------------
 # Helpers — mock objects

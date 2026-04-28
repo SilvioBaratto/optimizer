@@ -144,14 +144,6 @@ from app.schemas.risk import (
     RiskLimitResponse as RiskLimitResponse,
 )
 
-# Import risk budget schemas
-from app.schemas.risk_budget import (
-    RiskBudgetRequest as RiskBudgetRequest,
-)
-from app.schemas.risk_budget import (
-    RiskBudgetResponse as RiskBudgetResponse,
-)
-
 # Import stress scenarios schemas
 from app.schemas.stress_scenarios import (
     StressScenarioItem as StressScenarioItem,
@@ -444,9 +436,6 @@ __all__ = [
     "RebalancingPolicyCreate",
     "RebalancingPolicyListResponse",
     "RebalancingPolicyResponse",
-    # risk budget
-    "RiskBudgetRequest",
-    "RiskBudgetResponse",
     # risk
     "RiskLimitCreate",
     "RiskLimitListResponse",

@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.base import CamelCaseModel, StrFromUUID
 
-
 PolicyType = Literal["calendar", "threshold", "hybrid"]
 
 

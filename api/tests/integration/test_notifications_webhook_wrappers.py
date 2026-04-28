@@ -45,10 +45,11 @@ Stubs in play
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Callable
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -63,7 +64,6 @@ from app.schemas.optimization import OptimizeRequest
 from app.schemas.tuning import TuneRequest
 from app.schemas.validation import ValidateRequest
 from app.services.background_job import BackgroundJobService
-
 from tests.integration.test_notifications_webhook import (
     _HTTPX_POST_PATH,
     _TEST_WEBHOOK_URL,
@@ -102,7 +102,7 @@ def _build_optimize_args(job_id: str) -> tuple[Any, ...]:
             tickers=["AAPL"],
             start_date=date(2024, 1, 1),
             end_date=date(2024, 6, 30),
-            optimizer_type="hrp",
+            optimizer_type="mean_risk",
         ),
     )
 

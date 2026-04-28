@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 
-from baml_client.types import ExpertPersona
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -22,6 +21,7 @@ from app.services.opinion_pooling import (
     build_llm_opinion_pool,
 )
 from app.services.view_generation import fetch_factor_data
+from baml_client.types import ExpertPersona
 
 logger = logging.getLogger(__name__)
 

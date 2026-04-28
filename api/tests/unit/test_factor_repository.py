@@ -16,7 +16,6 @@ from sqlalchemy.orm import Session
 from app.models.factor import FactorScore, FactorValidationReport
 from app.repositories.factor_repository import FactorRepository
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -108,7 +107,7 @@ class TestGetScoresByTicker:
             datetime.date(2024, 9, 1),
         ]
         factor_types = ["momentum", "value", "quality"]
-        for d, ft in zip(dates, factor_types):
+        for d, ft in zip(dates, factor_types, strict=False):
             db_session.add(_make_score(score_date=d, factor_type=ft))
         db_session.flush()
         repo = FactorRepository(db_session)

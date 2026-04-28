@@ -106,7 +106,7 @@ def create_rebalance_policy(
             }
         )
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -114,7 +114,7 @@ def create_rebalance_policy(
                 f"A policy named '{body.name}' already exists "
                 f"for portfolio '{name}'"
             ),
-        )
+        ) from exc
     return RebalancingPolicyResponse.model_validate(policy)
 
 

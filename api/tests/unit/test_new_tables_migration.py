@@ -12,9 +12,9 @@ Covers:
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 import types
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, inspect, text
@@ -24,10 +24,8 @@ MIGRATION_FILENAME = (
     "y5z6a7b8c9d0_add_factor_scores_execution_runs_"
     "risk_limits_rebalancing_policies_tables.py"
 )
-MIGRATION_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "..", "alembic", "versions"
-)
-MIGRATION_PATH = os.path.abspath(os.path.join(MIGRATION_DIR, MIGRATION_FILENAME))
+MIGRATION_DIR = Path(__file__).parent / ".." / ".." / "alembic" / "versions"
+MIGRATION_PATH = str((MIGRATION_DIR / MIGRATION_FILENAME).resolve())
 EXPECTED_REVISION = "y5z6a7b8c9d0"
 EXPECTED_DOWN_REVISION = "x4y5z6a7b8c9"
 
@@ -132,8 +130,8 @@ def upgraded_engine():
     # Alembic's op functions use a module-level MigrationContext.
     # For unit testing we bypass Alembic's runner and call create_table /
     # create_index directly via a manual connection context.
-    from alembic.runtime.migration import MigrationContext
     from alembic.operations import Operations
+    from alembic.runtime.migration import MigrationContext
 
     with engine.begin() as conn:
         ctx = MigrationContext.configure(conn)
@@ -273,9 +271,8 @@ class TestUpgradeUniqueConstraints:
                         datetime('now'), datetime('now'))
             """), {"pid": portfolio_id})
         from sqlalchemy.exc import IntegrityError
-        with pytest.raises(IntegrityError):
-            with upgraded_engine.begin() as conn:
-                conn.execute(text("""
+        with pytest.raises(IntegrityError), upgraded_engine.begin() as conn:
+            conn.execute(text("""
                     INSERT INTO risk_limits
                       (id, portfolio_id, metric, limit_type, threshold, is_breached,
                        created_at, updated_at)
@@ -299,9 +296,8 @@ class TestUpgradeUniqueConstraints:
                         datetime('now'), datetime('now'))
             """), {"pid": portfolio_id})
         from sqlalchemy.exc import IntegrityError
-        with pytest.raises(IntegrityError):
-            with upgraded_engine.begin() as conn:
-                conn.execute(text("""
+        with pytest.raises(IntegrityError), upgraded_engine.begin() as conn:
+            conn.execute(text("""
                     INSERT INTO rebalancing_policies
                       (id, portfolio_id, name, policy_type, config, is_active,
                        created_at, updated_at)
@@ -324,8 +320,8 @@ class TestDowngradeDropsAllSixTables:
 
         mod = _load_migration()
 
-        from alembic.runtime.migration import MigrationContext
         from alembic.operations import Operations
+        from alembic.runtime.migration import MigrationContext
 
         with engine.begin() as conn:
             ctx = MigrationContext.configure(conn)

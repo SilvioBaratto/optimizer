@@ -9,9 +9,9 @@ from app.services.scrapers.tradingeconomics_scraper import (
 
 __all__ = [
     "FRED_SERIES",
+    "PORTFOLIO_COUNTRIES",
     "FredScraper",
     "IlSoleScraper",
     "ParseStructureError",
-    "PORTFOLIO_COUNTRIES",
     "TradingEconomicsIndicatorsScraper",
 ]

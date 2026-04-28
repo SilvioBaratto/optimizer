@@ -23,7 +23,6 @@ from sqlalchemy.pool import StaticPool
 from app.models.api_key import ApiKey
 from app.models.base import Base
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

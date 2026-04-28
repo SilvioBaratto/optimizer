@@ -14,13 +14,13 @@ Dashboard:
 from __future__ import annotations
 
 import uuid
-from datetime import date
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
+from sqlalchemy.orm import Session
+
 from app.models.universe import Exchange, Instrument
 from app.models.yfinance_data import TickerProfile
-from sqlalchemy.orm import Session
 
 
 @pytest.fixture

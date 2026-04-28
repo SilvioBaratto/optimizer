@@ -5,18 +5,23 @@ Uses synchronous SQLAlchemy 2.0+ patterns with proper type hints.
 """
 
 from collections.abc import Sequence
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import Table, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import DeclarativeBase, Session
 
 from app.models.base import Base
 
 ModelType = TypeVar("ModelType", bound=Base)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
 UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
+
+
+def _get_table(model: type[DeclarativeBase]) -> Table:
+    """Extract the SQLAlchemy Table from a mapped class."""
+    return cast(Table, model.__table__)  # type: ignore[attr-defined]
 
 
 class RepositoryBase:
@@ -36,8 +41,10 @@ class RepositoryBase:
         if not rows:
             return 0
 
-        stmt = pg_insert(model.__table__).values(rows)
+        tbl = _get_table(model)  # type: ignore[arg-type]
+        stmt = pg_insert(tbl).values(rows)
 
+        update_dict: dict[str, Any]
         if update_columns:
             update_dict = {col: stmt.excluded[col] for col in update_columns}
         else:
@@ -45,7 +52,7 @@ class RepositoryBase:
             exclude = {"id", "created_at"}
             update_dict = {
                 col.name: stmt.excluded[col.name]
-                for col in model.__table__.columns
+                for col in tbl.columns
                 if col.name not in exclude
             }
 
@@ -88,7 +95,7 @@ class BaseRepository(
         self.model = model
 
     def get(self, id: Any) -> ModelType | None:
-        id_column = self.model.id
+        id_column = cast(Any, self.model).id
         stmt = select(self.model).where(id_column == id)
         result = self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -113,7 +120,7 @@ class BaseRepository(
             column = getattr(self.model, order_by)
             stmt = stmt.order_by(column.desc() if desc else column.asc())
         elif hasattr(self.model, "created_at"):
-            column = self.model.created_at
+            column = cast(Any, self.model).created_at
             stmt = stmt.order_by(column.desc() if desc else column.asc())
 
         stmt = stmt.offset(skip).limit(limit)
@@ -180,7 +187,7 @@ class BaseRepository(
         return result.scalar_one()
 
     def exists(self, id: Any) -> bool:
-        id_column = self.model.id
+        id_column = cast(Any, self.model).id
         stmt = select(func.count()).where(id_column == id)
         result = self.session.execute(stmt)
         return result.scalar_one() > 0

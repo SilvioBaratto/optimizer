@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import re
 
-from baml_client.types import ExpertPersona
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.base import CamelCaseModel
+from baml_client.types import ExpertPersona
 
 # ---------------------------------------------------------------------------
 # Entropy Pooling schemas

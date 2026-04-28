@@ -18,7 +18,6 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-
 # ---------------------------------------------------------------------------
 # FactorScoreResponse
 # ---------------------------------------------------------------------------
@@ -28,18 +27,18 @@ class TestFactorScoreResponse:
     """FactorScoreResponse serialises ORM rows to camelCase JSON."""
 
     def _make_orm(self, **overrides: Any) -> SimpleNamespace:
-        defaults = dict(
-            id=uuid.uuid4(),
-            ticker="AAPL",
-            score_date=datetime.date(2024, 1, 15),
-            factor_type="momentum",
-            factor_group="momentum",
-            raw_score=1.23,
-            standardized_score=0.82,
-            composite_score=0.79,
-            created_at=datetime.datetime(2024, 1, 16, 0, 0, 0),
-            updated_at=datetime.datetime(2024, 1, 16, 0, 0, 0),
-        )
+        defaults = {
+            "id": uuid.uuid4(),
+            "ticker": "AAPL",
+            "score_date": datetime.date(2024, 1, 15),
+            "factor_type": "momentum",
+            "factor_group": "momentum",
+            "raw_score": 1.23,
+            "standardized_score": 0.82,
+            "composite_score": 0.79,
+            "created_at": datetime.datetime(2024, 1, 16, 0, 0, 0),
+            "updated_at": datetime.datetime(2024, 1, 16, 0, 0, 0),
+        }
         defaults.update(overrides)
         return SimpleNamespace(**defaults)
 
@@ -139,21 +138,21 @@ class TestFactorValidationReportResponse:
     """FactorValidationReportResponse serialises validation reports."""
 
     def _make_orm(self, **overrides: Any) -> SimpleNamespace:
-        defaults = dict(
-            id=uuid.uuid4(),
-            report_date=datetime.date(2024, 3, 1),
-            factor_type="momentum",
-            validation_type="in_sample",
-            ic_mean=0.05,
-            ic_std=0.02,
-            icir=2.5,
-            t_stat=3.1,
-            p_value=0.002,
-            vif=1.1,
-            details={"observations": 252},
-            created_at=datetime.datetime(2024, 3, 2, 0, 0, 0),
-            updated_at=datetime.datetime(2024, 3, 2, 0, 0, 0),
-        )
+        defaults = {
+            "id": uuid.uuid4(),
+            "report_date": datetime.date(2024, 3, 1),
+            "factor_type": "momentum",
+            "validation_type": "in_sample",
+            "ic_mean": 0.05,
+            "ic_std": 0.02,
+            "icir": 2.5,
+            "t_stat": 3.1,
+            "p_value": 0.002,
+            "vif": 1.1,
+            "details": {"observations": 252},
+            "created_at": datetime.datetime(2024, 3, 2, 0, 0, 0),
+            "updated_at": datetime.datetime(2024, 3, 2, 0, 0, 0),
+        }
         defaults.update(overrides)
         return SimpleNamespace(**defaults)
 
@@ -259,8 +258,9 @@ class TestFactorValidateRequest:
         _ = FactorValidateRequest
 
     def test_valid_request(self) -> None:
-        from app.schemas.factors import FactorValidateRequest
         import datetime
+
+        from app.schemas.factors import FactorValidateRequest
 
         req = FactorValidateRequest(
             tickers=["AAPL", "MSFT"],
@@ -272,8 +272,9 @@ class TestFactorValidateRequest:
         assert req.factor_type == "momentum"
 
     def test_default_validation_type_is_in_sample(self) -> None:
-        from app.schemas.factors import FactorValidateRequest
         import datetime
+
+        from app.schemas.factors import FactorValidateRequest
 
         req = FactorValidateRequest(
             tickers=["AAPL"],

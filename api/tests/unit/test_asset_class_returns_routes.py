@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
-import pytest
 from fastapi.testclient import TestClient
 
 _PORTFOLIO_REPO = "app.api.v1.dashboard.PortfolioRepository"

@@ -10,7 +10,6 @@ import uuid
 from datetime import date, datetime, timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 # Patch targets

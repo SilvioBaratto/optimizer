@@ -1,7 +1,7 @@
 """Unit tests for optimization_service module.
 
 Covers:
-  - resolve_optimizer: each registered type maps to correct factory
+  - _build_optimizer: each supported type maps to correct optimizer instance
   - extract_results: weights/metrics/risk_contributions extraction
   - efficient_frontier: computed for MeanRisk/RobustMeanRisk, null otherwise
 """
@@ -9,12 +9,11 @@ Covers:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # TestResolveOptimizer
@@ -22,97 +21,36 @@ import pytest
 
 
 class TestResolveOptimizer:
-    """resolve_optimizer delegates to the correct factory per optimizer_type."""
+    """Optimizer creation via _build_optimizer."""
 
-    def test_mean_risk_resolves(self) -> None:
-        from app.services.optimization_service import resolve_optimizer
+    def test_mean_risk_builds_mean_risk_optimizer(self) -> None:
         from skfolio.optimization import MeanRisk
 
-        optimizer = resolve_optimizer("mean_risk", {})
+        from app.services.optimization_service import _build_optimizer
+
+        optimizer = _build_optimizer("mean_risk", {})
 
         assert isinstance(optimizer, MeanRisk)
 
-    def test_hrp_resolves(self) -> None:
-        from app.services.optimization_service import resolve_optimizer
-        from skfolio.optimization import HierarchicalRiskParity
-
-        optimizer = resolve_optimizer("hrp", {})
-
-        assert isinstance(optimizer, HierarchicalRiskParity)
-
-    def test_herc_resolves(self) -> None:
-        from app.services.optimization_service import resolve_optimizer
-        from skfolio.optimization import HierarchicalEqualRiskContribution
-
-        optimizer = resolve_optimizer("herc", {})
-
-        assert isinstance(optimizer, HierarchicalEqualRiskContribution)
-
-    def test_nco_resolves(self) -> None:
-        from app.services.optimization_service import resolve_optimizer
-        from skfolio.optimization import NestedClustersOptimization
-
-        optimizer = resolve_optimizer("nco", {})
-
-        assert isinstance(optimizer, NestedClustersOptimization)
-
-    def test_equal_weighted_resolves(self) -> None:
-        from app.services.optimization_service import resolve_optimizer
-        from skfolio.optimization import EqualWeighted
-
-        optimizer = resolve_optimizer("equal_weighted", {})
-
-        assert isinstance(optimizer, EqualWeighted)
-
-    def test_inverse_volatility_resolves(self) -> None:
-        from app.services.optimization_service import resolve_optimizer
-        from skfolio.optimization import InverseVolatility
-
-        optimizer = resolve_optimizer("inverse_volatility", {})
-
-        assert isinstance(optimizer, InverseVolatility)
-
-    def test_risk_budgeting_resolves(self) -> None:
-        from app.services.optimization_service import resolve_optimizer
-        from skfolio.optimization import RiskBudgeting
-
-        optimizer = resolve_optimizer("risk_budgeting", {})
-
-        assert isinstance(optimizer, RiskBudgeting)
-
-    def test_max_diversification_resolves(self) -> None:
-        from app.services.optimization_service import resolve_optimizer
-        from skfolio.optimization import MaximumDiversification
-
-        optimizer = resolve_optimizer("max_diversification", {})
-
-        assert isinstance(optimizer, MaximumDiversification)
-
     def test_unknown_type_raises_value_error(self) -> None:
-        from app.services.optimization_service import resolve_optimizer
+        from app.services.optimization_service import _build_optimizer
 
-        with pytest.raises(ValueError, match="Unknown optimizer_type"):
-            resolve_optimizer("does_not_exist", {})
+        with pytest.raises(ValueError, match="Unsupported optimizer_type"):
+            _build_optimizer("does_not_exist", {})
 
-    def test_mean_risk_has_efficient_frontier_size_set(self) -> None:
-        """MeanRisk resolves with efficient_frontier_size set for frontier computation."""
-        from app.services.optimization_service import (
-            _FRONTIER_SIZE,
-            resolve_optimizer,
-        )
+    def test_mean_risk_is_in_frontier_types(self) -> None:
+        """mean_risk is listed in FRONTIER_TYPES so the /optimize route applies frontier sizing."""
+        from app.services.optimization_service import FRONTIER_TYPES
 
-        optimizer = resolve_optimizer("mean_risk", {})
+        assert "mean_risk" in FRONTIER_TYPES
 
-        assert optimizer.efficient_frontier_size == _FRONTIER_SIZE
+    def test_build_optimizer_does_not_set_efficient_frontier_size(self) -> None:
+        """_build_optimizer returns a plain optimizer; frontier sizing is the route's job."""
+        from app.services.optimization_service import FRONTIER_SIZE, _build_optimizer
 
-    def test_hrp_has_no_efficient_frontier_size(self) -> None:
-        """Non-MeanRisk types do NOT have efficient_frontier_size."""
-        from app.services.optimization_service import resolve_optimizer
+        optimizer = _build_optimizer("mean_risk", {})
 
-        optimizer = resolve_optimizer("hrp", {})
-
-        # HRP does not have the parameter — resolver must not set it
-        assert not hasattr(optimizer, "efficient_frontier_size")
+        assert optimizer.efficient_frontier_size != FRONTIER_SIZE
 
     def test_mean_risk_with_risk_measure_in_config_does_not_raise(self) -> None:
         """Regression for #419: config dict holding risk_measure must not collide.
@@ -124,9 +62,9 @@ class TestResolveOptimizer:
         """
         from skfolio.measures import RiskMeasure
 
-        from app.services.optimization_service import resolve_optimizer
+        from app.services.optimization_service import _build_optimizer
 
-        optimizer = resolve_optimizer("mean_risk", {"risk_measure": "cvar"})
+        optimizer = _build_optimizer("mean_risk", {"risk_measure": "cvar"})
 
         assert optimizer.risk_measure == RiskMeasure.CVAR
 
@@ -147,9 +85,9 @@ class TestResolveOptimizer:
         expected_value: Any,
     ) -> None:
         """Service must translate config-dict primitives into typed MeanRiskConfig."""
-        from app.services.optimization_service import resolve_optimizer
+        from app.services.optimization_service import _build_optimizer
 
-        optimizer = resolve_optimizer("mean_risk", config_dict)
+        optimizer = _build_optimizer("mean_risk", config_dict)
 
         actual = getattr(optimizer, expected_field)
         if hasattr(actual, "name"):

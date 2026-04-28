@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 from app.models.portfolio import Portfolio
 from app.repositories.risk_repository import RiskRepository
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

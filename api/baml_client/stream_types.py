@@ -23,7 +23,7 @@ class StreamState(BaseModel, typing.Generic[StreamStateValueT]):
     value: StreamStateValueT
     state: typing_extensions.Literal["Pending", "Incomplete", "Complete"]
 # #########################################################################
-# Generated classes (12)
+# Generated classes (11)
 # #########################################################################
 
 class AssetFactorData(BaseModel):
@@ -84,11 +84,6 @@ class NewsArticle(BaseModel):
 class NewsSentimentOutput(BaseModel):
     scores: typing.List[float] = Field(description='Sentiment score for each article: +1=strongly bullish, -1=strongly bearish, 0=neutral.')
     reasoning: typing.Optional[str] = Field(default=None, description='Brief overall summary of the sentiment assessment.')
-
-class RiskBudgetOutput(BaseModel):
-    sector_budgets: typing.Dict[str, float] = Field(description='Sector name → relative risk budget weight. All values are non-negative. Higher = more risk budget.')
-    asset_budgets: typing.Dict[str, float] = Field(description='Asset ticker → relative risk budget weight. All values are non-negative. Higher = more risk budget.')
-    rationale: typing.Optional[str] = Field(default=None, description='2-4 sentence explanation of the budget allocation rationale.')
 
 class StressScenario(BaseModel):
     name: typing.Optional[str] = Field(default=None, description='Short label for the scenario, e.g. \'Global Recession 2026\'.')

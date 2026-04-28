@@ -196,8 +196,8 @@ class UniverseBuilderConfig:
             "portfolio_countries": list(self.portfolio_countries),
         }
 
-    def get_allowed_exchanges(self) -> set:
-        allowed = set()
+    def get_allowed_exchanges(self) -> set[str]:
+        allowed: set[str] = set()
         for country in self.portfolio_countries:
             exchanges = self.country_to_exchanges.get(country, ())
             allowed.update(exchanges)

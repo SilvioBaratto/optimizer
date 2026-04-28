@@ -48,7 +48,7 @@ _VALID_REQUEST: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 
-import pytest  # noqa: E402 — placed here so module-level constants are first
+import pytest
 
 
 @pytest.fixture(autouse=True)

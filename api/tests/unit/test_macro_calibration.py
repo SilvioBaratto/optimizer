@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
-from baml_client.types import BusinessCyclePhase, MacroRegimeCalibration
 from fastapi.testclient import TestClient
+
+from baml_client.types import BusinessCyclePhase, MacroRegimeCalibration
+
+if TYPE_CHECKING:
+    from app.services.macro_calibration import CalibrationResult
 
 # ---------------------------------------------------------------------------
 # Helpers — mock BAML responses
@@ -299,7 +304,6 @@ class TestBuildBlConfig:
     def test_compatible_with_black_litterman_config(self) -> None:
         """tau and risk_aversion wire correctly into optimizer config classes."""
         from app.services.macro_calibration import build_bl_config_from_calibration
-
         from optimizer.moments._config import MomentEstimationConfig, MuEstimatorType
         from optimizer.views._config import BlackLittermanConfig
 

@@ -16,12 +16,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from baml_client import b
-from baml_client.types import BusinessCyclePhase, MacroRegimeCalibration
 from sqlalchemy.orm import Session
 
 from app.repositories.macro_regime_repository import MacroRegimeRepository
 from app.services._progress import ProgressCallback, _noop
+from baml_client import b
+from baml_client.types import BusinessCyclePhase, MacroRegimeCalibration
 
 logger = logging.getLogger(__name__)
 

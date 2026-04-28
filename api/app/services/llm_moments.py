@@ -115,7 +115,7 @@ def _normalise_weights(
 
     total = sum(weights.values())
     if total <= 0:
-        return {g: 1.0 for g in factor_groups}
+        return dict.fromkeys(factor_groups, 1.0)
 
     scale = n / total
     return {g: w * scale for g, w in weights.items()}

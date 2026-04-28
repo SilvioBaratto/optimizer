@@ -18,8 +18,9 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 import pytest
-from app.models.execution import OptimizationRun
 from fastapi.testclient import TestClient
+
+from app.models.execution import OptimizationRun
 
 BASE_URL = "/api/v1/optimize"
 _TICKERS = ["AAPL", "MSFT", "GOOG"]

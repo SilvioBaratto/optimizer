@@ -40,16 +40,14 @@ _JOB_SVC_CREATE = "app.api.v1.optimize._job_service.create_job"
 _JOB_SVC_START = "app.api.v1.optimize._job_service.start_background"
 _SERVICE_BUILD = "app.api.v1.optimize.build_pipeline"
 _SERVICE_EXTRACT = "app.api.v1.optimize.extract_results"
-_SERVICE_RESOLVE = "app.api.v1.optimize.resolve_optimizer"
 
 
 def _mock_service_calls(mock_pipeline: MagicMock | None = None):
-    """Context manager patching: resolve_optimizer, build_pipeline, extract_results."""
+    """Context manager patching: build_pipeline, extract_results."""
     import contextlib
 
     @contextlib.contextmanager
     def _ctx():
-        mock_opt = MagicMock()
         mock_pipe = mock_pipeline or MagicMock()
         returns_df = MagicMock()
         result = {
@@ -59,7 +57,6 @@ def _mock_service_calls(mock_pipeline: MagicMock | None = None):
             "efficient_frontier": None,
         }
         with (
-            patch(_SERVICE_RESOLVE, return_value=mock_opt),
             patch(_SERVICE_BUILD, return_value=(mock_pipe, returns_df)),
             patch(_SERVICE_EXTRACT, return_value=result),
         ):
@@ -90,7 +87,7 @@ class TestPostOptimizeSync:
         assert "weights" in body
         assert body["weights"] == {"AAPL": pytest.approx(0.6), "MSFT": pytest.approx(0.4)}
 
-    def test_sync_path_persists_run(self, client: TestClient, db_session: Session) -> None:
+    def test_sync_path_persists_run(self, client: TestClient) -> None:
         """Optimization run is written to the database."""
         with _mock_service_calls():
             resp = client.post(BASE_URL, json=_VALID_REQUEST)
@@ -169,7 +166,7 @@ class TestPostOptimizeInvalidType:
         resp = client.post(BASE_URL, json=bad_request)
 
         assert resp.status_code == 422
-        assert "not_a_real_optimizer" in str(resp.json())
+        assert "optimizer_type" in str(resp.json())
 
 
 # ===========================================================================

@@ -15,7 +15,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from prometheus_client import CollectorRegistry
 
-
 # ---------------------------------------------------------------------------
 # Fixture: isolated FastAPI app with MetricsMiddleware
 # ---------------------------------------------------------------------------

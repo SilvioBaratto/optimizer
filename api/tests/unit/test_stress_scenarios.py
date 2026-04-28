@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+
 from app.services.stress_scenarios import (
     _PROB_MAX,
     _PROB_MIN,
@@ -23,7 +24,7 @@ from baml_client.types import StressScenario
 
 TICKERS = ["SPY", "QQQ", "GLD", "TLT"]
 
-PORTFOLIO = {t: 0.25 for t in TICKERS}
+PORTFOLIO = dict.fromkeys(TICKERS, 0.25)
 
 MACRO = "US CPI at 4.2%, Fed on hold, elevated geopolitical risk."
 
@@ -157,7 +158,7 @@ class TestScenarioToSyntheticDataArgs:
         assert isinstance(args["conditioning"], dict)
 
     def test_shock_keys_match_tickers(self) -> None:
-        shocks = {t: -0.10 for t in TICKERS}
+        shocks = dict.fromkeys(TICKERS, -0.1)
         s = _make_scenario(shocks=shocks)
         args = scenario_to_synthetic_data_args(s)
         assert set(args["conditioning"].keys()) == set(TICKERS)  # type: ignore[arg-type]

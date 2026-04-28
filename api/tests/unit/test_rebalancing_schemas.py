@@ -61,16 +61,16 @@ class TestRebalancingPolicyResponse:
     """RebalancingPolicyResponse serialises ORM rows to camelCase JSON."""
 
     def _make_orm(self, **overrides: Any) -> SimpleNamespace:
-        defaults = dict(
-            id=uuid.uuid4(),
-            portfolio_id=uuid.uuid4(),
-            name="Monthly Threshold",
-            policy_type="hybrid",
-            config={"interval_days": 21, "threshold": 0.05},
-            is_active=True,
-            created_at=datetime.datetime(2024, 1, 1, 0, 0, 0),
-            updated_at=datetime.datetime(2024, 1, 15, 10, 0, 0),
-        )
+        defaults = {
+            "id": uuid.uuid4(),
+            "portfolio_id": uuid.uuid4(),
+            "name": "Monthly Threshold",
+            "policy_type": "hybrid",
+            "config": {"interval_days": 21, "threshold": 0.05},
+            "is_active": True,
+            "created_at": datetime.datetime(2024, 1, 1, 0, 0, 0),
+            "updated_at": datetime.datetime(2024, 1, 15, 10, 0, 0),
+        }
         defaults.update(overrides)
         return SimpleNamespace(**defaults)
 

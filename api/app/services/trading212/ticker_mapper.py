@@ -28,9 +28,8 @@ class YFinanceTickerMapper:
             # Check cache first
             if exchange_name and self.cache:
                 cached = self.cache.get_mapping(symbol, exchange_name)
-                if cached:
-                    if self._verify_ticker(cached):
-                        return cached
+                if cached and self._verify_ticker(cached):
+                    return cached
 
             # Yahoo Finance uses dashes instead of slashes for share classes
             clean_symbol = symbol.replace("/", "-")
@@ -71,11 +70,11 @@ class YFinanceTickerMapper:
             try:
                 info = self.yf_client.fetch_info(ticker, max_retries=1, min_fields=5)
 
-                if info and len(info) > 5:
-                    if "currentPrice" in info or "regularMarketPrice" in info:
-                        return True
-
-                return False
+                return bool(
+                    info
+                    and len(info) > 5
+                    and ("currentPrice" in info or "regularMarketPrice" in info)
+                )
 
             except Exception as e:
                 error_str = str(e).lower()

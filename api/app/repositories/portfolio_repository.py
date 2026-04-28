@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.models.portfolio import (
@@ -17,8 +18,6 @@ from app.models.portfolio import (
     BrokerPosition,
     Portfolio,
     PortfolioSnapshot,
-    RegimeState,
-    RegimeStateProbability,
     SnapshotOptimizerParam,
     SnapshotSectorMapping,
     SnapshotSummaryEntry,
@@ -181,7 +180,7 @@ class PortfolioRepository(RepositoryBase):
             .where(BrokerPosition.portfolio_id == portfolio_id)
             .where(BrokerPosition.ticker.notin_(current_tickers))
         )
-        result = self.session.execute(stmt)
+        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
         return result.rowcount  # type: ignore[return-value]
 
     def get_positions(
@@ -311,7 +310,7 @@ class PortfolioRepository(RepositoryBase):
 
         row_id = uuid.uuid4()
         stmt = (
-            pg_insert(ActivityEvent.__table__)
+            pg_insert(ActivityEvent.__table__)  # type: ignore[attr-defined, arg-type]
             .values(
                 id=row_id,
                 portfolio_id=portfolio_id,
@@ -372,71 +371,3 @@ class PortfolioRepository(RepositoryBase):
             stmt = stmt.where(ActivityEvent.event_type == event_type)
         return self.session.execute(stmt).scalar_one()
 
-    # ------------------------------------------------------------------
-    # Regime states
-    # ------------------------------------------------------------------
-
-    def upsert_regime_state(
-        self,
-        state_date: date,
-        regime: str,
-        probabilities: list[dict[str, Any]],
-        *,
-        model_type: str = "hmm",
-        metadata: dict[str, Any] | None = None,
-    ) -> int:
-        stmt = select(RegimeState).where(
-            RegimeState.state_date == state_date,
-            RegimeState.model_type == model_type,
-        )
-        existing = self.session.execute(stmt).scalar_one_or_none()
-
-        if existing is None:
-            existing = RegimeState(
-                state_date=state_date,
-                regime=regime,
-                model_type=model_type,
-            )
-            self.session.add(existing)
-        else:
-            existing.regime = regime
-
-        # Set scalar metadata columns
-        if metadata:
-            existing.since = (
-                date.fromisoformat(metadata["since"])
-                if "since" in metadata else None
-            )
-            existing.n_states = metadata.get("n_states")
-            raw_lf = metadata.get("last_fitted")
-            if raw_lf and isinstance(raw_lf, str):
-                existing.last_fitted = datetime.fromisoformat(raw_lf)
-            elif raw_lf and isinstance(raw_lf, datetime):
-                existing.last_fitted = raw_lf
-            else:
-                existing.last_fitted = None
-
-        self.session.flush()
-
-        # Replace probability child rows
-        existing.probability_entries.clear()
-        self.session.flush()
-        for prob in probabilities:
-            self.session.add(RegimeStateProbability(
-                regime_state_id=existing.id,
-                regime=prob["regime"],
-                probability=prob["probability"],
-            ))
-        self.session.flush()
-        return 1
-
-    def get_latest_regime(
-        self, model_type: str = "hmm",
-    ) -> RegimeState | None:
-        stmt = (
-            select(RegimeState)
-            .where(RegimeState.model_type == model_type)
-            .order_by(RegimeState.state_date.desc())
-            .limit(1)
-        )
-        return self.session.execute(stmt).scalar_one_or_none()

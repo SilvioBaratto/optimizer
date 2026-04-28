@@ -164,7 +164,7 @@ class BackgroundJobService:
 
         if new_status == "running":
             if settings.enable_metrics:
-                from app import metrics  # noqa: F811 — lazy import
+                from app import metrics
 
                 with self._metrics_lock:
                     self._start_times[job_id] = time.monotonic()
