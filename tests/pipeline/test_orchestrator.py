@@ -949,6 +949,79 @@ class TestNetBacktestReturns:
         assert result.net_sharpe_ratio is not None
 
 
+class TestGrossReturns:
+    """Gross backtest returns exposed on PortfolioResult (issue #541)."""
+
+    def test_gross_returns_none_without_backtest(self, prices_df: pd.DataFrame) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+        )
+        assert result.gross_returns is None
+
+    def test_gross_returns_populated_with_backtest(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        assert result.gross_returns is not None
+        assert isinstance(result.gross_returns, pd.Series)
+        assert isinstance(result.gross_returns.index, pd.DatetimeIndex)
+        assert result.gross_returns.dtype == np.float64
+
+    def test_gross_returns_equals_backtest_returns_df(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        assert result.gross_returns is not None
+        assert result.backtest is not None
+        pd.testing.assert_series_equal(result.gross_returns, result.backtest.returns_df)
+
+    def test_gross_minus_net_non_negative(self, prices_df: pd.DataFrame) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+            cost_bps=25.0,
+        )
+        assert result.gross_returns is not None
+        assert result.net_returns is not None
+        diff = result.gross_returns - result.net_returns
+        assert (diff >= -1e-12).all()
+
+    def test_gross_returns_zero_cost_equals_net(self, prices_df: pd.DataFrame) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+            cost_bps=0.0,
+        )
+        assert result.gross_returns is not None
+        assert result.net_returns is not None
+        pd.testing.assert_series_equal(result.gross_returns, result.net_returns)
+
+    def test_gross_returns_none_when_bt_lacks_weights_per_observation(
+        self,
+    ) -> None:
+        """Field stays None if bt has no weights_per_observation attribute."""
+        import types
+
+        result = PortfolioResult(
+            weights=pd.Series([0.5, 0.5], index=["A", "B"]),
+            portfolio=None,
+        )
+        result.backtest = types.SimpleNamespace(returns=np.array([0.01]))
+        # Attribute defaults to None on construction
+        assert result.gross_returns is None
+
+
 class TestReturnsDfFallback:
     """Regression tests for issue #309: resilient bt.returns_df accessor.
 

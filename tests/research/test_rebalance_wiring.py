@@ -165,7 +165,8 @@ class TestMainRebalanceWiring:
                 return_value=(SimpleNamespace(value="expansion"), {}),
             ),
             patch.object(ssp, "optimize_portfolio", return_value=result_stub),
-            patch.object(ssp, "report_performance"),
+            patch.object(ssp, "report_performance", return_value=(0, [])),
+            patch.object(ssp, "_apply_terminal_gate"),
             patch.object(
                 ssp,
                 "_decide_rebalance",

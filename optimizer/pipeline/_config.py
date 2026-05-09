@@ -49,6 +49,11 @@ class PortfolioResult:
     net_sharpe_ratio : float or None
         Annualized Sharpe ratio computed from ``net_returns``.
         ``None`` when no backtest was run.
+    gross_returns : pd.Series or None
+        Gross backtest portfolio returns before transaction cost deduction.
+        Mirrors ``net_returns`` index and dtype; the difference
+        ``gross_returns - net_returns`` is the realised cost drag.
+        ``None`` when no backtest was run.
     weight_history : pd.DataFrame or None
         Absolute portfolio weights at each walk-forward rebalancing date.
         Rows are rebalancing dates; columns are asset tickers.
@@ -68,4 +73,5 @@ class PortfolioResult:
     currency: str | None = None
     net_returns: pd.Series | None = None
     net_sharpe_ratio: float | None = None
+    gross_returns: pd.Series | None = None
     weight_history: pd.DataFrame | None = None

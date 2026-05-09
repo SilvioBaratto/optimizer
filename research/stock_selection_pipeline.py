@@ -103,6 +103,7 @@ from research._preprocessing import (  # noqa: E402
     apply_fx_to_prices,
     build_return_preprocessing_pipeline,
 )
+from research._returns import compute_after_tax_returns  # noqa: E402
 
 console = Console()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -116,6 +117,17 @@ REBALANCE_FREQ: int = 63    # quarterly  (~63 trading days)
 N_SELECTED: int = 50        # target portfolio size after factor ranking
 TOP_N_DISPLAY: int = 25     # tickers shown in the selection table
 MIN_SUCCESS_FRACTION: float = 0.5
+
+# Cycle 4 §9.1: per-country round-trip transaction-cost components in bps
+# (stamp duty / quoted spread / FX conversion).  Country keys mirror the
+# raw `ticker_profiles.country` strings used by `_REGION_MAP`.
+COUNTRY_COSTS_BPS: dict[str, dict[str, float]] = {
+    "United Kingdom": {"stamp": 50.0, "spread": 8.0, "fx": 0.0},   # = 58 bps
+    "France":         {"stamp": 30.0, "spread": 6.0, "fx": 12.0},  # = 48 bps
+    "Italy":          {"stamp": 10.0, "spread": 8.0, "fx": 12.0},  # = 30 bps
+    "United States":  {"stamp": 0.0,  "spread": 3.0, "fx": 12.0},  # = 15 bps
+}
+_DEFAULT_COSTS: dict[str, float] = {"stamp": 0.0, "spread": 6.0, "fx": 12.0}  # 18 bps
 
 # Cycle-3 §11: hybrid rebalance review-date persistence (file-backed; DB
 # write-back is Cycle 5).
@@ -156,6 +168,21 @@ def _annualized_return(r: pd.Series) -> float:
     return float((1.0 + r).prod() ** (252.0 / len(r)) - 1.0)
 
 
+def compute_weighted_cost_bps(
+    weights: pd.Series, country_map: dict[str, str]
+) -> float:
+    """Portfolio-weighted total round-trip cost in bps (Cycle 4 §9.1)."""
+    clean = weights.dropna()
+    if clean.empty:
+        return 0.0
+    totals = clean.index.map(
+        lambda t: sum(
+            COUNTRY_COSTS_BPS.get(country_map.get(t, ""), _DEFAULT_COSTS).values()
+        )
+    )
+    return float((clean.to_numpy() * np.asarray(totals, dtype=float)).sum())
+
+
 def _sharpe(
     returns: pd.Series,
     rf_series: pd.Series | None = None,
@@ -183,6 +210,193 @@ def _sharpe(
     std_val = cast(float, excess.std(ddof=1))
     vol = std_val * np.sqrt(252.0)
     return ann_excess / vol if vol > 0.0 else float("nan")
+
+
+def _daily_rf(returns: pd.Series, rf_series: pd.Series | None) -> pd.Series:
+    """Forward-filled daily risk-free rate aligned to ``returns`` index."""
+    if rf_series is None or rf_series.empty:
+        return pd.Series(0.0, index=returns.index)
+    return rf_series.reindex(returns.index, method="ffill").fillna(0.0) / 252.0
+
+
+def _sortino(returns: pd.Series, rf_series: pd.Series | None = None) -> float:
+    """Annualised Sortino: excess return / downside vol (Cycle 4 §9.3)."""
+    if returns.empty:
+        return 0.0
+    daily_rf = _daily_rf(returns, rf_series)
+    excess = returns - daily_rf
+    downside = excess[excess < 0.0]
+    if downside.empty:
+        return 0.0
+    downside_vol = float(downside.std(ddof=1)) * np.sqrt(252.0)
+    if downside_vol <= 0.0:
+        return 0.0
+    return _annualized_return(excess) / downside_vol
+
+
+def _downside_vol(returns: pd.Series, rf_series: pd.Series | None = None) -> float:
+    """Annualised std of below-rf returns (Cycle 4 §9.3)."""
+    if returns.empty:
+        return 0.0
+    daily_rf = _daily_rf(returns, rf_series)
+    downside = (returns - daily_rf)[(returns - daily_rf) < 0.0]
+    if downside.empty:
+        return 0.0
+    return float(downside.std(ddof=1)) * np.sqrt(252.0)
+
+
+def _information_ratio(
+    portfolio_returns: pd.Series, benchmark_returns: pd.Series
+) -> float:
+    """Annualised IR = mean(active) / std(active) × √252 (Cycle 4 §9.3)."""
+    if portfolio_returns.empty or benchmark_returns.empty:
+        return 0.0
+    common = portfolio_returns.index.intersection(benchmark_returns.index)
+    if len(common) == 0:
+        return float("nan")
+    active = portfolio_returns.loc[common] - benchmark_returns.loc[common]
+    std_val = float(active.std(ddof=1))
+    if std_val <= 1e-12:
+        return 0.0
+    return float(active.mean()) / std_val * np.sqrt(252.0)
+
+
+_METRICS_KEY_MAP: dict[str, str] = {
+    "Ann. Return": "ann_return",
+    "Ann. Vol": "ann_vol",
+    "Sharpe (rf)": "sharpe",
+    "Sortino": "sortino",
+    "Info Ratio": "info_ratio",
+    "Downside Vol": "downside_vol",
+    "Max Drawdown": "max_drawdown",
+}
+
+
+def _to_json_safe(value: float) -> float | None:
+    """Cast numpy scalars to float; replace NaN with None for strict JSON."""
+    if value is None:
+        return None
+    f = float(value)
+    return None if np.isnan(f) else f
+
+
+def _project_metrics(metrics: dict[str, float]) -> dict[str, float | None]:
+    """Convert display-key metrics dict to JSON-safe schema dict."""
+    return {
+        json_key: _to_json_safe(metrics.get(display_key, float("nan")))
+        for display_key, json_key in _METRICS_KEY_MAP.items()
+    }
+
+
+def write_metrics_json(
+    metrics_by_label: dict[str, dict[str, float]], output_dir: Path
+) -> Path:
+    """Persist Cycle 4 §9.3 metrics block to ``metrics.json`` (Cycle 5 input)."""
+    import json
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, Any] = {
+        "rf_assumption": "FRED DGS3MO daily forward-fill ÷ 252",
+    }
+    if "Portfolio" in metrics_by_label:
+        payload["net_of_cost"] = _project_metrics(metrics_by_label["Portfolio"])
+    if "Portfolio (after-tax)" in metrics_by_label:
+        payload["after_tax"] = _project_metrics(
+            metrics_by_label["Portfolio (after-tax)"]
+        )
+    out_path = output_dir / "metrics.json"
+    out_path.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n")
+    return out_path
+
+
+def _project_rule_for_json(rule: dict[str, Any]) -> dict[str, Any]:
+    """Convert checklist rule dict to JSON-safe form (NaN floats → null)."""
+    measured = rule.get("measured")
+    if isinstance(measured, float) and np.isnan(measured):
+        measured = None
+    return {
+        "rule": rule["rule"],
+        "pass": bool(rule["pass"]),
+        "measured": measured,
+        "target": rule["target"],
+    }
+
+
+def write_checklist_json(
+    *,
+    rules: list[dict[str, Any]],
+    gross_metrics: dict[str, float] | None,
+    net_metrics: dict[str, float] | None,
+    after_tax_metrics: dict[str, float] | None,
+    output_dir: Path,
+) -> Path:
+    """Persist Cycle 4 §10 checklist results to ``checklist.json``."""
+    import json
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    passed = sum(1 for r in rules if r.get("pass"))
+    payload: dict[str, Any] = {
+        "rules": [_project_rule_for_json(r) for r in rules],
+        "summary": {"passed": passed, "total": len(rules)},
+        "breakdown": {
+            "gross": _project_metrics(gross_metrics or {}),
+            "net_of_cost": _project_metrics(net_metrics or {}),
+            "after_tax": _project_metrics(after_tax_metrics or {}),
+        },
+    }
+    out_path = output_dir / "checklist.json"
+    out_path.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n")
+    return out_path
+
+
+def write_weights_csv(weights: pd.Series, output_dir: Path) -> Path:
+    """Persist final portfolio weights to ``weights.csv`` sorted desc."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sorted_w = weights.sort_values(ascending=False)
+    df = pd.DataFrame(
+        {"ticker": list(sorted_w.index), "weight": sorted_w.to_numpy(dtype=float)}
+    )
+    out_path = output_dir / "weights.csv"
+    df.to_csv(out_path, index=False)
+    return out_path
+
+
+def _render_failure_table(failed_rules: list[dict[str, Any]]) -> None:
+    """Print the measured-vs-target table for failing checklist rules only."""
+    table = Table(
+        title="Failing Rules",
+        show_header=True,
+        header_style="bold red",
+    )
+    table.add_column("Rule", style="dim", width=42)
+    table.add_column("Target", justify="right")
+    table.add_column("Measured", justify="right")
+    for r in failed_rules:
+        table.add_row(r["rule"], r["target"], str(r["measured"]))
+    console.print(table)
+
+
+def _apply_terminal_gate(
+    *,
+    rules: list[dict[str, Any]],
+    weights: pd.Series,
+    output_dir: Path,
+) -> None:
+    """Cycle 4 §10 terminal gate: 17/17 → exit 0 + weights.csv; else exit 1."""
+    pass_count = sum(1 for r in rules if r.get("pass"))
+    total = len(rules)
+    if pass_count == total:
+        console.print(f"  [green]Checklist: {pass_count}/{total} PASS[/green]")
+        weights_path = write_weights_csv(weights, output_dir)
+        console.print(f"  [cyan]Saved weights:[/cyan] {weights_path}")
+        raise SystemExit(0)
+    failed = [r for r in rules if not r.get("pass")]
+    _render_failure_table(failed)
+    console.print(
+        f"  [red]Checklist: {pass_count}/{total} — "
+        f"{total - pass_count} rule(s) failed[/red]"
+    )
+    raise SystemExit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -867,51 +1081,308 @@ def _print_diversification(
 # ---------------------------------------------------------------------------
 
 
+def _rule(rule: str, *, ok: bool, measured: str | float, target: str) -> dict[str, Any]:
+    """Build a single checklist rule result dict."""
+    return {"rule": rule, "pass": bool(ok), "measured": measured, "target": target}
+
+
+def _sector_weights(
+    all_weights: list[tuple[str, float]], sector_mapping: dict[str, str]
+) -> dict[str, float]:
+    from collections import defaultdict
+
+    out: dict[str, float] = defaultdict(float)
+    for ticker, w in all_weights:
+        out[sector_mapping.get(ticker, "Unknown")] += w
+    return dict(out)
+
+
+def _country_weights(
+    all_weights: list[tuple[str, float]], country_map: dict[str, str]
+) -> dict[str, float]:
+    from collections import defaultdict
+
+    out: dict[str, float] = defaultdict(float)
+    for ticker, w in all_weights:
+        out[country_map.get(ticker, "Unknown")] += w
+    return dict(out)
+
+
+def _sector_lookup(sector_w: dict[str, float], *names: str) -> float:
+    """Sum sector weights across alternative spellings."""
+    return sum(sector_w.get(n, 0.0) for n in names)
+
+
+def _eval_metric_threshold(
+    metrics: dict[str, dict[str, float]],
+    label: str,
+    key: str,
+    rule: str,
+    target: str,
+    *,
+    pass_pred: Any,
+    fmt: str = "{:.3f}",
+) -> dict[str, Any]:
+    """Evaluate a metric-bound rule with NaN → pass=False, measured='N/A'."""
+    value = metrics.get(label, {}).get(key, float("nan"))
+    if isinstance(value, float) and np.isnan(value):
+        return _rule(rule, ok=False, measured="N/A", target=target)
+    return _rule(rule, ok=pass_pred(value), measured=fmt.format(value), target=target)
+
+
 def _validate_checklist(
     all_weights: list[tuple[str, float]],
     sector_mapping: dict[str, str],
     country_map: dict[str, str],
     metrics: dict[str, dict[str, float]],
-) -> None:
-    """Validate portfolio against portfolio_checklist.md criteria."""
-    from collections import defaultdict
+    *,
+    benchmark_returns: pd.Series | None,
+    net_returns: pd.Series | None,
+    after_tax_returns: pd.Series | None,
+    cost_bps_actual: float | None,
+    currency_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Evaluate the 17 §10 portfolio checklist rules.
 
+    Returns a list of ``{"rule", "pass", "measured", "target"}`` dicts in
+    deterministic order.  Rules 12-15 evaluate the after-tax series
+    (``metrics["Portfolio (after-tax)"]``).  Currency-hedge advisory is
+    logged only — not a rule entry.
+    """
+    rules: list[dict[str, Any]] = []
     sorted_w = sorted((w for _, w in all_weights), reverse=True)
-    n = len(sorted_w)
-
-    # Sector weights
-    sector_w: dict[str, float] = defaultdict(float)
-    for ticker, w in all_weights:
-        sector_w[sector_mapping.get(ticker, "Unknown")] += w
-    max_sector = max(sector_w.values()) if sector_w else 0.0
-    max_sector_name = max(sector_w, key=sector_w.get) if sector_w else "N/A"  # type: ignore[arg-type]
-
-    # Country weights
-    country_w: dict[str, float] = defaultdict(float)
-    for ticker, w in all_weights:
-        country_w[country_map.get(ticker, "Unknown")] += w
-
-    # Region weights (approximate)
-    region_w: dict[str, float] = defaultdict(float)
+    sector_w = _sector_weights(all_weights, sector_mapping)
+    country_w = _country_weights(all_weights, country_map)
+    region_w: dict[str, float] = {}
     for country, w in country_w.items():
-        region_w[_REGION_MAP.get(country, "Other")] += w
+        region_w[_REGION_MAP.get(country, "Other")] = (
+            region_w.get(_REGION_MAP.get(country, "Other"), 0.0) + w
+        )
+    label_at = "Portfolio (after-tax)"
+
+    # Rule 1 — region ≤ 60%
     max_region = max(region_w.values()) if region_w else 0.0
-
-    # Concentration
-    top4 = sum(sorted_w[:4])
+    rules.append(
+        _rule(
+            "No single region > 60%",
+            ok=max_region <= 0.60,
+            measured=f"{max_region:.1%}",
+            target="≤ 60%",
+        )
+    )
+    # Rule 2 — sector ≤ 15%
+    max_sector = max(sector_w.values()) if sector_w else 0.0
+    max_sector_name = (
+        max(sector_w, key=lambda k: sector_w[k]) if sector_w else "N/A"
+    )
+    rules.append(
+        _rule(
+            "No single sector > 15%",
+            ok=max_sector <= 0.15,
+            measured=f"{max_sector:.1%} ({max_sector_name})",
+            target="≤ 15%",
+        )
+    )
+    # Rule 3 — HHI < 0.12
     hhi = sum(w**2 for w in sorted_w)
+    rules.append(
+        _rule("HHI < 0.12", ok=hhi < 0.12, measured=f"{hhi:.4f}", target="< 0.12")
+    )
+    # Rule 4 — Top-4 < 30%
+    top4 = sum(sorted_w[:4])
+    rules.append(
+        _rule(
+            "Top-4 holdings < 30%",
+            ok=top4 < 0.30,
+            measured=f"{top4:.1%}",
+            target="< 30%",
+        )
+    )
+    # Rule 5 — Health Care ≥ 8%
+    health_w = _sector_lookup(sector_w, "Health Care", "Healthcare")
+    rules.append(
+        _rule(
+            "Health Care exposure ≥ 8%",
+            ok=health_w >= 0.08,
+            measured=f"{health_w:.1%}",
+            target="≥ 8%",
+        )
+    )
+    # Rule 6 — Information Technology ≥ 10%
+    tech_w = _sector_lookup(sector_w, "Information Technology", "Technology")
+    rules.append(
+        _rule(
+            "Information Technology exposure ≥ 10%",
+            ok=tech_w >= 0.10,
+            measured=f"{tech_w:.1%}",
+            target="≥ 10%",
+        )
+    )
+    # Rule 7 — all 11 GICS Level-1 sectors present
+    present = {s for s in sector_w if sector_w.get(s, 0.0) > 0.0}
+    missing = [s for s in _GICS_SECTORS if s not in present]
+    rules.append(
+        _rule(
+            "All 11 GICS sectors present",
+            ok=len(missing) == 0,
+            measured=f"{11 - len(missing)}/11 ({', '.join(missing) or 'all'})",
+            target="11/11",
+        )
+    )
+    # Rule 8 — Single-stock cap ≤ 10%
+    max_w = sorted_w[0] if sorted_w else 0.0
+    rules.append(
+        _rule(
+            "Single-stock cap ≤ 10%",
+            ok=max_w <= 0.10,
+            measured=f"{max_w:.1%}",
+            target="≤ 10%",
+        )
+    )
+    # Rule 9 — Min position ≥ 2%
+    min_w = sorted_w[-1] if sorted_w else 0.0
+    rules.append(
+        _rule(
+            "Min position ≥ 2%",
+            ok=min_w >= 0.02,
+            measured=f"{min_w:.1%}",
+            target="≥ 2%",
+        )
+    )
+    # Rule 10 — Max drawdown > -22%
+    rules.append(
+        _eval_metric_threshold(
+            metrics, label_at, "Max Drawdown",
+            "Max drawdown > -22%", "> -22%",
+            pass_pred=lambda v: v > -0.22, fmt="{:.1%}",
+        )
+    )
+    # Rule 11 — Vol ≤ benchmark vol
+    p_vol = metrics.get(label_at, {}).get("Ann. Vol", float("nan"))
+    b_vol = metrics.get("SPY (benchmark)", {}).get("Ann. Vol", float("nan"))
+    if np.isnan(p_vol) or np.isnan(b_vol):
+        rules.append(
+            _rule(
+                "Vol ≤ benchmark vol", ok=False, measured="N/A",
+                target="≤ benchmark",
+            )
+        )
+    else:
+        rules.append(
+            _rule(
+                "Vol ≤ benchmark vol",
+                ok=p_vol <= b_vol,
+                measured=f"{p_vol:.1%} vs {b_vol:.1%}",
+                target="≤ benchmark",
+            )
+        )
+    # Rule 12 — Sharpe ∈ (1.0, 2.0)
+    rules.append(
+        _eval_metric_threshold(
+            metrics, label_at, "Sharpe (rf)",
+            "Sharpe ∈ (1.0, 2.0)", "∈ (1.0, 2.0)",
+            pass_pred=lambda v: 1.0 < v < 2.0,
+        )
+    )
+    # Rule 13 — Sortino > 1.5
+    rules.append(
+        _eval_metric_threshold(
+            metrics, label_at, "Sortino",
+            "Sortino > 1.5", "> 1.5",
+            pass_pred=lambda v: v > 1.5,
+        )
+    )
+    # Rule 14 — IR > 0.5
+    rules.append(
+        _eval_metric_threshold(
+            metrics, label_at, "Info Ratio",
+            "Info Ratio > 0.5", "> 0.5",
+            pass_pred=lambda v: v > 0.5,
+        )
+    )
+    # Rule 15 — Downside vol < 75% × total vol
+    if np.isnan(p_vol):
+        rules.append(
+            _rule(
+                "Downside vol < 75% x total vol", ok=False,
+                measured="N/A", target="< 75% total",
+            )
+        )
+    else:
+        d_vol = metrics.get(label_at, {}).get("Downside Vol", float("nan"))
+        if np.isnan(d_vol):
+            rules.append(
+                _rule(
+                    "Downside vol < 75% x total vol", ok=False,
+                    measured="N/A", target="< 75% total",
+                )
+            )
+        else:
+            rules.append(
+                _rule(
+                    "Downside vol < 75% x total vol",
+                    ok=d_vol < 0.75 * p_vol,
+                    measured=f"{d_vol:.1%} vs 75% x {p_vol:.1%} = {0.75 * p_vol:.1%}",
+                    target="< 75% total",
+                )
+            )
+    # Rule 16 — Total cost ≤ 100 bps
+    if cost_bps_actual is None or (
+        isinstance(cost_bps_actual, float) and np.isnan(cost_bps_actual)
+    ):
+        rules.append(
+            _rule(
+                "Total cost ≤ 100 bps", ok=False,
+                measured="N/A", target="≤ 100 bps",
+            )
+        )
+    else:
+        rules.append(
+            _rule(
+                "Total cost ≤ 100 bps",
+                ok=cost_bps_actual <= 100.0,
+                measured=f"{cost_bps_actual:.1f} bps",
+                target="≤ 100 bps",
+            )
+        )
+    # Rule 17 — OOS span ≥ 8 years
+    if net_returns is None or net_returns.empty:
+        rules.append(
+            _rule(
+                "OOS span ≥ 8 years", ok=False,
+                measured="N/A", target="≥ 8 yrs",
+            )
+        )
+    else:
+        years = (net_returns.index[-1] - net_returns.index[0]).days / 365.25
+        rules.append(
+            _rule(
+                "OOS span ≥ 8 years",
+                ok=years >= 8.0,
+                measured=f"{years:.2f} yrs",
+                target="≥ 8 yrs",
+            )
+        )
 
-    # Tech / Healthcare sector weights
-    tech_w = sector_w.get("Technology", 0.0)
-    health_w = sector_w.get("Healthcare", 0.0)
-    min_pos = sorted_w[-1] if sorted_w else 0.0
+    # Currency-hedge advisory (log-only, no rule entry)
+    fx_w: dict[str, float] = {}
+    for ticker, w in all_weights:
+        ccy = currency_map.get(ticker)
+        if ccy and ccy != "EUR":
+            fx_w[ccy] = fx_w.get(ccy, 0.0) + w
+    for ccy, w in fx_w.items():
+        if w > 0.30:
+            logger.warning(
+                "Currency exposure %s = %.1f%% > 30%% — consider hedging.",
+                ccy,
+                w * 100.0,
+            )
 
-    # Performance metrics (from portfolio if available)
-    pm = metrics.get("Portfolio", {})
-    sharpe = pm.get("Sharpe (rf)", float("nan"))
-    max_dd = pm.get("Max Drawdown", float("nan"))
+    return rules
 
-    # Build checklist table
+
+def _render_checklist_table(rules: list[dict[str, Any]]) -> None:
+    """Render a Rich Table summary of checklist rules to stdout."""
     table = Table(
         title="Portfolio Checklist Validation",
         show_header=True,
@@ -921,102 +1392,15 @@ def _validate_checklist(
     table.add_column("Target", justify="right")
     table.add_column("Actual", justify="right")
     table.add_column("Status", justify="center")
-
-    def _row(
-        rule: str, target: str, actual: str, *, ok: bool
-    ) -> None:
-        status = "[green]PASS[/green]" if ok else "[red]FAIL[/red]"
-        table.add_row(rule, target, actual, status)
-
-    _row(
-        "No single sector > 15%",
-        "≤ 15%",
-        f"{max_sector:.1%} ({max_sector_name})",
-        ok=max_sector <= 0.15,
-    )
-    _row(
-        "No single region > 60-70%",
-        "≤ 60%",
-        f"{max_region:.1%}",
-        ok=max_region <= 0.60,
-    )
-    _row("Top-4 holdings < 30%", "< 30%", f"{top4:.1%}", ok=top4 < 0.30)
-    _row(
-        "Single-stock cap ≤ 10%",
-        "≤ 10%",
-        f"{sorted_w[0]:.1%}" if sorted_w else "N/A",
-        ok=sorted_w[0] <= 0.10 if sorted_w else False,
-    )
-    _row(
-        "Min position ≥ 2%",
-        "≥ 2%",
-        f"{min_pos:.1%}",
-        ok=min_pos >= 0.02,
-    )
-    _row(
-        "Healthcare exposure ≥ 8%",
-        "≥ 8%",
-        f"{health_w:.1%}",
-        ok=health_w >= 0.08,
-    )
-    _row(
-        "Technology exposure ≥ 10%",
-        "≥ 10%",
-        f"{tech_w:.1%}",
-        ok=tech_w >= 0.10,
-    )
-    _row("HHI < 0.12", "< 0.12", f"{hhi:.4f}", ok=hhi < 0.12)
-    _row(
-        "Sharpe > 1.0",
-        "> 1.0",
-        f"{sharpe:.3f}" if not np.isnan(sharpe) else "N/A",
-        ok=sharpe > 1.0 if not np.isnan(sharpe) else False,
-    )
-    _row(
-        "Max drawdown < benchmark (-22%)",
-        "> -22%",
-        f"{max_dd:.1%}" if not np.isnan(max_dd) else "N/A",
-        ok=max_dd > -0.22 if not np.isnan(max_dd) else False,
-    )
-    _row(
-        "Total positions ≥ 20",
-        "≥ 20",
-        str(n),
-        ok=n >= 20,
-    )
-    _row(
-        "Countries ≥ 5",
-        "≥ 5",
-        str(len(country_w)),
-        ok=len(country_w) >= 5,
-    )
-
+    pass_count = 0
+    for r in rules:
+        status = "[green]PASS[/green]" if r["pass"] else "[red]FAIL[/red]"
+        table.add_row(r["rule"], r["target"], str(r["measured"]), status)
+        pass_count += int(bool(r["pass"]))
     console.print(table)
-
-    # Summary
-    pass_count = sum(
-        1
-        for ok in [
-            max_sector <= 0.15,
-            max_region <= 0.60,
-            top4 < 0.30,
-            (sorted_w[0] <= 0.10 if sorted_w else False),
-            min_pos >= 0.02,
-            health_w >= 0.08,
-            tech_w >= 0.10,
-            hhi < 0.12,
-            (sharpe > 1.0 if not np.isnan(sharpe) else False),
-            (max_dd > -0.22 if not np.isnan(max_dd) else False),
-            n >= 20,
-            len(country_w) >= 5,
-        ]
-        if ok
-    )
-    total = 12
-    color = "green" if pass_count == total else "yellow" if pass_count >= 9 else "red"
-    console.print(
-        f"  [{color}]Checklist: {pass_count}/{total} passed[/{color}]"
-    )
+    total = len(rules)
+    color = "green" if pass_count == total else "yellow" if pass_count >= 13 else "red"
+    console.print(f"  [{color}]Checklist: {pass_count}/{total} passed[/{color}]")
 
 
 # ---------------------------------------------------------------------------
@@ -1028,10 +1412,19 @@ def report_performance(
     result: Any,
     assembly: DataAssembly,
     country_map: dict[str, str],
-) -> None:
+    cost_bps_actual: float | None = None,
+    cost_bps: float = 10.0,
+) -> tuple[int, list[dict[str, Any]]]:
     """Print portfolio performance, weights, and diversification breakdown.
 
     Fix issue #246: Sharpe ratio now uses FRED DGS3MO series for rf, not rf=0.
+    Cycle 4 §9.1: ``cost_bps_actual`` is the portfolio-weighted measured cost
+    in bps (Σᵢ wᵢ × COUNTRY_COSTS_BPS[country]) consumed by §10 checklist.
+    Cycle 4 §9.2: derives ``after_tax_returns`` from ``result.gross_returns``
+    and ``result.weight_history`` using a 26% Italian capital-gains rate.
+
+    Returns ``(pass_count, rules)`` so :func:`main` can apply the §10
+    terminal gate (17/17 → write ``weights.csv`` + exit 0; else exit 1).
     """
     console.print(Panel("[bold]Step 8[/bold] — Performance report", style="blue"))
 
@@ -1053,6 +1446,19 @@ def report_performance(
                 name="Portfolio",
             )
 
+    # Cycle 4 §9.1/§9.2 — gross + after-tax return series.
+    gross_returns: pd.Series | None = result.gross_returns
+    if gross_returns is not None and not gross_returns.empty:
+        gross_returns = gross_returns.rename("Portfolio (gross)")
+    after_tax_returns = compute_after_tax_returns(
+        result.gross_returns,
+        result.weight_history,
+        assembly.prices,
+        cost_bps=cost_bps,
+    )
+    if after_tax_returns is not None:
+        after_tax_returns = after_tax_returns.rename("Portfolio (after-tax)")
+
     # Fetch SPY benchmark aligned to backtest period
     if portfolio_returns is not None and not portfolio_returns.empty:
         console.print("  Downloading SPY benchmark...")
@@ -1070,7 +1476,9 @@ def report_performance(
     # Compute metrics for portfolio and benchmark
     metrics: dict[str, dict[str, float]] = {}
     series_pairs: list[tuple[str, pd.Series | None]] = [
+        ("Portfolio (gross)", gross_returns),
         ("Portfolio", portfolio_returns),
+        ("Portfolio (after-tax)", after_tax_returns),
         ("SPY (benchmark)", benchmark_returns),
     ]
     for label, rets in series_pairs:
@@ -1079,16 +1487,24 @@ def report_performance(
         cumulative = (1.0 + rets).cumprod()
         drawdowns: pd.Series = cumulative / cumulative.cummax() - 1.0
         max_dd = float(drawdowns.min()) if len(rets) > 1 else float("nan")
+        ir = (
+            _information_ratio(rets, benchmark_returns)
+            if benchmark_returns is not None and not benchmark_returns.empty
+            else float("nan")
+        )
         metrics[label] = {
             "Ann. Return": _annualized_return(rets),
             "Ann. Vol": cast(float, rets.std()) * np.sqrt(252.0),
             "Sharpe (rf)": _sharpe(rets, rf_series),
+            "Sortino": _sortino(rets, rf_series),
+            "Info Ratio": ir,
+            "Downside Vol": _downside_vol(rets, rf_series),
             "Max Drawdown": max_dd,
         }
 
     if not metrics:
         console.print("  [yellow]No backtest results available[/yellow]")
-        return
+        return 0, []
 
     table = Table(
         title="Performance Metrics",
@@ -1134,26 +1550,54 @@ def report_performance(
     # --- Diversification analysis ---
     _print_diversification(all_weights, assembly.sector_mapping, country_map)
 
-    # --- Checklist validation ---
-    _validate_checklist(all_weights, assembly.sector_mapping, country_map, metrics)
+    # --- Checklist validation (Cycle 4 §10) ---
+    checklist_rules = _validate_checklist(
+        all_weights,
+        assembly.sector_mapping,
+        country_map,
+        metrics,
+        benchmark_returns=benchmark_returns,
+        net_returns=result.net_returns,
+        after_tax_returns=after_tax_returns,
+        cost_bps_actual=cost_bps_actual,
+        currency_map=assembly.currency_map,
+    )
+    _render_checklist_table(checklist_rules)
+
+    output_dir = Path("research/output")
+
+    # --- metrics.json (Cycle 4 §9.3 → Cycle 5 report.md input) ---
+    metrics_path = write_metrics_json(metrics, output_dir)
+    console.print(f"  [cyan]Saved metrics:[/cyan] {metrics_path}")
+
+    # --- checklist.json (Cycle 4 §10 → Cycle 5 report.md input) ---
+    checklist_path = write_checklist_json(
+        rules=checklist_rules,
+        gross_metrics=metrics.get("Portfolio (gross)"),
+        net_metrics=metrics.get("Portfolio"),
+        after_tax_metrics=metrics.get("Portfolio (after-tax)"),
+        output_dir=output_dir,
+    )
+    console.print(f"  [cyan]Saved checklist:[/cyan] {checklist_path}")
 
     # --- Backtest charts ---
     if portfolio_returns is not None and not portfolio_returns.empty:
-        from pathlib import Path
-
         chart_paths = generate_backtest_plots(
             portfolio_returns=portfolio_returns,
             weight_history=result.weight_history,
             sector_mapping=assembly.sector_mapping,
             benchmark_returns=benchmark_returns,
             rf_series=rf_series,
-            output_dir=Path("research/output"),
+            output_dir=output_dir,
         )
         console.print(
             f"\n  [cyan]Saved {len(chart_paths)} charts:[/cyan]"
         )
         for p in chart_paths:
             console.print(f"    {p}")
+
+    pass_count = sum(1 for r in checklist_rules if r.get("pass"))
+    return pass_count, checklist_rules
 
 
 # ---------------------------------------------------------------------------
@@ -1270,8 +1714,19 @@ def main(
                 f"{', '.join(missing_sectors)}[/yellow]"
             )
 
+        # 7c. Cycle 4 §9.1: portfolio-weighted measured cost in bps for the
+        # §10 checklist + metrics output.
+        cost_bps_actual = compute_weighted_cost_bps(result.weights, country_map)
+        logger.info("Measured cost: %.2f bps (weighted by country)", cost_bps_actual)
+
         # 8. Report
-        report_performance(result, assembly, country_map)
+        pass_count, checklist_rules = report_performance(
+            result,
+            assembly,
+            country_map,
+            cost_bps_actual=cost_bps_actual,
+            cost_bps=cost_bps,
+        )
 
     except FactorCoverageError as exc:
         console.print(f"[bold red]Factor coverage error:[/bold red] {exc}")
@@ -1280,7 +1735,16 @@ def main(
         console.print("\n[yellow]Interrupted by user.[/yellow]")
         raise SystemExit(0) from None
 
-    console.print(Panel("[bold green]Pipeline complete[/bold green]", style="green"))
+    # Cycle 4 §10 terminal gate: 17/17 → exit 0 + weights.csv; else exit 1.
+    if pass_count == len(checklist_rules) and checklist_rules:
+        console.print(
+            Panel("[bold green]Pipeline complete[/bold green]", style="green")
+        )
+    _apply_terminal_gate(
+        rules=checklist_rules,
+        weights=result.weights,
+        output_dir=Path("research/output"),
+    )
 
 
 if __name__ == "__main__":

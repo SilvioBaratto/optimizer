@@ -508,6 +508,7 @@ def run_full_pipeline(
                 type(bt).__name__,
             )
             gross = pd.Series(index=bt.observations, data=bt.returns, name="returns")
+        result.gross_returns = gross
         net = compute_net_backtest_returns(gross, wc, cost_bps=cost_bps)
         result.net_returns = net
         result.net_sharpe_ratio = _compute_net_sharpe(

@@ -722,3 +722,761 @@ class TestRetightenTraceWiring:
 
         assert not mock_retighten.called
         assert result.retighten_trace == []
+
+
+class TestCountryCostsBps:
+    """Issue #542: per-country transaction-cost dict + weighted helper."""
+
+    def test_when_module_loaded_then_country_costs_bps_defined(self) -> None:
+        assert isinstance(ssp.COUNTRY_COSTS_BPS, dict)
+        assert isinstance(ssp._DEFAULT_COSTS, dict)
+        for country in ("United Kingdom", "France", "Italy", "United States"):
+            assert country in ssp.COUNTRY_COSTS_BPS
+        for component in ("stamp", "spread", "fx"):
+            assert component in ssp._DEFAULT_COSTS
+
+    def test_when_uk_country_then_total_is_58_bps(self) -> None:
+        weights = pd.Series([1.0], index=["UKX"])
+        country_map = {"UKX": "United Kingdom"}
+        result = ssp.compute_weighted_cost_bps(weights, country_map)
+        assert result == pytest.approx(58.0)
+
+    def test_when_france_country_then_total_is_48_bps(self) -> None:
+        weights = pd.Series([1.0], index=["FRX"])
+        country_map = {"FRX": "France"}
+        result = ssp.compute_weighted_cost_bps(weights, country_map)
+        assert result == pytest.approx(48.0)
+
+    def test_when_italy_country_then_total_is_30_bps(self) -> None:
+        weights = pd.Series([1.0], index=["ITX"])
+        country_map = {"ITX": "Italy"}
+        result = ssp.compute_weighted_cost_bps(weights, country_map)
+        assert result == pytest.approx(30.0)
+
+    def test_when_us_country_then_total_is_15_bps(self) -> None:
+        weights = pd.Series([1.0], index=["USX"])
+        country_map = {"USX": "United States"}
+        result = ssp.compute_weighted_cost_bps(weights, country_map)
+        assert result == pytest.approx(15.0)
+
+    def test_when_unknown_country_then_default_18_bps_silently(self) -> None:
+        weights = pd.Series([1.0], index=["XYZ"])
+        country_map = {"XYZ": "Atlantis"}
+        result = ssp.compute_weighted_cost_bps(weights, country_map)
+        assert result == pytest.approx(18.0)
+
+    def test_when_country_missing_from_map_then_default_18_bps(self) -> None:
+        """Ticker absent from country_map falls through to default (e.g. None)."""
+        weights = pd.Series([1.0], index=["GHOST"])
+        result = ssp.compute_weighted_cost_bps(weights, {})
+        assert result == pytest.approx(18.0)
+
+    def test_when_mixed_countries_then_weighted_average_matches_manual(self) -> None:
+        weights = pd.Series([0.5, 0.3, 0.2], index=["USX", "UKX", "ITX"], dtype=float)
+        country_map = {
+            "USX": "United States",
+            "UKX": "United Kingdom",
+            "ITX": "Italy",
+        }
+        # 0.5 * 15 + 0.3 * 58 + 0.2 * 30 = 7.5 + 17.4 + 6.0 = 30.9
+        expected = 0.5 * 15.0 + 0.3 * 58.0 + 0.2 * 30.0
+        result = ssp.compute_weighted_cost_bps(weights, country_map)
+        assert result == pytest.approx(expected)
+
+    def test_when_empty_weights_then_zero(self) -> None:
+        empty = pd.Series([], index=pd.Index([], dtype=str), dtype=float)
+        assert ssp.compute_weighted_cost_bps(empty, {}) == 0.0
+
+    def test_when_nan_weights_then_zero(self) -> None:
+        weights = pd.Series([float("nan"), float("nan")], index=["A", "B"])
+        country_map = {"A": "United States", "B": "United Kingdom"}
+        assert ssp.compute_weighted_cost_bps(weights, country_map) == 0.0
+
+    def test_when_some_weights_nan_then_skipped(self) -> None:
+        weights = pd.Series([1.0, float("nan")], index=["USX", "UKX"])
+        country_map = {"USX": "United States", "UKX": "United Kingdom"}
+        # NaN dropped → only USX contributes 1.0 * 15
+        result = ssp.compute_weighted_cost_bps(weights, country_map)
+        assert result == pytest.approx(15.0)
+
+    def test_when_helper_called_pure_function_no_io(self) -> None:
+        """Pure function: no DB, no FS, no logger calls."""
+        import inspect
+
+        src = inspect.getsource(ssp.compute_weighted_cost_bps)
+        # No DB, file, or logging calls inside helper body
+        assert "DatabaseManager" not in src
+        assert "logger." not in src
+        assert "console." not in src
+        assert "open(" not in src
+
+
+class TestSortinoHelper:
+    """Issue #544: _sortino helper (Cycle 4 §9.3)."""
+
+    def test_when_empty_series_then_zero(self) -> None:
+        empty = pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+        rf = pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+        assert ssp._sortino(empty, rf) == 0.0
+
+    def test_when_no_downside_returns_then_zero(self) -> None:
+        idx = pd.bdate_range("2024-01-01", periods=5)
+        all_positive = pd.Series([0.01] * 5, index=idx)
+        rf = pd.Series([0.0] * 5, index=idx)
+        # No returns < daily_rf → downside std = 0 → 0.0 per AC
+        assert ssp._sortino(all_positive, rf) == 0.0
+
+    def test_when_5_day_series_then_matches_hand_computed(self) -> None:
+        """Sortino = ann_excess / downside_vol; downside is std on r < 0."""
+        idx = pd.bdate_range("2024-01-01", periods=5)
+        rets = pd.Series([0.01, -0.02, 0.005, -0.01, 0.02], index=idx)
+        rf = pd.Series([0.0] * 5, index=idx)
+        # Hand-compute:
+        # excess = rets (rf=0)
+        # ann_excess = (1+rets).prod()^(252/5) - 1
+        # downside subset (r < 0): [-0.02, -0.01]
+        # downside_vol = std([-0.02, -0.01], ddof=1) * sqrt(252)
+        excess_arr = np.array([0.01, -0.02, 0.005, -0.01, 0.02])
+        ann_excess = float((1.0 + excess_arr).prod() ** (252.0 / 5.0) - 1.0)
+        downside = np.array([-0.02, -0.01])
+        downside_std = float(downside.std(ddof=1))
+        downside_vol = downside_std * np.sqrt(252.0)
+        expected = ann_excess / downside_vol
+        assert ssp._sortino(rets, rf) == pytest.approx(expected, rel=1e-9)
+
+
+class TestDownsideVolHelper:
+    """Issue #544: _downside_vol helper."""
+
+    def test_when_empty_series_then_zero(self) -> None:
+        empty = pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+        rf = pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+        assert ssp._downside_vol(empty, rf) == 0.0
+
+    def test_when_all_positive_returns_then_zero(self) -> None:
+        idx = pd.bdate_range("2024-01-01", periods=5)
+        all_positive = pd.Series([0.01] * 5, index=idx)
+        rf = pd.Series([0.0] * 5, index=idx)
+        assert ssp._downside_vol(all_positive, rf) == 0.0
+
+    def test_when_mixed_then_annualised_std_of_negative_excess(self) -> None:
+        idx = pd.bdate_range("2024-01-01", periods=5)
+        rets = pd.Series([0.01, -0.02, 0.005, -0.01, 0.02], index=idx)
+        rf = pd.Series([0.0] * 5, index=idx)
+        downside = np.array([-0.02, -0.01])
+        expected = float(downside.std(ddof=1)) * np.sqrt(252.0)
+        assert ssp._downside_vol(rets, rf) == pytest.approx(expected, rel=1e-9)
+
+
+class TestInformationRatioHelper:
+    """Issue #544: _information_ratio helper."""
+
+    def test_when_empty_series_then_zero(self) -> None:
+        empty = pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+        assert ssp._information_ratio(empty, empty) == 0.0
+
+    def test_when_constant_active_return_then_zero(self) -> None:
+        """Constant active return → std = 0 → IR = 0.0 per AC."""
+        idx = pd.bdate_range("2024-01-01", periods=10)
+        portfolio = pd.Series([0.001] * 10, index=idx)
+        benchmark = pd.Series([0.0] * 10, index=idx)
+        assert ssp._information_ratio(portfolio, benchmark) == 0.0
+
+    def test_when_no_index_overlap_then_nan(self) -> None:
+        idx_a = pd.bdate_range("2024-01-01", periods=5)
+        idx_b = pd.bdate_range("2025-01-01", periods=5)
+        portfolio = pd.Series([0.01] * 5, index=idx_a)
+        benchmark = pd.Series([0.005] * 5, index=idx_b)
+        result = ssp._information_ratio(portfolio, benchmark)
+        assert np.isnan(result)
+
+    def test_when_typical_active_then_matches_hand_computed(self) -> None:
+        idx = pd.bdate_range("2024-01-01", periods=5)
+        portfolio = pd.Series([0.02, -0.01, 0.015, 0.005, 0.0], index=idx)
+        benchmark = pd.Series([0.01, -0.005, 0.01, 0.0, 0.005], index=idx)
+        active = portfolio - benchmark
+        expected = float(active.mean()) / float(active.std(ddof=1)) * np.sqrt(252.0)
+        assert ssp._information_ratio(portfolio, benchmark) == pytest.approx(
+            expected, rel=1e-9
+        )
+
+
+class TestWriteMetricsJson:
+    """Issue #544: write_metrics_json writer."""
+
+    def test_when_metrics_written_then_file_exists_with_correct_keys(
+        self, tmp_path: Any
+    ) -> None:
+        import json
+
+        metrics_by_label = {
+            "Portfolio": {
+                "Ann. Return": 0.10,
+                "Ann. Vol": 0.15,
+                "Sharpe (rf)": 0.8,
+                "Sortino": 1.2,
+                "Info Ratio": 0.6,
+                "Downside Vol": 0.10,
+                "Max Drawdown": -0.20,
+            },
+            "Portfolio (after-tax)": {
+                "Ann. Return": 0.08,
+                "Ann. Vol": 0.15,
+                "Sharpe (rf)": 0.65,
+                "Sortino": 1.0,
+                "Info Ratio": 0.5,
+                "Downside Vol": 0.10,
+                "Max Drawdown": -0.22,
+            },
+        }
+        out = ssp.write_metrics_json(metrics_by_label, tmp_path)
+        assert out.exists()
+        with out.open() as fh:
+            data = json.load(fh)
+        assert "net_of_cost" in data
+        assert "after_tax" in data
+        assert data["rf_assumption"] == "FRED DGS3MO daily forward-fill ÷ 252"
+        for key in (
+            "ann_return",
+            "ann_vol",
+            "sharpe",
+            "sortino",
+            "info_ratio",
+            "downside_vol",
+            "max_drawdown",
+        ):
+            assert key in data["net_of_cost"]
+            assert key in data["after_tax"]
+
+    def test_when_after_tax_missing_then_only_net_block(self, tmp_path: Any) -> None:
+        import json
+
+        metrics_by_label = {
+            "Portfolio": {
+                "Ann. Return": 0.10,
+                "Ann. Vol": 0.15,
+                "Sharpe (rf)": 0.8,
+                "Sortino": 1.2,
+                "Info Ratio": 0.6,
+                "Downside Vol": 0.10,
+                "Max Drawdown": -0.20,
+            },
+        }
+        out = ssp.write_metrics_json(metrics_by_label, tmp_path)
+        with out.open() as fh:
+            data = json.load(fh)
+        assert "net_of_cost" in data
+        assert "after_tax" not in data
+
+    def test_when_nan_then_serialised_as_null(self, tmp_path: Any) -> None:
+        import json
+
+        metrics_by_label = {
+            "Portfolio": {
+                "Ann. Return": float("nan"),
+                "Ann. Vol": 0.15,
+                "Sharpe (rf)": 0.8,
+                "Sortino": 1.2,
+                "Info Ratio": 0.6,
+                "Downside Vol": 0.10,
+                "Max Drawdown": -0.20,
+            },
+        }
+        out = ssp.write_metrics_json(metrics_by_label, tmp_path)
+        text = out.read_text()
+        # `nan` is not valid JSON; helper must emit null
+        assert "NaN" not in text
+        assert "null" in text
+        # Must round-trip with strict json
+        json.loads(text)
+
+    def test_when_output_dir_missing_then_created(self, tmp_path: Any) -> None:
+        nested = tmp_path / "nested" / "dir"
+        metrics_by_label = {
+            "Portfolio": {
+                "Ann. Return": 0.10,
+                "Ann. Vol": 0.15,
+                "Sharpe (rf)": 0.8,
+                "Sortino": 1.2,
+                "Info Ratio": 0.6,
+                "Downside Vol": 0.10,
+                "Max Drawdown": -0.20,
+            },
+        }
+        out = ssp.write_metrics_json(metrics_by_label, nested)
+        assert nested.exists()
+        assert out.exists()
+
+
+# ---------------------------------------------------------------------------
+# Issue #545 — _validate_checklist returns 17 structured rule dicts (§10)
+# ---------------------------------------------------------------------------
+
+
+def _good_inputs() -> dict[str, Any]:
+    """Build a passing scenario for every rule (boundary-relaxed)."""
+    # 25 tickers, 4% each = 100% total, all in spec-passing buckets.
+    tickers = [f"T{i:02d}" for i in range(25)]
+    weights = [0.04] * 25
+    all_weights = list(zip(tickers, weights, strict=True))
+    # All 11 GICS Level-1 sectors covered; max sector = 12% (3 tickers × 4%).
+    sectors = (
+        ["Information Technology"] * 3  # 12%
+        + ["Health Care"] * 3  # 12%
+        + ["Financials"] * 3  # 12%
+        + ["Industrials"] * 2  # 8%
+        + ["Consumer Discretionary"] * 2  # 8%
+        + ["Communication Services"] * 2  # 8%
+        + ["Consumer Staples"] * 2  # 8%
+        + ["Energy"] * 2  # 8%
+        + ["Utilities"] * 2  # 8%
+        + ["Real Estate"] * 2  # 8%
+        + ["Materials"] * 2  # 8%
+    )
+    assert len(sectors) == 25
+    sector_mapping = dict(zip(tickers, sectors, strict=True))
+    countries = (
+        ["United States"] * 8
+        + ["Japan"] * 5
+        + ["United Kingdom"] * 4
+        + ["France"] * 4
+        + ["Australia"] * 2
+        + ["South Africa"] * 2
+    )
+    assert len(countries) == 25
+    country_map = dict(zip(tickers, countries, strict=True))
+    currency_map = dict.fromkeys(tickers, "USD")
+    metrics = {
+        "Portfolio (after-tax)": {
+            "Ann. Return": 0.10,
+            "Ann. Vol": 0.12,
+            "Sharpe (rf)": 1.5,
+            "Sortino": 2.0,
+            "Info Ratio": 0.7,
+            "Downside Vol": 0.05,
+            "Max Drawdown": -0.18,
+        },
+        "SPY (benchmark)": {
+            "Ann. Return": 0.08,
+            "Ann. Vol": 0.15,
+            "Sharpe (rf)": 0.8,
+            "Sortino": 1.0,
+            "Info Ratio": float("nan"),
+            "Downside Vol": 0.10,
+            "Max Drawdown": -0.30,
+        },
+    }
+    idx = pd.bdate_range("2018-01-01", "2026-04-01")
+    benchmark_returns = pd.Series(0.0005, index=idx)
+    net_returns = pd.Series(0.0006, index=idx)
+    after_tax_returns = pd.Series(0.0005, index=idx)
+    return {
+        "all_weights": all_weights,
+        "sector_mapping": sector_mapping,
+        "country_map": country_map,
+        "metrics": metrics,
+        "benchmark_returns": benchmark_returns,
+        "net_returns": net_returns,
+        "after_tax_returns": after_tax_returns,
+        "cost_bps_actual": 50.0,
+        "currency_map": currency_map,
+    }
+
+
+class TestValidateChecklistStructure:
+    """Issue #545: _validate_checklist must return list[dict] of length 17."""
+
+    def test_when_called_then_returns_17_rules_in_order(self) -> None:
+        kwargs = _good_inputs()
+        rules = ssp._validate_checklist(**kwargs)
+        assert isinstance(rules, list)
+        assert len(rules) == 17
+        for rule in rules:
+            assert set(rule.keys()) == {"rule", "pass", "measured", "target"}
+
+    def test_when_called_twice_then_rule_order_is_deterministic(self) -> None:
+        kwargs = _good_inputs()
+        a = [r["rule"] for r in ssp._validate_checklist(**kwargs)]
+        b = [r["rule"] for r in ssp._validate_checklist(**kwargs)]
+        assert a == b
+
+    def test_when_passing_inputs_then_all_rules_pass(self) -> None:
+        kwargs = _good_inputs()
+        rules = ssp._validate_checklist(**kwargs)
+        failing = [r for r in rules if not r["pass"]]
+        assert failing == [], f"Expected all rules to pass, got: {failing}"
+
+
+class TestValidateChecklistRules:
+    """Per-rule pass/fail boundary tests."""
+
+    def test_when_region_exceeds_60pct_then_region_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        # Concentrate everything in United States → North America > 60%
+        kwargs["country_map"] = dict.fromkeys(kwargs["country_map"], "United States")
+        rules = ssp._validate_checklist(**kwargs)
+        region_rule = next(r for r in rules if "region" in r["rule"].lower())
+        assert region_rule["pass"] is False
+
+    def test_when_sector_exceeds_15pct_then_sector_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        # Push all weight into one sector
+        kwargs["sector_mapping"] = dict.fromkeys(
+            kwargs["sector_mapping"], "Information Technology"
+        )
+        rules = ssp._validate_checklist(**kwargs)
+        sector_rule = next(
+            r for r in rules if "sector" in r["rule"].lower() and "15" in r["target"]
+        )
+        assert sector_rule["pass"] is False
+
+    def test_when_hhi_above_threshold_then_hhi_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        # 2 stocks at 50% each → HHI = 0.5
+        kwargs["all_weights"] = [("T00", 0.5), ("T01", 0.5)]
+        kwargs["sector_mapping"] = {
+            "T00": "Information Technology",
+            "T01": "Health Care",
+        }
+        kwargs["country_map"] = {"T00": "United States", "T01": "United Kingdom"}
+        kwargs["currency_map"] = {"T00": "USD", "T01": "GBP"}
+        rules = ssp._validate_checklist(**kwargs)
+        hhi_rule = next(r for r in rules if "HHI" in r["rule"])
+        assert hhi_rule["pass"] is False
+
+    def test_when_top4_above_30pct_then_top4_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["all_weights"] = [
+            ("T00", 0.10),
+            ("T01", 0.10),
+            ("T02", 0.10),
+            ("T03", 0.10),  # top4 = 40%
+        ] + [(f"T{i:02d}", 0.60 / 21) for i in range(4, 25)]
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "Top-4" in r["rule"])
+        assert rule["pass"] is False
+
+    def test_when_health_below_8pct_then_health_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        # Remove all Health Care
+        kwargs["sector_mapping"] = {
+            t: ("Information Technology" if v in ("Health Care", "Healthcare") else v)
+            for t, v in kwargs["sector_mapping"].items()
+        }
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "Health" in r["rule"])
+        assert rule["pass"] is False
+
+    def test_when_tech_below_10pct_then_tech_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["sector_mapping"] = {
+            t: ("Health Care" if v == "Information Technology" else v)
+            for t, v in kwargs["sector_mapping"].items()
+        }
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "Information Technology" in r["rule"])
+        assert rule["pass"] is False
+
+    def test_when_one_gics_sector_missing_then_coverage_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["sector_mapping"] = {
+            t: ("Industrials" if v == "Materials" else v)
+            for t, v in kwargs["sector_mapping"].items()
+        }
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "11" in r["target"] or "GICS" in r["rule"])
+        assert rule["pass"] is False
+
+    def test_when_max_weight_above_10pct_then_single_stock_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["all_weights"] = [("T00", 0.20)] + [
+            (f"T{i:02d}", 0.80 / 24) for i in range(1, 25)
+        ]
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "Single-stock" in r["rule"])
+        assert rule["pass"] is False
+
+    def test_when_min_weight_below_2pct_then_min_position_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["all_weights"] = [
+            (t, 0.01 if i == 24 else (0.99 / 24))
+            for i, t in enumerate([f"T{j:02d}" for j in range(25)])
+        ]
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "Min position" in r["rule"])
+        assert rule["pass"] is False
+
+    def test_when_max_dd_below_minus_22pct_then_dd_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["metrics"]["Portfolio (after-tax)"]["Max Drawdown"] = -0.30
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "drawdown" in r["rule"].lower())
+        assert rule["pass"] is False
+
+    def test_when_vol_above_benchmark_vol_then_vol_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["metrics"]["Portfolio (after-tax)"]["Ann. Vol"] = 0.20
+        kwargs["metrics"]["SPY (benchmark)"]["Ann. Vol"] = 0.15
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(
+            r
+            for r in rules
+            if "vol" in r["rule"].lower() and "benchmark" in r["rule"].lower()
+        )
+        assert rule["pass"] is False
+
+    def test_when_sharpe_outside_range_then_sharpe_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["metrics"]["Portfolio (after-tax)"]["Sharpe (rf)"] = 0.5
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "Sharpe" in r["rule"])
+        assert rule["pass"] is False
+
+    def test_when_sortino_below_15_then_sortino_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["metrics"]["Portfolio (after-tax)"]["Sortino"] = 1.0
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "Sortino" in r["rule"])
+        assert rule["pass"] is False
+
+    def test_when_ir_below_05_then_ir_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["metrics"]["Portfolio (after-tax)"]["Info Ratio"] = 0.3
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "Info Ratio" in r["rule"])
+        assert rule["pass"] is False
+
+    def test_when_downside_above_75pct_total_then_downside_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        # downside_vol > 0.75 × ann_vol → fail
+        kwargs["metrics"]["Portfolio (after-tax)"]["Ann. Vol"] = 0.10
+        kwargs["metrics"]["Portfolio (after-tax)"]["Downside Vol"] = 0.09
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "Downside" in r["rule"])
+        assert rule["pass"] is False
+
+    def test_when_cost_above_100bps_then_cost_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["cost_bps_actual"] = 150.0
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "cost" in r["rule"].lower())
+        assert rule["pass"] is False
+
+    def test_when_oos_span_below_8_years_then_oos_rule_fails(self) -> None:
+        kwargs = _good_inputs()
+        idx = pd.bdate_range("2024-01-01", "2024-06-01")
+        kwargs["net_returns"] = pd.Series(0.001, index=idx)
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "OOS" in r["rule"])
+        assert rule["pass"] is False
+
+
+class TestValidateChecklistMissingData:
+    """NaN metric inputs → pass=False, measured='N/A'."""
+
+    def test_when_sharpe_nan_then_pass_false_and_na(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["metrics"]["Portfolio (after-tax)"]["Sharpe (rf)"] = float("nan")
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "Sharpe" in r["rule"])
+        assert rule["pass"] is False
+        assert rule["measured"] == "N/A"
+
+    def test_when_sortino_nan_then_pass_false_and_na(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["metrics"]["Portfolio (after-tax)"]["Sortino"] = float("nan")
+        rules = ssp._validate_checklist(**kwargs)
+        rule = next(r for r in rules if "Sortino" in r["rule"])
+        assert rule["pass"] is False
+        assert rule["measured"] == "N/A"
+
+    def test_when_no_after_tax_metrics_then_perf_rules_fail_with_na(self) -> None:
+        kwargs = _good_inputs()
+        kwargs["metrics"].pop("Portfolio (after-tax)")
+        rules = ssp._validate_checklist(**kwargs)
+        sortino = next(r for r in rules if "Sortino" in r["rule"])
+        assert sortino["pass"] is False
+        assert sortino["measured"] == "N/A"
+
+
+class TestValidateChecklistNoSideEffects:
+    """No prints inside `_validate_checklist` (caller owns rendering)."""
+
+    def test_when_called_then_no_console_print_in_source(self) -> None:
+        import inspect
+
+        src = inspect.getsource(ssp._validate_checklist)
+        assert "console.print" not in src
+
+
+# ---------------------------------------------------------------------------
+# Issue #546 — checklist.json + weights.csv gate + exit-code contract (§10)
+# ---------------------------------------------------------------------------
+
+
+def _passing_rule(name: str = "rule") -> dict[str, Any]:
+    return {"rule": name, "pass": True, "measured": "10.0%", "target": "≤ 15%"}
+
+
+def _failing_rule(name: str = "rule") -> dict[str, Any]:
+    return {"rule": name, "pass": False, "measured": "20.0%", "target": "≤ 15%"}
+
+
+def _passing_rules() -> list[dict[str, Any]]:
+    return [_passing_rule(f"r{i:02d}") for i in range(17)]
+
+
+def _good_metrics() -> dict[str, dict[str, float]]:
+    base = {
+        "Ann. Return": 0.10,
+        "Ann. Vol": 0.12,
+        "Sharpe (rf)": 1.5,
+        "Sortino": 2.0,
+        "Info Ratio": 0.7,
+        "Downside Vol": 0.05,
+        "Max Drawdown": -0.18,
+    }
+    return {
+        "Portfolio (gross)": dict(base),
+        "Portfolio": dict(base),
+        "Portfolio (after-tax)": dict(base),
+    }
+
+
+class TestWriteChecklistJson:
+    """Issue #546: write_checklist_json structure + content."""
+
+    def test_when_all_pass_then_summary_17_of_17(self, tmp_path: Any) -> None:
+        import json
+
+        rules = _passing_rules()
+        out = ssp.write_checklist_json(
+            rules=rules,
+            gross_metrics=_good_metrics()["Portfolio (gross)"],
+            net_metrics=_good_metrics()["Portfolio"],
+            after_tax_metrics=_good_metrics()["Portfolio (after-tax)"],
+            output_dir=tmp_path,
+        )
+        assert out.name == "checklist.json"
+        with out.open() as fh:
+            data = json.load(fh)
+        assert data["summary"]["passed"] == 17
+        assert data["summary"]["total"] == 17
+        assert isinstance(data["rules"], list)
+        assert len(data["rules"]) == 17
+        assert {"gross", "net_of_cost", "after_tax"} == set(data["breakdown"].keys())
+
+    def test_when_some_fail_then_summary_partial(self, tmp_path: Any) -> None:
+        import json
+
+        rules = _passing_rules()
+        rules[0] = _failing_rule("r00")
+        rules[5] = _failing_rule("r05")
+        out = ssp.write_checklist_json(
+            rules=rules,
+            gross_metrics=_good_metrics()["Portfolio (gross)"],
+            net_metrics=_good_metrics()["Portfolio"],
+            after_tax_metrics=_good_metrics()["Portfolio (after-tax)"],
+            output_dir=tmp_path,
+        )
+        with out.open() as fh:
+            data = json.load(fh)
+        assert data["summary"]["passed"] == 15
+        assert data["summary"]["total"] == 17
+
+    def test_when_nan_metric_then_null_in_json(self, tmp_path: Any) -> None:
+        import json
+
+        gross = _good_metrics()["Portfolio (gross)"]
+        gross["Sharpe (rf)"] = float("nan")
+        out = ssp.write_checklist_json(
+            rules=_passing_rules(),
+            gross_metrics=gross,
+            net_metrics=_good_metrics()["Portfolio"],
+            after_tax_metrics=_good_metrics()["Portfolio (after-tax)"],
+            output_dir=tmp_path,
+        )
+        text = out.read_text()
+        assert "NaN" not in text
+        json.loads(text)  # strict round-trip
+
+    def test_when_output_dir_missing_then_created(self, tmp_path: Any) -> None:
+        nested = tmp_path / "nested" / "out"
+        ssp.write_checklist_json(
+            rules=_passing_rules(),
+            gross_metrics=_good_metrics()["Portfolio (gross)"],
+            net_metrics=_good_metrics()["Portfolio"],
+            after_tax_metrics=_good_metrics()["Portfolio (after-tax)"],
+            output_dir=nested,
+        )
+        assert nested.exists()
+
+
+class TestWriteWeightsCsv:
+    """Issue #546: write_weights_csv contract."""
+
+    def test_when_called_then_csv_written_at_expected_path(self, tmp_path: Any) -> None:
+        weights = pd.Series([0.10, 0.05, 0.20], index=["B", "C", "A"])
+        out = ssp.write_weights_csv(weights, tmp_path)
+        assert out == tmp_path / "weights.csv"
+        assert out.exists()
+
+    def test_when_called_then_columns_are_ticker_weight(self, tmp_path: Any) -> None:
+        weights = pd.Series([0.10, 0.05, 0.20], index=["B", "C", "A"])
+        out = ssp.write_weights_csv(weights, tmp_path)
+        df = pd.read_csv(out)
+        assert list(df.columns) == ["ticker", "weight"]
+
+    def test_when_called_then_sorted_descending_by_weight(self, tmp_path: Any) -> None:
+        weights = pd.Series([0.10, 0.05, 0.20], index=["B", "C", "A"])
+        out = ssp.write_weights_csv(weights, tmp_path)
+        df = pd.read_csv(out)
+        assert list(df["ticker"]) == ["A", "B", "C"]
+        assert list(df["weight"]) == [0.20, 0.10, 0.05]
+
+    def test_when_output_dir_missing_then_created(self, tmp_path: Any) -> None:
+        nested = tmp_path / "nested"
+        weights = pd.Series([0.5, 0.5], index=["X", "Y"])
+        ssp.write_weights_csv(weights, nested)
+        assert nested.exists()
+
+
+class TestApplyTerminalGate:
+    """Issue #546: terminal-gate exit-code contract."""
+
+    def test_when_all_17_pass_then_exit_0_and_weights_written(
+        self, tmp_path: Any
+    ) -> None:
+        weights = pd.Series([0.5, 0.5], index=["X", "Y"])
+        with pytest.raises(SystemExit) as exc:
+            ssp._apply_terminal_gate(
+                rules=_passing_rules(), weights=weights, output_dir=tmp_path
+            )
+        assert exc.value.code == 0
+        assert (tmp_path / "weights.csv").exists()
+
+    def test_when_any_fail_then_exit_1_and_no_weights(self, tmp_path: Any) -> None:
+        rules = _passing_rules()
+        rules[3] = _failing_rule("r03")
+        weights = pd.Series([0.5, 0.5], index=["X", "Y"])
+        with pytest.raises(SystemExit) as exc:
+            ssp._apply_terminal_gate(rules=rules, weights=weights, output_dir=tmp_path)
+        assert exc.value.code == 1
+        assert not (tmp_path / "weights.csv").exists()
+
+
+class TestReportPerformanceReturnContract:
+    """Issue #546: report_performance returns (pass_count, rules)."""
+
+    def test_when_called_then_signature_returns_tuple(self) -> None:
+        import inspect
+
+        src = inspect.getsource(ssp.report_performance)
+        assert "return " in src
+
+    def test_when_called_then_return_annotation_is_tuple(self) -> None:
+        import inspect
+
+        sig = inspect.signature(ssp.report_performance)
+        # tuple[int, list[dict]] or tuple[int, list[dict[str, Any]]]
+        assert "tuple" in str(sig.return_annotation).lower()
