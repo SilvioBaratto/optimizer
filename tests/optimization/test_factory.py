@@ -376,3 +376,147 @@ class TestSectorConstraintIntegration:
         assert model.linear_constraints is not None
         sectors = set(sector_mapping.values())
         assert len(model.linear_constraints) == len(sectors)
+
+
+# ---------------------------------------------------------------------------
+# Sector floor constraints (issue #532)
+# ---------------------------------------------------------------------------
+
+
+class TestMinSectorWeights:
+    def test_when_floors_supplied_linear_constraints_contain_ge_rows(
+        self,
+        sector_mapping: dict[str, str],
+    ) -> None:
+        cfg = MeanRiskConfig()
+        floors = {"Healthcare": 0.08, "Technology": 0.10}
+        model = build_mean_risk(
+            cfg,
+            sector_mapping=sector_mapping,
+            min_sector_weights=floors,
+        )
+        assert model.linear_constraints is not None
+        assert "Healthcare >= 0.08" in model.linear_constraints
+        assert "Technology >= 0.1" in model.linear_constraints
+
+    def test_when_floors_supplied_groups_are_injected(
+        self,
+        sector_mapping: dict[str, str],
+    ) -> None:
+        cfg = MeanRiskConfig()
+        floors = {"Technology": 0.10}
+        model = build_mean_risk(
+            cfg,
+            sector_mapping=sector_mapping,
+            min_sector_weights=floors,
+        )
+        assert model.groups == sector_mapping
+
+    def test_when_floors_without_sector_mapping_then_value_error(self) -> None:
+        with pytest.raises(ValueError, match="sector_mapping"):
+            build_mean_risk(
+                MeanRiskConfig(),
+                min_sector_weights={"Technology": 0.10},
+            )
+
+    def test_when_empty_floors_dict_then_no_error_no_constraints(self) -> None:
+        cfg = MeanRiskConfig()
+        model = build_mean_risk(cfg, min_sector_weights={})
+        assert model.linear_constraints is None
+
+    def test_when_floors_and_caps_combined_constraints_coexist(
+        self,
+        sector_mapping: dict[str, str],
+    ) -> None:
+        cfg = MeanRiskConfig(max_sector_weight=0.30)
+        floors = {"Healthcare": 0.08, "Technology": 0.10}
+        model = build_mean_risk(
+            cfg,
+            sector_mapping=sector_mapping,
+            min_sector_weights=floors,
+        )
+        assert model.linear_constraints is not None
+        constraints = list(model.linear_constraints)
+        sectors = set(sector_mapping.values())
+        for sector in sectors:
+            assert f"{sector} <= 0.3" in constraints
+        assert "Healthcare >= 0.08" in constraints
+        assert "Technology >= 0.1" in constraints
+
+    def test_when_explicit_linear_constraints_kwarg_then_takes_precedence(
+        self,
+        sector_mapping: dict[str, str],
+    ) -> None:
+        cfg = MeanRiskConfig(max_sector_weight=0.30)
+        custom = ["Technology <= 0.5"]
+        model = build_mean_risk(
+            cfg,
+            sector_mapping=sector_mapping,
+            min_sector_weights={"Healthcare": 0.08},
+            linear_constraints=custom,
+        )
+        assert model.linear_constraints == custom
+
+    def test_when_floors_supplied_input_dict_not_mutated(
+        self,
+        sector_mapping: dict[str, str],
+    ) -> None:
+        floors = {"Healthcare": 0.08, "Technology": 0.10}
+        snapshot = dict(floors)
+        build_mean_risk(
+            MeanRiskConfig(),
+            sector_mapping=sector_mapping,
+            min_sector_weights=floors,
+        )
+        assert floors == snapshot
+
+    def test_when_floor_sum_exceeds_one_then_value_error(
+        self,
+        sector_mapping: dict[str, str],
+    ) -> None:
+        floors = {"Healthcare": 0.6, "Technology": 0.6}
+        with pytest.raises(ValueError, match="sum"):
+            build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=sector_mapping,
+                min_sector_weights=floors,
+            )
+
+    def test_when_floor_exceeds_cap_then_value_error(
+        self,
+        sector_mapping: dict[str, str],
+    ) -> None:
+        cfg = MeanRiskConfig(max_sector_weight=0.10)
+        floors = {"Technology": 0.20}
+        with pytest.raises(ValueError, match="exceeds"):
+            build_mean_risk(
+                cfg,
+                sector_mapping=sector_mapping,
+                min_sector_weights=floors,
+            )
+
+
+class TestMinSectorWeightsIntegration:
+    """Fit-level tests verifying floors are respected after optimization."""
+
+    def test_when_floors_set_sector_weights_at_or_above_floor(
+        self,
+        returns_df: pd.DataFrame,
+        sector_mapping: dict[str, str],
+    ) -> None:
+        floors = {"Healthcare": 0.08, "Technology": 0.10}
+        cfg = MeanRiskConfig.for_min_variance()
+        model = build_mean_risk(
+            cfg,
+            sector_mapping=sector_mapping,
+            min_sector_weights=floors,
+        )
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+        weights = pd.Series(portfolio.weights, index=returns_df.columns)
+        for sector, floor in floors.items():
+            members = [t for t, s in sector_mapping.items() if s == sector]
+            sector_weight = weights[members].sum()
+            assert sector_weight >= floor - 1e-6, (
+                f"Sector {sector!r} weight {sector_weight:.4f} below floor {floor}"
+            )

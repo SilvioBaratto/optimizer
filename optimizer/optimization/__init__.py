@@ -34,6 +34,7 @@ from optimizer.optimization._regime_blended_mean_risk import (
     RegimeBlendedMeanRiskConfig,
     build_regime_blended_mean_risk,
 )
+from optimizer.optimization._region_constraints import build_region_linear_constraints
 from optimizer.optimization._risk_budgeting import (
     RiskBudgetingConfig,
     build_risk_budgeting,
@@ -78,6 +79,7 @@ __all__ = [
     "build_nco",
     "build_random",
     "build_regime_blended_mean_risk",
+    "build_region_linear_constraints",
     "build_risk_budgeting",
     "build_robust_mean_risk",
     "build_schur_complementary",

@@ -94,7 +94,7 @@ def _safe_date(v: Any) -> date | None:
             return datetime.fromisoformat(v).date()
         except (ValueError, TypeError):
             return None
-    if isinstance(v, (int, float)):
+    if isinstance(v, int | float):
         try:
             return datetime.fromtimestamp(v).date()
         except (ValueError, TypeError, OSError):
@@ -116,7 +116,7 @@ class YFinanceRepository(RepositoryBase):
         """Upsert a ticker profile from yf.Ticker.info dict."""
         # Map yfinance info keys to model columns
         ex_div = info.get("exDividendDate")
-        if isinstance(ex_div, (int, float)):
+        if isinstance(ex_div, int | float):
             ex_div = _safe_date(ex_div)
         else:
             ex_div = _safe_date(ex_div)
@@ -241,7 +241,7 @@ class YFinanceRepository(RepositoryBase):
         rows = []
         for idx, row_data in history_df.iterrows():
             dt = idx
-            if isinstance(dt, (pd.Timestamp, datetime)):
+            if isinstance(dt, pd.Timestamp | datetime):
                 dt = dt.date()
 
             rows.append(

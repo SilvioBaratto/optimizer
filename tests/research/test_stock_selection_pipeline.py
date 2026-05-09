@@ -379,3 +379,346 @@ class TestSectorCoverageWarning:
         assert "Energy" not in missing
         assert "Financials" not in missing
         assert len(missing) == 9
+
+
+# ---------------------------------------------------------------------------
+# Cycle-3 §7.1 hard-constrained MeanRisk wiring (issue #536)
+# ---------------------------------------------------------------------------
+
+
+def _spec_assembly() -> Any:
+    from types import SimpleNamespace
+
+    idx = pd.bdate_range("2020-01-01", periods=10)
+    tickers = ["AAA", "BBB"]
+    prices = pd.DataFrame(100.0, index=idx, columns=tickers)
+    volumes = pd.DataFrame(1_000_000.0, index=idx, columns=tickers)
+    return SimpleNamespace(
+        prices=prices,
+        volumes=volumes,
+        macro_data=pd.DataFrame({"gdp_growth": [1.0]}, index=[idx[0]]),
+        regime_data=pd.DataFrame({"pmi": [55.0]}, index=[idx[0]]),
+        fundamentals=pd.DataFrame({"market_cap": [1e9, 2e9]}, index=tickers),
+        analyst_data=pd.DataFrame(),
+        insider_data=pd.DataFrame(),
+        sector_mapping={"AAA": "Healthcare", "BBB": "Technology"},
+        risk_free_rate=0.0,
+        delisting_returns={},
+        currency_map={"AAA": "USD", "BBB": "USD"},
+        fx_rates=pd.DataFrame(),
+    )
+
+
+def _capture_optimizer(
+    *,
+    n_selected: int = 30,
+    cost_bps: float = 10.0,
+    country_map: dict[str, str] | None = None,
+    previous_weights: np.ndarray | None = None,
+) -> dict[str, Any]:
+    from types import SimpleNamespace
+
+    captured: dict[str, Any] = {}
+
+    def fake_pipeline(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return SimpleNamespace(
+            summary={"sharpe_ratio": 1.0},
+            net_sharpe_ratio=None,
+            weights=pd.Series([0.5, 0.5], index=["AAA", "BBB"]),
+        )
+
+    with patch.object(
+        ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+    ):
+        ssp.optimize_portfolio(
+            assembly=_spec_assembly(),
+            investable=pd.Index(["AAA", "BBB"]),
+            ic_history=None,
+            n_selected=n_selected,
+            cost_bps=cost_bps,
+            country_map=country_map,
+            previous_weights=previous_weights,
+        )
+    return captured
+
+
+class TestRegionMapModuleConstant:
+    def test_when_imported_then_module_constant_exists(self) -> None:
+        assert hasattr(ssp, "_REGION_MAP")
+        assert isinstance(ssp._REGION_MAP, dict)
+        assert ssp._REGION_MAP["United States"] == "Americas"
+        assert ssp._REGION_MAP["Germany"] == "Europe"
+        assert ssp._REGION_MAP["Japan"] == "Asia-Pacific"
+
+
+class TestHardConstrainedMeanRiskSpec:
+    """§7.1 spec wiring of optimize_portfolio."""
+
+    def test_when_called_then_objective_is_maximize_ratio(self) -> None:
+        from skfolio.optimization.convex._base import ObjectiveFunction
+
+        captured = _capture_optimizer()
+        opt = captured["optimizer"]
+        assert opt.objective_function == ObjectiveFunction.MAXIMIZE_RATIO
+
+    def test_when_called_then_max_weights_010(self) -> None:
+        captured = _capture_optimizer()
+        assert captured["optimizer"].max_weights == pytest.approx(0.10)
+
+    def test_when_survivors_meet_target_then_min_weights_002(self) -> None:
+        captured = _capture_optimizer(n_selected=2)
+        assert captured["optimizer"].min_weights == pytest.approx(0.02)
+
+    def test_when_survivors_below_target_then_min_weights_fallback(self) -> None:
+        # 2 investable tickers, target 30 → fallback 1/(2*2) = 0.25
+        captured = _capture_optimizer(n_selected=30)
+        assert captured["optimizer"].min_weights == pytest.approx(1.0 / (2 * 2))
+
+    def test_when_called_then_l2_coef_005(self) -> None:
+        captured = _capture_optimizer()
+        assert captured["optimizer"].l2_coef == pytest.approx(0.05)
+
+    def test_when_called_then_max_sector_weight_015_via_constraint(self) -> None:
+        captured = _capture_optimizer()
+        constraints = captured["optimizer"].linear_constraints or []
+        assert any("Healthcare <= 0.15" in c for c in constraints)
+        assert any("Technology <= 0.15" in c for c in constraints)
+
+    def test_when_called_then_transaction_costs_match_cost_bps(self) -> None:
+        captured = _capture_optimizer(cost_bps=10.0)
+        assert captured["optimizer"].transaction_costs == pytest.approx(10.0 / 1e4)
+
+    def test_when_called_then_solver_clarabel(self) -> None:
+        captured = _capture_optimizer()
+        assert captured["optimizer"].solver == "CLARABEL"
+
+    def test_when_called_then_solver_params_match_spec(self) -> None:
+        captured = _capture_optimizer()
+        params = captured["optimizer"].solver_params
+        assert params["max_iter"] == 200_000
+        assert params["eps_abs"] == pytest.approx(1e-8)
+        assert params["eps_rel"] == pytest.approx(1e-8)
+
+    def test_when_called_then_min_sector_weights_floors_present(self) -> None:
+        captured = _capture_optimizer()
+        constraints = captured["optimizer"].linear_constraints or []
+        assert any("Healthcare >= 0.08" in c for c in constraints)
+        assert any("Technology >= 0.1" in c for c in constraints)
+
+    def test_when_country_map_supplied_then_region_caps_in_constraints(self) -> None:
+        captured = _capture_optimizer(
+            country_map={"AAA": "United States", "BBB": "Germany"}
+        )
+        constraints = captured["optimizer"].linear_constraints or []
+        assert any("Americas <= 0.6" in c for c in constraints)
+        assert any("Europe <= 0.6" in c for c in constraints)
+
+    def test_when_country_map_none_then_no_region_constraints(self) -> None:
+        captured = _capture_optimizer(country_map=None)
+        constraints = captured["optimizer"].linear_constraints or []
+        assert not any("Americas" in c for c in constraints)
+
+    def test_when_previous_weights_supplied_then_forwarded_to_optimizer(self) -> None:
+        prev = np.array([0.5, 0.5])
+        captured = _capture_optimizer(previous_weights=prev)
+        assert captured["optimizer"].previous_weights is not None
+        np.testing.assert_array_equal(captured["optimizer"].previous_weights, prev)
+
+    def test_when_survivors_below_target_then_warning_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            _capture_optimizer(n_selected=30)
+        msg = caplog.text.lower()
+        assert "min_weights" in msg or "feasibility" in msg or "survivors" in msg
+
+
+class TestValidateChecklistReusesRegionMap:
+    """`_validate_checklist` consumes the module-level `_REGION_MAP`."""
+
+    def test_when_validate_checklist_called_then_no_local_region_map(self) -> None:
+        import inspect
+
+        src = inspect.getsource(ssp._validate_checklist)
+        # Old code defined `region_map = {` inside the function.
+        assert "region_map = {" not in src
+
+
+# ---------------------------------------------------------------------------
+# Cycle-3 §8 walk-forward + metadata routing + hockey-stick wiring (issue #538)
+# ---------------------------------------------------------------------------
+
+
+class TestWalkForwardConfigSpec:
+    """`optimize_portfolio` must wire WalkForwardConfig(train=756, test=63)."""
+
+    def test_when_called_then_cv_config_uses_spec_values(self) -> None:
+        captured = _capture_optimizer()
+        cv = captured["cv_config"]
+        assert cv.train_size == 252 * 3
+        assert cv.test_size == 63
+        assert cv.expend_train is False
+        assert cv.purged_size == 5
+
+
+class TestSklearnMetadataRouting:
+    """`optimize_portfolio` must enable metadata routing once at entry."""
+
+    def test_when_called_then_enable_metadata_routing_invoked(self) -> None:
+        from types import SimpleNamespace
+
+        def fake_pipeline(**kwargs: Any) -> Any:
+            return SimpleNamespace(
+                summary={"sharpe_ratio": 1.0},
+                net_sharpe_ratio=None,
+                weights=pd.Series([0.5, 0.5], index=["AAA", "BBB"]),
+                net_returns=None,
+            )
+
+        with (
+            patch.object(
+                ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+            ),
+            patch("sklearn.set_config") as mock_set_config,
+        ):
+            ssp.optimize_portfolio(
+                assembly=_spec_assembly(),
+                investable=pd.Index(["AAA", "BBB"]),
+                ic_history=None,
+                n_selected=2,
+            )
+
+        # called at least once with enable_metadata_routing=True
+        kw_calls = [c for c in mock_set_config.call_args_list if c.kwargs]
+        assert any(c.kwargs.get("enable_metadata_routing") is True for c in kw_calls)
+
+
+class TestHockeyStickInvocation:
+    """`optimize_portfolio` must invoke `_hockey_stick_warn` on result.net_returns."""
+
+    def test_when_pipeline_returns_then_hockey_stick_warn_called(self) -> None:
+        from types import SimpleNamespace
+
+        oos_stub = pd.Series(
+            [0.0, 0.0, 0.0],
+            index=pd.bdate_range("2020-01-01", periods=3),
+        )
+
+        def fake_pipeline(**kwargs: Any) -> Any:
+            return SimpleNamespace(
+                summary={"sharpe_ratio": 1.0},
+                net_sharpe_ratio=None,
+                weights=pd.Series([0.5, 0.5], index=["AAA", "BBB"]),
+                net_returns=oos_stub,
+            )
+
+        with (
+            patch.object(
+                ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+            ),
+            patch.object(ssp, "_hockey_stick_warn") as mock_warn,
+        ):
+            ssp.optimize_portfolio(
+                assembly=_spec_assembly(),
+                investable=pd.Index(["AAA", "BBB"]),
+                ic_history=None,
+                n_selected=2,
+            )
+
+        mock_warn.assert_called_once()
+        args, _ = mock_warn.call_args
+        # First positional arg is the OOS return series we stubbed
+        pd.testing.assert_series_equal(args[0], oos_stub)
+
+
+class TestRetightenTraceWiring:
+    """Issue #537: `optimize_portfolio` must surface a retighten trace."""
+
+    def _wide_assembly(self, n_tickers: int = 8) -> Any:
+        from types import SimpleNamespace
+
+        idx = pd.bdate_range("2020-01-01", periods=10)
+        tickers = [f"T{i:02d}" for i in range(n_tickers)]
+        prices = pd.DataFrame(100.0, index=idx, columns=tickers)
+        volumes = pd.DataFrame(1_000_000.0, index=idx, columns=tickers)
+        sectors = ["Healthcare", "Technology", "Financials", "Energy"]
+        sector_mapping = {t: sectors[i % len(sectors)] for i, t in enumerate(tickers)}
+        return SimpleNamespace(
+            prices=prices,
+            volumes=volumes,
+            macro_data=pd.DataFrame({"gdp_growth": [1.0]}, index=[idx[0]]),
+            regime_data=pd.DataFrame({"pmi": [55.0]}, index=[idx[0]]),
+            fundamentals=pd.DataFrame({"market_cap": [1e9] * n_tickers}, index=tickers),
+            analyst_data=pd.DataFrame(),
+            insider_data=pd.DataFrame(),
+            sector_mapping=sector_mapping,
+            risk_free_rate=0.0,
+            delisting_returns={},
+            currency_map=dict.fromkeys(tickers, "USD"),
+            fx_rates=pd.DataFrame(),
+        )
+
+    def test_when_universe_above_top4_then_retighten_runs_and_trace_attached(
+        self,
+    ) -> None:
+        from types import SimpleNamespace
+
+        fake_trace = [{"attempt": 1, "top4": 0.25, "max_weights": 0.10}]
+
+        def fake_pipeline(**kwargs: Any) -> Any:
+            return SimpleNamespace(
+                summary={"sharpe_ratio": 1.0},
+                net_sharpe_ratio=None,
+                weights=pd.Series([0.125] * 8, index=[f"T{i:02d}" for i in range(8)]),
+            )
+
+        with (
+            patch.object(
+                ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+            ),
+            patch.object(
+                ssp,
+                "_solve_with_retighten",
+                return_value=("STUB_OPT", fake_trace),
+            ) as mock_retighten,
+        ):
+            assembly = self._wide_assembly(n_tickers=8)
+            result = ssp.optimize_portfolio(
+                assembly=assembly,
+                investable=pd.Index([f"T{i:02d}" for i in range(8)]),
+                ic_history=None,
+                n_selected=8,
+            )
+
+        assert mock_retighten.called
+        assert result.retighten_trace == fake_trace
+
+    def test_when_universe_at_or_below_top4_then_retighten_skipped(self) -> None:
+        from types import SimpleNamespace
+
+        def fake_pipeline(**kwargs: Any) -> Any:
+            return SimpleNamespace(
+                summary={"sharpe_ratio": 1.0},
+                net_sharpe_ratio=None,
+                weights=pd.Series([0.5, 0.5], index=["T00", "T01"]),
+            )
+
+        with (
+            patch.object(
+                ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+            ),
+            patch.object(ssp, "_solve_with_retighten") as mock_retighten,
+        ):
+            assembly = self._wide_assembly(n_tickers=2)
+            result = ssp.optimize_portfolio(
+                assembly=assembly,
+                investable=pd.Index(["T00", "T01"]),
+                ic_history=None,
+                n_selected=2,
+            )
+
+        assert not mock_retighten.called
+        assert result.retighten_trace == []

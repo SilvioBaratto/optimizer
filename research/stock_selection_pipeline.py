@@ -81,8 +81,6 @@ _IS_VALIDATION_CONFIG = FactorValidationConfig(
     fdr_alpha=0.10,
     t_stat_threshold=1.645,
 )
-from optimizer.optimization import build_mean_risk  # noqa: E402
-from optimizer.optimization._config import MeanRiskConfig  # noqa: E402
 from optimizer.pipeline import run_full_pipeline_with_selection  # noqa: E402
 from optimizer.universe import InvestabilityScreenConfig, screen_universe  # noqa: E402
 from optimizer.validation import WalkForwardConfig  # noqa: E402
@@ -90,6 +88,15 @@ from research._backtest_plots import generate_backtest_plots  # noqa: E402
 from research._factors import (  # noqa: E402
     build_factor_scores_history,
     validate_factors,
+)
+from research._optimization import (  # noqa: E402
+    _REGION_MAP,
+    _TOP_N,
+    _decide_rebalance,
+    _hockey_stick_warn,
+    _make_builder,
+    _make_opt_config,
+    _solve_with_retighten,
 )
 from research._preflight import run_db_preflight as _run_db_preflight  # noqa: E402
 from research._preprocessing import (  # noqa: E402
@@ -109,6 +116,27 @@ REBALANCE_FREQ: int = 63    # quarterly  (~63 trading days)
 N_SELECTED: int = 50        # target portfolio size after factor ranking
 TOP_N_DISPLAY: int = 25     # tickers shown in the selection table
 MIN_SUCCESS_FRACTION: float = 0.5
+
+# Cycle-3 §11: hybrid rebalance review-date persistence (file-backed; DB
+# write-back is Cycle 5).
+_LAST_REVIEW_DATE_FILE = (
+    Path(__file__).resolve().parent / "output" / "last_review_date.txt"
+)
+
+
+def _read_last_review_date(today: pd.Timestamp) -> pd.Timestamp:
+    """Read ``last_review_date`` from disk, falling back to the prior quarter-end."""
+    if _LAST_REVIEW_DATE_FILE.exists():
+        text = _LAST_REVIEW_DATE_FILE.read_text().strip()
+        if text:
+            return pd.Timestamp(text).normalize()
+    return (today.to_period("Q") - 1).end_time.normalize()
+
+
+def _write_last_review_date(date: pd.Timestamp) -> None:
+    """Persist ``date`` (ISO ``YYYY-MM-DD``) for the next pipeline run."""
+    _LAST_REVIEW_DATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _LAST_REVIEW_DATE_FILE.write_text(date.date().isoformat() + "\n")
 
 # Fix #239: parameters are index-based, not calendar months.
 # With quarterly rebalancing (~20 dates for 5 years):
@@ -643,18 +671,20 @@ def optimize_portfolio(
     ic_history: pd.DataFrame | None,
     n_selected: int = N_SELECTED,
     cost_bps: float = 10.0,
+    *,
+    country_map: dict[str, str] | None = None,
+    previous_weights: np.ndarray | None = None,
+    robust: bool = False,
+    uncertainty_level: float = 0.95,
 ) -> Any:
-    """Run factor-based stock selection and portfolio optimization.
-
-    Fix issue #238: scoring_config is explicitly passed as ic_weighted.
-
-    Checklist constraints (from portfolio_checklist.md):
-      - max_weights=0.10  → single-stock cap 10%
-      - max_sector_weight=0.20 → sector diversification
-      - L2 regularisation (0.05) → push toward equal-weight, naturally
-        keeping positions above ~2% for 20-40 stock universes
-    """
+    """Run factor-based stock selection + Cycle-3 §7.1 hard-constrained MeanRisk."""
     console.print(Panel("[bold]Step 7[/bold] — Portfolio optimization", style="blue"))
+
+    # Cycle-3 §8: enable sklearn metadata routing (idempotent; required
+    # before any `set_fit_request` call downstream, e.g. BenchmarkTracker.y).
+    import sklearn
+
+    sklearn.set_config(enable_metadata_routing=True)
 
     # Fix #238 + Issue #531: IC-weighted scoring with Cycle-2 EWM half-life=4
     scoring_config = CompositeScoringConfig.for_ic_weighted(ic_decay_halflife=4)
@@ -665,19 +695,31 @@ def optimize_portfolio(
         :, [c for c in investable_cols if c in assembly.volumes.columns]
     ]
 
-    # Checklist-compliant optimizer: sector + position caps.
-    # L2 regularisation (0.05) pushes toward equal-weight, naturally keeping
-    # positions above ~2% for 20-40 stock universes.
-    # Hard constraints: max_weights=0.10 (single-stock cap) and
-    # max_sector_weight=0.20 (sector diversification).
-    # Note: min_weights stays at 0.0 to avoid infeasibility in walk-forward
-    # CV splits where fewer stocks are available.
-    opt_config = MeanRiskConfig.for_max_sharpe_sector_constrained(
-        max_sector_weight=0.20,
+    opt_config = _make_opt_config(
+        n_survivors=len(investable_cols),
+        target_count=n_selected,
+        cost_bps=cost_bps,
     )
-    optimizer_instance = build_mean_risk(
-        opt_config, sector_mapping=assembly.sector_mapping
+    builder = _make_builder(
+        sector_mapping=assembly.sector_mapping,
+        country_map=country_map,
+        previous_weights=previous_weights,
+        robust=robust,
+        uncertainty_level=uncertainty_level,
     )
+    optimizer_instance = builder(opt_config)
+
+    retighten_trace: list[dict[str, Any]] = []
+    if len(investable_cols) > _TOP_N:
+        from skfolio.preprocessing import prices_to_returns
+
+        full_returns = prices_to_returns(investable_prices)
+        optimizer_instance, retighten_trace = _solve_with_retighten(
+            optimizer_instance,
+            full_returns,
+            config=opt_config,
+            builder=builder,
+        )
 
     # Issue #529: enable regime tilts.  Orchestrator owns classification +
     # tilt application (single source of truth); main()'s `classify_and_tilt`
@@ -705,7 +747,12 @@ def optimize_portfolio(
             max_per_sector=8,
         ),
         regime_config=regime_config,  # Issue #529: enable regime tilts
-        cv_config=WalkForwardConfig(),  # walk-forward backtest
+        cv_config=WalkForwardConfig(  # Cycle-3 §8: 3-year train, quarterly test
+            train_size=252 * 3,
+            test_size=63,
+            expend_train=False,
+            purged_size=5,
+        ),
         ic_history=ic_history,
         risk_free_rate=assembly.risk_free_rate,  # Fix #246: proper rf
         delisting_returns=assembly.delisting_returns,
@@ -723,6 +770,8 @@ def optimize_portfolio(
     if net_sharpe is not None:
         msg += f", Net Sharpe = [cyan]{net_sharpe:.3f}[/cyan]"
     console.print(msg)
+    result.retighten_trace = retighten_trace
+    _hockey_stick_warn(getattr(result, "net_returns", None))
     return result
 
 
@@ -843,28 +892,9 @@ def _validate_checklist(
         country_w[country_map.get(ticker, "Unknown")] += w
 
     # Region weights (approximate)
-    region_map = {
-        "United States": "Americas", "Canada": "Americas",
-        "Colombia": "Americas", "Argentina": "Americas",
-        "Brazil": "Americas", "Mexico": "Americas", "Chile": "Americas",
-        "United Kingdom": "Europe", "France": "Europe",
-        "Germany": "Europe", "Netherlands": "Europe",
-        "Switzerland": "Europe", "Ireland": "Europe",
-        "Italy": "Europe", "Spain": "Europe", "Monaco": "Europe",
-        "Luxembourg": "Europe", "Belgium": "Europe",
-        "Norway": "Europe", "Sweden": "Europe", "Denmark": "Europe",
-        "Finland": "Europe", "Austria": "Europe", "Portugal": "Europe",
-        "China": "Asia-Pacific", "Taiwan": "Asia-Pacific",
-        "Japan": "Asia-Pacific", "South Korea": "Asia-Pacific",
-        "Indonesia": "Asia-Pacific", "India": "Asia-Pacific",
-        "Singapore": "Asia-Pacific", "Australia": "Asia-Pacific",
-        "Hong Kong": "Asia-Pacific",
-        "Israel": "Middle East & Africa", "Turkey": "Middle East & Africa",
-        "South Africa": "Middle East & Africa",
-    }
     region_w: dict[str, float] = defaultdict(float)
     for country, w in country_w.items():
-        region_w[region_map.get(country, "Other")] += w
+        region_w[_REGION_MAP.get(country, "Other")] += w
     max_region = max(region_w.values()) if region_w else 0.0
 
     # Concentration
@@ -1199,7 +1229,30 @@ def main(
             ic_history=ic_history,
             n_selected=n_selected,
             cost_bps=cost_bps,
+            country_map=country_map,
         )
+
+        # 7b. Cycle-3 §11 hybrid rebalance decision.
+        current_date = pd.Timestamp.today().normalize()
+        last_review_date = _read_last_review_date(current_date)
+        prev_weights = getattr(assembly, "previous_weights", None)
+        target_arr = result.weights.to_numpy(dtype=float)
+        prev_arr = (
+            np.asarray(prev_weights, dtype=float)
+            if prev_weights is not None
+            else None
+        )
+        result.rebalance_decision = _decide_rebalance(
+            prev_weights=prev_arr,
+            target_weights=target_arr,
+            current_date=current_date,
+            last_review_date=last_review_date,
+        )
+        # Persist the new review baseline when a rebalance occurred OR on
+        # cold-start to seed subsequent runs.  No DB write — Cycle 5 owns that.
+        decision, reason = result.rebalance_decision
+        if decision or reason == "cold_start":
+            _write_last_review_date(current_date)
 
         # Cycle-2 §6.1 sanity: weight count in [25, 50] + sector coverage.
         n_weights = len(result.weights)

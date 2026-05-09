@@ -251,7 +251,7 @@ class TestDecideHybrid:
     ) -> None:
         with patch(
             "app.services.rebalancing_service.should_rebalance_hybrid",
-            return_value=False,
+            return_value=(False, "between_review_dates"),
         ):
             resp = client.post(BASE_DECIDE, json=self._REQUEST_OK)
 
@@ -267,7 +267,7 @@ class TestDecideHybrid:
     def test_hybrid_uses_should_rebalance_hybrid(self, client: TestClient) -> None:
         with patch(
             "app.services.rebalancing_service.should_rebalance_hybrid",
-            return_value=True,
+            return_value=(True, "threshold_met"),
         ) as mock_fn:
             resp = client.post(BASE_DECIDE, json=self._REQUEST_OK)
 

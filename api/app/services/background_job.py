@@ -220,6 +220,6 @@ class BackgroundJobService:
     @staticmethod
     def _jsonb_safe(value: Any) -> Any:
         """Ensure a value is JSON-serialisable for JSONB storage."""
-        if isinstance(value, (str, int, float, bool, type(None), list, dict)):
+        if isinstance(value, str | int | float | bool | type(None) | list | dict):
             return value
         return str(value)

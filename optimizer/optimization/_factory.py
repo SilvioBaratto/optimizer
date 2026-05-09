@@ -85,6 +85,45 @@ def build_sector_constraints(
     return sector_mapping, linear_constraints
 
 
+def _build_sector_floor_constraints(
+    min_sector_weights: dict[str, float],
+) -> list[str]:
+    """Emit ``"<sector> >= <floor>"`` rows from a floor mapping (sorted)."""
+    return [
+        f"{sector} >= {round(floor, 6)}"
+        for sector, floor in sorted(min_sector_weights.items())
+    ]
+
+
+def _validate_sector_floors(
+    min_sector_weights: dict[str, float],
+    sector_mapping: dict[str, str] | None,
+    max_sector_weight: float | None,
+) -> None:
+    """Reject infeasible floors at build time.
+
+    Raises ``ValueError`` when ``sector_mapping`` is missing, when floors sum
+    above 1.0, or when any floor exceeds ``max_sector_weight``.
+    """
+    if sector_mapping is None:
+        raise ValueError(
+            "min_sector_weights requires sector_mapping to enforce sector "
+            "floor constraints (no group mapping available)."
+        )
+    floor_sum = sum(min_sector_weights.values())
+    if floor_sum > 1.0 + 1e-9:
+        raise ValueError(
+            f"min_sector_weights sum to {floor_sum:.4f} > 1.0; floors are infeasible."
+        )
+    if max_sector_weight is not None:
+        for sector, floor in min_sector_weights.items():
+            if floor > max_sector_weight + 1e-9:
+                raise ValueError(
+                    f"min_sector_weights[{sector!r}]={floor:.4f} exceeds "
+                    f"max_sector_weight={max_sector_weight:.4f}."
+                )
+
+
 # ---------------------------------------------------------------------------
 # Main optimiser factory
 # ---------------------------------------------------------------------------
@@ -96,6 +135,7 @@ def build_mean_risk(
     prior_estimator: BasePrior | None = None,
     factor_exposure_constraints: FactorExposureConstraints | None = None,
     sector_mapping: dict[str, str] | None = None,
+    min_sector_weights: dict[str, float] | None = None,
     **kwargs: Any,
 ) -> MeanRisk:
     """Build a skfolio :class:`MeanRisk` optimiser from *config*.
@@ -117,10 +157,17 @@ def build_mean_risk(
         take precedence.
     sector_mapping : dict[str, str] or None
         Ticker -> sector name mapping.  Used to build ``groups`` and
-        ``linear_constraints`` when ``config.max_sector_weight`` is set.
-        Ignored when ``config.max_sector_weight is None``.  Any explicit
+        ``linear_constraints`` when ``config.max_sector_weight`` is set
+        or when ``min_sector_weights`` is supplied.  Any explicit
         ``groups`` or ``linear_constraints`` in ``kwargs`` take
         precedence.
+    min_sector_weights : dict[str, float] or None
+        Per-sector floor weights (e.g. ``{"Healthcare": 0.08}``).  Each
+        entry emits a ``"<sector> >= <floor>"`` row appended to the
+        sector-cap rows.  Requires ``sector_mapping``; raises
+        ``ValueError`` if not supplied, if floors sum to > 1.0, or if
+        any floor exceeds ``config.max_sector_weight``.  Empty dict is
+        a no-op.  The input dict is not mutated.
     **kwargs
         Additional keyword arguments forwarded to the
         :class:`MeanRisk` constructor (for non-serialisable
@@ -146,19 +193,30 @@ def build_mean_risk(
             "right_inequality", factor_exposure_constraints.right_inequality
         )
 
+    sector_constraints: list[str] = []
     if config.max_sector_weight is not None:
         if sector_mapping is not None:
-            built_groups, built_constraints = build_sector_constraints(
+            built_groups, built_caps = build_sector_constraints(
                 sector_mapping, config.max_sector_weight
             )
             kwargs.setdefault("groups", built_groups)
-            kwargs.setdefault("linear_constraints", built_constraints)
+            sector_constraints.extend(built_caps)
         else:
             logger.warning(
                 "MeanRiskConfig.max_sector_weight=%.4f is set but no "
                 "sector_mapping was provided; sector constraints are skipped.",
                 config.max_sector_weight,
             )
+
+    if min_sector_weights:
+        _validate_sector_floors(
+            min_sector_weights, sector_mapping, config.max_sector_weight
+        )
+        kwargs.setdefault("groups", sector_mapping)
+        sector_constraints.extend(_build_sector_floor_constraints(min_sector_weights))
+
+    if sector_constraints:
+        kwargs.setdefault("linear_constraints", sector_constraints)
 
     return MeanRisk(
         objective_function=_OBJECTIVE_MAP[config.objective],

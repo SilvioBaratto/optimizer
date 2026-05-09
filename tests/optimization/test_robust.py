@@ -128,6 +128,38 @@ class TestFallbackContract:
         assert np.allclose(plain.weights_, robust.weights_, atol=1e-8)
 
 
+class TestForModerateUncertaintyLevel:
+    def test_when_default_then_confidence_level_095(self) -> None:
+        cfg = RobustMeanRiskConfig.for_moderate()
+        assert cfg.mu_uncertainty_set_config is not None
+        assert cfg.mu_uncertainty_set_config.confidence_level == 0.95
+
+    def test_when_custom_uncertainty_level_then_forwarded(self) -> None:
+        cfg = RobustMeanRiskConfig.for_moderate(uncertainty_level=0.90)
+        assert cfg.mu_uncertainty_set_config is not None
+        assert cfg.mu_uncertainty_set_config.confidence_level == 0.90
+
+    def test_when_high_uncertainty_level_then_forwarded(self) -> None:
+        cfg = RobustMeanRiskConfig.for_moderate(uncertainty_level=0.99)
+        assert cfg.mu_uncertainty_set_config is not None
+        assert cfg.mu_uncertainty_set_config.confidence_level == 0.99
+
+    def test_when_positional_arg_then_type_error(self) -> None:
+        with pytest.raises(TypeError):
+            RobustMeanRiskConfig.for_moderate(0.90)  # type: ignore[misc]
+
+    def test_when_no_uncertainty_then_fallback_contract_holds(self, returns) -> None:
+        mr_cfg = MeanRiskConfig.for_min_variance()
+        plain = build_mean_risk(mr_cfg)
+        plain.fit(returns)
+
+        robust_cfg = RobustMeanRiskConfig(mean_risk_config=mr_cfg)
+        robust = build_robust_mean_risk(robust_cfg)
+        robust.fit(returns)
+
+        assert np.allclose(plain.weights_, robust.weights_, atol=1e-8)
+
+
 class TestIntegration:
     def test_when_for_moderate_then_fits(self, returns) -> None:
         est = build_robust_mean_risk(RobustMeanRiskConfig.for_moderate())

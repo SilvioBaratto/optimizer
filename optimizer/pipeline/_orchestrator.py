@@ -565,9 +565,10 @@ def run_full_pipeline(
                     - pd.Timedelta(days=rebalancing_config.calendar.trading_days * 2),
                 )
             )
-            result.rebalance_needed = should_rebalance_hybrid(
+            decision, _reason = should_rebalance_hybrid(
                 prev_arr, new_arr, rebalancing_config, _current, _last_review
             )
+            result.rebalance_needed = decision
         else:
             result.rebalance_needed = should_rebalance(
                 prev_arr,

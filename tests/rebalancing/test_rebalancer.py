@@ -166,67 +166,57 @@ class TestShouldRebalanceHybrid:
     def test_review_date_with_breach_returns_true(self) -> None:
         """At a calendar review date with breach, rebalancing is triggered."""
         current = _review_date(_LAST_REVIEW, 21)  # exactly 21 bdays later
-        assert (
-            should_rebalance_hybrid(
-                _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
-            )
-            is True
+        decision, _reason = should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
         )
+        assert decision is True
 
     # -- Acceptance criterion 2: calendar date + no breach → False ------------
 
     def test_review_date_no_breach_returns_false(self) -> None:
         """At a calendar review date with no drift breach, no rebalancing."""
         current = _review_date(_LAST_REVIEW, 21)
-        assert (
-            should_rebalance_hybrid(
-                _NO_BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
-            )
-            is False
+        decision, _reason = should_rebalance_hybrid(
+            _NO_BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
         )
+        assert decision is False
 
     # -- Acceptance criterion 3: mid-calendar + breach → False ----------------
 
     def test_mid_calendar_breach_returns_false(self) -> None:
         """Between review dates, always returns False regardless of drift."""
         current = _review_date(_LAST_REVIEW, 10)  # only 10 bdays elapsed
-        assert (
-            should_rebalance_hybrid(
-                _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
-            )
-            is False
+        decision, _reason = should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
         )
+        assert decision is False
 
     # -- Edge cases -----------------------------------------------------------
 
     def test_exactly_at_threshold_bdays(self) -> None:
         """Exactly trading_days elapsed is treated as a review date."""
         current = _review_date(_LAST_REVIEW, 21)
-        result = should_rebalance_hybrid(
+        decision, _reason = should_rebalance_hybrid(
             _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
         )
-        assert isinstance(result, bool)
-        assert result is True
+        assert isinstance(decision, bool)
+        assert decision is True
 
     def test_one_day_before_review(self) -> None:
         """One business day before the review interval → always False."""
         current = _review_date(_LAST_REVIEW, 20)
-        assert (
-            should_rebalance_hybrid(
-                _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
-            )
-            is False
+        decision, _reason = should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
         )
+        assert decision is False
 
     def test_past_due_review_with_breach(self) -> None:
         """Overdue review (more than trading_days elapsed) with breach → True."""
         current = _review_date(_LAST_REVIEW, 42)  # 2 months elapsed
-        assert (
-            should_rebalance_hybrid(
-                _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
-            )
-            is True
+        decision, _reason = should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
         )
+        assert decision is True
 
     def test_relative_threshold_variant(self) -> None:
         """Hybrid with relative threshold behaves consistently."""
@@ -237,19 +227,17 @@ class TestShouldRebalanceHybrid:
         # asset 1 relative drift: |0.38-0.30|/0.30 = 0.267 > 0.25 → breach
         breaching = np.array([0.50, 0.38, 0.12])
         current = _review_date(_LAST_REVIEW, 63)  # quarterly = 63 bdays
-        assert (
-            should_rebalance_hybrid(breaching, _TARGET, cfg, current, _LAST_REVIEW)
-            is True
+        decision, _reason = should_rebalance_hybrid(
+            breaching, _TARGET, cfg, current, _LAST_REVIEW
         )
+        assert decision is True
 
     def test_same_day_as_review_returns_false(self) -> None:
         """current_date == last_review_date (0 elapsed) → False."""
-        assert (
-            should_rebalance_hybrid(
-                _BREACH, _TARGET, _MONTHLY_CFG, _LAST_REVIEW, _LAST_REVIEW
-            )
-            is False
+        decision, _reason = should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, _LAST_REVIEW, _LAST_REVIEW
         )
+        assert decision is False
 
     def test_weekend_before_review_boundary_returns_false(self) -> None:
         """Saturday before the 21-bday mark → False.
@@ -258,22 +246,18 @@ class TestShouldRebalanceHybrid:
         which is before next_review = BDay(21) = 2024-01-30.
         """
         current = _LAST_REVIEW + pd.offsets.BDay(19) + pd.offsets.Day(1)
-        assert (
-            should_rebalance_hybrid(
-                _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
-            )
-            is False
+        decision, _reason = should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
         )
+        assert decision is False
 
     def test_weekend_at_review_boundary_fires_on_monday(self) -> None:
         """BDay(21) from last_review is a business day → True with breach."""
         current = _LAST_REVIEW + pd.offsets.BDay(21)
-        assert (
-            should_rebalance_hybrid(
-                _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
-            )
-            is True
+        decision, _reason = should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
         )
+        assert decision is True
 
     def test_63_bday_quarterly_boundary(self) -> None:
         """Exactly 63 bdays elapsed for quarterly config → True with breach."""
@@ -282,7 +266,45 @@ class TestShouldRebalanceHybrid:
             threshold=ThresholdRebalancingConfig.for_absolute(threshold=0.05),
         )
         current = _LAST_REVIEW + pd.offsets.BDay(63)
-        assert (
-            should_rebalance_hybrid(_BREACH, _TARGET, cfg, current, _LAST_REVIEW)
-            is True
+        decision, _reason = should_rebalance_hybrid(
+            _BREACH, _TARGET, cfg, current, _LAST_REVIEW
         )
+        assert decision is True
+
+
+class TestShouldRebalanceHybridReason:
+    """Each branch surfaces a structured reason literal."""
+
+    def test_when_between_review_dates_then_reason_between_review_dates(self) -> None:
+        current = _review_date(_LAST_REVIEW, 10)
+        decision, reason = should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+        )
+        assert decision is False
+        assert reason == "between_review_dates"
+
+    def test_when_review_date_with_breach_then_reason_threshold_met(self) -> None:
+        current = _review_date(_LAST_REVIEW, 21)
+        decision, reason = should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+        )
+        assert decision is True
+        assert reason == "threshold_met"
+
+    def test_when_review_date_without_breach_then_reason_threshold_not_met(
+        self,
+    ) -> None:
+        current = _review_date(_LAST_REVIEW, 21)
+        decision, reason = should_rebalance_hybrid(
+            _NO_BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+        )
+        assert decision is False
+        assert reason == "threshold_not_met"
+
+    def test_when_returned_then_reason_is_in_known_set(self) -> None:
+        known = {"between_review_dates", "threshold_met", "threshold_not_met"}
+        current = _review_date(_LAST_REVIEW, 21)
+        _decision, reason = should_rebalance_hybrid(
+            _BREACH, _TARGET, _MONTHLY_CFG, current, _LAST_REVIEW
+        )
+        assert reason in known

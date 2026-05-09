@@ -134,9 +134,7 @@ class DashboardRepository(RepositoryBase):
             .group_by(Instrument.yfinance_ticker)
         )
         rows = self.session.execute(stmt).all()
-        coverage: dict[str, tuple[int, date | None]] = {
-            ticker: (0, None) for ticker in tickers
-        }
+        coverage: dict[str, tuple[int, date | None]] = dict.fromkeys(tickers, (0, None))
         for ticker, count, latest in rows:
             coverage[ticker] = (int(count or 0), latest)
         return coverage

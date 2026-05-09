@@ -135,10 +135,10 @@ def should_rebalance_hybrid(
     config: HybridRebalancingConfig,
     current_date: pd.Timestamp,
     last_review_date: pd.Timestamp,
-) -> bool:
+) -> tuple[bool, str]:
     """Determine whether to rebalance under a hybrid calendar+threshold policy.
 
-    Returns ``True`` only when **both** conditions are met:
+    Returns ``(True, reason)`` only when **both** conditions are met:
 
     1. ``current_date`` is a calendar review date — at least
        ``config.calendar.trading_days`` business days have elapsed since
@@ -146,8 +146,9 @@ def should_rebalance_hybrid(
     2. At least one asset's drift exceeds the threshold defined in
        ``config.threshold``.
 
-    Between calendar review dates the function always returns ``False``
-    regardless of how much drift has accumulated.
+    Between calendar review dates the function always returns
+    ``(False, "between_review_dates")`` regardless of how much drift has
+    accumulated.
 
     Parameters
     ----------
@@ -164,11 +165,16 @@ def should_rebalance_hybrid(
 
     Returns
     -------
-    bool
+    decision : bool
         ``True`` only if it is a calendar review date AND drift exceeds
         the threshold.
+    reason : str
+        One of ``"between_review_dates"``, ``"threshold_met"``,
+        ``"threshold_not_met"`` — explains the decision branch taken.
     """
     next_review = last_review_date + pd.offsets.BDay(config.calendar.trading_days)
     if current_date < next_review:
-        return False
-    return should_rebalance(current_weights, target_weights, config.threshold)
+        return False, "between_review_dates"
+    if should_rebalance(current_weights, target_weights, config.threshold):
+        return True, "threshold_met"
+    return False, "threshold_not_met"

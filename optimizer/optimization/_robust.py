@@ -57,11 +57,20 @@ class RobustMeanRiskConfig:
         )
 
     @classmethod
-    def for_moderate(cls) -> RobustMeanRiskConfig:
-        """Standard 95% confidence preset."""
+    def for_moderate(
+        cls, *, uncertainty_level: float = 0.95
+    ) -> RobustMeanRiskConfig:
+        """Moderate confidence preset (default 95%).
+
+        Parameters
+        ----------
+        uncertainty_level : float, default=0.95
+            Confidence level forwarded to
+            :meth:`MuUncertaintySetConfig.for_empirical`.  Keyword-only.
+        """
         return cls(
             mu_uncertainty_set_config=MuUncertaintySetConfig.for_empirical(
-                confidence_level=0.95
+                confidence_level=uncertainty_level
             ),
         )
 

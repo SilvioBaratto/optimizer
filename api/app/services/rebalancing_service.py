@@ -209,13 +209,14 @@ def _evaluate_policy(
         if last_review_date is None:
             raise ValueError("last_review_date is required for hybrid policy")
         # pd.Timestamp(str) never returns NaT; stubs over-approximate the return type
-        return should_rebalance_hybrid(
+        decision, _reason = should_rebalance_hybrid(
             current_arr,
             target_arr,
             config,
             pd.Timestamp(current_date.isoformat()),  # type: ignore[arg-type]
             pd.Timestamp(last_review_date.isoformat()),  # type: ignore[arg-type]
         )
+        return decision
     if isinstance(config, CalendarRebalancingConfig):
         return _calendar_should_rebalance(config, current_date, last_review_date)
     return should_rebalance(current_arr, target_arr, config)
