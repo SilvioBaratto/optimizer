@@ -55,6 +55,13 @@ nav:
       - Factors: guide/factors.md
       - Synthetic Data: guide/synthetic.md
       - Universe Screening: guide/universe.md
+  - Concepts:
+      - Distance: concepts/distance.md
+      - Cluster: concepts/cluster.md
+      - Uncertainty Sets: concepts/uncertainty_set.md
+      - Online Learning: concepts/online.md
+      - CS Linear Regression: concepts/linear_model.md
+      - FX: concepts/fx.md
   - API Reference:
       - preprocessing: api/preprocessing.md
       - pre_selection: api/pre_selection.md
@@ -69,6 +76,12 @@ nav:
       - pipeline: api/pipeline.md
       - universe: api/universe.md
       - factors: api/factors.md
+      - distance: api/distance.md
+      - cluster: api/cluster.md
+      - uncertainty_set: api/uncertainty_set.md
+      - online: api/online.md
+      - linear_model: api/linear_model.md
+      - fx: api/fx.md
 
 markdown_extensions:
   - pymdownx.highlight:

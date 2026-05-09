@@ -1,0 +1,3814 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://silviobaratto.github.io/optimizer/guide/views/">
+      
+      
+        <link rel="prev" href="../moments/">
+      
+      
+        <link rel="next" href="../optimization/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Views - Portfolio Optimizer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#view-integration" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Portfolio Optimizer" class="md-header__button md-logo" aria-label="Portfolio Optimizer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Portfolio Optimizer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Views
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/SilvioBaratto/optimizer" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    SilvioBaratto/optimizer
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Portfolio Optimizer" class="md-nav__button md-logo" aria-label="Portfolio Optimizer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Portfolio Optimizer
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/SilvioBaratto/optimizer" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    SilvioBaratto/optimizer
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preprocessing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pre-selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../moments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Moments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Views
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Views
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#module-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-black-litterman" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Black-Litterman
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Black-Litterman">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#posterior-formula" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Posterior Formula
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#view-syntax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        View Syntax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uncertainty-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uncertainty Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#factory-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factory Function
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#absolute-and-relative-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Absolute and Relative Views
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#idzorek-confidence-levels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idzorek Confidence Levels
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#empirical-track-record" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Empirical Track Record
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#factor-model-variant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factor Model Variant
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#composing-with-meanrisk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composing with MeanRisk
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-entropy-pooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Entropy Pooling
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Entropy Pooling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mathematical-formulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mathematical Formulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supported-view-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported View Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#presets_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#factory-function_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factory Function
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mean-equality-and-inequality-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mean Equality and Inequality Views
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#higher-moment-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Higher-Moment Views
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relative-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relative Views
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stress-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stress Testing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-opinion-pooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Opinion Pooling
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Opinion Pooling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pooling-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pooling Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#factory-function_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factory Function
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#combining-expert-forecasts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Combining Expert Forecasts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logarithmic-pooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logarithmic Pooling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#anchoring-to-a-base-prior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anchoring to a Base Prior
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-omega-calibration-from-track-record" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Omega Calibration from Track Record
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Omega Calibration from Track Record">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#formula" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Formula
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#function-signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Function Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gotchas-and-common-pitfalls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gotchas and Common Pitfalls
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gotchas and Common Pitfalls">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#factor-model-views-must-reference-factor-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factor Model Views Must Reference Factor Names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tau-must-be-strictly-positive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tau Must Be Strictly Positive
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relative-views-require-prior-moments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relative Views Require Prior Moments
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#empirical-track-record-requires-history-or-pre-computed-omega" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Empirical Track Record Requires History or Pre-Computed Omega
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#opinion-probabilities-must-sum-to-at-most-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opinion Probabilities Must Sum to At Most 1.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#estimators-are-not-stored-in-opinionpoolingconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Estimators Are Not Stored in OpinionPoolingConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#config-tuples-vs-skfolio-lists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config Tuples vs. skfolio Lists
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mean-equality-and-inequality-views-are-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mean Equality and Inequality Views Are Merged
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#choosing-a-framework" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing a Framework
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rebalancing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rebalancing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../factors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Factors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../synthetic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synthetic Data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../universe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Universe Screening
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/distance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/cluster/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/uncertainty_set/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Uncertainty Sets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/online/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Online Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/linear_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CS Linear Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/fx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    preprocessing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/pre_selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pre_selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/moments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    moments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/views/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    views
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/synthetic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    synthetic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rebalancing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    rebalancing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/universe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    universe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/factors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    factors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/distance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    distance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/cluster/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cluster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/uncertainty_set/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    uncertainty_set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/online/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    online
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/linear_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    linear_model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/fx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fx
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#module-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-black-litterman" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Black-Litterman
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Black-Litterman">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#posterior-formula" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Posterior Formula
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#view-syntax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        View Syntax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uncertainty-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uncertainty Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#factory-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factory Function
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#absolute-and-relative-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Absolute and Relative Views
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#idzorek-confidence-levels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idzorek Confidence Levels
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#empirical-track-record" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Empirical Track Record
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#factor-model-variant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factor Model Variant
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#composing-with-meanrisk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composing with MeanRisk
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-entropy-pooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Entropy Pooling
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Entropy Pooling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mathematical-formulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mathematical Formulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supported-view-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported View Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#presets_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#factory-function_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factory Function
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mean-equality-and-inequality-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mean Equality and Inequality Views
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#higher-moment-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Higher-Moment Views
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relative-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relative Views
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stress-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stress Testing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-opinion-pooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Opinion Pooling
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Opinion Pooling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pooling-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pooling Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#factory-function_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factory Function
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#combining-expert-forecasts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Combining Expert Forecasts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logarithmic-pooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logarithmic Pooling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#anchoring-to-a-base-prior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anchoring to a Base Prior
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-omega-calibration-from-track-record" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Omega Calibration from Track Record
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Omega Calibration from Track Record">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#formula" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Formula
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#function-signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Function Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gotchas-and-common-pitfalls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gotchas and Common Pitfalls
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gotchas and Common Pitfalls">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#factor-model-views-must-reference-factor-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factor Model Views Must Reference Factor Names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tau-must-be-strictly-positive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tau Must Be Strictly Positive
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relative-views-require-prior-moments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relative Views Require Prior Moments
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#empirical-track-record-requires-history-or-pre-computed-omega" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Empirical Track Record Requires History or Pre-Computed Omega
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#opinion-probabilities-must-sum-to-at-most-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opinion Probabilities Must Sum to At Most 1.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#estimators-are-not-stored-in-opinionpoolingconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Estimators Are Not Stored in OpinionPoolingConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#config-tuples-vs-skfolio-lists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config Tuples vs. skfolio Lists
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mean-equality-and-inequality-views-are-merged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mean Equality and Inequality Views Are Merged
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#choosing-a-framework" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing a Framework
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="view-integration">View Integration<a class="headerlink" href="#view-integration" title="Permanent link">&para;</a></h1>
+<p>Frameworks for incorporating investor views into portfolio construction. The views
+module provides three complementary approaches -- Black-Litterman, Entropy Pooling,
+and Opinion Pooling -- each offering different tradeoffs between expressiveness,
+computational cost, and theoretical grounding.</p>
+<p>All three frameworks produce skfolio <code>BasePrior</code> objects that plug directly into
+any skfolio optimiser via the <code>prior_estimator</code> parameter. The module follows the
+standard project convention: <strong>frozen <code>@dataclass</code> config</strong> + <strong>factory function</strong>.
+Configs hold only serialisable primitives; non-serialisable objects (estimator
+instances, numpy arrays) are passed as factory keyword arguments.</p>
+<p><strong>Important</strong>: Views use <code>tuple[str, ...]</code> in configs (hashable for frozen
+dataclasses). Factory functions convert these to <code>list[str]</code> before passing to
+skfolio.</p>
+<hr />
+<h2 id="module-overview">Module Overview<a class="headerlink" href="#module-overview" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Framework</th>
+<th>Config</th>
+<th>Factory</th>
+<th>Use Case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Black-Litterman</td>
+<td><code>BlackLittermanConfig</code></td>
+<td><code>build_black_litterman()</code></td>
+<td>Equilibrium-based return tilting with absolute/relative views</td>
+</tr>
+<tr>
+<td>Entropy Pooling</td>
+<td><code>EntropyPoolingConfig</code></td>
+<td><code>build_entropy_pooling()</code></td>
+<td>Non-parametric views on any distributional moment</td>
+</tr>
+<tr>
+<td>Opinion Pooling</td>
+<td><code>OpinionPoolingConfig</code></td>
+<td><code>build_opinion_pooling()</code></td>
+<td>Combining multiple expert prior estimators</td>
+</tr>
+<tr>
+<td>Omega Calibration</td>
+<td>--</td>
+<td><code>calibrate_omega_from_track_record()</code></td>
+<td>Empirical uncertainty from forecast track records</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.views</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">BlackLittermanConfig</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">EntropyPoolingConfig</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">OpinionPoolingConfig</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">ViewUncertaintyMethod</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">build_black_litterman</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">build_entropy_pooling</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">build_opinion_pooling</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">calibrate_omega_from_track_record</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="1-black-litterman">1. Black-Litterman<a class="headerlink" href="#1-black-litterman" title="Permanent link">&para;</a></h2>
+<p>The Black-Litterman (BL) model starts from a market equilibrium prior and
+tilts expected returns toward investor views. The posterior blends equilibrium
+returns <span class="arithmatex">\( \mu_{eq} \)</span> with view-implied returns through a Bayesian update.</p>
+<h3 id="posterior-formula">Posterior Formula<a class="headerlink" href="#posterior-formula" title="Permanent link">&para;</a></h3>
+<p>Given:</p>
+<ul>
+<li><span class="arithmatex">\( \mu_{eq} \)</span> -- equilibrium expected returns (from the prior)</li>
+<li><span class="arithmatex">\( \Sigma \)</span> -- covariance matrix</li>
+<li><span class="arithmatex">\( \tau \)</span> -- uncertainty scaling parameter (typically 0.01--0.10)</li>
+<li><span class="arithmatex">\( P \)</span> -- picking matrix (maps views to assets)</li>
+<li><span class="arithmatex">\( Q \)</span> -- view return vector</li>
+<li><span class="arithmatex">\( \Omega \)</span> -- view uncertainty matrix (diagonal)</li>
+<li><span class="arithmatex">\( r_f \)</span> -- risk-free rate</li>
+</ul>
+<p>The BL posterior expected returns are:</p>
+<div class="arithmatex">\[
+\mu_{BL} = \mu_{eq} + \tau \Sigma P^{\top} \left( P \tau \Sigma P^{\top} + \Omega \right)^{-1} \left( Q - P \mu_{eq} \right) + r_f
+\]</div>
+<p>The BL posterior covariance is:</p>
+<div class="arithmatex">\[
+\Sigma_{BL} = \Sigma + \tau \Sigma - \tau \Sigma P^{\top} \left( P \tau \Sigma P^{\top} + \Omega \right)^{-1} P \tau \Sigma
+\]</div>
+<h3 id="view-syntax">View Syntax<a class="headerlink" href="#view-syntax" title="Permanent link">&para;</a></h3>
+<p>Views are expressed as strings that skfolio parses into the picking matrix <span class="arithmatex">\( P \)</span>
+and view vector <span class="arithmatex">\( Q \)</span>.</p>
+<p><strong>Absolute views</strong> -- a single asset will achieve a specific return:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="s2">&quot;AAPL == 0.05&quot;</span>    <span class="c1"># AAPL expected return is 5%</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s2">&quot;JPM == 0.03&quot;</span>     <span class="c1"># JPM expected return is 3%</span>
+</code></pre></div>
+<p><strong>Relative views</strong> -- the difference in returns between two assets:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="s2">&quot;AAPL - MSFT == 0.02&quot;</span>   <span class="c1"># AAPL outperforms MSFT by 2%</span>
+</code></pre></div>
+<h3 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h3>
+<p><code>BlackLittermanConfig</code> is a frozen dataclass with the following fields:</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>views</code></td>
+<td><code>tuple[str, ...]</code></td>
+<td><em>(required)</em></td>
+<td>View expressions (absolute or relative)</td>
+</tr>
+<tr>
+<td><code>tau</code></td>
+<td><code>float</code></td>
+<td><code>0.05</code></td>
+<td>Uncertainty scaling; must be strictly positive</td>
+</tr>
+<tr>
+<td><code>risk_free_rate</code></td>
+<td><code>float</code></td>
+<td><code>0.0</code></td>
+<td>Risk-free rate added to posterior returns</td>
+</tr>
+<tr>
+<td><code>uncertainty_method</code></td>
+<td><code>ViewUncertaintyMethod</code></td>
+<td><code>HE_LITTERMAN</code></td>
+<td>How to calibrate the <span class="arithmatex">\( \Omega \)</span> matrix</td>
+</tr>
+<tr>
+<td><code>view_confidences</code></td>
+<td><code>tuple[float, ...] \| None</code></td>
+<td><code>None</code></td>
+<td>Per-view confidence levels in <span class="arithmatex">\([0, 1]\)</span>; required for Idzorek</td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td><code>dict[str, list[str]] \| None</code></td>
+<td><code>None</code></td>
+<td>Asset group mapping for group-relative views</td>
+</tr>
+<tr>
+<td><code>prior_config</code></td>
+<td><code>MomentEstimationConfig \| None</code></td>
+<td><code>None</code></td>
+<td>Inner prior config; defaults to <code>EquilibriumMu</code> + <code>LedoitWolf</code></td>
+</tr>
+<tr>
+<td><code>use_factor_model</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Wrap BL in a <code>FactorModel</code></td>
+</tr>
+<tr>
+<td><code>residual_variance</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>Include residual variance in <code>FactorModel</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Validation</strong>: <code>tau</code> must be strictly positive. Setting <code>tau=0</code> or a negative
+value raises <code>ValueError</code>.</p>
+<h3 id="uncertainty-methods">Uncertainty Methods<a class="headerlink" href="#uncertainty-methods" title="Permanent link">&para;</a></h3>
+<p>The <code>ViewUncertaintyMethod</code> enum controls how the diagonal uncertainty matrix
+<span class="arithmatex">\( \Omega \)</span> is constructed:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Enum Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>He-Litterman</td>
+<td><code>HE_LITTERMAN</code></td>
+<td><span class="arithmatex">\( \Omega = \text{diag}(P \cdot \tau\Sigma \cdot P^{\top}) \)</span>; proportional to the variance of each view portfolio</td>
+</tr>
+<tr>
+<td>Idzorek</td>
+<td><code>IDZOREK</code></td>
+<td>Per-view confidence levels in <span class="arithmatex">\([0, 1]\)</span> that interpolate between 0% and 100% tilt</td>
+</tr>
+<tr>
+<td>Empirical Track Record</td>
+<td><code>EMPIRICAL_TRACK_RECORD</code></td>
+<td><span class="arithmatex">\( \Omega_{kk} = \text{Var}(Q_{k,t} - r_{k,t}) \)</span>; calibrated from historical forecast errors</td>
+</tr>
+</tbody>
+</table>
+<h3 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h3>
+<p>Three factory methods provide common configurations:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Standard BL with EquilibriumMu + LedoitWolf prior</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">BlackLittermanConfig</span><span class="o">.</span><span class="n">for_equilibrium</span><span class="p">(</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.05&quot;</span><span class="p">,</span> <span class="s2">&quot;JPM == 0.03&quot;</span><span class="p">),</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">)</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="c1"># BL wrapped in a FactorModel</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">BlackLittermanConfig</span><span class="o">.</span><span class="n">for_factor_model</span><span class="p">(</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;MTUM == 0.05&quot;</span><span class="p">,),</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">)</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="c1"># Idzorek method with per-view confidence levels</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">BlackLittermanConfig</span><span class="o">.</span><span class="n">for_idzorek</span><span class="p">(</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>    <span class="n">views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.05&quot;</span><span class="p">,</span> <span class="s2">&quot;MSFT == 0.03&quot;</span><span class="p">),</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>    <span class="n">view_confidences</span><span class="o">=</span><span class="p">(</span><span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">),</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="p">)</span>
+</code></pre></div>
+<h3 id="factory-function">Factory Function<a class="headerlink" href="#factory-function" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_black_litterman</span><span class="p">(</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">BlackLittermanConfig</span><span class="p">,</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">view_history</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">return_history</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">omega</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BasePrior</span><span class="p">:</span>
+</code></pre></div>
+<p><strong>Parameters</strong>:</p>
+<ul>
+<li><code>config</code> -- the <code>BlackLittermanConfig</code> instance</li>
+<li><code>view_history</code> -- historical forecasted <span class="arithmatex">\( Q \)</span> values (dates x views); required for <code>EMPIRICAL_TRACK_RECORD</code> unless <code>omega</code> is pre-supplied</li>
+<li><code>return_history</code> -- realised returns aligned to each view (dates x views); required together with <code>view_history</code></li>
+<li><code>omega</code> -- pre-computed diagonal <span class="arithmatex">\( \Omega \)</span> matrix; when provided with <code>EMPIRICAL_TRACK_RECORD</code>, used directly (skips history computation)</li>
+</ul>
+<p><strong>Returns</strong>: a <code>BlackLitterman</code> instance (or <code>FactorModel</code> wrapping one if <code>use_factor_model=True</code>).</p>
+<h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h3>
+<h4 id="absolute-and-relative-views">Absolute and Relative Views<a class="headerlink" href="#absolute-and-relative-views" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">skfolio.preprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">prices_to_returns</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.views</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlackLittermanConfig</span><span class="p">,</span> <span class="n">build_black_litterman</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">returns</span> <span class="o">=</span> <span class="n">prices_to_returns</span><span class="p">(</span><span class="n">prices</span><span class="p">)</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">BlackLittermanConfig</span><span class="o">.</span><span class="n">for_equilibrium</span><span class="p">(</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.05&quot;</span><span class="p">,</span> <span class="s2">&quot;AAPL - MSFT == 0.02&quot;</span><span class="p">,</span> <span class="s2">&quot;JPM == 0.03&quot;</span><span class="p">),</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="p">)</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_black_litterman</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="n">mu_posterior</span> <span class="o">=</span> <span class="n">prior</span><span class="o">.</span><span class="n">return_distribution_</span><span class="o">.</span><span class="n">mu</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="n">cov_posterior</span> <span class="o">=</span> <span class="n">prior</span><span class="o">.</span><span class="n">return_distribution_</span><span class="o">.</span><span class="n">covariance</span>
+</code></pre></div>
+<h4 id="idzorek-confidence-levels">Idzorek Confidence Levels<a class="headerlink" href="#idzorek-confidence-levels" title="Permanent link">&para;</a></h4>
+<p>Higher confidence values pull the posterior closer to the view target:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">BlackLittermanConfig</span><span class="o">.</span><span class="n">for_idzorek</span><span class="p">(</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="n">views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.10&quot;</span><span class="p">,</span> <span class="s2">&quot;MSFT == 0.03&quot;</span><span class="p">),</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">view_confidences</span><span class="o">=</span><span class="p">(</span><span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span>   <span class="c1"># 90% confident on AAPL, 50% on MSFT</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="p">)</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_black_litterman</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="empirical-track-record">Empirical Track Record<a class="headerlink" href="#empirical-track-record" title="Permanent link">&para;</a></h4>
+<p>When historical forecast data is available, the uncertainty matrix can be
+calibrated from realised forecast errors:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">BlackLittermanConfig</span><span class="p">(</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.05&quot;</span><span class="p">,),</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    <span class="n">uncertainty_method</span><span class="o">=</span><span class="n">ViewUncertaintyMethod</span><span class="o">.</span><span class="n">EMPIRICAL_TRACK_RECORD</span><span class="p">,</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="p">)</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="c1"># Option A: supply view/return history, let the factory calibrate omega</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_black_litterman</span><span class="p">(</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>    <span class="n">cfg</span><span class="p">,</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>    <span class="n">view_history</span><span class="o">=</span><span class="n">view_history_df</span><span class="p">,</span>     <span class="c1"># shape (n_dates, n_views)</span>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>    <span class="n">return_history</span><span class="o">=</span><span class="n">return_history_df</span><span class="p">,</span>  <span class="c1"># same shape</span>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="p">)</span>
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="c1"># Option B: supply a pre-computed omega directly</span>
+<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="n">omega</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">([</span><span class="mf">1e-4</span><span class="p">])</span>
+<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_black_litterman</span><span class="p">(</span><span class="n">cfg</span><span class="p">,</span> <span class="n">omega</span><span class="o">=</span><span class="n">omega</span><span class="p">)</span>
+<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a>
+<a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="factor-model-variant">Factor Model Variant<a class="headerlink" href="#factor-model-variant" title="Permanent link">&para;</a></h4>
+<p>When using BL inside a <code>FactorModel</code>, views must reference <strong>factor names</strong>
+(not asset names):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">skfolio.preprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">prices_to_returns</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">asset_returns</span> <span class="o">=</span> <span class="n">prices_to_returns</span><span class="p">(</span><span class="n">asset_prices</span><span class="p">)</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">factor_returns</span> <span class="o">=</span> <span class="n">prices_to_returns</span><span class="p">(</span><span class="n">factor_prices</span><span class="p">)</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">BlackLittermanConfig</span><span class="o">.</span><span class="n">for_factor_model</span><span class="p">(</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>    <span class="n">views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;MTUM == 0.05&quot;</span><span class="p">,</span> <span class="s2">&quot;QUAL == 0.03&quot;</span><span class="p">),</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="p">)</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_black_litterman</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">asset_returns</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="n">factor_returns</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="composing-with-meanrisk">Composing with MeanRisk<a class="headerlink" href="#composing-with-meanrisk" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">skfolio.optimization</span><span class="w"> </span><span class="kn">import</span> <span class="n">MeanRisk</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">BlackLittermanConfig</span><span class="o">.</span><span class="n">for_equilibrium</span><span class="p">(</span><span class="n">views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.05&quot;</span><span class="p">,))</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_black_litterman</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="n">model</span> <span class="o">=</span> <span class="n">MeanRisk</span><span class="p">(</span><span class="n">prior_estimator</span><span class="o">=</span><span class="n">prior</span><span class="p">)</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="n">model</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="n">portfolio</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="2-entropy-pooling">2. Entropy Pooling<a class="headerlink" href="#2-entropy-pooling" title="Permanent link">&para;</a></h2>
+<p>Entropy Pooling (Meucci, 2008) is a non-parametric framework that finds the
+probability distribution closest to an empirical prior (in the Kullback-Leibler
+divergence sense) subject to moment constraints derived from investor views.</p>
+<h3 id="mathematical-formulation">Mathematical Formulation<a class="headerlink" href="#mathematical-formulation" title="Permanent link">&para;</a></h3>
+<p>Given a prior probability vector <span class="arithmatex">\( \mathbf{p}_0 \)</span> over historical scenarios,
+Entropy Pooling solves:</p>
+<div class="arithmatex">\[
+\min_{\mathbf{p}} \; \text{KL}(\mathbf{p} \| \mathbf{p}_0) = \sum_{s=1}^{S} p_s \ln \frac{p_s}{p_{0,s}}
+\]</div>
+<p>subject to:</p>
+<div class="arithmatex">\[
+\sum_{s=1}^{S} p_s \, f_k(r_s) = v_k, \quad k = 1, \ldots, K
+\]</div>
+<p>where <span class="arithmatex">\( f_k \)</span> encodes the view constraint (mean, variance, correlation,
+skewness, kurtosis, or CVaR) and <span class="arithmatex">\( v_k \)</span> is the target value. The solution
+re-weights scenarios to satisfy the views while staying as close as possible
+to the original distribution.</p>
+<p>This approach is strictly more general than Black-Litterman: it supports views
+on any distributional moment, not just expected returns.</p>
+<h3 id="supported-view-types">Supported View Types<a class="headerlink" href="#supported-view-types" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>View Type</th>
+<th>Config Field</th>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Mean equality</td>
+<td><code>mean_views</code></td>
+<td><code>"AAPL == 0.05"</code></td>
+<td>Expected return equals 5%</td>
+</tr>
+<tr>
+<td>Mean inequality</td>
+<td><code>mean_inequality_views</code></td>
+<td><code>"AAPL &gt;= 0.03"</code></td>
+<td>Expected return at least 3%</td>
+</tr>
+<tr>
+<td>Variance</td>
+<td><code>variance_views</code></td>
+<td><code>"AAPL == 0.04"</code></td>
+<td>Variance equals 0.04</td>
+</tr>
+<tr>
+<td>Correlation</td>
+<td><code>correlation_views</code></td>
+<td><code>"(AAPL, JPM) == 0.5"</code></td>
+<td>Pairwise correlation equals 0.5</td>
+</tr>
+<tr>
+<td>Skewness</td>
+<td><code>skew_views</code></td>
+<td><code>"AAPL == -0.5"</code></td>
+<td>Skewness equals -0.5</td>
+</tr>
+<tr>
+<td>Kurtosis</td>
+<td><code>kurtosis_views</code></td>
+<td><code>"AAPL == 5.0"</code></td>
+<td>Kurtosis equals 5.0</td>
+</tr>
+<tr>
+<td>CVaR</td>
+<td><code>cvar_views</code></td>
+<td><code>"AAPL &lt;= -0.05"</code></td>
+<td>CVaR at <code>cvar_beta</code> level</td>
+</tr>
+<tr>
+<td>Relative mean</td>
+<td><code>relative_mean_views</code></td>
+<td><code>("AAPL", 0.01)</code></td>
+<td>Shift mean by +1% from prior</td>
+</tr>
+<tr>
+<td>Relative variance</td>
+<td><code>relative_variance_views</code></td>
+<td><code>("AAPL", 2.0)</code></td>
+<td>Scale variance by 2x from prior</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Note on correlation view syntax</strong>: In the config, correlation views use
+parenthesised pairs: <code>"(AAPL, JPM) == 0.5"</code>. In skfolio, these are passed with
+semicolon separators: <code>"AAPL; JPM == 0.5"</code>. The factory handles this conversion.</p>
+<p><strong>Note on inequality operators</strong>: Both <code>mean_views</code> (equality, <code>==</code>) and
+<code>mean_inequality_views</code> (inequality, <code>&gt;=</code> / <code>&lt;=</code>) are merged into a single
+list before being passed to skfolio's <code>EntropyPooling</code>, which handles all three
+operators.</p>
+<h3 id="configuration_1">Configuration<a class="headerlink" href="#configuration_1" title="Permanent link">&para;</a></h3>
+<p><code>EntropyPoolingConfig</code> is a frozen dataclass:</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mean_views</code></td>
+<td><code>tuple[str, ...] \| None</code></td>
+<td><code>None</code></td>
+<td>Mean equality view expressions</td>
+</tr>
+<tr>
+<td><code>mean_inequality_views</code></td>
+<td><code>tuple[str, ...] \| None</code></td>
+<td><code>None</code></td>
+<td>Mean inequality view expressions</td>
+</tr>
+<tr>
+<td><code>variance_views</code></td>
+<td><code>tuple[str, ...] \| None</code></td>
+<td><code>None</code></td>
+<td>Variance view expressions</td>
+</tr>
+<tr>
+<td><code>relative_mean_views</code></td>
+<td><code>tuple[tuple[str, float], ...] \| None</code></td>
+<td><code>None</code></td>
+<td>Relative mean shifts from prior</td>
+</tr>
+<tr>
+<td><code>relative_variance_views</code></td>
+<td><code>tuple[tuple[str, float], ...] \| None</code></td>
+<td><code>None</code></td>
+<td>Relative variance multipliers from prior</td>
+</tr>
+<tr>
+<td><code>correlation_views</code></td>
+<td><code>tuple[str, ...] \| None</code></td>
+<td><code>None</code></td>
+<td>Correlation view expressions</td>
+</tr>
+<tr>
+<td><code>skew_views</code></td>
+<td><code>tuple[str, ...] \| None</code></td>
+<td><code>None</code></td>
+<td>Skewness view expressions</td>
+</tr>
+<tr>
+<td><code>kurtosis_views</code></td>
+<td><code>tuple[str, ...] \| None</code></td>
+<td><code>None</code></td>
+<td>Kurtosis view expressions</td>
+</tr>
+<tr>
+<td><code>cvar_views</code></td>
+<td><code>tuple[str, ...] \| None</code></td>
+<td><code>None</code></td>
+<td>CVaR view expressions</td>
+</tr>
+<tr>
+<td><code>cvar_beta</code></td>
+<td><code>float</code></td>
+<td><code>0.95</code></td>
+<td>Confidence level for CVaR views</td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td><code>dict[str, list[str]] \| None</code></td>
+<td><code>None</code></td>
+<td>Asset group mapping</td>
+</tr>
+<tr>
+<td><code>solver</code></td>
+<td><code>str</code></td>
+<td><code>"TNC"</code></td>
+<td>Scipy solver for the dual optimisation</td>
+</tr>
+<tr>
+<td><code>solver_params</code></td>
+<td><code>dict[str, object] \| None</code></td>
+<td><code>None</code></td>
+<td>Additional solver parameters</td>
+</tr>
+<tr>
+<td><code>prior_config</code></td>
+<td><code>MomentEstimationConfig \| None</code></td>
+<td><code>None</code></td>
+<td>Inner prior; defaults to <code>EmpiricalPrior()</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="presets_1">Presets<a class="headerlink" href="#presets_1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Mean-only views</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">EntropyPoolingConfig</span><span class="o">.</span><span class="n">for_mean_views</span><span class="p">(</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    <span class="n">mean_views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.05&quot;</span><span class="p">,</span> <span class="s2">&quot;JPM == 0.03&quot;</span><span class="p">),</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="p">)</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="c1"># Stress testing with variance and correlation views</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">EntropyPoolingConfig</span><span class="o">.</span><span class="n">for_stress_test</span><span class="p">(</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>    <span class="n">variance_views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.04&quot;</span><span class="p">,),</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>    <span class="n">correlation_views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;(AAPL, JPM) == 0.5&quot;</span><span class="p">,),</span>
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="p">)</span>
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="c1"># Group-relative views</span>
+<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">EntropyPoolingConfig</span><span class="o">.</span><span class="n">for_group_views</span><span class="p">(</span>
+<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>    <span class="n">mean_views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;tech == 0.05&quot;</span><span class="p">,),</span>
+<a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>    <span class="n">groups</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;tech&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;AAPL&quot;</span><span class="p">,</span> <span class="s2">&quot;MSFT&quot;</span><span class="p">,</span> <span class="s2">&quot;GOOGL&quot;</span><span class="p">]},</span>
+<a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a><span class="p">)</span>
+</code></pre></div>
+<h3 id="factory-function_1">Factory Function<a class="headerlink" href="#factory-function_1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_entropy_pooling</span><span class="p">(</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">EntropyPoolingConfig</span><span class="p">,</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>    <span class="n">prior_moments</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="n">asset_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">EntropyPooling</span><span class="p">:</span>
+</code></pre></div>
+<p><strong>Parameters</strong>:</p>
+<ul>
+<li><code>config</code> -- the <code>EntropyPoolingConfig</code> instance</li>
+<li><code>prior_moments</code> -- <code>(mu, cov)</code> arrays from a fitted prior; required when <code>relative_mean_views</code> or <code>relative_variance_views</code> are set</li>
+<li><code>asset_names</code> -- asset names corresponding to rows/columns of <code>prior_moments</code>; required together with <code>prior_moments</code></li>
+</ul>
+<p><strong>Returns</strong>: an <code>EntropyPooling</code> instance.</p>
+<p><strong>Raises</strong>: <code>ConfigurationError</code> if relative views are specified without
+providing <code>prior_moments</code> and <code>asset_names</code>.</p>
+<h3 id="examples_1">Examples<a class="headerlink" href="#examples_1" title="Permanent link">&para;</a></h3>
+<h4 id="mean-equality-and-inequality-views">Mean Equality and Inequality Views<a class="headerlink" href="#mean-equality-and-inequality-views" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.views</span><span class="w"> </span><span class="kn">import</span> <span class="n">EntropyPoolingConfig</span><span class="p">,</span> <span class="n">build_entropy_pooling</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">EntropyPoolingConfig</span><span class="p">(</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>    <span class="n">mean_views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.05&quot;</span><span class="p">,),</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    <span class="n">mean_inequality_views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;JPM &gt;= 0.02&quot;</span><span class="p">,),</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="p">)</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_entropy_pooling</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+</code></pre></div>
+<p>Both equality and inequality mean views are merged into a single list internally.</p>
+<h4 id="higher-moment-views">Higher-Moment Views<a class="headerlink" href="#higher-moment-views" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">EntropyPoolingConfig</span><span class="p">(</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    <span class="n">skew_views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == -0.5&quot;</span><span class="p">,),</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="n">kurtosis_views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 5.0&quot;</span><span class="p">,),</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>    <span class="n">cvar_views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL &lt;= -0.05&quot;</span><span class="p">,),</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>    <span class="n">cvar_beta</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="p">)</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_entropy_pooling</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="relative-views">Relative Views<a class="headerlink" href="#relative-views" title="Permanent link">&para;</a></h4>
+<p>Relative views express shifts from the fitted prior rather than absolute targets.
+This requires passing the fitted prior moments:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="c1"># Fit a prior first to obtain moments</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">skfolio.prior</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmpiricalPrior</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="n">base_prior</span> <span class="o">=</span> <span class="n">EmpiricalPrior</span><span class="p">()</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="n">base_prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="n">mu</span> <span class="o">=</span> <span class="n">base_prior</span><span class="o">.</span><span class="n">return_distribution_</span><span class="o">.</span><span class="n">mu</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="n">cov</span> <span class="o">=</span> <span class="n">base_prior</span><span class="o">.</span><span class="n">return_distribution_</span><span class="o">.</span><span class="n">covariance</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="n">asset_names</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">returns</span><span class="o">.</span><span class="n">columns</span><span class="p">)</span>
+<a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>
+<a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="c1"># Relative mean: shift AAPL&#39;s expected return up by 1%</span>
+<a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a><span class="c1"># Relative variance: double MSFT&#39;s variance</span>
+<a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">EntropyPoolingConfig</span><span class="p">(</span>
+<a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a>    <span class="n">relative_mean_views</span><span class="o">=</span><span class="p">((</span><span class="s2">&quot;AAPL&quot;</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">),),</span>
+<a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a>    <span class="n">relative_variance_views</span><span class="o">=</span><span class="p">((</span><span class="s2">&quot;MSFT&quot;</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">),),</span>
+<a id="__codelineno-14-16" name="__codelineno-14-16" href="#__codelineno-14-16"></a><span class="p">)</span>
+<a id="__codelineno-14-17" name="__codelineno-14-17" href="#__codelineno-14-17"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_entropy_pooling</span><span class="p">(</span>
+<a id="__codelineno-14-18" name="__codelineno-14-18" href="#__codelineno-14-18"></a>    <span class="n">cfg</span><span class="p">,</span>
+<a id="__codelineno-14-19" name="__codelineno-14-19" href="#__codelineno-14-19"></a>    <span class="n">prior_moments</span><span class="o">=</span><span class="p">(</span><span class="n">mu</span><span class="p">,</span> <span class="n">cov</span><span class="p">),</span>
+<a id="__codelineno-14-20" name="__codelineno-14-20" href="#__codelineno-14-20"></a>    <span class="n">asset_names</span><span class="o">=</span><span class="n">asset_names</span><span class="p">,</span>
+<a id="__codelineno-14-21" name="__codelineno-14-21" href="#__codelineno-14-21"></a><span class="p">)</span>
+<a id="__codelineno-14-22" name="__codelineno-14-22" href="#__codelineno-14-22"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+</code></pre></div>
+<p>Internally, relative mean views are converted to absolute views by adding the
+shift to the prior mean: <code>AAPL == {mu[i] + 0.01}</code>. Relative variance views
+multiply the prior diagonal variance: <code>MSFT == {cov[j,j] * 2.0}</code>.</p>
+<h4 id="stress-testing">Stress Testing<a class="headerlink" href="#stress-testing" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">EntropyPoolingConfig</span><span class="o">.</span><span class="n">for_stress_test</span><span class="p">(</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>    <span class="n">variance_views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.04&quot;</span><span class="p">,</span> <span class="s2">&quot;JPM == 0.06&quot;</span><span class="p">),</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    <span class="n">correlation_views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;(AAPL, JPM) == 0.8&quot;</span><span class="p">,),</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="p">)</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_entropy_pooling</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="3-opinion-pooling">3. Opinion Pooling<a class="headerlink" href="#3-opinion-pooling" title="Permanent link">&para;</a></h2>
+<p>Opinion Pooling combines forecasts from multiple expert prior estimators into a
+single posterior distribution. Each expert independently produces a return
+distribution, and the pooling operator aggregates them.</p>
+<h3 id="pooling-methods">Pooling Methods<a class="headerlink" href="#pooling-methods" title="Permanent link">&para;</a></h3>
+<p><strong>Linear (arithmetic) pooling</strong>:</p>
+<div class="arithmatex">\[
+p_{\text{pool}}(r) = \sum_{k=1}^{K} w_k \, p_k(r)
+\]</div>
+<p><strong>Logarithmic (geometric) pooling</strong>:</p>
+<div class="arithmatex">\[
+p_{\text{pool}}(r) \propto \prod_{k=1}^{K} p_k(r)^{w_k}
+\]</div>
+<p>where <span class="arithmatex">\( w_k \)</span> are the expert weights (<code>opinion_probabilities</code>) and <span class="arithmatex">\( p_k \)</span>
+is the distribution from expert <span class="arithmatex">\( k \)</span>.</p>
+<h3 id="configuration_2">Configuration<a class="headerlink" href="#configuration_2" title="Permanent link">&para;</a></h3>
+<p><code>OpinionPoolingConfig</code> is a frozen dataclass:</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>opinion_probabilities</code></td>
+<td><code>tuple[float, ...] \| None</code></td>
+<td><code>None</code></td>
+<td>Per-expert weights; each in <span class="arithmatex">\([0, 1]\)</span>, sum at most 1.0</td>
+</tr>
+<tr>
+<td><code>is_linear_pooling</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td><code>True</code> for linear pooling, <code>False</code> for logarithmic</td>
+</tr>
+<tr>
+<td><code>divergence_penalty</code></td>
+<td><code>float</code></td>
+<td><code>0.0</code></td>
+<td>KL-divergence penalty for robust pooling</td>
+</tr>
+<tr>
+<td><code>n_jobs</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Number of parallel jobs for expert fitting</td>
+</tr>
+<tr>
+<td><code>prior_config</code></td>
+<td><code>MomentEstimationConfig \| None</code></td>
+<td><code>None</code></td>
+<td>Common prior configuration</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Validation</strong>:
+- Each probability must be in <span class="arithmatex">\([0, 1]\)</span>.
+- The sum of <code>opinion_probabilities</code> must be at most 1.0 (with numerical tolerance of <span class="arithmatex">\(10^{-10}\)</span>).
+- Setting <code>opinion_probabilities=None</code> gives equal weight to all experts.</p>
+<h3 id="factory-function_2">Factory Function<a class="headerlink" href="#factory-function_2" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_opinion_pooling</span><span class="p">(</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>    <span class="n">estimators</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">BasePrior</span><span class="p">]],</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">OpinionPoolingConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">OpinionPooling</span><span class="p">:</span>
+</code></pre></div>
+<p><strong>Parameters</strong>:</p>
+<ul>
+<li><code>estimators</code> -- named expert prior estimators as a sequence of <code>(name, estimator)</code> tuples. These are passed directly because estimator objects are not serialisable in a frozen dataclass.</li>
+<li><code>config</code> -- optional <code>OpinionPoolingConfig</code>; defaults to <code>OpinionPoolingConfig()</code> (linear pooling, equal weights, no penalty).</li>
+</ul>
+<p><strong>Returns</strong>: an <code>OpinionPooling</code> instance.</p>
+<h3 id="examples_2">Examples<a class="headerlink" href="#examples_2" title="Permanent link">&para;</a></h3>
+<h4 id="combining-expert-forecasts">Combining Expert Forecasts<a class="headerlink" href="#combining-expert-forecasts" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">skfolio.prior</span><span class="w"> </span><span class="kn">import</span> <span class="n">EntropyPooling</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.views</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpinionPoolingConfig</span><span class="p">,</span> <span class="n">build_opinion_pooling</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="n">expert_1</span> <span class="o">=</span> <span class="n">EntropyPooling</span><span class="p">(</span><span class="n">mean_views</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;AAPL == 0.05&quot;</span><span class="p">])</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="n">expert_2</span> <span class="o">=</span> <span class="n">EntropyPooling</span><span class="p">(</span><span class="n">mean_views</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;JPM == 0.03&quot;</span><span class="p">])</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="n">estimators</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>    <span class="p">(</span><span class="s2">&quot;fundamental_analyst&quot;</span><span class="p">,</span> <span class="n">expert_1</span><span class="p">),</span>
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>    <span class="p">(</span><span class="s2">&quot;quant_model&quot;</span><span class="p">,</span> <span class="n">expert_2</span><span class="p">),</span>
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="p">]</span>
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">OpinionPoolingConfig</span><span class="p">(</span><span class="n">opinion_probabilities</span><span class="o">=</span><span class="p">(</span><span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">))</span>
+<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_opinion_pooling</span><span class="p">(</span><span class="n">estimators</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="logarithmic-pooling">Logarithmic Pooling<a class="headerlink" href="#logarithmic-pooling" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">OpinionPoolingConfig</span><span class="p">(</span><span class="n">is_linear_pooling</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_opinion_pooling</span><span class="p">(</span><span class="n">estimators</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="anchoring-to-a-base-prior">Anchoring to a Base Prior<a class="headerlink" href="#anchoring-to-a-base-prior" title="Permanent link">&para;</a></h4>
+<p>When expert weights are small, the posterior is anchored to the common prior.
+This is useful for blending mild expert views with a strong empirical baseline:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">OpinionPoolingConfig</span><span class="p">(</span><span class="n">opinion_probabilities</span><span class="o">=</span><span class="p">(</span><span class="mf">0.01</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">))</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_opinion_pooling</span><span class="p">(</span><span class="n">estimators</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="c1"># Posterior will be very close to the empirical prior</span>
+</code></pre></div>
+<hr />
+<h2 id="4-omega-calibration-from-track-record">4. Omega Calibration from Track Record<a class="headerlink" href="#4-omega-calibration-from-track-record" title="Permanent link">&para;</a></h2>
+<p>The <code>calibrate_omega_from_track_record()</code> function computes an empirical diagonal
+<span class="arithmatex">\( \Omega \)</span> matrix from a history of forecast errors.</p>
+<h3 id="formula">Formula<a class="headerlink" href="#formula" title="Permanent link">&para;</a></h3>
+<p>For each view <span class="arithmatex">\( k \)</span>:</p>
+<div class="arithmatex">\[
+\Omega_{kk} = \text{Var}(Q_{k,t} - r_{k,t})
+\]</div>
+<p>where <span class="arithmatex">\( Q_{k,t} \)</span> is the analyst's forecast for view <span class="arithmatex">\( k \)</span> at time <span class="arithmatex">\( t \)</span>
+and <span class="arithmatex">\( r_{k,t} \)</span> is the corresponding realised return. The off-diagonal entries
+are zero (diagonal matrix). The sample variance uses Bessel's correction (<code>ddof=1</code>).</p>
+<h3 id="function-signature">Function Signature<a class="headerlink" href="#function-signature" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">calibrate_omega_from_track_record</span><span class="p">(</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>    <span class="n">view_history</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>    <span class="n">return_history</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]:</span>
+</code></pre></div>
+<p><strong>Parameters</strong>:</p>
+<ul>
+<li><code>view_history</code> -- DataFrame of shape <code>(n_dates, n_views)</code> with historical forecasted <span class="arithmatex">\( Q \)</span> values</li>
+<li><code>return_history</code> -- DataFrame of same shape with realised returns aligned to each view</li>
+</ul>
+<p><strong>Returns</strong>: diagonal <span class="arithmatex">\( \Omega \)</span> matrix of shape <code>(n_views, n_views)</code>.</p>
+<p><strong>Raises</strong>: <code>DataError</code> if:
+- The two DataFrames have different shapes
+- The column names do not match
+- Fewer than 5 aligned observations remain after dropping NaN rows</p>
+<h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.views</span><span class="w"> </span><span class="kn">import</span> <span class="n">calibrate_omega_from_track_record</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="c1"># view_history: 30 dates, 2 views</span>
+<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="n">view_history</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span>
+<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a>    <span class="s2">&quot;view_aapl&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="mf">0.001</span><span class="p">,</span> <span class="mf">0.005</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span>
+<a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a>    <span class="s2">&quot;view_jpm&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="mf">0.002</span><span class="p">,</span> <span class="mf">0.003</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span>
+<a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a><span class="p">})</span>
+<a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a><span class="n">return_history</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span>
+<a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a>    <span class="s2">&quot;view_aapl&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="mf">0.001</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span>
+<a id="__codelineno-21-12" name="__codelineno-21-12" href="#__codelineno-21-12"></a>    <span class="s2">&quot;view_jpm&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="mf">0.002</span><span class="p">,</span> <span class="mf">0.015</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span>
+<a id="__codelineno-21-13" name="__codelineno-21-13" href="#__codelineno-21-13"></a><span class="p">})</span>
+<a id="__codelineno-21-14" name="__codelineno-21-14" href="#__codelineno-21-14"></a>
+<a id="__codelineno-21-15" name="__codelineno-21-15" href="#__codelineno-21-15"></a><span class="n">omega</span> <span class="o">=</span> <span class="n">calibrate_omega_from_track_record</span><span class="p">(</span><span class="n">view_history</span><span class="p">,</span> <span class="n">return_history</span><span class="p">)</span>
+<a id="__codelineno-21-16" name="__codelineno-21-16" href="#__codelineno-21-16"></a><span class="c1"># omega is a (2, 2) diagonal matrix</span>
+<a id="__codelineno-21-17" name="__codelineno-21-17" href="#__codelineno-21-17"></a><span class="nb">print</span><span class="p">(</span><span class="n">omega</span><span class="p">)</span>
+</code></pre></div>
+<p>This <span class="arithmatex">\( \Omega \)</span> can then be passed directly to <code>build_black_litterman()</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">BlackLittermanConfig</span><span class="p">(</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>    <span class="n">views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.05&quot;</span><span class="p">,</span> <span class="s2">&quot;JPM == 0.03&quot;</span><span class="p">),</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>    <span class="n">uncertainty_method</span><span class="o">=</span><span class="n">ViewUncertaintyMethod</span><span class="o">.</span><span class="n">EMPIRICAL_TRACK_RECORD</span><span class="p">,</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="p">)</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_black_litterman</span><span class="p">(</span><span class="n">cfg</span><span class="p">,</span> <span class="n">omega</span><span class="o">=</span><span class="n">omega</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="gotchas-and-common-pitfalls">Gotchas and Common Pitfalls<a class="headerlink" href="#gotchas-and-common-pitfalls" title="Permanent link">&para;</a></h2>
+<h3 id="factor-model-views-must-reference-factor-names">Factor Model Views Must Reference Factor Names<a class="headerlink" href="#factor-model-views-must-reference-factor-names" title="Permanent link">&para;</a></h3>
+<p>When <code>use_factor_model=True</code>, the BL prior is wrapped in a <code>FactorModel</code>.
+In this case, views must reference <strong>factor names</strong> (e.g., <code>"MTUM"</code>, <code>"QUAL"</code>),
+not asset names. Using asset names will cause a fitting error because the
+picking matrix is constructed over the factor return space.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="c1"># CORRECT: views reference factor names</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">BlackLittermanConfig</span><span class="o">.</span><span class="n">for_factor_model</span><span class="p">(</span><span class="n">views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;MTUM == 0.05&quot;</span><span class="p">,))</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="n">prior</span> <span class="o">=</span> <span class="n">build_black_litterman</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="n">prior</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">asset_returns</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="n">factor_returns</span><span class="p">)</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a><span class="c1"># WRONG: views reference asset names inside a FactorModel</span>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">BlackLittermanConfig</span><span class="o">.</span><span class="n">for_factor_model</span><span class="p">(</span><span class="n">views</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;AAPL == 0.05&quot;</span><span class="p">,))</span>
+</code></pre></div>
+<h3 id="tau-must-be-strictly-positive">Tau Must Be Strictly Positive<a class="headerlink" href="#tau-must-be-strictly-positive" title="Permanent link">&para;</a></h3>
+<p>The uncertainty scaling parameter <span class="arithmatex">\( \tau \)</span> must be strictly greater than zero.
+Setting <code>tau=0.0</code> or a negative value raises <code>ValueError</code> at config creation time.
+Typical values range from 0.01 to 0.10; the default is 0.05.</p>
+<h3 id="relative-views-require-prior-moments">Relative Views Require Prior Moments<a class="headerlink" href="#relative-views-require-prior-moments" title="Permanent link">&para;</a></h3>
+<p>When using <code>relative_mean_views</code> or <code>relative_variance_views</code> in
+<code>EntropyPoolingConfig</code>, you must supply <code>prior_moments</code> and <code>asset_names</code>
+to <code>build_entropy_pooling()</code>. Without them, the factory raises
+<code>ConfigurationError</code>.</p>
+<h3 id="empirical-track-record-requires-history-or-pre-computed-omega">Empirical Track Record Requires History or Pre-Computed Omega<a class="headerlink" href="#empirical-track-record-requires-history-or-pre-computed-omega" title="Permanent link">&para;</a></h3>
+<p>When <code>uncertainty_method=EMPIRICAL_TRACK_RECORD</code>, one of the following must hold:</p>
+<ol>
+<li>Both <code>view_history</code> and <code>return_history</code> are supplied (at least 5 aligned non-NaN observations).</li>
+<li>A pre-computed <code>omega</code> array is supplied directly.</li>
+</ol>
+<p>Supplying neither raises <code>ConfigurationError</code>.</p>
+<h3 id="opinion-probabilities-must-sum-to-at-most-10">Opinion Probabilities Must Sum to At Most 1.0<a class="headerlink" href="#opinion-probabilities-must-sum-to-at-most-10" title="Permanent link">&para;</a></h3>
+<p>The <code>opinion_probabilities</code> tuple in <code>OpinionPoolingConfig</code> is validated:</p>
+<ul>
+<li>Each value must be in <span class="arithmatex">\([0, 1]\)</span>.</li>
+<li>The sum must not exceed 1.0.</li>
+</ul>
+<p>Violating either constraint raises <code>ValueError</code>.</p>
+<h3 id="estimators-are-not-stored-in-opinionpoolingconfig">Estimators Are Not Stored in OpinionPoolingConfig<a class="headerlink" href="#estimators-are-not-stored-in-opinionpoolingconfig" title="Permanent link">&para;</a></h3>
+<p>Because skfolio estimator objects are not serialisable in a frozen dataclass,
+expert estimators for Opinion Pooling are passed as a factory argument, not
+stored in the config. This preserves the config-is-serialisable invariant.</p>
+<h3 id="config-tuples-vs-skfolio-lists">Config Tuples vs. skfolio Lists<a class="headerlink" href="#config-tuples-vs-skfolio-lists" title="Permanent link">&para;</a></h3>
+<p>All view fields in configs use <code>tuple</code> types for hashability (required by
+frozen dataclasses). The factory functions convert these to <code>list</code> before
+passing to skfolio. You do not need to handle this conversion manually.</p>
+<h3 id="mean-equality-and-inequality-views-are-merged">Mean Equality and Inequality Views Are Merged<a class="headerlink" href="#mean-equality-and-inequality-views-are-merged" title="Permanent link">&para;</a></h3>
+<p><code>EntropyPoolingConfig</code> has separate fields for <code>mean_views</code> (equality, <code>==</code>)
+and <code>mean_inequality_views</code> (inequality, <code>&gt;=</code> / <code>&lt;=</code>). The factory merges
+both into a single list for skfolio's <code>EntropyPooling.mean_views</code> parameter,
+which handles all three operators natively.</p>
+<hr />
+<h2 id="choosing-a-framework">Choosing a Framework<a class="headerlink" href="#choosing-a-framework" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Criterion</th>
+<th>Black-Litterman</th>
+<th>Entropy Pooling</th>
+<th>Opinion Pooling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>View types</td>
+<td>Mean (absolute/relative)</td>
+<td>Mean, variance, correlation, skew, kurtosis, CVaR</td>
+<td>Any (via expert estimators)</td>
+</tr>
+<tr>
+<td>Equilibrium anchor</td>
+<td>Yes (built-in)</td>
+<td>No (empirical prior)</td>
+<td>Configurable</td>
+</tr>
+<tr>
+<td>Factor model support</td>
+<td>Yes (<code>use_factor_model</code>)</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Closed-form solution</td>
+<td>Yes</td>
+<td>No (numerical optimisation)</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Number of experts</td>
+<td>Single analyst</td>
+<td>Single analyst</td>
+<td>Multiple experts</td>
+</tr>
+<tr>
+<td>Computational cost</td>
+<td>Low</td>
+<td>Medium</td>
+<td>Depends on experts</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Use Black-Litterman</strong> when you have return views and want to tilt away from
+an equilibrium baseline, especially if you want closed-form updates and factor
+model integration.</p>
+<p><strong>Use Entropy Pooling</strong> when you have views on distributional moments beyond
+the mean (variance, correlation, tail risk) or need inequality constraints.</p>
+<p><strong>Use Opinion Pooling</strong> when you want to combine multiple independent expert
+forecasts (each represented as a prior estimator) into a single distribution.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "content.code.copy", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

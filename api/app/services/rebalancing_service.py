@@ -229,35 +229,48 @@ def _evaluate_policy(
 def build_trade_list(
     target_weights: dict[str, float],
     broker_weights: dict[str, float],
+    prices: dict[str, float] | None = None,
+    portfolio_value: float | None = None,
 ) -> list[dict[str, Any]]:
     """Build a list of trade items from target and current broker weights.
 
-    Each item contains: ticker, weight_delta, side (buy/sell/hold).
+    Each item contains: ticker, weight_delta, side (buy/sell), shares.
+
+    Shares are computed as ``(weight_delta * portfolio_value) / price`` when
+    ``prices`` and ``portfolio_value`` are provided and the price is positive.
+    Otherwise ``shares`` is ``None``.
     """
     all_tickers = set(target_weights) | set(broker_weights)
-    trades = []
+    trades: list[dict[str, Any]] = []
     for ticker in sorted(all_tickers):
         target = target_weights.get(ticker, 0.0)
         current = broker_weights.get(ticker, 0.0)
         delta = round(target - current, 6)
         if abs(delta) < 1e-9:
             continue
+        shares: float | None = None
+        if prices and portfolio_value:
+            price = prices.get(ticker)
+            if price and price > 0:
+                shares = round((delta * portfolio_value) / price, 4)
         trades.append({
             "ticker": ticker,
             "weight_delta": delta,
             "side": "buy" if delta > 0 else "sell",
+            "shares": shares,
         })
     return trades
 
 
-def compute_broker_weights(
-    positions: list[Any],
-    portfolio_value: float | None,
-) -> dict[str, float]:
+def compute_broker_weights(positions: list[Any]) -> dict[str, float]:
     """Compute current weight per ticker from broker positions.
 
-    When portfolio_value is unknown or zero, weights are estimated from
-    quantity × current_price relative to the total.
+    Always normalises by the sum of position values so weights are in [0, 1]
+    and sum to 1. Account ``portfolio_value`` (cash + positions in account
+    currency) is deliberately not used here because it can diverge from the
+    sum of position market values due to FX, stale cash balance, or pending
+    settlements. Pass ``portfolio_value`` to ``build_trade_list`` instead for
+    weight→share quantity conversion.
     """
     if not positions:
         return {}
@@ -269,7 +282,7 @@ def compute_broker_weights(
         ticker = pos.yfinance_ticker or pos.ticker
         totals[ticker] = totals.get(ticker, 0.0) + value
 
-    total_value = portfolio_value or sum(totals.values())
+    total_value = sum(totals.values())
     if total_value == 0.0:
         return dict.fromkeys(totals, 0.0)
     return {t: v / total_value for t, v in totals.items()}

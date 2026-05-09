@@ -113,6 +113,31 @@ export class AttributionComponent {
     return this.startDate() < this.endDate();
   });
 
+  readonly isFactorFormValid = computed(() => {
+    if (!this.sumsToOne(this.portfolioWeights())) return false;
+    return this.startDate() < this.endDate();
+  });
+
+  /**
+   * BUG-045 guard: when the entire benchmark resolves to a single
+   * "Unclassified" sector (typical with single-ETF benchmarks like
+   * `SPY:1.0`), the per-sector Brinson decomposition assigns the entire
+   * benchmark return to that pseudo-sector and the resulting Allocation /
+   * Selection effects are mathematically valid but semantically misleading.
+   * Detect that and surface a warning so the user can choose a benchmark
+   * with proper sector composition.
+   */
+  readonly benchAllUnclassified = computed<boolean>(() => {
+    const r = this.brinsonResponse();
+    if (!r) return false;
+    const total = r.sectors.reduce((acc, s) => acc + s.benchmarkWeight, 0);
+    if (total <= 0) return false;
+    const unclassified = r.sectors
+      .filter((s) => s.sector === 'Unclassified')
+      .reduce((acc, s) => acc + s.benchmarkWeight, 0);
+    return unclassified / total > 0.95;
+  });
+
   constructor() {
     this.loadPortfolios();
     effect(() => this.onPortfolioChange());

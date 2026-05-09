@@ -74,6 +74,104 @@ _fred_jobs = BackgroundJobService(
     job_type="fred_fetch",
     session_factory=database_manager.get_session,
 )
+_ref_index_jobs = BackgroundJobService(
+    job_type="reference_index_seed",
+    session_factory=database_manager.get_session,
+)
+
+
+# ---------------------------------------------------------------------------
+# Reference-index refresh helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_benchmark_tickers() -> list[str]:
+    """Return union of ``settings.benchmark_tickers`` + active portfolio benchmarks.
+
+    Mirrors ``GET /reference-indices/configured`` so the scheduler refreshes
+    every benchmark a real portfolio depends on, not just the operator list.
+    """
+    from app.repositories.portfolio_repository import PortfolioRepository
+
+    try:
+        with database_manager.get_session() as session:
+            repo = PortfolioRepository(session)
+            portfolio_tickers = repo.get_distinct_benchmark_tickers()
+    except Exception:
+        logger.exception("reference_index_refresh: portfolio benchmark lookup failed")
+        portfolio_tickers = []
+
+    return sorted({*settings.benchmark_tickers, *portfolio_tickers})
+
+
+def _refresh_reference_indices(
+    label: str,
+    *,
+    period: str = "5y",
+    mode: str = "incremental",
+) -> bool:
+    """Run ``seed_reference_indices`` as a tracked background job.
+
+    Args:
+        label: Log-prefix label (e.g. ``"daily_pipeline"``).
+        period: yfinance lookback window (``"5y"`` for full rebuilds).
+        mode: ``"incremental"`` (default) or ``"full"`` — currently the seeder
+            always uses incremental fetch_and_store under the hood, but ``mode``
+            is forwarded for future expansion / observability.
+
+    Returns ``True`` on success, ``False`` on skip or failure.
+    """
+    from app.services.reference_index_seeder import seed_reference_indices
+    from app.services.yfinance import get_yfinance_client
+
+    tickers = _resolve_benchmark_tickers()
+    if not tickers:
+        logger.info("%s: reference_index_refresh skipped — no benchmarks configured", label)
+        return False
+
+    try:
+        job_id = _ref_index_jobs.create_job(current_ticker="")
+    except JobAlreadyRunningError as exc:
+        logger.warning(
+            "%s: reference_index_refresh skipped — already running (job %s)",
+            label,
+            exc.existing_job_id,
+        )
+        return False
+
+    logger.info(
+        "%s: reference_index_refresh started (job %s, %d tickers, mode=%s)",
+        label,
+        job_id,
+        len(tickers),
+        mode,
+    )
+    _ref_index_jobs.update_job(job_id, status="running")
+
+    on_progress = make_progress(job_id, _ref_index_jobs)
+    try:
+        seed_reference_indices(
+            tickers,
+            get_yfinance_client(),
+            on_progress=on_progress,
+        )
+        job = _ref_index_jobs.get_job(job_id) or {}
+        if job.get("status") != "completed":
+            _ref_index_jobs.update_job(
+                job_id,
+                status="completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+        logger.info("%s: reference_index_refresh completed (period=%s)", label, period)
+        return True
+    except Exception:
+        logger.exception("%s: reference_index_refresh raised", label)
+        _ref_index_jobs.update_job(
+            job_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +232,7 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
 
 
 def run_daily_pipeline() -> None:
-    """Sequential pipeline: yfinance → macro → news → summarize → calibrate."""
+    """Sequential pipeline: ref-indices → yfinance → macro → news → summarize → calibrate."""
     logger.info("daily_pipeline: starting")
 
     from app.schemas.macro_regime import (
@@ -145,6 +243,9 @@ def run_daily_pipeline() -> None:
     from app.schemas.yfinance_data import YFinanceFetchRequest
     from app.services.scrapers import PORTFOLIO_COUNTRIES
     from app.services.yfinance import get_yfinance_client
+
+    # Step 0: reference-index refresh (incremental) — non-blocking on failure
+    _refresh_reference_indices("daily_pipeline", mode="incremental")
 
     # Step 1: yfinance
     yf_ok = _run_step(
@@ -255,6 +356,9 @@ def run_weekly_refetch() -> None:
 
     # Full macro re-fetch (independent of yfinance outcome)
     _run_step("macro", _macro_jobs, run_bulk_macro_fetch, MacroFetchRequest())
+
+    # Reference-index full 5y rebuild — keep benchmarks aligned with universe cadence
+    _refresh_reference_indices("weekly_refetch", period="5y", mode="full")
 
     logger.info("weekly_refetch: finished")
 

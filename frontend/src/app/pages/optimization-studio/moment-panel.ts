@@ -66,7 +66,7 @@ export class MomentPanelComponent {
   readonly covEstimatorLabels = COV_ESTIMATOR_LABELS;
 
   // ── Form state ──
-  readonly muEstimator = signal<MuEstimatorType>('shrunk');
+  readonly muEstimator = signal<MuEstimatorType>('empirical');
   readonly covEstimator = signal<CovEstimatorType>('ledoit_wolf');
 
   // ── Calibrate delta (/llm-moments/calibrate-delta) ──
@@ -78,6 +78,7 @@ export class MomentPanelComponent {
 
   // ── Adapt factor weights (/llm-moments/adapt-factor-weights) ──
   readonly factorGroupsRaw = signal<string>('value, momentum, quality');
+  readonly macroIndicators = signal<string>('');
   readonly adaptLoading = signal<boolean>(false);
   readonly adaptError = signal<string | null>(null);
   readonly factorPhase = signal<string | null>(null);
@@ -128,11 +129,16 @@ export class MomentPanelComponent {
 
   runAdaptFactorWeights(): void {
     const groups = this.parseGroups(this.factorGroupsRaw());
+    const indicators = this.macroIndicators().trim();
     if (groups.length === 0) return;
+    if (indicators.length < 20) {
+      this.adaptError.set('Macro indicators description must be at least 20 characters.');
+      return;
+    }
     this.adaptLoading.set(true);
     this.adaptError.set(null);
     this.optimization
-      .adaptFactorWeights({ macro_indicators: {}, factor_groups: groups })
+      .adaptFactorWeights({ macro_indicators: indicators, factor_groups: groups })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {

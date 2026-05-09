@@ -31,8 +31,12 @@ import { MarketService } from '../../services/market.service';
 import { ReportsService } from '../../services/reports.service';
 import { PortfolioContextService } from '../../services/portfolio-context.service';
 import { readCssVar } from '../../shared/charts/echarts-theme';
-import type { DashboardKPI, ActivityType, MarketRegime } from '../../models/dashboard.model';
-import type { ActivityFeedItem, MarketContext, RegimeInfo, DriftEntry, EquityCurvePoint, AssetClassReturn } from '../../models/dashboard.model';
+import type {
+  DashboardKPI,
+  MarketContext,
+  EquityCurvePoint,
+  AssetClassReturn,
+} from '../../models/dashboard.model';
 import type {
   ApiRollingMetricsResponse,
   ReferenceIndexItem,
@@ -115,7 +119,6 @@ export class DashboardComponent implements OnDestroy {
   // #154 — Equity Curve + Allocation
   readonly equityCurve = signal<EquityCurvePoint[]>([]);
   readonly allocationData = signal<SunburstNode[]>([]);
-  readonly driftTable = signal<DriftEntry[]>([]);
 
   // Allocation legend
   readonly allocationSectors = computed(() => {
@@ -134,14 +137,10 @@ export class DashboardComponent implements OnDestroy {
     this.allocationData().reduce((sum, s) => sum + (s.children?.length ?? 0), 0),
   );
 
-  // #155 — Activity Feed + Market Context
-  readonly activityFeed = signal<ActivityFeedItem[]>([]);
+  // #155 — Market Context
   readonly marketContext = signal<MarketContext>({
     vix: 0, vixChange: 0, sp500Return: 0,
     tenYearYield: 0, yieldChange: 0, usdIndex: 0, usdChange: 0,
-  });
-  readonly regimeInfo = signal<RegimeInfo>({
-    current: 'sideways', probability: 0, since: '',
   });
   readonly assetClassReturns = signal<AssetClassReturn[]>([]);
 
@@ -397,7 +396,7 @@ export class DashboardComponent implements OnDestroy {
     this.revealIndex.set(0);
 
     let completedCount = 0;
-    const totalCalls = 6;
+    const totalCalls = 4;
 
     const onComplete = () => {
       completedCount++;
@@ -448,26 +447,6 @@ export class DashboardComponent implements OnDestroy {
         error: onError,
       });
 
-    this.dashboardSvc.getDrift(name)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: res => {
-          this.driftTable.set(res.entries as DriftEntry[]);
-          onComplete();
-        },
-        error: onError,
-      });
-
-    this.dashboardSvc.getActivity(name)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: res => {
-          this.activityFeed.set(res.items as ActivityFeedItem[]);
-          onComplete();
-        },
-        error: onError,
-      });
-
     this.dashboardSvc.getAssetClassReturns(name)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -502,22 +481,6 @@ export class DashboardComponent implements OnDestroy {
         error: () => this.isLoadingMarket.set(false),
       });
 
-    interval(MARKET_REFRESH_MS)
-      .pipe(
-        startWith(0),
-        switchMap(() => this.dashboardSvc.getRegimeState()),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe({
-        next: res => {
-          this.regimeInfo.set({
-            current: res.current as MarketRegime,
-            probability: res.probability,
-            since: res.since,
-          });
-        },
-        error: () => { /* regime failure is non-critical */ },
-      });
   }
 
   private startRevealAnimation(): void {
@@ -575,52 +538,6 @@ export class DashboardComponent implements OnDestroy {
 
   openReportModal(): void {
     this.modalService.open({ component: ExportReportModalComponent, title: 'Export Report', size: 'lg' });
-  }
-
-  // Activity feed helpers
-  activityDotClass(type: string): string {
-    const map: Record<string, string> = {
-      optimization: 'bg-info',
-      rebalance: 'bg-success',
-      regime_change: 'bg-warning',
-      alert: 'bg-danger',
-      ai_decision: 'bg-agent-risk',
-      trade: 'bg-chart-5',
-    };
-    return map[type] ?? 'bg-text-tertiary';
-  }
-
-  relativeTime(timestamp: string): string {
-    const now = Date.now();
-    const diff = now - new Date(timestamp).getTime();
-    const mins = Math.floor(diff / 60000);
-    const hrs = Math.floor(mins / 60);
-    const days = Math.floor(hrs / 24);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${days}d ago`;
-  }
-
-  // Regime helpers
-  regimeColorClass(regime: MarketRegime): string {
-    const map: Record<MarketRegime, string> = {
-      bull: 'bg-regime-bull-bg text-regime-bull',
-      bear: 'bg-regime-bear-bg text-regime-bear',
-      sideways: 'bg-regime-neutral-bg text-regime-neutral',
-      volatile: 'bg-regime-crisis-bg text-regime-crisis',
-    };
-    return map[regime];
-  }
-
-  regimeBarColor(regime: MarketRegime): string {
-    const map: Record<MarketRegime, string> = {
-      bull: 'bg-regime-bull',
-      bear: 'bg-regime-bear',
-      sideways: 'bg-regime-neutral',
-      volatile: 'bg-regime-crisis',
-    };
-    return map[regime];
   }
 
   // Asset class returns heatmap color

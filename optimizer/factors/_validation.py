@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
@@ -11,6 +12,9 @@ import pandas as pd
 
 from optimizer.exceptions import DataError
 from optimizer.factors._config import FACTOR_GROUP_MAPPING, FactorValidationConfig
+
+if TYPE_CHECKING:
+    from optimizer.linear_model import CSLinearRegressionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +212,9 @@ def compute_ic_series(
     returns_history: pd.DataFrame,
     factor_name: str,
     min_observations: int = 3,
+    *,
+    use_cs_regression: bool = False,
+    cs_config: CSLinearRegressionConfig | None = None,
 ) -> pd.Series:
     """Compute IC time series for a factor.
 
@@ -221,13 +228,30 @@ def compute_ic_series(
         Used only for labeling.
     min_observations : int, default 3
         Minimum number of common non-NaN observations per date.
-        Passed through to ``compute_monthly_ic``.
+    use_cs_regression : bool, default False
+        When ``True``, replace the per-period rank correlation with the
+        slope coefficient of a per-period cross-sectional regression
+        (built via :func:`build_cs_linear_regression`). The default
+        preserves the original Spearman-rank IC exactly.
+    cs_config : CSLinearRegressionConfig or None
+        Configuration forwarded to :func:`build_cs_linear_regression`
+        when ``use_cs_regression`` is ``True``. ``None`` defers to
+        :class:`CSLinearRegressionConfig` defaults.
 
     Returns
     -------
     pd.Series
         IC values indexed by date.
     """
+    if use_cs_regression:
+        return _compute_ic_series_cs_regression(
+            factor_scores_history,
+            returns_history,
+            factor_name,
+            min_observations=min_observations,
+            cs_config=cs_config,
+        )
+
     common_dates = factor_scores_history.index.intersection(
         returns_history.index,
     )
@@ -242,6 +266,52 @@ def compute_ic_series(
             ics[date] = ic
 
     return pd.Series(ics, name=factor_name, dtype=float)
+
+
+def _compute_ic_series_cs_regression(
+    factor_scores_history: pd.DataFrame,
+    returns_history: pd.DataFrame,
+    factor_name: str,
+    *,
+    min_observations: int,
+    cs_config: CSLinearRegressionConfig | None,
+) -> pd.Series:
+    """Per-period CS regression slope as IC.
+
+    Drops periods with fewer than ``min_observations`` non-NaN pairs.
+    """
+    from optimizer.linear_model import (
+        CSLinearRegressionConfig,
+        build_cs_linear_regression,
+    )
+
+    common_dates = factor_scores_history.index.intersection(
+        returns_history.index,
+    )
+    cfg = cs_config if cs_config is not None else CSLinearRegressionConfig()
+
+    kept_dates: list[object] = []
+    rows_x: list[npt.NDArray[np.float64]] = []
+    rows_y: list[npt.NDArray[np.float64]] = []
+    for date in common_dates:
+        scores = factor_scores_history.loc[date]
+        rets = returns_history.loc[date]
+        valid = scores.notna() & rets.notna()
+        if int(valid.sum()) < min_observations:
+            continue
+        kept_dates.append(date)
+        rows_x.append(scores.where(valid).to_numpy(dtype=float))
+        rows_y.append(rets.where(valid).to_numpy(dtype=float))
+
+    if not kept_dates:
+        return pd.Series(dtype=float, name=factor_name)
+
+    x_panel = np.stack(rows_x, axis=0)[:, :, None]  # (T, N, 1)
+    y_panel = np.stack(rows_y, axis=0)              # (T, N)
+    estimator = build_cs_linear_regression(cfg)
+    estimator.fit(x_panel, y_panel)
+    slopes = np.asarray(estimator.coef_)[:, 0]
+    return pd.Series(slopes, index=pd.Index(kept_dates), name=factor_name)
 
 
 def compute_icir(ic_series: pd.Series) -> float:

@@ -74,6 +74,37 @@ class TestVineCopulaConfig:
         assert cfg.n_jobs == 4
         assert cfg.random_state == 42
 
+    def test_when_default_then_marginal_candidates_none(self) -> None:
+        assert VineCopulaConfig().marginal_candidates is None
+
+    def test_when_default_then_copula_candidates_none(self) -> None:
+        assert VineCopulaConfig().copula_candidates is None
+
+    def test_when_default_then_central_assets_none(self) -> None:
+        assert VineCopulaConfig().central_assets is None
+
+    def test_when_marginal_candidates_set_then_stored_as_tuple(self) -> None:
+        cfg = VineCopulaConfig(marginal_candidates=("Gaussian", "StudentT"))
+        assert cfg.marginal_candidates == ("Gaussian", "StudentT")
+
+    def test_when_copula_candidates_set_then_stored_as_tuple(self) -> None:
+        cfg = VineCopulaConfig(copula_candidates=("ClaytonCopula",))
+        assert cfg.copula_candidates == ("ClaytonCopula",)
+
+    def test_when_central_assets_set_then_stored_as_tuple(self) -> None:
+        cfg = VineCopulaConfig(central_assets=("AAPL", "MSFT"))
+        assert cfg.central_assets == ("AAPL", "MSFT")
+
+
+class TestVineCopulaPresets:
+    def test_when_for_with_t_marginals_then_gaussian_and_t(self) -> None:
+        cfg = VineCopulaConfig.for_with_t_marginals()
+        assert cfg.marginal_candidates == ("Gaussian", "StudentT")
+
+    def test_when_for_clayton_only_then_clayton_copula(self) -> None:
+        cfg = VineCopulaConfig.for_clayton_only()
+        assert cfg.copula_candidates == ("ClaytonCopula",)
+
 
 class TestSyntheticDataConfig:
     def test_default_values(self) -> None:

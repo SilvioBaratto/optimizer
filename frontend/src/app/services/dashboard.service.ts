@@ -7,10 +7,7 @@ import type {
   ApiPerformanceMetricsResponse,
   ApiEquityCurveResponse,
   ApiAllocationResponse,
-  ApiDriftResponse,
-  ApiActivityFeedResponse,
   ApiMarketSnapshotResponse,
-  ApiMarketRegimeResponse,
   ApiAssetClassReturnsResponse,
   ApiRollingMetricsResponse,
 } from '../models/dashboard-api.model';
@@ -82,51 +79,11 @@ export class DashboardService {
       ))));
   }
 
-  getDrift(name: string, threshold = 0.05): Observable<ApiDriftResponse> {
-    const params = new HttpParams().set('threshold', threshold.toString());
-    return this.http
-      .get<ApiDriftResponse>(
-        `${this.base}portfolio-analytics/${encodeURIComponent(name)}/drift`,
-        { params },
-      )
-      .pipe(catchError(err => throwError(() => new Error(
-        err.error?.detail ?? 'Failed to load drift analysis',
-      ))));
-  }
-
-  getActivity(
-    name: string,
-    limit = 20,
-    offset = 0,
-    type?: string,
-  ): Observable<ApiActivityFeedResponse> {
-    let params = new HttpParams()
-      .set('limit', limit.toString())
-      .set('offset', offset.toString());
-    if (type) params = params.set('type', type);
-    return this.http
-      .get<ApiActivityFeedResponse>(
-        `${this.base}portfolio-analytics/${encodeURIComponent(name)}/activity`,
-        { params },
-      )
-      .pipe(catchError(err => throwError(() => new Error(
-        err.error?.detail ?? 'Failed to load activity feed',
-      ))));
-  }
-
   getMarketSnapshot(): Observable<ApiMarketSnapshotResponse> {
     return this.http
       .get<ApiMarketSnapshotResponse>(`${this.base}market/snapshot`)
       .pipe(catchError(err => throwError(() => new Error(
         err.error?.detail ?? 'Failed to load market snapshot',
-      ))));
-  }
-
-  getRegimeState(): Observable<ApiMarketRegimeResponse> {
-    return this.http
-      .get<ApiMarketRegimeResponse>(`${this.base}market/regime`)
-      .pipe(catchError(err => throwError(() => new Error(
-        err.error?.detail ?? 'Failed to load regime state',
       ))));
   }
 

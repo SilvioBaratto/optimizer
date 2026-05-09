@@ -151,12 +151,18 @@ class UniverseRepository(RepositoryBase):
     def get_instruments(
         self,
         exchange_name: str | None = None,
+        search: str | None = None,
         skip: int = 0,
         limit: int = 100,
     ) -> Sequence[Instrument]:
         stmt = select(Instrument).options(joinedload(Instrument.exchange))
         if exchange_name:
             stmt = stmt.join(Exchange).where(Exchange.name == exchange_name)
+        if search:
+            term = f"%{search.strip()}%"
+            stmt = stmt.where(
+                (Instrument.ticker.ilike(term)) | (Instrument.name.ilike(term))
+            )
         stmt = stmt.offset(skip).limit(limit)
         return self.session.execute(stmt).scalars().unique().all()
 

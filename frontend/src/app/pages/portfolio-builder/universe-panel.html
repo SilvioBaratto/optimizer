@@ -49,8 +49,10 @@
             <button type="button" (click)="onTickerClick(inst)"
               class="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-inset transition-colors">
               <span class="font-mono font-medium">{{ inst.ticker }}</span>
-              <span class="text-text-secondary ml-2">{{ inst.name }}</span>
-              <span class="text-text-tertiary ml-2">· {{ inst.exchange }}</span>
+              <span class="text-text-secondary ml-2">{{ inst.name ?? inst.short_name }}</span>
+              @if (inst.exchange_name) {
+                <span class="text-text-tertiary ml-2">· {{ inst.exchange_name }}</span>
+              }
             </button>
           </li>
         }
@@ -62,7 +64,8 @@
   @if (hasScreenResult()) {
     <div class="bg-surface-raised border border-border rounded-lg overflow-hidden">
       <app-data-table [columns]="screenColumns" [rows]="screenRows()"
-        [total]="screenRows().length" [pageSize]="20" [dense]="true" [stickyHeader]="true" />
+        [total]="screenRows().length" [pageSize]="20" [dense]="true" [stickyHeader]="true"
+        [clickable]="true" (rowClick)="onScreenRowClick($event)" />
     </div>
   } @else if (!screenLoading()) {
     <div class="bg-surface-raised border border-border rounded-lg p-8 text-center">

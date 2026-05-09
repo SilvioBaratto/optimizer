@@ -28,7 +28,7 @@ from app.schemas.dashboard import (
     RollingMetricsResponse,
 )
 from app.services import dashboard_service
-from app.services._sector_resolver import resolve_sector_map
+from app.services._sector_resolver import UNCLASSIFIED, resolve_sector_map
 
 logger = logging.getLogger(__name__)
 
@@ -375,22 +375,27 @@ def get_allocation(
     weights: dict[str, float] = snapshot.weights
     snapshot_mapping: dict[str, str] | None = snapshot.sector_mapping
 
-    if snapshot_mapping is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "No sector mapping found in latest snapshot;"
-                " run optimization with sector data"
-            ),
-        )
-
     # Shared resolver (issue #427): snapshot-first with TickerProfile fallback
-    # for any ticker the snapshot didn't cover.
+    # for any ticker the snapshot didn't cover. When the snapshot has no
+    # sector_mapping at all, fall through to the TickerProfile lookup (still
+    # populated by yfinance ingestion) instead of raising 422 — historic
+    # snapshots and ad-hoc Apply-Weights snapshots from optimization-studio
+    # don't carry the mapping, but the data is still recoverable.
     sector_mapping = resolve_sector_map(
         session=db,
         tickers=weights.keys(),
         snapshot_mapping=snapshot_mapping,
     )
+
+    # Validate that we have at least some actual sector data
+    if not any(s != UNCLASSIFIED for s in sector_mapping.values()):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "No sector data available — provide sector_mapping in portfolio "
+                "snapshot or seed TickerProfile data via yfinance"
+            ),
+        )
 
     try:
         result = dashboard_service.compute_allocation(
@@ -565,21 +570,25 @@ def get_asset_class_returns(
     weights: dict[str, float] = snapshot.weights
     snapshot_mapping: dict[str, str] | None = snapshot.sector_mapping
 
-    if snapshot_mapping is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "No sector mapping found in latest snapshot;"
-                " run optimization with sector data"
-            ),
-        )
-
     # Shared resolver (issue #427): snapshot-first with TickerProfile fallback.
+    # Tolerates snapshots without inline sector_mapping (e.g. ad-hoc Apply-
+    # Weights snapshots from optimization-studio) by falling back to the
+    # yfinance-populated TickerProfile join.
     sector_mapping = resolve_sector_map(
         session=db,
         tickers=weights.keys(),
         snapshot_mapping=snapshot_mapping,
     )
+
+    # Validate that we have at least some actual sector data
+    if not any(s != UNCLASSIFIED for s in sector_mapping.values()):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "No sector data available — provide sector_mapping in portfolio "
+                "snapshot or seed TickerProfile data via yfinance"
+            ),
+        )
 
     # Lookback must cover from Jan 1 of current year at minimum
     tickers = list(weights.keys())

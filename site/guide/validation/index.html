@@ -1,0 +1,2841 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://silviobaratto.github.io/optimizer/guide/validation/">
+      
+      
+        <link rel="prev" href="../optimization/">
+      
+      
+        <link rel="next" href="../scoring/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Validation - Portfolio Optimizer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#validation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Portfolio Optimizer" class="md-header__button md-logo" aria-label="Portfolio Optimizer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Portfolio Optimizer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Validation
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/SilvioBaratto/optimizer" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    SilvioBaratto/optimizer
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Portfolio Optimizer" class="md-nav__button md-logo" aria-label="Portfolio Optimizer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Portfolio Optimizer
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/SilvioBaratto/optimizer" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    SilvioBaratto/optimizer
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preprocessing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pre-selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../moments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Moments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../views/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Views
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#walk-forward" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walk-Forward
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Walk-Forward">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rolling-vs-expanding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rolling vs Expanding
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#combinatorial-purged-cross-validation-cpcv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Combinatorial Purged Cross-Validation (CPCV)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Combinatorial Purged Cross-Validation (CPCV)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#presets_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#purging-and-embargoing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Purging and Embargoing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-randomized-cv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Randomized CV
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multiple Randomized CV">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#preset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Preset
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-cross-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Cross-Validation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running Cross-Validation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#computing-optimal-folds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Computing Optimal Folds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Code Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#walk-forward-backtest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walk-forward backtest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cpcv-for-backtest-overfitting-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CPCV for backtest overfitting detection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#robustness-testing-with-randomized-cv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Robustness testing with randomized CV
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gotchas-and-tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gotchas and Tips
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#point-in-time-fundamental-correctness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Point-in-Time Fundamental Correctness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Point-in-Time Fundamental Correctness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-look-ahead-bias-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Look-Ahead Bias Problem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-fix-issue-273" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Fix (Issue #273)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#publication-lag-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publication Lag Reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#survivorship-bias-correction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Survivorship Bias Correction
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rebalancing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rebalancing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../factors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Factors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../synthetic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synthetic Data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../universe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Universe Screening
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/distance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/cluster/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/uncertainty_set/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Uncertainty Sets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/online/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Online Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/linear_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CS Linear Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/fx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    preprocessing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/pre_selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pre_selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/moments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    moments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/views/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    views
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/synthetic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    synthetic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rebalancing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    rebalancing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/universe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    universe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/factors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    factors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/distance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    distance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/cluster/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cluster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/uncertainty_set/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    uncertainty_set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/online/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    online
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/linear_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    linear_model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/fx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fx
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#walk-forward" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walk-Forward
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Walk-Forward">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rolling-vs-expanding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rolling vs Expanding
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#combinatorial-purged-cross-validation-cpcv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Combinatorial Purged Cross-Validation (CPCV)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Combinatorial Purged Cross-Validation (CPCV)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#presets_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#purging-and-embargoing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Purging and Embargoing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-randomized-cv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Randomized CV
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multiple Randomized CV">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#preset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Preset
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-cross-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Cross-Validation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running Cross-Validation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#computing-optimal-folds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Computing Optimal Folds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Code Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#walk-forward-backtest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walk-forward backtest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cpcv-for-backtest-overfitting-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CPCV for backtest overfitting detection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#robustness-testing-with-randomized-cv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Robustness testing with randomized CV
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gotchas-and-tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gotchas and Tips
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#point-in-time-fundamental-correctness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Point-in-Time Fundamental Correctness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Point-in-Time Fundamental Correctness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-look-ahead-bias-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Look-Ahead Bias Problem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-fix-issue-273" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Fix (Issue #273)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#publication-lag-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publication Lag Reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#survivorship-bias-correction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Survivorship Bias Correction
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="validation">Validation<a class="headerlink" href="#validation" title="Permanent link">&para;</a></h1>
+<p>The validation module provides cross-validation strategies designed specifically for financial time series. Unlike standard k-fold CV which randomly shuffles data, these methods respect the temporal ordering of observations to prevent look-ahead bias — a critical requirement when backtesting portfolio strategies.</p>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>Standard cross-validation assumes observations are i.i.d., which is violated by financial returns that exhibit autocorrelation, volatility clustering, and regime changes. The three validation strategies in this module address this by enforcing temporal ordering:</p>
+<ul>
+<li><strong>Walk-Forward</strong> — rolling or expanding window that mimics real-time portfolio management</li>
+<li><strong>Combinatorial Purged CV (CPCV)</strong> — generates a population of backtest paths with purging and embargoing</li>
+<li><strong>Multiple Randomized CV</strong> — dual randomization across time and assets for robustness testing</li>
+</ul>
+<p>All validators follow the frozen-config + factory pattern: a <code>@dataclass(frozen=True)</code> config holds serializable parameters, and a factory function builds the skfolio cross-validator.</p>
+<h2 id="walk-forward">Walk-Forward<a class="headerlink" href="#walk-forward" title="Permanent link">&para;</a></h2>
+<p>Walk-Forward validation partitions the time series into successive train/test windows that move forward in time. This is the most common and intuitive method — it directly simulates how a portfolio manager would use the model in practice.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>|-------- train --------|-- test --|
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                    |-------- train --------|-- test --|
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>                                        |-------- train --------|-- test --|
+</code></pre></div>
+<h3 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">WalkForwardConfig</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">WalkForwardConfig</span><span class="p">(</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">test_size</span><span class="o">=</span><span class="mi">63</span><span class="p">,</span>       <span class="c1"># ~1 quarter of trading days</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">train_size</span><span class="o">=</span><span class="mi">252</span><span class="p">,</span>     <span class="c1"># ~1 year of trading days</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">purged_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>      <span class="c1"># observations purged between train/test (default: 5 = one trading week)</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">expend_train</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="c1"># False = rolling, True = expanding</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">reduce_test</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>  <span class="c1"># allow shorter final test window</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_size</code></td>
+<td><code>int</code></td>
+<td>63</td>
+<td>Trading days per test window</td>
+</tr>
+<tr>
+<td><code>train_size</code></td>
+<td><code>int</code></td>
+<td>252</td>
+<td>Trading days per training window (initial size when expanding)</td>
+</tr>
+<tr>
+<td><code>purged_size</code></td>
+<td><code>int</code></td>
+<td>5</td>
+<td>Observations excised between train and test (one trading week)</td>
+</tr>
+<tr>
+<td><code>expend_train</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td><code>True</code> = expanding window, <code>False</code> = rolling window</td>
+</tr>
+<tr>
+<td><code>reduce_test</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Allow shorter final test window to avoid data waste</td>
+</tr>
+</tbody>
+</table>
+<h3 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Preset</th>
+<th>test_size</th>
+<th>train_size</th>
+<th>purged_size</th>
+<th>Window Type</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>for_monthly_rolling()</code></td>
+<td>21</td>
+<td>252</td>
+<td>21</td>
+<td>Rolling</td>
+</tr>
+<tr>
+<td><code>for_quarterly_rolling()</code></td>
+<td>63</td>
+<td>252</td>
+<td>21</td>
+<td>Rolling</td>
+</tr>
+<tr>
+<td><code>for_quarterly_expanding()</code></td>
+<td>63</td>
+<td>252</td>
+<td>21</td>
+<td>Expanding</td>
+</tr>
+</tbody>
+</table>
+<h3 id="rolling-vs-expanding">Rolling vs Expanding<a class="headerlink" href="#rolling-vs-expanding" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Rolling window</strong> (<code>expend_train=False</code>): Training window has fixed size and slides forward. Better when the market regime changes over time — older data may not be representative.</li>
+<li><strong>Expanding window</strong> (<code>expend_train=True</code>): Training window grows as data accumulates. Better when more data always improves estimation — the estimator benefits from a longer history.</li>
+</ul>
+<h2 id="combinatorial-purged-cross-validation-cpcv">Combinatorial Purged Cross-Validation (CPCV)<a class="headerlink" href="#combinatorial-purged-cross-validation-cpcv" title="Permanent link">&para;</a></h2>
+<p>CPCV generates a combinatorial population of backtest paths from all possible selections of test folds, with purging and embargoing to prevent information leakage. Developed by Marcos Lopez de Prado, it provides a distribution of backtest performance rather than a single path.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPCVConfig</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">CPCVConfig</span><span class="p">(</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">n_folds</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>       <span class="c1"># non-overlapping temporal blocks</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">n_test_folds</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>   <span class="c1"># blocks per test set in each combination</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">purged_size</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>    <span class="c1"># observations purged at train/test boundary</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">embargo_size</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>   <span class="c1"># observations embargoed after each test block</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>n_folds</code></td>
+<td><code>int</code></td>
+<td>10</td>
+<td>Number of non-overlapping temporal blocks</td>
+</tr>
+<tr>
+<td><code>n_test_folds</code></td>
+<td><code>int</code></td>
+<td>8</td>
+<td>Blocks assigned to test set per combination</td>
+</tr>
+<tr>
+<td><code>purged_size</code></td>
+<td><code>int</code></td>
+<td>0</td>
+<td>Observations purged at each train-test boundary</td>
+</tr>
+<tr>
+<td><code>embargo_size</code></td>
+<td><code>int</code></td>
+<td>0</td>
+<td>Observations embargoed after each test block</td>
+</tr>
+</tbody>
+</table>
+<h3 id="presets_1">Presets<a class="headerlink" href="#presets_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Preset</th>
+<th>n_folds</th>
+<th>n_test_folds</th>
+<th>Paths</th>
+<th>Use Case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>for_statistical_testing()</code></td>
+<td>12</td>
+<td>2</td>
+<td>C(12,2) = 66</td>
+<td>Significance testing with high statistical power</td>
+</tr>
+<tr>
+<td><code>for_small_sample()</code></td>
+<td>6</td>
+<td>2</td>
+<td>C(6,2) = 15</td>
+<td>Shorter time series</td>
+</tr>
+</tbody>
+</table>
+<h3 id="purging-and-embargoing">Purging and Embargoing<a class="headerlink" href="#purging-and-embargoing" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Purging</strong>: Removes observations immediately adjacent to the train-test boundary to prevent information leakage from autocorrelated returns.</li>
+<li><strong>Embargoing</strong>: Removes observations immediately following each test block to prevent the model from learning patterns that persist into the test period.</li>
+</ul>
+<h2 id="multiple-randomized-cv">Multiple Randomized CV<a class="headerlink" href="#multiple-randomized-cv" title="Permanent link">&para;</a></h2>
+<p>Dual randomization across both temporal windows and asset subsets to test strategy robustness along both dimensions. Each trial randomly selects a time window and a subset of assets, then runs walk-forward validation within that subsample.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">MultipleRandomizedCVConfig</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">MultipleRandomizedCVConfig</span><span class="p">(</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">walk_forward_config</span><span class="o">=</span><span class="n">WalkForwardConfig</span><span class="p">(),</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">n_subsamples</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>       <span class="c1"># number of random trials</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">asset_subset_size</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>  <span class="c1"># assets drawn per trial</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">window_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>      <span class="c1"># None = full sample</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">random_state</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>walk_forward_config</code></td>
+<td><code>WalkForwardConfig</code></td>
+<td>default</td>
+<td>Inner walk-forward configuration</td>
+</tr>
+<tr>
+<td><code>n_subsamples</code></td>
+<td><code>int</code></td>
+<td>10</td>
+<td>Number of random trials</td>
+</tr>
+<tr>
+<td><code>asset_subset_size</code></td>
+<td><code>int</code></td>
+<td>10</td>
+<td>Assets drawn per trial</td>
+</tr>
+<tr>
+<td><code>window_size</code></td>
+<td><code>int</code> or <code>None</code></td>
+<td><code>None</code></td>
+<td>Temporal window length; <code>None</code> = full sample</td>
+</tr>
+<tr>
+<td><code>random_state</code></td>
+<td><code>int</code> or <code>None</code></td>
+<td><code>None</code></td>
+<td>Seed for reproducibility</td>
+</tr>
+</tbody>
+</table>
+<h3 id="preset">Preset<a class="headerlink" href="#preset" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Preset</th>
+<th>n_subsamples</th>
+<th>asset_subset_size</th>
+<th>Use Case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>for_robustness_check(20, 10)</code></td>
+<td>20</td>
+<td>10</td>
+<td>Standard robustness testing</td>
+</tr>
+</tbody>
+</table>
+<h2 id="running-cross-validation">Running Cross-Validation<a class="headerlink" href="#running-cross-validation" title="Permanent link">&para;</a></h2>
+<p>The <code>run_cross_val</code> function is the main entry point for executing cross-validation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">WalkForwardConfig</span><span class="p">,</span> <span class="n">run_cross_val</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">cv_config</span> <span class="o">=</span> <span class="n">WalkForwardConfig</span><span class="o">.</span><span class="n">for_quarterly_rolling</span><span class="p">()</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">cv_result</span> <span class="o">=</span> <span class="n">run_cross_val</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">cv</span><span class="o">=</span><span class="n">cv_config</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+<p>When no <code>cv</code> argument is provided, <code>run_cross_val</code> defaults to quarterly rolling walk-forward validation.</p>
+<h3 id="computing-optimal-folds">Computing Optimal Folds<a class="headerlink" href="#computing-optimal-folds" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">compute_optimal_folds</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">n_folds</span> <span class="o">=</span> <span class="n">compute_optimal_folds</span><span class="p">(</span><span class="n">n_observations</span><span class="o">=</span><span class="mi">1260</span><span class="p">,</span> <span class="n">min_train</span><span class="o">=</span><span class="mi">252</span><span class="p">,</span> <span class="n">min_test</span><span class="o">=</span><span class="mi">63</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="code-examples">Code Examples<a class="headerlink" href="#code-examples" title="Permanent link">&para;</a></h2>
+<h3 id="walk-forward-backtest">Walk-forward backtest<a class="headerlink" href="#walk-forward-backtest" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.optimization</span><span class="w"> </span><span class="kn">import</span> <span class="n">MeanRiskConfig</span><span class="p">,</span> <span class="n">build_mean_risk</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_full_pipeline</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">WalkForwardConfig</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">optimizer</span> <span class="o">=</span> <span class="n">build_mean_risk</span><span class="p">(</span><span class="n">MeanRiskConfig</span><span class="o">.</span><span class="n">for_max_sharpe</span><span class="p">())</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">result</span> <span class="o">=</span> <span class="n">run_full_pipeline</span><span class="p">(</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    <span class="n">prices</span><span class="o">=</span><span class="n">prices</span><span class="p">,</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    <span class="n">optimizer</span><span class="o">=</span><span class="n">optimizer</span><span class="p">,</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>    <span class="n">cv_config</span><span class="o">=</span><span class="n">WalkForwardConfig</span><span class="o">.</span><span class="n">for_quarterly_rolling</span><span class="p">(),</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="p">)</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="c1"># Out-of-sample performance</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;OOS Sharpe: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">backtest</span><span class="o">.</span><span class="n">sharpe_ratio</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;OOS Max DD: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">backtest</span><span class="o">.</span><span class="n">max_drawdown</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="cpcv-for-backtest-overfitting-detection">CPCV for backtest overfitting detection<a class="headerlink" href="#cpcv-for-backtest-overfitting-detection" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">CPCVConfig</span><span class="p">,</span> <span class="n">build_cpcv</span><span class="p">,</span> <span class="n">run_cross_val</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">cpcv</span> <span class="o">=</span> <span class="n">build_cpcv</span><span class="p">(</span><span class="n">CPCVConfig</span><span class="o">.</span><span class="n">for_statistical_testing</span><span class="p">())</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">population</span> <span class="o">=</span> <span class="n">run_cross_val</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">cv</span><span class="o">=</span><span class="n">cpcv</span><span class="p">)</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="c1"># population is a Population object — analyze distribution of paths</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">population</span><span class="p">:</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Path Sharpe: </span><span class="si">{</span><span class="n">path</span><span class="o">.</span><span class="n">sharpe_ratio</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="robustness-testing-with-randomized-cv">Robustness testing with randomized CV<a class="headerlink" href="#robustness-testing-with-randomized-cv" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">MultipleRandomizedCVConfig</span><span class="p">,</span> <span class="n">build_multiple_randomized_cv</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">MultipleRandomizedCVConfig</span><span class="o">.</span><span class="n">for_robustness_check</span><span class="p">(</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="n">n_subsamples</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    <span class="n">asset_subset_size</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="p">)</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="n">cv</span> <span class="o">=</span> <span class="n">build_multiple_randomized_cv</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="n">population</span> <span class="o">=</span> <span class="n">run_cross_val</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">cv</span><span class="o">=</span><span class="n">cv</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="gotchas-and-tips">Gotchas and Tips<a class="headerlink" href="#gotchas-and-tips" title="Permanent link">&para;</a></h2>
+<div class="admonition warning">
+<p class="admonition-title">Never use standard k-fold CV</p>
+<p>Standard <code>KFold</code> or <code>StratifiedKFold</code> will randomly assign future data to the training set, creating look-ahead bias. Always use temporal validation methods for financial time series.</p>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Default is quarterly rolling</p>
+<p><code>run_cross_val()</code> defaults to quarterly rolling walk-forward (<code>test_size=63</code>, <code>train_size=252</code>) when no <code>cv</code> is passed. This is a sensible default for daily equity returns.</p>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">CPCV returns Population, not MultiPeriodPortfolio</p>
+<p>Walk-forward returns a <code>MultiPeriodPortfolio</code> (single path). CPCV returns a <code>Population</code> (collection of paths). Handle them differently when extracting metrics.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Purging prevents temporal leakage</p>
+<p>For daily equity data, <code>purged_size=21</code> (one trading month) is recommended and enforced by all presets. Increase it further when using features with long look-back windows (e.g., 60-day rolling averages). For intraday data, scale proportionally.</p>
+</div>
+<h2 id="quick-reference">Quick Reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Task</th>
+<th>Code</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Quarterly rolling backtest</td>
+<td><code>WalkForwardConfig.for_quarterly_rolling()</code></td>
+</tr>
+<tr>
+<td>Monthly rolling backtest</td>
+<td><code>WalkForwardConfig.for_monthly_rolling()</code></td>
+</tr>
+<tr>
+<td>Expanding window</td>
+<td><code>WalkForwardConfig.for_quarterly_expanding()</code></td>
+</tr>
+<tr>
+<td>CPCV statistical test</td>
+<td><code>CPCVConfig.for_statistical_testing()</code></td>
+</tr>
+<tr>
+<td>Robustness check</td>
+<td><code>MultipleRandomizedCVConfig.for_robustness_check()</code></td>
+</tr>
+<tr>
+<td>Run CV</td>
+<td><code>run_cross_val(pipeline, X, cv=config)</code></td>
+</tr>
+<tr>
+<td>Default CV</td>
+<td><code>run_cross_val(pipeline, X)</code> → quarterly rolling</td>
+</tr>
+</tbody>
+</table>
+<h2 id="point-in-time-fundamental-correctness">Point-in-Time Fundamental Correctness<a class="headerlink" href="#point-in-time-fundamental-correctness" title="Permanent link">&para;</a></h2>
+<h3 id="the-look-ahead-bias-problem">The Look-Ahead Bias Problem<a class="headerlink" href="#the-look-ahead-bias-problem" title="Permanent link">&para;</a></h3>
+<p>Factor scores that depend on financial statement data (book-to-price, earnings yield, ROE, asset growth, etc.) must use only the data that would have been available at each historical rebalancing date. Annual 10-K filings are published approximately 90 days after fiscal year end; quarterly 10-Q filings are published approximately 45 days after quarter end. Using the current snapshot of fundamentals at all historical dates introduces look-ahead bias: the model "sees" future earnings and balance sheet data when computing historical factor scores, overstating IC and all downstream metrics.</p>
+<h3 id="the-fix-issue-273">The Fix (Issue #273)<a class="headerlink" href="#the-fix-issue-273" title="Permanent link">&para;</a></h3>
+<p><code>build_factor_scores_history()</code> in <code>research/_factors.py</code> accepts a <code>fundamental_history</code> parameter — a <code>pd.DataFrame</code> with <code>MultiIndex (period_date, ticker)</code> and a <code>period_type</code> column (<code>'annual'</code> | <code>'quarterly'</code>). When provided, the function calls <code>_slice_fundamentals_at()</code> at each rebalancing date, which applies differentiated publication lags via <code>align_to_pit()</code>:</p>
+<ul>
+<li>Annual statements: 90-day lag (<code>PublicationLagConfig.annual_days</code>)</li>
+<li>Quarterly statements: 45-day lag (<code>PublicationLagConfig.quarterly_days</code>)</li>
+</ul>
+<p>The assembly layer (<code>cli/data_assembly.py</code>, <code>assemble_all()</code>) populates <code>assembly.fundamental_history</code> from the <code>financial_statements</code> table. The fix in <code>research/stock_selection_pipeline.py</code> passes this panel to <code>build_factor_scores_history()</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">factor_scores_history</span><span class="p">,</span> <span class="n">returns_history</span><span class="p">,</span> <span class="n">build_health</span> <span class="o">=</span> <span class="n">build_factor_scores_history</span><span class="p">(</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    <span class="o">...</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="n">fundamental_history</span><span class="o">=</span><span class="n">assembly</span><span class="o">.</span><span class="n">fundamental_history</span><span class="p">,</span>   <span class="c1"># eliminates look-ahead bias</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="p">)</span>
+</code></pre></div>
+<p>When <code>assembly.fundamental_history</code> is empty (DB has no financial statement history), the function falls back to snapshot mode and emits a <code>UserWarning</code>.</p>
+<h3 id="publication-lag-reference">Publication Lag Reference<a class="headerlink" href="#publication-lag-reference" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Default lag</th>
+<th>Configurable via</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Annual 10-K</td>
+<td>90 days</td>
+<td><code>PublicationLagConfig.annual_days</code></td>
+</tr>
+<tr>
+<td>Quarterly 10-Q</td>
+<td>45 days</td>
+<td><code>PublicationLagConfig.quarterly_days</code></td>
+</tr>
+<tr>
+<td>Analyst estimates</td>
+<td>5 days</td>
+<td><code>PublicationLagConfig.analyst_days</code></td>
+</tr>
+<tr>
+<td>Macro indicators</td>
+<td>63 days</td>
+<td><code>PublicationLagConfig.macro_days</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="survivorship-bias-correction">Survivorship Bias Correction<a class="headerlink" href="#survivorship-bias-correction" title="Permanent link">&para;</a></h2>
+<p>Delisted stocks are included in the research pipeline by default (<code>include_delisted=True</code> in <code>research/_data.py</code>). Two complementary mechanisms prevent survivorship bias:</p>
+<ol>
+<li>
+<p><strong>Price-space correction</strong> (<code>cli/data_assembly._apply_delisting_returns</code>) — appends a synthetic price row at the delisting date so <code>prices_to_returns()</code> produces the correct terminal return.</p>
+</li>
+<li>
+<p><strong>Returns-space correction</strong> (<code>optimizer.preprocessing.apply_delisting_returns</code>) — replaces each delisted ticker's last valid return with its delisting return value. Wired into <code>run_full_pipeline()</code> via the <code>delisting_returns</code> parameter.</p>
+</li>
+</ol>
+<p><code>DataAssembly.delisting_returns</code> is automatically populated by <code>assemble_all()</code> from the <code>instruments</code> table. When a ticker's <code>delisting_return</code> is NULL in the DB, a default of -30% is used.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">run_full_pipeline</span><span class="p">(</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>    <span class="n">prices</span><span class="o">=</span><span class="n">assembly</span><span class="o">.</span><span class="n">prices</span><span class="p">,</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    <span class="n">optimizer</span><span class="o">=</span><span class="n">optimizer</span><span class="p">,</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    <span class="n">delisting_returns</span><span class="o">=</span><span class="n">assembly</span><span class="o">.</span><span class="n">delisting_returns</span><span class="p">,</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="p">)</span>
+</code></pre></div>
+<p>Tickers not present in the returns columns (e.g., filtered out by pre-selection) are silently ignored.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "content.code.copy", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

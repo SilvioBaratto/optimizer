@@ -1,10 +1,25 @@
-import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  ChangeDetectionStrategy,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { LucideAngularModule } from 'lucide-angular';
 import {
   PortfolioContextService,
   PortfolioMode,
 } from '../../../services/portfolio-context.service';
+import { MarketService } from '../../../services/market.service';
+import type { ReferenceIndexItem } from '../../../models/dashboard-api.model';
 import { DateRangePickerComponent } from '../../date-range-picker/date-range-picker';
+
+interface BenchmarkOption {
+  label: string;
+  value: string;
+}
 
 @Component({
   selector: 'app-context-bar',
@@ -40,7 +55,7 @@ import { DateRangePickerComponent } from '../../date-range-picker/date-range-pic
             class="appearance-none bg-surface-raised border border-border rounded px-3 py-1 pr-7 text-data-sm text-text cursor-pointer hover:border-accent transition-colors focus:outline-none focus:ring-1 focus:ring-accent"
             [value]="ctx.benchmark()"
             (change)="onBenchmarkChange($event)">
-            @for (b of benchmarks; track b.value) {
+            @for (b of benchmarks(); track b.value) {
               <option [value]="b.value">{{ b.label }}</option>
             }
           </select>
@@ -75,7 +90,7 @@ import { DateRangePickerComponent } from '../../date-range-picker/date-range-pic
               class="appearance-none bg-surface-raised border border-border rounded px-2 py-0.5 pr-6 text-data-sm text-text cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent"
               [value]="ctx.benchmark()"
               (change)="onBenchmarkChange($event)">
-              @for (b of benchmarks; track b.value) {
+              @for (b of benchmarks(); track b.value) {
                 <option [value]="b.value">{{ b.label }}</option>
               }
             </select>
@@ -88,6 +103,8 @@ import { DateRangePickerComponent } from '../../date-range-picker/date-range-pic
 })
 export class ContextBarComponent {
   protected readonly ctx = inject(PortfolioContextService);
+  private readonly marketSvc = inject(MarketService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly modes: { label: string; value: PortfolioMode }[] = [
     { label: 'Live', value: 'live' },
@@ -95,11 +112,28 @@ export class ContextBarComponent {
     { label: 'Paper', value: 'paper' },
   ];
 
-  readonly benchmarks = [
-    { label: 'SPY', value: 'SPY' },
-    { label: 'MSCI World (URTH)', value: 'URTH' },
-    { label: '60/40 Balanced (VBINX)', value: 'VBINX' },
-  ];
+  private readonly indices = signal<ReferenceIndexItem[]>([]);
+  readonly benchmarks = computed<BenchmarkOption[]>(() => {
+    const items = this.indices();
+    if (items.length === 0) {
+      // Fallback while /market/indices is loading or unreachable.
+      return [{ label: this.ctx.benchmark(), value: this.ctx.benchmark() }];
+    }
+    return items.map((i) => ({
+      label: i.name ? `${i.ticker} — ${i.name}` : i.ticker,
+      value: i.ticker,
+    }));
+  });
+
+  constructor() {
+    this.marketSvc
+      .getIndices()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.indices.set(res.indices),
+        error: () => this.indices.set([]),
+      });
+  }
 
   onBenchmarkChange(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;

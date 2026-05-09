@@ -65,8 +65,9 @@
         ({{ selectedPortfolio() || 'none' }}).
       </p>
       <div class="flex justify-end gap-2">
-        <button type="button" (click)="runFactor()" [disabled]="factorLoading()"
-          class="px-3 py-2 text-sm font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset disabled:opacity-50 transition-colors">
+        <button type="button" (click)="runFactor()"
+          [disabled]="!isFactorFormValid() || factorLoading()"
+          class="px-3 py-2 text-sm font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
           @if (factorLoading()) { Running… } @else { Run Factor }
         </button>
         <button type="button" (click)="runBrinson()" [disabled]="!isFormValid() || brinsonLoading()"
@@ -86,6 +87,18 @@
         </p>
       }
     </div>
+
+    @if (benchAllUnclassified()) {
+      <div class="mb-4 bg-warning/10 border border-warning/40 text-warning text-xs rounded-md p-3">
+        <strong>Heads-up:</strong> the supplied benchmark resolves to a single
+        <em>Unclassified</em> sector (typical with whole-market ETFs like
+        <code>SPY</code>, <code>QQQ</code>, <code>URTH</code>). The per-sector
+        Brinson decomposition aggregates the entire benchmark return into that
+        pseudo-sector, so Allocation and Selection effects are mathematically
+        valid but semantically misleading. For meaningful attribution, supply a
+        benchmark composed of single-stock tickers with sector mappings.
+      </div>
+    }
 
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
       <app-stat-card label="Total Active Return" [value]="kpiActiveReturn()" subtitle="Portfolio vs Benchmark" />

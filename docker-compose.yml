@@ -35,6 +35,7 @@ services:
 
   # FastAPI Application
   api:
+    image: optimizer-api:latest
     build:
       context: .
       dockerfile: api/Dockerfile
@@ -42,9 +43,10 @@ services:
     env_file:
       - .env
     environment:
-      # Override DB URL to use Docker internal hostname instead of localhost
       DATABASE_URL: postgresql://postgres:postgres@db:5432/optimizer_db
-      # Override Ollama to reach host machine from inside container
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: postgres
       OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
     ports:
       - "8005:8000"
@@ -52,19 +54,23 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
       interval: 30s
       timeout: 10s
-      start_period: 40s
-      retries: 3
+      start_period: 60s
+      retries: 5
     networks:
       - optimizer_network
 
   # Angular Frontend (nginx reverse proxy)
   frontend:
+    image: optimizer-frontend:latest
     build:
       context: ./frontend
+      dockerfile: Dockerfile
     container_name: optimizer_frontend
     ports:
       - "4300:80"

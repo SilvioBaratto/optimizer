@@ -134,20 +134,11 @@ describe('DashboardComponent — period selector wiring (issue #433)', () => {
         asOf: new Date().toISOString(),
       };
     }
-    if (url.includes('/market/regime')) {
-      return {
-        current: 'bull',
-        probability: 1,
-        since: new Date().toISOString(),
-      };
-    }
     if (url.includes('/equity-curve')) return { points: [] };
     if (url.includes('/performance-metrics')) {
       return { kpis: [], nav: 0, navChangePct: 0, currency: 'EUR' };
     }
     if (url.includes('/allocation')) return { nodes: [], totalPositions: 0, totalSectors: 0 };
-    if (url.includes('/drift')) return { entries: [], breachedCount: 0, threshold: 0.05 };
-    if (url.includes('/activity')) return { items: [], total: 0 };
     if (url.includes('/asset-class-returns')) return { returns: [] };
     if (url.includes('/rolling-metrics')) {
       return { window: 63, sharpe: [], volatility: [], beta: [] };
@@ -225,20 +216,11 @@ describe('DashboardComponent — rolling-metrics wiring (issue #453)', () => {
         asOf: new Date().toISOString(),
       };
     }
-    if (url.includes('/market/regime')) {
-      return {
-        current: 'bull',
-        probability: 1,
-        since: new Date().toISOString(),
-      };
-    }
     if (url.includes('/equity-curve')) return { points: [] };
     if (url.includes('/performance-metrics')) {
       return { kpis: [], nav: 0, navChangePct: 0, currency: 'EUR' };
     }
     if (url.includes('/allocation')) return { nodes: [], totalPositions: 0, totalSectors: 0 };
-    if (url.includes('/drift')) return { entries: [], breachedCount: 0, threshold: 0.05 };
-    if (url.includes('/activity')) return { items: [], total: 0 };
     if (url.includes('/asset-class-returns')) return { returns: [] };
     if (url.includes('/rolling-metrics')) return rollingBody();
     return {};

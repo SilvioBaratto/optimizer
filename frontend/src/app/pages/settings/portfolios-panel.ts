@@ -11,6 +11,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { PortfolioApiService } from '../../services/portfolio-api.service';
+import { MarketService } from '../../services/market.service';
+import { ReferenceIndexService } from '../../services/reference-index.service';
 import type {
   CreatePortfolioDto,
   PortfolioDto,
@@ -40,6 +42,8 @@ const CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD'] as const;
 })
 export class PortfoliosPanelComponent {
   private readonly api = inject(PortfolioApiService);
+  private readonly marketSvc = inject(MarketService);
+  private readonly refIndex = inject(ReferenceIndexService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly portfolios = signal<PortfolioDto[]>([]);
@@ -50,6 +54,8 @@ export class PortfoliosPanelComponent {
   readonly form = signal<CreateForm>(EMPTY_FORM);
   readonly creating = signal<boolean>(false);
   readonly createError = signal<string | null>(null);
+  readonly seedingMessage = signal<string | null>(null);
+  private knownBenchmarks = new Set<string>();
 
   readonly currencies = CURRENCIES;
 
@@ -78,6 +84,21 @@ export class PortfoliosPanelComponent {
 
   constructor() {
     this.refresh();
+    this.loadKnownBenchmarks();
+  }
+
+  private loadKnownBenchmarks(): void {
+    this.marketSvc
+      .getIndices()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.knownBenchmarks = new Set(res.indices.map((i) => i.ticker.toUpperCase()));
+        },
+        error: () => {
+          this.knownBenchmarks = new Set();
+        },
+      });
   }
 
   refresh(): void {
@@ -112,6 +133,54 @@ export class PortfoliosPanelComponent {
     if (!this.isFormValid() || this.creating()) return;
     this.creating.set(true);
     this.createError.set(null);
+    this.seedingMessage.set(null);
+
+    const benchmark = this.form().benchmark_ticker.trim().toUpperCase();
+    if (benchmark && !this.knownBenchmarks.has(benchmark)) {
+      this.seedAndCreate(benchmark);
+      return;
+    }
+    this.create();
+  }
+
+  private seedAndCreate(benchmark: string): void {
+    this.seedingMessage.set(`Seeding price history for ${benchmark}…`);
+    this.refIndex
+      .startSeed([benchmark])
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (job) => this.pollSeedJob(job.job_id, benchmark),
+        error: (err: Error) =>
+          this.onCreateError(err.message ?? `Failed to seed ${benchmark}`),
+      });
+  }
+
+  private pollSeedJob(jobId: string, benchmark: string): void {
+    this.refIndex
+      .pollUntilDone(jobId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (progress) => {
+          if (progress.status === 'completed') {
+            this.knownBenchmarks.add(benchmark);
+            this.seedingMessage.set(null);
+            this.create();
+          } else if (progress.status === 'failed') {
+            this.onCreateError(
+              progress.error ?? `Seed failed for ${benchmark}`,
+            );
+          } else if (progress.total > 0) {
+            this.seedingMessage.set(
+              `Seeding ${benchmark}… ${progress.current}/${progress.total}`,
+            );
+          }
+        },
+        error: (err: Error) =>
+          this.onCreateError(err.message ?? 'Seed polling failed'),
+      });
+  }
+
+  private create(): void {
     this.api
       .create(this.buildPayload())
       .pipe(takeUntilDestroyed(this.destroyRef))

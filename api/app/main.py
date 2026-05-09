@@ -67,6 +67,22 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Database health check failed but continuing startup: {e}")
 
+        # Bootstrap reference-index benchmarks — seed any ticker whose price
+        # history is missing or stale. Synchronous so the dashboard never
+        # 422s on a fresh DB. Failures are non-fatal.
+        try:
+            from app.services._benchmark_bootstrap import bootstrap_benchmarks
+            from app.services.yfinance import get_yfinance_client
+
+            bootstrap_benchmarks(
+                database_manager.get_session,
+                get_yfinance_client(),
+                tickers=settings.benchmark_tickers,
+                stale_days=settings.scheduler_benchmark_stale_days,
+            )
+        except Exception as e:
+            logger.warning(f"Benchmark bootstrap failed (continuing): {e}")
+
         # Start APScheduler (replaces supercronic + MacroNewsSummaryScheduler)
         scheduler = create_scheduler()
         scheduler.start()

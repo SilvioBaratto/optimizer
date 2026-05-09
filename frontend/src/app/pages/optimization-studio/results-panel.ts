@@ -1,4 +1,4 @@
-import { Component, input, computed, ChangeDetectionStrategy } from '@angular/core';
+import { Component, input, output, computed, ChangeDetectionStrategy } from '@angular/core';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { EchartsEfficientFrontierComponent } from '../../shared/echarts-efficient-frontier/echarts-efficient-frontier';
@@ -43,6 +43,27 @@ function formatPercent(value: unknown, digits = 2): string {
 export class ResultsPanelComponent {
   readonly result = input<OptimizationRunResponse | null>(null);
   readonly hasResult = input<boolean>(false);
+  readonly applyWeights = output<Record<string, number>>();
+
+  exportResults(): void {
+    const run = this.result();
+    if (!run) return;
+    const blob = new Blob([JSON.stringify(run, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `optimization-run-${run.id}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  onApplyWeights(): void {
+    const weights = this.result()?.weights;
+    if (!weights) return;
+    this.applyWeights.emit(weights);
+  }
 
   readonly weightsTableColumns: TableColumn[] = [
     { key: 'asset', label: 'Asset' },
@@ -72,7 +93,11 @@ export class ResultsPanelComponent {
   readonly statsCards = computed<StatCard[]>(() => {
     const metrics = this.result()?.metrics ?? {};
     return [
-      this.buildCard('Sharpe Ratio', metrics['sharpe'], 'ratio'),
+      this.buildCard(
+        'Sharpe Ratio',
+        metrics['annualized_sharpe_ratio'] ?? metrics['sharpe'],
+        'ratio',
+      ),
       this.buildCard('Annual Return', metrics['annualized_return'], 'percent'),
       this.buildCard('Annual Vol', metrics['annualized_volatility'], 'percent'),
       this.buildCard('Max Drawdown', metrics['max_drawdown'], 'percent'),

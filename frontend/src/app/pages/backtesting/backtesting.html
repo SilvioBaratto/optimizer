@@ -14,6 +14,17 @@
   <!-- Backtest Configuration Bar -->
   <div class="bg-surface-raised border border-border rounded-lg px-4 py-3">
     <div class="flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
+      <!-- Tickers -->
+      <div class="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2 min-w-0 flex-1">
+        <label class="text-data-xs text-text-tertiary font-medium uppercase tracking-wide shrink-0">Tickers</label>
+        <input type="text" [value]="tickersRaw()" (input)="onTickersChange($event)"
+          aria-label="Backtest tickers (comma-separated)"
+          placeholder="AAPL, MSFT, GOOGL, AMZN, NVDA"
+          class="bg-surface border border-border rounded px-2 py-1 text-data-xs sm:text-data-sm text-text font-mono focus:outline-none focus:ring-1 focus:ring-accent min-w-0 flex-1 w-full" />
+      </div>
+
+      <span class="hidden sm:block text-border">|</span>
+
       <!-- Date range -->
       <div class="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
         <label class="text-data-xs text-text-tertiary font-medium uppercase tracking-wide shrink-0">Period</label>
@@ -47,8 +58,8 @@
 
       <!-- Run button -->
       <button type="button"
-        (click)="onRunBacktest(['AAPL','MSFT','GOOGL','AMZN','NVDA'])"
-        [disabled]="isRunning()"
+        (click)="onRunBacktest()"
+        [disabled]="isRunning() || tickers().length === 0"
         class="sm:ml-auto inline-flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors w-full sm:w-auto">
         <i-lucide name="play" />
         @if (isRunning()) { Running… } @else { Run Backtest }
@@ -544,7 +555,7 @@
 
   <!-- Walk-forward validation -->
   <app-walk-forward-panel
-    [tickers]="['AAPL','MSFT','GOOGL','AMZN','NVDA']"
+    [tickers]="tickers()"
     [startDate]="selectedStartDate()"
     [endDate]="selectedEndDate()" />
 

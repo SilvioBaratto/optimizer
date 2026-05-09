@@ -111,6 +111,120 @@ class TestComputeICSeries:
         assert len(strict_result) == 0
 
 
+class TestComputeICSeriesCSRegression:
+    @pytest.fixture
+    def panel(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(7)
+        dates = pd.date_range("2023-01-01", periods=12, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(20)]
+        scores = pd.DataFrame(rng.normal(0, 1, (12, 20)), index=dates, columns=tickers)
+        returns = pd.DataFrame(
+            0.05 * scores.values + rng.normal(0, 0.02, (12, 20)),
+            index=dates,
+            columns=tickers,
+        )
+        return scores, returns
+
+    def test_when_use_cs_regression_false_then_default_unchanged(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        scores, returns = panel
+        rank = compute_ic_series(scores, returns, "f")
+        explicit_rank = compute_ic_series(scores, returns, "f", use_cs_regression=False)
+        pd.testing.assert_series_equal(rank, explicit_rank)
+
+    def test_when_use_cs_regression_true_then_returns_series(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        scores, returns = panel
+        result = compute_ic_series(scores, returns, "f", use_cs_regression=True)
+        assert isinstance(result, pd.Series)
+        assert len(result) > 0
+
+    def test_when_regression_then_differs_from_rank(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        scores, returns = panel
+        rank = compute_ic_series(scores, returns, "f")
+        slope = compute_ic_series(scores, returns, "f", use_cs_regression=True)
+        # Both indexed by date; slope IC values should differ from rank IC.
+        common = rank.index.intersection(slope.index)
+        assert len(common) > 0
+        assert not np.allclose(rank.loc[common], slope.loc[common], atol=1e-6)
+
+    def test_when_cs_config_none_then_uses_defaults(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        scores, returns = panel
+        explicit = compute_ic_series(
+            scores, returns, "f", use_cs_regression=True, cs_config=None
+        )
+        assert len(explicit) > 0
+
+    def test_when_cs_config_passed_then_used(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        from optimizer.linear_model import CSLinearRegressionConfig
+
+        scores, returns = panel
+        cfg = CSLinearRegressionConfig(fit_intercept=False)
+        result = compute_ic_series(
+            scores, returns, "f", use_cs_regression=True, cs_config=cfg
+        )
+        assert isinstance(result, pd.Series)
+        assert len(result) > 0
+
+    def test_when_regression_factor_name_preserved(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        scores, returns = panel
+        result = compute_ic_series(scores, returns, "MOMENTUM", use_cs_regression=True)
+        assert result.name == "MOMENTUM"
+
+    def test_when_regression_min_obs_filters_dates(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        """Periods with fewer non-NaN pairs than min_observations are dropped."""
+        scores, returns = panel
+        # Wipe row 0 to <min_observations valid pairs.
+        scores_sparse = scores.copy()
+        scores_sparse.iloc[0, :18] = np.nan  # leave only 2 valid in row 0
+        result = compute_ic_series(
+            scores_sparse,
+            returns,
+            "f",
+            min_observations=5,
+            use_cs_regression=True,
+        )
+        assert scores_sparse.index[0] not in result.index
+
+    def test_when_regression_all_dates_filtered_then_empty_series(self) -> None:
+        rng = np.random.default_rng(0)
+        dates = pd.date_range("2023-01-01", periods=4, freq="ME")
+        tickers = [f"T{i}" for i in range(3)]
+        scores = pd.DataFrame(rng.normal(0, 1, (4, 3)), index=dates, columns=tickers)
+        returns = pd.DataFrame(
+            rng.normal(0, 0.02, (4, 3)), index=dates, columns=tickers
+        )
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=10,
+            use_cs_regression=True,
+        )
+        assert isinstance(result, pd.Series)
+        assert len(result) == 0
+        assert result.name == "f"
+
+
 class TestNeweyWestTStat:
     def test_significant_ic(self) -> None:
         rng = np.random.default_rng(42)

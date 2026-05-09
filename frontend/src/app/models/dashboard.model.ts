@@ -13,24 +13,6 @@ export interface EquityCurvePoint {
   benchmark: number;
 }
 
-export type ActivityType =
-  | 'rebalance'
-  | 'optimization'
-  | 'alert'
-  | 'trade'
-  | 'regime_change'
-  | 'ai_decision';
-
-export interface ActivityFeedItem {
-  id: string;
-  type: ActivityType;
-  title: string;
-  description: string;
-  timestamp: string;
-}
-
-export type MarketRegime = 'bull' | 'bear' | 'sideways' | 'volatile';
-
 export interface MarketContext {
   vix: number;
   vixChange: number;
@@ -41,25 +23,10 @@ export interface MarketContext {
   usdChange: number;
 }
 
-export interface RegimeInfo {
-  current: MarketRegime;
-  probability: number;
-  since: string;
-}
-
 export interface AllocationNode {
   name: string;
   value: number;
   children?: AllocationNode[];
-}
-
-export interface DriftEntry {
-  ticker: string;
-  name: string;
-  target: number;
-  actual: number;
-  drift: number;
-  breached: boolean;
 }
 
 export interface AssetClassReturn {

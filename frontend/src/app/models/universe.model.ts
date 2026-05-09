@@ -15,11 +15,13 @@ export interface Exchange {
 export interface Instrument {
   id: string;
   ticker: string;
-  name: string;
-  exchange: string;
-  type: string;
-  currency: string;
-  isin: string;
+  short_name: string;
+  name: string | null;
+  isin: string | null;
+  instrument_type: string | null;
+  currency_code: string | null;
+  yfinance_ticker: string | null;
+  exchange_name: string | null;
 }
 
 export interface InstrumentList {

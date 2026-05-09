@@ -1,0 +1,3031 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://silviobaratto.github.io/optimizer/api/pipeline/">
+      
+      
+        <link rel="prev" href="../rebalancing/">
+      
+      
+        <link rel="next" href="../universe/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>pipeline - Portfolio Optimizer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pipeline" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Portfolio Optimizer" class="md-header__button md-logo" aria-label="Portfolio Optimizer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Portfolio Optimizer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              pipeline
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/SilvioBaratto/optimizer" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    SilvioBaratto/optimizer
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Portfolio Optimizer" class="md-nav__button md-logo" aria-label="Portfolio Optimizer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Portfolio Optimizer
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/SilvioBaratto/optimizer" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    SilvioBaratto/optimizer
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preprocessing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/pre-selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/moments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Moments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/views/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Views
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/rebalancing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rebalancing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/factors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Factors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/synthetic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synthetic Data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/universe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Universe Screening
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/distance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/cluster/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/uncertainty_set/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Uncertainty Sets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/online/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Online Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/linear_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CS Linear Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/fx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    preprocessing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pre_selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pre_selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../moments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    moments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../views/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    views
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../synthetic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    synthetic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rebalancing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    rebalancing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pipeline
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#optimizer.pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.PortfolioResult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PortfolioResult
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PortfolioResult">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.PortfolioResult--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.build_portfolio_pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_portfolio_pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="build_portfolio_pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.build_portfolio_pipeline--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.build_portfolio_pipeline--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.build_portfolio_pipeline--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.backtest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        backtest
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="backtest">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.backtest--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.backtest--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.compute_net_backtest_returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        compute_net_backtest_returns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="compute_net_backtest_returns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.compute_net_backtest_returns--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.compute_net_backtest_returns--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.optimize" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        optimize
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="optimize">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.optimize--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.optimize--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_full_pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="run_full_pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline_with_selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_full_pipeline_with_selection
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="run_full_pipeline_with_selection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline_with_selection--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline_with_selection--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.tune_and_optimize" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tune_and_optimize
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="tune_and_optimize">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.tune_and_optimize--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.tune_and_optimize--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../universe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    universe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../factors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    factors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../distance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    distance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cluster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../uncertainty_set/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    uncertainty_set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../online/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    online
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../linear_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    linear_model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fx
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#optimizer.pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.PortfolioResult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PortfolioResult
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PortfolioResult">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.PortfolioResult--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.build_portfolio_pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_portfolio_pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="build_portfolio_pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.build_portfolio_pipeline--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.build_portfolio_pipeline--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.build_portfolio_pipeline--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.backtest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        backtest
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="backtest">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.backtest--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.backtest--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.compute_net_backtest_returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        compute_net_backtest_returns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="compute_net_backtest_returns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.compute_net_backtest_returns--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.compute_net_backtest_returns--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.optimize" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        optimize
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="optimize">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.optimize--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.optimize--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_full_pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="run_full_pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline--examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline_with_selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_full_pipeline_with_selection
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="run_full_pipeline_with_selection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline_with_selection--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.run_full_pipeline_with_selection--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.tune_and_optimize" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tune_and_optimize
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="tune_and_optimize">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.tune_and_optimize--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizer.pipeline.tune_and_optimize--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pipeline">pipeline<a class="headerlink" href="#pipeline" title="Permanent link">&para;</a></h1>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<h3 id="optimizer.pipeline" class="doc doc-heading">
+            <code>optimizer.pipeline</code>
+
+
+<a href="#optimizer.pipeline" class="headerlink" title="Permanent link">&para;</a></h3>
+
+    <div class="doc doc-contents first">
+
+        <p>End-to-end portfolio pipeline orchestration.</p>
+<p>Composes pre-selection, optimisation, validation, scoring,
+hyperparameter tuning, and rebalancing into a single workflow.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="optimizer.pipeline.PortfolioResult" class="doc doc-heading">
+            <code>PortfolioResult</code>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#optimizer.pipeline.PortfolioResult" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Container for the output of a full portfolio optimisation run.</p>
+<h6 id="optimizer.pipeline.PortfolioResult--attributes">Attributes<a class="headerlink" href="#optimizer.pipeline.PortfolioResult--attributes" title="Permanent link">&para;</a></h6>
+<p>weights : pd.Series
+    Final asset weights (ticker → weight).
+portfolio : object
+    Skfolio <code>Portfolio</code> from <code>predict()</code> on the full dataset.
+    Exposes <code>.sharpe_ratio</code>, <code>.sortino_ratio</code>, <code>.max_drawdown</code>,
+    <code>.composition</code>, etc.
+backtest : object or None
+    Out-of-sample <code>MultiPeriodPortfolio</code> (walk-forward) or
+    <code>Population</code> (CPCV / MultipleRandomizedCV).  <code>None</code> when
+    backtesting was skipped.
+pipeline : object
+    The fitted sklearn <code>Pipeline</code> (pre-selection + optimiser).
+    Can be reused for <code>predict()</code> on new data.
+summary : dict[str, float]
+    Key performance metrics extracted from the in-sample portfolio.
+rebalance_needed : bool or None
+    Whether the portfolio exceeds drift thresholds relative to
+    <code>previous_weights</code>.  <code>None</code> when no previous weights were
+    provided.
+turnover : float or None
+    One-way turnover between <code>previous_weights</code> and the new
+    weights.  <code>None</code> when no previous weights were provided.
+fx_decomposition : FxReturnDecomposition or None
+    FX return decomposition when <code>FxConfig.mode == DECOMPOSE</code>.
+currency : str or None
+    Base currency used for FX conversion (e.g. <code>"EUR"</code>).
+net_returns : pd.Series or None
+    Net backtest portfolio returns after transaction cost deduction.
+    <code>None</code> when no backtest was run.
+net_sharpe_ratio : float or None
+    Annualized Sharpe ratio computed from <code>net_returns</code>.
+    <code>None</code> when no backtest was run.
+weight_history : pd.DataFrame or None
+    Absolute portfolio weights at each walk-forward rebalancing date.
+    Rows are rebalancing dates; columns are asset tickers.
+    Compatible with <code>compute_net_alpha(weights_history=...)</code>.
+    <code>None</code> when no backtest was run.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="optimizer.pipeline.build_portfolio_pipeline" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">build_portfolio_pipeline</span><span class="p">(</span><span class="n">optimizer</span><span class="p">,</span> <span class="n">pre_selection_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">sector_mapping</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#optimizer.pipeline.build_portfolio_pipeline" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Compose a full sklearn Pipeline: pre-selection → optimiser.</p>
+<p>The resulting pipeline is a single estimator for cross-validation
+and hyperparameter tuning.  Pre-selection is performed <em>within</em>
+each CV fold, preventing data leakage.</p>
+<h6 id="optimizer.pipeline.build_portfolio_pipeline--parameters">Parameters<a class="headerlink" href="#optimizer.pipeline.build_portfolio_pipeline--parameters" title="Permanent link">&para;</a></h6>
+<p>optimizer : BaseOptimization
+    A skfolio optimiser (e.g. from <code>build_mean_risk()</code>)
+    used as the final pipeline estimator.
+pre_selection_config : PreSelectionConfig or None
+    Pre-selection configuration.  <code>None</code> uses default settings.
+sector_mapping : dict[str, str] or None
+    Ticker → sector mapping for :class:<code>SectorImputer</code>.</p>
+<h6 id="optimizer.pipeline.build_portfolio_pipeline--returns">Returns<a class="headerlink" href="#optimizer.pipeline.build_portfolio_pipeline--returns" title="Permanent link">&para;</a></h6>
+<p>sklearn.pipeline.Pipeline
+    A fitted-ready pipeline whose <code>fit(X)</code> cleans and filters
+    returns then optimises, and whose <code>predict(X)</code> produces
+    a skfolio <code>Portfolio</code>.</p>
+<h6 id="optimizer.pipeline.build_portfolio_pipeline--examples">Examples<a class="headerlink" href="#optimizer.pipeline.build_portfolio_pipeline--examples" title="Permanent link">&para;</a></h6>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>from optimizer.optimization import MeanRiskConfig, build_mean_risk
+from optimizer.pipeline import build_portfolio_pipeline
+optimizer = build_mean_risk(MeanRiskConfig.for_max_sharpe())
+pipeline = build_portfolio_pipeline(optimizer)
+pipeline.fit(X)            # X = returns DataFrame
+portfolio = pipeline.predict(X)
+print(portfolio.sharpe_ratio)</p>
+</blockquote>
+</blockquote>
+</blockquote>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="optimizer.pipeline.backtest" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">backtest</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">cv_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#optimizer.pipeline.backtest" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Run walk-forward backtest on a portfolio pipeline.</p>
+<h6 id="optimizer.pipeline.backtest--parameters">Parameters<a class="headerlink" href="#optimizer.pipeline.backtest--parameters" title="Permanent link">&para;</a></h6>
+<p>pipeline : Pipeline
+    A fitted-ready sklearn Pipeline (from <code>build_portfolio_pipeline</code>).
+X : pd.DataFrame
+    Return matrix (observations x assets).
+cv_config : WalkForwardConfig or None
+    Walk-forward configuration.  Defaults to quarterly rolling.
+y : pd.DataFrame or None
+    Benchmark or factor returns for models that require <code>fit(X, y)</code>.
+n_jobs : int or None
+    Number of parallel jobs.</p>
+<h6 id="optimizer.pipeline.backtest--returns">Returns<a class="headerlink" href="#optimizer.pipeline.backtest--returns" title="Permanent link">&para;</a></h6>
+<p>MultiPeriodPortfolio or Population
+    Out-of-sample portfolio predictions.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="optimizer.pipeline.compute_net_backtest_returns" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">compute_net_backtest_returns</span><span class="p">(</span><span class="n">gross_returns</span><span class="p">,</span> <span class="n">weight_changes</span><span class="p">,</span> <span class="n">cost_bps</span><span class="o">=</span><span class="mf">10.0</span><span class="p">)</span></code>
+
+<a href="#optimizer.pipeline.compute_net_backtest_returns" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Deduct proportional transaction costs from gross backtest returns.</p>
+<p>For each date with weight changes, the one-way turnover (half the sum
+of absolute weight deltas, consistent with <code>compute_turnover()</code>) is
+multiplied by <code>cost_bps / 10_000</code> and subtracted from the gross
+return at that date.  A shift of weight <em>w</em> from one asset to another
+incurs a cost of <code>w * cost_bps / 10_000</code>, not <code>2w</code>.</p>
+<h6 id="optimizer.pipeline.compute_net_backtest_returns--parameters">Parameters<a class="headerlink" href="#optimizer.pipeline.compute_net_backtest_returns--parameters" title="Permanent link">&para;</a></h6>
+<p>gross_returns : pd.Series
+    Gross portfolio returns indexed by date.
+weight_changes : pd.DataFrame
+    Weight change matrix (dates x assets).  Only dates present
+    in this DataFrame incur transaction costs.
+cost_bps : float
+    Transaction cost in basis points (default 10 bps).</p>
+<h6 id="optimizer.pipeline.compute_net_backtest_returns--returns">Returns<a class="headerlink" href="#optimizer.pipeline.compute_net_backtest_returns--returns" title="Permanent link">&para;</a></h6>
+<p>pd.Series
+    Net returns with costs deducted.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="optimizer.pipeline.optimize" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">optimize</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#optimizer.pipeline.optimize" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Fit pipeline on full data and return final weights.</p>
+<h6 id="optimizer.pipeline.optimize--parameters">Parameters<a class="headerlink" href="#optimizer.pipeline.optimize--parameters" title="Permanent link">&para;</a></h6>
+<p>pipeline : Pipeline
+    A fitted-ready sklearn Pipeline.
+X : pd.DataFrame
+    Return matrix (observations x assets).
+y : pd.DataFrame or None
+    Benchmark or factor returns.</p>
+<h6 id="optimizer.pipeline.optimize--returns">Returns<a class="headerlink" href="#optimizer.pipeline.optimize--returns" title="Permanent link">&para;</a></h6>
+<p>PortfolioResult
+    Weights, in-sample portfolio, and fitted pipeline.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="optimizer.pipeline.run_full_pipeline" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">run_full_pipeline</span><span class="p">(</span><span class="n">prices</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">pre_selection_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">sector_mapping</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cv_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">previous_weights</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">rebalancing_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">current_date</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">last_review_date</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">y_prices</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">risk_free_rate</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">delisting_returns</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fx_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">currency_map</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fx_rates</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">benchmark_currency</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cost_bps</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#optimizer.pipeline.run_full_pipeline" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>End-to-end: prices → validated weights + backtest + rebalancing.</p>
+<p>This is the single entry point for producing a portfolio from
+raw price data.  It:</p>
+<ol>
+<li>Converts prices to linear returns.
+1b. Applies delisting returns (survivorship-bias correction).</li>
+<li>Builds the full pipeline (pre-selection + optimiser).</li>
+<li>Backtests via walk-forward (if <code>cv_config</code> is provided).</li>
+<li>Fits on full data to produce final weights.</li>
+<li>Checks rebalancing thresholds (if <code>previous_weights</code> given).</li>
+</ol>
+<h6 id="optimizer.pipeline.run_full_pipeline--parameters">Parameters<a class="headerlink" href="#optimizer.pipeline.run_full_pipeline--parameters" title="Permanent link">&para;</a></h6>
+<p>prices : pd.DataFrame
+    Price matrix (dates x tickers).
+optimizer : BaseOptimization
+    A skfolio optimiser instance (e.g. from <code>build_mean_risk()</code>).
+pre_selection_config : PreSelectionConfig or None
+    Pre-selection configuration.
+sector_mapping : dict[str, str] or None
+    Ticker → sector mapping for imputation.
+cv_config : WalkForwardConfig or None
+    Walk-forward backtest configuration.  <code>None</code> skips
+    backtesting.
+previous_weights : ndarray or None
+    Current portfolio weights for rebalancing analysis.
+rebalancing_config : ThresholdRebalancingConfig or HybridRebalancingConfig or None
+    Rebalancing configuration.  Pass a <code>ThresholdRebalancingConfig</code>
+    for pure drift-based rebalancing or a <code>HybridRebalancingConfig</code>
+    for calendar-gated threshold rebalancing.
+current_date : pd.Timestamp or None
+    Evaluation date for hybrid rebalancing.  Defaults to the last
+    date in the return series when not provided.
+last_review_date : pd.Timestamp or None
+    Date of the last hybrid review.  When <code>None</code> with a
+    <code>HybridRebalancingConfig</code>, the calendar gate is treated as
+    already elapsed (threshold alone decides).
+y_prices : pd.DataFrame or None
+    Benchmark or factor price series.  Converted to returns
+    alongside asset prices.
+delisting_returns : dict[str, float] or None
+    Mapping of ticker → terminal delisting return.  When provided,
+    each ticker's last valid return is replaced with this value
+    after <code>prices_to_returns()</code> (survivorship-bias correction,
+    issue #274).  Tickers not present in the returns columns are
+    silently ignored.
+fx_config : FxConfig or None
+    Multi-currency FX conversion configuration (issue #283).
+    When provided with <code>mode != NONE</code>, prices are converted to
+    the base currency before <code>prices_to_returns()</code>.  <code>None</code>
+    disables conversion (default, backward-compatible).
+currency_map : dict[str, str] or None
+    Ticker → ISO currency code mapping.  Required when
+    <code>fx_config</code> is provided.
+fx_rates : pd.DataFrame or None
+    Pre-loaded FX rate DataFrame (dates x currencies).  Each
+    column holds units-of-base per one unit-of-foreign.
+    Required when <code>fx_config</code> is provided.
+benchmark_currency : str | None
+    ISO currency code for the benchmark in <code>y_prices</code> (issue #308).
+    When provided and FX conversion is active, all columns of
+    <code>y_prices</code> are treated as denominated in this currency and
+    converted to <code>fx_config.base_currency</code> before returns are
+    computed.  <code>None</code> (default) preserves existing behaviour:
+    the benchmark is converted only if its ticker already appears
+    in <code>currency_map</code>.
+cost_bps : float
+    One-way transaction cost in basis points applied to each
+    walk-forward rebalancing event.  Subtracted from gross backtest
+    returns to produce <code>result.net_returns</code> and
+    <code>result.net_sharpe_ratio</code>.  Default 10 bps.
+n_jobs : int or None
+    Number of parallel jobs for backtesting.</p>
+<h6 id="optimizer.pipeline.run_full_pipeline--returns">Returns<a class="headerlink" href="#optimizer.pipeline.run_full_pipeline--returns" title="Permanent link">&para;</a></h6>
+<p>PortfolioResult
+    Complete result with weights, portfolio metrics, optional
+    backtest, net returns, and rebalancing signals.</p>
+<h6 id="optimizer.pipeline.run_full_pipeline--examples">Examples<a class="headerlink" href="#optimizer.pipeline.run_full_pipeline--examples" title="Permanent link">&para;</a></h6>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>from optimizer.optimization import MeanRiskConfig, build_mean_risk
+from optimizer.validation import WalkForwardConfig
+from optimizer.pipeline import run_full_pipeline</p>
+<p>optimizer = build_mean_risk(MeanRiskConfig.for_max_sharpe())
+result = run_full_pipeline(
+...     prices=price_df,
+...     optimizer=optimizer,
+...     cv_config=WalkForwardConfig.for_quarterly_rolling(),
+... )
+print(result.weights)
+print(result.summary)
+print(result.backtest.sharpe_ratio)  # out-of-sample</p>
+</blockquote>
+</blockquote>
+</blockquote>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="optimizer.pipeline.run_full_pipeline_with_selection" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">run_full_pipeline_with_selection</span><span class="p">(</span><span class="n">prices</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">fundamentals</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">volume_history</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">financial_statements</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">analyst_data</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">insider_data</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">macro_data</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">regime_data</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">investability_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">factor_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">standardization_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">scoring_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">selection_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">regime_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">integration_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">sector_mapping</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">pre_selection_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cv_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">previous_weights</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">rebalancing_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">current_date</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">last_review_date</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">y_prices</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">current_members</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">ic_history</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">risk_free_rate</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">delisting_returns</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">market_returns</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fx_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">currency_map</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fx_rates</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">benchmark_currency</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cost_bps</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#optimizer.pipeline.run_full_pipeline_with_selection" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>End-to-end: fundamentals + prices → stock selection → optimization.</p>
+<p>Extends :func:<code>run_full_pipeline</code> with upstream stock pre-selection:</p>
+<ol>
+<li>Screen universe for investability (if <code>fundamentals</code> provided).</li>
+<li>Compute and standardize factor scores.</li>
+<li>Apply macro regime tilts (if <code>macro_data</code> + <code>regime_config</code>).</li>
+<li>Compute composite score and select stocks.</li>
+<li>Run existing <code>run_full_pipeline</code> on selected tickers.</li>
+</ol>
+<h6 id="optimizer.pipeline.run_full_pipeline_with_selection--parameters">Parameters<a class="headerlink" href="#optimizer.pipeline.run_full_pipeline_with_selection--parameters" title="Permanent link">&para;</a></h6>
+<p>prices : pd.DataFrame
+    Price matrix (dates x tickers).
+optimizer : BaseOptimization
+    A skfolio optimiser instance.
+fundamentals : pd.DataFrame or None
+    Cross-sectional data indexed by ticker (market_cap, ratios).
+    If <code>None</code>, skips screening and factor selection.
+volume_history : pd.DataFrame or None
+    Volume matrix (dates x tickers).
+financial_statements : pd.DataFrame or None
+    Statement-level data for screening.
+analyst_data : pd.DataFrame or None
+    Analyst recommendation data for factor construction.
+insider_data : pd.DataFrame or None
+    Insider transaction data for factor construction.
+macro_data : pd.DataFrame or None
+    Macro indicators for regime classification.
+regime_data : pd.DataFrame or None
+    Merged macro indicators (pmi, spread_2s10s, hy_oas, etc.)
+    for composite regime classification.  When provided and
+    non-empty, takes precedence over <code>macro_data</code> for regime
+    classification.  Receives the same publication lag filtering.
+investability_config : InvestabilityScreenConfig or None
+    Universe screening configuration.
+factor_config : FactorConstructionConfig or None
+    Factor construction parameters.
+standardization_config : StandardizationConfig or None
+    Factor standardization parameters.
+scoring_config : CompositeScoringConfig or None
+    Composite scoring parameters.
+selection_config : SelectionConfig or None
+    Stock selection parameters.
+regime_config : RegimeTiltConfig or None
+    Regime tilt parameters.
+integration_config : FactorIntegrationConfig or None
+    Factor-to-optimization bridge parameters.
+sector_mapping : dict[str, str] or None
+    Ticker -&gt; sector mapping.
+pre_selection_config : PreSelectionConfig or None
+    Return-data pre-selection configuration.
+cv_config : WalkForwardConfig or None
+    Walk-forward backtest configuration.
+previous_weights : ndarray or None
+    Current portfolio weights for rebalancing.
+rebalancing_config : ThresholdRebalancingConfig or None
+    Rebalancing threshold configuration.
+y_prices : pd.DataFrame or None
+    Benchmark or factor price series.
+current_members : pd.Index or None
+    Currently selected tickers for hysteresis.
+ic_history : pd.DataFrame or None
+    IC history for IC-weighted scoring.
+market_returns : pd.Series or None
+    Pre-computed market return series for beta estimation.
+    When provided, used as the benchmark instead of the
+    equal-weight cross-sectional mean.  Pass a currency-
+    consistent broad index (e.g. SPY daily returns) when
+    <code>prices</code> spans multiple currency zones.
+benchmark_currency : str | None
+    ISO currency code for the benchmark in <code>y_prices</code>.
+    Forwarded verbatim to :func:<code>run_full_pipeline</code>; see that
+    function's documentation for full semantics (issue #308).
+n_jobs : int or None
+    Number of parallel jobs.</p>
+<h6 id="optimizer.pipeline.run_full_pipeline_with_selection--returns">Returns<a class="headerlink" href="#optimizer.pipeline.run_full_pipeline_with_selection--returns" title="Permanent link">&para;</a></h6>
+<p>PortfolioResult
+    Complete result with weights, metrics, backtest, and
+    rebalancing signals.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="optimizer.pipeline.tune_and_optimize" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">tune_and_optimize</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">param_grid</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">tuning_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">risk_free_rate</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span></code>
+
+<a href="#optimizer.pipeline.tune_and_optimize" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Tune hyperparameters via grid or randomized search, then optimise.</p>
+<h6 id="optimizer.pipeline.tune_and_optimize--parameters">Parameters<a class="headerlink" href="#optimizer.pipeline.tune_and_optimize--parameters" title="Permanent link">&para;</a></h6>
+<p>pipeline : Pipeline
+    A fitted-ready sklearn Pipeline.
+X : pd.DataFrame
+    Return matrix (observations x assets).
+param_grid : dict
+    Parameter grid for <code>GridSearchCV</code> or distributions for
+    <code>RandomizedSearchCV</code>.  Keys use sklearn double-underscore
+    notation for nested parameters.
+tuning_config : GridSearchConfig or RandomizedSearchConfig or None
+    Search configuration.  Defaults to quarterly walk-forward
+    with Sharpe ratio scoring (grid search).
+y : pd.DataFrame or None
+    Benchmark or factor returns.
+risk_free_rate : float
+    Daily risk-free rate for consistent Sharpe scoring (issue #272).
+    When non-zero and the scorer uses Sharpe ratio, the scorer
+    config is updated to use this rate.</p>
+<h6 id="optimizer.pipeline.tune_and_optimize--returns">Returns<a class="headerlink" href="#optimizer.pipeline.tune_and_optimize--returns" title="Permanent link">&para;</a></h6>
+<p>PortfolioResult
+    Weights from the best estimator, with backtest from CV.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "content.code.copy", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

@@ -54,10 +54,17 @@
           <app-universe-panel (tickerSelected)="onTickerSelected($event)" />
         }
         @case ('weights') {
-          <app-weight-panel [tickers]="[]" [constraints]="[]" (constraintsChange)="noopConstraints($event)" />
+          <app-weight-panel
+            [tickers]="tickers()"
+            [constraints]="constraints()"
+            (constraintsChange)="setConstraints($event)" />
         }
         @case ('ips') {
-          <app-ips-panel [ips]="defaultIps" [tickerCount]="0" [totalWeight]="0" (ipsChange)="noopIps($event)" />
+          <app-ips-panel
+            [ips]="ips()"
+            [tickerCount]="tickerCount()"
+            [totalWeight]="totalWeight()"
+            (ipsChange)="setIps($event)" />
         }
       }
     </div>

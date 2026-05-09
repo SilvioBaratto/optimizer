@@ -83,7 +83,7 @@ export class ViewPanelComponent {
   readonly blResponse = signal<GenerateViewsResponse | null>(null);
 
   // Opinion pool
-  readonly personasRaw = signal<string>('value, momentum, macro');
+  readonly personasRaw = signal<string>('VALUE_INVESTOR, MOMENTUM_TRADER, MACRO_ANALYST');
   readonly opinionLoading = signal<boolean>(false);
   readonly opinionError = signal<string | null>(null);
   readonly opinionResponse = signal<OpinionPoolResponse | null>(null);
@@ -95,6 +95,13 @@ export class ViewPanelComponent {
   readonly entropyLoading = signal<boolean>(false);
   readonly entropyError = signal<string | null>(null);
   readonly entropyResponse = signal<EntropyPoolingResponse | null>(null);
+
+  readonly entropyHasViews = computed<boolean>(
+    () =>
+      this.meanViewsRaw().trim().length > 0 ||
+      this.varianceViewsRaw().trim().length > 0 ||
+      this.cvarViewsRaw().trim().length > 0,
+  );
 
   readonly viewTableColumns: TableColumn[] = [
     { key: 'index', label: '#' },
@@ -163,7 +170,7 @@ export class ViewPanelComponent {
 
   runOpinionPool(): void {
     const tickers = parseTickers(this.tickersRaw());
-    const personas = parseTickers(this.personasRaw()).map((p) => p.toLowerCase());
+    const personas = parseTickers(this.personasRaw());
     if (tickers.length === 0 || personas.length < 2) return;
     this.opinionLoading.set(true);
     this.opinionError.set(null);

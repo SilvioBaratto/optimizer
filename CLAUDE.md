@@ -95,7 +95,31 @@ prices → preprocessing → pre_selection → moments → views →
 optimization → validation → tuning → rebalancing → pipeline
 ```
 
-Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`
+Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`, `uncertainty_set/`, `linear_model/`, `online/`, `fx/`
+
+#### Submodule index (skfolio 0.20.1)
+
+| Submodule | Purpose |
+|-----------|---------|
+| `preprocessing/` | sklearn time-series + cross-sectional transformers for return cleaning. |
+| `pre_selection/` | Asset pre-selection pipeline assembly. |
+| `moments/` | Mu / covariance / variance estimators + prior construction. |
+| `views/` | Black-Litterman, Entropy Pooling, Opinion Pooling. |
+| `distance/` | `DistanceConfig` + `build_distance` wrapping skfolio's six distance estimators (Pearson, Kendall, Spearman, Covariance, Distance Correlation, Mutual Information). |
+| `cluster/` | `HierarchicalClusteringConfig` + `build_hierarchical_clustering` wrapping `HierarchicalClustering` with seven linkage methods. |
+| `uncertainty_set/` | `Mu/CovarianceUncertaintySetConfig` + factories for ellipsoidal / bootstrap uncertainty sets used by `RobustMeanRisk`. |
+| `linear_model/` | `CSLinearRegressionConfig` + `build_cs_linear_regression` for cross-sectional regressions and factor IC. |
+| `online/` | `partial_fit`-based incremental workflows: `run_online_predict`, `run_online_score`, `OnlineGridSearch`, `OnlineRandomizedSearch`. **Online instances are not thread-safe — one wrapper per thread.** |
+| `optimization/` | Convex / hierarchical / ensemble / robust optimizers. |
+| `synthetic/` | Vine copula models + synthetic data generation. |
+| `validation/` | Walk-Forward / CPCV / MultipleRandomizedCV + covariance forecast evaluation (offline + online). |
+| `scoring/` | Ratio-measure scorers for model selection. |
+| `tuning/` | Grid / Randomized search with temporal CV enforced. |
+| `rebalancing/` | Calendar / threshold / hybrid rebalancing decisions. |
+| `factors/` | Factor research pipeline (construction → scoring → selection → integration). |
+| `universe/` | Investability screening with hysteresis. |
+| `fx/` | Multi-currency conversion + FX-vs-stock return decomposition. |
+| `pipeline/` | End-to-end orchestration: prices → validated weights. |
 
 #### Module details
 
@@ -111,24 +135,33 @@ Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`
   - `MomentEstimationConfig` — selects mu/cov estimators; presets: `for_equilibrium_ledoitwolf`, `for_shrunk_denoised`, `for_adaptive`
   - `build_mu_estimator()` — maps `MuEstimatorType` to skfolio `BaseMu` instances
   - `build_cov_estimator()` — maps `CovEstimatorType` to skfolio `BaseCovariance` instances
-  - `build_prior()` — composes mu + cov into `EmpiricalPrior`, optionally wrapping in `FactorModel`
-  - `HMMConfig` / `HMMResult` / `fit_hmm()` — Gaussian HMM via `hmmlearn` Baum-Welch EM
-  - `HMMBlendedMu` / `HMMBlendedCovariance` — skfolio-compatible estimators using regime-probability-weighted blending. **Gotcha**: `HMMBlendedCovariance` uses full law of total variance (includes cross-state mean dispersion), while `blend_moments_by_regime()` does not — use the class for optimizer inputs
-  - `DMMConfig` / `fit_dmm()` / `blend_moments_dmm()` — Deep Markov Model via Pyro SVI. **Optional**: requires `torch`+`pyro` which are NOT in `pyproject.toml`; produces **diagonal covariance only**
+  - `build_prior()` — composes mu + cov into `EmpiricalPrior`, optionally wrapping in `TimeSeriesFactorModel`
+  - `build_variance_estimator()` — returns a 1-D `BaseVariance` (`EmpiricalVariance`, `EWVariance`, or `RegimeAdjustedEWVariance`). **Gotcha**: variance estimators expose `variance_` (1-D), NOT `covariance_` (2-D); not interchangeable with covariance estimators inside priors that need a full matrix
+  - `RegimeAdjustedEWCovariance` is reachable via `CovEstimatorType.REGIME_ADJUSTED_EW`. STVU multiplier is internal to skfolio (no `hmmlearn` import path) and clipped to `(0.7, 1.6)` by default
   - `apply_lognormal_correction()` / `scale_moments_to_horizon()` — multi-period variance scaling. **Gotcha**: inputs are log-return parameters, output is simple-return space (`E[R_T] = exp(...) - 1`)
 
 - **`views/`** — View integration frameworks:
-  - `BlackLittermanConfig` / `build_black_litterman()` — presets: `for_equilibrium`, `for_factor_model`. When inside `FactorModel`, views must reference factor names (e.g. `MTUM`, `QUAL`), not asset names
+  - `BlackLittermanConfig` / `build_black_litterman()` — presets: `for_equilibrium`, `for_factor_model`. When inside `TimeSeriesFactorModel`, views must reference factor names (e.g. `MTUM`, `QUAL`), not asset names
   - `EntropyPoolingConfig` / `build_entropy_pooling()` — supports mean/variance/correlation/skew/kurtosis/cvar views. Correlation views use format `(ASSET1, ASSET2) == value`
   - `OpinionPoolingConfig` / `build_opinion_pooling()` — expert estimators passed as factory kwarg (not stored in config)
   - `calibrate_omega_from_track_record(view_history, return_history)` — empirical diagonal Ω matrix from forecast error variance; requires ≥5 aligned observations
 
-- **`optimization/`** — Portfolio optimization models:
-  - `MeanRiskConfig` + 9 other config types — convex, hierarchical, ensemble optimisers with presets
-  - `build_mean_risk()`, `build_risk_budgeting()`, `build_hrp()`, `build_herc()`, `build_nco()`, `build_max_diversification()`, `build_benchmark_tracker()`, `build_equal_weighted()`, `build_inverse_volatility()`, `build_stacking()`
-  - `RobustConfig` / `build_robust_mean_risk()` — ellipsoidal μ uncertainty via κ-scaled chi-squared confidence sets + optional bootstrap covariance uncertainty (`arch.StationaryBootstrap`). `kappa=0` recovers standard MeanRisk exactly. Presets: `for_conservative` (κ=2), `for_moderate` (κ=1), `for_aggressive` (κ=0.5), `for_bootstrap_covariance`
-  - `DRCVaRConfig` / `build_dr_cvar()` — distributionally robust CVaR over Wasserstein ball. `epsilon=0` falls back to standard empirical CVaR
-  - `RegimeRiskConfig` / `build_regime_blended_optimizer()` — HMM-driven regime-conditional risk measure selection. `build_regime_risk_budgeting()` — probability-weighted blending of per-regime budget vectors
+- **`optimization/`** — Portfolio optimization models. Convex, hierarchical, ensemble, robust:
+  - `MeanRiskConfig` / `build_mean_risk()` — base convex Mean-Risk optimizer with full constraint surface
+  - `RiskBudgetingConfig` / `build_risk_budgeting()` — Equal-Risk-Contribution (ERC) by default; supports custom risk budgets via the `for_custom_budgets({"AAPL": 0.5, ...})` preset (sum-to-1 enforced)
+  - `HRPConfig` / `build_hrp()` — Hierarchical Risk Parity (recursive bisection, no matrix inversion)
+  - `HERCConfig` / `build_herc()` — Hierarchical Equal Risk Contribution (cluster-level ERC)
+  - `NCOConfig` / `build_nco()` — Nested Clusters Optimization. Inner/outer estimators are factory kwargs (non-serialisable)
+  - `SchurComplementaryConfig` / `build_schur_complementary()` — interpolates between HRP (`gamma=0`) and Minimum-Variance (`gamma=1`); `gamma=0.5` is the skfolio default (`for_balanced` preset)
+  - `MaxDiversificationConfig` / `build_max_diversification()` — maximises diversification ratio. Long-only by default (ratio is undefined for short positions)
+  - `BenchmarkTrackerConfig` / `build_benchmark_tracker()` — minimises tracking error vs a benchmark return series. **Gotcha**: benchmark returns are passed as `y` in `fit(X, y)`, not as a Config field
+  - `EqualWeightedConfig` / `build_equal_weighted()` — uniform weights baseline
+  - `InverseVolatilityConfig` / `build_inverse_volatility()` — weights ∝ 1/σᵢ; `for_ew_covariance(half_life=63)` preset uses an EW covariance prior
+  - `RandomConfig` / `build_random()` — Dirichlet random weights for naive baseline. **Gotcha**: skfolio 0.20.1 `Random` draws a single sample with no `n_portfolios` / `random_state` constructor args; the Config fields are reserved for forward compatibility and are NOT forwarded
+  - `StackingConfig` / `build_stacking()` — ensemble blending multiple base optimizers via a final estimator. Base `estimators` list is a factory kwarg (non-serialisable)
+  - `RobustMeanRiskConfig` / `build_robust_mean_risk()` — wraps `MeanRisk` with mu / covariance uncertainty-set estimators (see `uncertainty_set/`). Presets: `for_conservative` (99%), `for_moderate` (95%), `for_aggressive` (90%), `for_bootstrap_covariance`. **Fallback contract**: both uncertainty configs `None` recovers plain `MeanRisk` exactly (atol=1e-8)
+  - `DRCVaRConfig` / `build_dr_cvar()` — distributionally robust CVaR over a Wasserstein ball. **Fallback contract**: `epsilon=0` short-circuits to plain `MeanRisk(CVaR)` for exact equality (skfolio's DRCVaR with radius=0 differs at ~1e-3 from `MeanRisk(CVaR)`); return type is `BaseOptimization`
+  - `RegimeBlendedMeanRiskConfig` / `build_regime_blended_mean_risk()` — regime-blended mean-risk with externally-supplied regime probabilities. Composes `_ExternallyControlledRegimeCovariance` → `EmpiricalPrior` → `TimeSeriesFactorModel` → `MeanRisk`. Caller supplies `regime_probabilities` and `factor_returns` as factory kwargs; the library does NOT fit HMMs internally
 
 - **`synthetic/`** — Vine copula models + synthetic data generation:
   - `VineCopulaConfig` / `SyntheticDataConfig` — presets: `for_scenario_generation`, `for_stress_test`
@@ -171,6 +204,22 @@ Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`
   - `run_full_pipeline_with_selection(...)` — extends with upstream stock selection: fundamentals → investability screening → factor computation → standardization → regime tilts → composite scoring → stock selection → `run_full_pipeline`. When `fundamentals=None`, skips all selection and delegates directly
   - `optimize()`, `backtest()`, `tune_and_optimize()` — lower-level composable functions
 
+- **`distance/`** — `DistanceConfig` + `build_distance` wrapping skfolio's six distance estimators (`PearsonDistance`, `KendallDistance`, `SpearmanDistance`, `CovarianceDistance`, `DistanceCorrelation`, `MutualInformation`). MI-only fields (`n_bins`, `bandwidth`) raise `ConfigurationError` on non-MI estimators; `bandwidth` is reserved (skfolio 0.20.1 does not expose it). Six `for_<name>` presets.
+
+- **`cluster/`** — `HierarchicalClusteringConfig` + `build_hierarchical_clustering` wrapping `skfolio.cluster.HierarchicalClustering`. `LinkageMethodType` mirrors `skfolio.cluster.LinkageMethod` exactly (7 members: `SINGLE`, `COMPLETE`, `AVERAGE`, `WEIGHTED`, `CENTROID`, `MEDIAN`, `WARD`). `min_cluster_size` field is reserved (skfolio 0.20.1 does not expose it).
+
+- **`uncertainty_set/`** — Mu / Covariance uncertainty-set estimators for `RobustMeanRisk`. Two parallel Configs (`MuUncertaintySetConfig`, `CovarianceUncertaintySetConfig`), each with `EMPIRICAL` and `BOOTSTRAP` kinds. Bootstrap variants use `arch.StationaryBootstrap` (Politis-White block-size rule when `block_size=None`); `random_state` field maps to skfolio's `seed`. **Gotcha**: `confidence_level` is a probability (e.g. 0.95); the chi-squared κ scaling is internal to `MeanRisk` and not exposed.
+
+- **`linear_model/`** — `CSLinearRegressionConfig` + `build_cs_linear_regression` wrapping `skfolio.linear_model.CSLinearRegression`. **Shape contract**: `X: (T, N, K)`, `y: (T, N)`, `cs_weights: (T, N)`. `weighted` and `min_observations` Config fields are caller-side hints (not skfolio constructor args). Used by the opt-in `compute_ic_series(use_cs_regression=True)` path in `factors/`.
+
+- **`online/`** — `partial_fit`-based incremental workflows: `run_online_predict`, `run_online_score`, `build_online_grid_search`, `build_online_randomized_search`. **Pipeline is rejected** at the wrapper boundary (raises `ConfigurationError`). **Online instances are not thread-safe** — `partial_fit` accumulates mutable state and `OnlineGridSearch` mutates the wrapped estimator in place. Construct one wrapper per thread when running scheduled jobs.
+
+- **`fx/`** — Multi-currency conversion + return decomposition:
+  - `FxConfig` (frozen) with `BaseCurrency` (EUR/GBP/USD), `FxConversionMode` (NONE/TO_BASE/DECOMPOSE), `FxDataSource` (YFINANCE/FRED), `cross_via_usd`, `require_full_coverage`, `strict`
+  - `FxPriceConverter` is sklearn-compatible (`BaseEstimator + TransformerMixin`) and slots into `sklearn.pipeline.Pipeline` upstream of optimization
+  - `decompose_fx_returns()` / `FxReturnDecomposition` — splits total return into stock-only and FX components
+  - `currency_map` and `fx_rates` are non-serialisable runtime kwargs to `build_fx_converter()`, NOT config fields
+
 ### Frontend (`frontend/`)
 
 Angular 21 single-page dashboard with Tailwind CSS v4 and ECharts for data visualization. Deployed to Vercel.
@@ -199,6 +248,16 @@ Angular 21 single-page dashboard with Tailwind CSS v4 and ECharts for data visua
 - For `BenchmarkTracker`, benchmark returns are passed as `y` in `fit(X, y)`
 - When `previous_weights` is passed to `run_full_pipeline()`, it auto-aligns on post-pre-selection universe and re-normalises
 - Sector mapping is injected as a plain `dict[str, str]`, not queried from the database
+
+#### Cross-cutting gotchas (skfolio 0.20.1)
+
+- **Linear returns only**: pipelines and skfolio estimators consume linear (simple) returns as `X`. Use `prices_to_returns()` (default) — do NOT pass log returns
+- **`shuffle=False` in cross-validation**: temporal CV must preserve order. `KFold(shuffle=True)` and `train_test_split(shuffle=True)` break causality and silently leak future data
+- **Metadata routing**: call `sklearn.set_config(enable_metadata_routing=True)` BEFORE configuring `.set_fit_request(...)` on estimators. Required for `ImpliedCovariance.implied_vol`, `BenchmarkTracker.y`, etc.
+- **`TimeSeriesFactorModel.fit(X, y)`** — `X` is asset returns, `y` is factor returns. When wrapped in Black-Litterman, views must reference factor names (not asset names)
+- **`BenchmarkTracker.fit(X, y)`** — `y` is the benchmark return series. The `BenchmarkTrackerConfig` carries no benchmark field; pass at fit time
+- **Variance estimators store `variance_` (1-D), NOT `covariance_` (2-D)** — `EmpiricalVariance` / `EWVariance` / `RegimeAdjustedEWVariance` are NOT interchangeable with covariance estimators inside priors that need a full matrix
+- **`Pipeline` is rejected by `online_predict` / `OnlineGridSearch`** — skfolio routes `partial_fit` through a single estimator and cannot route through `Pipeline`. Apply pre-selection to `X` upstream before passing to online wrappers
 
 ### API Layer (`api/app/`)
 
@@ -297,4 +356,4 @@ Configuration via `.env` at project root:
 
 - **ruff**: line-length 88, target py310, rules `E, F, I, N, W, UP`. Per-file ignores: `N803, N806` for `optimizer/` and `tests/` (sklearn `X, y` convention)
 - **mypy**: strict mode, `ignore_missing_imports = true`. Module overrides relax `disallow_subclassing_any` for sklearn/skfolio base classes. DMM module has broader relaxation for torch/pyro stubs
-- **Dependencies**: `numpy`, `pandas`, `scipy`, `scikit-learn`, `skfolio`, `hmmlearn`, `arch` are runtime deps in `pyproject.toml`. `torch`/`pyro` (for DMM) are **not declared** — DMM is effectively optional
+- **Dependencies**: `numpy`, `pandas`, `scipy`, `scikit-learn`, `skfolio` (>= 0.20.1) are declared runtime deps in `pyproject.toml`. `hmmlearn`, `arch`, `torch`, `pyro` are NOT declared — they are pulled in transitively via `skfolio` (e.g. `arch.StationaryBootstrap` reaches the bootstrap uncertainty-set classes through skfolio). Code paths that import them directly should guard with `try/except ImportError` or declare them explicitly when reintroduced.

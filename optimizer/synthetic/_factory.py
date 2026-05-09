@@ -5,15 +5,66 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from skfolio.distribution import DependenceMethod, SelectionCriterion, VineCopula
+from skfolio.distribution import (
+    ClaytonCopula,
+    DependenceMethod,
+    Gaussian,
+    GaussianCopula,
+    GumbelCopula,
+    IndependentCopula,
+    JoeCopula,
+    JohnsonSU,
+    NormalInverseGaussian,
+    SelectionCriterion,
+    StudentT,
+    StudentTCopula,
+    VineCopula,
+)
+from skfolio.distribution._base import BaseDistribution
 from skfolio.prior import SyntheticData
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.synthetic._config import (
     DependenceMethodType,
     SelectionCriterionType,
     SyntheticDataConfig,
     VineCopulaConfig,
 )
+
+_MARGINAL_MAP: dict[str, type[BaseDistribution]] = {
+    "Gaussian": Gaussian,
+    "StudentT": StudentT,
+    "JohnsonSU": JohnsonSU,
+    "NormalInverseGaussian": NormalInverseGaussian,
+}
+
+_COPULA_MAP: dict[str, type[BaseDistribution]] = {
+    "ClaytonCopula": ClaytonCopula,
+    "GaussianCopula": GaussianCopula,
+    "GumbelCopula": GumbelCopula,
+    "IndependentCopula": IndependentCopula,
+    "JoeCopula": JoeCopula,
+    "StudentTCopula": StudentTCopula,
+}
+
+
+def _resolve_distributions(
+    names: tuple[str, ...] | None,
+    mapping: dict[str, type[BaseDistribution]],
+    kind: str,
+) -> list[BaseDistribution] | None:
+    """Resolve a tuple of distribution names to fresh estimator instances."""
+    if names is None:
+        return None
+    instances: list[BaseDistribution] = []
+    for name in names:
+        if name not in mapping:
+            valid = ", ".join(sorted(mapping))
+            raise ConfigurationError(
+                f"Unknown {kind} candidate {name!r}. Valid: {valid}"
+            )
+        instances.append(mapping[name]())
+    return instances
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +113,21 @@ def build_vine_copula(
     """
     if config is None:
         config = VineCopulaConfig()
+
+    kwargs.setdefault(
+        "marginal_candidates",
+        _resolve_distributions(
+            config.marginal_candidates, _MARGINAL_MAP, "marginal"
+        ),
+    )
+    kwargs.setdefault(
+        "copula_candidates",
+        _resolve_distributions(config.copula_candidates, _COPULA_MAP, "copula"),
+    )
+    kwargs.setdefault(
+        "central_assets",
+        list(config.central_assets) if config.central_assets is not None else None,
+    )
 
     return VineCopula(
         fit_marginals=config.fit_marginals,

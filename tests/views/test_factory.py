@@ -8,8 +8,8 @@ import pytest
 from skfolio.prior import (
     BlackLitterman,
     EntropyPooling,
-    FactorModel,
     OpinionPooling,
+    TimeSeriesFactorModel,
 )
 from skfolio.prior._base import BasePrior
 
@@ -86,7 +86,7 @@ class TestBuildBlackLitterman:
     def test_factor_model_variant(self) -> None:
         cfg = BlackLittermanConfig(views=("TICK_00 == 0.05",), use_factor_model=True)
         prior = build_black_litterman(cfg)
-        assert isinstance(prior, FactorModel)
+        assert isinstance(prior, TimeSeriesFactorModel)
 
     def test_factor_model_residual_variance(self) -> None:
         cfg = BlackLittermanConfig(
@@ -95,7 +95,7 @@ class TestBuildBlackLitterman:
             residual_variance=False,
         )
         prior = build_black_litterman(cfg)
-        assert isinstance(prior, FactorModel)
+        assert isinstance(prior, TimeSeriesFactorModel)
         assert prior.residual_variance is False
 
     def test_views_converted_to_list(self) -> None:
@@ -424,7 +424,7 @@ class TestIntegration:
         asset_returns = prices_to_returns(prices.loc[common_idx])
         factor_returns = prices_to_returns(factor_prices.loc[common_idx])
 
-        # Views must reference factor names when wrapped in FactorModel
+        # Views must reference factor names when wrapped in TimeSeriesFactorModel
         cfg = BlackLittermanConfig.for_factor_model(views=("MTUM == 0.05",))
         prior = build_black_litterman(cfg)
         prior.fit(asset_returns, y=factor_returns)

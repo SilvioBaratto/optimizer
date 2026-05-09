@@ -22,6 +22,7 @@ import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar'
 import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
 import { FormatService } from '../../services/format.service';
 import { BacktestService } from '../../services/backtest.service';
+import { PortfolioContextService } from '../../services/portfolio-context.service';
 import { readCssVar } from '../../shared/charts/echarts-theme';
 import { CHART_EXPORTABLE, type ChartExportable } from '../../shared/charts/chart-export.token';
 import { ModalService } from '../../shared/modal/modal.service';
@@ -97,6 +98,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   private readonly fmt = inject(FormatService);
   private readonly modalService = inject(ModalService);
   private readonly backtest = inject(BacktestService);
+  private readonly portfolioContext = inject(PortfolioContextService);
   private readonly destroyRef = inject(DestroyRef);
 
   // ── Loading / error state ──────────────────────────────────────────────────
@@ -126,6 +128,18 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   readonly selectedBenchmark = signal('SPY');
   readonly selectedStartDate = signal('2021-03-01');
   readonly selectedEndDate = signal('2026-02-25');
+  readonly tickersRaw = signal('AAPL, MSFT, GOOGL, AMZN, NVDA');
+
+  readonly tickers = computed<string[]>(() =>
+    this.tickersRaw()
+      .split(',')
+      .map((s) => s.trim().toUpperCase())
+      .filter((s) => s.length > 0),
+  );
+
+  onTickersChange(event: Event): void {
+    this.tickersRaw.set((event.target as HTMLInputElement).value);
+  }
 
   readonly benchmarks = [
     { label: 'SPY', value: 'SPY' },
@@ -146,16 +160,24 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     [...this.result().drawdowns].sort((a, b) => a.depth - b.depth).slice(0, 10).length
   );
 
-  readonly tabs = computed<Tab[]>(() => [
-    { id: 'overview', label: 'Overview' },
-    { id: 'metrics', label: 'Metrics' },
-    { id: 'monthly', label: 'Monthly Returns' },
-    { id: 'drawdowns', label: 'Drawdowns', badge: this.drawdownCount() },
-    { id: 'rolling', label: 'Rolling Metrics' },
-    { id: 'distribution', label: 'Distribution' },
-    { id: 'style', label: 'Style Analysis' },
-    { id: 'regimes', label: 'Regimes' },
-  ]);
+  readonly tabs = computed<Tab[]>(() => {
+    const base: Tab[] = [
+      { id: 'overview', label: 'Overview' },
+      { id: 'metrics', label: 'Metrics' },
+      { id: 'monthly', label: 'Monthly Returns' },
+      { id: 'drawdowns', label: 'Drawdowns', badge: this.drawdownCount() },
+      { id: 'rolling', label: 'Rolling Metrics' },
+      { id: 'distribution', label: 'Distribution' },
+    ];
+    // Style Analysis and Regimes are placeholder tabs (factor regression and
+    // regime decomposition are not computed by the backtest backend yet).
+    // Surface them only when actual data exists, otherwise hide to keep the
+    // tab bar honest.
+    if (this.result().factorLoadings.length > 0) {
+      base.push({ id: 'style', label: 'Style Analysis' });
+    }
+    return base;
+  });
 
   // ── Equity curve data ──────────────────────────────────────────────────────
   readonly equityLabels = computed(() =>
@@ -430,6 +452,14 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   constructor() {
     this.loadData();
 
+    // Sync local backtest date inputs with the global PortfolioContextService
+    // date range — header presets (1Y, 3Y, etc.) propagate to the run window.
+    effect(() => {
+      const range = this.portfolioContext.dateRange();
+      this.selectedStartDate.set(range.start.toISOString().slice(0, 10));
+      this.selectedEndDate.set(range.end.toISOString().slice(0, 10));
+    });
+
     // Init/dispose overview charts when containers appear/disappear (tab or loading change)
     effect((onCleanup) => {
       const eqEl = this.equityContainer();
@@ -449,11 +479,23 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
       });
     });
 
-    // Re-render equity chart on log scale toggle
+    // Re-render equity chart on log scale toggle OR when result data changes.
     effect(() => {
       const _logScale = this.logScale();
+      const _result = this.result();
       if (this.equityChart) {
         this.equityChart.setOption(this.buildEquityOption());
+      }
+      if (this.underwaterChart) {
+        this.underwaterChart.setOption(this.buildUnderwaterOption());
+      }
+    });
+
+    // Re-render QQ chart on result change.
+    effect(() => {
+      const _result = this.result();
+      if (this.qqChart) {
+        this.qqChart.setOption(this.buildQQOption());
       }
     });
 
@@ -877,15 +919,20 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   }
 
   // ── Run / progress integration ────────────────────────────────────────────
-  onRunBacktest(tickers: string[]): void {
+  onRunBacktest(tickers?: string[]): void {
     if (this.isRunning()) return;
+    const list = tickers && tickers.length > 0 ? tickers : this.tickers();
+    if (list.length === 0) {
+      this.runError.set('Provide at least one ticker.');
+      return;
+    }
     this.runError.set(null);
     this.backtest
       .runBacktest({
-        tickers,
+        tickers: list,
         start_date: this.selectedStartDate(),
         end_date: this.selectedEndDate(),
-        pipeline_config: {},
+        pipeline_config: { benchmark: this.selectedBenchmark() },
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -901,18 +948,17 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     const runId = this.runRunId();
     this.runJobId.set(null);
     if (!runId) return;
-    // Fetch the persisted BacktestRun via the canonical runs endpoint
-    // (issue #465) — the previous `pollBacktest(runId)` call mis-used a
-    // job-progress endpoint with a run UUID.
     this.runResponse.set(null);
     this.runResponseError.set(null);
     this.runResponseLoading.set(true);
+    this.result.set(EMPTY_RESULT);
     this.backtest
       .getBacktestRun(runId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (run) => {
           this.runResponse.set(run);
+          this.result.set(mapRunResponseToResult(run));
           this.runResponseLoading.set(false);
         },
         error: (err: Error) => {
@@ -949,6 +995,265 @@ export function toFactorLoadingSeries(loadings: readonly FactorLoading[]): BarDa
   return [...loadings]
     .sort((a, b) => b.loading - a.loading)
     .map((f) => ({ label: f.factor, value: f.loading }));
+}
+
+/**
+ * Map a backend `BacktestRunResponse` to the legacy `BacktestResult` shape
+ * consumed by the KPI strip and the 8 tabs of the page (issue: BUG-034).
+ *
+ * Backend conventions:
+ *  - `equityCurve`: Record<dateISO, cumulative_return>. Cumulative simple
+ *    returns relative to the run start. We expose `(1 + r)` as the
+ *    portfolio "value" series (initial capital = 1.0). Benchmark is not
+ *    returned by the backend yet; we leave it equal to the portfolio so
+ *    the chart renders with a single visible series.
+ *  - `drawdowns`: Record<dateISO, drawdown_value>. Time series of
+ *    instantaneous drawdown (negative or zero). Detect drawdown events
+ *    (start → trough → end) by walking the series.
+ *  - `monthlyReturns`: Record<dateISO, value> with date == last calendar
+ *    day of the month.
+ *  - `rollingMetrics`: Record<metric_name, Record<dateISO, value>>. We
+ *    extract the union of dates and pull `sharpe`, `volatility`, `beta`
+ *    when present; missing metrics fall back to NaN-safe 0.
+ *  - `summaryStats`: free-form snake_case mapping. Annualised keys are
+ *    preferred when both raw and annualised exist.
+ */
+export function mapRunResponseToResult(
+  run: { equityCurve: Record<string, number | null>;
+         drawdowns: Record<string, number | null>;
+         monthlyReturns: Record<string, number | null>;
+         rollingMetrics: Record<string, Record<string, number | null>>;
+         summaryStats: Record<string, number | null>; } | null,
+): BacktestResult {
+  if (!run) return EMPTY_RESULT;
+
+  const equity = mapEquityCurve(run.equityCurve);
+  const drawdowns = detectDrawdownEvents(run.drawdowns);
+  const monthlyReturns = mapMonthlyReturns(run.monthlyReturns);
+  const rollingMetrics = mapRollingMetrics(run.rollingMetrics);
+  const metrics = mapSummaryToMetrics(
+    run.summaryStats as Record<string, unknown>,
+    equity,
+  );
+  const returnDistribution = buildReturnDistribution(run.equityCurve);
+
+  return {
+    equity,
+    metrics,
+    drawdowns,
+    monthlyReturns,
+    rollingMetrics,
+    returnDistribution,
+    factorLoadings: [],
+  };
+}
+
+function mapEquityCurve(
+  curve: Record<string, number | null>,
+): { date: string; portfolio: number; benchmark: number }[] {
+  const isIsoDate = (s: string) => /^\d{4}-\d{2}-\d{2}/.test(s);
+  const entries = Object.entries(curve)
+    .filter(([k, v]) => isIsoDate(k) && typeof v === 'number' && Number.isFinite(v))
+    .sort(([a], [b]) => a.localeCompare(b));
+  return entries.map(([date, value]) => {
+    const portfolio = 1 + (value as number);
+    return { date, portfolio, benchmark: portfolio };
+  });
+}
+
+function detectDrawdownEvents(
+  drawdowns: Record<string, number | null>,
+): { start: string; trough: string; end: string | null; depth: number; duration: number; recovery: number | null }[] {
+  const isIsoDate = (s: string) => /^\d{4}-\d{2}-\d{2}/.test(s);
+  const entries = Object.entries(drawdowns)
+    .filter(([k, v]) => isIsoDate(k) && typeof v === 'number' && Number.isFinite(v))
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) return [];
+
+  const events: { start: string; trough: string; end: string | null; depth: number; duration: number; recovery: number | null }[] = [];
+  let inDrawdown = false;
+  let start = '';
+  let trough = '';
+  let troughDepth = 0;
+
+  for (const [date, raw] of entries) {
+    const v = raw as number;
+    if (v < 0 && !inDrawdown) {
+      inDrawdown = true;
+      start = date;
+      trough = date;
+      troughDepth = v;
+    } else if (v < 0 && inDrawdown) {
+      if (v < troughDepth) {
+        trough = date;
+        troughDepth = v;
+      }
+    } else if (v >= 0 && inDrawdown) {
+      events.push({
+        start,
+        trough,
+        end: date,
+        depth: troughDepth,
+        duration: daysBetween(start, date),
+        recovery: daysBetween(trough, date),
+      });
+      inDrawdown = false;
+    }
+  }
+  if (inDrawdown) {
+    const lastDate = entries[entries.length - 1]?.[0] ?? trough;
+    events.push({
+      start,
+      trough,
+      end: null,
+      depth: troughDepth,
+      duration: daysBetween(start, lastDate),
+      recovery: null,
+    });
+  }
+  return events.sort((a, b) => a.depth - b.depth);
+}
+
+function daysBetween(a: string, b: string): number {
+  const da = new Date(a).getTime();
+  const db = new Date(b).getTime();
+  return Math.max(0, Math.round((db - da) / 86_400_000));
+}
+
+function mapMonthlyReturns(
+  monthly: Record<string, number | null>,
+): { year: number; month: number; value: number }[] {
+  const isIsoDate = (s: string) => /^\d{4}-\d{2}-\d{2}/.test(s);
+  return Object.entries(monthly)
+    .filter(([k, v]) => isIsoDate(k) && typeof v === 'number' && Number.isFinite(v))
+    .map(([date, value]) => {
+      const d = new Date(date);
+      return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, value: value as number };
+    });
+}
+
+function mapRollingMetrics(
+  rolling: Record<string, Record<string, number | null>>,
+): { date: string; sharpe: number; volatility: number; beta: number }[] {
+  const sharpeMap = pickRollingSeries(rolling, ['sharpe', 'sharpe_ratio', 'rolling_sharpe']);
+  const volMap = pickRollingSeries(rolling, ['volatility', 'vol', 'rolling_volatility']);
+  const betaMap = pickRollingSeries(rolling, ['beta', 'rolling_beta']);
+  const dates = new Set<string>([
+    ...Object.keys(sharpeMap),
+    ...Object.keys(volMap),
+    ...Object.keys(betaMap),
+  ]);
+  return Array.from(dates)
+    .sort()
+    .map((date) => ({
+      date,
+      sharpe: sharpeMap[date] ?? 0,
+      volatility: volMap[date] ?? 0,
+      beta: betaMap[date] ?? 0,
+    }));
+}
+
+function pickRollingSeries(
+  rolling: Record<string, Record<string, number | null>>,
+  candidates: string[],
+): Record<string, number> {
+  const keys = Object.keys(rolling);
+  for (const c of candidates) {
+    const found = keys.find((k) => k.toLowerCase().includes(c));
+    if (found) {
+      const series = rolling[found] ?? {};
+      const out: Record<string, number> = {};
+      for (const [date, value] of Object.entries(series)) {
+        if (typeof value === 'number' && Number.isFinite(value)) out[date] = value;
+      }
+      return out;
+    }
+  }
+  return {};
+}
+
+function mapSummaryToMetrics(
+  stats: Record<string, unknown>,
+  equity: { portfolio: number }[],
+): BacktestMetrics {
+  const inSample = (stats['in_sample'] && typeof stats['in_sample'] === 'object'
+    ? (stats['in_sample'] as Record<string, unknown>)
+    : {}) as Record<string, unknown>;
+
+  const get = (...keys: string[]): number => {
+    for (const k of keys) {
+      const v = stats[k];
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      const nested = inSample[k];
+      if (typeof nested === 'number' && Number.isFinite(nested)) return nested;
+    }
+    return 0;
+  };
+  const totalReturnFromEquity =
+    equity.length > 0 ? (equity[equity.length - 1].portfolio ?? 1) - 1 : 0;
+
+  return {
+    totalReturn: get('total_return', 'Total Return') || totalReturnFromEquity,
+    annualizedReturn: get('Annualized Mean', 'annualized_mean', 'annualized_return'),
+    annualizedVol: get(
+      'Annualized Standard Deviation',
+      'annualized_standard_deviation',
+      'annualized_volatility',
+    ),
+    sharpe: get(
+      'Annualized Sharpe Ratio',
+      'annualized_sharpe_ratio',
+      'Sharpe Ratio',
+      'sharpe_ratio',
+    ),
+    sortino: get(
+      'Annualized Sortino Ratio',
+      'annualized_sortino_ratio',
+      'Sortino Ratio',
+      'sortino_ratio',
+    ),
+    maxDrawdown: -Math.abs(get('MAX Drawdown', 'max_drawdown')),
+    calmar: get('Calmar Ratio', 'calmar_ratio'),
+    cvar95: -Math.abs(get('CVaR at 95%', 'cvar_95', 'cvar')),
+    trackingError: get('Tracking Error', 'tracking_error'),
+    informationRatio: get('Information Ratio', 'information_ratio'),
+    winRate: get('Win Rate', 'win_rate'),
+    profitFactor: get('Profit Factor', 'profit_factor'),
+  };
+}
+
+function buildReturnDistribution(
+  curve: Record<string, number | null>,
+): { binStart: number; binEnd: number; count: number; frequency: number }[] {
+  const sorted = Object.entries(curve)
+    .filter(([, v]) => typeof v === 'number' && Number.isFinite(v))
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (sorted.length < 2) return [];
+
+  const dailyReturns: number[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = (sorted[i - 1][1] as number) + 1;
+    const curr = (sorted[i][1] as number) + 1;
+    if (prev > 0) dailyReturns.push(curr / prev - 1);
+  }
+  if (dailyReturns.length === 0) return [];
+
+  const min = Math.min(...dailyReturns);
+  const max = Math.max(...dailyReturns);
+  const binCount = 30;
+  const width = (max - min) / binCount || 1;
+  const bins = Array.from({ length: binCount }, (_, i) => ({
+    binStart: min + i * width,
+    binEnd: min + (i + 1) * width,
+    count: 0,
+    frequency: 0,
+  }));
+  for (const r of dailyReturns) {
+    const idx = Math.min(binCount - 1, Math.max(0, Math.floor((r - min) / width)));
+    bins[idx].count += 1;
+  }
+  for (const b of bins) b.frequency = b.count / dailyReturns.length;
+  return bins;
 }
 
 // ── Utility: inverse normal CDF (Beasley-Springer-Moro approximation) ──────

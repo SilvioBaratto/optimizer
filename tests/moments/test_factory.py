@@ -17,10 +17,11 @@ from skfolio.moments import (
     GraphicalLassoCV,
     ImpliedCovariance,
     LedoitWolf,
+    RegimeAdjustedEWCovariance,
     ShrunkCovariance,
     ShrunkMu,
 )
-from skfolio.prior import EmpiricalPrior, FactorModel
+from skfolio.prior import EmpiricalPrior, TimeSeriesFactorModel
 
 from optimizer.moments import (
     CovEstimatorType,
@@ -96,6 +97,7 @@ class TestBuildCovEstimator:
             (CovEstimatorType.DENOISE, DenoiseCovariance),
             (CovEstimatorType.DETONE, DetoneCovariance),
             (CovEstimatorType.IMPLIED, ImpliedCovariance),
+            (CovEstimatorType.REGIME_ADJUSTED_EW, RegimeAdjustedEWCovariance),
         ],
     )
     def test_each_type_produces_correct_class(
@@ -134,6 +136,41 @@ class TestBuildCovEstimator:
         assert isinstance(estimator, GerberCovariance)
         assert estimator.threshold == 0.7
 
+    def test_regime_adjusted_ew_kwargs_forwarded(self) -> None:
+        cfg = MomentEstimationConfig(
+            cov_estimator=CovEstimatorType.REGIME_ADJUSTED_EW,
+            variance_half_life=23.0,
+            corr_half_life=50.0,
+            hac_lags=4,
+        )
+        estimator = build_cov_estimator(cfg)
+        assert isinstance(estimator, RegimeAdjustedEWCovariance)
+        assert estimator.half_life == 23.0
+        assert estimator.corr_half_life == 50.0
+        assert estimator.hac_lags == 4
+
+
+class TestPresetRegression:
+    """Existing presets must survive the new field additions."""
+
+    def test_when_for_equilibrium_ledoitwolf_then_unchanged(self) -> None:
+        cfg = MomentEstimationConfig.for_equilibrium_ledoitwolf()
+        assert cfg.mu_estimator == MuEstimatorType.EQUILIBRIUM
+        assert cfg.cov_estimator == CovEstimatorType.LEDOIT_WOLF
+
+    def test_when_for_shrunk_denoised_then_unchanged(self) -> None:
+        cfg = MomentEstimationConfig.for_shrunk_denoised()
+        assert cfg.mu_estimator == MuEstimatorType.SHRUNK
+        assert cfg.shrinkage_method == ShrinkageMethod.JAMES_STEIN
+        assert cfg.cov_estimator == CovEstimatorType.DENOISE
+
+    def test_when_for_adaptive_then_unchanged(self) -> None:
+        cfg = MomentEstimationConfig.for_adaptive()
+        assert cfg.mu_estimator == MuEstimatorType.EW
+        assert cfg.cov_estimator == CovEstimatorType.EW
+
+
+class TestBuildCovEstimatorNested:
     def test_denoise_nests_inner_covariance(self) -> None:
         cfg = MomentEstimationConfig(cov_estimator=CovEstimatorType.DENOISE)
         estimator = build_cov_estimator(cfg)
@@ -159,7 +196,7 @@ class TestBuildPrior:
     def test_factor_model_when_enabled(self) -> None:
         cfg = MomentEstimationConfig(use_factor_model=True)
         prior = build_prior(cfg)
-        assert isinstance(prior, FactorModel)
+        assert isinstance(prior, TimeSeriesFactorModel)
 
     def test_factor_model_residual_variance(self) -> None:
         cfg = MomentEstimationConfig(
@@ -167,7 +204,7 @@ class TestBuildPrior:
             residual_variance=False,
         )
         prior = build_prior(cfg)
-        assert isinstance(prior, FactorModel)
+        assert isinstance(prior, TimeSeriesFactorModel)
         assert prior.residual_variance is False
 
     def test_is_log_normal_forwarded(self) -> None:

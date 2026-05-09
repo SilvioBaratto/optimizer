@@ -18,16 +18,21 @@ import { IpsPanelComponent } from './ips-panel';
 import { InstrumentDetailFlyoutComponent } from '../../shared/instrument-detail-flyout/instrument-detail-flyout';
 
 import { PortfolioApiService } from '../../services/portfolio-api.service';
+import { YfinanceService } from '../../services/yfinance.service';
 import type { PortfolioDto } from '../../models/portfolio-api.model';
 import type { Instrument } from '../../models/universe.model';
-import type { Constraint, IPS } from '../../models/portfolio-builder.model';
+import type {
+  Constraint,
+  IPS,
+  UniverseTicker,
+} from '../../models/portfolio-builder.model';
 
 const DEFAULT_IPS: IPS = {
   name: '',
   riskProfile: 'moderate',
-  targetReturn: 0,
-  maxVolatility: 0,
-  maxDrawdown: 0,
+  targetReturn: 0.1,
+  maxVolatility: 0.16,
+  maxDrawdown: -0.15,
   rebalanceFrequency: 'quarterly',
   constraints: [],
 };
@@ -55,6 +60,7 @@ type SnapshotStatus = 'idle' | 'saving' | 'success' | 'error';
 })
 export class PortfolioBuilderComponent {
   private readonly portfolioApi = inject(PortfolioApiService);
+  private readonly yfinance = inject(YfinanceService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly isLoading = signal(false);
@@ -82,6 +88,20 @@ export class PortfolioBuilderComponent {
   readonly snapshotError = signal<string | null>(null);
 
   readonly currencyCodes = CURRENCY_CODES;
+
+  // Portfolio composition state
+  readonly tickers = signal<UniverseTicker[]>([]);
+  readonly constraints = signal<Constraint[]>([]);
+  readonly ips = signal<IPS>(DEFAULT_IPS);
+
+  readonly tickerCount = computed(
+    () => this.tickers().filter((t) => t.selected).length,
+  );
+  readonly totalWeight = computed(() =>
+    this.tickers()
+      .filter((t) => t.selected)
+      .reduce((sum, t) => sum + t.weight, 0),
+  );
 
   readonly tabs: Tab[] = [
     { id: 'universe', label: 'Universe' },
@@ -172,10 +192,47 @@ export class PortfolioBuilderComponent {
 
   onTickerSelected(instrument: Instrument): void {
     this.flyoutInstrumentId.set(instrument.id);
+    this.addTicker(instrument);
+  }
+
+  addTicker(instrument: Instrument): void {
+    const ticker = instrument.ticker;
+    if (this.tickers().some((t) => t.ticker === ticker)) return;
+    const next: UniverseTicker = {
+      ticker,
+      name: instrument.name ?? instrument.short_name,
+      sector: 'Unknown',
+      marketCap: 0,
+      weight: 0,
+      selected: true,
+    };
+    this.tickers.update((list) => [...list, next]);
+    this.enrichTickerSector(ticker, instrument.id);
+  }
+
+  private enrichTickerSector(ticker: string, instrumentId: string): void {
+    this.yfinance
+      .getProfile(instrumentId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((profile) => {
+        const sector = profile?.sector;
+        if (!sector) return;
+        this.tickers.update((list) =>
+          list.map((t) => (t.ticker === ticker ? { ...t, sector } : t)),
+        );
+      });
   }
 
   closeFlyout(): void {
     this.flyoutInstrumentId.set(null);
+  }
+
+  setConstraints(constraints: Constraint[]): void {
+    this.constraints.set(constraints);
+  }
+
+  setIps(ips: IPS): void {
+    this.ips.set(ips);
   }
 
   setActivePortfolio(portfolio: PortfolioDto): void {
@@ -185,16 +242,6 @@ export class PortfolioBuilderComponent {
   onActiveSelect(name: string): void {
     const match = this.portfolios().find((p) => p.name === name);
     if (match) this.activePortfolio.set(match);
-  }
-
-  readonly defaultIps: IPS = DEFAULT_IPS;
-
-  noopConstraints(_constraints: Constraint[]): void {
-    // Weights panel is deferred to downstream issues.
-  }
-
-  noopIps(_ips: IPS): void {
-    // IPS panel is deferred to downstream issues.
   }
 
   private handleCreated(created: PortfolioDto): void {

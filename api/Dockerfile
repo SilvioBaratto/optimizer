@@ -1,75 +1,62 @@
-# Build stage
+# ── Build stage ───────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS builder
 
-WORKDIR /app
+WORKDIR /build
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    postgresql-client \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install API requirements
-COPY api/requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# Isolated venv — copies cleanly to the runtime stage without PYTHONPATH hacks
+RUN python -m venv /venv
+ENV PATH=/venv/bin:$PATH
 
-# Copy and install the optimizer library from project root
+# Install API dependencies before copying app code (layer cache)
+COPY api/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install optimizer library as a regular package (source lands in site-packages)
 COPY pyproject.toml README.md ./
 COPY optimizer/ optimizer/
-RUN pip install --no-cache-dir --user -e .
+RUN pip install --no-cache-dir .
 
-# Runtime stage
+# Copy API source and regenerate BAML client from baml_src/
+COPY api/ api/
+WORKDIR /build/api
+RUN baml-cli generate
+
+# ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    postgresql-client \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq5 \
+        postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user first
 RUN useradd -m -u 1000 appuser
 
-# Copy Python dependencies from builder to appuser's home
-COPY --from=builder /root/.local /home/appuser/.local
+# Virtualenv (includes all packages + scripts: uvicorn, alembic, baml-cli)
+COPY --from=builder /venv /venv
 
-# Copy optimizer library (needed for editable install)
-COPY --from=builder /app/optimizer /app/optimizer
-COPY --from=builder /app/pyproject.toml /app/pyproject.toml
+# Application code with generated baml_client already in place
+COPY --from=builder /build/api/ ./api/
 
-# Copy application code
-COPY api/ ./api/
-
-# Generate BAML client (before changing to non-root user)
-ENV PYTHONPATH=/home/appuser/.local/lib/python3.12/site-packages
-WORKDIR /app/api
-RUN /home/appuser/.local/bin/baml-cli generate
-
-# Copy and make entrypoint script executable
 COPY api/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh \
+    && chown -R appuser:appuser /app /entrypoint.sh
 
-# Change ownership
-RUN chown -R appuser:appuser /app && \
-    chown -R appuser:appuser /home/appuser/.local && \
-    chown appuser:appuser /entrypoint.sh
+ENV PATH=/venv/bin:$PATH
 
-# Switch to non-root user
 USER appuser
+WORKDIR /app/api
 
-# Make sure scripts in .local are usable
-ENV PATH=/home/appuser/.local/bin:$PATH
-
-# Expose port
 EXPOSE 8000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"
 
-# Use entrypoint script to run migrations and setup before starting the app
 ENTRYPOINT ["/entrypoint.sh"]
-
-# Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -86,6 +86,59 @@ class TestBuildVineCopula:
         model = build_vine_copula(cfg)
         assert model.random_state == 42
 
+    def test_when_marginal_candidates_set_then_classes_forwarded(self) -> None:
+        from skfolio.distribution import Gaussian, StudentT
+
+        cfg = VineCopulaConfig(marginal_candidates=("Gaussian", "StudentT"))
+        model = build_vine_copula(cfg)
+        assert model.marginal_candidates is not None
+        types = [type(m) for m in model.marginal_candidates]
+        assert Gaussian in types
+        assert StudentT in types
+
+    def test_when_copula_candidates_set_then_classes_forwarded(self) -> None:
+        from skfolio.distribution import ClaytonCopula
+
+        cfg = VineCopulaConfig(copula_candidates=("ClaytonCopula",))
+        model = build_vine_copula(cfg)
+        assert model.copula_candidates is not None
+        assert any(isinstance(c, ClaytonCopula) for c in model.copula_candidates)
+
+    def test_when_central_assets_set_then_list_forwarded(self) -> None:
+        cfg = VineCopulaConfig(central_assets=("AAPL", "MSFT"))
+        model = build_vine_copula(cfg)
+        assert model.central_assets == ["AAPL", "MSFT"]
+
+    def test_when_for_with_t_marginals_then_t_class_forwarded(self) -> None:
+        from skfolio.distribution import StudentT
+
+        cfg = VineCopulaConfig.for_with_t_marginals()
+        model = build_vine_copula(cfg)
+        assert model.marginal_candidates is not None
+        assert any(isinstance(m, StudentT) for m in model.marginal_candidates)
+
+    def test_when_for_clayton_only_then_clayton_class_forwarded(self) -> None:
+        from skfolio.distribution import ClaytonCopula
+
+        cfg = VineCopulaConfig.for_clayton_only()
+        model = build_vine_copula(cfg)
+        assert model.copula_candidates is not None
+        assert all(isinstance(c, ClaytonCopula) for c in model.copula_candidates)
+
+    def test_when_unknown_marginal_name_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        cfg = VineCopulaConfig(marginal_candidates=("BogusDist",))
+        with pytest.raises(ConfigurationError, match="BogusDist"):
+            build_vine_copula(cfg)
+
+    def test_when_unknown_copula_name_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        cfg = VineCopulaConfig(copula_candidates=("BogusCopula",))
+        with pytest.raises(ConfigurationError, match="BogusCopula"):
+            build_vine_copula(cfg)
+
 
 # ---------------------------------------------------------------------------
 # SyntheticData

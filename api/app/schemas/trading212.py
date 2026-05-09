@@ -1,10 +1,15 @@
 """Pydantic v2 schemas for Trading212 universe endpoints."""
 
 from datetime import datetime
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.base_job import AsyncJobCreateResponse, AsyncJobProgress
+
+
+def _coerce_uuid_to_str(value: object) -> object:
+    return str(value) if isinstance(value, UUID) else value
 
 
 class UniverseBuildRequest(BaseModel):
@@ -35,6 +40,11 @@ class ExchangeResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("id", mode="before")
+    @classmethod
+    def _coerce_id(cls, value: object) -> object:
+        return _coerce_uuid_to_str(value)
+
 
 class InstrumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -52,6 +62,11 @@ class InstrumentResponse(BaseModel):
     exchange_name: str | None = Field(None, description="Exchange name")
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _coerce_id(cls, value: object) -> object:
+        return _coerce_uuid_to_str(value)
 
 
 class InstrumentListResponse(BaseModel):

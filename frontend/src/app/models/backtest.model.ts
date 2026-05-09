@@ -139,7 +139,9 @@ export interface ValidateProgressResponse {
   errors: string[];
   result: {
     folds?: ValidateFoldResult[];
+    fold_results?: ValidateFoldResult[];
     aggregate?: Record<string, number>;
+    aggregate_score?: number;
   } | null;
   error: string | null;
 }

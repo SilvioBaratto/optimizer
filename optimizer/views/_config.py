@@ -47,9 +47,9 @@ class BlackLittermanConfig:
         ``MomentEstimationConfig.for_equilibrium_ledoitwolf()``.
     use_factor_model : bool
         If ``True``, wrap the Black-Litterman prior in a
-        :class:`skfolio.prior.FactorModel`.
+        :class:`skfolio.prior.TimeSeriesFactorModel`.
     residual_variance : bool
-        Whether to include residual variance in ``FactorModel``.
+        Whether to include residual variance in ``TimeSeriesFactorModel``.
     """
 
     views: tuple[str, ...]

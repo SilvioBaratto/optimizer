@@ -164,7 +164,7 @@ export interface CalibrateDeltaResponse {
 }
 
 export interface AdaptFactorWeightsRequest {
-  macro_indicators: Record<string, number>;
+  macro_indicators: string;
   factor_groups: string[];
 }
 

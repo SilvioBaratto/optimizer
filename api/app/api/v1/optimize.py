@@ -82,7 +82,9 @@ def _execute_and_persist(
         request.optimizer_type, request.config, session,
     )
     if request.optimizer_type in FRONTIER_TYPES:
-        pipeline.named_steps["optimizer"].set_params(efficient_frontier_size=FRONTIER_SIZE)
+        objective = (request.config or {}).get("objective", "minimize_risk")
+        if objective == "minimize_risk":
+            pipeline.named_steps["optimizer"].set_params(efficient_frontier_size=FRONTIER_SIZE)
     t0 = time.monotonic()
     pipeline.fit(returns_df)
     duration = time.monotonic() - t0

@@ -88,11 +88,11 @@
   </div>
   }
 
-  <!-- 3. Equity Curve + Allocation (equal 2-col grid) -->
+  <!-- 3. Equity Curve + Allocation (3-col asymmetric grid) -->
   @if (revealIndex() >= 2) {
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 reveal">
-    <!-- Left: Equity Curve + Drawdown (stacked) -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4 space-y-4">
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 reveal">
+    <!-- Left (2/3): Equity Curve + Underwater stacked -->
+    <div class="lg:col-span-2 bg-surface-raised border border-border rounded-lg p-4 space-y-4">
       <div>
         <h2 class="text-data-lg font-medium text-text mb-3">Portfolio Performance ({{ period() }} vs {{ benchmark() }})</h2>
         <div #equityCurve class="w-full" style="height: 320px;"></div>
@@ -103,34 +103,21 @@
           <app-echarts-drawdown [data]="drawdownSeries()" [height]="220" />
         </div>
       }
-      <div>
-        <h2 class="text-data-lg font-medium text-text mb-3">Rolling Metrics (Sharpe / Vol / Beta)</h2>
-        @if (rollingMetricsError(); as err) {
-          <div class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
-            {{ err }}
-          </div>
-        } @else {
-          <app-echarts-rolling-metrics
-            [series]="rollingMetricsSeries()"
-            [loading]="rollingMetricsLoading()"
-            [height]="260" />
-        }
-      </div>
     </div>
 
-    <!-- Right: Asset Allocation — chart + sector legend -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4 flex flex-col">
+    <!-- Right (1/3): Asset Allocation — full-height, chart + sector legend -->
+    <div class="bg-surface-raised border border-border rounded-lg p-4 flex flex-col min-h-105">
       <div class="flex items-baseline justify-between mb-3">
         <h2 class="text-data-lg font-medium text-text">Asset Allocation</h2>
         <span class="text-data-xs text-text-tertiary">{{ allocationTotalHoldings() }} holdings</span>
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-[1fr_minmax(10rem,14rem)] gap-4 flex-1 min-h-0">
+      <div class="flex-1 min-h-0 flex flex-col gap-4">
         <!-- Sunburst chart -->
         <div class="min-h-0">
           <app-echarts-sunburst [data]="allocationData()" [height]="320" />
         </div>
         <!-- Sector legend -->
-        <div class="flex flex-col justify-center gap-2.5">
+        <div class="flex flex-col gap-2.5 overflow-y-auto">
           @for (sector of allocationSectors(); track sector.name) {
           <div class="flex items-center gap-2">
             <span class="w-3 h-3 rounded-full shrink-0" aria-hidden="true"
@@ -144,90 +131,39 @@
       </div>
     </div>
   </div>
+  }
 
-  <!-- 3b. Drift Table (full width) -->
+  <!-- 4. Rolling Metrics — standalone full-width section -->
+  @if (revealIndex() >= 3) {
   <div class="bg-surface-raised border border-border rounded-lg p-4 reveal">
-    <h2 class="text-data-lg font-medium text-text mb-2">Target vs Actual</h2>
-    <div class="overflow-x-auto">
-      <table class="w-full text-data-sm">
-        <thead>
-          <tr class="text-text-secondary text-left border-b border-border-muted">
-            <th class="py-1.5 pr-2 font-medium">Ticker</th>
-            <th class="py-1.5 px-2 font-medium text-right">Target</th>
-            <th class="py-1.5 px-2 font-medium text-right">Actual</th>
-            <th class="py-1.5 pl-2 font-medium text-right">Drift</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of driftTable(); track row.ticker) {
-          <tr class="border-b border-border-muted last:border-0">
-            <td class="py-1.5 pr-2 font-mono text-text">{{ row.ticker }}</td>
-            <td class="py-1.5 px-2 text-right font-mono tabular-nums text-text-secondary">{{
-              fmt.formatPercent(row.target) }}</td>
-            <td class="py-1.5 px-2 text-right font-mono tabular-nums text-text-secondary">{{
-              fmt.formatPercent(row.actual) }}</td>
-            <td class="py-1.5 pl-2 text-right font-mono tabular-nums"
-              [class]="row.breached ? 'text-loss font-semibold' : (row.drift >= 0 ? 'text-gain' : 'text-text-secondary')">
-              {{ row.drift >= 0 ? '+' : '' }}{{ fmt.formatPercent(row.drift) }}
-            </td>
-          </tr>
-          }
-        </tbody>
-      </table>
-    </div>
+    <h2 class="text-data-lg font-medium text-text mb-3">Rolling Metrics (Sharpe / Vol / Beta)</h2>
+    @if (rollingMetricsError(); as err) {
+      <div class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+        {{ err }}
+      </div>
+    } @else {
+      <app-echarts-rolling-metrics
+        [series]="rollingMetricsSeries()"
+        [loading]="rollingMetricsLoading()"
+        [height]="260" />
+    }
   </div>
   }
 
-  <!-- 4. Activity + Market Context (2-col grid) -->
+  <!-- 5. Market Context — horizontal 4-indicator strip -->
   @if (revealIndex() >= 3) {
-  <div class="grid grid-cols-1 lg:grid-cols-2 items-start gap-4 reveal">
-    <!-- Left: Activity Feed — height matches right column -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4 flex flex-col max-h-80 lg:max-h-112">
-      <h2 class="text-data-lg font-medium text-text mb-3 shrink-0">Recent Activity</h2>
-      <div class="flex-1 min-h-0 overflow-y-auto space-y-0.5 pr-1">
-        @for (item of activityFeed(); track item.id) {
-        <div class="flex items-start gap-3 py-2.5 border-b border-border-muted last:border-0">
-          <div class="mt-1.5 shrink-0">
-            <span class="block w-2.5 h-2.5 rounded-full" [class]="activityDotClass(item.type)"></span>
-          </div>
-          <div class="min-w-0 flex-1">
-            <p class="text-data-sm font-medium text-text">{{ item.title }}</p>
-            <p class="text-data-xs text-text-tertiary mt-0.5 truncate">{{ item.description }}</p>
-          </div>
-          <span class="text-data-xs text-text-tertiary whitespace-nowrap shrink-0">{{ relativeTime(item.timestamp)
-            }}</span>
-        </div>
-        }
-      </div>
-    </div>
-
-    <!-- Right: Macro Snapshot + Market Regime stacked -->
-    <div class="space-y-4">
-      <!-- Macro Indicators -->
-      <div class="grid grid-cols-2 gap-3">
-        <app-stat-card label="VIX" [value]="marketContext().vix" [delta]="macroVixDelta()" [trend]="macroVixTrend()"
-          deltaLabel="today" />
-        <app-stat-card label="S&P 500" [value]="fmt.formatPercent(marketContext().sp500Return)"
-          [delta]="marketContext().sp500Return"
-          [trend]="marketContext().sp500Return >= 0 ? 'up' : 'down'" deltaLabel="today" />
-        <app-stat-card label="10Y Yield" [value]="marketContext().tenYearYield + '%'" [delta]="macroYieldDelta()"
-          [trend]="macroYieldTrend()" deltaLabel="today" />
-        <app-stat-card label="USD Index" [value]="marketContext().usdIndex" [delta]="macroUsdDelta()"
-          [trend]="macroUsdTrend()" deltaLabel="today" />
-      </div>
-
-      <!-- Market Regime -->
-      <div class="bg-surface-raised border border-border rounded-lg p-4">
-        <h2 class="text-data-lg font-medium text-text mb-3">Market Regime</h2>
-        <div class="flex items-center gap-3 mb-3">
-          <span class="px-3 py-1 rounded-full text-data-sm font-semibold capitalize"
-            [class]="regimeColorClass(regimeInfo().current)">
-            {{ regimeInfo().current }}
-          </span>
-          <span class="text-data-sm text-text-secondary font-mono">{{ fmt.formatPercent(regimeInfo().probability, 0) }}
-            confidence</span>
-        </div>
-      </div>
+  <div class="reveal">
+    <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Market Context</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <app-stat-card label="VIX" [value]="marketContext().vix" [delta]="macroVixDelta()" [trend]="macroVixTrend()"
+        deltaLabel="today" />
+      <app-stat-card label="S&P 500" [value]="fmt.formatPercent(marketContext().sp500Return)"
+        [delta]="marketContext().sp500Return"
+        [trend]="marketContext().sp500Return >= 0 ? 'up' : 'down'" deltaLabel="today" />
+      <app-stat-card label="10Y Yield" [value]="marketContext().tenYearYield + '%'" [delta]="macroYieldDelta()"
+        [trend]="macroYieldTrend()" deltaLabel="today" />
+      <app-stat-card label="USD Index" [value]="marketContext().usdIndex" [delta]="macroUsdDelta()"
+        [trend]="macroUsdTrend()" deltaLabel="today" />
     </div>
   </div>
   }

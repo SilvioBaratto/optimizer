@@ -61,35 +61,6 @@ export interface ApiAllocationResponse {
   totalSectors: number;
 }
 
-export interface ApiDriftEntry {
-  ticker: string;
-  name: string | null;
-  target: number;
-  actual: number;
-  drift: number;
-  breached: boolean;
-}
-
-export interface ApiDriftResponse {
-  entries: ApiDriftEntry[];
-  totalDrift: number;
-  breachedCount: number;
-  threshold: number;
-}
-
-export interface ApiActivityItem {
-  id: string;
-  type: string;
-  title: string;
-  description: string | null;
-  timestamp: string;
-}
-
-export interface ApiActivityFeedResponse {
-  items: ApiActivityItem[];
-  total: number;
-}
-
 export interface ApiMarketSnapshotResponse {
   vix: number;
   vixChange: number;
@@ -99,12 +70,6 @@ export interface ApiMarketSnapshotResponse {
   usdIndex: number;
   usdChange: number;
   asOf: string;
-}
-
-export interface ApiMarketRegimeResponse {
-  current: string;
-  probability: number;
-  since: string;
 }
 
 export interface ApiAssetClassReturnRow {

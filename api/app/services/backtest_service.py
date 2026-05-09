@@ -160,6 +160,22 @@ def run_and_persist(
 
     optimizer = build_optimizer(pipeline_config)
     cv_config = WalkForwardConfig() if pipeline_config.get("run_cv", True) else None
+    cv_disabled_reason: str | None = None
+    if cv_config is not None:
+        required = cv_config.train_size + cv_config.purged_size + cv_config.test_size
+        # Returns frame is one row shorter than the price frame (first day has
+        # no return). Use a conservative upper bound to avoid silent skips.
+        observations = max(0, len(prices) - 1)
+        if observations < required:
+            cv_disabled_reason = (
+                f"Insufficient data for walk-forward CV: have {observations} return "
+                f"observations, need at least {required} "
+                f"(train_size={cv_config.train_size} + purged_size={cv_config.purged_size} "
+                f"+ test_size={cv_config.test_size}). "
+                "Falling back to in-sample backtest. Widen the date range to enable CV."
+            )
+            logger.warning("CV disabled for run %s: %s", run_id, cv_disabled_reason)
+            cv_config = None
 
     t0 = time.monotonic()
     result = run_full_pipeline(
@@ -170,6 +186,10 @@ def run_and_persist(
     duration = time.monotonic() - t0
 
     metrics = extract_backtest_metrics(result)
+    if cv_disabled_reason is not None:
+        summary = dict(metrics.get("summary_stats") or {})
+        summary["cv_disabled_reason"] = cv_disabled_reason
+        metrics["summary_stats"] = summary
     repo = ExecutionRepository(session)
     run = repo.update_backtest_status(
         run_id,

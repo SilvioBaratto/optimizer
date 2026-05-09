@@ -33,6 +33,7 @@ class TestEnums:
             CovEstimatorType.DENOISE,
             CovEstimatorType.DETONE,
             CovEstimatorType.IMPLIED,
+            CovEstimatorType.REGIME_ADJUSTED_EW,
         }
 
     def test_shrinkage_method_members(self) -> None:

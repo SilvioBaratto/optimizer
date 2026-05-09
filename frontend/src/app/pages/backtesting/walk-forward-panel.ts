@@ -116,7 +116,7 @@ export class WalkForwardPanelComponent {
   readonly tickers = input<string[]>([]);
   readonly startDate = input<string>('');
   readonly endDate = input<string>('');
-  readonly optimizerType = input<string>('hrp');
+  readonly optimizerType = input<string>('mean_risk');
   readonly cvType = input<CvType>('walk_forward');
 
   readonly jobId = signal<string | null>(null);
@@ -140,13 +140,24 @@ export class WalkForwardPanelComponent {
   ];
 
   readonly foldRows = computed<FoldRow[]>(() =>
-    this.folds().map((fold, i) => ({
-      fold: `#${i + 1}`,
-      sharpe: fmt(fold.measures['sharpe']),
-      annualizedReturn: fmtPct(fold.measures['annualized_return']),
-      volatility: fmtPct(fold.measures['volatility']),
-      maxDrawdown: fmtPct(fold.measures['max_drawdown']),
-    })),
+    this.folds().map((fold, i) => {
+      const m = fold.measures as Record<string, number | undefined>;
+      const pickNum = (...keys: string[]): number | undefined => {
+        for (const k of keys) {
+          const v = m[k];
+          if (typeof v === 'number' && Number.isFinite(v)) return v;
+        }
+        return undefined;
+      };
+      const dd = pickNum('MAX Drawdown', 'max_drawdown');
+      return {
+        fold: `#${i + 1}`,
+        sharpe: fmt(pickNum('Annualized Sharpe Ratio', 'Sharpe Ratio', 'sharpe')),
+        annualizedReturn: fmtPct(pickNum('Annualized Mean', 'annualized_return')),
+        volatility: fmtPct(pickNum('Annualized Standard Deviation', 'volatility')),
+        maxDrawdown: fmtPct(dd === undefined ? undefined : -Math.abs(dd)),
+      };
+    }),
   );
 
   readonly aggregateRows = computed<AggregateRow[]>(() => {
@@ -201,7 +212,12 @@ export class WalkForwardPanelComponent {
   }
 
   private applyResult(progress: ValidateProgressResponse): void {
-    this.folds.set(progress.result?.folds ?? []);
-    this.aggregate.set(progress.result?.aggregate ?? {});
+    const r = progress.result ?? {};
+    this.folds.set(r.fold_results ?? r.folds ?? []);
+    const aggregate: Record<string, number> = { ...(r.aggregate ?? {}) };
+    if (typeof r.aggregate_score === 'number') {
+      aggregate['aggregate_score'] = r.aggregate_score;
+    }
+    this.aggregate.set(aggregate);
   }
 }

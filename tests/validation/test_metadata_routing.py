@@ -5,7 +5,7 @@ auxiliary data through each fold:
 
 1. **Implied volatility** — ``implied_vol`` forwarded to
    :class:`~skfolio.moments.ImpliedCovariance` inside a
-   :class:`~skfolio.prior.FactorModel` prior via the ``params`` dict.
+   :class:`~skfolio.prior.TimeSeriesFactorModel` prior via the ``params`` dict.
 2. **Benchmark weights** — ``y`` benchmark returns sliced on the correct
    train/test dates for :class:`~skfolio.optimization.BenchmarkTracker`.
 3. **Previous weights** — ``previous_weights`` set on
@@ -22,7 +22,7 @@ import pandas as pd
 import pytest
 from skfolio.moments import ImpliedCovariance
 from skfolio.optimization import BenchmarkTracker, MeanRisk
-from skfolio.prior import EmpiricalPrior, FactorModel
+from skfolio.prior import EmpiricalPrior, TimeSeriesFactorModel
 from sklearn import set_config
 
 from optimizer.validation import WalkForwardConfig, build_walk_forward, run_cross_val
@@ -81,7 +81,7 @@ def benchmark_returns(returns: pd.DataFrame) -> pd.Series:
 
 @pytest.mark.slow
 class TestImpliedVolMetadataRouting:
-    """Verify ``implied_vol`` is routed to each CV fold's FactorModel prior."""
+    """Verify ``implied_vol`` routes to each CV fold's TimeSeriesFactorModel prior."""
 
     def test_run_cross_val_completes(
         self,
@@ -93,7 +93,7 @@ class TestImpliedVolMetadataRouting:
         set_config(enable_metadata_routing=True)
 
         imp_cov = ImpliedCovariance().set_fit_request(implied_vol=True)
-        factor_prior = FactorModel(
+        factor_prior = TimeSeriesFactorModel(
             factor_prior_estimator=EmpiricalPrior(covariance_estimator=imp_cov)
         )
         model = MeanRisk(prior_estimator=factor_prior, min_weights=0.0)
@@ -119,7 +119,7 @@ class TestImpliedVolMetadataRouting:
         set_config(enable_metadata_routing=True)
 
         imp_cov = ImpliedCovariance().set_fit_request(implied_vol=True)
-        factor_prior = FactorModel(
+        factor_prior = TimeSeriesFactorModel(
             factor_prior_estimator=EmpiricalPrior(covariance_estimator=imp_cov)
         )
         model = MeanRisk(prior_estimator=factor_prior, min_weights=0.0)
@@ -147,7 +147,7 @@ class TestImpliedVolMetadataRouting:
         set_config(enable_metadata_routing=True)
 
         imp_cov = ImpliedCovariance().set_fit_request(implied_vol=True)
-        factor_prior = FactorModel(
+        factor_prior = TimeSeriesFactorModel(
             factor_prior_estimator=EmpiricalPrior(covariance_estimator=imp_cov)
         )
         model = MeanRisk(prior_estimator=factor_prior, min_weights=0.0)
@@ -166,7 +166,7 @@ class TestImpliedVolMetadataRouting:
         set_config(enable_metadata_routing=True)
 
         imp_cov = ImpliedCovariance().set_fit_request(implied_vol=True)
-        factor_prior = FactorModel(
+        factor_prior = TimeSeriesFactorModel(
             factor_prior_estimator=EmpiricalPrior(covariance_estimator=imp_cov)
         )
         model = MeanRisk(prior_estimator=factor_prior, min_weights=0.0)

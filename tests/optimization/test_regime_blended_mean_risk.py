@@ -220,11 +220,11 @@ class TestConfigIsSerialisable:
             if isinstance(obj, dict):
                 for v in obj.values():
                     _assert_leaves_are_primitives(v)
-            elif isinstance(obj, (list, tuple)):
+            elif isinstance(obj, list | tuple):
                 for item in obj:
                     _assert_leaves_are_primitives(item)
             else:
-                assert isinstance(obj, (int, float, str, bool, type(None)))
+                assert isinstance(obj, int | float | str | bool | type(None))
 
         _assert_leaves_are_primitives(raw)
 

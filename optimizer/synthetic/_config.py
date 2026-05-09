@@ -43,9 +43,10 @@ class VineCopulaConfig:
     Vine copulas decompose a multivariate distribution into marginal
     distributions and bivariate copulas organised in a tree structure.
 
-    Non-serialisable objects (``marginal_candidates``,
-    ``copula_candidates``, ``central_assets``) are passed as keyword
-    arguments to the factory function.
+    All fields are frozen-serialisable. ``marginal_candidates`` and
+    ``copula_candidates`` carry skfolio class names (resolved to
+    estimator instances at factory call time); ``central_assets``
+    carries asset-symbol strings.
 
     Parameters
     ----------
@@ -66,6 +67,17 @@ class VineCopulaConfig:
         Number of parallel jobs.
     random_state : int or None
         Random state for reproducibility.
+    marginal_candidates : tuple[str, ...] or None
+        Names of skfolio univariate distribution classes
+        (e.g. ``("Gaussian", "StudentT")``). ``None`` defers to
+        skfolio default.
+    copula_candidates : tuple[str, ...] or None
+        Names of skfolio bivariate copula classes
+        (e.g. ``("ClaytonCopula", "GaussianCopula")``). ``None``
+        defers to skfolio default.
+    central_assets : tuple[str, ...] or None
+        Asset symbols treated as central nodes in vine
+        construction. ``None`` lets skfolio choose.
     """
 
     fit_marginals: bool = True
@@ -76,6 +88,19 @@ class VineCopulaConfig:
     independence_level: float = 0.05
     n_jobs: int | None = None
     random_state: int | None = None
+    marginal_candidates: tuple[str, ...] | None = None
+    copula_candidates: tuple[str, ...] | None = None
+    central_assets: tuple[str, ...] | None = None
+
+    @classmethod
+    def for_with_t_marginals(cls) -> VineCopulaConfig:
+        """Preset including Student-t marginals alongside Gaussian."""
+        return cls(marginal_candidates=("Gaussian", "StudentT"))
+
+    @classmethod
+    def for_clayton_only(cls) -> VineCopulaConfig:
+        """Preset restricting copula candidates to Clayton (lower-tail)."""
+        return cls(copula_candidates=("ClaytonCopula",))
 
 
 @dataclass(frozen=True)

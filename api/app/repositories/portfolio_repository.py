@@ -61,6 +61,21 @@ class PortfolioRepository(RepositoryBase):
         stmt = select(Portfolio).where(Portfolio.id == portfolio_id)
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def get_distinct_benchmark_tickers(self) -> list[str]:
+        """Return every distinct ``benchmark_ticker`` across active portfolios.
+
+        Used by the reference-index scheduler so any benchmark an existing
+        portfolio depends on is auto-refreshed without env-var changes.
+        """
+        stmt = (
+            select(Portfolio.benchmark_ticker)
+            .where(Portfolio.is_active.is_(True))
+            .where(Portfolio.benchmark_ticker.isnot(None))
+            .distinct()
+        )
+        rows = self.session.execute(stmt).scalars().all()
+        return sorted({t.strip().upper() for t in rows if t and t.strip()})
+
     # ------------------------------------------------------------------
     # Snapshots
     # ------------------------------------------------------------------

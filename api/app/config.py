@@ -1,6 +1,6 @@
 """Application configuration using Pydantic Settings v2"""
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -78,6 +78,36 @@ class Settings(BaseSettings):
     default_benchmark_ticker: str = Field(
         default="SPY", alias="DEFAULT_BENCHMARK_TICKER",
     )
+    benchmark_tickers: list[str] = Field(
+        default=[
+            "SPY", "QQQ", "IWM", "EFA", "EEM", "AGG",
+            "VGK", "VWO", "TLT", "GLD", "URTH", "VBINX",
+        ],
+        alias="BENCHMARK_TICKERS",
+        description=(
+            "Reference-index tickers required in the DB. "
+            "Bootstrap on startup + refreshed by daily/weekly scheduler. "
+            "Override via comma-separated env var (e.g. 'SPY,QQQ,IWM')."
+        ),
+    )
+    scheduler_benchmark_stale_days: int = Field(
+        default=2,
+        alias="SCHEDULER_BENCHMARK_STALE_DAYS",
+        description=(
+            "Bootstrap re-seeds benchmarks whose latest price is older "
+            "than this many days. Higher = fewer cold-start fetches."
+        ),
+    )
+
+    @field_validator("benchmark_tickers", mode="before")
+    @classmethod
+    def _split_benchmark_tickers(cls, v: object) -> object:
+        """Allow comma-separated env strings: BENCHMARK_TICKERS=SPY,QQQ,IWM."""
+        if isinstance(v, str):
+            return [t.strip().upper() for t in v.split(",") if t.strip()]
+        if isinstance(v, list):
+            return [str(t).strip().upper() for t in v if str(t).strip()]
+        return v
 
     # Scheduler — cron expressions (5-field: min hour dom month dow)
     scheduler_daily_pipeline_cron: str = Field(

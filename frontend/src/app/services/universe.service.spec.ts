@@ -28,11 +28,13 @@ function instrument(overrides: Partial<Instrument> = {}): Instrument {
   return {
     id: 'i-1',
     ticker: 'AAPL',
+    short_name: 'AAPL',
     name: 'Apple',
-    exchange: 'NASDAQ',
-    type: 'equity',
-    currency: 'USD',
     isin: 'US0378331005',
+    instrument_type: 'STOCK',
+    currency_code: 'USD',
+    yfinance_ticker: 'AAPL',
+    exchange_name: 'NASDAQ',
     ...overrides,
   };
 }

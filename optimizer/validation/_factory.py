@@ -52,7 +52,7 @@ def build_walk_forward(
         test_size=config.test_size,
         train_size=config.train_size,
         purged_size=config.purged_size,
-        expend_train=config.expend_train,
+        expand_train=config.expend_train,
         reduce_test=config.reduce_test,
     )
 

@@ -30,7 +30,7 @@ dependencies = [
     "pandas>=3.0.2",
     "scipy>=1.17.1",
     "scikit-learn>=1.8.0",
-    "skfolio>=0.19.0",
+    "skfolio>=0.20.1",
 ]
 
 [project.urls]
@@ -106,6 +106,17 @@ module = [
     "optimizer.rebalancing._rebalancer",
 ]
 warn_return_any = false
+
+# Parity-cycle factory wrappers — silence subclass-of-Any if/when
+# downstream code subclasses skfolio bases through these modules.
+[[tool.mypy.overrides]]
+module = [
+    "optimizer.cluster._factory",
+    "optimizer.distance._factory",
+    "optimizer.linear_model._factory",
+    "optimizer.uncertainty_set._factory",
+]
+disallow_subclassing_any = false
 
 [tool.ruff.lint.isort]
 known-first-party = ["optimizer", "cli", "research"]

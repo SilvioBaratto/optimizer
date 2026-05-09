@@ -115,8 +115,24 @@ def get_rebalance_preview(
     account = portfolio_repo.get_latest_account_snapshot(portfolio.id)
     portfolio_value = account.total if account is not None else None
 
-    broker_weights = compute_broker_weights(positions, portfolio_value)
-    raw_trades = build_trade_list(target_weights, broker_weights) if positions else []
+    prices: dict[str, float] = {}
+    for pos in positions:
+        price = pos.current_price or pos.average_price
+        if price:
+            ticker = pos.yfinance_ticker or pos.ticker
+            prices[ticker] = price
+
+    broker_weights = compute_broker_weights(positions)
+    raw_trades = (
+        build_trade_list(
+            target_weights,
+            broker_weights,
+            prices=prices,
+            portfolio_value=portfolio_value,
+        )
+        if positions
+        else []
+    )
     trade_items = [TradeItem(**t) for t in raw_trades]
 
     return RebalancePreviewResponse(

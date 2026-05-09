@@ -43,7 +43,7 @@ astropy==7.2.0
 pybind11==3.0.3
 
 # Skfolio
-skfolio==0.19.0
+skfolio==0.20.1
 
 # HTTP & Web Scraping
 httpx==0.28.1

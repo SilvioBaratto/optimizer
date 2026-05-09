@@ -113,6 +113,7 @@ def _to_result(portfolio: Portfolio, frontier: list[dict] | None) -> dict:
             "annualized_return": float(portfolio.annualized_mean),
             "annualized_volatility": float(portfolio.annualized_standard_deviation),
             "annualized_sharpe_ratio": float(portfolio.annualized_sharpe_ratio),
+            "max_drawdown": float(portfolio.max_drawdown),
         },
         "risk_contributions": dict(zip(tickers, contribs.tolist(), strict=False)),
         "efficient_frontier": frontier,

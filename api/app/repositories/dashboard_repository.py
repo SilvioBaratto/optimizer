@@ -108,6 +108,39 @@ class DashboardRepository(RepositoryBase):
         )
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def get_benchmark_coverage(
+        self,
+        tickers: list[str],
+    ) -> dict[str, tuple[int, date | None]]:
+        """Return ``{ticker: (price_row_count, latest_price_date)}``.
+
+        Tickers without an instrument row (or with zero prices) are returned
+        with ``(0, None)``. Used by the startup bootstrap and the
+        ``/reference-indices/status`` endpoint to detect missing or stale data.
+        """
+        if not tickers:
+            return {}
+
+        from sqlalchemy import func
+
+        stmt = (
+            select(
+                Instrument.yfinance_ticker,
+                func.count(PriceHistory.id).label("price_rows"),
+                func.max(PriceHistory.date).label("latest"),
+            )
+            .outerjoin(PriceHistory, PriceHistory.instrument_id == Instrument.id)
+            .where(Instrument.yfinance_ticker.in_(tickers))
+            .group_by(Instrument.yfinance_ticker)
+        )
+        rows = self.session.execute(stmt).all()
+        coverage: dict[str, tuple[int, date | None]] = {
+            ticker: (0, None) for ticker in tickers
+        }
+        for ticker, count, latest in rows:
+            coverage[ticker] = (int(count or 0), latest)
+        return coverage
+
     def get_ten_year_yield_usa(self) -> tuple[float, float] | None:
         """Return (yield_value, day_change) for US 10Y bond.
 

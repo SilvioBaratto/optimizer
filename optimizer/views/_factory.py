@@ -12,8 +12,8 @@ import pandas as pd
 from skfolio.prior import (
     BlackLitterman,
     EntropyPooling,
-    FactorModel,
     OpinionPooling,
+    TimeSeriesFactorModel,
 )
 from skfolio.prior._base import BasePrior, ReturnDistribution
 
@@ -111,7 +111,7 @@ def build_black_litterman(
     BasePrior
         A fitted-ready :class:`skfolio.prior.BlackLitterman` (or
         :class:`_EmpiricalOmegaBlackLitterman` for the empirical method),
-        optionally wrapped in a :class:`skfolio.prior.FactorModel`.
+        optionally wrapped in a :class:`skfolio.prior.TimeSeriesFactorModel`.
     """
     prior_cfg = (
         config.prior_config
@@ -150,7 +150,7 @@ def build_black_litterman(
         bl = BlackLitterman(**shared_kwargs)
 
     if config.use_factor_model:
-        return FactorModel(
+        return TimeSeriesFactorModel(
             factor_prior_estimator=bl,
             residual_variance=config.residual_variance,
         )

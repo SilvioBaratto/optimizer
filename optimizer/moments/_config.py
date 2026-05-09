@@ -28,6 +28,37 @@ class CovEstimatorType(str, Enum):
     DENOISE = "denoise"
     DETONE = "detone"
     IMPLIED = "implied"
+    REGIME_ADJUSTED_EW = "regime_adjusted_ew"
+
+
+class VarianceEstimatorType(str, Enum):
+    """1-D variance estimator selection.
+
+    ``VarianceEstimator`` instances expose a 1-D ``variance_`` attribute,
+    NOT the 2-D ``covariance_`` attribute. They are not interchangeable
+    with covariance estimators inside priors that require a full
+    covariance matrix.
+    """
+
+    EMPIRICAL = "empirical"
+    EW = "ew"
+    REGIME_ADJUSTED_EW = "regime_adjusted_ew"
+
+
+class RegimeAdjustmentTargetType(str, Enum):
+    """Target structure for the regime-adjustment STVU multiplier."""
+
+    PORTFOLIO = "portfolio"
+    DIAGONAL = "diagonal"
+    MAHALANOBIS = "mahalanobis"
+
+
+class RegimeAdjustmentMethodType(str, Enum):
+    """Regime-adjustment scaling method."""
+
+    LOG = "log"
+    FIRST_MOMENT = "first_moment"
+    RMS = "rms"
 
 
 class ShrinkageMethod(str, Enum):
@@ -72,9 +103,32 @@ class MomentEstimationConfig:
     investment_horizon : float or None
         Investment horizon forwarded to ``EmpiricalPrior``.
     use_factor_model : bool
-        If ``True``, wrap the prior in a ``FactorModel``.
+        If ``True``, wrap the prior in a ``TimeSeriesFactorModel``.
     residual_variance : bool
-        Whether to include residual variance in ``FactorModel``.
+        Whether to include residual variance in ``TimeSeriesFactorModel``.
+    variance_estimator : VarianceEstimatorType or None
+        Which 1-D variance estimator to build via
+        :func:`build_variance_estimator`. Independent of ``cov_estimator``.
+    variance_half_life : float
+        Half-life forwarded to ``EWVariance``, ``RegimeAdjustedEWVariance``
+        and ``RegimeAdjustedEWCovariance`` ``half_life`` argument.
+    corr_half_life : float or None
+        Correlation half-life forwarded to ``RegimeAdjustedEWCovariance``.
+    regime_half_life : float or None
+        Half-life of the regime detector forwarded to
+        ``RegimeAdjustedEW*`` ``regime_half_life`` argument.
+    regime_target : RegimeAdjustmentTargetType
+        STVU target structure for ``RegimeAdjustedEWCovariance``.
+    regime_method : RegimeAdjustmentMethodType
+        STVU scaling method.
+    regime_multiplier_clip : tuple[float, float]
+        Lower/upper bounds for the STVU multiplier (skfolio default
+        ``(0.7, 1.6)``).
+    hac_lags : int
+        Newey-West HAC lag count for the regime detector.
+    min_observations : int or None
+        Minimum number of observations required by EW-family
+        estimators before producing output.
     """
 
     # -- Expected return estimator --
@@ -96,6 +150,21 @@ class MomentEstimationConfig:
     # -- Factor model --
     use_factor_model: bool = False
     residual_variance: bool = True
+
+    # -- Variance estimator + regime adjustment --
+    variance_estimator: VarianceEstimatorType | None = None
+    variance_half_life: float = 40.0
+    corr_half_life: float | None = None
+    regime_half_life: float | None = None
+    regime_target: RegimeAdjustmentTargetType = (
+        RegimeAdjustmentTargetType.PORTFOLIO
+    )
+    regime_method: RegimeAdjustmentMethodType = (
+        RegimeAdjustmentMethodType.FIRST_MOMENT
+    )
+    regime_multiplier_clip: tuple[float, float] = (0.7, 1.6)
+    hac_lags: int = 5
+    min_observations: int | None = None
 
     # -- factory methods -----------------------------------------------------
 
@@ -124,3 +193,12 @@ class MomentEstimationConfig:
             cov_estimator=CovEstimatorType.EW,
         )
 
+    @classmethod
+    def for_regime_adjusted_ew(cls) -> MomentEstimationConfig:
+        """Regime-adjusted EW prior with STVU multiplier."""
+        return cls(
+            cov_estimator=CovEstimatorType.REGIME_ADJUSTED_EW,
+            variance_estimator=VarianceEstimatorType.REGIME_ADJUSTED_EW,
+            variance_half_life=23.0,
+            corr_half_life=50.0,
+        )

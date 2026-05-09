@@ -115,14 +115,52 @@ export class BacktestResultsPanelComponent {
   readonly loading = input<boolean>(false);
   readonly error = input<string | null>(null);
 
-  readonly summaryCells = computed<SummaryCell[]>(() =>
-    Object.entries(this.run()?.summaryStats ?? {})
-      .filter(([, value]) => value !== null && value !== undefined)
-      .map(([key, value]) => ({
-        key,
-        value: formatNumber(value as number),
-      })),
-  );
+  readonly summaryCells = computed<SummaryCell[]>(() => {
+    const stats = (this.run()?.summaryStats ?? {}) as Record<string, unknown>;
+    const inSample = (stats['in_sample'] && typeof stats['in_sample'] === 'object'
+      ? (stats['in_sample'] as Record<string, unknown>)
+      : {}) as Record<string, unknown>;
+
+    const pick = (...keys: string[]): number | undefined => {
+      for (const k of keys) {
+        const v = stats[k];
+        if (typeof v === 'number' && Number.isFinite(v)) return v;
+        const nested = inSample[k];
+        if (typeof nested === 'number' && Number.isFinite(nested)) return nested;
+      }
+      return undefined;
+    };
+
+    const labels: { label: string; keys: string[]; pct?: boolean }[] = [
+      { label: 'Annualized Return', keys: ['Annualized Mean', 'annualized_mean'], pct: true },
+      { label: 'Annualized Vol', keys: ['Annualized Standard Deviation', 'annualized_standard_deviation'], pct: true },
+      { label: 'Annualized Sharpe', keys: ['Annualized Sharpe Ratio', 'annualized_sharpe_ratio'] },
+      { label: 'Annualized Sortino', keys: ['Annualized Sortino Ratio', 'annualized_sortino_ratio'] },
+      { label: 'Max Drawdown', keys: ['MAX Drawdown', 'max_drawdown'], pct: true },
+      { label: 'Calmar Ratio', keys: ['Calmar Ratio', 'calmar_ratio'] },
+      { label: 'CVaR 95%', keys: ['CVaR at 95%', 'cvar_95', 'cvar'], pct: true },
+      { label: 'CDaR 95%', keys: ['CDaR at 95%', 'cdar_95'], pct: true },
+      { label: 'Worst Realization', keys: ['Worst Realization'], pct: true },
+      { label: 'Skew', keys: ['Skew', 'skew'] },
+      { label: 'Kurtosis', keys: ['Kurtosis', 'kurtosis'] },
+      { label: 'Effective Assets', keys: ['Effective Number of Assets'] },
+    ];
+
+    const cells: SummaryCell[] = [];
+    for (const entry of labels) {
+      const v = pick(...entry.keys);
+      if (v === undefined) continue;
+      let display = v;
+      if (entry.label === 'Max Drawdown' || entry.label === 'CVaR 95%' || entry.label === 'CDaR 95%' || entry.label === 'Worst Realization') {
+        display = -Math.abs(v);
+      }
+      cells.push({
+        key: entry.label,
+        value: entry.pct ? formatPercent(display) : formatNumber(display),
+      });
+    }
+    return cells;
+  });
 
   readonly equityLabels = computed(() => this.sortedDateKeys(this.run()?.equityCurve ?? {}));
 
@@ -151,7 +189,10 @@ export class BacktestResultsPanelComponent {
     dict: Record<string, number | null>,
     skip: ReadonlySet<string> = new Set(),
   ): string[] {
-    return Object.keys(dict).filter((k) => !skip.has(k)).sort();
+    const isIsoDate = /^\d{4}-\d{2}-\d{2}/;
+    return Object.keys(dict)
+      .filter((k) => !skip.has(k) && isIsoDate.test(k))
+      .sort();
   }
 }
 
@@ -160,6 +201,11 @@ function formatNumber(value: number): string {
   const abs = Math.abs(value);
   if (abs !== 0 && abs < 0.01) return value.toExponential(2);
   return value.toFixed(4);
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return '—';
+  return `${(value * 100).toFixed(2)}%`;
 }
 
 function formatRollingMetricName(name: string): string {

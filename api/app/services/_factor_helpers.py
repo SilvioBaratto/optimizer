@@ -69,12 +69,22 @@ class PriceRow(NamedTuple):
 
 
 def _find_instrument(session: Session, ticker: str) -> Any | None:
-    """Return the Instrument ORM row for *ticker*, or None if not found."""
-    from sqlalchemy import select
+    """Return the Instrument ORM row for *ticker*, or None if not found.
+
+    Matches by either ``ticker`` (T212-style, e.g. ``AAPL_US_EQ``) or
+    ``yfinance_ticker`` (e.g. ``AAPL``). Callers pass yfinance-style
+    symbols in most paths (``compute_all_factors``, factor attribution),
+    while the universe screener stores T212 codes.
+    """
+    from sqlalchemy import or_, select
 
     from app.models.universe import Instrument
 
-    stmt = select(Instrument).where(Instrument.ticker == ticker)
+    stmt = (
+        select(Instrument)
+        .where(or_(Instrument.ticker == ticker, Instrument.yfinance_ticker == ticker))
+        .limit(1)
+    )
     return session.execute(stmt).scalar_one_or_none()
 
 

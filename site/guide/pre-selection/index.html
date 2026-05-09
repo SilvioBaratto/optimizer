@@ -1,0 +1,3039 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://silviobaratto.github.io/optimizer/guide/pre-selection/">
+      
+      
+        <link rel="prev" href="../preprocessing/">
+      
+      
+        <link rel="next" href="../moments/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Pre-selection - Portfolio Optimizer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pre-selection" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Portfolio Optimizer" class="md-header__button md-logo" aria-label="Portfolio Optimizer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Portfolio Optimizer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Pre-selection
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/SilvioBaratto/optimizer" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    SilvioBaratto/optimizer
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Portfolio Optimizer" class="md-nav__button md-logo" aria-label="Portfolio Optimizer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Portfolio Optimizer
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/SilvioBaratto/optimizer" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    SilvioBaratto/optimizer
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preprocessing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-selection
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline Steps
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pipeline Steps">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-validate-datavalidator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. validate -- DataValidator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-outliers-outliertreater" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. outliers -- OutlierTreater
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-impute-sectorimputer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. impute -- SectorImputer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-select_complete-selectcomplete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. select_complete -- SelectComplete
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-drop_zero_variance-dropzerovariance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. drop_zero_variance -- DropZeroVariance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-drop_correlated-dropcorrelated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. drop_correlated -- DropCorrelated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-select_k-selectkextremes-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. select_k -- SelectKExtremes (optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-select_pareto-selectnondominated-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. select_pareto -- SelectNonDominated (optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#9-select_non_expiring-selectnonexpiring-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. select_non_expiring -- SelectNonExpiring (optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validation-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Presets">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#for_daily_annual" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        for_daily_annual()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#for_conservative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        for_conservative()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Code Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-usage-with-default-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic usage with default config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conservative-preset-with-sector-aware-imputation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conservative preset with sector-aware imputation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#futures-universe-with-expiration-filtering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Futures universe with expiration filtering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inspecting-and-tuning-pipeline-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inspecting and tuning pipeline parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-pre-selection-inside-a-full-optimization-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using pre-selection inside a full optimization pipeline
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gotchas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gotchas
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../moments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Moments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../views/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Views
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rebalancing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rebalancing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../factors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Factors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../synthetic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synthetic Data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../universe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Universe Screening
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/distance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/cluster/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/uncertainty_set/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Uncertainty Sets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/online/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Online Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/linear_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CS Linear Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/fx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    preprocessing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/pre_selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pre_selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/moments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    moments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/views/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    views
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/synthetic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    synthetic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rebalancing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    rebalancing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/universe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    universe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/factors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    factors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/distance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    distance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/cluster/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cluster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/uncertainty_set/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    uncertainty_set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/online/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    online
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/linear_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    linear_model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/fx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fx
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline Steps
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pipeline Steps">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-validate-datavalidator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. validate -- DataValidator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-outliers-outliertreater" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. outliers -- OutlierTreater
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-impute-sectorimputer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. impute -- SectorImputer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-select_complete-selectcomplete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. select_complete -- SelectComplete
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-drop_zero_variance-dropzerovariance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. drop_zero_variance -- DropZeroVariance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-drop_correlated-dropcorrelated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. drop_correlated -- DropCorrelated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-select_k-selectkextremes-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. select_k -- SelectKExtremes (optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-select_pareto-selectnondominated-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. select_pareto -- SelectNonDominated (optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#9-select_non_expiring-selectnonexpiring-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. select_non_expiring -- SelectNonExpiring (optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validation-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Presets">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#for_daily_annual" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        for_daily_annual()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#for_conservative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        for_conservative()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Code Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-usage-with-default-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic usage with default config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conservative-preset-with-sector-aware-imputation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conservative preset with sector-aware imputation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#futures-universe-with-expiration-filtering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Futures universe with expiration filtering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inspecting-and-tuning-pipeline-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inspecting and tuning pipeline parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-pre-selection-inside-a-full-optimization-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using pre-selection inside a full optimization pipeline
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gotchas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gotchas
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pre-selection">Pre-Selection<a class="headerlink" href="#pre-selection" title="Permanent link">&para;</a></h1>
+<p>Assemble data cleaning and asset filtering into a single sklearn <code>Pipeline</code>.</p>
+<p>The pre-selection module takes a raw return <code>DataFrame</code>, cleans it (validation,
+outlier treatment, imputation), and then progressively narrows the asset
+universe through a series of skfolio selectors. The result is a tidy,
+NaN-free <code>DataFrame</code> containing only the assets that pass every filter --
+ready to feed into moment estimation and portfolio optimization.</p>
+<hr />
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>The module follows the same <strong>frozen dataclass config + factory function</strong>
+pattern used throughout the optimizer library:</p>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PreSelectionConfig</code></td>
+<td>Frozen <code>@dataclass</code> holding every pipeline parameter as a plain primitive, enum, or <code>None</code>. Serialisable and suitable for hyperparameter sweeps.</td>
+</tr>
+<tr>
+<td><code>build_preselection_pipeline()</code></td>
+<td>Factory function that reads a <code>PreSelectionConfig</code> and returns a fully assembled <code>sklearn.pipeline.Pipeline</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>Because the config stores only primitives, it can be serialised to JSON/YAML,
+persisted to a database, or passed across process boundaries without issue.
+Non-serialisable objects (such as the <code>sector_mapping</code> dictionary) are passed
+as keyword arguments to the factory, not stored in the config.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.pre_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">PreSelectionConfig</span><span class="p">,</span> <span class="n">build_preselection_pipeline</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">PreSelectionConfig</span><span class="p">(</span><span class="n">correlation_threshold</span><span class="o">=</span><span class="mf">0.90</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">pipeline</span> <span class="o">=</span> <span class="n">build_preselection_pipeline</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">sector_mapping</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;AAPL&quot;</span><span class="p">:</span> <span class="s2">&quot;Tech&quot;</span><span class="p">,</span> <span class="s2">&quot;JPM&quot;</span><span class="p">:</span> <span class="s2">&quot;Financials&quot;</span><span class="p">})</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">clean_returns</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">returns_df</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="pipeline-steps">Pipeline Steps<a class="headerlink" href="#pipeline-steps" title="Permanent link">&para;</a></h2>
+<p><code>build_preselection_pipeline</code> assembles the following steps <strong>in this exact
+order</strong>. The first six steps are always present; the last three are
+conditional on config flags.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>validate --&gt; outliers --&gt; impute --&gt; SelectComplete --&gt; DropZeroVariance
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>--&gt; DropCorrelated --&gt; [SelectKExtremes] --&gt; [SelectNonDominated]
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>--&gt; [SelectNonExpiring]
+</code></pre></div>
+<p>Steps in brackets are <strong>optional</strong> and only added when the corresponding
+config parameter is set.</p>
+<h3 id="1-validate-datavalidator">1. <code>validate</code> -- DataValidator<a class="headerlink" href="#1-validate-datavalidator" title="Permanent link">&para;</a></h3>
+<p>Replaces <code>inf</code>, <code>-inf</code>, and returns whose absolute value exceeds
+<code>max_abs_return</code> with <code>NaN</code>. This is a stateless transformer that acts as a
+first-pass sanity check, catching data errors (e.g. a return of 50 000%)
+before they corrupt downstream statistics.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Config field</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_abs_return</code></td>
+<td><code>max_abs_return</code></td>
+<td><code>10.0</code> (i.e. 1 000%)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition info">
+<p class="admonition-title">Why so generous?</p>
+<p>The default threshold of 10.0 (1 000%) is deliberately high. It catches
+obvious data errors while preserving legitimate large moves such as
+penny-stock spikes or circuit-breaker events. Tighten it to 5.0 or lower
+for conservative universes.</p>
+</div>
+<h3 id="2-outliers-outliertreater">2. <code>outliers</code> -- OutlierTreater<a class="headerlink" href="#2-outliers-outliertreater" title="Permanent link">&para;</a></h3>
+<p>Three-group z-score methodology applied per-column:</p>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Condition</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Data errors</strong></td>
+<td><code>|z| &gt;= remove_threshold</code></td>
+<td>Replaced with <code>NaN</code></td>
+</tr>
+<tr>
+<td><strong>Outliers</strong></td>
+<td><code>winsorize_threshold &lt;= |z| &lt; remove_threshold</code></td>
+<td>Winsorised to <code>mu +/- winsorize_threshold * sigma</code></td>
+</tr>
+<tr>
+<td><strong>Normal</strong></td>
+<td><code>|z| &lt; winsorize_threshold</code></td>
+<td>Kept as-is</td>
+</tr>
+</tbody>
+</table>
+<p>The z-scores are computed from the <strong>training data</strong> statistics (<code>mu_</code> and
+<code>sigma_</code> stored during <code>fit</code>). Constant-variance columns (sigma = 0) are
+assigned a z-score of 0 and left for <code>DropZeroVariance</code> to handle.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Config field</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>winsorize_threshold</code></td>
+<td><code>winsorize_threshold</code></td>
+<td><code>3.0</code></td>
+</tr>
+<tr>
+<td><code>remove_threshold</code></td>
+<td><code>remove_threshold</code></td>
+<td><code>10.0</code></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition warning">
+<p class="admonition-title">Validation constraint</p>
+<p><code>winsorize_threshold</code> must be <strong>strictly less than</strong> <code>remove_threshold</code>.
+The config raises <code>ValueError</code> at construction time if this invariant is
+violated.</p>
+</div>
+<h3 id="3-impute-sectorimputer">3. <code>impute</code> -- SectorImputer<a class="headerlink" href="#3-impute-sectorimputer" title="Permanent link">&para;</a></h3>
+<p>Fills remaining <code>NaN</code> values using leave-one-out sector cross-sectional
+averages. For each timestep and each missing cell, the imputer computes the
+mean of all <em>other</em> assets in the same sector. When the entire sector is
+<code>NaN</code> for a given row, it falls back to the global cross-sectional mean.</p>
+<p>When <code>sector_mapping</code> is <code>None</code>, all assets are treated as a single sector,
+which reduces to plain global cross-sectional mean imputation.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Config field</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fallback_strategy</code></td>
+<td><code>imputation_fallback</code></td>
+<td><code>"global_mean"</code></td>
+</tr>
+<tr>
+<td><code>sector_mapping</code></td>
+<td>Factory kwarg (not in config)</td>
+<td><code>None</code></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">sector_mapping is a factory argument</p>
+<p>The sector mapping is a <code>dict[str, str]</code> passed directly to
+<code>build_preselection_pipeline(sector_mapping=...)</code>, not stored in the
+frozen config. This keeps the config serialisable. Columns absent from
+the mapping are assigned to a catch-all <code>"__unmapped__"</code> sector.</p>
+</div>
+<h3 id="4-select_complete-selectcomplete">4. <code>select_complete</code> -- SelectComplete<a class="headerlink" href="#4-select_complete-selectcomplete" title="Permanent link">&para;</a></h3>
+<p>Drops any asset (column) that still contains <code>NaN</code> after imputation. In
+practice, when <code>SectorImputer</code> runs correctly this step is a no-op, but it
+acts as a safety net to guarantee a fully complete matrix for downstream
+selectors that cannot handle missing data.</p>
+<p>This step has <strong>no configurable parameters</strong>.</p>
+<h3 id="5-drop_zero_variance-dropzerovariance">5. <code>drop_zero_variance</code> -- DropZeroVariance<a class="headerlink" href="#5-drop_zero_variance-dropzerovariance" title="Permanent link">&para;</a></h3>
+<p>Drops any asset with zero variance (constant return series). Constant
+columns add no information and cause numerical issues in covariance
+estimation.</p>
+<p>This step has <strong>no configurable parameters</strong>.</p>
+<h3 id="6-drop_correlated-dropcorrelated">6. <code>drop_correlated</code> -- DropCorrelated<a class="headerlink" href="#6-drop_correlated-dropcorrelated" title="Permanent link">&para;</a></h3>
+<p>Drops one asset from each pair whose pairwise correlation exceeds the
+threshold. This reduces redundancy in the universe and improves
+conditioning of the covariance matrix.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Config field</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>threshold</code></td>
+<td><code>correlation_threshold</code></td>
+<td><code>0.95</code></td>
+</tr>
+<tr>
+<td><code>absolute</code></td>
+<td><code>correlation_absolute</code></td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition info">
+<p class="admonition-title">Absolute correlation</p>
+<p>When <code>correlation_absolute=True</code>, the selector uses <code>|corr|</code> rather than
+raw correlation, so that strong <em>negative</em> correlations are also flagged.
+This is useful when you want to reduce all forms of linear dependence.</p>
+</div>
+<h3 id="7-select_k-selectkextremes-optional">7. <code>select_k</code> -- SelectKExtremes (optional)<a class="headerlink" href="#7-select_k-selectkextremes-optional" title="Permanent link">&para;</a></h3>
+<p>Only added when <code>top_k is not None</code>. Keeps the <em>k</em> assets with the highest
+(or lowest) mean return, as measured by <code>SelectKExtremes</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Config field</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>k</code></td>
+<td><code>top_k</code></td>
+<td><code>None</code> (step omitted)</td>
+</tr>
+<tr>
+<td><code>highest</code></td>
+<td><code>top_k_highest</code></td>
+<td><code>True</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="8-select_pareto-selectnondominated-optional">8. <code>select_pareto</code> -- SelectNonDominated (optional)<a class="headerlink" href="#8-select_pareto-selectnondominated-optional" title="Permanent link">&para;</a></h3>
+<p>Only added when <code>use_pareto=True</code>. Applies a Pareto non-dominance filter
+across risk-return dimensions, retaining only assets that lie on the
+efficient frontier of mean return vs. variance.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Config field</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>min_n_assets</code></td>
+<td><code>pareto_min_assets</code></td>
+<td><code>None</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="9-select_non_expiring-selectnonexpiring-optional">9. <code>select_non_expiring</code> -- SelectNonExpiring (optional)<a class="headerlink" href="#9-select_non_expiring-selectnonexpiring-optional" title="Permanent link">&para;</a></h3>
+<p>Only added when <strong>both</strong> <code>use_non_expiring=True</code> <strong>and</strong>
+<code>expiration_lookahead is not None</code>. Removes assets that expire within the
+specified lookahead window, which is relevant for futures and options
+universes.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Config field</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>expiration_lookahead</code></td>
+<td><code>expiration_lookahead</code></td>
+<td><code>None</code> (step omitted)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition warning">
+<p class="admonition-title">Both flags required</p>
+<p>Setting <code>use_non_expiring=True</code> without providing <code>expiration_lookahead</code>
+silently skips this step. The step is only added when both conditions
+are met.</p>
+</div>
+<hr />
+<h2 id="configuration-reference">Configuration Reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h2>
+<p>All fields of <code>PreSelectionConfig</code> with their types, defaults, and the
+pipeline step they control:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Pipeline step</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_abs_return</code></td>
+<td><code>float</code></td>
+<td><code>10.0</code></td>
+<td><code>validate</code></td>
+<td>Maximum absolute return before treating as data error</td>
+</tr>
+<tr>
+<td><code>winsorize_threshold</code></td>
+<td><code>float</code></td>
+<td><code>3.0</code></td>
+<td><code>outliers</code></td>
+<td>Z-score boundary between normal observations and outliers</td>
+</tr>
+<tr>
+<td><code>remove_threshold</code></td>
+<td><code>float</code></td>
+<td><code>10.0</code></td>
+<td><code>outliers</code></td>
+<td>Z-score boundary between outliers and data errors</td>
+</tr>
+<tr>
+<td><code>outlier_method</code></td>
+<td><code>str</code></td>
+<td><code>"time_series"</code></td>
+<td><code>outliers</code></td>
+<td>Outlier detection approach (only <code>"time_series"</code> supported)</td>
+</tr>
+<tr>
+<td><code>imputation_fallback</code></td>
+<td><code>str</code></td>
+<td><code>"global_mean"</code></td>
+<td><code>impute</code></td>
+<td>Fallback when sector data unavailable</td>
+</tr>
+<tr>
+<td><code>correlation_threshold</code></td>
+<td><code>float</code></td>
+<td><code>0.95</code></td>
+<td><code>drop_correlated</code></td>
+<td>Pairwise correlation above which an asset is dropped</td>
+</tr>
+<tr>
+<td><code>correlation_absolute</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td><code>drop_correlated</code></td>
+<td>Whether to use absolute correlation values</td>
+</tr>
+<tr>
+<td><code>top_k</code></td>
+<td><code>int | None</code></td>
+<td><code>None</code></td>
+<td><code>select_k</code></td>
+<td>If set, keep only the <em>k</em> assets with highest/lowest mean return</td>
+</tr>
+<tr>
+<td><code>top_k_highest</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td><code>select_k</code></td>
+<td>Select highest (<code>True</code>) or lowest (<code>False</code>) mean return</td>
+</tr>
+<tr>
+<td><code>use_pareto</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td><code>select_pareto</code></td>
+<td>Whether to apply Pareto non-dominance filter</td>
+</tr>
+<tr>
+<td><code>pareto_min_assets</code></td>
+<td><code>int | None</code></td>
+<td><code>None</code></td>
+<td><code>select_pareto</code></td>
+<td>Minimum assets to retain after Pareto filtering</td>
+</tr>
+<tr>
+<td><code>use_non_expiring</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td><code>select_non_expiring</code></td>
+<td>Whether to remove soon-expiring assets</td>
+</tr>
+<tr>
+<td><code>expiration_lookahead</code></td>
+<td><code>int | None</code></td>
+<td><code>None</code></td>
+<td><code>select_non_expiring</code></td>
+<td>Calendar days to look ahead for expiring assets</td>
+</tr>
+<tr>
+<td><code>is_log_normal</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td><em>(stored for downstream use)</em></td>
+<td>Whether returns are assumed log-normal for multi-period scaling</td>
+</tr>
+</tbody>
+</table>
+<h3 id="validation-rules">Validation rules<a class="headerlink" href="#validation-rules" title="Permanent link">&para;</a></h3>
+<p>The config validates the following constraints at construction time
+(<code>__post_init__</code>):</p>
+<ul>
+<li><code>winsorize_threshold &lt; remove_threshold</code> -- winsorisation boundary must be
+  stricter than the removal boundary.</li>
+<li><code>0.0 &lt; correlation_threshold &lt;= 1.0</code> -- must be a valid correlation value.</li>
+<li><code>max_abs_return &gt; 0</code> -- must be strictly positive.</li>
+</ul>
+<p>Violating any of these raises <code>ValueError</code> immediately.</p>
+<hr />
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p><code>PreSelectionConfig</code> provides two class-method presets for common scenarios.</p>
+<h3 id="for_daily_annual"><code>for_daily_annual()</code><a class="headerlink" href="#for_daily_annual" title="Permanent link">&para;</a></h3>
+<p>Sensible defaults for daily equity returns over an approximately one-year
+horizon. This is equivalent to <code>PreSelectionConfig()</code> with all defaults.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">PreSelectionConfig</span><span class="o">.</span><span class="n">for_daily_annual</span><span class="p">()</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="c1"># max_abs_return=10.0, winsorize_threshold=3.0, remove_threshold=10.0,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># correlation_threshold=0.95, is_log_normal=True</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># No optional steps (top_k, pareto, non_expiring all off)</span>
+</code></pre></div>
+<h3 id="for_conservative"><code>for_conservative()</code><a class="headerlink" href="#for_conservative" title="Permanent link">&para;</a></h3>
+<p>Tighter filters for a more conservative universe. Lowers the data-error
+and outlier thresholds, tightens the correlation filter, and activates
+<code>SelectKExtremes</code> to cap the universe at 50 assets.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">PreSelectionConfig</span><span class="o">.</span><span class="n">for_conservative</span><span class="p">()</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c1"># max_abs_return=5.0, winsorize_threshold=2.5, remove_threshold=8.0,</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="c1"># correlation_threshold=0.85, top_k=50, top_k_highest=True,</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># is_log_normal=True</span>
+</code></pre></div>
+<hr />
+<h2 id="code-examples">Code Examples<a class="headerlink" href="#code-examples" title="Permanent link">&para;</a></h2>
+<h3 id="basic-usage-with-default-config">Basic usage with default config<a class="headerlink" href="#basic-usage-with-default-config" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">skfolio.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_sp500_dataset</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">skfolio.preprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">prices_to_returns</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.pre_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">PreSelectionConfig</span><span class="p">,</span> <span class="n">build_preselection_pipeline</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="c1"># Load data and convert to returns</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">prices</span> <span class="o">=</span> <span class="n">load_sp500_dataset</span><span class="p">()</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">returns</span> <span class="o">=</span> <span class="n">prices_to_returns</span><span class="p">(</span><span class="n">prices</span><span class="p">)</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="c1"># Build pipeline with sensible defaults</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="n">config</span> <span class="o">=</span> <span class="n">PreSelectionConfig</span><span class="o">.</span><span class="n">for_daily_annual</span><span class="p">()</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="n">pipeline</span> <span class="o">=</span> <span class="n">build_preselection_pipeline</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="c1"># Fit and transform</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="n">clean_returns</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Input: </span><span class="si">{</span><span class="n">returns</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2"> assets -&gt; Output: </span><span class="si">{</span><span class="n">clean_returns</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2"> assets&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="conservative-preset-with-sector-aware-imputation">Conservative preset with sector-aware imputation<a class="headerlink" href="#conservative-preset-with-sector-aware-imputation" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.pre_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">PreSelectionConfig</span><span class="p">,</span> <span class="n">build_preselection_pipeline</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># Sector mapping for imputation</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">sector_mapping</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="s2">&quot;AAPL&quot;</span><span class="p">:</span> <span class="s2">&quot;Technology&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="s2">&quot;MSFT&quot;</span><span class="p">:</span> <span class="s2">&quot;Technology&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="s2">&quot;JPM&quot;</span><span class="p">:</span> <span class="s2">&quot;Financials&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="s2">&quot;BAC&quot;</span><span class="p">:</span> <span class="s2">&quot;Financials&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="s2">&quot;JNJ&quot;</span><span class="p">:</span> <span class="s2">&quot;Healthcare&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    <span class="s2">&quot;PFE&quot;</span><span class="p">:</span> <span class="s2">&quot;Healthcare&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>    <span class="c1"># ... more tickers</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="p">}</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="n">config</span> <span class="o">=</span> <span class="n">PreSelectionConfig</span><span class="o">.</span><span class="n">for_conservative</span><span class="p">()</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="n">pipeline</span> <span class="o">=</span> <span class="n">build_preselection_pipeline</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">sector_mapping</span><span class="o">=</span><span class="n">sector_mapping</span><span class="p">)</span>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="n">clean_returns</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="custom-configuration">Custom configuration<a class="headerlink" href="#custom-configuration" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.pre_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">PreSelectionConfig</span><span class="p">,</span> <span class="n">build_preselection_pipeline</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">PreSelectionConfig</span><span class="p">(</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">max_abs_return</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>              <span class="c1"># Strict data-error threshold</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">winsorize_threshold</span><span class="o">=</span><span class="mf">2.5</span><span class="p">,</span>         <span class="c1"># Tighter winsorisation</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="n">remove_threshold</span><span class="o">=</span><span class="mf">8.0</span><span class="p">,</span>            <span class="c1"># Lower removal boundary</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    <span class="n">correlation_threshold</span><span class="o">=</span><span class="mf">0.90</span><span class="p">,</span>      <span class="c1"># Drop assets correlated above 90%</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    <span class="n">correlation_absolute</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>       <span class="c1"># Use |corr| (catches negative correlation too)</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>    <span class="n">top_k</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>                        <span class="c1"># Keep top 30 by mean return</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>    <span class="n">top_k_highest</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>              <span class="c1"># Highest mean return</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>    <span class="n">use_pareto</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                 <span class="c1"># Apply Pareto filter after top-k</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>    <span class="n">pareto_min_assets</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span>            <span class="c1"># Keep at least 15 assets from Pareto</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="p">)</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="n">pipeline</span> <span class="o">=</span> <span class="n">build_preselection_pipeline</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="n">clean_returns</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="futures-universe-with-expiration-filtering">Futures universe with expiration filtering<a class="headerlink" href="#futures-universe-with-expiration-filtering" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.pre_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">PreSelectionConfig</span><span class="p">,</span> <span class="n">build_preselection_pipeline</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">PreSelectionConfig</span><span class="p">(</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">use_non_expiring</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">expiration_lookahead</span><span class="o">=</span><span class="mi">90</span><span class="p">,</span>  <span class="c1"># Drop contracts expiring within 90 days</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="p">)</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="n">pipeline</span> <span class="o">=</span> <span class="n">build_preselection_pipeline</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="n">clean_returns</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">futures_returns</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="inspecting-and-tuning-pipeline-parameters">Inspecting and tuning pipeline parameters<a class="headerlink" href="#inspecting-and-tuning-pipeline-parameters" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">pipeline</span> <span class="o">=</span> <span class="n">build_preselection_pipeline</span><span class="p">()</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="c1"># List all accessible parameters</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">params</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">get_params</span><span class="p">()</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">params</span><span class="p">):</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>    <span class="k">if</span> <span class="s2">&quot;__&quot;</span> <span class="ow">in</span> <span class="n">key</span><span class="p">:</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">params</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="c1"># Modify parameters after construction</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="n">pipeline</span><span class="o">.</span><span class="n">set_params</span><span class="p">(</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>    <span class="n">outliers__winsorize_threshold</span><span class="o">=</span><span class="mf">2.5</span><span class="p">,</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>    <span class="n">drop_correlated__threshold</span><span class="o">=</span><span class="mf">0.90</span><span class="p">,</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>    <span class="n">validate__max_abs_return</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="p">)</span>
+</code></pre></div>
+<h3 id="using-pre-selection-inside-a-full-optimization-pipeline">Using pre-selection inside a full optimization pipeline<a class="headerlink" href="#using-pre-selection-inside-a-full-optimization-pipeline" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">skfolio.preprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">prices_to_returns</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.pre_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">PreSelectionConfig</span><span class="p">,</span> <span class="n">build_preselection_pipeline</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_full_pipeline</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="n">prices</span> <span class="o">=</span> <span class="o">...</span>  <span class="c1"># pd.DataFrame of asset prices</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># Pre-selection is handled internally by run_full_pipeline,</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="c1"># but you can also run it explicitly for inspection:</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="n">config</span> <span class="o">=</span> <span class="n">PreSelectionConfig</span><span class="p">(</span><span class="n">correlation_threshold</span><span class="o">=</span><span class="mf">0.90</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="n">preselection_pipe</span> <span class="o">=</span> <span class="n">build_preselection_pipeline</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="n">returns</span> <span class="o">=</span> <span class="n">prices_to_returns</span><span class="p">(</span><span class="n">prices</span><span class="p">)</span>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="n">clean_returns</span> <span class="o">=</span> <span class="n">preselection_pipe</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Selected </span><span class="si">{</span><span class="n">clean_returns</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2"> assets from </span><span class="si">{</span><span class="n">returns</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="gotchas">Gotchas<a class="headerlink" href="#gotchas" title="Permanent link">&para;</a></h2>
+<div class="admonition warning">
+<p class="admonition-title">Pre-selection must run inside CV folds</p>
+<p>When using cross-validation (walk-forward, CPCV, etc.), the
+pre-selection pipeline <strong>must</strong> be part of the overall sklearn pipeline
+that gets re-fit on each training fold. If you run pre-selection once on
+the full dataset and then cross-validate, you introduce data leakage --
+the <code>OutlierTreater</code> z-score statistics and <code>DropCorrelated</code> correlation
+matrix will have been computed on data that includes the validation
+period.</p>
+<p>The optimizer library handles this correctly when the pre-selection
+pipeline is composed inside the broader sklearn <code>Pipeline</code> that
+<code>run_full_pipeline</code> builds.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Parameter names use double-underscore notation</p>
+<p>All transformer hyper-parameters are accessible via <code>get_params()</code> using
+sklearn's <code>step_name__param_name</code> notation. For example:</p>
+<ul>
+<li><code>validate__max_abs_return</code></li>
+<li><code>outliers__winsorize_threshold</code></li>
+<li><code>outliers__remove_threshold</code></li>
+<li><code>drop_correlated__threshold</code></li>
+<li><code>drop_correlated__absolute</code></li>
+<li><code>select_k__k</code> (only when <code>top_k</code> is set)</li>
+</ul>
+<p>This is the notation you must use for <code>set_params()</code> and for
+hyperparameter tuning grids.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">prices_to_returns runs outside the pipeline</p>
+<p>The pre-selection pipeline operates on a <strong>return</strong> <code>DataFrame</code>, not a
+price <code>DataFrame</code>. The conversion from prices to returns
+(<code>skfolio.preprocessing.prices_to_returns</code>) changes data semantics and
+is therefore performed upstream, before the pipeline runs. This is a
+project-wide convention.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">SelectNonExpiring requires both flags</p>
+<p>Setting <code>use_non_expiring=True</code> alone does <strong>not</strong> add the step.
+You must also provide <code>expiration_lookahead</code> (an integer number of
+calendar days). Without it, the step is silently skipped.</p>
+</div>
+<div class="admonition info">
+<p class="admonition-title">The config is frozen</p>
+<p><code>PreSelectionConfig</code> is a frozen dataclass. You cannot mutate fields
+after construction. To change a parameter, create a new config instance:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># This raises AttributeError:</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">config</span><span class="o">.</span><span class="n">correlation_threshold</span> <span class="o">=</span> <span class="mf">0.85</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Do this instead:</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">replace</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="n">new_config</span> <span class="o">=</span> <span class="n">replace</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">correlation_threshold</span><span class="o">=</span><span class="mf">0.85</span><span class="p">)</span>
+</code></pre></div>
+</div>
+<hr />
+<h2 id="quick-reference">Quick Reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">optimizer.pre_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">PreSelectionConfig</span><span class="p">,</span> <span class="n">build_preselection_pipeline</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="c1"># Presets</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">PreSelectionConfig</span><span class="o">.</span><span class="n">for_daily_annual</span><span class="p">()</span>    <span class="c1"># sensible defaults</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="n">cfg</span> <span class="o">=</span> <span class="n">PreSelectionConfig</span><span class="o">.</span><span class="n">for_conservative</span><span class="p">()</span>    <span class="c1"># tighter filters, top_k=50</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="c1"># Factory</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="n">pipe</span> <span class="o">=</span> <span class="n">build_preselection_pipeline</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">cfg</span><span class="p">,</span> <span class="n">sector_mapping</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="c1"># Pipeline step names (default)</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="c1"># validate -&gt; outliers -&gt; impute -&gt; select_complete -&gt; drop_zero_variance -&gt; drop_correlated</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="c1"># Optional steps (added when config flags are set)</span>
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="c1"># select_k            (top_k is not None)</span>
+<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="c1"># select_pareto       (use_pareto=True)</span>
+<a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a><span class="c1"># select_non_expiring (use_non_expiring=True AND expiration_lookahead is not None)</span>
+<a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>
+<a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a><span class="c1"># Key parameter paths for tuning</span>
+<a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a><span class="c1"># validate__max_abs_return</span>
+<a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a><span class="c1"># outliers__winsorize_threshold</span>
+<a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a><span class="c1"># outliers__remove_threshold</span>
+<a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a><span class="c1"># drop_correlated__threshold</span>
+<a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a><span class="c1"># drop_correlated__absolute</span>
+<a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a><span class="c1"># select_k__k</span>
+<a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a><span class="c1"># select_k__highest</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "content.code.copy", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

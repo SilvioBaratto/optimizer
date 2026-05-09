@@ -179,12 +179,18 @@ def list_exchanges(repo: UniverseRepository = Depends(get_universe_repository)):
 @router.get("/instruments", response_model=InstrumentListResponse)
 def list_instruments(
     exchange: str | None = Query(default=None, description="Filter by exchange name"),
+    search: str | None = Query(
+        default=None,
+        description="Search by ticker or name (case-insensitive substring)",
+    ),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=1000),
     repo: UniverseRepository = Depends(get_universe_repository),
 ):
-    """List instruments with optional exchange filter and pagination."""
-    items = repo.get_instruments(exchange_name=exchange, skip=skip, limit=limit)
+    """List instruments with optional exchange filter, search, and pagination."""
+    items = repo.get_instruments(
+        exchange_name=exchange, search=search, skip=skip, limit=limit
+    )
     total = repo.get_instrument_count()
     return InstrumentListResponse(items=items, total=total)  # type: ignore[arg-type]
 
