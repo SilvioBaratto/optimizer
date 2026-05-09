@@ -260,6 +260,12 @@ class MacroCalibration(BaseModel):
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
     macro_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Issue #530: rule-based MacroRegime classifier output
+    # (separate from BAML `phase`).  Lowercase enum value:
+    # ``expansion``, ``slowdown``, ``recession``, ``recovery``, ``unknown``.
+    regime_classification: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )
 
 
 class MacroNewsSummary(BaseModel):

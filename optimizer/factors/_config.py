@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from optimizer.exceptions import ConfigurationError
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -38,6 +40,7 @@ class FactorType(str, Enum):
     ROE = "roe"
     OPERATING_MARGIN = "operating_margin"
     PROFIT_MARGIN = "profit_margin"
+    ACCRUALS = "accruals"
     # Investment
     ASSET_GROWTH = "asset_growth"
     # Momentum
@@ -158,6 +161,7 @@ FACTOR_GROUP_MAPPING: dict[FactorType, FactorGroupType] = {
     FactorType.ROE: FactorGroupType.PROFITABILITY,
     FactorType.OPERATING_MARGIN: FactorGroupType.PROFITABILITY,
     FactorType.PROFIT_MARGIN: FactorGroupType.PROFITABILITY,
+    FactorType.ACCRUALS: FactorGroupType.PROFITABILITY,
     FactorType.ASSET_GROWTH: FactorGroupType.INVESTMENT,
     FactorType.MOMENTUM_12_1: FactorGroupType.MOMENTUM,
     FactorType.VOLATILITY: FactorGroupType.LOW_RISK,
@@ -204,6 +208,7 @@ FACTOR_DIRECTION: dict[str, int] = {
     FactorType.VOLATILITY.value: -1,
     FactorType.BETA.value: -1,
     FactorType.ASSET_GROWTH.value: -1,
+    FactorType.ACCRUALS.value: -1,
 }
 
 
@@ -281,11 +286,14 @@ class FactorConstructionConfig:
     factors: tuple[FactorType, ...] = (
         FactorType.BOOK_TO_PRICE,
         FactorType.EARNINGS_YIELD,
+        FactorType.CASH_FLOW_YIELD,
         FactorType.GROSS_PROFITABILITY,
         FactorType.ROE,
-        FactorType.ASSET_GROWTH,
+        FactorType.ACCRUALS,
         FactorType.MOMENTUM_12_1,
         FactorType.VOLATILITY,
+        FactorType.BETA,
+        FactorType.AMIHUD_ILLIQUIDITY,
         FactorType.DIVIDEND_YIELD,
     )
     momentum_lookback: int = 252
@@ -435,6 +443,12 @@ class CompositeScoringConfig:
         non-positive IC or ICIR).  ``EQUAL_WEIGHT`` preserves the current
         behavior.  ``NAN`` returns all-NaN scores to suppress trading.
         ``RAISE`` raises ``ConfigurationError``.  Default is ``EQUAL_WEIGHT``.
+    ic_decay_halflife : int
+        EWM half-life (in IC observation periods) for IC-weighted scoring.
+        ``0`` (default) disables decay and uses the simple trailing mean over
+        ``ic_lookback`` periods.  Positive values apply
+        ``ic_history.ewm(halflife=N, min_periods=1).mean().iloc[-1]`` so the
+        most recent fold dominates older folds.
     """
 
     method: CompositeMethod = CompositeMethod.EQUAL_WEIGHT
@@ -448,6 +462,14 @@ class CompositeScoringConfig:
     min_coverage_groups: int = 0
     return_coverage: bool = False
     ic_fallback_strategy: ICFallbackStrategy = ICFallbackStrategy.EQUAL_WEIGHT
+    ic_decay_halflife: int = 0
+
+    def __post_init__(self) -> None:
+        if self.ic_decay_halflife < 0:
+            msg = (
+                f"ic_decay_halflife must be >= 0, got {self.ic_decay_halflife}"
+            )
+            raise ConfigurationError(msg)
 
     @classmethod
     def for_equal_weight(cls) -> CompositeScoringConfig:
@@ -455,9 +477,21 @@ class CompositeScoringConfig:
         return cls()
 
     @classmethod
-    def for_ic_weighted(cls) -> CompositeScoringConfig:
-        """IC-weighted composite scoring (raw IC magnitude)."""
-        return cls(method=CompositeMethod.IC_WEIGHTED)
+    def for_ic_weighted(
+        cls, ic_decay_halflife: int = 0
+    ) -> CompositeScoringConfig:
+        """IC-weighted composite scoring (raw IC magnitude).
+
+        Parameters
+        ----------
+        ic_decay_halflife : int
+            EWM half-life in IC observation periods. ``0`` (default) keeps the
+            simple trailing mean; positive values weight recent folds higher.
+        """
+        return cls(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_decay_halflife=ic_decay_halflife,
+        )
 
     @classmethod
     def for_icir_weighted(cls) -> CompositeScoringConfig:
@@ -533,6 +567,11 @@ class SelectionConfig:
         0–1).  Default 0.05 (5 pp) matches MSCI, S&P DJI, and FTSE Russell
         factor-index methodology.  Use ``for_low_tracking_error()`` for a
         tighter 3% band suited to institutional low-active-risk mandates.
+    max_per_sector : int
+        Hard ceiling on the number of stocks selected from any single
+        sector.  ``0`` (default) disables the cap; ``> 0`` evicts the
+        lowest-scoring excess members from any sector after the
+        tolerance-based balance loop.
     """
 
     method: SelectionMethod = SelectionMethod.FIXED_COUNT
@@ -542,6 +581,14 @@ class SelectionConfig:
     buffer_fraction: float = 0.1
     sector_balance: bool = True
     sector_tolerance: float = 0.05
+    max_per_sector: int = 0
+
+    def __post_init__(self) -> None:
+        if self.max_per_sector < 0:
+            msg = (
+                f"max_per_sector must be >= 0, got {self.max_per_sector}"
+            )
+            raise ConfigurationError(msg)
 
     @classmethod
     def for_top_100(cls) -> SelectionConfig:
@@ -623,9 +670,12 @@ class RegimeTiltConfig:
     """
 
     enable: bool = False
+    # Cycle-2 spec: EXPANSION boosts cyclicals (Momentum, Value), dampens
+    # defensives (Low-Risk, Profitability).  RECESSION inverts: defensives up,
+    # cyclicals down.
     expansion_tilts: tuple[tuple[str, float], ...] = (
         ("momentum", 1.2),
-        ("value", 0.8),
+        ("value", 1.2),
         ("low_risk", 0.8),
     )
     slowdown_tilts: tuple[tuple[str, float], ...] = (
@@ -637,7 +687,7 @@ class RegimeTiltConfig:
         ("low_risk", 1.5),
         ("profitability", 1.3),
         ("momentum", 0.5),
-        ("value", 1.2),
+        ("value", 0.8),
     )
     recovery_tilts: tuple[tuple[str, float], ...] = (
         ("value", 1.3),

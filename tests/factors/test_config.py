@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from optimizer.factors import (
+    FACTOR_DIRECTION,
     FACTOR_GROUP_MAPPING,
     GROUP_WEIGHT_TIER,
     HEAVY_TAILED_FACTORS,
@@ -44,7 +45,10 @@ class TestEnums:
         }
 
     def test_factor_type_members(self) -> None:
-        assert len(FactorType) == 17
+        assert len(FactorType) == 18
+
+    def test_factor_type_includes_accruals(self) -> None:
+        assert FactorType.ACCRUALS.value == "accruals"
 
     def test_standardization_method_members(self) -> None:
         assert set(StandardizationMethod) == {
@@ -119,6 +123,16 @@ class TestMappingConstants:
             FactorGroupType.OWNERSHIP,
         }
 
+    def test_accruals_mapped_to_profitability_group(self) -> None:
+        mapping = FACTOR_GROUP_MAPPING[FactorType.ACCRUALS]
+        assert mapping == FactorGroupType.PROFITABILITY
+
+    def test_accruals_direction_is_inverted(self) -> None:
+        assert FACTOR_DIRECTION[FactorType.ACCRUALS.value] == -1
+
+    def test_accruals_listed_heavy_tailed(self) -> None:
+        assert "accruals" in HEAVY_TAILED_FACTORS
+
 
 class TestPublicationLagConfig:
     def test_defaults(self) -> None:
@@ -157,7 +171,7 @@ class TestPublicationLagConfig:
 class TestFactorConstructionConfig:
     def test_defaults(self) -> None:
         cfg = FactorConstructionConfig()
-        assert len(cfg.factors) == 8
+        assert len(cfg.factors) == 11
         assert cfg.momentum_lookback == 252
         assert cfg.momentum_skip == 21
         assert isinstance(cfg.publication_lag, PublicationLagConfig)
@@ -188,11 +202,26 @@ class TestFactorConstructionConfig:
 
     def test_for_core_factors(self) -> None:
         cfg = FactorConstructionConfig.for_core_factors()
-        assert len(cfg.factors) == 8
+        assert len(cfg.factors) == 11
+
+    def test_for_core_factors_covers_cycle2_groups(self) -> None:
+        cfg = FactorConstructionConfig.for_core_factors()
+        groups = {FACTOR_GROUP_MAPPING[f] for f in cfg.factors}
+        assert {
+            FactorGroupType.VALUE,
+            FactorGroupType.PROFITABILITY,
+            FactorGroupType.MOMENTUM,
+            FactorGroupType.LOW_RISK,
+            FactorGroupType.LIQUIDITY,
+        }.issubset(groups)
+        assert FactorType.ACCRUALS in cfg.factors
+        assert FactorType.CASH_FLOW_YIELD in cfg.factors
+        assert FactorType.BETA in cfg.factors
+        assert FactorType.AMIHUD_ILLIQUIDITY in cfg.factors
 
     def test_for_all_factors(self) -> None:
         cfg = FactorConstructionConfig.for_all_factors()
-        assert len(cfg.factors) == 17
+        assert len(cfg.factors) == 18
 
 
 class TestWinsorizeMethodEnum:
@@ -342,6 +371,16 @@ class TestCompositeScoringConfig:
     def test_hashable_with_new_fields(self) -> None:
         cfg = CompositeScoringConfig(min_coverage_groups=3, return_coverage=True)
         assert hash(cfg) is not None
+
+
+class TestSelectionConfigMaxPerSector:
+    def test_default_max_per_sector_is_zero(self) -> None:
+        cfg = SelectionConfig()
+        assert cfg.max_per_sector == 0
+
+    def test_negative_max_per_sector_raises(self) -> None:
+        with pytest.raises(Exception, match="max_per_sector"):
+            SelectionConfig(max_per_sector=-1)
 
 
 class TestSelectionConfig:

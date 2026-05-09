@@ -90,6 +90,46 @@ class TestIndividualFactors:
         result = compute_factor(FactorType.ROE, fundamentals, price_history)
         assert len(result) == len(fundamentals)
 
+    def test_accruals_when_inputs_present_returns_sloan_ratio(
+        self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
+    ) -> None:
+        result = compute_factor(FactorType.ACCRUALS, fundamentals, price_history)
+        expected = (
+            fundamentals["net_income"] - fundamentals["operating_cashflow"]
+        ) / fundamentals["total_assets"]
+        pd.testing.assert_series_equal(
+            result.replace([np.inf, -np.inf], np.nan),
+            expected.replace([np.inf, -np.inf], np.nan),
+            check_names=False,
+        )
+
+    def test_accruals_when_net_income_missing_returns_empty(
+        self, price_history: pd.DataFrame
+    ) -> None:
+        df = pd.DataFrame(
+            {
+                "operating_cashflow": [1.0, 2.0],
+                "total_assets": [10.0, 20.0],
+            },
+            index=pd.Index(["A", "B"], name="ticker"),
+        )
+        result = compute_factor(FactorType.ACCRUALS, df, price_history)
+        assert isinstance(result, pd.Series)
+        assert result.empty
+
+    def test_accruals_when_total_assets_missing_returns_empty(
+        self, price_history: pd.DataFrame
+    ) -> None:
+        df = pd.DataFrame(
+            {
+                "net_income": [3.0, 4.0],
+                "operating_cashflow": [1.0, 2.0],
+            },
+            index=pd.Index(["A", "B"], name="ticker"),
+        )
+        result = compute_factor(FactorType.ACCRUALS, df, price_history)
+        assert result.empty
+
     def test_asset_growth(
         self, fundamentals: pd.DataFrame, price_history: pd.DataFrame
     ) -> None:

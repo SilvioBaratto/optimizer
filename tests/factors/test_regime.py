@@ -101,9 +101,10 @@ class TestApplyRegimeTilts:
         }
         config = RegimeTiltConfig.for_moderate_tilts()
         result = apply_regime_tilts(weights, MacroRegime.EXPANSION, config)
-        # Momentum should be tilted up in expansion
-        # After normalization, momentum weight > value weight
-        assert result[FactorGroupType.MOMENTUM] > result[FactorGroupType.VALUE]
+        # EXPANSION boosts cyclicals (momentum, value) and dampens defensives
+        # (low_risk).  Momentum and value should outweigh low_risk.
+        assert result[FactorGroupType.MOMENTUM] > result[FactorGroupType.LOW_RISK]
+        assert result[FactorGroupType.VALUE] > result[FactorGroupType.LOW_RISK]
 
     def test_preserves_total_weight(self) -> None:
         weights = {
@@ -114,6 +115,31 @@ class TestApplyRegimeTilts:
         config = RegimeTiltConfig.for_moderate_tilts()
         result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
         assert abs(sum(result.values()) - sum(weights.values())) < 1e-10
+
+    def test_when_recession_value_multiplier_is_dampened(self) -> None:
+        """Cycle-2 spec: RECESSION dampens VALUE (multiplier < 1.0)."""
+        config = RegimeTiltConfig()
+        recession_map = dict(config.recession_tilts)
+        assert recession_map["value"] < 1.0
+
+    def test_when_expansion_value_multiplier_is_boosted(self) -> None:
+        """Cycle-2 spec: EXPANSION boosts VALUE (multiplier > 1.0)."""
+        config = RegimeTiltConfig()
+        expansion_map = dict(config.expansion_tilts)
+        assert expansion_map["value"] > 1.0
+
+    def test_when_recession_value_weight_below_expansion_value_weight(self) -> None:
+        weights = {
+            FactorGroupType.VALUE: 1.0,
+            FactorGroupType.MOMENTUM: 1.0,
+            FactorGroupType.LOW_RISK: 1.0,
+            FactorGroupType.PROFITABILITY: 1.0,
+        }
+        config = RegimeTiltConfig(enable=True)
+        rec = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
+        exp = apply_regime_tilts(weights, MacroRegime.EXPANSION, config)
+        assert rec[FactorGroupType.VALUE] < exp[FactorGroupType.VALUE]
+        assert rec[FactorGroupType.MOMENTUM] < exp[FactorGroupType.MOMENTUM]
 
 
 class TestUnemploymentRegimeOverride:
@@ -482,8 +508,8 @@ class TestBoundedTilts:
             FactorGroupType.LOW_RISK: 1.0,
         }
         result = apply_regime_tilts(weights, MacroRegime.EXPANSION, config)
-        # Default expansion: momentum=1.2 < 1.5 cap, not capped
-        # value=0.8, low_risk=0.8
-        # Pre-norm: 0.8, 1.2, 0.8 → 2.8, scale=3.0/2.8
-        expected = 1.2 / 2.8 * 3.0
+        # Default expansion (post-#529): momentum=1.2, value=1.2, low_risk=0.8
+        # All multipliers < 1.5 cap, none capped
+        # Pre-norm: 1.2 + 1.2 + 0.8 = 3.2; scale = 3.0 / 3.2
+        expected = 1.2 / 3.2 * 3.0
         assert abs(result[FactorGroupType.MOMENTUM] - expected) < 1e-10

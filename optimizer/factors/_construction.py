@@ -164,6 +164,25 @@ def _compute_roe(fundamentals: pd.DataFrame) -> pd.Series:
     return (ni_s / equity_s).replace([np.inf, -np.inf], np.nan)
 
 
+def _compute_accruals(fundamentals: pd.DataFrame) -> pd.Series:
+    """Sloan accruals = (net_income - operating_cashflow) / total_assets.
+
+    Lower accruals = higher earnings quality (less reliance on non-cash items).
+    Direction flip handled in standardization via FACTOR_DIRECTION.
+    """
+    ni = fundamentals.get("net_income")
+    ocf = fundamentals.get(
+        "operating_cashflow", fundamentals.get("operating_cash_flow")
+    )
+    assets = fundamentals.get("total_assets")
+    if ni is None or ocf is None or assets is None:
+        return pd.Series(dtype=float)
+    ni_s = cast(pd.Series, ni)
+    ocf_s = cast(pd.Series, ocf)
+    assets_s = cast(pd.Series, assets)
+    return ((ni_s - ocf_s) / assets_s).replace([np.inf, -np.inf], np.nan)
+
+
 def _compute_operating_margin(fundamentals: pd.DataFrame) -> pd.Series:
     """Operating income / total revenue."""
     oi = fundamentals.get("operating_income", fundamentals.get("ebit"))
@@ -360,6 +379,7 @@ _FUNDAMENTAL_FACTORS: dict[FactorType, Callable[[pd.DataFrame], pd.Series]] = {
     FactorType.ROE: _compute_roe,
     FactorType.OPERATING_MARGIN: _compute_operating_margin,
     FactorType.PROFIT_MARGIN: _compute_profit_margin,
+    FactorType.ACCRUALS: _compute_accruals,
     FactorType.ASSET_GROWTH: _compute_asset_growth,
     FactorType.DIVIDEND_YIELD: _compute_dividend_yield,
 }

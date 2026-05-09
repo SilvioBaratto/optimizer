@@ -183,6 +183,20 @@ def compute_equal_weight_composite(
     return _renormalized_weighted_composite(group_scores, weights)
 
 
+def _summarize_ic_history(
+    ic_history: pd.DataFrame, decay_halflife: int
+) -> pd.Series:
+    """Reduce IC history to a per-group point estimate.
+
+    ``decay_halflife == 0`` returns the simple mean (legacy behaviour).
+    Positive values apply EWM with the given half-life so recent observations
+    dominate stale ones.
+    """
+    if decay_halflife <= 0:
+        return ic_history.mean()
+    return ic_history.ewm(halflife=decay_halflife, min_periods=1).mean().iloc[-1]
+
+
 def compute_ic_weighted_composite(
     group_scores: pd.DataFrame,
     ic_history: pd.DataFrame,
@@ -215,7 +229,8 @@ def compute_ic_weighted_composite(
 
     # Use trailing IC mean, capped at lookback window
     lookback = min(config.ic_lookback, len(ic_history))
-    recent_ic = ic_history.iloc[-lookback:].mean()
+    trimmed_ic = ic_history.iloc[-lookback:]
+    recent_ic = _summarize_ic_history(trimmed_ic, config.ic_decay_halflife)
 
     # Apply core/supplementary tiering as a multiplier
     weights: dict[str, float] = {}

@@ -105,6 +105,94 @@ class TestICWeightedComposite:
         assert len(result) == len(standardized_factors)
 
 
+class TestICDecayHalflife:
+    def test_when_halflife_zero_matches_simple_mean_baseline(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        rng = np.random.default_rng(42)
+        ic_history = pd.DataFrame(
+            rng.uniform(0.01, 0.06, (36, len(group_scores.columns))),
+            columns=group_scores.columns,
+        )
+        baseline = compute_ic_weighted_composite(
+            group_scores, ic_history, CompositeScoringConfig.for_ic_weighted()
+        )
+        decayed = compute_ic_weighted_composite(
+            group_scores,
+            ic_history,
+            CompositeScoringConfig.for_ic_weighted(ic_decay_halflife=0),
+        )
+        pd.testing.assert_series_equal(baseline, decayed)
+
+    def test_when_halflife_positive_recent_fold_dominates(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        cols = list(group_scores.columns)
+        # Old folds favor "value", recent folds favor "momentum"
+        n_periods = 12
+        ic_history = pd.DataFrame(0.01, index=range(n_periods), columns=cols)
+        if "value" in cols:
+            ic_history["value"] = [0.20] * 6 + [0.001] * 6
+        if "momentum" in cols:
+            ic_history["momentum"] = [0.001] * 6 + [0.20] * 6
+
+        cfg_decay = CompositeScoringConfig.for_ic_weighted(ic_decay_halflife=2)
+        cfg_flat = CompositeScoringConfig.for_ic_weighted(ic_decay_halflife=0)
+        # With short half-life, weighting should weigh recent (momentum) more
+        decayed = compute_ic_weighted_composite(group_scores, ic_history, cfg_decay)
+        flat = compute_ic_weighted_composite(group_scores, ic_history, cfg_flat)
+        # Different result confirms decay path was hit
+        assert not np.allclose(decayed.to_numpy(), flat.to_numpy(), atol=1e-9)
+
+    def test_when_halflife_positive_ewm_uses_recent_weights(self) -> None:
+        n = 8
+        ic_history = pd.DataFrame(
+            {"value": [0.5] + [0.0] * (n - 1), "momentum": [0.0] * (n - 1) + [0.5]},
+            index=range(n),
+        )
+        ewm = ic_history.ewm(halflife=2, min_periods=1).mean().iloc[-1]
+        # Most recent observation (momentum) outweighs the oldest (value)
+        assert ewm["momentum"] > ewm["value"]
+
+    def test_when_halflife_negative_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="ic_decay_halflife"):
+            CompositeScoringConfig(ic_decay_halflife=-1)
+
+    def test_for_ic_weighted_default_halflife_is_zero(self) -> None:
+        cfg = CompositeScoringConfig.for_ic_weighted()
+        assert cfg.ic_decay_halflife == 0
+        assert cfg.method == CompositeMethod.IC_WEIGHTED
+
+    def test_for_ic_weighted_stores_halflife_kwarg(self) -> None:
+        cfg = CompositeScoringConfig.for_ic_weighted(ic_decay_halflife=4)
+        assert cfg.ic_decay_halflife == 4
+        assert cfg.method == CompositeMethod.IC_WEIGHTED
+
+    def test_compute_composite_score_forwards_halflife(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        cols = list(group_scores.columns)
+        n = 12
+        ic_history = pd.DataFrame(0.01, index=range(n), columns=cols)
+        if "value" in cols:
+            ic_history["value"] = [0.20] * 6 + [0.001] * 6
+        if "momentum" in cols:
+            ic_history["momentum"] = [0.001] * 6 + [0.20] * 6
+
+        cfg_flat = CompositeScoringConfig.for_ic_weighted(ic_decay_halflife=0)
+        cfg_decay = CompositeScoringConfig.for_ic_weighted(ic_decay_halflife=2)
+        flat = compute_composite_score(
+            standardized_factors, coverage, config=cfg_flat, ic_history=ic_history
+        )
+        decayed = compute_composite_score(
+            standardized_factors, coverage, config=cfg_decay, ic_history=ic_history
+        )
+        assert not np.allclose(np.asarray(flat), np.asarray(decayed), atol=1e-9)
+
+
 class TestGroupWeightsOverride:
     """Tests for group_weights parameter (issue #54)."""
 

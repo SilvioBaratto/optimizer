@@ -258,6 +258,78 @@ class TestApplySectorBalance:
         assert set(result) == {"S0", "S3", "S6"}
 
 
+class TestApplySectorBalanceMaxPerSector:
+    """Hard sector cap (issue #525)."""
+
+    def _build_dominant_sector_inputs(
+        self,
+    ) -> tuple[pd.Series, pd.Series, pd.Index, pd.Index]:
+        # 15 Tech + 5 each of Finance/Health/Energy = 30 candidates
+        tech = [f"T{i:02d}" for i in range(15)]
+        fin = [f"F{i:02d}" for i in range(5)]
+        hlt = [f"H{i:02d}" for i in range(5)]
+        eng = [f"E{i:02d}" for i in range(5)]
+        all_tickers = tech + fin + hlt + eng
+        sectors = ["Tech"] * 15 + ["Finance"] * 5 + ["Health"] * 5 + ["Energy"] * 5
+        sector_labels = pd.Series(sectors, index=all_tickers)
+        # Tech ranked T00 (best) → T14 (worst); other sectors ranked similarly
+        scores = pd.Series(
+            [float(100 - i) for i in range(15)]
+            + [float(50 - i) for i in range(5)]
+            + [float(45 - i) for i in range(5)]
+            + [float(40 - i) for i in range(5)],
+            index=all_tickers,
+        )
+        # Initially select all 15 Tech + 5 Finance + 5 Health + 5 Energy
+        initial = pd.Index(all_tickers)
+        return scores, sector_labels, pd.Index(all_tickers), initial
+
+    def test_when_max_per_sector_zero_baseline_unchanged(self) -> None:
+        scores, sector_labels, parent, initial = self._build_dominant_sector_inputs()
+        baseline = apply_sector_balance(
+            initial, scores, sector_labels, parent_universe=parent, tolerance=0.05
+        )
+        with_zero = apply_sector_balance(
+            initial,
+            scores,
+            sector_labels,
+            parent_universe=parent,
+            tolerance=0.05,
+            max_per_sector=0,
+        )
+        assert set(baseline) == set(with_zero)
+
+    def test_when_max_per_sector_caps_dominant_sector(self) -> None:
+        scores, sector_labels, parent, initial = self._build_dominant_sector_inputs()
+        result = apply_sector_balance(
+            initial,
+            scores,
+            sector_labels,
+            parent_universe=parent,
+            tolerance=0.20,
+            max_per_sector=8,
+        )
+        result_sectors = sector_labels.reindex(result).dropna()
+        assert int((result_sectors == "Tech").sum()) <= 8
+
+    def test_when_max_per_sector_evicts_lowest_scoring_first(self) -> None:
+        scores, sector_labels, parent, initial = self._build_dominant_sector_inputs()
+        result = apply_sector_balance(
+            initial,
+            scores,
+            sector_labels,
+            parent_universe=parent,
+            tolerance=0.20,
+            max_per_sector=8,
+        )
+        # Top-8 Tech (T00..T07) survive; T08..T14 evicted
+        retained_tech = {t for t in result if t.startswith("T")}
+        for keeper in [f"T{i:02d}" for i in range(8)]:
+            assert keeper in retained_tech
+        for evictee in [f"T{i:02d}" for i in range(8, 15)]:
+            assert evictee not in retained_tech
+
+
 class TestSelectStocks:
     def test_fixed_count(self, scores: pd.Series) -> None:
         config = SelectionConfig(
@@ -314,6 +386,31 @@ class TestSelectStocks:
             modified[sorted_idx[i]] = scores[sorted_idx[11]]
         result = select_stocks(modified, config=config, current_members=first)
         assert len(result) == 10
+
+    def test_when_config_max_per_sector_set_select_stocks_enforces_cap(self) -> None:
+        tech = [f"T{i:02d}" for i in range(15)]
+        fin = [f"F{i:02d}" for i in range(10)]
+        all_tickers = tech + fin
+        sector_labels = pd.Series(["Tech"] * 15 + ["Finance"] * 10, index=all_tickers)
+        scores = pd.Series(
+            [float(100 - i) for i in range(15)] + [float(50 - i) for i in range(10)],
+            index=all_tickers,
+        )
+        config = SelectionConfig(
+            method=SelectionMethod.FIXED_COUNT,
+            target_count=20,
+            sector_balance=True,
+            sector_tolerance=0.30,
+            max_per_sector=8,
+        )
+        result = select_stocks(
+            scores,
+            config=config,
+            sector_labels=sector_labels,
+            parent_universe=pd.Index(all_tickers),
+        )
+        result_sectors = sector_labels.reindex(result).dropna()
+        assert int((result_sectors == "Tech").sum()) <= 8
 
 
 class TestComputeSelectionTurnover:

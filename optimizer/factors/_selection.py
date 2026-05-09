@@ -119,12 +119,34 @@ def select_quantile(
     return surviving.union(new_entrants)
 
 
+def _cap_per_sector(
+    selected_set: set[str],
+    scores: pd.Series,
+    sector_labels: pd.Series,
+    max_per_sector: int,
+) -> set[str]:
+    """Evict lowest-scoring excess members from any over-quota sector."""
+    if max_per_sector <= 0 or not selected_set:
+        return selected_set
+    current_index = pd.Index(list(selected_set))
+    sectors = sector_labels.reindex(current_index).dropna()
+    capped = set(selected_set)
+    for sector in sectors.unique():
+        members = sectors[sectors == sector].index
+        if len(members) <= max_per_sector:
+            continue
+        ranked = scores.reindex(members).dropna().sort_values(ascending=False)
+        capped -= set(ranked.index[max_per_sector:])
+    return capped
+
+
 def apply_sector_balance(
     selected: pd.Index,
     scores: pd.Series,
     sector_labels: pd.Series,
     parent_universe: pd.Index,
     tolerance: float = 0.05,
+    max_per_sector: int = 0,
 ) -> pd.Index:
     """Adjust selection for sector-proportional representation.
 
@@ -207,6 +229,9 @@ def apply_sector_balance(
             _MAX_BALANCE_ITERATIONS,
         )
 
+    result_set = _cap_per_sector(
+        result_set, scores, sector_labels, max_per_sector
+    )
     return pd.Index(sorted(result_set))
 
 
@@ -295,6 +320,7 @@ def select_stocks(
             sector_labels,
             parent_universe=universe,
             tolerance=config.sector_tolerance,
+            max_per_sector=config.max_per_sector,
         )
 
     if return_turnover:

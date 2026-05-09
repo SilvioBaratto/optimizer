@@ -690,6 +690,31 @@ class MacroRegimeRepository(RepositoryBase):
         stmt = select(MacroCalibration).where(MacroCalibration.country == country)
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def upsert_regime_classification(self, country: str, regime: str) -> None:
+        """Persist the rule-based MacroRegime classifier output for a country.
+
+        Issue #530: writes only ``regime_classification``; preserves any
+        existing BAML-managed columns (``phase``, ``delta``, ``tau``,
+        ``confidence``, ``rationale``, ``macro_summary``).  When no row
+        exists for the country yet, inserts a row with neutral placeholder
+        values for the BAML columns so the BAML calibrator can later
+        update them.
+        """
+        existing = self.get_macro_calibration(country)
+        if existing is not None:
+            existing.regime_classification = regime
+            return
+        self.session.add(
+            MacroCalibration(
+                country=country,
+                phase="",
+                delta=0.0,
+                tau=0.0,
+                confidence=0.0,
+                regime_classification=regime,
+            )
+        )
+
     # ------------------------------------------------------------------
     # Aggregate helpers
     # ------------------------------------------------------------------
