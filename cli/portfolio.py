@@ -232,7 +232,7 @@ def _display_backtest(backtest_result: Any) -> None:
 
 @portfolio_app.command()
 def optimize(
-    strategy: Strategy = typer.Option(
+    strategy: Strategy = typer.Option(  # noqa: B008
         Strategy.MAX_SHARPE,
         "--strategy",
         "-s",
@@ -291,7 +291,7 @@ def optimize(
         db_manager = _get_db_manager()
     except Exception as exc:
         error_panel(f"Cannot connect to database: {exc}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     # 2. Assemble data
     console.print("[bold]Assembling data from database...[/bold]")
@@ -300,7 +300,7 @@ def optimize(
     except Exception as exc:
         error_panel(f"Data assembly failed: {exc}")
         db_manager.close()
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     dict_table(data.summary(), title="Data Summary")
 
@@ -408,7 +408,7 @@ def optimize(
         error_panel(f"Optimization failed: {exc}")
         logger.exception("Pipeline error")
         db_manager.close()
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     # 6. Display results
     console.print()
@@ -442,14 +442,14 @@ def data_summary() -> None:
         db_manager = _get_db_manager()
     except Exception as exc:
         error_panel(f"Cannot connect to database: {exc}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     try:
         data = assemble_all(db_manager)
     except Exception as exc:
         error_panel(f"Data assembly failed: {exc}")
         db_manager.close()
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     dict_table(data.summary(), title="Data Available for Optimization")
 

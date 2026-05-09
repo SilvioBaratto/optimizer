@@ -75,7 +75,7 @@ def instruments(
 @universe_app.command()
 def build(
     ctx: typer.Context,
-    exchange: list[str] | None = typer.Option(
+    exchange: list[str] | None = typer.Option(  # noqa: B008
         None, help="Exchange name(s). Repeat for multiple."
     ),
     skip_filters: bool = typer.Option(

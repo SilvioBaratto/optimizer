@@ -12,12 +12,12 @@ api_path = Path(__file__).parent.parent / "api"
 if str(api_path) not in sys.path:
     sys.path.insert(0, str(api_path))
 
-from app.database import DatabaseManager
-from app.models.universe import Instrument
-from app.services.yfinance import YFinanceClient, get_yfinance_client
-from app.services.yfinance_data_service import YFinanceDataService
-from sqlalchemy import select
-from sqlalchemy.orm import joinedload
+from app.database import DatabaseManager  # noqa: E402
+from app.models.universe import Instrument  # noqa: E402
+from app.services.yfinance import YFinanceClient, get_yfinance_client  # noqa: E402
+from app.services.yfinance_data_service import YFinanceDataService  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+from sqlalchemy.orm import joinedload  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

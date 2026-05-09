@@ -9,6 +9,7 @@ reshapes ORM rows into the exact DataFrame shapes that
 from __future__ import annotations
 
 import datetime
+import hashlib
 import logging
 import sys
 import warnings
@@ -26,8 +27,8 @@ _api_path = Path(__file__).parent.parent / "api"
 if str(_api_path) not in sys.path:
     sys.path.insert(0, str(_api_path))
 
-from app.database import DatabaseManager
-from app.models.macro_regime import (
+from app.database import DatabaseManager  # noqa: E402
+from app.models.macro_regime import (  # noqa: E402
     BondYield,
     BondYieldObservation,
     EconomicIndicator,
@@ -37,8 +38,8 @@ from app.models.macro_regime import (
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
 )
-from app.models.universe import Instrument
-from app.models.yfinance_data import (
+from app.models.universe import Instrument  # noqa: E402
+from app.models.yfinance_data import (  # noqa: E402
     AnalystRecommendation,
     FinancialStatement,
     InsiderTransaction,
@@ -46,7 +47,7 @@ from app.models.yfinance_data import (
     TickerProfile,
 )
 
-from cli._currency import (
+from cli._currency import (  # noqa: E402
     build_currency_map,
     currency_dedup_rank,
     normalize_fundamentals,
@@ -57,6 +58,57 @@ logger = logging.getLogger(__name__)
 
 # Number of trading days per year (equity convention).
 _TRADING_DAYS: int = 252
+
+# Country -> Region mapping used by downstream cycles (Cycle 4 checklist,
+# Cycle 5 reporting).  Unmapped countries default to ``"Other"`` at call
+# sites; ``"Other"`` is intentionally NOT a key in this dict.
+REGION_MAP: dict[str, str] = {
+    # Americas
+    "United States": "Americas",
+    "Canada": "Americas",
+    "Mexico": "Americas",
+    "Brazil": "Americas",
+    "Argentina": "Americas",
+    "Chile": "Americas",
+    "Colombia": "Americas",
+    # Europe
+    "United Kingdom": "Europe",
+    "France": "Europe",
+    "Germany": "Europe",
+    "Italy": "Europe",
+    "Spain": "Europe",
+    "Netherlands": "Europe",
+    "Switzerland": "Europe",
+    "Sweden": "Europe",
+    "Norway": "Europe",
+    "Denmark": "Europe",
+    "Finland": "Europe",
+    "Belgium": "Europe",
+    "Austria": "Europe",
+    "Ireland": "Europe",
+    "Portugal": "Europe",
+    "Luxembourg": "Europe",
+    "Monaco": "Europe",
+    # Asia-Pacific
+    "Japan": "Asia-Pacific",
+    "China": "Asia-Pacific",
+    "Hong Kong": "Asia-Pacific",
+    "South Korea": "Asia-Pacific",
+    "Taiwan": "Asia-Pacific",
+    "Singapore": "Asia-Pacific",
+    "Australia": "Asia-Pacific",
+    "New Zealand": "Asia-Pacific",
+    "India": "Asia-Pacific",
+    "Indonesia": "Asia-Pacific",
+    # Middle East & Africa
+    "United Arab Emirates": "Middle East & Africa",
+    "Saudi Arabia": "Middle East & Africa",
+    "Israel": "Middle East & Africa",
+    "South Africa": "Middle East & Africa",
+    "Qatar": "Middle East & Africa",
+    "Turkey": "Middle East & Africa",
+}
+
 
 # Line items to extract from the FinancialStatement EAV table.
 # Mapping: DB line_item -> (statement_type, target_column_name)
@@ -378,8 +430,7 @@ def assemble_delisting_returns(session: Session) -> dict[str, float]:
         .where(Instrument.yfinance_ticker != "")
     ).all()
     return {
-        str(yf_ticker): float(dr) if dr is not None else -0.30
-        for yf_ticker, dr in rows
+        str(yf_ticker): float(dr) if dr is not None else -0.30 for yf_ticker, dr in rows
     }
 
 
@@ -675,9 +726,7 @@ def assemble_fundamentals(
     profiles = (
         session.execute(
             select(TickerProfile).options(
-                joinedload(TickerProfile.instrument).joinedload(
-                    Instrument.exchange
-                )
+                joinedload(TickerProfile.instrument).joinedload(Instrument.exchange)
             )
         )
         .scalars()
@@ -813,8 +862,13 @@ def assemble_fundamental_history(
         )
         return pd.DataFrame(
             columns=[
-                "net_income", "gross_profit", "operating_income",
-                "total_assets", "total_equity", "period_type", "asset_growth",
+                "net_income",
+                "gross_profit",
+                "operating_income",
+                "total_assets",
+                "total_equity",
+                "period_type",
+                "asset_growth",
             ],
             index=idx,
         )
@@ -825,13 +879,15 @@ def assemble_fundamental_history(
         if ticker is None:
             continue
         _, target_col = _STMT_LINE_ITEMS[line_item]
-        records.append({
-            "ticker": ticker,
-            "period_date": pd.Timestamp(period_date),
-            "period_type": period_type,
-            "target_col": target_col,
-            "value": _to_float(value),
-        })
+        records.append(
+            {
+                "ticker": ticker,
+                "period_date": pd.Timestamp(period_date),
+                "period_type": period_type,
+                "target_col": target_col,
+                "value": _to_float(value),
+            }
+        )
 
     if not records:
         idx = pd.MultiIndex.from_arrays(
@@ -840,8 +896,13 @@ def assemble_fundamental_history(
         )
         return pd.DataFrame(
             columns=[
-                "net_income", "gross_profit", "operating_income",
-                "total_assets", "total_equity", "period_type", "asset_growth",
+                "net_income",
+                "gross_profit",
+                "operating_income",
+                "total_assets",
+                "total_equity",
+                "period_type",
+                "asset_growth",
             ],
             index=idx,
         )
@@ -870,8 +931,11 @@ def assemble_fundamental_history(
 
     # Ensure all expected columns exist
     for col in [
-        "net_income", "gross_profit", "operating_income",
-        "total_assets", "total_equity",
+        "net_income",
+        "gross_profit",
+        "operating_income",
+        "total_assets",
+        "total_equity",
     ]:
         if col not in pivoted.columns:
             pivoted[col] = np.nan
@@ -1169,23 +1233,24 @@ def assemble_macro_timeseries(
     bond_rows = session.execute(bond_stmt).all()
 
     # IlSole forecast observations
-    _ILSOLE_COLS = [
-        "last_inflation", "inflation_6m", "inflation_10y_avg",
-        "gdp_growth_6m", "earnings_12m", "eps_expected_12m",
-        "peg_ratio", "lt_rate_forecast",
+    ilsole_cols = [
+        "last_inflation",
+        "inflation_6m",
+        "inflation_10y_avg",
+        "gdp_growth_6m",
+        "earnings_12m",
+        "eps_expected_12m",
+        "peg_ratio",
+        "lt_rate_forecast",
     ]
     ilsole_stmt = select(
         EconomicIndicatorObservation.date,
-        *[getattr(EconomicIndicatorObservation, c) for c in _ILSOLE_COLS],
+        *[getattr(EconomicIndicatorObservation, c) for c in ilsole_cols],
     ).where(EconomicIndicatorObservation.country == country)
     if start_date:
-        ilsole_stmt = ilsole_stmt.where(
-            EconomicIndicatorObservation.date >= start_date
-        )
+        ilsole_stmt = ilsole_stmt.where(EconomicIndicatorObservation.date >= start_date)
     if end_date:
-        ilsole_stmt = ilsole_stmt.where(
-            EconomicIndicatorObservation.date <= end_date
-        )
+        ilsole_stmt = ilsole_stmt.where(EconomicIndicatorObservation.date <= end_date)
     ilsole_stmt = ilsole_stmt.order_by(EconomicIndicatorObservation.date)
     ilsole_rows = session.execute(ilsole_stmt).all()
 
@@ -1216,10 +1281,10 @@ def assemble_macro_timeseries(
     )
 
     # Build IlSole forecast series dict
-    ilsole_data: dict[str, dict[pd.Timestamp, float]] = {c: {} for c in _ILSOLE_COLS}
+    ilsole_data: dict[str, dict[pd.Timestamp, float]] = {c: {} for c in ilsole_cols}
     for row in ilsole_rows:
         ts = pd.Timestamp(row[0])
-        for i, col in enumerate(_ILSOLE_COLS):
+        for i, col in enumerate(ilsole_cols):
             val = row[i + 1]
             if val is not None:
                 ilsole_data[col][ts] = float(val)
@@ -1229,7 +1294,7 @@ def assemble_macro_timeseries(
         "gdp_growth": gdp_series,
         "yield_spread": spread_series,
     }
-    for col in _ILSOLE_COLS:
+    for col in ilsole_cols:
         if ilsole_data[col]:
             all_series[col] = pd.Series(ilsole_data[col], dtype=float, name=col)
 
@@ -1285,7 +1350,10 @@ def assemble_te_observations(
 
     df = pd.DataFrame(records)
     pivoted = df.pivot_table(
-        index="date", columns="indicator_key", values="value", aggfunc="first",
+        index="date",
+        columns="indicator_key",
+        values="value",
+        aggfunc="first",
     )
     pivoted.index = pd.DatetimeIndex(pivoted.index)
     pivoted.columns.name = None
@@ -1337,7 +1405,10 @@ def assemble_bond_observations(
 
     df = pd.DataFrame(records)
     pivoted = df.pivot_table(
-        index="date", columns="maturity", values="yield_value", aggfunc="first",
+        index="date",
+        columns="maturity",
+        values="yield_value",
+        aggfunc="first",
     )
     pivoted.index = pd.DatetimeIndex(pivoted.index)
     pivoted.columns.name = None
@@ -1389,7 +1460,10 @@ def assemble_sentiment(
 
     df = pd.DataFrame(records)
     pivoted = df.pivot_table(
-        index="date", columns="country", values="sentiment_score", aggfunc="first",
+        index="date",
+        columns="country",
+        values="sentiment_score",
+        aggfunc="first",
     )
     pivoted.index = pd.DatetimeIndex(pivoted.index)
     pivoted.columns.name = None
@@ -1413,10 +1487,14 @@ FRED_SERIES_IDS: list[str] = [
     "DEULOLITOAASTSAM",
     "FRALOLITOAASTSAM",
     "GBRLOLITOAASTSAM",
-    # US recession indicators (monthly/quarterly)
+    # US recession indicators (monthly/quarterly + daily NBER)
     "RECPROUSM156N",
     "JHGDPBRINDX",
     "USREC",
+    "USRECDM",
+    # Treasury yield curve (daily, annualized %)
+    "DGS2",
+    "DGS10",
     # Risk-free rate proxy (daily, annualized %)
     "DGS3MO",
 ]
@@ -1566,10 +1644,7 @@ def assemble_regime_data(
         parts.append(te_df)
 
     # Sentiment
-    if (
-        sentiment_data is not None
-        and sentiment_country in sentiment_data.columns
-    ):
+    if sentiment_data is not None and sentiment_country in sentiment_data.columns:
         sent = sentiment_data[sentiment_country].dropna()
         if len(sent) > 0:
             parts.append(sent.rename("sentiment").to_frame())
@@ -1597,8 +1672,7 @@ def assemble_regime_data(
                 parts[i] = p.set_index(pd.to_datetime(p.index))
             except Exception as exc:
                 raise ValueError(
-                    f"Part {i} index could not be coerced to DatetimeIndex: "
-                    f"{exc}"
+                    f"Part {i} index could not be coerced to DatetimeIndex: {exc}"
                 ) from exc
 
     # Outer-join all parts on date index, then forward-fill
@@ -1833,6 +1907,11 @@ class DataAssembly:
         units-of-base per one unit-of-foreign (e.g. EUR per 1 GBP).
         Used by ``FxPriceConverter`` to convert local-currency prices
         to the base currency.
+    assembly_hash : str
+        Deterministic 16-char identifier of this assembly's contents.
+        Defaults to ``""``; populated by :func:`assemble_all` after
+        construction.  Downstream cycles use it to identify which
+        assembly produced their inputs (e.g. Cycle 5 ``report.md``).
     """
 
     def __init__(
@@ -1855,6 +1934,7 @@ class DataAssembly:
         delisting_returns: dict[str, float] | None = None,
         currency_map: dict[str, str] | None = None,
         fx_rates: pd.DataFrame | None = None,
+        assembly_hash: str = "",
     ) -> None:
         self.prices = prices
         self.volumes = volumes
@@ -1865,18 +1945,24 @@ class DataAssembly:
         self.insider_data = insider_data
         self.macro_data = macro_data
         self.fred_data = fred_data if fred_data is not None else pd.DataFrame()
-        self.te_observations = te_observations if te_observations is not None else pd.DataFrame()
-        self.bond_observations = bond_observations if bond_observations is not None else pd.DataFrame()
-        self.sentiment_data = sentiment_data if sentiment_data is not None else pd.DataFrame()
+        self.te_observations = (
+            te_observations if te_observations is not None else pd.DataFrame()
+        )
+        self.bond_observations = (
+            bond_observations if bond_observations is not None else pd.DataFrame()
+        )
+        self.sentiment_data = (
+            sentiment_data if sentiment_data is not None else pd.DataFrame()
+        )
         self.regime_data = regime_data if regime_data is not None else pd.DataFrame()
         self.fundamental_history = (
-            fundamental_history if fundamental_history is not None
-            else pd.DataFrame()
+            fundamental_history if fundamental_history is not None else pd.DataFrame()
         )
         self.include_delisted = include_delisted
         self.delisting_returns: dict[str, float] = delisting_returns or {}
         self.currency_map: dict[str, str] = currency_map or {}
         self.fx_rates = fx_rates if fx_rates is not None else pd.DataFrame()
+        self.assembly_hash: str = assembly_hash
 
     @property
     def n_tickers(self) -> int:
@@ -1896,9 +1982,7 @@ class DataAssembly:
         if self.fred_data.empty or "DGS3MO" not in self.fred_data.columns:
             return pd.Series(dtype=float, name="risk_free_rate")
         raw = self.fred_data["DGS3MO"].dropna()
-        return ((1 + raw / 100) ** (1.0 / _TRADING_DAYS) - 1).rename(
-            "risk_free_rate"
-        )
+        return ((1 + raw / 100) ** (1.0 / _TRADING_DAYS) - 1).rename("risk_free_rate")
 
     @property
     def risk_free_rate(self) -> float:
@@ -1941,12 +2025,42 @@ class DataAssembly:
             "delisted_tickers": len(self.delisting_returns),
             "currency_map_tickers": len(self.currency_map),
             "fx_rates_currencies": (
-                len(self.fx_rates.columns)
-                if not self.fx_rates.empty
-                else 0
+                len(self.fx_rates.columns) if not self.fx_rates.empty else 0
             ),
             "fx_rates_observations": len(self.fx_rates),
+            "assembly_hash": self.assembly_hash,
         }
+
+
+def _compute_assembly_hash(
+    assembly: DataAssembly,
+    timestamp: datetime.datetime | None = None,
+) -> str:
+    """Return a deterministic 16-char SHA-256 prefix identifying the assembly.
+
+    The hash digests ``(timestamp_iso, n_tickers, last_price_date)`` so two
+    assemblies built from the same DB snapshot at the same wall-clock get the
+    same id, while any change to coverage, breadth, or build-time mutates it.
+
+    Parameters
+    ----------
+    assembly : DataAssembly
+        The assembly to identify.
+    timestamp : datetime.datetime | None
+        Optional fixed timestamp (used in tests for determinism).  When
+        ``None``, ``datetime.datetime.now(datetime.UTC)`` is used.
+
+    Returns
+    -------
+    str
+        16-character lowercase hex prefix of the SHA-256 digest.
+    """
+    ts = timestamp if timestamp is not None else datetime.datetime.now(datetime.UTC)
+    last_date = (
+        assembly.prices.index.max().isoformat() if not assembly.prices.empty else ""
+    )
+    payload = f"{ts.isoformat()}|{assembly.n_tickers}|{last_date}".encode()
+    return hashlib.sha256(payload).hexdigest()[:16]
 
 
 def assemble_all(
@@ -2023,7 +2137,10 @@ def assemble_all(
 
     logger.info("Assembling composite regime data...")
     regime_data = assemble_regime_data(
-        macro_data, fred_data, te_observations, sentiment_data,
+        macro_data,
+        fred_data,
+        te_observations,
+        sentiment_data,
     )
 
     logger.info("Assembling FX rates...")
@@ -2037,7 +2154,7 @@ def assemble_all(
             price_index=prices.index,
         )
 
-    return DataAssembly(
+    assembly = DataAssembly(
         prices=prices,
         volumes=volumes,
         fundamentals=fundamentals,
@@ -2057,3 +2174,5 @@ def assemble_all(
         currency_map=currency_map,
         fx_rates=fx_rates,
     )
+    assembly.assembly_hash = _compute_assembly_hash(assembly)
+    return assembly

@@ -58,10 +58,10 @@ class ApiClient:
                 f"[bold red]Error:[/] Cannot connect to {self._base_url}. "
                 "Is the API server running?"
             )
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=1) from None
         except httpx.HTTPError as exc:
             console.print(f"[bold red]HTTP error:[/] {exc}")
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=1) from exc
 
         if resp.status_code == 204:
             return None

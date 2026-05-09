@@ -28,57 +28,14 @@ def _client(ctx: typer.Context) -> ApiClient:
 @macro_app.command()
 def fetch(
     ctx: typer.Context,
-    country: list[str] | None = typer.Option(
+    country: list[str] | None = typer.Option(  # noqa: B008
         None, help="Country name(s). Repeat for multiple."
     ),
-    no_bonds: bool = typer.Option(False, "--no-bonds", help="Skip bond yield scraping"),
-) -> None:
-    """Start a bulk macro data fetch for all portfolio countries and poll until complete."""
-    client = _client(ctx)
-    job = client.start_macro_fetch(
-        countries=country or None,
-        include_bonds=not no_bonds,
-    )
-    job_id = job["job_id"]
-    success_panel(f"Macro fetch started: {job_id}")
-
-    result = progress_loop(lambda: client.get_macro_fetch_status(job_id))
-
-    if result.get("status") == "failed":
-        error_panel(f"Fetch failed: {result.get('error', 'unknown')}")
-        raise typer.Exit(code=1)
-
-    fetch_result = result.get("result", {})
-    if fetch_result:
-        dict_table(fetch_result, title="Macro Fetch Result")
-    success_panel("Macro fetch completed.")
-
-
-# ------------------------------------------------------------------
-# fetch-status
-# ------------------------------------------------------------------
-
-
-@macro_app.command("fetch-status")
-def fetch_status(
-    ctx: typer.Context,
-    job_id: str = typer.Argument(help="Fetch job UUID"),
-) -> None:
-    """Check the status of a macro fetch job."""
-    data = _client(ctx).get_macro_fetch_status(job_id)
-    dict_table(data, title=f"Macro Fetch Job {job_id}")
-
-
-# ------------------------------------------------------------------
-# fetch-country (single sync fetch)
-# ------------------------------------------------------------------
-
-
-@macro_app.command("fetch-country")
-def fetch_country(
-    ctx: typer.Context,
-    country: str = typer.Argument(help="Country name (e.g. USA, Germany, UK)"),
-    no_bonds: bool = typer.Option(False, "--no-bonds", help="Skip bond yield scraping"),
+    no_bonds: bool = typer.Option(
+        False,
+        "--no-bonds",
+        help="Skip bond yield scraping",
+    ),
 ) -> None:
     """Synchronously fetch macro data for a single country."""
     data = _client(ctx).fetch_macro_country(country, include_bonds=not no_bonds)
@@ -272,7 +229,7 @@ def news(
 @macro_app.command("summarize")
 def summarize(
     ctx: typer.Context,
-    country: list[str] | None = typer.Option(
+    country: list[str] | None = typer.Option(  # noqa: B008
         None, help="Country name(s) to summarize. Repeat for multiple. Default: all."
     ),
     force_refresh: bool = typer.Option(
@@ -308,7 +265,7 @@ def summarize(
 @macro_app.command("fetch-fred")
 def fetch_fred(
     ctx: typer.Context,
-    series: list[str] | None = typer.Option(
+    series: list[str] | None = typer.Option(  # noqa: B008
         None, help="FRED series IDs. Repeat for multiple (default: all configured)."
     ),
     full: bool = typer.Option(

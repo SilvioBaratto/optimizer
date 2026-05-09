@@ -34,7 +34,12 @@ def _db() -> DatabaseManager:
 
 @auth_app.command()
 def issue(
-    name: str = typer.Option(..., "--name", "-n", help="Human-readable label for the key."),
+    name: str = typer.Option(
+        ...,
+        "--name",
+        "-n",
+        help="Human-readable label for the key.",
+    ),
 ) -> None:
     """Generate a new API key, store its hash, and print the plaintext once."""
     plaintext = secrets.token_urlsafe(32)
@@ -69,9 +74,9 @@ def revoke(
     """Soft-delete an API key by setting is_active=False."""
     try:
         parsed_id = uuid.UUID(key_id)
-    except ValueError:
+    except ValueError as err:
         typer.echo(f"Error: '{key_id}' is not a valid UUID.", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from err
 
     manager = _db()
     try:
@@ -79,7 +84,7 @@ def revoke(
             api_key = session.query(ApiKey).filter_by(id=parsed_id).first()
             if api_key is None:
                 typer.echo(f"Error: key '{key_id}' not found.", err=True)
-                raise typer.Exit(code=1)
+                raise typer.Exit(code=1) from None
             api_key.is_active = False
             session.commit()
     finally:
