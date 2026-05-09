@@ -54,7 +54,10 @@ class PortfolioListResponse(BaseModel):
 
 class SnapshotCreate(BaseModel):
     snapshot_date: date
-    snapshot_type: str = Field(default="manual", pattern=r"^(optimization|rebalance|manual)$")
+    snapshot_type: str = Field(
+        default="manual",
+        pattern=r"^(optimization|rebalance|manual|research_run)$",
+    )
     weights: dict[str, float]
     sector_mapping: dict[str, str] | None = None
     summary: dict[str, Any] | None = None

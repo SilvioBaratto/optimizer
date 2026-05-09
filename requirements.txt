@@ -37,6 +37,9 @@ pybind11==3.0.3
 # Skfolio
 skfolio==0.20.1
 
+# Templating (research report renderer)
+jinja2==3.1.6
+
 # HTTP & Web Scraping
 httpx==0.28.1
 aiohttp==3.13.5

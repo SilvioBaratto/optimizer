@@ -92,41 +92,108 @@ class PortfolioRepository(RepositoryBase):
         optimizer_config: dict[str, Any] | None = None,
         turnover: float | None = None,
     ) -> PortfolioSnapshot:
-        snap = PortfolioSnapshot(
-            portfolio_id=portfolio_id,
-            snapshot_date=snapshot_date,
-            snapshot_type=snapshot_type,
-            turnover=turnover,
-            holding_count=len(weights),
-        )
-        self.session.add(snap)
-        self.session.flush()
+        """Insert or replace a snapshot for ``(portfolio_id, snapshot_date, snapshot_type)``.
 
-        # Populate child rows
-        for ticker, weight in weights.items():
-            self.session.add(SnapshotWeight(
-                snapshot_id=snap.id, ticker=ticker, weight=weight,
-            ))
-        if sector_mapping:
-            for ticker, sector in sector_mapping.items():
-                self.session.add(SnapshotSectorMapping(
-                    snapshot_id=snap.id, ticker=ticker, sector=sector,
-                ))
-        if summary:
-            for key, val in summary.items():
-                self.session.add(SnapshotSummaryEntry(
-                    snapshot_id=snap.id, key=key, value_text=json.dumps(val),
-                ))
-        if optimizer_config:
-            for key, val in optimizer_config.items():
-                self.session.add(SnapshotOptimizerParam(
-                    snapshot_id=snap.id, key=key, value_text=json.dumps(val),
-                ))
-        self.session.flush()
+        The triple is constrained by ``uq_snapshot_portfolio_date_type``; a
+        second call replaces the parent's mutable fields (``turnover``,
+        ``holding_count``) and rewrites all child EAV rows.  The parent
+        ``id`` and ``created_at`` are preserved across calls.
+        """
+        with self.session.begin_nested():
+            snap = self._get_snapshot(portfolio_id, snapshot_date, snapshot_type)
+            if snap is None:
+                snap = PortfolioSnapshot(
+                    portfolio_id=portfolio_id,
+                    snapshot_date=snapshot_date,
+                    snapshot_type=snapshot_type,
+                    turnover=turnover,
+                    holding_count=len(weights),
+                )
+                self.session.add(snap)
+            else:
+                snap.turnover = turnover
+                snap.holding_count = len(weights)
+                self._delete_snapshot_children(snap.id)
+            self.session.flush()
+            self._add_snapshot_children(
+                snap.id,
+                weights,
+                sector_mapping,
+                summary,
+                optimizer_config,
+            )
+            self.session.flush()
         return snap
 
+    def _get_snapshot(
+        self,
+        portfolio_id: uuid.UUID,
+        snapshot_date: date,
+        snapshot_type: str,
+    ) -> PortfolioSnapshot | None:
+        stmt = select(PortfolioSnapshot).where(
+            PortfolioSnapshot.portfolio_id == portfolio_id,
+            PortfolioSnapshot.snapshot_date == snapshot_date,
+            PortfolioSnapshot.snapshot_type == snapshot_type,
+        )
+        return self.session.execute(stmt).scalar_one_or_none()
+
+    def _delete_snapshot_children(self, snapshot_id: uuid.UUID) -> None:
+        for model in (
+            SnapshotWeight,
+            SnapshotSectorMapping,
+            SnapshotSummaryEntry,
+            SnapshotOptimizerParam,
+        ):
+            self.session.execute(delete(model).where(model.snapshot_id == snapshot_id))
+
+    def _add_snapshot_children(
+        self,
+        snapshot_id: uuid.UUID,
+        weights: dict[str, float],
+        sector_mapping: dict[str, str] | None,
+        summary: dict[str, Any] | None,
+        optimizer_config: dict[str, Any] | None,
+    ) -> None:
+        for ticker, weight in weights.items():
+            self.session.add(
+                SnapshotWeight(
+                    snapshot_id=snapshot_id,
+                    ticker=ticker,
+                    weight=weight,
+                )
+            )
+        if sector_mapping:
+            for ticker, sector in sector_mapping.items():
+                self.session.add(
+                    SnapshotSectorMapping(
+                        snapshot_id=snapshot_id,
+                        ticker=ticker,
+                        sector=sector,
+                    )
+                )
+        if summary:
+            for key, val in summary.items():
+                self.session.add(
+                    SnapshotSummaryEntry(
+                        snapshot_id=snapshot_id,
+                        key=key,
+                        value_text=json.dumps(val),
+                    )
+                )
+        if optimizer_config:
+            for key, val in optimizer_config.items():
+                self.session.add(
+                    SnapshotOptimizerParam(
+                        snapshot_id=snapshot_id,
+                        key=key,
+                        value_text=json.dumps(val),
+                    )
+                )
+
     def get_latest_snapshot(
-        self, portfolio_id: uuid.UUID,
+        self,
+        portfolio_id: uuid.UUID,
     ) -> PortfolioSnapshot | None:
         stmt = (
             select(PortfolioSnapshot)
@@ -144,9 +211,8 @@ class PortfolioRepository(RepositoryBase):
         end_date: date | None = None,
         limit: int = 100,
     ) -> Sequence[PortfolioSnapshot]:
-        stmt = (
-            select(PortfolioSnapshot)
-            .where(PortfolioSnapshot.portfolio_id == portfolio_id)
+        stmt = select(PortfolioSnapshot).where(
+            PortfolioSnapshot.portfolio_id == portfolio_id
         )
         if start_date:
             stmt = stmt.where(PortfolioSnapshot.snapshot_date >= start_date)
@@ -179,14 +245,23 @@ class PortfolioRepository(RepositoryBase):
             rows,
             constraint_name="uq_broker_position_portfolio_ticker",
             update_columns=[
-                "yfinance_ticker", "name", "quantity", "average_price",
-                "current_price", "ppl", "fx_ppl", "initial_fill_date",
-                "synced_at", "updated_at",
+                "yfinance_ticker",
+                "name",
+                "quantity",
+                "average_price",
+                "current_price",
+                "ppl",
+                "fx_ppl",
+                "initial_fill_date",
+                "synced_at",
+                "updated_at",
             ],
         )
 
     def delete_stale_positions(
-        self, portfolio_id: uuid.UUID, current_tickers: set[str],
+        self,
+        portfolio_id: uuid.UUID,
+        current_tickers: set[str],
     ) -> int:
         if not current_tickers:
             return 0
@@ -199,7 +274,8 @@ class PortfolioRepository(RepositoryBase):
         return result.rowcount  # type: ignore[return-value]
 
     def get_positions(
-        self, portfolio_id: uuid.UUID,
+        self,
+        portfolio_id: uuid.UUID,
     ) -> Sequence[BrokerPosition]:
         stmt = (
             select(BrokerPosition)
@@ -258,7 +334,8 @@ class PortfolioRepository(RepositoryBase):
         return existing
 
     def get_latest_account_snapshot(
-        self, portfolio_id: uuid.UUID,
+        self,
+        portfolio_id: uuid.UUID,
     ) -> BrokerAccountSnapshot | None:
         stmt = (
             select(BrokerAccountSnapshot)
@@ -292,9 +369,13 @@ class PortfolioRepository(RepositoryBase):
 
         if metadata:
             for key, val in metadata.items():
-                self.session.add(ActivityEventDetail(
-                    event_id=event.id, key=key, value_text=json.dumps(val),
-                ))
+                self.session.add(
+                    ActivityEventDetail(
+                        event_id=event.id,
+                        key=key,
+                        value_text=json.dumps(val),
+                    )
+                )
             self.session.flush()
         return event
 
@@ -346,9 +427,13 @@ class PortfolioRepository(RepositoryBase):
 
         if metadata:
             for key, val in metadata.items():
-                self.session.add(ActivityEventDetail(
-                    event_id=inserted.id, key=key, value_text=json.dumps(val),
-                ))
+                self.session.add(
+                    ActivityEventDetail(
+                        event_id=inserted.id,
+                        key=key,
+                        value_text=json.dumps(val),
+                    )
+                )
             self.session.flush()
 
         return inserted
@@ -367,9 +452,7 @@ class PortfolioRepository(RepositoryBase):
         if event_type is not None:
             stmt = stmt.where(ActivityEvent.event_type == event_type)
         stmt = (
-            stmt.order_by(ActivityEvent.created_at.desc())
-            .offset(offset)
-            .limit(limit)
+            stmt.order_by(ActivityEvent.created_at.desc()).offset(offset).limit(limit)
         )
         return self.session.execute(stmt).scalars().all()
 
@@ -385,4 +468,3 @@ class PortfolioRepository(RepositoryBase):
         if event_type is not None:
             stmt = stmt.where(ActivityEvent.event_type == event_type)
         return self.session.execute(stmt).scalar_one()
-

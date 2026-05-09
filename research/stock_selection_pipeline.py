@@ -30,6 +30,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any, cast
 
@@ -74,6 +75,7 @@ from optimizer.factors._config import (  # noqa: E402
     SelectionMethod,
     StandardizationConfig,
 )
+from optimizer.optimization import build_region_linear_constraints  # noqa: E402
 
 # Cycle-2 §4.3 spec: NW lag=4, BH alpha=0.10, |t|>=1.645 (two-sided p<0.10).
 _IS_VALIDATION_CONFIG = FactorValidationConfig(
@@ -98,11 +100,13 @@ from research._optimization import (  # noqa: E402
     _make_opt_config,
     _solve_with_retighten,
 )
+from research._persistence import _diff_from_default, persist_research_run  # noqa: E402
 from research._preflight import run_db_preflight as _run_db_preflight  # noqa: E402
 from research._preprocessing import (  # noqa: E402
     apply_fx_to_prices,
     build_return_preprocessing_pipeline,
 )
+from research._report import compute_binding_constraints, render_report  # noqa: E402
 from research._returns import compute_after_tax_returns  # noqa: E402
 
 console = Console()
@@ -113,19 +117,19 @@ logger = logging.getLogger(__name__)
 # Defaults (override via command-line args or environment)
 # ---------------------------------------------------------------------------
 
-REBALANCE_FREQ: int = 63    # quarterly  (~63 trading days)
-N_SELECTED: int = 50        # target portfolio size after factor ranking
-TOP_N_DISPLAY: int = 25     # tickers shown in the selection table
+REBALANCE_FREQ: int = 63  # quarterly  (~63 trading days)
+N_SELECTED: int = 50  # target portfolio size after factor ranking
+TOP_N_DISPLAY: int = 25  # tickers shown in the selection table
 MIN_SUCCESS_FRACTION: float = 0.5
 
 # Cycle 4 §9.1: per-country round-trip transaction-cost components in bps
 # (stamp duty / quoted spread / FX conversion).  Country keys mirror the
 # raw `ticker_profiles.country` strings used by `_REGION_MAP`.
 COUNTRY_COSTS_BPS: dict[str, dict[str, float]] = {
-    "United Kingdom": {"stamp": 50.0, "spread": 8.0, "fx": 0.0},   # = 58 bps
-    "France":         {"stamp": 30.0, "spread": 6.0, "fx": 12.0},  # = 48 bps
-    "Italy":          {"stamp": 10.0, "spread": 8.0, "fx": 12.0},  # = 30 bps
-    "United States":  {"stamp": 0.0,  "spread": 3.0, "fx": 12.0},  # = 15 bps
+    "United Kingdom": {"stamp": 50.0, "spread": 8.0, "fx": 0.0},  # = 58 bps
+    "France": {"stamp": 30.0, "spread": 6.0, "fx": 12.0},  # = 48 bps
+    "Italy": {"stamp": 10.0, "spread": 8.0, "fx": 12.0},  # = 30 bps
+    "United States": {"stamp": 0.0, "spread": 3.0, "fx": 12.0},  # = 15 bps
 }
 _DEFAULT_COSTS: dict[str, float] = {"stamp": 0.0, "spread": 6.0, "fx": 12.0}  # 18 bps
 
@@ -150,6 +154,7 @@ def _write_last_review_date(date: pd.Timestamp) -> None:
     _LAST_REVIEW_DATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     _LAST_REVIEW_DATE_FILE.write_text(date.date().isoformat() + "\n")
 
+
 # Fix #239: parameters are index-based, not calendar months.
 # With quarterly rebalancing (~20 dates for 5 years):
 #   train=8 ≈ 2 years, val=4 ≈ 1 year → (20-8)//2 = 6 folds
@@ -168,9 +173,7 @@ def _annualized_return(r: pd.Series) -> float:
     return float((1.0 + r).prod() ** (252.0 / len(r)) - 1.0)
 
 
-def compute_weighted_cost_bps(
-    weights: pd.Series, country_map: dict[str, str]
-) -> float:
+def compute_weighted_cost_bps(weights: pd.Series, country_map: dict[str, str]) -> float:
     """Portfolio-weighted total round-trip cost in bps (Cycle 4 §9.1)."""
     clean = weights.dropna()
     if clean.empty:
@@ -199,9 +202,7 @@ def _sharpe(
 
     if rf_series is not None and not rf_series.empty:
         # Annual rate → daily; forward-fill to trading calendar
-        daily_rf = (
-            rf_series.reindex(returns.index, method="ffill").fillna(0.0) / 252.0
-        )
+        daily_rf = rf_series.reindex(returns.index, method="ffill").fillna(0.0) / 252.0
         excess = returns - daily_rf
     else:
         excess = returns
@@ -376,6 +377,9 @@ def _render_failure_table(failed_rules: list[dict[str, Any]]) -> None:
     console.print(table)
 
 
+_CHECKLIST_TOTAL = 17
+
+
 def _apply_terminal_gate(
     *,
     rules: list[dict[str, Any]],
@@ -383,6 +387,9 @@ def _apply_terminal_gate(
     output_dir: Path,
 ) -> None:
     """Cycle 4 §10 terminal gate: 17/17 → exit 0 + weights.csv; else exit 1."""
+    assert len(rules) == _CHECKLIST_TOTAL, (  # noqa: S101  -- invariant guard
+        f"checklist must have exactly {_CHECKLIST_TOTAL} rules, got {len(rules)}"
+    )
     pass_count = sum(1 for r in rules if r.get("pass"))
     total = len(rules)
     if pass_count == total:
@@ -491,14 +498,17 @@ def _materialise_clean_returns(
     return clean
 
 
-def load_data() -> tuple[DataAssembly, dict[str, str], DatabaseManager]:
+def load_data(
+    *,
+    base_currency: str = "EUR",
+) -> tuple[DataAssembly, dict[str, str], DatabaseManager]:
     """Assemble all data from the database.
 
     Returns
     -------
     tuple[DataAssembly, dict[str, str], DatabaseManager]
         (assembly, country_map, db_manager) where ``assembly.prices`` is
-        FX-converted to EUR base currency, ``country_map`` is
+        FX-converted to ``base_currency`` (default EUR), ``country_map`` is
         ticker → country, and ``db_manager`` is the initialised handle so
         downstream steps can persist results back to the DB (issue #530).
     """
@@ -511,14 +521,14 @@ def load_data() -> tuple[DataAssembly, dict[str, str], DatabaseManager]:
         assembly.prices,
         assembly.currency_map,
         assembly.fx_rates,
-        base_currency="EUR",
+        base_currency=base_currency,
     )
     _assert_assembly_size(assembly)
     country_map = _build_country_map(db_manager)
     console.print(
         f"  Loaded [cyan]{assembly.n_tickers}[/cyan] tickers, "
         f"[cyan]{assembly.n_trading_days}[/cyan] trading days "
-        f"(EUR base, hash=[cyan]{assembly.assembly_hash}[/cyan])"
+        f"({base_currency} base, hash=[cyan]{assembly.assembly_hash}[/cyan])"
     )
     return assembly, country_map, db_manager
 
@@ -544,7 +554,9 @@ def _assert_universe_size(passing: pd.Index) -> None:
     if not (low <= n <= high):
         logger.warning(
             "Investable universe size %d is outside expected band [%d, %d].",
-            n, low, high,
+            n,
+            low,
+            high,
         )
 
 
@@ -621,9 +633,7 @@ def validate_is(
     console.print(Panel("[bold]Step 4[/bold] — IS factor validation", style="blue"))
 
     # Use the last cross-section for VIF (standardized snapshot)
-    last_date = sorted(
-        next(iter(factor_scores_dict.values())).index
-    )[-1]
+    last_date = sorted(next(iter(factor_scores_dict.values())).index)[-1]
     standardized_snapshot = pd.DataFrame(
         {
             k: v.loc[last_date]
@@ -666,8 +676,7 @@ def validate_is(
         if not high_vif.empty:
             names: list[str] = [str(n) for n in high_vif.index]
             console.print(
-                f"  [yellow]High VIF factors (>5):[/yellow] "
-                f"{', '.join(names)}"
+                f"  [yellow]High VIF factors (>5):[/yellow] {', '.join(names)}"
             )
 
     return report
@@ -692,8 +701,7 @@ def validate_oos(
 
     # Reshape to MultiIndex (date, ticker) × factors
     stacked_factors = [
-        df.stack().rename(name)
-        for name, df in factor_scores_dict.items()
+        df.stack().rename(name) for name, df in factor_scores_dict.items()
     ]
     scores_mi = pd.concat(stacked_factors, axis=1)
     scores_mi.index.names = ["date", "ticker"]
@@ -890,6 +898,7 @@ def optimize_portfolio(
     previous_weights: np.ndarray | None = None,
     robust: bool = False,
     uncertainty_level: float = 0.95,
+    seed: int | None = None,
 ) -> Any:
     """Run factor-based stock selection + Cycle-3 §7.1 hard-constrained MeanRisk."""
     console.print(Panel("[bold]Step 7[/bold] — Portfolio optimization", style="blue"))
@@ -1068,9 +1077,7 @@ def _print_diversification(
     conc_table.add_row("Top-5 weight", f"{top5:.2%}")
     conc_table.add_row("Top-10 weight", f"{top10:.2%}")
     conc_table.add_row("HHI", f"{hhi:.4f}")
-    conc_table.add_row(
-        "Effective N (1/HHI)", f"{eff_n:.1f}"
-    )
+    conc_table.add_row("Effective N (1/HHI)", f"{eff_n:.1f}")
     conc_table.add_row("Sectors", str(len(sector_w)))
     conc_table.add_row("Countries", str(len(country_w)))
     console.print(conc_table)
@@ -1172,9 +1179,7 @@ def _validate_checklist(
     )
     # Rule 2 — sector ≤ 15%
     max_sector = max(sector_w.values()) if sector_w else 0.0
-    max_sector_name = (
-        max(sector_w, key=lambda k: sector_w[k]) if sector_w else "N/A"
-    )
+    max_sector_name = max(sector_w, key=lambda k: sector_w[k]) if sector_w else "N/A"
     rules.append(
         _rule(
             "No single sector > 15%",
@@ -1252,9 +1257,13 @@ def _validate_checklist(
     # Rule 10 — Max drawdown > -22%
     rules.append(
         _eval_metric_threshold(
-            metrics, label_at, "Max Drawdown",
-            "Max drawdown > -22%", "> -22%",
-            pass_pred=lambda v: v > -0.22, fmt="{:.1%}",
+            metrics,
+            label_at,
+            "Max Drawdown",
+            "Max drawdown > -22%",
+            "> -22%",
+            pass_pred=lambda v: v > -0.22,
+            fmt="{:.1%}",
         )
     )
     # Rule 11 — Vol ≤ benchmark vol
@@ -1263,7 +1272,9 @@ def _validate_checklist(
     if np.isnan(p_vol) or np.isnan(b_vol):
         rules.append(
             _rule(
-                "Vol ≤ benchmark vol", ok=False, measured="N/A",
+                "Vol ≤ benchmark vol",
+                ok=False,
+                measured="N/A",
                 target="≤ benchmark",
             )
         )
@@ -1279,24 +1290,33 @@ def _validate_checklist(
     # Rule 12 — Sharpe ∈ (1.0, 2.0)
     rules.append(
         _eval_metric_threshold(
-            metrics, label_at, "Sharpe (rf)",
-            "Sharpe ∈ (1.0, 2.0)", "∈ (1.0, 2.0)",
+            metrics,
+            label_at,
+            "Sharpe (rf)",
+            "Sharpe ∈ (1.0, 2.0)",
+            "∈ (1.0, 2.0)",
             pass_pred=lambda v: 1.0 < v < 2.0,
         )
     )
     # Rule 13 — Sortino > 1.5
     rules.append(
         _eval_metric_threshold(
-            metrics, label_at, "Sortino",
-            "Sortino > 1.5", "> 1.5",
+            metrics,
+            label_at,
+            "Sortino",
+            "Sortino > 1.5",
+            "> 1.5",
             pass_pred=lambda v: v > 1.5,
         )
     )
     # Rule 14 — IR > 0.5
     rules.append(
         _eval_metric_threshold(
-            metrics, label_at, "Info Ratio",
-            "Info Ratio > 0.5", "> 0.5",
+            metrics,
+            label_at,
+            "Info Ratio",
+            "Info Ratio > 0.5",
+            "> 0.5",
             pass_pred=lambda v: v > 0.5,
         )
     )
@@ -1304,8 +1324,10 @@ def _validate_checklist(
     if np.isnan(p_vol):
         rules.append(
             _rule(
-                "Downside vol < 75% x total vol", ok=False,
-                measured="N/A", target="< 75% total",
+                "Downside vol < 75% x total vol",
+                ok=False,
+                measured="N/A",
+                target="< 75% total",
             )
         )
     else:
@@ -1313,8 +1335,10 @@ def _validate_checklist(
         if np.isnan(d_vol):
             rules.append(
                 _rule(
-                    "Downside vol < 75% x total vol", ok=False,
-                    measured="N/A", target="< 75% total",
+                    "Downside vol < 75% x total vol",
+                    ok=False,
+                    measured="N/A",
+                    target="< 75% total",
                 )
             )
         else:
@@ -1332,8 +1356,10 @@ def _validate_checklist(
     ):
         rules.append(
             _rule(
-                "Total cost ≤ 100 bps", ok=False,
-                measured="N/A", target="≤ 100 bps",
+                "Total cost ≤ 100 bps",
+                ok=False,
+                measured="N/A",
+                target="≤ 100 bps",
             )
         )
     else:
@@ -1349,8 +1375,10 @@ def _validate_checklist(
     if net_returns is None or net_returns.empty:
         rules.append(
             _rule(
-                "OOS span ≥ 8 years", ok=False,
-                measured="N/A", target="≥ 8 yrs",
+                "OOS span ≥ 8 years",
+                ok=False,
+                measured="N/A",
+                target="≥ 8 yrs",
             )
         )
     else:
@@ -1414,17 +1442,24 @@ def report_performance(
     country_map: dict[str, str],
     cost_bps_actual: float | None = None,
     cost_bps: float = 10.0,
-) -> tuple[int, list[dict[str, Any]]]:
+    *,
+    tax_rate: float = 0.26,
+    validation_report: Any | None = None,
+    oos_per_fold_ic: pd.DataFrame | None = None,
+    output_dir: Path = Path("research/output"),
+) -> tuple[int, list[dict[str, Any]], dict[str, dict[str, float]], list[Path]]:
     """Print portfolio performance, weights, and diversification breakdown.
 
     Fix issue #246: Sharpe ratio now uses FRED DGS3MO series for rf, not rf=0.
     Cycle 4 §9.1: ``cost_bps_actual`` is the portfolio-weighted measured cost
     in bps (Σᵢ wᵢ × COUNTRY_COSTS_BPS[country]) consumed by §10 checklist.
     Cycle 4 §9.2: derives ``after_tax_returns`` from ``result.gross_returns``
-    and ``result.weight_history`` using a 26% Italian capital-gains rate.
+    and ``result.weight_history`` using ``tax_rate`` (Italian default 0.26).
+    Cycle 5 §13: emits up to six PNGs when ``validation_report`` and
+    ``oos_per_fold_ic`` are supplied (factor IC + country charts).
 
-    Returns ``(pass_count, rules)`` so :func:`main` can apply the §10
-    terminal gate (17/17 → write ``weights.csv`` + exit 0; else exit 1).
+    Returns ``(pass_count, rules, metrics, chart_paths)`` so :func:`main`
+    can apply the §10 terminal gate, render ``report.md``, and persist.
     """
     console.print(Panel("[bold]Step 8[/bold] — Performance report", style="blue"))
 
@@ -1455,6 +1490,7 @@ def report_performance(
         result.weight_history,
         assembly.prices,
         cost_bps=cost_bps,
+        tax_rate=tax_rate,
     )
     if after_tax_returns is not None:
         after_tax_returns = after_tax_returns.rename("Portfolio (after-tax)")
@@ -1468,9 +1504,7 @@ def report_performance(
         )
         # Align to portfolio trading dates
         if benchmark_returns is not None and not benchmark_returns.empty:
-            common_idx = portfolio_returns.index.intersection(
-                benchmark_returns.index
-            )
+            common_idx = portfolio_returns.index.intersection(benchmark_returns.index)
             benchmark_returns = benchmark_returns.loc[common_idx]
 
     # Compute metrics for portfolio and benchmark
@@ -1504,7 +1538,7 @@ def report_performance(
 
     if not metrics:
         console.print("  [yellow]No backtest results available[/yellow]")
-        return 0, []
+        return 0, [], {}, []
 
     table = Table(
         title="Performance Metrics",
@@ -1564,8 +1598,6 @@ def report_performance(
     )
     _render_checklist_table(checklist_rules)
 
-    output_dir = Path("research/output")
-
     # --- metrics.json (Cycle 4 §9.3 → Cycle 5 report.md input) ---
     metrics_path = write_metrics_json(metrics, output_dir)
     console.print(f"  [cyan]Saved metrics:[/cyan] {metrics_path}")
@@ -1581,6 +1613,7 @@ def report_performance(
     console.print(f"  [cyan]Saved checklist:[/cyan] {checklist_path}")
 
     # --- Backtest charts ---
+    chart_paths: list[Path] = []
     if portfolio_returns is not None and not portfolio_returns.empty:
         chart_paths = generate_backtest_plots(
             portfolio_returns=portfolio_returns,
@@ -1588,16 +1621,120 @@ def report_performance(
             sector_mapping=assembly.sector_mapping,
             benchmark_returns=benchmark_returns,
             rf_series=rf_series,
+            country_map=country_map,
+            validation_report=validation_report,
+            oos_per_fold_ic=oos_per_fold_ic,
             output_dir=output_dir,
         )
-        console.print(
-            f"\n  [cyan]Saved {len(chart_paths)} charts:[/cyan]"
-        )
+        console.print(f"\n  [cyan]Saved {len(chart_paths)} charts:[/cyan]")
         for p in chart_paths:
             console.print(f"    {p}")
 
     pass_count = sum(1 for r in checklist_rules if r.get("pass"))
-    return pass_count, checklist_rules
+    return pass_count, checklist_rules, metrics, chart_paths
+
+
+# ---------------------------------------------------------------------------
+# Cycle 5 §13: report.md + DB persistence helpers
+# ---------------------------------------------------------------------------
+
+
+def _render_research_report(
+    *,
+    output_dir: Path,
+    assembly_hash: str,
+    current_regime: Any,
+    tilts: dict[str, float],
+    validation_report: Any,
+    oos_per_fold_ic: pd.DataFrame,
+    result: Any,
+    country_map: dict[str, str],
+    checklist_rules: list[dict[str, Any]],
+    metrics: dict[str, dict[str, float]],
+    chart_paths: list[Path],
+) -> Path:
+    """Render ``report.md`` from the run artefacts."""
+    # Best-effort optimizer-diff: derive from result if present, else empty.
+    optimizer_diff: dict[str, Any] = {}
+    opt_cfg = getattr(result, "opt_config", None)
+    if opt_cfg is not None:
+        optimizer_diff = _diff_from_default(opt_cfg)
+    if country_map:
+        region_groups, region_rows = build_region_linear_constraints(
+            country_map,
+            _REGION_MAP,
+            max_region_weight=0.60,
+        )
+    else:
+        region_groups, region_rows = {}, []
+    binding = _build_binding_constraints(
+        weights=result.weights,
+        groups=region_groups,
+        labels=region_rows,
+    )
+    return render_report(
+        output_dir=output_dir,
+        regime=getattr(current_regime, "value", str(current_regime)),
+        tilts={str(k): float(v) for k, v in tilts.items()},
+        validation_report=validation_report,
+        oos_per_fold_ic=oos_per_fold_ic,
+        optimizer_diff=optimizer_diff,
+        binding_constraints=binding,
+        retighten_trace=getattr(result, "retighten_trace", []),
+        rebalance_decision=result.rebalance_decision,
+        checklist_rows=checklist_rules,
+        metrics=metrics,
+        chart_paths=chart_paths,
+        assembly_hash=assembly_hash,
+    )
+
+
+def _build_binding_constraints(
+    *,
+    weights: pd.Series,
+    groups: dict[str, str],
+    labels: list[str],
+) -> list[str]:
+    """Compute binding region rows for the report.
+
+    Each row of ``A`` sums weights belonging to one region; ``b`` carries the
+    region cap parsed from ``labels`` (``"<region> <= <cap>"``).
+    """
+    if not labels or weights is None or len(weights) == 0:
+        return []
+    region_order = [row.split(" <= ")[0] for row in labels]
+    caps = np.array([float(row.split(" <= ")[1]) for row in labels])
+    weight_arr = np.asarray(weights.values, dtype=float)
+    tickers = list(weights.index)
+    a_mat = np.zeros((len(region_order), len(tickers)), dtype=float)
+    for j, ticker in enumerate(tickers):
+        region = groups.get(ticker)
+        if region in region_order:
+            a_mat[region_order.index(region), j] = 1.0
+    return compute_binding_constraints(a_mat, caps, weight_arr, labels=labels)
+
+
+def _persist_research_snapshot(
+    *,
+    result: Any,
+    assembly: DataAssembly,
+    metrics: dict[str, dict[str, float]],
+    cost_bps: float,
+) -> None:
+    """Persist the final research run when 17/17 PASS and ``--persist`` set."""
+    opt_cfg = getattr(result, "opt_config", None) or _make_opt_config(
+        n_survivors=len(result.weights),
+        target_count=len(result.weights),
+        cost_bps=cost_bps,
+    )
+    persist_research_run(
+        snapshot_date=pd.Timestamp.today().date(),
+        weights=result.weights.to_dict(),
+        metrics=metrics,
+        optimizer_cfg=opt_cfg,
+        sector_mapping=assembly.sector_mapping,
+        turnover=getattr(result, "turnover", None),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1609,6 +1746,15 @@ def main(
     rebalance_freq: int = REBALANCE_FREQ,
     n_selected: int = N_SELECTED,
     cost_bps: float = 10.0,
+    *,
+    tax_rate: float = 0.26,
+    base_currency: str = "EUR",
+    robust: bool = False,
+    persist: bool = False,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    seed: int = 42,
+    output_dir: Path = Path("research/output"),
 ) -> None:
     """Run the full stock selection pipeline."""
     console.print(
@@ -1624,7 +1770,16 @@ def main(
 
     try:
         # 1. Load
-        assembly, country_map, db_manager = load_data()
+        assembly, country_map, db_manager = load_data(base_currency=base_currency)
+
+        # 1b. Optional date slicing (Cycle 5 §13)
+        if start_date is not None or end_date is not None:
+            assembly.prices = assembly.prices.loc[start_date:end_date]
+            console.print(
+                f"  Sliced prices to "
+                f"[cyan]{start_date or assembly.prices.index[0].date()}[/cyan] "
+                f"… [cyan]{end_date or assembly.prices.index[-1].date()}[/cyan]"
+            )
 
         # 2. Screen
         investable = screen_investable(assembly)
@@ -1674,6 +1829,8 @@ def main(
             n_selected=n_selected,
             cost_bps=cost_bps,
             country_map=country_map,
+            robust=robust,
+            seed=seed,
         )
 
         # 7b. Cycle-3 §11 hybrid rebalance decision.
@@ -1682,9 +1839,7 @@ def main(
         prev_weights = getattr(assembly, "previous_weights", None)
         target_arr = result.weights.to_numpy(dtype=float)
         prev_arr = (
-            np.asarray(prev_weights, dtype=float)
-            if prev_weights is not None
-            else None
+            np.asarray(prev_weights, dtype=float) if prev_weights is not None else None
         )
         result.rebalance_decision = _decide_rebalance(
             prev_weights=prev_arr,
@@ -1705,9 +1860,7 @@ def main(
                 f"  [yellow]Warning: weight count {n_weights} outside "
                 f"[{N_SELECTED_MIN}, {N_SELECTED_MAX}].[/yellow]"
             )
-        missing_sectors = _missing_gics_sectors(
-            result.weights, assembly.sector_mapping
-        )
+        missing_sectors = _missing_gics_sectors(result.weights, assembly.sector_mapping)
         if missing_sectors:
             console.print(
                 "  [yellow]Sectors absent from selection: "
@@ -1720,13 +1873,42 @@ def main(
         logger.info("Measured cost: %.2f bps (weighted by country)", cost_bps_actual)
 
         # 8. Report
-        pass_count, checklist_rules = report_performance(
+        pass_count, checklist_rules, metrics, chart_paths = report_performance(
             result,
             assembly,
             country_map,
             cost_bps_actual=cost_bps_actual,
             cost_bps=cost_bps,
+            tax_rate=tax_rate,
+            validation_report=is_report,
+            oos_per_fold_ic=oos_result.per_fold_ic,
+            output_dir=output_dir,
         )
+
+        # 8b. Render report.md (always, before the terminal gate so a
+        # FAIL still emits a diagnostic artefact).
+        _render_research_report(
+            output_dir=output_dir,
+            assembly_hash=assembly.assembly_hash,
+            current_regime=current_regime,
+            tilts=tilts,
+            validation_report=is_report,
+            oos_per_fold_ic=oos_result.per_fold_ic,
+            result=result,
+            country_map=country_map,
+            checklist_rules=checklist_rules,
+            metrics=metrics,
+            chart_paths=chart_paths,
+        )
+
+        # 8c. Optional DB persistence — only on 17/17 PASS.
+        if persist and pass_count == len(checklist_rules) and checklist_rules:
+            _persist_research_snapshot(
+                result=result,
+                assembly=assembly,
+                metrics=metrics,
+                cost_bps=cost_bps,
+            )
 
     except FactorCoverageError as exc:
         console.print(f"[bold red]Factor coverage error:[/bold red] {exc}")
@@ -1743,35 +1925,23 @@ def main(
     _apply_terminal_gate(
         rules=checklist_rules,
         weights=result.weights,
-        output_dir=Path("research/output"),
+        output_dir=output_dir,
     )
 
 
 if __name__ == "__main__":
-    import argparse
+    from research._cli import build_parser
 
-    parser = argparse.ArgumentParser(description="Stock selection research pipeline")
-    parser.add_argument(
-        "--rebalance-freq",
-        type=int,
-        default=REBALANCE_FREQ,
-        help=f"Rebalancing frequency in trading days (default: {REBALANCE_FREQ})",
-    )
-    parser.add_argument(
-        "--n-selected",
-        type=int,
-        default=N_SELECTED,
-        help=f"Number of stocks to select (default: {N_SELECTED})",
-    )
-    parser.add_argument(
-        "--cost-bps",
-        type=float,
-        default=10.0,
-        help="Transaction cost in basis points (default: 10)",
-    )
-    args = parser.parse_args()
+    args = build_parser().parse_args()
     main(
         rebalance_freq=args.rebalance_freq,
         n_selected=args.n_selected,
         cost_bps=args.cost_bps,
+        tax_rate=args.tax_rate,
+        base_currency=args.base_currency,
+        robust=args.robust,
+        persist=args.persist,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        seed=args.seed,
     )

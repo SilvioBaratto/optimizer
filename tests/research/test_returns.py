@@ -181,3 +181,151 @@ class TestComputeAfterTaxReturns:
 
         sig = inspect.signature(compute_after_tax_returns)
         assert sig.parameters["tax_rate"].default == 0.26
+
+
+class TestComputeAfterTaxReturnsCoverage:
+    """Issue #555 — gap coverage on top of TestComputeAfterTaxReturns.
+
+    Closes coverage gaps:
+    zero turnover, all-loss multi-rebalance, mixed gain/loss only-gains-taxed,
+    ``tax_rate=0.0`` no-op, empty input, output index preservation.
+    """
+
+    def test_when_zero_turnover_then_after_tax_equals_gross(
+        self, gross: pd.Series, prices: pd.DataFrame
+    ) -> None:
+        """Constant weight_history across rebalances → no sells → no tax."""
+        rb_dates = [gross.index[0], gross.index[10]]
+        wh = pd.DataFrame(
+            {"A": [0.6, 0.6], "B": [0.4, 0.4]},
+            index=pd.DatetimeIndex(rb_dates),
+        )
+        result = compute_after_tax_returns(
+            gross,
+            wh,
+            prices,
+            cost_bps=0.0,
+            tax_rate=0.26,
+        )
+        assert result is not None
+        pd.testing.assert_series_equal(result, gross)
+
+    def test_when_all_loss_multi_rebalance_then_after_tax_equals_gross(
+        self,
+    ) -> None:
+        """Three rebalances with strictly falling prices → no tax anywhere."""
+        idx = pd.bdate_range("2024-01-01", periods=20)
+        gross_local = pd.Series(0.0, index=idx, name="returns")
+        prices_local = pd.DataFrame(
+            {
+                "A": np.linspace(100.0, 80.0, len(idx)),
+                "B": np.linspace(50.0, 40.0, len(idx)),
+            },
+            index=idx,
+        )
+        rb_dates = [idx[0], idx[7], idx[14]]
+        wh = pd.DataFrame(
+            {"A": [0.6, 0.4, 0.3], "B": [0.4, 0.6, 0.7]},
+            index=pd.DatetimeIndex(rb_dates),
+        )
+        result = compute_after_tax_returns(
+            gross_local,
+            wh,
+            prices_local,
+            cost_bps=0.0,
+            tax_rate=0.26,
+        )
+        assert result is not None
+        pd.testing.assert_series_equal(result, gross_local)
+
+    def test_when_mixed_gain_loss_then_only_gains_taxed(self) -> None:
+        """Two rebalances: first leg = gain (taxed), second leg = loss (not taxed)."""
+        idx = pd.bdate_range("2024-01-01", periods=21)
+        gross_local = pd.Series(0.0, index=idx, name="returns")
+        # Prices rise to t=10 (gain leg), fall after (loss leg).
+        a_prices = np.concatenate(
+            [np.linspace(100.0, 120.0, 11), np.linspace(120.0, 105.0, 10)]
+        )
+        b_prices = np.concatenate(
+            [np.linspace(50.0, 60.0, 11), np.linspace(60.0, 55.0, 10)]
+        )
+        prices_local = pd.DataFrame(
+            {"A": a_prices, "B": b_prices},
+            index=idx,
+        )
+        rb_dates = [idx[0], idx[10], idx[20]]
+        wh = pd.DataFrame(
+            {"A": [0.6, 0.4, 0.5], "B": [0.4, 0.6, 0.5]},
+            index=pd.DatetimeIndex(rb_dates),
+        )
+        result = compute_after_tax_returns(
+            gross_local,
+            wh,
+            prices_local,
+            cost_bps=0.0,
+            tax_rate=0.26,
+        )
+        assert result is not None
+        # t0: cold start → no tax, no cost.
+        assert result.at[rb_dates[0]] == pytest.approx(0.0)
+        # t1 gain leg: sell 0.2 of A at 120 vs 100 → realised = 0.2 * 20 = 4.0;
+        # tax = 0.26 * 4.0 / 1.0 = 1.04 (drag).
+        assert result.at[rb_dates[1]] == pytest.approx(-1.04)
+        # t2 loss leg: sell 0.1 of B at 55 vs 60 → realised = 0.1 * (-5) = -0.5
+        # → no tax. cost_bps=0 → result = 0.
+        assert result.at[rb_dates[2]] == pytest.approx(0.0)
+
+    def test_when_tax_rate_zero_then_after_tax_equals_gross_minus_cost(
+        self, gross: pd.Series, prices: pd.DataFrame
+    ) -> None:
+        """``tax_rate=0`` removes the tax leg entirely; cost_bps=0 → identity."""
+        rb_dates = [gross.index[0], gross.index[10]]
+        wh = pd.DataFrame(
+            {"A": [0.6, 0.4], "B": [0.4, 0.6]},
+            index=pd.DatetimeIndex(rb_dates),
+        )
+        result = compute_after_tax_returns(
+            gross,
+            wh,
+            prices,
+            cost_bps=0.0,
+            tax_rate=0.0,
+        )
+        assert result is not None
+        pd.testing.assert_series_equal(result, gross)
+
+    def test_when_empty_gross_returns_then_empty_series_returned(
+        self, prices: pd.DataFrame
+    ) -> None:
+        """Empty gross series + non-empty weight_history → empty output."""
+        empty_gross = pd.Series(
+            dtype=float,
+            index=pd.DatetimeIndex([]),
+            name="returns",
+        )
+        wh = pd.DataFrame(
+            {"A": [0.5], "B": [0.5]},
+            index=pd.DatetimeIndex(["2024-01-02"]),
+        )
+        result = compute_after_tax_returns(empty_gross, wh, prices)
+        assert result is not None
+        assert result.empty
+
+    def test_when_called_then_output_index_matches_input(
+        self, gross: pd.Series, prices: pd.DataFrame
+    ) -> None:
+        """Output index identical to ``gross_returns`` — no reindex."""
+        rb_dates = [gross.index[0], gross.index[10]]
+        wh = pd.DataFrame(
+            {"A": [0.6, 0.4], "B": [0.4, 0.6]},
+            index=pd.DatetimeIndex(rb_dates),
+        )
+        result = compute_after_tax_returns(
+            gross,
+            wh,
+            prices,
+            cost_bps=0.0,
+            tax_rate=0.26,
+        )
+        assert result is not None
+        pd.testing.assert_index_equal(result.index, gross.index)

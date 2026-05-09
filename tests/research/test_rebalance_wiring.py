@@ -95,6 +95,7 @@ class TestMainRebalanceWiring:
             prices=pd.DataFrame(100.0, index=idx, columns=["AAA", "BBB"]),
             sector_mapping={"AAA": "Tech", "BBB": "Finance"},
             previous_weights=prev_weights,
+            assembly_hash="testhash00000000",
         )
         return assembly_stub, result_stub
 
@@ -165,7 +166,8 @@ class TestMainRebalanceWiring:
                 return_value=(SimpleNamespace(value="expansion"), {}),
             ),
             patch.object(ssp, "optimize_portfolio", return_value=result_stub),
-            patch.object(ssp, "report_performance", return_value=(0, [])),
+            patch.object(ssp, "report_performance", return_value=(0, [], {}, [])),
+            patch.object(ssp, "_render_research_report"),
             patch.object(ssp, "_apply_terminal_gate"),
             patch.object(
                 ssp,

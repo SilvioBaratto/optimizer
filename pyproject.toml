@@ -31,6 +31,7 @@ dependencies = [
     "scipy>=1.17.1",
     "scikit-learn>=1.8.0",
     "skfolio>=0.20.1",
+    "jinja2>=3.1.6",
 ]
 
 [project.urls]
@@ -60,7 +61,7 @@ include = ["optimizer*", "cli*", "research*"]
 
 [tool.setuptools.package-data]
 optimizer = ["py.typed"]
-research = ["py.typed"]
+research = ["py.typed", "templates/*.j2"]
 
 [tool.ruff]
 line-length = 88
