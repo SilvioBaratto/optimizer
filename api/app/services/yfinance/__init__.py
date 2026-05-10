@@ -27,6 +27,7 @@ from .news import (
 from .protocols import (
     AnalysisClientProtocol,
     ArticleScraperProtocol,
+    AsyncStreamingClientProtocol,
     CacheProtocol,
     CalendarsClientProtocol,
     CircuitBreakerProtocol,
@@ -91,6 +92,7 @@ __all__ = [
     "ScreenerClientProtocol",
     "CalendarsClientProtocol",
     "StreamingClientProtocol",
+    "AsyncStreamingClientProtocol",
     # Implementations
     "LRUCache",
     "RateLimiter",

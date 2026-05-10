@@ -1,5 +1,6 @@
 import logging
 import threading
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
@@ -67,11 +68,29 @@ class YFinanceClient:
                     )
         return cls._instance
 
+    _CACHED_SUBCLIENT_NAMES: tuple[str, ...] = (
+        "financials",
+        "analysis",
+        "holders",
+        "corporate_actions",
+        "metadata",
+        "funds",
+        "market",
+        "sectors",
+        "search",
+        "screener",
+        "calendars",
+        "streaming",
+        "async_streaming",
+    )
+
     @classmethod
     def reset_instance(cls) -> None:
         with cls._lock:
             if cls._instance is not None:
                 cls._instance.cache.clear()
+                for name in cls._CACHED_SUBCLIENT_NAMES:
+                    cls._instance.__dict__.pop(name, None)
                 cls._instance = None
 
     def __init__(
@@ -443,85 +462,57 @@ class YFinanceClient:
             "default_max_retries": self.default_max_retries,
         }
 
-    @property
+    @cached_property
     def financials(self) -> FinancialsClient:
-        if not hasattr(self, "_financials"):
-            self._financials = FinancialsClient(**self._ticker_sub_client_kwargs())
-        return self._financials
+        return FinancialsClient(**self._ticker_sub_client_kwargs())
 
-    @property
+    @cached_property
     def analysis(self) -> AnalysisClient:
-        if not hasattr(self, "_analysis"):
-            self._analysis = AnalysisClient(**self._ticker_sub_client_kwargs())
-        return self._analysis
+        return AnalysisClient(**self._ticker_sub_client_kwargs())
 
-    @property
+    @cached_property
     def holders(self) -> HoldersClient:
-        if not hasattr(self, "_holders"):
-            self._holders = HoldersClient(**self._ticker_sub_client_kwargs())
-        return self._holders
+        return HoldersClient(**self._ticker_sub_client_kwargs())
 
-    @property
+    @cached_property
     def corporate_actions(self) -> CorporateActionsClient:
-        if not hasattr(self, "_corporate_actions"):
-            self._corporate_actions = CorporateActionsClient(
-                **self._ticker_sub_client_kwargs()
-            )
-        return self._corporate_actions
+        return CorporateActionsClient(**self._ticker_sub_client_kwargs())
 
-    @property
+    @cached_property
     def metadata(self) -> MetadataClient:
-        if not hasattr(self, "_metadata"):
-            self._metadata = MetadataClient(**self._ticker_sub_client_kwargs())
-        return self._metadata
+        return MetadataClient(**self._ticker_sub_client_kwargs())
 
-    @property
+    @cached_property
     def funds(self) -> FundsClient:
-        if not hasattr(self, "_funds"):
-            self._funds = FundsClient(**self._ticker_sub_client_kwargs())
-        return self._funds
+        return FundsClient(**self._ticker_sub_client_kwargs())
 
-    @property
+    @cached_property
     def market(self) -> MarketClient:
-        if not hasattr(self, "_market"):
-            self._market = MarketClient(**self._module_sub_client_kwargs())
-        return self._market
+        return MarketClient(**self._module_sub_client_kwargs())
 
-    @property
+    @cached_property
     def sectors(self) -> SectorIndustryClient:
-        if not hasattr(self, "_sectors"):
-            self._sectors = SectorIndustryClient(**self._module_sub_client_kwargs())
-        return self._sectors
+        return SectorIndustryClient(**self._module_sub_client_kwargs())
 
-    @property
+    @cached_property
     def search(self) -> SearchClient:
-        if not hasattr(self, "_search"):
-            self._search = SearchClient(**self._module_sub_client_kwargs())
-        return self._search
+        return SearchClient(**self._module_sub_client_kwargs())
 
-    @property
+    @cached_property
     def screener(self) -> ScreenerClient:
-        if not hasattr(self, "_screener"):
-            self._screener = ScreenerClient(**self._module_sub_client_kwargs())
-        return self._screener
+        return ScreenerClient(**self._module_sub_client_kwargs())
 
-    @property
+    @cached_property
     def calendars(self) -> CalendarsClient:
-        if not hasattr(self, "_calendars"):
-            self._calendars = CalendarsClient(**self._module_sub_client_kwargs())
-        return self._calendars
+        return CalendarsClient(**self._module_sub_client_kwargs())
 
-    @property
+    @cached_property
     def streaming(self) -> StreamingClient:
-        if not hasattr(self, "_streaming"):
-            self._streaming = StreamingClient()
-        return self._streaming
+        return StreamingClient()
 
-    @property
+    @cached_property
     def async_streaming(self) -> AsyncStreamingClient:
-        if not hasattr(self, "_async_streaming"):
-            self._async_streaming = AsyncStreamingClient()
-        return self._async_streaming
+        return AsyncStreamingClient()
 
 
 def get_yfinance_client(

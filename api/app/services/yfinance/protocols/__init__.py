@@ -3,6 +3,7 @@
 from .interfaces import (
     AnalysisClientProtocol,
     ArticleScraperProtocol,
+    AsyncStreamingClientProtocol,
     CacheProtocol,
     CalendarsClientProtocol,
     CircuitBreakerProtocol,
@@ -23,6 +24,7 @@ from .interfaces import (
 __all__ = [
     "AnalysisClientProtocol",
     "ArticleScraperProtocol",
+    "AsyncStreamingClientProtocol",
     "CacheProtocol",
     "CalendarsClientProtocol",
     "CircuitBreakerProtocol",
