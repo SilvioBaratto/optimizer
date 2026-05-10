@@ -252,27 +252,6 @@ class YFinanceDataService:
                             e,
                         )
 
-                # Earnings (annual + quarterly)
-                for quarterly_flag in [False, True]:
-                    period_type = "quarterly" if quarterly_flag else "annual"
-                    try:
-                        df = self.yf_client.financials.fetch_earnings(
-                            yfinance_ticker, quarterly=quarterly_flag
-                        )
-                        if df is not None and not df.empty:
-                            fs_count += self.repo.upsert_financial_statements(
-                                instrument_id, df, "earnings", period_type,
-                                currency_code=reporting_currency,
-                            )
-                    except Exception as e:
-                        errors.append(f"financials.earnings.{period_type}: {e}")
-                        logger.warning(
-                            "Failed earnings %s for %s: %s",
-                            period_type,
-                            yfinance_ticker,
-                            e,
-                        )
-
                 counts["financials"] = fs_count
             except Exception as e:
                 errors.append(f"financials: {e}")

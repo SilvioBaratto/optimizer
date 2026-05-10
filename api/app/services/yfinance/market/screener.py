@@ -39,17 +39,12 @@ class ScreenerClient:
         logger.debug("Running screener (offset=%d, size=%d)", offset, size)
         retries = max_retries if max_retries is not None else self.default_max_retries
 
+        kwargs = self._build_screen_kwargs(query, offset, size, sort_field, sort_asc)
+
         def _action() -> pd.DataFrame | None:
             self.circuit_breaker.check()
             self.rate_limiter.acquire("screener")
-            result = yf.screen(
-                query,
-                offset=offset,
-                size=size,
-                sortField=sort_field,
-                sortAsc=sort_asc,
-            )
-            return result
+            return yf.screen(query, **kwargs)
 
         return retry_with_backoff(
             _action,
@@ -59,6 +54,24 @@ class ScreenerClient:
             on_rate_limit=self.circuit_breaker.trigger,
             on_success=lambda _: self.circuit_breaker.reset(),
         )
+
+    @staticmethod
+    def _build_screen_kwargs(
+        query: Any,
+        offset: int,
+        size: int,
+        sort_field: str,
+        sort_asc: bool,
+    ) -> dict[str, Any]:
+        # yfinance 1.3.0: predefined string screens take ``count``,
+        # ``*Query`` instances take ``size``.
+        size_kwarg = "count" if isinstance(query, str) else "size"
+        return {
+            "offset": offset,
+            "sortField": sort_field,
+            "sortAsc": sort_asc,
+            size_kwarg: size,
+        }
 
     def get_predefined_screeners(self) -> dict[str, Any]:
         return yf.PREDEFINED_SCREENER_QUERIES

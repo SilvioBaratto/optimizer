@@ -73,24 +73,6 @@ class FinancialsClient(BaseClient):
             is_valid=lambda df: df is not None and not df.empty,
         )
 
-    def fetch_earnings(
-        self,
-        symbol: str,
-        quarterly: bool = False,
-        max_retries: int | None = None,
-    ) -> pd.DataFrame | None:
-        logger.debug("Fetching earnings for '%s' (quarterly=%s)", symbol, quarterly)
-        attr = "quarterly_earnings" if quarterly else "earnings"
-
-        def _action() -> pd.DataFrame | None:
-            return getattr(self._get_ticker(symbol), attr)
-
-        return self._fetch_with_resilience(
-            _action,
-            max_retries,
-            is_valid=lambda df: df is not None and not df.empty,
-        )
-
     def fetch_sec_filings(
         self,
         symbol: str,

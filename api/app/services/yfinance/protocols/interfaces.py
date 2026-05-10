@@ -120,10 +120,6 @@ class FinancialsClientProtocol(Protocol):
         self, symbol: str, quarterly: bool = False, max_retries: int | None = None
     ) -> pd.DataFrame | None: ...
 
-    def fetch_earnings(
-        self, symbol: str, quarterly: bool = False, max_retries: int | None = None
-    ) -> pd.DataFrame | None: ...
-
     def fetch_sec_filings(
         self, symbol: str, max_retries: int | None = None
     ) -> list[dict[str, Any]] | None: ...
