@@ -139,3 +139,24 @@ class MetadataClient(BaseClient):
             max_retries,
             is_valid=lambda v: v is not None and len(v) > 0,
         )
+
+    def fetch_valuation_measures(
+        self,
+        symbol: str,
+        max_retries: int | None = None,
+    ) -> pd.DataFrame | None:
+        logger.debug("Fetching valuation measures for '%s'", symbol)
+
+        def _action() -> pd.DataFrame | None:
+            # yfinance 1.3.0 exposes the 9-metric panel as the property
+            # ``Ticker.valuation`` (NOT ``valuation_measures``). The method
+            # ``Ticker.get_valuation_measures()`` exists but is not used here
+            # to keep the property/attribute access pattern shared by every
+            # other MetadataClient method.
+            return self._get_ticker(symbol).valuation
+
+        return self._fetch_with_resilience(
+            _action,
+            max_retries,
+            is_valid=lambda df: df is not None and not df.empty,
+        )

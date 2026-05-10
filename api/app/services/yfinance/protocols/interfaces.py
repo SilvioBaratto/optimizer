@@ -163,6 +163,14 @@ class AnalysisClientProtocol(Protocol):
         self, symbol: str, max_retries: int | None = None
     ) -> pd.DataFrame | None: ...
 
+    def fetch_eps_trend(
+        self, symbol: str, max_retries: int | None = None
+    ) -> pd.DataFrame | None: ...
+
+    def fetch_eps_revisions(
+        self, symbol: str, max_retries: int | None = None
+    ) -> pd.DataFrame | None: ...
+
 
 @runtime_checkable
 class HoldersClientProtocol(Protocol):
@@ -245,6 +253,10 @@ class MetadataClientProtocol(Protocol):
     def fetch_history_metadata(
         self, symbol: str, max_retries: int | None = None
     ) -> dict[str, Any] | None: ...
+
+    def fetch_valuation_measures(
+        self, symbol: str, max_retries: int | None = None
+    ) -> pd.DataFrame | None: ...
 
 
 @runtime_checkable

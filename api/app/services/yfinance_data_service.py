@@ -8,6 +8,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
+import pandas as pd
+
 from app.repositories.yfinance_repository import YFinanceRepository
 from app.services._progress import ProgressCallback, _noop
 from app.services.trading_calendar import has_sufficient_history
@@ -256,6 +258,80 @@ class YFinanceDataService:
             except Exception as e:
                 errors.append(f"financials: {e}")
                 logger.warning("Failed financials for %s: %s", yfinance_ticker, e)
+
+        # 3a. Valuation measures (Ticker.valuation, 9-metric panel).
+        # Open-EAV reuse of financial_statements: no migration, no new model.
+        try:
+            val_df = self.yf_client.metadata.fetch_valuation_measures(
+                yfinance_ticker
+            )
+            if val_df is not None and not val_df.empty:
+                counts["valuation_measures"] = (
+                    self.repo.upsert_financial_statements(
+                        instrument_id,
+                        val_df,
+                        "valuation_measures",
+                        "point_in_time",
+                        currency_code=reporting_currency,
+                    )
+                )
+            else:
+                counts["valuation_measures"] = 0
+        except Exception as e:
+            errors.append(f"valuation_measures: {e}")
+            logger.warning(
+                "Failed valuation_measures for %s: %s", yfinance_ticker, e
+            )
+
+        # 3b. EPS trend. yfinance returns string period labels ("0q", "+1q",
+        # "0y", "+1y"); coerce columns to datetimes and drop NaT so the
+        # repository's _safe_date does not silently drop rows.
+        try:
+            eps_trend_df = self.yf_client.analysis.fetch_eps_trend(yfinance_ticker)
+            if eps_trend_df is not None and not eps_trend_df.empty:
+                eps_trend_df = eps_trend_df.copy()
+                eps_trend_df.columns = pd.to_datetime(
+                    eps_trend_df.columns, errors="coerce"
+                )
+                eps_trend_df = eps_trend_df.loc[:, eps_trend_df.columns.notna()]
+            if eps_trend_df is not None and not eps_trend_df.empty:
+                counts["eps_trend"] = self.repo.upsert_financial_statements(
+                    instrument_id,
+                    eps_trend_df,
+                    "eps_trend",
+                    "estimate",
+                    currency_code=None,
+                )
+            else:
+                counts["eps_trend"] = 0
+        except Exception as e:
+            errors.append(f"eps_trend: {e}")
+            logger.warning("Failed eps_trend for %s: %s", yfinance_ticker, e)
+
+        # 3c. EPS revisions. Same period-label coercion as eps_trend.
+        try:
+            eps_rev_df = self.yf_client.analysis.fetch_eps_revisions(
+                yfinance_ticker
+            )
+            if eps_rev_df is not None and not eps_rev_df.empty:
+                eps_rev_df = eps_rev_df.copy()
+                eps_rev_df.columns = pd.to_datetime(
+                    eps_rev_df.columns, errors="coerce"
+                )
+                eps_rev_df = eps_rev_df.loc[:, eps_rev_df.columns.notna()]
+            if eps_rev_df is not None and not eps_rev_df.empty:
+                counts["eps_revisions"] = self.repo.upsert_financial_statements(
+                    instrument_id,
+                    eps_rev_df,
+                    "eps_revisions",
+                    "estimate",
+                    currency_code=None,
+                )
+            else:
+                counts["eps_revisions"] = 0
+        except Exception as e:
+            errors.append(f"eps_revisions: {e}")
+            logger.warning("Failed eps_revisions for %s: %s", yfinance_ticker, e)
 
         # 4. Dividends
         if (

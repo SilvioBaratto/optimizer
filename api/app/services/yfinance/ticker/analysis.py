@@ -158,3 +158,35 @@ class AnalysisClient(BaseClient):
             max_retries,
             is_valid=lambda df: df is not None and not df.empty,
         )
+
+    def fetch_eps_trend(
+        self,
+        symbol: str,
+        max_retries: int | None = None,
+    ) -> pd.DataFrame | None:
+        logger.debug("Fetching EPS trend for '%s'", symbol)
+
+        def _action() -> pd.DataFrame | None:
+            return self._get_ticker(symbol).eps_trend
+
+        return self._fetch_with_resilience(
+            _action,
+            max_retries,
+            is_valid=lambda df: df is not None and not df.empty,
+        )
+
+    def fetch_eps_revisions(
+        self,
+        symbol: str,
+        max_retries: int | None = None,
+    ) -> pd.DataFrame | None:
+        logger.debug("Fetching EPS revisions for '%s'", symbol)
+
+        def _action() -> pd.DataFrame | None:
+            return self._get_ticker(symbol).eps_revisions
+
+        return self._fetch_with_resilience(
+            _action,
+            max_retries,
+            is_valid=lambda df: df is not None and not df.empty,
+        )
