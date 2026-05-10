@@ -139,13 +139,13 @@ class ApiClient:
 
     def start_fetch(
         self,
-        max_workers: int = 4,
+        workers: int = 1,
         period: str = "5y",
         mode: str = "incremental",
     ) -> dict[str, Any]:
         return self._post(
             "/yfinance-data/fetch",
-            json={"max_workers": max_workers, "period": period, "mode": mode},
+            json={"workers": workers, "period": period, "mode": mode},
         )
 
     def get_fetch_status(self, job_id: str) -> dict[str, Any]:

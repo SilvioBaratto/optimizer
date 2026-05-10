@@ -10,11 +10,14 @@ Pattern mirrors: backtest.py / macro_regime.py / reference_indices.py.
 from __future__ import annotations
 
 import logging
+import threading
+from concurrent.futures import CancelledError
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import database_manager, get_db
 from app.schemas.base_job import AsyncJobCreateResponse, AsyncJobProgress
 from app.schemas.factors import (
@@ -33,7 +36,7 @@ from app.schemas.factors import (
     FactorValidateResponse,
 )
 from app.services._factor_helpers import FactorDataError
-from app.services._progress import make_progress
+from app.services._progress import make_cancellable_progress
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.factor_analysis_service import (
     build_exposure_constraints_for_tickers,
@@ -52,6 +55,7 @@ router = APIRouter(prefix="/factors", tags=["Factors"])
 _factor_job_service = BackgroundJobService(
     job_type="factors_compute",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
@@ -63,8 +67,15 @@ _factor_job_service = BackgroundJobService(
 def _run_factor_compute_bg(
     job_id: str,
     request: FactorComputeRequest,
+    *,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     """Execute factor computation in a daemon thread."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(
+        job_id, _factor_job_service, cancel_event,
+    )
     _factor_job_service.update_job(job_id, status="running")
     try:
         with database_manager.get_session() as session:
@@ -74,7 +85,7 @@ def _run_factor_compute_bg(
                 start_date=request.start_date,
                 end_date=request.end_date,
                 factor_config=request.factor_config,
-                on_progress=make_progress(job_id, _factor_job_service),
+                on_progress=on_progress,
             )
         _factor_job_service.update_job(
             job_id,
@@ -83,6 +94,8 @@ def _run_factor_compute_bg(
             result={"rows_written": rows_written},
         )
         logger.info("Factor compute job %s completed: %d rows", job_id, rows_written)
+    except CancelledError:
+        return
     except Exception as exc:
         logger.error("Factor compute job %s failed: %s", job_id, exc)
         _factor_job_service.update_job(

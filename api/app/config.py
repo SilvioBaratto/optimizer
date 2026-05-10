@@ -128,6 +128,15 @@ class Settings(BaseSettings):
     scheduler_misfire_grace_time_seconds: int = Field(
         default=3600, alias="SCHEDULER_MISFIRE_GRACE_TIME_SECONDS",
     )
+    # Liveness reaper (issues #585-#590): heartbeat cadence written by each
+    # background worker, and the staleness threshold past which the orphan
+    # reaper marks a row failed.
+    scheduler_heartbeat_cadence_seconds: int = Field(
+        default=30, alias="SCHEDULER_HEARTBEAT_CADENCE_SECONDS",
+    )
+    scheduler_orphan_heartbeat_timeout_seconds: int = Field(
+        default=300, alias="SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS",
+    )
 
     # Notifications
     notification_webhook_url: str | None = Field(

@@ -53,30 +53,37 @@ logger = logging.getLogger(__name__)
 _yfinance_jobs = BackgroundJobService(
     job_type="yfinance_fetch",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 _macro_jobs = BackgroundJobService(
     job_type="macro_fetch",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 _news_fetch_jobs = BackgroundJobService(
     job_type="macro_news_fetch",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 _summarize_jobs = BackgroundJobService(
     job_type="news_summarize",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 _calibrate_jobs = BackgroundJobService(
     job_type="macro_calibrate",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 _fred_jobs = BackgroundJobService(
     job_type="fred_fetch",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 _ref_index_jobs = BackgroundJobService(
     job_type="reference_index_seed",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 

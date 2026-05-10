@@ -12,11 +12,14 @@ but the underlying service supports multiple CV strategies via
 from __future__ import annotations
 
 import logging
+import threading
+from concurrent.futures import CancelledError
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
+from app.config import settings
 from app.database import database_manager
 from app.metrics import time_endpoint
 from app.schemas.validation import (
@@ -24,7 +27,7 @@ from app.schemas.validation import (
     ValidateProgress,
     ValidateRequest,
 )
-from app.services._progress import make_progress
+from app.services._progress import make_cancellable_progress
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.validation_service import run_validation
 
@@ -36,6 +39,7 @@ router = APIRouter(prefix="/validate", tags=["Validation"])
 _job_service = BackgroundJobService(
     job_type="validate",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
@@ -44,8 +48,16 @@ _job_service = BackgroundJobService(
 # ---------------------------------------------------------------------------
 
 
-def _run_walk_forward_bg(job_id: str, request: ValidateRequest) -> None:
+def _run_walk_forward_bg(
+    job_id: str,
+    request: ValidateRequest,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Execute walk-forward validation in a daemon thread with its own DB session."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(job_id, _job_service, cancel_event)
     _job_service.update_job(job_id, status="running")
     try:
         with database_manager.get_session() as session:
@@ -58,7 +70,7 @@ def _run_walk_forward_bg(job_id: str, request: ValidateRequest) -> None:
                 optimizer_type=request.optimizer_type,
                 optimizer_config=request.optimizer_config,
                 session=session,
-                on_progress=make_progress(job_id, _job_service),
+                on_progress=on_progress,
             )
         _job_service.update_job(
             job_id,
@@ -67,6 +79,8 @@ def _run_walk_forward_bg(job_id: str, request: ValidateRequest) -> None:
             result=result,
         )
         logger.info("Walk-forward validation job %s completed", job_id)
+    except CancelledError:
+        return
     except Exception as exc:
         logger.error("Walk-forward validation job %s failed: %s", job_id, exc)
         _job_service.update_job(

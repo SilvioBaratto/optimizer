@@ -7,6 +7,7 @@ Follows the macro_regime.py / yfinance_data.py background job pattern.
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from datetime import datetime, timezone
 
@@ -14,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import database_manager, get_db
 from app.metrics import time_endpoint
 from app.repositories.execution_repository import ExecutionRepository
@@ -33,6 +35,7 @@ router = APIRouter(prefix="/backtest", tags=["Backtest"])
 _job_service = BackgroundJobService(
     job_type="backtest",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
@@ -45,6 +48,8 @@ def _run_backtest_bg(
     job_id: str,
     run_id: str,
     request: BacktestRequest,
+    *,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     """Execute backtest in a daemon thread with its own DB session."""
     _job_service.update_job(job_id, status="running")

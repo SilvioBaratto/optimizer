@@ -7,6 +7,8 @@ a dedicated background job rather than through the universe builder.
 """
 
 import logging
+import threading
+from concurrent.futures import CancelledError
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -24,7 +26,7 @@ from app.schemas.reference_index import (
     ReferenceIndexStatusItem,
     ReferenceIndexStatusResponse,
 )
-from app.services._progress import make_progress
+from app.services._progress import make_cancellable_progress
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.reference_index_seeder import seed_reference_indices
 from app.services.yfinance import YFinanceClient, get_yfinance_client
@@ -37,6 +39,7 @@ router = APIRouter(prefix="/reference-indices", tags=["Reference Indices"])
 _job_service = BackgroundJobService(
     job_type="reference_index_seed",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
@@ -49,15 +52,18 @@ def _run_seed(
     job_id: str,
     request: ReferenceIndexSeedRequest,
     yf_client: YFinanceClient,
+    *,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     """Thin wrapper managing job lifecycle around the seeder service."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(job_id, _job_service, cancel_event)
     _job_service.update_job(job_id, status="running")
     try:
-        seed_reference_indices(
-            request.tickers,
-            yf_client,
-            on_progress=make_progress(job_id, _job_service),
-        )
+        seed_reference_indices(request.tickers, yf_client, on_progress=on_progress)
+    except CancelledError:
+        return
     except Exception as exc:
         logger.error("Reference-index seed job %s failed: %s", job_id, exc)
         _job_service.update_job(

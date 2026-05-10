@@ -1,11 +1,14 @@
 """FastAPI router for macroeconomic regime data fetch and read endpoints."""
 
 import logging
+import threading
+from concurrent.futures import CancelledError
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import database_manager, get_db
 from app.repositories.macro_regime_repository import MacroRegimeRepository
 from app.schemas.macro_regime import (
@@ -28,7 +31,7 @@ from app.schemas.macro_regime import (
     TradingEconomicsIndicatorResponse,
     TradingEconomicsObservationResponse,
 )
-from app.services._progress import make_progress
+from app.services._progress import make_cancellable_progress
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.macro_news_summary import run_news_summarize
 from app.services.macro_regime_service import (
@@ -57,6 +60,7 @@ _FORECAST_COLUMNS: frozenset[str] = frozenset({
 _job_service = BackgroundJobService(
     job_type="macro_fetch",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
@@ -68,14 +72,18 @@ _job_service = BackgroundJobService(
 def _run_bulk_fetch(
     job_id: str,
     request: MacroFetchRequest,
+    *,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     """Thin wrapper managing job lifecycle around the service function."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(job_id, _job_service, cancel_event)
     _job_service.update_job(job_id, status="running")
     try:
-        run_bulk_macro_fetch(
-            request,
-            on_progress=make_progress(job_id, _job_service),
-        )
+        run_bulk_macro_fetch(request, on_progress=on_progress)
+    except CancelledError:
+        return  # reaper owns terminal status
     except Exception as e:
         logger.error("Macro fetch %s failed: %s", job_id, e)
         _job_service.update_job(
@@ -241,17 +249,25 @@ def get_bond_yields(
 _fred_job_service = BackgroundJobService(
     job_type="fred_fetch",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
-def _run_fred_fetch(job_id: str, request: FredFetchRequest) -> None:
+def _run_fred_fetch(
+    job_id: str,
+    request: FredFetchRequest,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Thin wrapper managing job lifecycle around the service function."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(job_id, _fred_job_service, cancel_event)
     _fred_job_service.update_job(job_id, status="running")
     try:
-        run_bulk_fred_fetch(
-            request,
-            on_progress=make_progress(job_id, _fred_job_service),
-        )
+        run_bulk_fred_fetch(request, on_progress=on_progress)
+    except CancelledError:
+        return
     except Exception as exc:
         logger.error("FRED fetch %s failed: %s", job_id, exc)
         _fred_job_service.update_job(
@@ -474,17 +490,25 @@ def get_economic_indicator_observations(
 _news_job_service = BackgroundJobService(
     job_type="macro_news_fetch",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
-def _run_macro_news_fetch(job_id: str, request: MacroNewsFetchRequest) -> None:
+def _run_macro_news_fetch(
+    job_id: str,
+    request: MacroNewsFetchRequest,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Thin wrapper managing job lifecycle around the service function."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(job_id, _news_job_service, cancel_event)
     _news_job_service.update_job(job_id, status="running")
     try:
-        run_macro_news_fetch(
-            request,
-            on_progress=make_progress(job_id, _news_job_service),
-        )
+        run_macro_news_fetch(request, on_progress=on_progress)
+    except CancelledError:
+        return
     except Exception as exc:
         logger.error("Macro news fetch %s failed: %s", job_id, exc)
         _news_job_service.update_job(
@@ -640,17 +664,27 @@ def get_distinct_countries(
 _summarize_job_service = BackgroundJobService(
     job_type="news_summarize",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
-def _run_news_summarize(job_id: str, request: MacroNewsSummarizeRequest) -> None:
+def _run_news_summarize(
+    job_id: str,
+    request: MacroNewsSummarizeRequest,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Thin wrapper managing job lifecycle around the service function."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(
+        job_id, _summarize_job_service, cancel_event,
+    )
     _summarize_job_service.update_job(job_id, status="running")
     try:
-        run_news_summarize(
-            request,
-            on_progress=make_progress(job_id, _summarize_job_service),
-        )
+        run_news_summarize(request, on_progress=on_progress)
+    except CancelledError:
+        return
     except Exception as exc:
         logger.error("News summarize %s failed: %s", job_id, exc)
         _summarize_job_service.update_job(

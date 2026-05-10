@@ -7,14 +7,17 @@ GET  /api/v1/tune/{job_id} — poll job progress.
 from __future__ import annotations
 
 import logging
+import threading
+from concurrent.futures import CancelledError
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.config import settings
 from app.database import database_manager
 from app.metrics import time_endpoint
 from app.schemas.base_job import AsyncJobCreateResponse, AsyncJobProgress
 from app.schemas.tuning import TuneRequest, TuneResult
-from app.services._progress import make_progress
+from app.services._progress import make_cancellable_progress
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.tuning_service import run_tune
 
@@ -27,6 +30,7 @@ router = APIRouter(prefix="/tune", tags=["Tuning"])
 _tune_job_service = BackgroundJobService(
     job_type="tune",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
@@ -35,17 +39,25 @@ _tune_job_service = BackgroundJobService(
 # ---------------------------------------------------------------------------
 
 
-def _run_tune_bg(job_id: str, request: TuneRequest) -> None:
+def _run_tune_bg(
+    job_id: str,
+    request: TuneRequest,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Thin wrapper managing job lifecycle around the tuning service."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(job_id, _tune_job_service, cancel_event)
     _tune_job_service.update_job(job_id, status="running")
     try:
         with database_manager.get_session() as session:
-            result: TuneResult = run_tune(
-                session, request, on_progress=make_progress(job_id, _tune_job_service)
-            )
+            result: TuneResult = run_tune(session, request, on_progress=on_progress)
         _tune_job_service.update_job(
             job_id, status="completed", result=result.model_dump()
         )
+    except CancelledError:
+        return
     except Exception as exc:
         logger.error("Tune job %s failed: %s", job_id, exc)
         _tune_job_service.update_job(job_id, status="failed", error=str(exc))

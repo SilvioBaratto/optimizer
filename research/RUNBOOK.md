@@ -49,3 +49,37 @@ Both patterns share one rule: every wait is bounded by a poll counter or by the 
 
 - This is an **env var only**. It is not a schema field on `YFinanceFetchRequest` and does not propagate into the API request body — raising it on the shell side does not change `workers` or any payload field.
 - Do not raise the default in either script. Override per run, then unset.
+
+## Liveness reaper
+
+Every running background job writes a heartbeat to `background_jobs.last_heartbeat_at` while it works; the FastAPI lifespan reconciles stale rows at process startup. Source of truth: `api/app/services/background_job.py`, `api/app/repositories/background_job_repository.py`, `api/app/main.py`.
+
+### Orphan signals
+
+A row in `pending`/`running` is marked `failed` when **any** of the following hold:
+
+1. `worker_host IS NULL` — pre-migration row (no liveness data was written when the job started).
+2. `worker_host != current_host` — cross-host orphan: the row was written by a different node (container restart, host migration). The current process owns the table now.
+3. Same-host row whose `worker_pid` is no longer present in `/proc` — the original worker died without a chance to write `failed`. Linux-only; on macOS dev the PID branch returns empty and signals 1, 2, 4 do the work.
+4. `last_heartbeat_at IS NULL OR last_heartbeat_at < NOW() - heartbeat_timeout` — heartbeat is stale.
+
+### Tunables
+
+| Setting | Env var | Default | Purpose |
+|---------|---------|---------|---------|
+| `scheduler_heartbeat_cadence_seconds` | `SCHEDULER_HEARTBEAT_CADENCE_SECONDS` | `30` | How often each worker writes its heartbeat. Drop for tighter cancellation latency; raise to reduce DB write pressure. |
+| `scheduler_orphan_heartbeat_timeout_seconds` | `SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS` | `300` | How long the reaper waits before treating a missing heartbeat as orphaned. Must comfortably exceed the cadence (≥ 5×). |
+
+Both are wired through `Settings` in `api/app/config.py`; do not pass call-site overrides.
+
+### Cross-process restart behavior
+
+The reaper runs unconditionally inside the FastAPI lifespan **at most once per Python interpreter** (per-process sentinel `app.main._reconciled_this_process`). Operators do not need to invoke anything manually:
+
+- A container restart spawns a new interpreter → sentinel starts `False` → reaper runs once and clears any rows orphaned by the dying old process.
+- Hot-reload or duplicate lifespan invocations within the same interpreter are no-ops thanks to the sentinel; this prevents reaping live worker rows that the daemon thread is still updating.
+- The sentinel is reset only by interpreter exit; it is **not** an in-flight kill switch. To force a re-reap during a single process lifetime, restart the API.
+
+### Pre-#585–#588 rule (obsolete)
+
+Older versions had no liveness data, so any redeploy during a bulk fetch would either silently kill live rows or strand `pending`/`running` ghosts. **That rule no longer applies.** With the heartbeat + per-process sentinel + four-condition predicate in place it is safe to redeploy mid-fetch — the new process reaps only genuinely dead rows on startup, and the dying process's daemon worker is intentionally orphaned by container shutdown.

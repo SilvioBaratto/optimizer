@@ -35,6 +35,11 @@ class BackgroundJob(BaseModel):
     __tablename__ = "background_jobs"
     __table_args__ = (
         Index("ix_background_jobs_type_status", "job_type", "status"),
+        Index(
+            "ix_background_jobs_status_heartbeat",
+            "status",
+            "last_heartbeat_at",
+        ),
     )
 
     job_type: Mapped[str] = mapped_column(
@@ -52,6 +57,11 @@ class BackgroundJob(BaseModel):
         DateTime(timezone=True), nullable=False, server_default=func.now(),
     )
     finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    worker_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    worker_host: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
 

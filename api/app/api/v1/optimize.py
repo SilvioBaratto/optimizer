@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -15,6 +16,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import database_manager, get_db
 from app.metrics import time_endpoint
 from app.repositories.execution_repository import ExecutionRepository
@@ -37,6 +39,7 @@ router = APIRouter(prefix="/optimize", tags=["Optimization"])
 _job_service = BackgroundJobService(
     job_type="optimize",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 _DEFAULT_SYNC_THRESHOLD = 50
@@ -52,7 +55,13 @@ def _sync_threshold() -> int:
 # ---------------------------------------------------------------------------
 
 
-def _run_optimize_bg(job_id: str, run_id: str, request: OptimizeRequest) -> None:
+def _run_optimize_bg(
+    job_id: str,
+    run_id: str,
+    request: OptimizeRequest,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Background wrapper managing job + OptimizationRun lifecycle."""
     _job_service.update_job(job_id, status="running")
     try:

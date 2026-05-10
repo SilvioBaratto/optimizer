@@ -7,12 +7,22 @@ of PostgreSQL-only raw SQL in these two methods.
 
 from __future__ import annotations
 
+import os
+import socket
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from sqlalchemy.orm import Session
 
 from app.repositories.background_job_repository import BackgroundJobRepository
+
+
+def _make_stale(repo: BackgroundJobRepository, jid: uuid.UUID, session: Session) -> None:
+    """Force the row's heartbeat past the default 5-minute timeout."""
+    stale = datetime.now(timezone.utc) - timedelta(minutes=10)
+    repo.update(jid, last_heartbeat_at=stale)
+    session.flush()
 
 
 class TestClaimOrCreate:
@@ -235,7 +245,7 @@ class TestReconcileOrphans:
         repo = BackgroundJobRepository(db_session)
         jid = repo.claim_or_create("test_557_pending")
         assert jid is not None
-        db_session.flush()
+        _make_stale(repo, jid, db_session)
 
         count = repo.reconcile_orphans("orphaned at startup")
         assert count == 1
@@ -251,7 +261,7 @@ class TestReconcileOrphans:
         jid = repo.claim_or_create("test_557_running")
         assert jid is not None
         repo.update(jid, status="running")
-        db_session.flush()
+        _make_stale(repo, jid, db_session)
 
         count = repo.reconcile_orphans("orphaned at startup")
         assert count == 1
@@ -283,7 +293,7 @@ class TestReconcileOrphans:
         repo = BackgroundJobRepository(db_session)
         jid = repo.claim_or_create("test_557_idempotent")
         assert jid is not None
-        db_session.flush()
+        _make_stale(repo, jid, db_session)
 
         first = repo.reconcile_orphans("orphaned at startup")
         second = repo.reconcile_orphans("orphaned at startup")
@@ -297,7 +307,7 @@ class TestReconcileOrphans:
         for i in range(3):
             jid = repo.claim_or_create(f"test_557_multi_{i}")
             assert jid is not None
-        db_session.flush()
+            _make_stale(repo, jid, db_session)
 
         count = repo.reconcile_orphans("orphaned at startup")
         assert count == 3
@@ -314,7 +324,7 @@ class TestReconcileOrphans:
         )
         pending_id = repo.claim_or_create("test_557_mixed_pending")
         assert pending_id is not None
-        db_session.flush()
+        _make_stale(repo, pending_id, db_session)
 
         count = repo.reconcile_orphans("orphaned at startup")
         assert count == 1
@@ -333,7 +343,8 @@ class TestReconcileOrphans:
         running_id = repo.claim_or_create("test_558_running")
         assert running_id is not None
         repo.update(running_id, status="running")
-        db_session.flush()
+        _make_stale(repo, pending_id, db_session)
+        _make_stale(repo, running_id, db_session)
 
         count = repo.reconcile_orphans("test msg")
         assert count == 2
@@ -397,3 +408,116 @@ class TestReconcileOrphans:
         assert row.error == "original error"
         assert row.finished_at is not None
         assert row.finished_at.replace(tzinfo=timezone.utc) == finished
+
+
+_REPO_MODULE = "app.repositories.background_job_repository"
+
+
+class TestLivenessPredicate:
+    """Issue #586 — four-condition liveness predicate for reconcile_orphans."""
+
+    def test_reconcile_skips_live_pid_same_host(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("liveness_skip_live_pid")
+        assert jid is not None
+        db_session.flush()
+
+        with patch(f"{_REPO_MODULE}.sys.platform", "linux"), patch(
+            f"{_REPO_MODULE}.os.path.exists", return_value=True
+        ):
+            count = repo.reconcile_orphans("orphan")
+
+        assert count == 0
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == "pending"
+
+    def test_reconcile_marks_dead_pid_same_host(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("liveness_dead_pid")
+        assert jid is not None
+        db_session.flush()
+
+        with patch(f"{_REPO_MODULE}.sys.platform", "linux"), patch(
+            f"{_REPO_MODULE}.os.path.exists", return_value=False
+        ):
+            count = repo.reconcile_orphans("orphan")
+
+        assert count == 1
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == "failed"
+
+    def test_reconcile_marks_stale_heartbeat(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("liveness_stale_hb")
+        assert jid is not None
+        _make_stale(repo, jid, db_session)
+
+        count = repo.reconcile_orphans("orphan")
+
+        assert count == 1
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == "failed"
+
+    def test_reconcile_marks_cross_host_orphan(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("liveness_cross_host")
+        assert jid is not None
+        db_session.flush()
+
+        count = repo.reconcile_orphans("orphan", current_host="OTHER_HOST_NAME")
+
+        assert count == 1
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == "failed"
+
+    def test_claim_or_create_writes_pid_host_heartbeat(
+        self, db_session: Session,
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("liveness_claim_writes")
+        assert jid is not None
+        db_session.flush()
+
+        row = repo.get(jid)
+        assert row is not None
+        assert row.worker_pid == os.getpid()
+        assert row.worker_host == socket.gethostname()
+        assert row.last_heartbeat_at is not None
+
+    def test_update_heartbeat_returns_false_for_failed_row(
+        self, db_session: Session,
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("liveness_hb_failed")
+        assert jid is not None
+        repo.update(
+            jid, status="failed", finished_at=datetime.now(timezone.utc),
+        )
+        db_session.flush()
+
+        ok = repo.update_heartbeat(jid)
+        assert ok is False
+
+    def test_update_job_noop_when_reaper_has_failed_row(
+        self, db_session: Session,
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("liveness_race")
+        assert jid is not None
+        repo.update(jid, status="running", current=10)
+        _make_stale(repo, jid, db_session)
+
+        reaped = repo.reconcile_orphans("orphan")
+        assert reaped == 1
+
+        rowcount = repo.update(jid, current=50)
+        assert rowcount == 0
+
+        row = repo.get(jid)
+        assert row is not None
+        assert row.current == 10
+        assert row.status == "failed"

@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 
+from app.config import settings
 from app.database import database_manager
 from app.schemas.reports import (
     ReportGenerateRequest,
@@ -32,6 +34,7 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 _report_job_service = BackgroundJobService(
     job_type="report_generate",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 # Default output directory — configurable via env var.
@@ -60,6 +63,8 @@ def _find_report_path(report_id: str) -> str | None:
 def _run_report_generation(
     job_id: str,
     request: ReportGenerateRequest,
+    *,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     """Execute report generation in a daemon thread."""
     _report_job_service.update_job(job_id, status="running")

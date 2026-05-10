@@ -1,4 +1,4 @@
-"""Tests for FastAPI lifespan reconcile_orphans wiring (issue #559)."""
+"""Tests for FastAPI lifespan reconcile_orphans wiring (issues #559, #588)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,14 @@ import pytest
 from fastapi import FastAPI
 
 from app import main as main_module
+
+
+@pytest.fixture(autouse=True)
+def _reset_sentinel():
+    """Issue #588: ensure each test starts with a clean per-process sentinel."""
+    main_module._reconciled_this_process = False
+    yield
+    main_module._reconciled_this_process = False
 
 
 @contextmanager
@@ -61,7 +69,8 @@ async def test_when_lifespan_starts_reconcile_orphans_invoked() -> None:
         async with main_module.lifespan(app):
             pass
     m["repo"].reconcile_orphans.assert_called_once_with(
-        "orphaned at startup — process restarted"
+        "orphaned at startup — process restarted",
+        heartbeat_timeout_seconds=300,
     )
     m["session"].commit.assert_called()
 
@@ -115,3 +124,42 @@ async def test_when_reconciliation_runs_it_runs_before_scheduler() -> None:
             pass
 
     assert call_order == ["reconcile", "scheduler"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #588 — per-process sentinel
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_lifespan_reconcile_runs_once_per_process() -> None:
+    """Two lifespan invocations in the same interpreter ⇒ one reconcile call."""
+    app = FastAPI()
+    with _patched_startup(reconcile_return=1) as m:
+        async with main_module.lifespan(app):
+            pass
+        async with main_module.lifespan(app):
+            pass
+
+    assert m["repo"].reconcile_orphans.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_lifespan_sentinel_not_set_when_reconcile_fails() -> None:
+    """Failed reconcile must leave the sentinel False so the next lifespan retries."""
+    app = FastAPI()
+    with _patched_startup(reconcile_exc=RuntimeError("db down")):
+        async with main_module.lifespan(app):
+            pass
+
+    assert main_module._reconciled_this_process is False
+
+
+@pytest.mark.asyncio
+async def test_lifespan_sentinel_set_after_successful_reconcile() -> None:
+    app = FastAPI()
+    with _patched_startup(reconcile_return=0):
+        async with main_module.lifespan(app):
+            pass
+
+    assert main_module._reconciled_this_process is True

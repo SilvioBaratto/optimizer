@@ -334,6 +334,8 @@ Configuration via `.env` at project root:
 - `SCHEDULER_FRED_MONTHLY_CRON` — (default `0 8 1 * *`)
 - `SCHEDULER_NEWS_REFRESH_INTERVAL_MIN` — minutes (default `30`)
 - `SCHEDULER_MISFIRE_GRACE_TIME_SECONDS` — (default `3600`)
+- `SCHEDULER_HEARTBEAT_CADENCE_SECONDS` — background-job worker heartbeat cadence (default `30`)
+- `SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS` — orphan reaper staleness threshold (default `300`)
 
 ### Docker Compose
 

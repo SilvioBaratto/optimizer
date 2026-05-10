@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
+from concurrent.futures import CancelledError
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -24,7 +26,7 @@ from app.schemas.portfolio import (
     SyncJobResponse,
     SyncProgressResponse,
 )
-from app.services._progress import make_progress
+from app.services._progress import make_cancellable_progress
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.broker_sync_service import sync_portfolio
 from app.services.trading212.client import Trading212Client
@@ -36,6 +38,7 @@ router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 _sync_job_service = BackgroundJobService(
     job_type="portfolio_sync",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
@@ -44,8 +47,17 @@ _sync_job_service = BackgroundJobService(
 # ---------------------------------------------------------------------------
 
 
-def _run_sync(job_id: str, portfolio_id: str, mode: str) -> None:
+def _run_sync(
+    job_id: str,
+    portfolio_id: str,
+    mode: str,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Execute T212 sync in a background thread with its own DB session."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(job_id, _sync_job_service, cancel_event)
     _sync_job_service.update_job(job_id, status="running")
 
     try:
@@ -54,7 +66,6 @@ def _run_sync(job_id: str, portfolio_id: str, mode: str) -> None:
             api_secret=settings.trading_212_secret_key or "",
             mode=mode,
         )
-        on_progress = make_progress(job_id, _sync_job_service)
 
         with database_manager.get_session() as session:
             result = sync_portfolio(
@@ -79,6 +90,8 @@ def _run_sync(job_id: str, portfolio_id: str, mode: str) -> None:
         )
         logger.info("Sync job %s completed for portfolio %s", job_id, portfolio_id)
 
+    except CancelledError:
+        return  # reaper owns terminal status
     except Exception as e:
         logger.error("Sync job %s failed: %s", job_id, e)
         _sync_job_service.update_job(

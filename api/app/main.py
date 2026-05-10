@@ -40,6 +40,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Per-process sentinel: ``reconcile_orphans`` runs at most once per Python
+# interpreter (issue #588). A successful run flips this True and subsequent
+# lifespan invocations in the same process skip the DB round-trip. A new
+# process — uvicorn worker, container restart — gets a fresh False.
+_reconciled_this_process: bool = False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -69,20 +76,32 @@ async def lifespan(app: FastAPI):
 
         # Reconcile orphan background jobs left behind by a crashed process.
         # Must run after init_db (engine ready) and before create_scheduler
-        # (no jobs firing yet). Failures are non-fatal.
-        try:
-            from app.repositories.background_job_repository import (
-                BackgroundJobRepository,
-            )
-
-            with database_manager.get_session() as session:
-                n = BackgroundJobRepository(session).reconcile_orphans(
-                    "orphaned at startup — process restarted"
+        # (no jobs firing yet). Failures are non-fatal. Per-process sentinel
+        # guards against duplicate lifespan invocations in the same
+        # interpreter (issue #588).
+        global _reconciled_this_process
+        if not _reconciled_this_process:
+            try:
+                from app.repositories.background_job_repository import (
+                    BackgroundJobRepository,
                 )
-                session.commit()
-                logger.info("Reconciled %d orphan job(s) on startup", n)
-        except Exception as exc:
-            logger.warning("Orphan reconciliation failed: %s", exc)
+
+                with database_manager.get_session() as session:
+                    n = BackgroundJobRepository(session).reconcile_orphans(
+                        "orphaned at startup — process restarted",
+                        heartbeat_timeout_seconds=(
+                            settings.scheduler_orphan_heartbeat_timeout_seconds
+                        ),
+                    )
+                    session.commit()
+                    logger.info("Reconciled %d orphan job(s) on startup", n)
+                _reconciled_this_process = True
+            except Exception as exc:
+                logger.warning("Orphan reconciliation failed: %s", exc)
+        else:
+            logger.debug(
+                "Skipping orphan reconciliation — already ran in this process"
+            )
 
         # Bootstrap reference-index benchmarks — seed any ticker whose price
         # history is missing or stale. Synchronous so the dashboard never

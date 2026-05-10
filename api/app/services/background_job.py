@@ -46,10 +46,12 @@ class BackgroundJobService:
         job_type: str,
         session_factory: Any,
         ttl_seconds: int = 86400,
+        heartbeat_cadence_seconds: float = 30.0,
     ) -> None:
         self._job_type = job_type
         self._session_factory = session_factory
         self._ttl_seconds = ttl_seconds
+        self._heartbeat_cadence = heartbeat_cadence_seconds
         self._start_times: dict[str, float] = {}
         self._metrics_lock = threading.Lock()
 
@@ -109,7 +111,13 @@ class BackgroundJobService:
             return self._row_to_dict(row)
 
     def update_job(self, job_id: str, **kwargs: Any) -> None:
-        """Update an existing job.  No-op if the job does not exist."""
+        """Update an existing job.  No-op if the job does not exist.
+
+        Logs WARNING when the underlying status-guarded UPDATE matched no
+        row and the requested status is not terminal — typically the
+        worker-vs-reaper race closure (the row was already failed by the
+        orphan reaper before this write landed).
+        """
         try:
             uid = uuid.UUID(job_id)
         except ValueError:
@@ -119,8 +127,14 @@ class BackgroundJobService:
 
         with self._session_factory() as session:
             repo = BackgroundJobRepository(session)
-            repo.update(uid, **kwargs)
+            rowcount = repo.update(uid, **kwargs)
             session.commit()
+
+        if rowcount == 0 and kwargs.get("status") not in ("failed", "completed", None):
+            logger.warning(
+                "update_job no-op for %s: row reaped or absent (kwargs=%s)",
+                job_id, kwargs,
+            )
 
     def is_any_running(self) -> tuple[bool, str | None]:
         """Check whether any job of this type is pending or running.
@@ -135,11 +149,91 @@ class BackgroundJobService:
         self,
         target: Any,
         args: tuple[Any, ...] = (),
-    ) -> threading.Thread:
-        """Launch *target* in a daemon thread and return the Thread."""
-        thread = threading.Thread(target=target, args=args, daemon=True)
-        thread.start()
-        return thread
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[threading.Thread, threading.Event]:
+        """Launch *target* in a daemon thread with a heartbeat companion.
+
+        Returns ``(worker_thread, cancel_event)``. The event is set by the
+        heartbeat thread when the underlying row has been reaped, and by
+        the worker wrapper on exit. Callers can pass an externally-built
+        event so that an ``on_progress`` closure constructed via
+        ``make_cancellable_progress`` shares the same fence token; if
+        omitted, an internal event is created and returned.
+        """
+        job_id = self._extract_job_id(args)
+        cancel_event = cancel_event if cancel_event is not None else threading.Event()
+        cadence = self._heartbeat_cadence
+
+        heartbeat = threading.Thread(
+            target=self._run_heartbeat,
+            args=(uuid.UUID(job_id), cancel_event, cadence),
+            daemon=True,
+            name=f"hb:{self._job_type}:{job_id[:8]}",
+        )
+
+        def _wrapped() -> None:
+            try:
+                target(*args, cancel_event=cancel_event)
+            except Exception:
+                logger.exception("background worker target raised")
+            finally:
+                cancel_event.set()
+                heartbeat.join(timeout=2 * cadence)
+
+        worker = threading.Thread(
+            target=_wrapped,
+            daemon=True,
+            name=f"job:{self._job_type}:{job_id[:8]}",
+        )
+        heartbeat.start()
+        worker.start()
+        return worker, cancel_event
+
+    @staticmethod
+    def _extract_job_id(args: tuple[Any, ...]) -> str:
+        """First positional arg is conventionally ``job_id: str``."""
+        if not args or not isinstance(args[0], str):
+            raise ValueError(
+                "start_background requires args[0] to be a job_id string",
+            )
+        return args[0]
+
+    def _run_heartbeat(
+        self,
+        job_id: uuid.UUID,
+        stop_event: threading.Event,
+        cadence: float,
+    ) -> None:
+        """Refresh ``last_heartbeat_at`` on each cadence tick.
+
+        Stops when *stop_event* is set, when the row has been reaped
+        (``update_heartbeat`` returns False) or when a DB error occurs.
+        DB errors are logged at WARNING and swallowed so a transient DB
+        hiccup does not kill the worker.
+        """
+        while not stop_event.wait(timeout=cadence):
+            if not self._tick_heartbeat(job_id, stop_event):
+                return
+
+    def _tick_heartbeat(
+        self,
+        job_id: uuid.UUID,
+        stop_event: threading.Event,
+    ) -> bool:
+        """Single heartbeat tick. Returns False if loop should exit."""
+        try:
+            with self._session_factory() as session:
+                repo = BackgroundJobRepository(session)
+                ok = repo.update_heartbeat(job_id)
+                session.commit()
+        except Exception:
+            logger.warning("heartbeat update failed for %s", job_id, exc_info=True)
+            return True
+        if not ok:
+            logger.warning("heartbeat reaped row %s — signalling cancel", job_id)
+            stop_event.set()
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # Internal helpers

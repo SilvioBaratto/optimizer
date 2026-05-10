@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import threading
+from concurrent.futures import CancelledError
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import database_manager, get_db
 from app.schemas.macro_regime import (
     MacroCalibrateBatchJobResponse,
@@ -15,7 +18,7 @@ from app.schemas.macro_regime import (
     MacroCalibrateBatchRequest,
     MacroCalibrationResponse,
 )
-from app.services._progress import make_progress
+from app.services._progress import make_cancellable_progress
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.macro_calibration import (
     CalibrationResult,
@@ -32,6 +35,7 @@ router = APIRouter(prefix="/views", tags=["Views"])
 _calibrate_job_service = BackgroundJobService(
     job_type="macro_calibrate",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
@@ -121,15 +125,24 @@ def get_macro_calibration(
 # ---------------------------------------------------------------------------
 
 
-def _run_bulk_calibrate(job_id: str, countries: list[str], force_refresh: bool) -> None:
+def _run_bulk_calibrate(
+    job_id: str,
+    countries: list[str],
+    force_refresh: bool,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Thin wrapper managing job lifecycle around the service function."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(
+        job_id, _calibrate_job_service, cancel_event,
+    )
     _calibrate_job_service.update_job(job_id, status="running", total=len(countries))
     try:
-        run_bulk_calibrate(
-            countries,
-            force_refresh,
-            on_progress=make_progress(job_id, _calibrate_job_service),
-        )
+        run_bulk_calibrate(countries, force_refresh, on_progress=on_progress)
+    except CancelledError:
+        return
     except Exception as exc:
         logger.error("Bulk calibration %s failed: %s", job_id, exc)
         _calibrate_job_service.update_job(

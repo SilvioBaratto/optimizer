@@ -88,7 +88,7 @@ def _run_direct_fetch(period: str, mode: str) -> None:
 @yfinance_app.command()
 def fetch(
     ctx: typer.Context,
-    max_workers: int = typer.Option(4, help="Parallel workers (1-20)"),
+    workers: int = typer.Option(1, "--workers", help="Parallel workers (1-16)"),
     period: str = typer.Option("5y", help="Price history period (e.g. 1y, 2y, 5y)"),
     mode: str = typer.Option(
         "incremental", help="Fetch mode: 'incremental' (skip fresh) or 'full'"
@@ -110,7 +110,7 @@ def fetch(
         _run_direct_fetch(period=period, mode=mode)
         return
 
-    job = client.start_fetch(max_workers=max_workers, period=period, mode=mode)
+    job = client.start_fetch(workers=workers, period=period, mode=mode)
     job_id = job["job_id"]
     success_panel(f"Fetch started: {job_id}")
 

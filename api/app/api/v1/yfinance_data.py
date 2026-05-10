@@ -1,12 +1,15 @@
 """FastAPI router for yfinance data fetch and read endpoints."""
 
 import logging
+import threading
+from concurrent.futures import CancelledError
 from datetime import date, datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import database_manager, get_db
 from app.repositories.yfinance_repository import YFinanceRepository
 from app.schemas.yfinance_data import (
@@ -27,7 +30,7 @@ from app.schemas.yfinance_data import (
     YFinanceSingleFetchRequest,
     YFinanceSingleFetchResponse,
 )
-from app.services._progress import make_progress
+from app.services._progress import make_cancellable_progress
 from app.services.background_job import BackgroundJobService, JobAlreadyRunningError
 from app.services.yfinance import YFinanceClient, get_yfinance_client
 from app.services.yfinance_data_service import (
@@ -43,6 +46,7 @@ router = APIRouter(prefix="/yfinance-data", tags=["YFinance Data"])
 _job_service = BackgroundJobService(
     job_type="yfinance_fetch",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
@@ -55,15 +59,23 @@ def _run_bulk_fetch(
     job_id: str,
     request: YFinanceFetchRequest,
     yf_client: YFinanceClient,
+    *,
+    cancel_event: threading.Event | None = None,
 ) -> None:
-    """Thin wrapper managing job lifecycle around the service function."""
+    """Thin wrapper managing job lifecycle around the service function.
+
+    Cancel-policy: on ``CancelledError`` the reaper already owns the row's
+    terminal status — skip the wrapper-side terminal write to avoid a
+    duplicate failed write (issue #589).
+    """
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(job_id, _job_service, cancel_event)
     _job_service.update_job(job_id, status="running")
     try:
-        run_bulk_yfinance_fetch(
-            request,
-            yf_client,
-            on_progress=make_progress(job_id, _job_service),
-        )
+        run_bulk_yfinance_fetch(request, yf_client, on_progress=on_progress)
+    except CancelledError:
+        return
     except Exception as e:
         logger.error("Bulk fetch %s failed: %s", job_id, e)
         _job_service.update_job(

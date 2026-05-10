@@ -292,6 +292,7 @@ def generate_country_summaries(
     session: Session,
     force_refresh: bool = False,
     countries: list[str] | None = None,
+    on_progress: ProgressCallback = _noop,
 ) -> list[CountrySummaryResult]:
     """Generate daily news summaries for mapped countries.
 
@@ -299,6 +300,9 @@ def generate_country_summaries(
         session: Active SQLAlchemy session.
         force_refresh: When True, bypass the cache and re-invoke the LLM.
         countries: Restrict to these countries. None means all mapped countries.
+        on_progress: Per-country checkpoint hook. Receives ``current``,
+            ``total`` and ``current_country`` kwargs before each summary
+            attempt so the caller can observe cooperative cancellation.
 
     Returns:
         List of :class:`CountrySummaryResult` for each successfully summarized country.
@@ -323,9 +327,14 @@ def generate_country_summaries(
 
     today = datetime.now(timezone.utc).date()
 
-    # Summarize per country
+    # Summarize per country — issue #589: emit a progress checkpoint before
+    # each LLM call so the caller's cancellation event is observed within
+    # one country's worth of work.
+    sorted_items = sorted(country_articles.items())
+    total = len(sorted_items)
     results: list[CountrySummaryResult] = []
-    for country, arts in sorted(country_articles.items()):
+    for idx, (country, arts) in enumerate(sorted_items, start=1):
+        on_progress(current=idx, total=total, current_country=country)
         result = _summarize_country(repo, country, arts, today, force_refresh)
         if result is not None:
             results.append(result)
@@ -428,6 +437,7 @@ def run_news_summarize(
             session,
             force_refresh=request.force_refresh,
             countries=request.countries,
+            on_progress=on_progress,
         )
         session.commit()
 

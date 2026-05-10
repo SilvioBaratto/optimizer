@@ -1,6 +1,7 @@
 """FastAPI router for Trading212 universe endpoints."""
 
 import logging
+import threading
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -42,6 +43,7 @@ router = APIRouter(prefix="/universe", tags=["Universe"])
 _job_service = BackgroundJobService(
     job_type="universe_build",
     session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
 
@@ -56,6 +58,8 @@ def _run_build(
     config: UniverseBuilderConfig,
     client: Trading212Client,
     cache: TickerMappingCache,
+    *,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     """Execute universe build in a background thread with its own DB session."""
     _job_service.update_job(build_id, status="running")
