@@ -13,6 +13,10 @@ from ..protocols import CircuitBreakerProtocol, RateLimiterProtocol
 
 logger = logging.getLogger(__name__)
 
+_ETF_PREDEFINED_NAMES: frozenset[str] = frozenset(
+    {"top_etfs_us", "top_performing_etfs", "technology_etfs", "bond_etfs"}
+)
+
 
 class ScreenerClient:
     """Wraps ``yf.screen()`` and predefined screener queries."""
@@ -53,6 +57,29 @@ class ScreenerClient:
             is_rate_limit_error=is_rate_limit_error,
             on_rate_limit=self.circuit_breaker.trigger,
             on_success=lambda _: self.circuit_breaker.reset(),
+        )
+
+    def screen_etfs_predefined(
+        self,
+        name: str,
+        size: int = 25,
+        offset: int = 0,
+        sort_field: str = "ticker",
+        sort_asc: bool = True,
+        max_retries: int | None = None,
+    ) -> pd.DataFrame | None:
+        if name not in _ETF_PREDEFINED_NAMES:
+            raise ValueError(
+                f"Unknown ETF predefined screen '{name}'. "
+                f"Valid: {sorted(_ETF_PREDEFINED_NAMES)}"
+            )
+        return self.screen(
+            name,
+            offset=offset,
+            size=size,
+            sort_field=sort_field,
+            sort_asc=sort_asc,
+            max_retries=max_retries,
         )
 
     @staticmethod

@@ -337,6 +337,18 @@ class SectorIndustryClientProtocol(Protocol):
         self, sector_key: str, max_retries: int | None = None
     ) -> pd.DataFrame | None: ...
 
+    def fetch_sector_industries(
+        self, sector_key: str, max_retries: int | None = None
+    ) -> pd.DataFrame | None: ...
+
+    def fetch_sector_research_reports(
+        self, sector_key: str, max_retries: int | None = None
+    ) -> pd.DataFrame | None: ...
+
+    def fetch_sector_top_growth_companies(
+        self, sector_key: str, max_retries: int | None = None
+    ) -> pd.DataFrame | None: ...
+
     def fetch_industry_overview(
         self, industry_key: str, max_retries: int | None = None
     ) -> dict[str, Any] | None: ...
@@ -353,11 +365,26 @@ class SectorIndustryClientProtocol(Protocol):
         self, industry_key: str, max_retries: int | None = None
     ) -> pd.DataFrame | None: ...
 
+    def fetch_industry_research_reports(
+        self, industry_key: str, max_retries: int | None = None
+    ) -> pd.DataFrame | None: ...
+
+    def fetch_industry_top_growth_companies(
+        self, industry_key: str, max_retries: int | None = None
+    ) -> pd.DataFrame | None: ...
+
 
 @runtime_checkable
 class SearchClientProtocol(Protocol):
     def search(
-        self, query: str, max_results: int = 8, max_retries: int | None = None
+        self,
+        query: str,
+        max_results: int = 8,
+        news_count: int = 5,
+        include_lists: bool = False,
+        include_research: bool = False,
+        include_nav: bool = False,
+        max_retries: int | None = None,
     ) -> dict[str, Any] | None: ...
 
     def lookup(
@@ -376,6 +403,16 @@ class ScreenerClientProtocol(Protocol):
         query: Any,
         offset: int = 0,
         size: int = 25,
+        sort_field: str = "ticker",
+        sort_asc: bool = True,
+        max_retries: int | None = None,
+    ) -> pd.DataFrame | None: ...
+
+    def screen_etfs_predefined(
+        self,
+        name: str,
+        size: int = 25,
+        offset: int = 0,
         sort_field: str = "ticker",
         sort_asc: bool = True,
         max_retries: int | None = None,

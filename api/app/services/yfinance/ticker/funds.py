@@ -11,12 +11,39 @@ from .._base import BaseClient
 
 logger = logging.getLogger(__name__)
 
+_FUND_QUOTE_TYPES: frozenset[str] = frozenset({"ETF", "MUTUALFUND"})
+_QUOTE_TYPE_TTL_SECONDS: float = 3600.0
+
 
 class FundsClient(BaseClient):
     """Wraps ``yf.Ticker.funds_data`` attributes."""
 
+    def _get_quote_type(self, symbol: str) -> str | None:
+        """Return cached ``quote_type`` (uppercased) for *symbol*, or ``None``."""
+        cache_key = f"qt:{symbol}"
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            return cached if cached != "" else None
+
+        fast_info = getattr(self._get_ticker(symbol), "fast_info", None)
+        if fast_info is None:
+            return None
+        raw = getattr(fast_info, "quote_type", None)
+        normalised = raw.upper() if isinstance(raw, str) else None
+
+        self.cache.put(cache_key, normalised or "", ttl=_QUOTE_TYPE_TTL_SECONDS)
+        return normalised
+
     def _get_funds_data(self, symbol: str) -> Any:
-        """Return the ``funds_data`` object for *symbol*."""
+        """Return ``funds_data`` for *symbol*, short-circuiting non-fund tickers."""
+        quote_type = self._get_quote_type(symbol)
+        if quote_type is None:
+            logger.warning(
+                "fast_info.quote_type unavailable for '%s'; failing open to funds_data",
+                symbol,
+            )
+        elif quote_type not in _FUND_QUOTE_TYPES:
+            return None
         return self._get_ticker(symbol).funds_data
 
     def fetch_fund_overview(

@@ -22,6 +22,17 @@ _LOOKUP_ASSET_TYPES = {
     "cryptocurrency": "get_cryptocurrency",
 }
 
+_SEARCH_EXTRA_ATTRS: tuple[str, ...] = ("lists", "research", "nav")
+
+
+def _collect_extras(search_obj: Any, flags: dict[str, bool]) -> dict[str, Any]:
+    """Return enabled-extras keyed by attribute, ``None`` when absent."""
+    return {
+        attr: getattr(search_obj, attr, None)
+        for attr in _SEARCH_EXTRA_ATTRS
+        if flags[attr]
+    }
+
 
 class SearchClient:
     """Wraps ``yf.Search`` and ``yf.Lookup``."""
@@ -40,19 +51,43 @@ class SearchClient:
         self,
         query: str,
         max_results: int = 8,
+        news_count: int = 5,
+        include_lists: bool = False,
+        include_research: bool = False,
+        include_nav: bool = False,
         max_retries: int | None = None,
     ) -> dict[str, Any] | None:
-        logger.debug("Searching for '%s' (max_results=%d)", query, max_results)
+        """Run a Yahoo search and return ``quotes``/``news`` plus opt-in extras.
+
+        ``max_results`` controls the quote count; ``news_count`` controls the
+        news count (forwarded to ``yf.Search``). ``include_lists`` /
+        ``include_research`` / ``include_nav`` toggle inclusion of the
+        corresponding key in the returned dict (value via ``getattr`` so a
+        missing attribute resolves to ``None`` rather than raising).
+        """
+        logger.debug(
+            "Searching for '%s' (max_results=%d, news_count=%d, "
+            "include_lists=%s, include_research=%s, include_nav=%s)",
+            query,
+            max_results,
+            news_count,
+            include_lists,
+            include_research,
+            include_nav,
+        )
         retries = max_retries if max_retries is not None else self.default_max_retries
+
+        flags = {
+            "lists": include_lists,
+            "research": include_research,
+            "nav": include_nav,
+        }
 
         def _action() -> dict[str, Any] | None:
             self.circuit_breaker.check()
             self.rate_limiter.acquire("search")
-            s = yf.Search(query, max_results=max_results)
-            return {
-                "quotes": s.quotes,
-                "news": s.news,
-            }
+            s = yf.Search(query, max_results=max_results, news_count=news_count)
+            return {"quotes": s.quotes, "news": s.news, **_collect_extras(s, flags)}
 
         return retry_with_backoff(
             _action,

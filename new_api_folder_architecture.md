@@ -26,7 +26,15 @@ factors, risk, rebalancing, views, attribution, dashboard, scenarios,
 reports, jobs
 ```
 
-Plus `execution/` under `models/` + `repositories/` only (shared persistence parent of `optimization` + `backtest`).
+Plus `execution/` under `models/` + `repositories/` only (shared persistence parent of `optimization` + `backtest`). `execution/` is **deliberately absent** from `api/v1/`, `services/`, and `schemas/` — those layers route through `optimization/` and `backtest/` directly.
+
+### Asymmetries (intentional)
+
+- `auth/` exists only under `models/`. Middleware lives in `middleware/auth.py` (transport concern, not a domain).
+- `execution/` exists only under `models/` + `repositories/`.
+- `attribution/`, `dashboard/`, `views/`, `scenarios/`, `reports/` have no `models/<domain>/` folder — these clusters do not own ORM tables (they read from other domains' models).
+- `views/` has `repositories/views/` (for `view_generation_repository`) but no `models/views/` — view generation reads `Instrument` + `PriceHistory` + `TickerProfile` from `market_data/` + `universe/`.
+- `repositories/macro/sentiment_repository.py` exists without a corresponding `models/macro/sentiment.py` — sentiment data is sourced via the existing `MacroNews` model from `models/macro/macro_regime.py`; no separate ORM class.
 
 ## Top-level tree
 
@@ -317,6 +325,8 @@ Note: `macro_calibration.py` route registers under the `/views/macro-calibration
 
 ## `_shared/` placement (per layer)
 
+### Summary by layer
+
 | Layer | Files in `_shared/` | Purpose |
 |-------|---------------------|---------|
 | `api/v1/_shared/` | `router.py`, `metrics.py`, `database.py`, `test.py`, `__init__.py` | App-level FastAPI router aggregator + admin/diagnostic endpoints |
@@ -325,18 +335,52 @@ Note: `macro_calibration.py` route registers under the `/views/macro-calibration
 | `services/_shared/` | `_price_fetcher.py`, `_sector_resolver.py`, `_json_safe.py`, `_progress.py`, `_benchmark_bootstrap.py`, `trading_calendar.py`, `notifications.py` | Cross-domain helpers: price fetcher (used by 6 services), sector resolver (attribution + dashboard), JSON-safe coercion, progress callbacks, lifespan benchmark seeding, exchange calendar, webhook notifications |
 | `schemas/_shared/` | `base.py`, `base_job.py` | `CamelCaseModel` Pydantic base + `AsyncJobCreateResponse` / `AsyncJobProgress` |
 
+### Explicit source → target mapping for `_shared/` files
+
+The cluster tables above cover domain files. The 16 cross-cutting files below land in `_shared/` and are listed explicitly so no source path is implicit:
+
+| Source | Target |
+|--------|--------|
+| `api/v1/router.py` | `api/v1/_shared/router.py` |
+| `api/v1/metrics.py` | `api/v1/_shared/metrics.py` |
+| `api/v1/database.py` | `api/v1/_shared/database.py` |
+| `api/v1/test.py` | `api/v1/_shared/test.py` |
+| `models/base.py` | `models/_shared/base.py` |
+| `repositories/base.py` | `repositories/_shared/base.py` |
+| `repositories/database_admin_repository.py` | `repositories/_shared/database_admin_repository.py` |
+| `services/_price_fetcher.py` | `services/_shared/_price_fetcher.py` |
+| `services/_sector_resolver.py` | `services/_shared/_sector_resolver.py` |
+| `services/_json_safe.py` | `services/_shared/_json_safe.py` |
+| `services/_progress.py` | `services/_shared/_progress.py` |
+| `services/_benchmark_bootstrap.py` | `services/_shared/_benchmark_bootstrap.py` |
+| `services/trading_calendar.py` | `services/_shared/trading_calendar.py` |
+| `services/notifications.py` | `services/_shared/notifications.py` |
+| `schemas/base.py` | `schemas/_shared/base.py` |
+| `schemas/base_job.py` | `schemas/_shared/base_job.py` (rename pending — see open question 2) |
+
 `services/infrastructure/` (cache, circuit_breaker, rate_limiter, retry) is **already** structured as a sub-package and stays at the top of `services/`. It is a deliberately public utility surface (re-exported via `services/yfinance/infrastructure/` shims for the existing CLI/agent integrations) and does **not** move under `_shared/`.
 
 ## Already-structured sub-packages
 
 These move as a unit (no internal restructuring):
 
-| Source pkg | Target pkg |
-|------------|-----------|
-| `services/yfinance/` | `services/market_data/yfinance/` |
-| `services/trading212/` | `services/universe/trading212/` |
-| `services/scrapers/` | `services/macro/scrapers/` |
-| `services/infrastructure/` | (unchanged — stays at top of `services/`) |
+| Source pkg | Target pkg | File count |
+|------------|-----------|------------|
+| `services/yfinance/` | `services/market_data/yfinance/` | 29 |
+| `services/trading212/` | `services/universe/trading212/` | 11 |
+| `services/scrapers/` | `services/macro/scrapers/` | 5 |
+| `services/infrastructure/` | (unchanged — stays at top of `services/`) | 5 |
+
+The internal layout of these packages is preserved verbatim. For reference, the files implicitly carried along include (non-exhaustive):
+
+- `services/yfinance/protocols/` (`__init__.py`, `interfaces.py`)
+- `services/yfinance/market/` (`streaming.py`, `screener.py`, plus existing modules)
+- `services/yfinance/ticker/` (`financials.py`, `metadata.py`, `analysis.py`, `corporate_actions.py`, `funds.py`, `holders.py`)
+- `services/yfinance/news/` (`aggregator.py`, plus existing modules)
+- `services/yfinance/infrastructure/` (re-export shims of `services/infrastructure/`)
+- `services/trading212/cache/`, `services/trading212/filters/`, `services/trading212/ticker_mapper.py`, `services/trading212/config.py`, `services/trading212/builder.py`, `services/trading212/client.py`, `services/trading212/protocols.py`
+- `services/scrapers/fred_scraper.py`, `ilsole_scraper.py`, `tradingeconomics_scraper.py`, `exceptions.py`
+- `services/infrastructure/cache.py`, `circuit_breaker.py`, `rate_limiter.py`, `retry.py`
 
 ## Files NOT moved
 
@@ -350,18 +394,103 @@ Top-level `api/app/*.py` infrastructure files are app-wide scaffolding, not doma
 - `main.py`
 - `__init__.py`
 
-`middleware/` and `utils/` are already structured and untouched. `core/` is currently empty — open question whether to keep or remove.
+`middleware/` is untouched (6 files: `__init__.py`, `auth.py`, `logging.py`, `rate_limiting.py`, `security.py`, `metrics_middleware.py`).
 
-## Open questions / call-outs
+`utils/` is untouched (3 files: `__init__.py`, `currency.py`, `date_parsing.py`). Import paths `app.utils.currency.to_major_currency` and `app.utils.date_parsing.parse_reference_date` survive the reorg unchanged.
 
-These are deliberately left for the user to decide before any future migration:
+`core/` contains only `__init__.py` (no substantive code). Open question 1 covers its disposition.
 
-1. **`core/` is empty** — remove the directory, or keep it as a placeholder for future cross-cutting concerns?
-2. **`schemas/_shared/base_job.py` rename** — currently `schemas/base_job.py` (no leading underscore). Rename for consistency with `_shared/` convention, or keep as-is?
-3. **`services/_factor_helpers.py` placement** — used only inside the factors cluster. Proposal moves it into `services/factors/` (private helper, leading underscore retained). Alternative: keep at `services/_shared/`.
-4. **`reference_indices` route ownership** — borderline between `market_data/` (data layer affinity, depends on `yfinance_repository`) and `universe/` (it seeds benchmark `Instrument` rows). Proposal places it under `market_data/`. Alternative: `universe/`.
-5. **`macro_calibration` URL-vs-folder mismatch** — file lives in `macro/` (data ownership) but registers under `/views/macro-calibration` URL. Folder location follows ownership; URL prefix unchanged.
-6. **`auth/` cluster size** — only one file (`api_key.py`). Kept as its own cluster per the "fine granularity" choice. Alternative: merge into `_shared/`.
+`api/__init__.py` (the intermediate package init between `app/` and `api/v1/`) stays in place; it must continue to exist for `from app.api.v1.<...>` imports to resolve.
+
+## Layer-root `__init__.py` handling
+
+Each of the five reorganised layers currently has a `__init__.py` at its root:
+
+- `api/v1/__init__.py`
+- `models/__init__.py`
+- `repositories/__init__.py`
+- `services/__init__.py`
+- `schemas/__init__.py`
+
+These stay at the layer root (not moved into `_shared/`). After the reorg, two of them require functional updates rather than mechanical moves:
+
+- **`models/__init__.py`** — must re-export every ORM class (or at minimum import every submodule containing ORM classes) so Alembic autogenerate sees the full `Base.metadata` graph. Currently a thin file; after the reorg it must import from `models/auth/`, `models/market_data/`, `models/universe/`, `models/macro/`, `models/portfolio/`, `models/execution/`, `models/factors/`, `models/risk/`, `models/rebalancing/`, `models/jobs/`, `models/_shared/`. Missing any sub-folder = silent table omission in migrations.
+- **`api/v1/__init__.py`** — if it currently aggregates routers (or `router.py` does), the aggregation logic moves to the new `api/v1/_shared/router.py` and references the new domain-folder paths.
+
+The other three (`repositories/__init__.py`, `services/__init__.py`, `schemas/__init__.py`) can stay empty or thin re-export files — they have no Alembic-style discovery requirement.
+
+New `__init__.py` files must be added to every newly-created sub-folder (one per cluster-folder per layer, plus one per `_shared/`).
+
+## Open questions — resolved
+
+Each question below has been resolved against FastAPI production architecture best practices (`fastapi-expert-agent`): explicit-over-implicit naming, domain-driven separation of concerns, repository pattern locality, Pydantic v2 public-base re-exports, ownership-by-data-dependency, and bounded-context folder structure.
+
+### 1. `core/` empty — **REMOVE**
+
+`core/` currently contains only `__init__.py` with no substantive code. Empty packages are an intent-without-delivery anti-pattern: they advertise capability the codebase does not have, and any reader scanning the tree wastes attention on a dead folder.
+
+FastAPI production projects commonly use `core/` for cross-cutting security helpers, custom exception hierarchies, or settings glue. The optimizer project does not have those concerns centralised there — security lives in `middleware/`, settings in `config.py`, exceptions in `exceptions.py`, all top-level. The reorg's `_shared/` per layer covers the rest.
+
+**Decision:** delete the `core/` directory during migration. If future cross-cutting concerns emerge (e.g. centralised dependency-injection providers, domain-event bus), recreate `core/` with concrete content at that point.
+
+### 2. `schemas/base_job.py` rename — **KEEP NAME (no leading underscore)**
+
+Leading underscore = PEP 8 "private to module/package" marker. `schemas/base_job.py` is the **public** parent class for every domain job schema (`AsyncJobCreateResponse`, `AsyncJobProgress`) and is imported by ~10 cluster schema modules. Renaming to `_base_job.py` would lie about its access level.
+
+The `_shared/` folder name carries the underscore (the folder is package-private — callers should import from cluster-specific schemas, not directly from `schemas._shared`). Files **inside** `_shared/` retain their public/private status as before. `base.py` (`CamelCaseModel`) and `base_job.py` (`AsyncJob*`) are public re-export bases; they keep their public names.
+
+**Decision:** target path is `schemas/_shared/base_job.py` (no rename). Same rule applies to `models/_shared/base.py`, `repositories/_shared/base.py`, `schemas/_shared/base.py`.
+
+The `services/_shared/` files that already carry leading underscores (`_price_fetcher.py`, `_sector_resolver.py`, `_json_safe.py`, `_progress.py`, `_benchmark_bootstrap.py`) keep them — those are private internals, callers must import via the owning service or via an explicit `_shared` re-export.
+
+### 3. `services/_factor_helpers.py` placement — **`services/factors/_factor_helpers.py`**
+
+Repository-pattern locality rule: helpers used by exactly one cluster live inside that cluster. `_factor_helpers.py` provides `FactorDataError` and shared dataclasses imported by `factor_compute_service`, `factor_scoring_service`, `factor_analysis_service`, and the `factor_service` facade — all inside the `factors/` cluster. No external caller.
+
+Moving it to `_shared/` would advertise reusability the file does not deliver, and would force factors-cluster contributors to scan two folders for related code.
+
+The leading underscore is retained as the private-internal marker. The full source→target row:
+
+| Source | Target |
+|--------|--------|
+| `services/_factor_helpers.py` | `services/factors/_factor_helpers.py` |
+
+This is already reflected in cluster table 8 — confirmed.
+
+### 4. `reference_indices` ownership — **`market_data/` (confirmed)**
+
+The `reference_index_seeder.py` service fetches SPY/QQQ/IWM price history from yfinance and persists it via `yfinance_repository`. Writing rows into `instruments` is a side-effect of the ingest pipeline, not a universe-management operation: there is no investability screening, no Trading 212 ticker mapping, no exchange enrichment.
+
+Repository-pattern principle: data flow direction determines ownership. The seeder reads from yfinance and writes to two tables (Instrument + PriceHistory) but the **operation** is "ingest market data", not "construct the universe". Routes that build/screen the tradeable universe (`trading212.py`, `universe_screen.py`) live in `universe/`. The seeder hooks into `_benchmark_bootstrap.py` at lifespan startup for benchmark coverage of dashboard/risk-analytics.
+
+**Decision:** `market_data/` confirmed. Cross-references in `_benchmark_bootstrap.py` (lifespan hook) update to import from `services.market_data.reference_index_seeder`.
+
+### 5. `macro_calibration` URL prefix mismatch — **folder follows ownership; URL unchanged**
+
+FastAPI separation rule: URL prefix = transport contract; folder = code ownership. They do not have to match. Routes register with explicit `prefix=...` regardless of file location, so the existing `/views/macro-calibration` URL stays stable for frontend consumers.
+
+The file's data dependency is `MacroRegimeRepository` (it pulls macro indicators to feed BAML `ClassifyMacroRegime`). Code ownership belongs to the macro cluster; URL grouping under `/views/` reflects that calibration produces inputs consumed by the views/Black-Litterman pipeline.
+
+**Decision:** target path `api/v1/macro/macro_calibration.py`. URL prefix `/views/macro-calibration` is preserved by the route's `prefix=` argument — no frontend or OpenAPI client changes. Add a one-line comment at the top of the route file explaining the deliberate URL/folder split so future readers don't "fix" it.
+
+### 6. `auth/` cluster size — **KEEP as own cluster**
+
+Domain-driven design: `auth/` is its own bounded context even with one current file (`api_key.py`). Single-file folders today are not waste — they are pre-created shape for predictable growth. Authentication concerns expand naturally: user accounts, roles, scopes, refresh tokens, audit logs, session tables, OAuth provider integrations.
+
+Merging `api_key.py` into `models/_shared/` would dilute `_shared/` (which is for cross-cutting infrastructure bases, not domain entities) and force a future split when the second auth model arrives. Pre-creating the folder is cheaper than the future move.
+
+**Decision:** `models/auth/api_key.py` confirmed. The folder remains a one-file cluster until auth grows. `middleware/auth.py` stays put — it is transport-layer auth verification, not the domain definition.
+
+### Summary table
+
+| # | Question | Decision | Best-practice basis |
+|---|----------|----------|---------------------|
+| 1 | `core/` disposition | Delete | Explicit-over-implicit; empty packages are noise |
+| 2 | `base_job.py` rename | Keep public name | PEP 8 underscore = private; bases are public re-exports |
+| 3 | `_factor_helpers.py` location | `services/factors/` | Locality rule; single-cluster usage |
+| 4 | `reference_indices` cluster | `market_data/` | Ownership follows ingest direction, not write target |
+| 5 | `macro_calibration` URL | Folder by ownership, URL preserved | Transport ≠ code structure |
+| 6 | `auth/` single-file cluster | Keep as cluster | DDD bounded context; future growth |
 
 ## Migration notes (for future reorg work)
 
@@ -383,8 +512,21 @@ This document is the source of truth for the target structure. Migration work wi
 
 This is a doc-only deliverable. Verify the document by checking:
 
-1. Every file currently in the five flat layers is mapped to a target path (count: ~170 source files → ~170 mapped lines across the cluster tables and `_shared/` table).
-2. The 16 domain folder names appear in the same form across every layer that owns them.
-3. Already-structured sub-packages (`yfinance/`, `trading212/`, `infrastructure/`, `scrapers/`) are preserved as units.
-4. The cross-cluster split (`execution/` model + repo, shared by optimization + backtest) is documented as the single intentional asymmetry.
+1. Every file currently in the five flat layers is mapped to a target path (count: ~170 source files → cluster tables + explicit `_shared/` source-target table + sub-package unit moves).
+2. The 16 domain folder names appear in the same form across every layer that owns them; intentional asymmetries are listed.
+3. Already-structured sub-packages (`yfinance/`, `trading212/`, `infrastructure/`, `scrapers/`) are preserved as units; their internal layouts including `protocols/`, `market/`, `ticker/`, `news/`, `cache/`, `filters/` sub-packages are implicitly carried.
+4. The cross-cluster split (`execution/` model + repo, shared by optimization + backtest) is documented as a layered asymmetry.
 5. Top-level `api/app/*.py` infrastructure files are explicitly listed as un-moved.
+6. Layer-root `__init__.py` files are addressed (kept in place; `models/__init__.py` and `api/v1/__init__.py` require functional updates).
+7. `middleware/`, `utils/`, `core/`, and intermediate `api/__init__.py` are accounted for.
+
+## Audit trail
+
+This document was reviewed against the live filesystem on 2026-05-10 by `feature-dev:code-explorer` agent. The audit found four categories of gaps in the prior draft, all addressed in this revision:
+
+1. **Implicit `_shared/` mappings** — 16 cross-cutting files appeared only as target filenames in the layer summary table without explicit source rows. Now listed in the "Explicit source → target mapping for `_shared/` files" subsection.
+2. **Layer-root `__init__.py` disposition** — five layer-root inits were never mentioned. Now covered in the "Layer-root `__init__.py` handling" section, with explicit notes on `models/__init__.py` (Alembic discovery) and `api/v1/__init__.py` (router aggregation).
+3. **Sub-package internal contents** — `services/yfinance/protocols/`, `market/streaming.py`, `ticker/financials.py`, etc. are not visible in the doc. Now enumerated in the "Already-structured sub-packages" section as implicitly carried.
+4. **Layer-parity asymmetries** — `execution/` (models+repos only), `auth/` (models only), domain folders without models, and the `sentiment_repository` orphan are now explicitly called out in the new "Asymmetries (intentional)" subsection.
+
+`middleware/metrics_middleware.py`, `utils/currency.py`, `utils/date_parsing.py`, `core/__init__.py`, and `api/__init__.py` are now explicitly listed in the "Files NOT moved" section.
