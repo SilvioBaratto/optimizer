@@ -144,6 +144,7 @@ class YFinanceDataService:
                 # Incremental: fetch from max_date - overlap_days to today
                 max_date = staleness["price_max_date"]
                 start_date = max_date - timedelta(days=thresholds.price_overlap_days)
+                # auto_adjust=True (default) — split-adjusted Close required by prices_to_returns() downstream
                 history = self.yf_client.fetch_history(
                     yfinance_ticker,
                     start=start_date.isoformat(),
@@ -152,6 +153,7 @@ class YFinanceDataService:
                 )
             else:
                 # Full mode or no existing data: use period
+                # auto_adjust=True (default) — split-adjusted Close required by prices_to_returns() downstream
                 history = self.yf_client.fetch_history(
                     yfinance_ticker, period=period, min_rows=1
                 )

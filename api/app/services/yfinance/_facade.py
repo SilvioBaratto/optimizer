@@ -138,17 +138,38 @@ class YFinanceClient:
         interval: str = "1d",
         max_retries: int | None = None,
         min_rows: int = 10,
+        *,
+        auto_adjust: bool = True,
+        back_adjust: bool = False,
+        repair: bool = True,
+        actions: bool = False,
+        prepost: bool = False,
+        keepna: bool = False,
+        rounding: bool = False,
+        timeout: float | None = None,
     ) -> pd.DataFrame | None:
         max_retries = max_retries or self.default_max_retries
         logger.debug("Fetching history for '%s' (max_retries=%d)", symbol, max_retries)
+
+        history_kwargs: dict[str, Any] = {
+            "interval": interval,
+            "auto_adjust": auto_adjust,
+            "back_adjust": back_adjust,
+            "repair": repair,
+            "actions": actions,
+            "prepost": prepost,
+            "keepna": keepna,
+            "rounding": rounding,
+            "timeout": timeout,
+        }
 
         def _action() -> pd.DataFrame | None:
             self.circuit_breaker.check()
             ticker = self.get_ticker(symbol)
 
             if start is not None:
-                return ticker.history(start=start, end=end, interval=interval)
-            return ticker.history(period=period, interval=interval)
+                return ticker.history(start=start, end=end, **history_kwargs)
+            return ticker.history(period=period, **history_kwargs)
 
         result = retry_with_backoff(
             _action,
@@ -217,7 +238,7 @@ class YFinanceClient:
         interval: str = "1d",
         threads: bool = True,
         group_by: str = "ticker",
-        auto_adjust: bool = False,
+        auto_adjust: bool = True,
         progress: bool = False,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:

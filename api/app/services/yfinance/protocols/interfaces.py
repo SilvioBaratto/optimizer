@@ -68,6 +68,15 @@ class YFinanceClientProtocol(Protocol):
         interval: str = "1d",
         max_retries: int | None = None,
         min_rows: int = 10,
+        *,
+        auto_adjust: bool = True,
+        back_adjust: bool = False,
+        repair: bool = True,
+        actions: bool = False,
+        prepost: bool = False,
+        keepna: bool = False,
+        rounding: bool = False,
+        timeout: float | None = None,
     ) -> pd.DataFrame | None: ...
 
     def fetch_price_and_benchmark(
@@ -87,8 +96,9 @@ class YFinanceClientProtocol(Protocol):
         interval: str = "1d",
         threads: bool = True,
         group_by: str = "ticker",
-        auto_adjust: bool = False,
+        auto_adjust: bool = True,
         progress: bool = False,
+        max_retries: int | None = None,
     ) -> pd.DataFrame | None: ...
 
     def fetch_prices_dataframe(

@@ -43,6 +43,7 @@ class HistoricalDataFilter:
         for attempt in range(max_retries):
             try:
                 # Fetch 5 years of historical data
+                # auto_adjust=True (default) — only len(hist) is consumed; adjustment is semantically neutral
                 hist = self.yf_client.fetch_history(
                     yf_ticker,
                     period="5y",
