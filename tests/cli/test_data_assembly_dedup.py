@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -9,7 +11,11 @@ import pytest
 pytest.importorskip("typer")
 
 from cli._currency import CURRENCY_DEDUP_PRIORITY, currency_dedup_rank
-from cli.data_assembly import _dedup_fundamentals_df
+from cli.data_assembly import (
+    _DEDUP_DROP_THRESHOLD_PCT,
+    _dedup_fundamentals_df,
+    _pivot_with_dedup,
+)
 
 # ---------------------------------------------------------------------------
 # currency_dedup_rank
@@ -300,6 +306,9 @@ class TestDedupFundamentalsDf:
 
         assert not result.index.duplicated().any()
 
+    def test_threshold_constant_is_five_percent(self) -> None:
+        assert _DEDUP_DROP_THRESHOLD_PCT == 0.05
+
     def test_mixed_dedup_and_unique(self) -> None:
         """Mix of duplicated and unique tickers."""
         df = _make_df(
@@ -342,3 +351,183 @@ class TestDedupFundamentalsDf:
         assert result.loc["ASML", "exchange"] == "NMS"
         assert result.loc["AAPL", "exchange"] == "NMS"
         assert result.loc["SHELL", "exchange"] == "LSE-GBP"
+
+
+# ---------------------------------------------------------------------------
+# _pivot_with_dedup — structured logging + 5% threshold guard
+# ---------------------------------------------------------------------------
+
+
+def _pivot_input(rows: list[dict]) -> pd.DataFrame:
+    return pd.DataFrame(rows)
+
+
+class TestPivotWithDedupGuard:
+    def test_when_no_duplicates_then_no_log_no_raise(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        df = _pivot_input(
+            [
+                {"date": "2024-01-01", "ticker": "AAPL", "close": 1.0, "_ccy_rank": 0},
+                {"date": "2024-01-01", "ticker": "MSFT", "close": 2.0, "_ccy_rank": 0},
+            ]
+        )
+        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+            out = _pivot_with_dedup(df, "date", "ticker", "close", "test")
+        assert out.shape == (1, 2)
+        assert not any("dedup" in r.getMessage().lower() for r in caplog.records)
+
+    def test_when_drop_below_threshold_then_logger_info_with_extra(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # 1 duplicate out of 100 rows = 1% — below 5%.
+        rows = [
+            {"date": "2024-01-01", "ticker": f"T{i}", "close": float(i), "_ccy_rank": 0}
+            for i in range(100)
+        ]
+        rows.append(
+            {"date": "2024-01-01", "ticker": "T0", "close": 99.0, "_ccy_rank": 1}
+        )
+        df = _pivot_input(rows)
+        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+            _pivot_with_dedup(df, "date", "ticker", "close", "assemble_prices")
+        info_records = [
+            r
+            for r in caplog.records
+            if r.levelname == "INFO" and "dedup" in r.getMessage().lower()
+        ]
+        assert info_records, "expected one structured INFO log on dedup"
+        rec = info_records[0]
+        assert rec.__dict__.get("dedup_name") == "assemble_prices"
+        assert rec.__dict__.get("n_dropped") == 1
+        assert rec.__dict__.get("n_before") == 101
+        assert abs(rec.__dict__.get("dropped_pct", 0) - (1 / 101)) < 1e-9
+
+    def test_when_drop_exceeds_5pct_then_value_error_raised(self) -> None:
+        # 10 rows total, 6 duplicates (60%) → exceeds 5%.
+        rows = [
+            {"date": "2024-01-01", "ticker": "T1", "close": 1.0, "_ccy_rank": 0},
+            {"date": "2024-01-01", "ticker": "T2", "close": 2.0, "_ccy_rank": 0},
+            {"date": "2024-01-01", "ticker": "T3", "close": 3.0, "_ccy_rank": 0},
+            {"date": "2024-01-01", "ticker": "T4", "close": 4.0, "_ccy_rank": 0},
+        ] + [{"date": "2024-01-01", "ticker": "T1", "close": 1.0, "_ccy_rank": 1}] * 6
+        df = _pivot_input(rows)
+        with pytest.raises(ValueError, match="5%"):
+            _pivot_with_dedup(df, "date", "ticker", "close", "assemble_prices")
+
+    def test_when_value_error_then_message_carries_name_and_pct(self) -> None:
+        rows = [
+            {"date": "2024-01-01", "ticker": "T1", "close": 1.0, "_ccy_rank": 0},
+        ] + [{"date": "2024-01-01", "ticker": "T1", "close": 1.0, "_ccy_rank": 1}] * 5
+        df = _pivot_input(rows)
+        with pytest.raises(ValueError) as excinfo:
+            _pivot_with_dedup(df, "date", "ticker", "close", "assemble_prices")
+        msg = str(excinfo.value)
+        assert "assemble_prices" in msg
+        assert "5/6" in msg or "5" in msg
+        assert "%" in msg
+
+    def test_when_empty_input_then_no_division_by_zero(self) -> None:
+        df = pd.DataFrame(columns=["date", "ticker", "close", "_ccy_rank"])
+        out = _pivot_with_dedup(df, "date", "ticker", "close", "test")
+        assert out.empty
+
+
+# ---------------------------------------------------------------------------
+# _pivot_with_dedup — boundary, production-rate, exact-message assertions
+# ---------------------------------------------------------------------------
+
+
+def _pivot_rows_with_drop_ratio(n_unique: int, n_duplicates: int) -> pd.DataFrame:
+    """Build a pivot input with `n_unique` unique tickers + `n_duplicates`
+    extra rows colliding on the first ticker (lower-priority rank).
+    """
+    rows: list[dict] = [
+        {"date": "2024-01-01", "ticker": f"T{i}", "close": float(i), "_ccy_rank": 0}
+        for i in range(n_unique)
+    ]
+    rows.extend(
+        {"date": "2024-01-01", "ticker": "T0", "close": 99.0, "_ccy_rank": 1}
+        for _ in range(n_duplicates)
+    )
+    return pd.DataFrame(rows)
+
+
+class TestPivotWithDedup:
+    def test_when_zero_drops_then_silent(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        df = _pivot_rows_with_drop_ratio(n_unique=10, n_duplicates=0)
+        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+            _pivot_with_dedup(df, "date", "ticker", "close", "noop")
+        assert not any(
+            r.levelname == "INFO" and "dedup" in r.getMessage().lower()
+            for r in caplog.records
+        )
+
+    def test_when_drop_below_threshold_then_record_extra_payload_indexable(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # 1 dup / 101 ≈ 0.99% — well below 5%.
+        df = _pivot_rows_with_drop_ratio(n_unique=100, n_duplicates=1)
+        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+            _pivot_with_dedup(df, "date", "ticker", "close", "assemble_prices")
+        info = [
+            r
+            for r in caplog.records
+            if r.levelname == "INFO" and "dedup" in r.getMessage().lower()
+        ]
+        assert len(info) == 1
+        rec = info[0]
+        # `record.dropped_pct` must be accessible directly via getattr
+        # (LogRecord exposes `extra={...}` keys as instance attributes).
+        assert rec.dedup_name == "assemble_prices"
+        assert rec.n_dropped == 1
+        assert rec.n_before == 101
+        assert rec.dropped_pct == pytest.approx(1 / 101)
+
+    def test_when_production_rate_18_per_10000_then_no_raise(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # 18 / 10018 ≈ 0.18% — current production observation.
+        df = _pivot_rows_with_drop_ratio(n_unique=10_000, n_duplicates=18)
+        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+            _pivot_with_dedup(df, "date", "ticker", "close", "assemble_prices")
+        # Must not raise; must emit the structured info log.
+        info = [
+            r
+            for r in caplog.records
+            if r.levelname == "INFO" and "dedup" in r.getMessage().lower()
+        ]
+        assert len(info) == 1
+        assert info[0].dropped_pct < 0.05
+
+    def test_when_drop_exactly_at_threshold_then_no_raise(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # 5 dups / 100 unique = 5/(100+5) ≈ 4.76% — strictly below 5%.
+        # To get exactly 5%: 5 dups / 100 total → unique=95, dups=5.
+        df = _pivot_rows_with_drop_ratio(n_unique=95, n_duplicates=5)
+        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+            _pivot_with_dedup(df, "date", "ticker", "close", "boundary")
+        info = [
+            r
+            for r in caplog.records
+            if r.levelname == "INFO" and "dedup" in r.getMessage().lower()
+        ]
+        assert len(info) == 1
+        assert info[0].dropped_pct == pytest.approx(0.05)
+
+    def test_when_drop_just_above_threshold_then_value_error_raised(self) -> None:
+        # 51 dups / 1000 total = 5.1% — just above 5%.
+        df = _pivot_rows_with_drop_ratio(n_unique=949, n_duplicates=51)
+        with pytest.raises(ValueError, match="5%"):
+            _pivot_with_dedup(df, "date", "ticker", "close", "above_boundary")
+
+    def test_when_value_error_then_message_matches_exact_phrase(self) -> None:
+        df = _pivot_rows_with_drop_ratio(n_unique=10, n_duplicates=10)
+        with pytest.raises(
+            ValueError,
+            match=r"expected ≤ 5%; check upstream normalization",
+        ):
+            _pivot_with_dedup(df, "date", "ticker", "close", "phrase_check")

@@ -59,6 +59,12 @@ logger = logging.getLogger(__name__)
 # Number of trading days per year (equity convention).
 _TRADING_DAYS: int = 252
 
+# Maximum fraction of input rows that may be dropped by `_pivot_with_dedup`
+# before the pivot is treated as a structural failure.  Production runs
+# observe ~0.18% (10,072 / ~5.5M); 5% catches accidental full-exchange
+# duplication while leaving normal cross-listing dedup silent.
+_DEDUP_DROP_THRESHOLD_PCT: float = 0.05
+
 # Country -> Region mapping used by downstream cycles (Cycle 4 checklist,
 # Cycle 5 reporting).  Unmapped countries default to ``"Other"`` at call
 # sites; ``"Other"`` is intentionally NOT a key in this dict.
@@ -219,12 +225,25 @@ def _pivot_with_dedup(
     df = df.sort_values("_ccy_rank", kind="stable")
     df = df.drop_duplicates(subset=[index, columns], keep="first")
     n_dropped = n_before - len(df)
-    if n_dropped > 0:
+    if n_dropped > 0 and n_before > 0:
+        dropped_pct = n_dropped / n_before
         label = f"{name}: " if name else ""
-        warnings.warn(
-            f"{label}dropped {n_dropped} duplicate ({index}, {columns}) row(s); "
-            "cross-listed tickers resolved to primary-currency listing.",
-            stacklevel=3,
+        if dropped_pct > _DEDUP_DROP_THRESHOLD_PCT:
+            raise ValueError(
+                f"{label}dedup dropped {n_dropped}/{n_before} "
+                f"({dropped_pct:.1%}) duplicate rows; "
+                "expected ≤ 5%; check upstream normalization"
+            )
+        logger.info(
+            "dedup_dropped_duplicates",
+            extra={
+                # ``name`` is a reserved LogRecord attribute; expose under
+                # ``dedup_name`` so structured-log handlers can index it.
+                "dedup_name": name,
+                "n_dropped": n_dropped,
+                "n_before": n_before,
+                "dropped_pct": dropped_pct,
+            },
         )
     pivoted = df.pivot_table(
         index=index,

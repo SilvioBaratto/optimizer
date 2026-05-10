@@ -17,6 +17,7 @@ every failure so the operator can fix all DB issues in a single session.
 from __future__ import annotations
 
 import datetime
+import enum
 import logging
 from typing import TYPE_CHECKING, Protocol
 
@@ -29,12 +30,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+class Severity(enum.Enum):
+    """Tag a check result so the orchestrator can route warnings vs failures."""
+
+    FAIL = "fail"
+    WARN = "warn"
+
+
 # ---------------------------------------------------------------------------
 # Thresholds
 # ---------------------------------------------------------------------------
 
 _MIN_INSTRUMENTS: int = 2_500
 _MAX_PRICE_GAP_DAYS: int = 7
+_MIN_PRICE_TICKERS: int = 2_000
+_PRICE_COVERAGE_WINDOW_DAYS: int = 7
 _MAX_FRED_GAP_DAYS: int = 30
 _MIN_COUNTRY_COVERAGE: float = 0.95
 _REQUIRED_FRED_SERIES: tuple[str, ...] = (
@@ -45,6 +56,23 @@ _REQUIRED_FRED_SERIES: tuple[str, ...] = (
     "VIXCLS",
     "USRECDM",
 )
+_KNOWN_MAJOR_CURRENCIES: frozenset[str] = frozenset(
+    {
+        "USD",
+        "EUR",
+        "GBP",
+        "JPY",
+        "CHF",
+        "CAD",
+        "AUD",
+        "HKD",
+        "SGD",
+        "SEK",
+        "NOK",
+        "DKK",
+    }
+)
+_FX_WARNING_LISTING_CAP: int = 20
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +130,29 @@ def _check_price_staleness(session: Session, today: datetime.date) -> str | None
     )
 
 
+def _check_price_coverage(session: Session, today: datetime.date) -> str | None:
+    """Verify enough distinct instruments have a price within the recent window.
+
+    Guards against the case where ``_check_price_staleness`` passes thanks
+    to a handful of fresh ETF rows while the broader universe is stale.
+    """
+    cutoff = today - datetime.timedelta(days=_PRICE_COVERAGE_WINDOW_DAYS)
+    raw = session.execute(
+        text(
+            "SELECT COUNT(DISTINCT instrument_id) FROM price_history "
+            "WHERE date >= :cutoff"
+        ),
+        {"cutoff": cutoff.isoformat()},
+    ).scalar()
+    count = int(raw or 0)
+    if count >= _MIN_PRICE_TICKERS:
+        return None
+    return (
+        f"Price coverage: {count} instruments with prices in last "
+        f"{_PRICE_COVERAGE_WINDOW_DAYS} days (need ≥ {_MIN_PRICE_TICKERS})."
+    )
+
+
 def _check_fred_freshness(session: Session, today: datetime.date) -> str | None:
     """Verify every required FRED series has a recent observation."""
     stmt = text(
@@ -127,6 +178,38 @@ def _check_fred_freshness(session: Session, today: datetime.date) -> str | None:
     if not issues:
         return None
     return f"FRED freshness (need ≤ {_MAX_FRED_GAP_DAYS} days):\n" + "\n".join(issues)
+
+
+def _check_fx_coverage(session: Session) -> str | None:
+    """Warn (not fail) when active instruments use non-major currency codes.
+
+    Surfaces FX-unconverted tickers so operators can investigate before they
+    silently distort cross-currency portfolio metrics.  Delisted instruments
+    and rows with NULL ``currency_code`` are excluded.
+    """
+    stmt = text(
+        "SELECT yfinance_ticker, currency_code FROM instruments "
+        "WHERE currency_code IS NOT NULL "
+        "AND currency_code NOT IN :major "
+        "AND delisted_at IS NULL "
+        "ORDER BY yfinance_ticker"
+    ).bindparams(bindparam("major", expanding=True))
+    rows = session.execute(stmt, {"major": list(_KNOWN_MAJOR_CURRENCIES)}).fetchall()
+
+    if not rows:
+        return None
+
+    total = len(rows)
+    listed = "\n".join(
+        f"  - {tkr}: {ccy}" for tkr, ccy in rows[:_FX_WARNING_LISTING_CAP]
+    )
+    overflow = ""
+    if total > _FX_WARNING_LISTING_CAP:
+        overflow = f"\n  ... and {total - _FX_WARNING_LISTING_CAP} more"
+    return (
+        f"FX coverage: {total} instruments use non-major currencies "
+        f"(warning only):\n{listed}{overflow}"
+    )
 
 
 def _check_country_coverage(session: Session) -> str | None:
@@ -165,15 +248,25 @@ def _check_country_coverage(session: Session) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _iter_check_results(session: Session, today: datetime.date) -> Iterator[str]:
-    """Yield non-None failure messages from every check."""
-    candidates: list[str | None] = [
-        _check_universe_coverage(session),
-        _check_price_staleness(session, today=today),
-        _check_fred_freshness(session, today=today),
-        _check_country_coverage(session),
+def _iter_check_results(
+    session: Session, today: datetime.date
+) -> Iterator[tuple[Severity, str]]:
+    """Yield ``(severity, message)`` pairs for every non-None check result.
+
+    Hard checks contribute :class:`Severity.FAIL`; the FX coverage check
+    contributes :class:`Severity.WARN` and never blocks preflight.
+    """
+    tagged: list[tuple[Severity, str | None]] = [
+        (Severity.FAIL, _check_universe_coverage(session)),
+        (Severity.FAIL, _check_price_staleness(session, today=today)),
+        (Severity.FAIL, _check_price_coverage(session, today=today)),
+        (Severity.FAIL, _check_fred_freshness(session, today=today)),
+        (Severity.FAIL, _check_country_coverage(session)),
+        (Severity.WARN, _check_fx_coverage(session)),
     ]
-    yield from (msg for msg in candidates if msg)
+    for severity, msg in tagged:
+        if msg is not None:
+            yield severity, msg
 
 
 def run_db_preflight(
@@ -181,6 +274,9 @@ def run_db_preflight(
     today: datetime.date | None = None,
 ) -> None:
     """Run all DB pre-flight checks; raise on any failure.
+
+    Warning-severity check messages are emitted via :func:`logger.warning`
+    and do NOT contribute to the aggregated :class:`RuntimeError`.
 
     Parameters
     ----------
@@ -194,13 +290,19 @@ def run_db_preflight(
     Raises
     ------
     RuntimeError
-        With every failure joined on newlines.  All checks always run —
-        no short-circuit — so a single error message can guide the
+        With every FAIL message joined on newlines.  All checks always run
+        — no short-circuit — so a single error message can guide the
         operator through the full set of fixes.
     """
     reference_date = today if today is not None else datetime.date.today()
     with db_manager.get_session() as session:
-        failures = list(_iter_check_results(session, reference_date))
+        results = list(_iter_check_results(session, reference_date))
+
+    failures = [msg for severity, msg in results if severity is Severity.FAIL]
+    warnings = [msg for severity, msg in results if severity is Severity.WARN]
+
+    for warn_msg in warnings:
+        logger.warning(warn_msg)
 
     if not failures:
         return

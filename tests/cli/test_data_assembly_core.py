@@ -254,36 +254,65 @@ class TestAssemblePrices:
         assemble_prices(session, include_delisted=False, currency_map={})
         assert session.execute.call_count == 2
 
-    def test_duplicate_warns_and_selects_primary_currency(self) -> None:
-        """Cross-listed tickers: lower currency rank wins, warning emitted."""
+    def test_duplicate_logs_and_selects_primary_currency(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Cross-listed tickers: lower currency rank wins, info log emitted."""
+        import logging
+
         id_usd = str(uuid.uuid4())  # USD listing — rank 0 (primary)
         id_gbx = str(uuid.uuid4())  # GBX listing — rank 3 (secondary)
+        # Pad with unique tickers so the dup ratio stays below the 5% guard.
+        unique_instruments = [(str(uuid.uuid4()), f"PAD{i}", "USD") for i in range(100)]
+        unique_prices = [
+            (inst[0], "2024-01-02", float(i))
+            for i, inst in enumerate(unique_instruments, 1)
+        ]
         session = _make_session(
-            [(id_usd, "RDSA.L", "USD"), (id_gbx, "RDSA.L", "GBX")],
+            [(id_usd, "RDSA.L", "USD"), (id_gbx, "RDSA.L", "GBX"), *unique_instruments],
             [
-                (id_usd, "2024-01-02", 200.0),  # USD price
-                (id_gbx, "2024-01-02", 21000.0),  # GBX price (should be dropped)
+                (id_usd, "2024-01-02", 200.0),
+                (id_gbx, "2024-01-02", 21000.0),
+                *unique_prices,
             ],
         )
-        with pytest.warns(UserWarning, match="assemble_prices"):
+        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
             result = assemble_prices(session, include_delisted=False, currency_map={})
-        assert result.shape == (1, 1)
         assert "RDSA.L" in result.columns
         # USD listing (200.0) must be selected over GBX listing (21000.0)
-        assert result.iloc[0, 0] == pytest.approx(200.0)
+        assert result.loc[pd.Timestamp("2024-01-02"), "RDSA.L"] == pytest.approx(200.0)
+        info_records = [
+            r
+            for r in caplog.records
+            if r.levelname == "INFO" and "dedup" in r.getMessage().lower()
+        ]
+        assert info_records, "expected one structured INFO log on dedup"
+        assert info_records[0].__dict__.get("dedup_name") == "assemble_prices"
 
-    def test_duplicate_same_rank_no_panic(self) -> None:
-        """Two listings with same currency rank: one row kept, warning emitted."""
+    def test_duplicate_same_rank_no_panic(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Two listings with same currency rank: one row kept, info log emitted."""
+        import logging
+
         id_a = str(uuid.uuid4())
         id_b = str(uuid.uuid4())
+        unique_instruments = [(str(uuid.uuid4()), f"PAD{i}", "USD") for i in range(100)]
+        unique_prices = [
+            (inst[0], "2024-01-02", float(i))
+            for i, inst in enumerate(unique_instruments, 1)
+        ]
         session = _make_session(
-            [(id_a, "RDSA.L", "USD"), (id_b, "RDSA.L", "USD")],
-            [(id_a, "2024-01-02", 200.0), (id_b, "2024-01-02", 210.0)],
+            [(id_a, "RDSA.L", "USD"), (id_b, "RDSA.L", "USD"), *unique_instruments],
+            [(id_a, "2024-01-02", 200.0), (id_b, "2024-01-02", 210.0), *unique_prices],
         )
-        with pytest.warns(UserWarning, match="assemble_prices"):
+        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
             result = assemble_prices(session, include_delisted=False, currency_map={})
-        assert result.shape[1] == 1
         assert "RDSA.L" in result.columns
+        assert any(
+            r.levelname == "INFO" and "dedup" in r.getMessage().lower()
+            for r in caplog.records
+        )
 
     def test_no_duplicate_no_warning(self) -> None:
         """Single listing per ticker: no warning emitted."""
@@ -383,22 +412,40 @@ class TestAssembleVolumes:
         result = assemble_volumes(session, include_delisted=False)
         assert result.empty
 
-    def test_duplicate_warns_and_selects_primary_currency(self) -> None:
-        """Cross-listed tickers: lower currency rank wins, warning emitted."""
+    def test_duplicate_logs_and_selects_primary_currency(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Cross-listed tickers: lower currency rank wins, info log emitted."""
+        import logging
+
         id_usd = str(uuid.uuid4())
         id_gbx = str(uuid.uuid4())
+        unique_instruments = [(str(uuid.uuid4()), f"PAD{i}", "USD") for i in range(100)]
+        unique_volumes = [
+            (inst[0], "2024-01-02", float((i + 1) * 1_000))
+            for i, inst in enumerate(unique_instruments)
+        ]
         session = _make_session(
-            [(id_usd, "SHEL.L", "USD"), (id_gbx, "SHEL.L", "GBX")],
+            [(id_usd, "SHEL.L", "USD"), (id_gbx, "SHEL.L", "GBX"), *unique_instruments],
             [
-                (id_usd, "2024-01-02", 5_000_000.0),  # USD volume (should win)
-                (id_gbx, "2024-01-02", 3_000_000.0),  # GBX volume (dropped)
+                (id_usd, "2024-01-02", 5_000_000.0),
+                (id_gbx, "2024-01-02", 3_000_000.0),
+                *unique_volumes,
             ],
         )
-        with pytest.warns(UserWarning, match="assemble_volumes"):
+        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
             result = assemble_volumes(session, include_delisted=False)
-        assert result.shape == (1, 1)
         assert "SHEL.L" in result.columns
-        assert result.iloc[0, 0] == pytest.approx(5_000_000.0)
+        assert result.loc[pd.Timestamp("2024-01-02"), "SHEL.L"] == pytest.approx(
+            5_000_000.0
+        )
+        info_records = [
+            r
+            for r in caplog.records
+            if r.levelname == "INFO" and "dedup" in r.getMessage().lower()
+        ]
+        assert info_records
+        assert info_records[0].__dict__.get("dedup_name") == "assemble_volumes"
 
     def test_no_duplicate_no_warning(self) -> None:
         """Single listing per ticker: no warning emitted."""

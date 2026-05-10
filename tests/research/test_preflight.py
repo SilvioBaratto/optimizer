@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 from collections.abc import Generator
 from contextlib import contextmanager
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -14,9 +15,14 @@ from sqlalchemy.orm import Session, sessionmaker
 pytest.importorskip("typer")
 
 from research._preflight import (
+    _KNOWN_MAJOR_CURRENCIES,
     _MIN_INSTRUMENTS,
+    _MIN_PRICE_TICKERS,
+    _PRICE_COVERAGE_WINDOW_DAYS,
     _check_country_coverage,
     _check_fred_freshness,
+    _check_fx_coverage,
+    _check_price_coverage,
     _check_price_staleness,
     _check_universe_coverage,
     run_db_preflight,
@@ -35,7 +41,8 @@ def _create_schema(engine: Engine) -> None:
                 "CREATE TABLE instruments ("
                 "id TEXT PRIMARY KEY, "
                 "delisted_at TEXT, "
-                "yfinance_ticker TEXT)"
+                "yfinance_ticker TEXT, "
+                "currency_code TEXT)"
             )
         )
         conn.execute(
@@ -53,23 +60,66 @@ def _create_schema(engine: Engine) -> None:
         )
 
 
-def _seed_instruments(engine: Engine, n_active: int, n_delisted: int = 0) -> None:
+def _seed_instruments(
+    engine: Engine,
+    n_active: int,
+    n_delisted: int = 0,
+    currency_code: str | None = "USD",
+) -> None:
     rows = []
     for i in range(n_active):
-        rows.append({"id": f"a{i}", "delisted_at": None, "yfinance_ticker": f"AAA{i}"})
+        rows.append(
+            {
+                "id": f"a{i}",
+                "delisted_at": None,
+                "yfinance_ticker": f"AAA{i}",
+                "currency_code": currency_code,
+            }
+        )
     for i in range(n_delisted):
         rows.append(
-            {"id": f"d{i}", "delisted_at": "2020-01-01", "yfinance_ticker": f"DDD{i}"}
+            {
+                "id": f"d{i}",
+                "delisted_at": "2020-01-01",
+                "yfinance_ticker": f"DDD{i}",
+                "currency_code": currency_code,
+            }
         )
     if not rows:
         return
     with engine.begin() as conn:
         conn.execute(
             text(
-                "INSERT INTO instruments(id, delisted_at, yfinance_ticker) "
-                "VALUES (:id, :delisted_at, :yfinance_ticker)"
+                "INSERT INTO instruments"
+                "(id, delisted_at, yfinance_ticker, currency_code) "
+                "VALUES (:id, :delisted_at, :yfinance_ticker, :currency_code)"
             ),
             rows,
+        )
+
+
+def _seed_instrument_with_currency(
+    engine: Engine,
+    instrument_id: str,
+    yfinance_ticker: str,
+    currency_code: str | None,
+    delisted: bool = False,
+) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO instruments"
+                "(id, delisted_at, yfinance_ticker, currency_code) "
+                "VALUES (:id, :delisted_at, :yfinance_ticker, :currency_code)"
+            ),
+            [
+                {
+                    "id": instrument_id,
+                    "delisted_at": "2020-01-01" if delisted else None,
+                    "yfinance_ticker": yfinance_ticker,
+                    "currency_code": currency_code,
+                }
+            ],
         )
 
 
@@ -81,6 +131,24 @@ def _seed_price_history(engine: Engine, max_date: datetime.date) -> None:
                 "VALUES (:i, :d, :c)"
             ),
             [{"i": "a0", "d": max_date.isoformat(), "c": 1.0}],
+        )
+
+
+def _seed_price_history_for_tickers(
+    engine: Engine,
+    instrument_ids: list[str],
+    date: datetime.date,
+) -> None:
+    rows = [{"i": iid, "d": date.isoformat(), "c": 1.0} for iid in instrument_ids]
+    if not rows:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO price_history(instrument_id, date, close) "
+                "VALUES (:i, :d, :c)"
+            ),
+            rows,
         )
 
 
@@ -213,6 +281,164 @@ class TestPriceStaleness:
 
 
 # ---------------------------------------------------------------------------
+# Check 2b — price coverage (distinct instrument count within window)
+# ---------------------------------------------------------------------------
+
+
+class TestPriceCoverage:
+    def test_when_distinct_count_meets_floor_then_none_returned(
+        self, engine: Engine, db_manager: _FakeDbManager, today: datetime.date
+    ) -> None:
+        ids = [f"a{i}" for i in range(_MIN_PRICE_TICKERS)]
+        _seed_price_history_for_tickers(
+            engine, ids, date=today - datetime.timedelta(days=2)
+        )
+        with db_manager.get_session() as session:
+            assert _check_price_coverage(session, today=today) is None
+
+    def test_when_distinct_count_below_floor_then_message_names_count_and_threshold(
+        self, engine: Engine, db_manager: _FakeDbManager, today: datetime.date
+    ) -> None:
+        ids = [f"a{i}" for i in range(50)]
+        _seed_price_history_for_tickers(
+            engine, ids, date=today - datetime.timedelta(days=1)
+        )
+        with db_manager.get_session() as session:
+            msg = _check_price_coverage(session, today=today)
+        assert msg is not None
+        assert "50" in msg
+        assert str(_MIN_PRICE_TICKERS) in msg
+        assert str(_PRICE_COVERAGE_WINDOW_DAYS) in msg
+
+    def test_when_only_old_rows_then_failure_returned(
+        self, engine: Engine, db_manager: _FakeDbManager, today: datetime.date
+    ) -> None:
+        ids = [f"a{i}" for i in range(_MIN_PRICE_TICKERS)]
+        old_date = today - datetime.timedelta(days=_PRICE_COVERAGE_WINDOW_DAYS + 1)
+        _seed_price_history_for_tickers(engine, ids, date=old_date)
+        with db_manager.get_session() as session:
+            msg = _check_price_coverage(session, today=today)
+        assert msg is not None
+        assert "0" in msg
+
+    def test_when_table_empty_then_failure_returned(
+        self, db_manager: _FakeDbManager, today: datetime.date
+    ) -> None:
+        with db_manager.get_session() as session:
+            msg = _check_price_coverage(session, today=today)
+        assert msg is not None
+
+    def test_when_duplicate_rows_per_instrument_then_counted_once(
+        self, engine: Engine, db_manager: _FakeDbManager, today: datetime.date
+    ) -> None:
+        # Single instrument with many rows must not satisfy the distinct floor.
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO price_history(instrument_id, date, close) "
+                    "VALUES (:i, :d, :c)"
+                ),
+                [
+                    {
+                        "i": "a0",
+                        "d": (today - datetime.timedelta(days=k)).isoformat(),
+                        "c": 1.0,
+                    }
+                    for k in range(_PRICE_COVERAGE_WINDOW_DAYS)
+                ],
+            )
+        with db_manager.get_session() as session:
+            msg = _check_price_coverage(session, today=today)
+        assert msg is not None
+        assert "1 " in msg or msg.find(" 1 ") >= 0
+
+
+# ---------------------------------------------------------------------------
+# Check 2b — price coverage (mocked-scalar boundary tests + wiring)
+# ---------------------------------------------------------------------------
+
+
+def _mock_session_returning(scalar_value: int) -> MagicMock:
+    """MagicMock session whose ``execute(...).scalar()`` returns *scalar_value*."""
+    session = MagicMock(spec=Session)
+    session.execute.return_value.scalar.return_value = scalar_value
+    return session
+
+
+class TestCheckPriceCoverageMocked:
+    def test_when_mocked_scalar_meets_floor_then_none_returned(
+        self, today: datetime.date
+    ) -> None:
+        session = _mock_session_returning(_MIN_PRICE_TICKERS)
+        assert _check_price_coverage(session, today=today) is None
+
+    def test_when_mocked_scalar_one_below_floor_then_failure_returned(
+        self, today: datetime.date
+    ) -> None:
+        session = _mock_session_returning(_MIN_PRICE_TICKERS - 1)
+        msg = _check_price_coverage(session, today=today)
+        assert msg is not None
+
+    def test_when_failure_then_message_contains_count_and_threshold(
+        self, today: datetime.date
+    ) -> None:
+        observed = _MIN_PRICE_TICKERS - 1
+        session = _mock_session_returning(observed)
+        msg = _check_price_coverage(session, today=today)
+        assert msg is not None
+        assert str(observed) in msg
+        assert str(_MIN_PRICE_TICKERS) in msg
+
+    def test_when_called_then_query_uses_today_minus_window_cutoff(
+        self, today: datetime.date
+    ) -> None:
+        session = _mock_session_returning(_MIN_PRICE_TICKERS)
+        _check_price_coverage(session, today=today)
+        session.execute.assert_called_once()
+        _, kwargs_or_params = session.execute.call_args
+        # Positional: (stmt, params_dict). Pull positional [1] if present.
+        params = (
+            session.execute.call_args.args[1]
+            if len(session.execute.call_args.args) > 1
+            else kwargs_or_params
+        )
+        expected_cutoff = (
+            today - datetime.timedelta(days=_PRICE_COVERAGE_WINDOW_DAYS)
+        ).isoformat()
+        assert params == {"cutoff": expected_cutoff}
+
+    def test_when_iter_results_runs_then_price_coverage_precedes_fred(
+        self,
+        db_manager: _FakeDbManager,
+        today: datetime.date,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from research import _preflight as pf
+
+        call_order: list[str] = []
+
+        def _spy(name: str, retval: object = None):
+            def _fn(*_args: object, **_kwargs: object) -> object:
+                call_order.append(name)
+                return retval
+
+            return _fn
+
+        monkeypatch.setattr(pf, "_check_universe_coverage", _spy("universe"))
+        monkeypatch.setattr(pf, "_check_price_staleness", _spy("staleness"))
+        monkeypatch.setattr(pf, "_check_price_coverage", _spy("coverage"))
+        monkeypatch.setattr(pf, "_check_fred_freshness", _spy("fred"))
+        monkeypatch.setattr(pf, "_check_country_coverage", _spy("country"))
+
+        with db_manager.get_session() as session:
+            list(pf._iter_check_results(session, today))
+
+        assert "coverage" in call_order
+        assert "fred" in call_order
+        assert call_order.index("coverage") < call_order.index("fred")
+
+
+# ---------------------------------------------------------------------------
 # Check 3 — FRED freshness
 # ---------------------------------------------------------------------------
 
@@ -298,13 +524,140 @@ class TestCountryCoverage:
 
 
 # ---------------------------------------------------------------------------
+# Check 5 — FX coverage (warning-only, no failure)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckFxCoverage:
+    def test_when_all_currencies_major_then_none_returned(
+        self, engine: Engine, db_manager: _FakeDbManager
+    ) -> None:
+        for major in list(_KNOWN_MAJOR_CURRENCIES)[:5]:
+            _seed_instrument_with_currency(engine, f"id_{major}", f"YF_{major}", major)
+        with db_manager.get_session() as session:
+            assert _check_fx_coverage(session) is None
+
+    def test_when_non_major_currency_present_then_warning_returned(
+        self, engine: Engine, db_manager: _FakeDbManager
+    ) -> None:
+        _seed_instrument_with_currency(engine, "id_brl", "VALE3.SA", "BRL")
+        with db_manager.get_session() as session:
+            msg = _check_fx_coverage(session)
+        assert msg is not None
+        assert "VALE3.SA" in msg
+        assert "BRL" in msg
+        assert "warning" in msg.lower()
+
+    def test_when_more_than_20_offenders_then_message_capped_with_overflow(
+        self, engine: Engine, db_manager: _FakeDbManager
+    ) -> None:
+        for i in range(25):
+            _seed_instrument_with_currency(engine, f"id_{i}", f"TKR{i}.XX", "BRL")
+        with db_manager.get_session() as session:
+            msg = _check_fx_coverage(session)
+        assert msg is not None
+        assert "25" in msg
+        # Overflow indicator: should mention more / additional
+        assert (
+            "more" in msg.lower()
+            or "..." in msg
+            or "additional" in msg.lower()
+            or "5" in msg
+        )
+
+    def test_when_delisted_excluded_from_check(
+        self, engine: Engine, db_manager: _FakeDbManager
+    ) -> None:
+        _seed_instrument_with_currency(
+            engine, "id_brl_dead", "VALE3.SA", "BRL", delisted=True
+        )
+        with db_manager.get_session() as session:
+            assert _check_fx_coverage(session) is None
+
+    def test_when_currency_code_null_excluded_from_check(
+        self, engine: Engine, db_manager: _FakeDbManager
+    ) -> None:
+        _seed_instrument_with_currency(engine, "id_null", "NULL.X", None)
+        with db_manager.get_session() as session:
+            assert _check_fx_coverage(session) is None
+
+
+# ---------------------------------------------------------------------------
+# Check 5b — FX coverage mixed-currency seed (GBX / ILA / ZAC) + orchestrator
+# ---------------------------------------------------------------------------
+
+
+def _seed_mixed_currencies(engine: Engine) -> None:
+    """Seed two major-currency instruments and three minor-unit listings."""
+    _seed_instrument_with_currency(engine, "id_usd", "AAPL", "USD")
+    _seed_instrument_with_currency(engine, "id_gbp", "BARC.L", "GBP")
+    _seed_instrument_with_currency(engine, "id_gbx", "VOD.L", "GBX")
+    _seed_instrument_with_currency(engine, "id_ila", "TEVA.TA", "ILA")
+    _seed_instrument_with_currency(engine, "id_zac", "NPN.JO", "ZAC")
+
+
+class TestCheckFxCoverageMixedCurrencies:
+    def test_when_mixed_seed_then_only_minor_codes_listed(
+        self, engine: Engine, db_manager: _FakeDbManager
+    ) -> None:
+        _seed_mixed_currencies(engine)
+        with db_manager.get_session() as session:
+            msg = _check_fx_coverage(session)
+        assert msg is not None
+        # Each minor unit must appear with its ticker
+        assert "VOD.L" in msg
+        assert "GBX" in msg
+        assert "TEVA.TA" in msg
+        assert "ILA" in msg
+        assert "NPN.JO" in msg
+        assert "ZAC" in msg
+        # Major-currency listings must NOT leak into the warning
+        assert "AAPL" not in msg
+        assert "BARC.L" not in msg
+
+    def test_when_mixed_seed_then_run_db_preflight_does_not_raise(
+        self,
+        engine: Engine,
+        db_manager: _FakeDbManager,
+        today: datetime.date,
+    ) -> None:
+        _seed_healthy(engine, today)
+        _seed_mixed_currencies(engine)
+        # Warning-only output must NOT raise.
+        run_db_preflight(db_manager, today=today)
+
+    def test_when_mixed_seed_then_caplog_captures_logger_warning(
+        self,
+        engine: Engine,
+        db_manager: _FakeDbManager,
+        today: datetime.date,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import logging as _logging
+
+        _seed_healthy(engine, today)
+        _seed_mixed_currencies(engine)
+        with caplog.at_level(_logging.WARNING, logger="research._preflight"):
+            run_db_preflight(db_manager, today=today)
+        warn_records = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert warn_records, "expected at least one logger.warning emission"
+        joined = "\n".join(r.getMessage() for r in warn_records)
+        for code in ("GBX", "ILA", "ZAC"):
+            assert code in joined
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator — run_db_preflight
 # ---------------------------------------------------------------------------
 
 
 def _seed_healthy(engine: Engine, today: datetime.date) -> None:
     _seed_instruments(engine, n_active=_MIN_INSTRUMENTS)
-    _seed_price_history(engine, max_date=today - datetime.timedelta(days=1))
+    _seed_price_history_for_tickers(
+        engine,
+        [f"a{i}" for i in range(_MIN_PRICE_TICKERS)],
+        date=today - datetime.timedelta(days=1),
+    )
     fresh = today - datetime.timedelta(days=2)
     _seed_fred(engine, dict.fromkeys(_REQUIRED, fresh))
     _seed_country(engine, [f"a{i}" for i in range(_MIN_INSTRUMENTS)])
@@ -354,6 +707,55 @@ class TestRunDbPreflight:
         with pytest.raises(RuntimeError) as excinfo:
             run_db_preflight(db_manager, today=today)
         assert "\n" in str(excinfo.value)
+
+    def test_when_only_fx_warning_then_no_runtime_error_raised(
+        self,
+        engine: Engine,
+        db_manager: _FakeDbManager,
+        today: datetime.date,
+    ) -> None:
+        # Healthy seed with one extra non-major-currency active instrument.
+        _seed_healthy(engine, today)
+        _seed_instrument_with_currency(engine, "id_brl_warn", "VALE3.SA", "BRL")
+        # Must not raise — FX coverage is warning-only.
+        run_db_preflight(db_manager, today=today)
+
+    def test_when_fx_warning_only_then_logger_warning_emitted(
+        self,
+        engine: Engine,
+        db_manager: _FakeDbManager,
+        today: datetime.date,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _seed_healthy(engine, today)
+        _seed_instrument_with_currency(engine, "id_brl_warn2", "VALE3.SA", "BRL")
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="research._preflight"):
+            run_db_preflight(db_manager, today=today)
+        warn_records = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any("BRL" in r.getMessage() for r in warn_records)
+
+    def test_when_warning_present_alongside_failure_then_only_failure_in_runtime(
+        self,
+        engine: Engine,
+        db_manager: _FakeDbManager,
+        today: datetime.date,
+    ) -> None:
+        # Universe failure + non-major currency warning.
+        _seed_instruments(engine, n_active=5)
+        _seed_price_history(engine, max_date=today - datetime.timedelta(days=1))
+        fresh = today - datetime.timedelta(days=2)
+        _seed_fred(engine, dict.fromkeys(_REQUIRED, fresh))
+        _seed_country(engine, [f"a{i}" for i in range(5)])
+        _seed_instrument_with_currency(engine, "id_warn", "VALE3.SA", "BRL")
+        with pytest.raises(RuntimeError) as excinfo:
+            run_db_preflight(db_manager, today=today)
+        msg = str(excinfo.value)
+        assert "instruments" in msg.lower()
+        # Warning text must NOT pollute the RuntimeError message.
+        assert "VALE3.SA" not in msg
+        assert "BRL" not in msg
 
 
 class TestLoadDataIntegration:
