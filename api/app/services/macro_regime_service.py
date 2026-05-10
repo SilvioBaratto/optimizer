@@ -38,6 +38,12 @@ class MacroRegimeService:
 
             key = settings.fred_api_key
             if not key:
+                logger.warning(
+                    "FRED_API_KEY missing or empty (settings.fred_api_key=%r). "
+                    "Check container environment, not just .env — "
+                    "docker exec -e override with empty value will shadow .env.",
+                    key,
+                )
                 return None
             self._fred_scraper = FredScraper(api_key=key)
         return self._fred_scraper
@@ -215,9 +221,16 @@ class MacroRegimeService:
         """
         scraper = self.fred_scraper
         if scraper is None:
+            from app.config import settings
+
             return {
                 "counts": {},
-                "errors": ["FRED_API_KEY not configured in .env"],
+                "errors": [
+                    f"FRED_API_KEY missing or empty "
+                    f"(settings.fred_api_key={settings.fred_api_key!r}). "
+                    f"Check container environment, not just .env — "
+                    f"docker exec -e override with empty value will shadow .env."
+                ],
             }
 
         ids = series_ids if series_ids is not None else list(FRED_SERIES.keys())

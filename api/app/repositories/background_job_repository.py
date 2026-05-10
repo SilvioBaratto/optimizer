@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import delete, exists, func, insert, literal, select
+from sqlalchemy import delete, exists, func, insert, literal, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -212,3 +212,19 @@ class BackgroundJobRepository(RepositoryBase):
         result2: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
         self.session.flush()
         return result2.rowcount  # type: ignore[return-value]
+
+    def reconcile_orphans(self, error_msg: str) -> int:
+        """Mark every pending/running job as failed.
+
+        Used at FastAPI startup to clear orphan rows left behind when a
+        previous process crashed mid-flight.  Returns the number of rows
+        updated.  Caller owns the commit.
+        """
+        stmt = (
+            update(BackgroundJob)
+            .where(BackgroundJob.status.in_(("pending", "running")))
+            .values(status="failed", error=error_msg, finished_at=func.now())
+        )
+        result3: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
+        self.session.flush()
+        return result3.rowcount  # type: ignore[return-value]

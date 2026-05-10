@@ -4,6 +4,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -86,7 +87,7 @@ def get_job(
     return _job_to_summary(row)
 
 
-_TERMINAL_STATUSES = frozenset({"completed", "failed"})
+_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 
 def _sse_event(event_type: str, payload: JobSummary) -> str:
@@ -150,3 +151,43 @@ async def stream_job(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _parse_uuid_or_422(job_id: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(job_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid job ID format",
+        ) from exc
+
+
+def _assert_cancellable(row: BackgroundJob) -> None:
+    if row.status in _TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Job already terminal (status={row.status})",
+        )
+
+
+@router.post("/{job_id}/cancel", response_model=JobSummary)
+def cancel_job(
+    job_id: str,
+    repo: BackgroundJobRepository = Depends(_get_repo),
+) -> JobSummary:
+    uid = _parse_uuid_or_422(job_id)
+    row = repo.get(uid)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Job not found",
+        )
+    _assert_cancellable(row)
+    repo.update(
+        uid,
+        status="failed",
+        error="operator-cancelled via POST /cancel",
+        finished_at=datetime.now(timezone.utc),
+    )
+    repo.session.commit()
+    return _job_to_summary(row)

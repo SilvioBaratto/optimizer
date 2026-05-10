@@ -226,3 +226,174 @@ class TestGetLatestByType:
 
         result = repo.get_latest_by_type("test_375_type_b")
         assert result is None
+
+
+class TestReconcileOrphans:
+    """reconcile_orphans marks pending/running rows as failed at startup."""
+
+    def test_when_pending_job_exists_marks_failed(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("test_557_pending")
+        assert jid is not None
+        db_session.flush()
+
+        count = repo.reconcile_orphans("orphaned at startup")
+        assert count == 1
+
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == "failed"
+        assert row.error == "orphaned at startup"
+        assert row.finished_at is not None
+
+    def test_when_running_job_exists_marks_failed(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("test_557_running")
+        assert jid is not None
+        repo.update(jid, status="running")
+        db_session.flush()
+
+        count = repo.reconcile_orphans("orphaned at startup")
+        assert count == 1
+
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == "failed"
+
+    def test_when_only_terminal_jobs_returns_zero(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        finished = datetime.now(timezone.utc)
+        for status_value in ("completed", "failed"):
+            jid = repo.claim_or_create(f"test_557_terminal_{status_value}")
+            assert jid is not None
+            repo.update(jid, status=status_value, finished_at=finished)
+        db_session.flush()
+
+        count = repo.reconcile_orphans("orphaned at startup")
+        assert count == 0
+
+    def test_when_table_empty_returns_zero(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        count = repo.reconcile_orphans("orphaned at startup")
+        assert count == 0
+
+    def test_when_called_twice_second_call_is_noop(
+        self, db_session: Session,
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("test_557_idempotent")
+        assert jid is not None
+        db_session.flush()
+
+        first = repo.reconcile_orphans("orphaned at startup")
+        second = repo.reconcile_orphans("orphaned at startup")
+        assert first == 1
+        assert second == 0
+
+    def test_when_multiple_active_jobs_returns_count(
+        self, db_session: Session,
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        for i in range(3):
+            jid = repo.claim_or_create(f"test_557_multi_{i}")
+            assert jid is not None
+        db_session.flush()
+
+        count = repo.reconcile_orphans("orphaned at startup")
+        assert count == 3
+
+    def test_when_terminal_jobs_present_does_not_touch_them(
+        self, db_session: Session,
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        completed_id = repo.claim_or_create("test_557_mixed_completed")
+        assert completed_id is not None
+        original_finished = datetime.now(timezone.utc) - timedelta(hours=1)
+        repo.update(
+            completed_id, status="completed", finished_at=original_finished,
+        )
+        pending_id = repo.claim_or_create("test_557_mixed_pending")
+        assert pending_id is not None
+        db_session.flush()
+
+        count = repo.reconcile_orphans("orphaned at startup")
+        assert count == 1
+
+        completed_row = repo.get(completed_id)
+        assert completed_row is not None
+        assert completed_row.status == "completed"
+        assert completed_row.error is None
+
+    def test_marks_pending_and_running_as_failed(
+        self, db_session: Session,
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        pending_id = repo.claim_or_create("test_558_pending")
+        assert pending_id is not None
+        running_id = repo.claim_or_create("test_558_running")
+        assert running_id is not None
+        repo.update(running_id, status="running")
+        db_session.flush()
+
+        count = repo.reconcile_orphans("test msg")
+        assert count == 2
+
+        pending_row = repo.get(pending_id)
+        running_row = repo.get(running_id)
+        assert pending_row is not None
+        assert running_row is not None
+        assert pending_row.status == "failed"
+        assert running_row.status == "failed"
+        assert pending_row.finished_at is not None
+        assert running_row.finished_at is not None
+        assert pending_row.error == "test msg"
+        assert running_row.error == "test msg"
+
+    def test_returns_zero_when_no_active_jobs(
+        self, db_session: Session,
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        count = repo.reconcile_orphans("test msg")
+        assert count == 0
+
+    def test_does_not_touch_completed_jobs(
+        self, db_session: Session,
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("test_558_completed")
+        assert jid is not None
+        finished = datetime.now(timezone.utc) - timedelta(hours=1)
+        repo.update(jid, status="completed", finished_at=finished)
+        db_session.flush()
+
+        count = repo.reconcile_orphans("test msg")
+        assert count == 0
+
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == "completed"
+        assert row.error is None
+        assert row.finished_at is not None
+        assert row.finished_at.replace(tzinfo=timezone.utc) == finished
+
+    def test_does_not_touch_already_failed_jobs(
+        self, db_session: Session,
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("test_558_already_failed")
+        assert jid is not None
+        finished = datetime.now(timezone.utc) - timedelta(hours=1)
+        repo.update(
+            jid, status="failed", error="original error", finished_at=finished,
+        )
+        db_session.flush()
+
+        count = repo.reconcile_orphans("test msg")
+        assert count == 0
+
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == "failed"
+        assert row.error == "original error"
+        assert row.finished_at is not None
+        assert row.finished_at.replace(tzinfo=timezone.utc) == finished

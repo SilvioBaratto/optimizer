@@ -67,6 +67,23 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Database health check failed but continuing startup: {e}")
 
+        # Reconcile orphan background jobs left behind by a crashed process.
+        # Must run after init_db (engine ready) and before create_scheduler
+        # (no jobs firing yet). Failures are non-fatal.
+        try:
+            from app.repositories.background_job_repository import (
+                BackgroundJobRepository,
+            )
+
+            with database_manager.get_session() as session:
+                n = BackgroundJobRepository(session).reconcile_orphans(
+                    "orphaned at startup — process restarted"
+                )
+                session.commit()
+                logger.info("Reconciled %d orphan job(s) on startup", n)
+        except Exception as exc:
+            logger.warning("Orphan reconciliation failed: %s", exc)
+
         # Bootstrap reference-index benchmarks — seed any ticker whose price
         # history is missing or stale. Synchronous so the dashboard never
         # 422s on a fresh DB. Failures are non-fatal.

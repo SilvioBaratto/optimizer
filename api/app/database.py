@@ -257,13 +257,12 @@ class DatabaseManager:
             Session: SQLAlchemy database session
 
         Raises:
-            RuntimeError: If database is not initialized
             SQLAlchemyError: For database-related errors
         """
-        if not self._is_initialized or not self._session_factory:
-            raise RuntimeError("Database not initialized. Call initialize() first.")
+        if not self._is_initialized:
+            self.initialize()
 
-        session = self._session_factory()
+        session = self._session_factory()  # type: ignore[misc]
 
         try:
             yield session
