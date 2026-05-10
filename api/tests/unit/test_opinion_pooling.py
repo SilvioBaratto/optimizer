@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from baml_client.types import AssetFactorData, AssetView, ExpertPersona, ViewOutput
 
 if TYPE_CHECKING:
-    from app.services.opinion_pooling import OpinionPoolResult
+    from app.services.views.opinion_pooling import OpinionPoolResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -76,7 +76,7 @@ def _make_empty_view_output() -> ViewOutput:
 
 class TestComputeICWeights:
     def test_weights_sum_to_one(self) -> None:
-        from app.services.opinion_pooling import compute_ic_weights
+        from app.services.views.opinion_pooling import compute_ic_weights
 
         histories = [
             pd.Series([0.1, 0.2, 0.15, 0.08]),
@@ -87,14 +87,14 @@ class TestComputeICWeights:
         assert weights.sum() == pytest.approx(1.0)
 
     def test_weights_non_negative(self) -> None:
-        from app.services.opinion_pooling import compute_ic_weights
+        from app.services.views.opinion_pooling import compute_ic_weights
 
         histories = [pd.Series([0.1, 0.2, 0.15]), pd.Series([-0.5, -0.3, -0.4])]
         weights = compute_ic_weights(histories)
         assert np.all(weights >= 0.0)
 
     def test_high_icir_gets_higher_weight(self) -> None:
-        from app.services.opinion_pooling import compute_ic_weights
+        from app.services.views.opinion_pooling import compute_ic_weights
 
         good = pd.Series([0.30, 0.28, 0.32, 0.29])  # high ICIR
         bad = pd.Series([0.01, -0.01, 0.02, -0.02])  # near-zero ICIR
@@ -102,7 +102,7 @@ class TestComputeICWeights:
         assert weights[0] > weights[1]
 
     def test_zero_icir_gets_near_zero_not_hard_zero(self) -> None:
-        from app.services.opinion_pooling import compute_ic_weights
+        from app.services.views.opinion_pooling import compute_ic_weights
 
         zero_ic = pd.Series([0.1, -0.1, 0.1, -0.1])  # mean IC ≈ 0
         good = pd.Series([0.3, 0.28, 0.32, 0.29])
@@ -110,7 +110,7 @@ class TestComputeICWeights:
         assert weights[0] > 0.0
 
     def test_empty_series_gets_eps_weight(self) -> None:
-        from app.services.opinion_pooling import compute_ic_weights
+        from app.services.views.opinion_pooling import compute_ic_weights
 
         weights = compute_ic_weights(
             [pd.Series([], dtype=float), pd.Series([0.2, 0.3, 0.25])]
@@ -119,20 +119,20 @@ class TestComputeICWeights:
         assert weights.sum() == pytest.approx(1.0)
 
     def test_equal_icir_gives_equal_weights(self) -> None:
-        from app.services.opinion_pooling import compute_ic_weights
+        from app.services.views.opinion_pooling import compute_ic_weights
 
         s = pd.Series([0.2, 0.3, 0.25])
         weights = compute_ic_weights([s.copy(), s.copy()])
         assert weights[0] == pytest.approx(weights[1])
 
     def test_single_expert_gets_weight_one(self) -> None:
-        from app.services.opinion_pooling import compute_ic_weights
+        from app.services.views.opinion_pooling import compute_ic_weights
 
         weights = compute_ic_weights([pd.Series([0.1, 0.2, 0.15])])
         assert weights[0] == pytest.approx(1.0)
 
     def test_all_negative_icir_still_sums_to_one(self) -> None:
-        from app.services.opinion_pooling import compute_ic_weights
+        from app.services.views.opinion_pooling import compute_ic_weights
 
         histories = [pd.Series([-0.5, -0.4, -0.6]) for _ in range(3)]
         weights = compute_ic_weights(histories)
@@ -154,21 +154,21 @@ class TestRunLLMExperts:
         }
 
     def test_returns_one_result_per_persona(self) -> None:
-        from app.services.opinion_pooling import ALL_PERSONAS, run_llm_experts
+        from app.services.views.opinion_pooling import ALL_PERSONAS, run_llm_experts
 
         assets = [_make_asset_factor_data(t) for t in TICKERS]
 
         with (
             patch(
-                "app.services.opinion_pooling.b.GenerateValueView",
+                "app.services.views.opinion_pooling.b.GenerateValueView",
                 return_value=_make_view_output("AAPL"),
             ),
             patch(
-                "app.services.opinion_pooling.b.GenerateMomentumView",
+                "app.services.views.opinion_pooling.b.GenerateMomentumView",
                 return_value=_make_view_output("MSFT"),
             ),
             patch(
-                "app.services.opinion_pooling.b.GenerateMacroView",
+                "app.services.views.opinion_pooling.b.GenerateMacroView",
                 return_value=_make_view_output("GOOGL"),
             ),
         ):
@@ -177,21 +177,21 @@ class TestRunLLMExperts:
         assert len(results) == len(ALL_PERSONAS)
 
     def test_each_result_has_correct_persona(self) -> None:
-        from app.services.opinion_pooling import run_llm_experts
+        from app.services.views.opinion_pooling import run_llm_experts
 
         assets = [_make_asset_factor_data(t) for t in TICKERS]
 
         with (
             patch(
-                "app.services.opinion_pooling.b.GenerateValueView",
+                "app.services.views.opinion_pooling.b.GenerateValueView",
                 return_value=_make_view_output("AAPL"),
             ),
             patch(
-                "app.services.opinion_pooling.b.GenerateMomentumView",
+                "app.services.views.opinion_pooling.b.GenerateMomentumView",
                 return_value=_make_view_output("MSFT"),
             ),
             patch(
-                "app.services.opinion_pooling.b.GenerateMacroView",
+                "app.services.views.opinion_pooling.b.GenerateMacroView",
                 return_value=_make_view_output("GOOGL"),
             ),
         ):
@@ -203,18 +203,18 @@ class TestRunLLMExperts:
         assert ExpertPersona.MACRO_ANALYST in personas
 
     def test_at_least_two_distinct_personas(self) -> None:
-        from app.services.opinion_pooling import run_llm_experts
+        from app.services.views.opinion_pooling import run_llm_experts
 
         assets = [_make_asset_factor_data(t) for t in TICKERS]
         two_personas = [ExpertPersona.VALUE_INVESTOR, ExpertPersona.MOMENTUM_TRADER]
 
         with (
             patch(
-                "app.services.opinion_pooling.b.GenerateValueView",
+                "app.services.views.opinion_pooling.b.GenerateValueView",
                 return_value=_make_view_output("AAPL"),
             ),
             patch(
-                "app.services.opinion_pooling.b.GenerateMomentumView",
+                "app.services.views.opinion_pooling.b.GenerateMomentumView",
                 return_value=_make_view_output("MSFT"),
             ),
         ):
@@ -225,7 +225,7 @@ class TestRunLLMExperts:
 
     def test_hallucinated_ticker_filtered(self) -> None:
         """LLM view on unknown ticker should be filtered out."""
-        from app.services.opinion_pooling import run_llm_experts
+        from app.services.views.opinion_pooling import run_llm_experts
 
         assets = [_make_asset_factor_data("AAPL")]
         hallucinated = ViewOutput(
@@ -244,15 +244,15 @@ class TestRunLLMExperts:
 
         with (
             patch(
-                "app.services.opinion_pooling.b.GenerateValueView",
+                "app.services.views.opinion_pooling.b.GenerateValueView",
                 return_value=hallucinated,
             ),
             patch(
-                "app.services.opinion_pooling.b.GenerateMomentumView",
+                "app.services.views.opinion_pooling.b.GenerateMomentumView",
                 return_value=_make_empty_view_output(),
             ),
             patch(
-                "app.services.opinion_pooling.b.GenerateMacroView",
+                "app.services.views.opinion_pooling.b.GenerateMacroView",
                 return_value=_make_empty_view_output(),
             ),
         ):
@@ -268,21 +268,21 @@ class TestRunLLMExperts:
     def test_expert_prior_is_black_litterman(self) -> None:
         from skfolio.prior import BlackLitterman
 
-        from app.services.opinion_pooling import run_llm_experts
+        from app.services.views.opinion_pooling import run_llm_experts
 
         assets = [_make_asset_factor_data("AAPL")]
 
         with (
             patch(
-                "app.services.opinion_pooling.b.GenerateValueView",
+                "app.services.views.opinion_pooling.b.GenerateValueView",
                 return_value=_make_view_output("AAPL"),
             ),
             patch(
-                "app.services.opinion_pooling.b.GenerateMomentumView",
+                "app.services.views.opinion_pooling.b.GenerateMomentumView",
                 return_value=_make_empty_view_output(),
             ),
             patch(
-                "app.services.opinion_pooling.b.GenerateMacroView",
+                "app.services.views.opinion_pooling.b.GenerateMacroView",
                 return_value=_make_empty_view_output(),
             ),
         ):
@@ -301,21 +301,21 @@ class TestBuildLLMOpinionPool:
     def _mock_all(self):
         return (
             patch(
-                "app.services.opinion_pooling.b.GenerateValueView",
+                "app.services.views.opinion_pooling.b.GenerateValueView",
                 return_value=_make_view_output("AAPL"),
             ),
             patch(
-                "app.services.opinion_pooling.b.GenerateMomentumView",
+                "app.services.views.opinion_pooling.b.GenerateMomentumView",
                 return_value=_make_view_output("MSFT"),
             ),
             patch(
-                "app.services.opinion_pooling.b.GenerateMacroView",
+                "app.services.views.opinion_pooling.b.GenerateMacroView",
                 return_value=_make_view_output("GOOGL"),
             ),
         )
 
     def test_ic_weights_sum_to_one(self) -> None:
-        from app.services.opinion_pooling import build_llm_opinion_pool
+        from app.services.views.opinion_pooling import build_llm_opinion_pool
 
         assets = [_make_asset_factor_data(t) for t in TICKERS]
 
@@ -325,7 +325,7 @@ class TestBuildLLMOpinionPool:
         assert result.ic_weights.sum() == pytest.approx(1.0)
 
     def test_equal_weights_without_ic_history(self) -> None:
-        from app.services.opinion_pooling import build_llm_opinion_pool
+        from app.services.views.opinion_pooling import build_llm_opinion_pool
 
         assets = [_make_asset_factor_data(t) for t in TICKERS]
 
@@ -337,7 +337,7 @@ class TestBuildLLMOpinionPool:
         assert np.allclose(result.ic_weights, expected)
 
     def test_n_experts_matches_personas(self) -> None:
-        from app.services.opinion_pooling import build_llm_opinion_pool
+        from app.services.views.opinion_pooling import build_llm_opinion_pool
 
         assets = [_make_asset_factor_data(t) for t in TICKERS]
 
@@ -347,7 +347,7 @@ class TestBuildLLMOpinionPool:
         assert len(result.expert_results) == 3
 
     def test_ic_histories_length_mismatch_raises(self) -> None:
-        from app.services.opinion_pooling import build_llm_opinion_pool
+        from app.services.views.opinion_pooling import build_llm_opinion_pool
 
         assets = [_make_asset_factor_data(t) for t in TICKERS]
         # 3 experts but only 2 IC histories
@@ -360,7 +360,7 @@ class TestBuildLLMOpinionPool:
     def test_opinion_pool_is_skfolio_estimator(self) -> None:
         from skfolio.prior import OpinionPooling
 
-        from app.services.opinion_pooling import build_llm_opinion_pool
+        from app.services.views.opinion_pooling import build_llm_opinion_pool
 
         assets = [_make_asset_factor_data(t) for t in TICKERS]
 
@@ -370,7 +370,7 @@ class TestBuildLLMOpinionPool:
         assert isinstance(result.opinion_pool, OpinionPooling)
 
     def test_ic_calibrated_weights_reflect_icir(self) -> None:
-        from app.services.opinion_pooling import build_llm_opinion_pool
+        from app.services.views.opinion_pooling import build_llm_opinion_pool
 
         assets = [_make_asset_factor_data(t) for t in TICKERS]
         ic_histories = [
@@ -392,14 +392,14 @@ class TestBuildLLMOpinionPool:
 # ---------------------------------------------------------------------------
 
 URL = "/api/v1/views/opinion-pool"
-_FETCH = "app.api.v1.opinion_pooling.fetch_factor_data"
-_BUILD = "app.api.v1.opinion_pooling.build_llm_opinion_pool"
+_FETCH = "app.api.v1.views.opinion_pooling.fetch_factor_data"
+_BUILD = "app.api.v1.views.opinion_pooling.build_llm_opinion_pool"
 
 
 def _make_pool_result(n_experts: int = 3) -> OpinionPoolResult:
     from skfolio.prior import BlackLitterman, OpinionPooling
 
-    from app.services.opinion_pooling import ExpertViewResult, OpinionPoolResult
+    from app.services.views.opinion_pooling import ExpertViewResult, OpinionPoolResult
 
     persona_list = [
         ExpertPersona.VALUE_INVESTOR,

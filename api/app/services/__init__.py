@@ -236,10 +236,13 @@ Best Practices
 10. **Logging**: Log important business operations
 """
 
-# Import and export your services here:
-# from app.services.user_service import UserService
-# from app.services.auth_service import AuthService
-from app.services.trading212 import (
+# Import and export commonly used services here:
+from app.services.jobs.background_job import (
+    BackgroundJobService,
+    JobAlreadyRunningError,
+)
+from app.services.jobs.scheduler import create_scheduler
+from app.services.universe.trading212 import (
     BuildProgress,
     BuildResult,
     Trading212Client,
@@ -249,12 +252,13 @@ from app.services.trading212 import (
 )
 
 __all__ = [
-    # "AuthService",
-    # "UserService",
+    "BackgroundJobService",
     "BuildProgress",
     "BuildResult",
+    "JobAlreadyRunningError",
     "Trading212Client",
     "UniverseBuilder",
     "UniverseBuilderConfig",
     "YFinanceTickerMapper",
+    "create_scheduler",
 ]

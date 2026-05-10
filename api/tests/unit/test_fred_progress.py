@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from app.services.macro_regime_service import MacroRegimeService
+from app.services.macro.macro_regime_service import MacroRegimeService
 
 
 def _build_service() -> tuple[MacroRegimeService, MagicMock]:

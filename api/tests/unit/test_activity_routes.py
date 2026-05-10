@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-_PORTFOLIO_REPO = "app.api.v1.dashboard.PortfolioRepository"
+_PORTFOLIO_REPO = "app.api.v1.dashboard.dashboard.PortfolioRepository"
 
 BASE_URL = "/api/v1/portfolio-analytics"
 

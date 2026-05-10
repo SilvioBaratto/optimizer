@@ -17,8 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
-from app.api.v1.metrics import router as metrics_router
-from app.api.v1.router import api_router
+from app.api.v1._shared.metrics import router as metrics_router
+from app.api.v1._shared.router import api_router
 from app.config import settings
 from app.database import close_db, database_manager, init_db
 from app.exceptions import setup_exception_handlers
@@ -27,7 +27,7 @@ from app.middleware.logging import LoggingMiddleware
 from app.middleware.metrics_middleware import MetricsMiddleware
 from app.middleware.rate_limiting import RateLimitingMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
-from app.services.scheduler import create_scheduler
+from app.services.jobs.scheduler import create_scheduler
 
 # Configure structured logging
 logging.basicConfig(
@@ -82,7 +82,7 @@ async def lifespan(app: FastAPI):
         global _reconciled_this_process
         if not _reconciled_this_process:
             try:
-                from app.repositories.background_job_repository import (
+                from app.repositories.jobs.background_job_repository import (
                     BackgroundJobRepository,
                 )
 
@@ -99,16 +99,14 @@ async def lifespan(app: FastAPI):
             except Exception as exc:
                 logger.warning("Orphan reconciliation failed: %s", exc)
         else:
-            logger.debug(
-                "Skipping orphan reconciliation — already ran in this process"
-            )
+            logger.debug("Skipping orphan reconciliation — already ran in this process")
 
         # Bootstrap reference-index benchmarks — seed any ticker whose price
         # history is missing or stale. Synchronous so the dashboard never
         # 422s on a fresh DB. Failures are non-fatal.
         try:
-            from app.services._benchmark_bootstrap import bootstrap_benchmarks
-            from app.services.yfinance import get_yfinance_client
+            from app.services._shared import bootstrap_benchmarks
+            from app.services.market_data.yfinance import get_yfinance_client
 
             bootstrap_benchmarks(
                 database_manager.get_session,

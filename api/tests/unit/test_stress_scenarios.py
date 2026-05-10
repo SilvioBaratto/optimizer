@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.services.stress_scenarios import (
+from app.services.scenarios.stress_scenarios import (
     _PROB_MAX,
     _PROB_MIN,
     _SHOCK_MAX,
@@ -195,14 +195,14 @@ class TestGenerateStressScenarios:
         return scenarios
 
     def test_returns_list_of_stress_scenarios(self) -> None:
-        with patch("app.services.stress_scenarios.b") as mock_b:
+        with patch("app.services.scenarios.stress_scenarios.b") as mock_b:
             mock_b.DesignStressScenarios.return_value = self._mock_scenarios(3)
             result = generate_stress_scenarios(3, PORTFOLIO, MACRO)
         assert isinstance(result, list)
         assert all(isinstance(s, StressScenario) for s in result)
 
     def test_n_scenarios_forwarded_to_baml(self) -> None:
-        with patch("app.services.stress_scenarios.b") as mock_b:
+        with patch("app.services.scenarios.stress_scenarios.b") as mock_b:
             mock_b.DesignStressScenarios.return_value = self._mock_scenarios(2)
             generate_stress_scenarios(2, PORTFOLIO, MACRO)
         mock_b.DesignStressScenarios.assert_called_once()
@@ -210,21 +210,21 @@ class TestGenerateStressScenarios:
         assert call_kwargs.kwargs["n_scenarios"] == 2
 
     def test_tickers_forwarded_to_baml(self) -> None:
-        with patch("app.services.stress_scenarios.b") as mock_b:
+        with patch("app.services.scenarios.stress_scenarios.b") as mock_b:
             mock_b.DesignStressScenarios.return_value = self._mock_scenarios(1)
             generate_stress_scenarios(1, PORTFOLIO, MACRO)
         call_kwargs = mock_b.DesignStressScenarios.call_args
         assert set(call_kwargs.kwargs["tickers"]) == set(TICKERS)
 
     def test_probabilities_in_range(self) -> None:
-        with patch("app.services.stress_scenarios.b") as mock_b:
+        with patch("app.services.scenarios.stress_scenarios.b") as mock_b:
             mock_b.DesignStressScenarios.return_value = self._mock_scenarios(3)
             result = generate_stress_scenarios(3, PORTFOLIO, MACRO)
         for s in result:
             assert 0.0 < s.probability < 1.0
 
     def test_shocks_in_valid_range(self) -> None:
-        with patch("app.services.stress_scenarios.b") as mock_b:
+        with patch("app.services.scenarios.stress_scenarios.b") as mock_b:
             mock_b.DesignStressScenarios.return_value = self._mock_scenarios(3)
             result = generate_stress_scenarios(3, PORTFOLIO, MACRO)
         for s in result:
@@ -232,7 +232,7 @@ class TestGenerateStressScenarios:
                 assert -1.0 < v < 1.0
 
     def test_shock_keys_match_portfolio_tickers(self) -> None:
-        with patch("app.services.stress_scenarios.b") as mock_b:
+        with patch("app.services.scenarios.stress_scenarios.b") as mock_b:
             mock_b.DesignStressScenarios.return_value = self._mock_scenarios(3)
             result = generate_stress_scenarios(3, PORTFOLIO, MACRO)
         for s in result:
@@ -240,7 +240,7 @@ class TestGenerateStressScenarios:
 
     def test_at_least_one_market_drawdown(self) -> None:
         """At least one scenario must have average negative shock ≥ 10%."""
-        with patch("app.services.stress_scenarios.b") as mock_b:
+        with patch("app.services.scenarios.stress_scenarios.b") as mock_b:
             mock_b.DesignStressScenarios.return_value = self._mock_scenarios(3)
             result = generate_stress_scenarios(3, PORTFOLIO, MACRO)
         has_drawdown = False
@@ -260,7 +260,7 @@ class TestGenerateStressScenarios:
             generate_stress_scenarios(1, {}, MACRO)
 
     def test_baml_failure_raises_runtime_error(self) -> None:
-        with patch("app.services.stress_scenarios.b") as mock_b:
+        with patch("app.services.scenarios.stress_scenarios.b") as mock_b:
             mock_b.DesignStressScenarios.side_effect = Exception("LLM unavailable")
             with pytest.raises(RuntimeError, match="LLM stress scenario"):
                 generate_stress_scenarios(1, PORTFOLIO, MACRO)
@@ -273,7 +273,7 @@ class TestGenerateStressScenarios:
             probability=1.5,  # invalid — should be clamped
             horizon_days=21,
         )
-        with patch("app.services.stress_scenarios.b") as mock_b:
+        with patch("app.services.scenarios.stress_scenarios.b") as mock_b:
             mock_b.DesignStressScenarios.return_value = [bad_scenario]
             result = generate_stress_scenarios(1, PORTFOLIO, MACRO)
         assert result[0].probability <= _PROB_MAX
@@ -286,7 +286,7 @@ class TestGenerateStressScenarios:
             probability=0.10,
             horizon_days=21,
         )
-        with patch("app.services.stress_scenarios.b") as mock_b:
+        with patch("app.services.scenarios.stress_scenarios.b") as mock_b:
             mock_b.DesignStressScenarios.return_value = [bad_scenario]
             result = generate_stress_scenarios(1, PORTFOLIO, MACRO)
         assert result[0].shocks["SPY"] >= _SHOCK_MIN

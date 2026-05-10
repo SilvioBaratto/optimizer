@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.services.yfinance._facade import YFinanceClient
+from app.services.market_data.yfinance._facade import YFinanceClient
 
 _SUBCLIENT_NAMES: tuple[str, ...] = (
     "financials",
@@ -38,26 +38,26 @@ _SUBCLIENT_NAMES: tuple[str, ...] = (
 
 _PATCH_TARGETS: dict[str, str] = {
     "financials": (
-        "app.services.yfinance.ticker.financials.FinancialsClient.__init__"
+        "app.services.market_data.yfinance.ticker.financials.FinancialsClient.__init__"
     ),
-    "analysis": "app.services.yfinance.ticker.analysis.AnalysisClient.__init__",
-    "holders": "app.services.yfinance.ticker.holders.HoldersClient.__init__",
+    "analysis": "app.services.market_data.yfinance.ticker.analysis.AnalysisClient.__init__",
+    "holders": "app.services.market_data.yfinance.ticker.holders.HoldersClient.__init__",
     "corporate_actions": (
-        "app.services.yfinance.ticker.corporate_actions"
+        "app.services.market_data.yfinance.ticker.corporate_actions"
         ".CorporateActionsClient.__init__"
     ),
-    "metadata": "app.services.yfinance.ticker.metadata.MetadataClient.__init__",
-    "funds": "app.services.yfinance.ticker.funds.FundsClient.__init__",
-    "market": "app.services.yfinance.market.market.MarketClient.__init__",
+    "metadata": "app.services.market_data.yfinance.ticker.metadata.MetadataClient.__init__",
+    "funds": "app.services.market_data.yfinance.ticker.funds.FundsClient.__init__",
+    "market": "app.services.market_data.yfinance.market.market.MarketClient.__init__",
     "sectors": (
-        "app.services.yfinance.market.sector_industry.SectorIndustryClient.__init__"
+        "app.services.market_data.yfinance.market.sector_industry.SectorIndustryClient.__init__"
     ),
-    "search": "app.services.yfinance.market.search.SearchClient.__init__",
-    "screener": "app.services.yfinance.market.screener.ScreenerClient.__init__",
-    "calendars": "app.services.yfinance.market.calendars.CalendarsClient.__init__",
-    "streaming": "app.services.yfinance.market.streaming.StreamingClient.__init__",
+    "search": "app.services.market_data.yfinance.market.search.SearchClient.__init__",
+    "screener": "app.services.market_data.yfinance.market.screener.ScreenerClient.__init__",
+    "calendars": "app.services.market_data.yfinance.market.calendars.CalendarsClient.__init__",
+    "streaming": "app.services.market_data.yfinance.market.streaming.StreamingClient.__init__",
     "async_streaming": (
-        "app.services.yfinance.market.streaming.AsyncStreamingClient.__init__"
+        "app.services.market_data.yfinance.market.streaming.AsyncStreamingClient.__init__"
     ),
 }
 
@@ -174,7 +174,7 @@ def test_when_property_accessed_twice_then_returns_identical_instance(
 def test_when_facade_module_inspected_then_no_hasattr_underscore_pattern() -> None:
     import inspect
 
-    from app.services.yfinance import _facade
+    from app.services.market_data.yfinance import _facade
 
     source = inspect.getsource(_facade)
     for name in _SUBCLIENT_NAMES:

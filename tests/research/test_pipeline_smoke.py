@@ -20,7 +20,7 @@ import pytest
 
 pytest.importorskip("jinja2")
 
-from app.models.base import Base
+from app.models._shared.base import Base
 from app.models.portfolio import (
     PortfolioSnapshot,
     SnapshotOptimizerParam,

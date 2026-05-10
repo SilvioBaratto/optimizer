@@ -60,11 +60,15 @@ class TestMetricsMiddlewareRecordsObservations:
 
         client.get("/api/v1/health-check")
 
-        count = self._count(registry, HISTOGRAM_NAME, {
-            "method": "GET",
-            "path_template": "/api/v1/health-check",
-            "status_code": "200",
-        })
+        count = self._count(
+            registry,
+            HISTOGRAM_NAME,
+            {
+                "method": "GET",
+                "path_template": "/api/v1/health-check",
+                "status_code": "200",
+            },
+        )
         assert count == 1
 
     def test_when_404_request_uses_unmatched_label(self, metrics_app):
@@ -73,11 +77,15 @@ class TestMetricsMiddlewareRecordsObservations:
 
         client.get("/api/v1/does-not-exist")
 
-        count = self._count(registry, HISTOGRAM_NAME, {
-            "method": "GET",
-            "path_template": "<unmatched>",
-            "status_code": "404",
-        })
+        count = self._count(
+            registry,
+            HISTOGRAM_NAME,
+            {
+                "method": "GET",
+                "path_template": "<unmatched>",
+                "status_code": "404",
+            },
+        )
         assert count == 1
 
     def test_when_excluded_path_no_histogram_observation(self, metrics_app):
@@ -101,11 +109,15 @@ class TestMetricsMiddlewareRecordsObservations:
 
         client.get("/api/v1/health-check")
 
-        duration_sum = self._sum(registry, HISTOGRAM_NAME, {
-            "method": "GET",
-            "path_template": "/api/v1/health-check",
-            "status_code": "200",
-        })
+        duration_sum = self._sum(
+            registry,
+            HISTOGRAM_NAME,
+            {
+                "method": "GET",
+                "path_template": "/api/v1/health-check",
+                "status_code": "200",
+            },
+        )
         assert duration_sum > 0.0, "Duration should be > 0"
 
     def test_histogram_labels_include_method_path_status(self, metrics_app):
@@ -131,11 +143,15 @@ class TestMetricsMiddlewareRecordsObservations:
 
         client.get("/api/v1/portfolio/my-portfolio/risk")
 
-        count = self._count(registry, HISTOGRAM_NAME, {
-            "method": "GET",
-            "path_template": "/api/v1/portfolio/{name}/risk",
-            "status_code": "200",
-        })
+        count = self._count(
+            registry,
+            HISTOGRAM_NAME,
+            {
+                "method": "GET",
+                "path_template": "/api/v1/portfolio/{name}/risk",
+                "status_code": "200",
+            },
+        )
         assert count == 1
 
     def test_multiple_requests_accumulate_counts(self, metrics_app):
@@ -145,11 +161,15 @@ class TestMetricsMiddlewareRecordsObservations:
         for _ in range(3):
             client.get("/api/v1/health-check")
 
-        count = self._count(registry, HISTOGRAM_NAME, {
-            "method": "GET",
-            "path_template": "/api/v1/health-check",
-            "status_code": "200",
-        })
+        count = self._count(
+            registry,
+            HISTOGRAM_NAME,
+            {
+                "method": "GET",
+                "path_template": "/api/v1/health-check",
+                "status_code": "200",
+            },
+        )
         assert count == 3
 
     # ------------------------------------------------------------------

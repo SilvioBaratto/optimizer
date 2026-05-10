@@ -12,8 +12,10 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 
-from app.services.yfinance.protocols.interfaces import AnalysisClientProtocol
-from app.services.yfinance.ticker.analysis import AnalysisClient
+from app.services.market_data.yfinance.protocols.interfaces import (
+    AnalysisClientProtocol,
+)
+from app.services.market_data.yfinance.ticker.analysis import AnalysisClient
 
 
 def _build_client(**ticker_attrs: Any) -> AnalysisClient:

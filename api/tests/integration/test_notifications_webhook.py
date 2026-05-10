@@ -1,10 +1,10 @@
 """Integration tests: webhook fires on background-job failure across routers.
 
 Covers the four Cycle-2 execution routers:
-  - /api/v1/optimize             → app.api.v1.optimize._job_service
-  - /api/v1/backtest             → app.api.v1.backtest._job_service
-  - /api/v1/validate/cross-val.. → app.api.v1.validate._job_service
-  - /api/v1/tune                 → app.api.v1.tune._tune_job_service
+  - /api/v1/optimize             → app.api.v1.optimization.optimize._job_service
+  - /api/v1/backtest             → app.api.v1.backtest.backtest._job_service
+  - /api/v1/validate/cross-val.. → app.api.v1.optimization.validate._job_service
+  - /api/v1/tune                 → app.api.v1.optimization.tune._tune_job_service
 
 Strategy
 --------
@@ -33,16 +33,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.api.v1.backtest import _job_service as backtest_job_service
-from app.api.v1.optimize import _job_service as optimize_job_service
-from app.api.v1.tune import _tune_job_service
-from app.api.v1.validate import _job_service as validate_job_service
+from app.api.v1.backtest.backtest import _job_service as backtest_job_service
+from app.api.v1.optimization.optimize import _job_service as optimize_job_service
+from app.api.v1.optimization.tune import _tune_job_service
+from app.api.v1.optimization.validate import _job_service as validate_job_service
 from app.config import settings
-from app.services.background_job import BackgroundJobService
+from app.services.jobs.background_job import BackgroundJobService
 
 _TEST_WEBHOOK_URL = "https://discord.com/api/webhooks/test"
 
-_HTTPX_POST_PATH = "app.services.notifications.httpx.post"
+_HTTPX_POST_PATH = "app.services._shared.notifications.httpx.post"
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ def stub_session_factories(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # Prevent the repository's .update from running against the MagicMock.
     monkeypatch.setattr(
-        "app.repositories.background_job_repository.BackgroundJobRepository.update",
+        "app.repositories.jobs.background_job_repository.BackgroundJobRepository.update",
         lambda self, *args, **kwargs: None,
     )
 

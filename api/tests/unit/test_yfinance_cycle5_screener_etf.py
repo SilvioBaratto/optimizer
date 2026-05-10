@@ -15,8 +15,8 @@ import pytest
 
 pytest.importorskip("yfinance")
 
-from app.services.yfinance.market.screener import ScreenerClient
-from app.services.yfinance.protocols import ScreenerClientProtocol
+from app.services.market_data.yfinance.market.screener import ScreenerClient
+from app.services.market_data.yfinance.protocols import ScreenerClientProtocol
 
 _VALID_NAMES = (
     "top_etfs_us",
@@ -41,7 +41,7 @@ def _patch_yf_screen(df: pd.DataFrame | None = None):
     if df is None:
         df = pd.DataFrame({"symbol": ["SPY"]})
     return patch(
-        "app.services.yfinance.market.screener.yf.screen",
+        "app.services.market_data.yfinance.market.screener.yf.screen",
         return_value=df,
     )
 
@@ -68,9 +68,12 @@ def test_when_invalid_name_then_value_error_lists_canonical_names() -> None:
 
 def test_when_invalid_name_then_yf_screen_not_called() -> None:
     client = _build_client()
-    with patch(
-        "app.services.yfinance.market.screener.yf.screen"
-    ) as mock_screen, pytest.raises(ValueError):
+    with (
+        patch(
+            "app.services.market_data.yfinance.market.screener.yf.screen"
+        ) as mock_screen,
+        pytest.raises(ValueError),
+    ):
         client.screen_etfs_predefined("most_actives")
     mock_screen.assert_not_called()
 

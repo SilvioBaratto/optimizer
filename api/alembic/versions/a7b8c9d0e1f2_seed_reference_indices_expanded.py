@@ -52,7 +52,14 @@ INDICES: tuple[tuple[str, str, str, str, str, str], ...] = (
     ("IWM", "IWM", "iShares Russell 2000 ETF", "US4642876555", "NYSE", "IWM"),
     ("EFA", "EFA", "iShares MSCI EAFE ETF", "US4642874659", "NYSE", "EFA"),
     ("EEM", "EEM", "iShares MSCI Emerging Markets ETF", "US4642872349", "NYSE", "EEM"),
-    ("AGG", "AGG", "iShares Core U.S. Aggregate Bond ETF", "US4642872265", "NYSE", "AGG"),
+    (
+        "AGG",
+        "AGG",
+        "iShares Core U.S. Aggregate Bond ETF",
+        "US4642872265",
+        "NYSE",
+        "AGG",
+    ),
     ("VGK", "VGK", "Vanguard FTSE Europe ETF", "US9220427671", "NYSE", "VGK"),
     ("VWO", "VWO", "Vanguard FTSE Emerging Markets ETF", "US9220428588", "NYSE", "VWO"),
     ("TLT", "TLT", "iShares 20+ Year Treasury Bond ETF", "US4642874329", "NYSE", "TLT"),
@@ -62,14 +69,16 @@ INDICES: tuple[tuple[str, str, str, str, str, str], ...] = (
 
 def upgrade() -> None:
     for ticker, short_name, long_name, isin, exchange_name, yfinance_ticker in INDICES:
-        op.execute(_build_insert_sql(
-            ticker=ticker,
-            short_name=short_name,
-            long_name=long_name,
-            isin=isin,
-            exchange_name=exchange_name,
-            yfinance_ticker=yfinance_ticker,
-        ))
+        op.execute(
+            _build_insert_sql(
+                ticker=ticker,
+                short_name=short_name,
+                long_name=long_name,
+                isin=isin,
+                exchange_name=exchange_name,
+                yfinance_ticker=yfinance_ticker,
+            )
+        )
 
 
 def downgrade() -> None:

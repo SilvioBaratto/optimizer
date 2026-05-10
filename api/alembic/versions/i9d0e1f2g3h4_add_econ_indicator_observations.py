@@ -45,12 +45,17 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.UniqueConstraint(
-            "country", "date",
+            "country",
+            "date",
             name="uq_econ_obs_country_date",
         ),
     )
-    op.create_index("ix_econ_observations_country", "economic_indicator_observations", ["country"])
-    op.create_index("ix_econ_observations_date", "economic_indicator_observations", ["date"])
+    op.create_index(
+        "ix_econ_observations_country", "economic_indicator_observations", ["country"]
+    )
+    op.create_index(
+        "ix_econ_observations_date", "economic_indicator_observations", ["date"]
+    )
 
     # Seed from existing snapshot table
     op.execute(

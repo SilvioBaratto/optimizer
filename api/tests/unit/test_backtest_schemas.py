@@ -23,11 +23,12 @@ class TestBacktestRequest:
     """BacktestRequest validates POST /backtest request bodies."""
 
     def test_importable(self) -> None:
-        from app.schemas.backtest import BacktestRequest
+        from app.schemas.backtest.backtest import BacktestRequest
+
         _ = BacktestRequest
 
     def test_valid_request(self) -> None:
-        from app.schemas.backtest import BacktestRequest
+        from app.schemas.backtest.backtest import BacktestRequest
 
         req = BacktestRequest(
             tickers=["AAPL", "MSFT"],
@@ -39,7 +40,7 @@ class TestBacktestRequest:
         assert req.pipeline_config == {"optimizer_type": "hrp"}
 
     def test_empty_tickers_raises(self) -> None:
-        from app.schemas.backtest import BacktestRequest
+        from app.schemas.backtest.backtest import BacktestRequest
 
         with pytest.raises(ValidationError):
             BacktestRequest(
@@ -50,7 +51,7 @@ class TestBacktestRequest:
             )
 
     def test_optional_pipeline_config(self) -> None:
-        from app.schemas.backtest import BacktestRequest
+        from app.schemas.backtest.backtest import BacktestRequest
 
         req = BacktestRequest(
             tickers=["AAPL"],
@@ -87,22 +88,23 @@ class TestBacktestRunResponse:
         return SimpleNamespace(**defaults)
 
     def test_importable(self) -> None:
-        from app.schemas.backtest import BacktestRunResponse
+        from app.schemas.backtest.backtest import BacktestRunResponse
+
         _ = BacktestRunResponse
 
     def test_orm_deserialization_succeeds(self) -> None:
-        from app.schemas.backtest import BacktestRunResponse
+        from app.schemas.backtest.backtest import BacktestRunResponse
 
         orm_obj = self._make_orm()
         response = BacktestRunResponse.model_validate(orm_obj)
         assert response.status == "completed"
 
     def test_camel_case_output(self) -> None:
-        from app.schemas.backtest import BacktestRunResponse
+        from app.schemas.backtest.backtest import BacktestRunResponse
 
-        data = BacktestRunResponse.model_validate(
-            self._make_orm()
-        ).model_dump(by_alias=True)
+        data = BacktestRunResponse.model_validate(self._make_orm()).model_dump(
+            by_alias=True
+        )
         assert "equityCurve" in data
         assert "monthlyReturns" in data
         assert "yearlyReturns" in data
@@ -115,22 +117,20 @@ class TestBacktestRunResponse:
         assert "createdAt" in data
 
     def test_id_serializes_as_string(self) -> None:
-        from app.schemas.backtest import BacktestRunResponse
+        from app.schemas.backtest.backtest import BacktestRunResponse
 
         uid = uuid.uuid4()
         response = BacktestRunResponse.model_validate(self._make_orm(id=uid))
         assert response.id == str(uid)
 
     def test_nullable_portfolio_id(self) -> None:
-        from app.schemas.backtest import BacktestRunResponse
+        from app.schemas.backtest.backtest import BacktestRunResponse
 
-        response = BacktestRunResponse.model_validate(
-            self._make_orm(portfolio_id=None)
-        )
+        response = BacktestRunResponse.model_validate(self._make_orm(portfolio_id=None))
         assert response.portfolio_id is None
 
     def test_optional_cv_fold_metrics_none(self) -> None:
-        from app.schemas.backtest import BacktestRunResponse
+        from app.schemas.backtest.backtest import BacktestRunResponse
 
         response = BacktestRunResponse.model_validate(
             self._make_orm(cv_fold_metrics=None)
@@ -138,7 +138,7 @@ class TestBacktestRunResponse:
         assert response.cv_fold_metrics is None
 
     def test_round_trip_serialization(self) -> None:
-        from app.schemas.backtest import BacktestRunResponse
+        from app.schemas.backtest.backtest import BacktestRunResponse
 
         uid = uuid.uuid4()
         orm_obj = self._make_orm(id=uid)
@@ -151,17 +151,18 @@ class TestBacktestRunListResponse:
     """BacktestRunListResponse wraps paginated results."""
 
     def test_importable(self) -> None:
-        from app.schemas.backtest import BacktestRunListResponse
+        from app.schemas.backtest.backtest import BacktestRunListResponse
+
         _ = BacktestRunListResponse
 
     def test_empty_list(self) -> None:
-        from app.schemas.backtest import BacktestRunListResponse
+        from app.schemas.backtest.backtest import BacktestRunListResponse
 
         resp = BacktestRunListResponse(items=[], total=0)
         assert resp.total == 0
 
     def test_camel_case_keys(self) -> None:
-        from app.schemas.backtest import BacktestRunListResponse
+        from app.schemas.backtest.backtest import BacktestRunListResponse
 
         resp = BacktestRunListResponse(items=[], total=0)
         data = resp.model_dump(by_alias=True)
@@ -169,7 +170,7 @@ class TestBacktestRunListResponse:
         assert "total" in data
 
     def test_total_must_be_non_negative(self) -> None:
-        from app.schemas.backtest import BacktestRunListResponse
+        from app.schemas.backtest.backtest import BacktestRunListResponse
 
         with pytest.raises(ValidationError):
             BacktestRunListResponse(items=[], total=-1)

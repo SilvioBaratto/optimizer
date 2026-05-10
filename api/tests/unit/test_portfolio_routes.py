@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 # Patch targets
-_PORTFOLIO_REPO = "app.api.v1.portfolio.PortfolioRepository"
-_SYNC_JOB_SVC = "app.api.v1.portfolio._sync_job_service"
+_PORTFOLIO_REPO = "app.api.v1.portfolio.portfolio.PortfolioRepository"
+_SYNC_JOB_SVC = "app.api.v1.portfolio.portfolio._sync_job_service"
 
 BASE_URL = "/api/v1/portfolio"
 
@@ -268,7 +268,7 @@ class TestGetLatestSnapshot:
 
 class TestTriggerSync:
     def test_returns_202_and_job_id(self, client: TestClient) -> None:
-        from app.api.v1.portfolio import get_t212_client
+        from app.api.v1.portfolio.portfolio import get_t212_client
         from app.main import app
 
         portfolio = _make_portfolio()
@@ -290,9 +290,9 @@ class TestTriggerSync:
         assert body["status"] == "pending"
 
     def test_409_when_job_already_running(self, client: TestClient) -> None:
-        from app.api.v1.portfolio import get_t212_client
+        from app.api.v1.portfolio.portfolio import get_t212_client
         from app.main import app
-        from app.services.background_job import JobAlreadyRunningError
+        from app.services.jobs.background_job import JobAlreadyRunningError
 
         portfolio = _make_portfolio()
         try:
@@ -312,7 +312,7 @@ class TestTriggerSync:
         assert resp.status_code == 409
 
     def test_portfolio_not_found(self, client: TestClient) -> None:
-        from app.api.v1.portfolio import get_t212_client
+        from app.api.v1.portfolio.portfolio import get_t212_client
         from app.main import app
 
         try:
@@ -327,7 +327,7 @@ class TestTriggerSync:
 
     def test_503_when_no_api_key(self, client: TestClient) -> None:
         """get_t212_client raises 503 when API key is absent."""
-        with patch("app.api.v1.portfolio.settings") as mock_settings:
+        with patch("app.api.v1.portfolio.portfolio.settings") as mock_settings:
             mock_settings.trading_212_api_key = ""
             resp = client.post(f"{BASE_URL}/test/sync")
         assert resp.status_code == 503
@@ -340,14 +340,17 @@ class TestTriggerSync:
 
 class TestGetSyncStatus:
     def test_pending_job(self, client: TestClient) -> None:
-        with patch(f"{_SYNC_JOB_SVC}.get_job", return_value={
-            "job_id": "abc",
-            "status": "pending",
-            "current": 0,
-            "total": 4,
-            "result": None,
-            "error": None,
-        }):
+        with patch(
+            f"{_SYNC_JOB_SVC}.get_job",
+            return_value={
+                "job_id": "abc",
+                "status": "pending",
+                "current": 0,
+                "total": 4,
+                "result": None,
+                "error": None,
+            },
+        ):
             resp = client.get(f"{BASE_URL}/test/sync/abc")
         assert resp.status_code == 200
         body = resp.json()
@@ -355,14 +358,17 @@ class TestGetSyncStatus:
         assert body["job_id"] == "abc"
 
     def test_completed_job_has_result(self, client: TestClient) -> None:
-        with patch(f"{_SYNC_JOB_SVC}.get_job", return_value={
-            "job_id": "abc",
-            "status": "completed",
-            "current": 4,
-            "total": 4,
-            "result": {"positions_synced": 10},
-            "error": None,
-        }):
+        with patch(
+            f"{_SYNC_JOB_SVC}.get_job",
+            return_value={
+                "job_id": "abc",
+                "status": "completed",
+                "current": 4,
+                "total": 4,
+                "result": {"positions_synced": 10},
+                "error": None,
+            },
+        ):
             resp = client.get(f"{BASE_URL}/test/sync/abc")
         assert resp.status_code == 200
         assert resp.json()["result"]["positions_synced"] == 10

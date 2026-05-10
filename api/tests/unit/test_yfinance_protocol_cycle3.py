@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import inspect
 
-from app.services.yfinance.protocols.interfaces import YFinanceClientProtocol
+from app.services.market_data.yfinance.protocols.interfaces import (
+    YFinanceClientProtocol,
+)
 
 _HISTORY_PRICE_QUALITY_DEFAULTS: dict[str, object] = {
     "auto_adjust": True,

@@ -1,0 +1,789 @@
+"""FastAPI router for macroeconomic regime data fetch and read endpoints."""
+
+import logging
+import threading
+from concurrent.futures import CancelledError
+from datetime import date, datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.database import database_manager, get_db
+from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
+from app.schemas.macro.macro_regime import (
+    BondYieldObservationResponse,
+    BondYieldResponse,
+    CountryMacroSummary,
+    EconomicIndicatorObservationResponse,
+    EconomicIndicatorResponse,
+    FredFetchRequest,
+    FredObservationResponse,
+    MacroFetchJobResponse,
+    MacroFetchProgress,
+    MacroFetchRequest,
+    MacroNewsFetchRequest,
+    MacroNewsResponse,
+    MacroNewsSummarizeJobResponse,
+    MacroNewsSummarizeProgress,
+    MacroNewsSummarizeRequest,
+    MacroNewsSummaryResponse,
+    TradingEconomicsIndicatorResponse,
+    TradingEconomicsObservationResponse,
+)
+from app.services._shared import make_cancellable_progress
+from app.services.jobs.background_job import (
+    BackgroundJobService,
+    JobAlreadyRunningError,
+)
+from app.services.macro.macro_news_summary import run_news_summarize
+from app.services.macro.macro_regime_service import (
+    MacroRegimeService,
+    run_bulk_fred_fetch,
+    run_bulk_macro_fetch,
+    run_macro_news_fetch,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/macro-data", tags=["Macro Data"])
+
+_FORECAST_COLUMNS: frozenset[str] = frozenset(
+    {
+        "last_inflation",
+        "inflation_6m",
+        "inflation_10y_avg",
+        "gdp_growth_6m",
+        "earnings_12m",
+        "eps_expected_12m",
+        "peg_ratio",
+        "lt_rate_forecast",
+    }
+)
+
+# Shared job service instance for this router
+_job_service = BackgroundJobService(
+    job_type="macro_fetch",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
+
+
+# ---------------------------------------------------------------------------
+# Background bulk fetch worker
+# ---------------------------------------------------------------------------
+
+
+def _run_bulk_fetch(
+    job_id: str,
+    request: MacroFetchRequest,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
+    """Thin wrapper managing job lifecycle around the service function."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(job_id, _job_service, cancel_event)
+    _job_service.update_job(job_id, status="running")
+    try:
+        run_bulk_macro_fetch(request, on_progress=on_progress)
+    except CancelledError:
+        return  # reaper owns terminal status
+    except Exception as e:
+        logger.error("Macro fetch %s failed: %s", job_id, e)
+        _job_service.update_job(
+            job_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=str(e),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Dependency helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_repo(db: Session = Depends(get_db)) -> MacroRegimeRepository:
+    return MacroRegimeRepository(db)
+
+
+# ---------------------------------------------------------------------------
+# Bulk fetch endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/fetch",
+    response_model=MacroFetchJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_bulk_fetch(
+    request: MacroFetchRequest = MacroFetchRequest(),
+):
+    """Start a background job that fetches macro data for all portfolio countries."""
+    try:
+        job_id = _job_service.create_job(current_country="")
+    except JobAlreadyRunningError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    _job_service.start_background(
+        target=_run_bulk_fetch,
+        args=(job_id, request),
+    )
+
+    return MacroFetchJobResponse(
+        job_id=job_id,
+        status="pending",
+        message="Macro fetch started. Poll GET /macro-data/fetch/{job_id}.",
+    )
+
+
+@router.get("/fetch/{job_id}", response_model=MacroFetchProgress)
+def get_fetch_status(job_id: str):
+    """Poll the status and progress of a macro fetch job."""
+    job = _job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    return MacroFetchProgress(
+        job_id=job["job_id"],
+        status=job["status"],
+        current=job.get("current", 0),
+        total=job.get("total", 0),
+        current_country=job.get("current_country", ""),
+        errors=job.get("errors", []),
+        result=job.get("result"),
+        error=job.get("error"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Single-country fetch
+# ---------------------------------------------------------------------------
+
+
+@router.post("/fetch/{country}")
+def fetch_single_country(
+    country: str,
+    request: MacroFetchRequest = MacroFetchRequest(),
+    db: Session = Depends(get_db),
+):
+    """Synchronously fetch macro data for a single country."""
+    repo = MacroRegimeRepository(db)
+    service = MacroRegimeService(repo)
+    result = service.fetch_country(country, include_bonds=request.include_bonds)
+    db.commit()
+
+    return {
+        "country": country,
+        "counts": result["counts"],
+        "errors": result["errors"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Read endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/countries/{country}",
+    response_model=CountryMacroSummary,
+)
+def get_country_summary(
+    country: str,
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Get all macro data for a specific country."""
+    summary = repo.get_country_summary(country)
+
+    return CountryMacroSummary(
+        country=country,
+        economic_indicators=summary["economic_indicators"],
+        te_indicators=summary["te_indicators"],
+        bond_yields=summary["bond_yields"],
+    )
+
+
+@router.get(
+    "/economic-indicators",
+    response_model=list[EconomicIndicatorResponse],
+)
+def get_economic_indicators(
+    country: str | None = Query(default=None, description="Filter by country"),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """List all economic indicators, optionally filtered by country."""
+    return repo.get_economic_indicators(country=country)
+
+
+@router.get(
+    "/te-indicators",
+    response_model=list[TradingEconomicsIndicatorResponse],
+)
+def get_te_indicators(
+    country: str | None = Query(default=None, description="Filter by country"),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """List all Trading Economics indicators, optionally filtered by country."""
+    return repo.get_te_indicators(country=country)
+
+
+@router.get(
+    "/bond-yields",
+    response_model=list[BondYieldResponse],
+)
+def get_bond_yields(
+    country: str | None = Query(default=None, description="Filter by country"),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """List all bond yields, optionally filtered by country."""
+    return repo.get_bond_yields(country=country)
+
+
+# ---------------------------------------------------------------------------
+# FRED time-series endpoints
+# ---------------------------------------------------------------------------
+
+_fred_job_service = BackgroundJobService(
+    job_type="fred_fetch",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
+
+
+def _run_fred_fetch(
+    job_id: str,
+    request: FredFetchRequest,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
+    """Thin wrapper managing job lifecycle around the service function."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(job_id, _fred_job_service, cancel_event)
+    _fred_job_service.update_job(job_id, status="running")
+    try:
+        run_bulk_fred_fetch(request, on_progress=on_progress)
+    except CancelledError:
+        return
+    except Exception as exc:
+        logger.error("FRED fetch %s failed: %s", job_id, exc)
+        _fred_job_service.update_job(
+            job_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=str(exc),
+        )
+
+
+@router.post(
+    "/fred/fetch",
+    response_model=MacroFetchJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_fred_fetch(request: FredFetchRequest = FredFetchRequest()):
+    """Start a background job that fetches FRED time-series observations."""
+    try:
+        job_id = _fred_job_service.create_job()
+    except JobAlreadyRunningError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    _fred_job_service.start_background(
+        target=_run_fred_fetch,
+        args=(job_id, request),
+    )
+
+    return MacroFetchJobResponse(
+        job_id=job_id,
+        status="pending",
+        message="FRED fetch started. Poll GET /macro-data/fred/fetch/{job_id}.",
+    )
+
+
+@router.get("/fred/fetch/{job_id}", response_model=MacroFetchProgress)
+def get_fred_fetch_status(job_id: str):
+    """Poll the status of a FRED fetch background job."""
+    job = _fred_job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    return MacroFetchProgress(
+        job_id=job["job_id"],
+        status=job["status"],
+        current=job.get("current", 0),
+        total=job.get("total", 0),
+        current_country=job.get("current_country", ""),
+        errors=job.get("errors", []),
+        result=job.get("result"),
+        error=job.get("error"),
+    )
+
+
+@router.get(
+    "/fred/series",
+    response_model=list[FredObservationResponse],
+)
+def get_fred_observations(
+    series_id: str | None = Query(default=None, description="Filter by series ID"),
+    start_date: date | None = Query(default=None, description="Start date YYYY-MM-DD"),
+    end_date: date | None = Query(default=None, description="End date YYYY-MM-DD"),
+    limit: int = Query(default=500, le=10_000, description="Max rows to return"),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Query stored FRED observations with optional filters."""
+    if series_id is not None:
+        from app.services.macro.scrapers.fred_scraper import FRED_SERIES
+
+        if series_id not in FRED_SERIES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Unknown FRED series_id: '{series_id}'. "
+                    f"Valid IDs: {sorted(FRED_SERIES)}"
+                ),
+            )
+    return repo.get_fred_observations(
+        series_id=series_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Trading Economics time-series endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/te-observations",
+    response_model=list[TradingEconomicsObservationResponse],
+)
+def get_te_observations(
+    country: str | None = Query(
+        default=None, description="Filter by country (e.g. USA, UK)"
+    ),
+    indicator_keys: list[str] | None = Query(
+        default=None, description="Filter by indicator keys (e.g. manufacturing_pmi)"
+    ),
+    start_date: date | None = Query(default=None, description="Start date YYYY-MM-DD"),
+    end_date: date | None = Query(default=None, description="End date YYYY-MM-DD"),
+    limit: int = Query(default=500, le=10_000, description="Max rows to return"),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Query stored Trading Economics observations with optional filters."""
+    rows = repo.get_te_observations(
+        country=country,
+        indicator_keys=indicator_keys,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return rows[:limit]
+
+
+@router.get(
+    "/bond-yield-observations",
+    response_model=list[BondYieldObservationResponse],
+)
+def get_bond_yield_observations(
+    country: str | None = Query(
+        default=None, description="Filter by country (e.g. USA, UK)"
+    ),
+    maturities: list[str] | None = Query(
+        default=None, description="Filter by maturities (e.g. 2Y, 10Y)"
+    ),
+    start_date: date | None = Query(default=None, description="Start date YYYY-MM-DD"),
+    end_date: date | None = Query(default=None, description="End date YYYY-MM-DD"),
+    limit: int = Query(default=500, le=10_000, description="Max rows to return"),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Query stored bond yield observations with optional filters."""
+    rows = repo.get_bond_yield_observations(
+        country=country,
+        maturities=maturities,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return rows[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Economic indicator observations time-series endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/economic-indicator-observations",
+    response_model=list[EconomicIndicatorObservationResponse],
+)
+def get_economic_indicator_observations(
+    country: str | None = Query(
+        default=None, description="Filter by country (e.g. USA, UK)"
+    ),
+    start_date: date | None = Query(default=None, description="Start date YYYY-MM-DD"),
+    end_date: date | None = Query(default=None, description="End date YYYY-MM-DD"),
+    limit: int = Query(default=500, le=10_000, description="Max rows to return"),
+    columns: list[str] | None = Query(
+        default=None,
+        description=(
+            "Forecast columns to include in each row. Allowed values: "
+            "last_inflation, inflation_6m, inflation_10y_avg, gdp_growth_6m, "
+            "earnings_12m, eps_expected_12m, peg_ratio, lt_rate_forecast. "
+            "Omit this parameter to return all columns."
+        ),
+    ),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Query IlSole24Ore forecast observations with optional column filter.
+
+    Use the ``columns`` parameter to select a subset of the 8 forecast
+    columns per row.  Identity fields (id, country, date, reference_date,
+    created_at, updated_at) are always included.
+    """
+    if columns:
+        invalid = set(columns) - _FORECAST_COLUMNS
+        if invalid:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Unknown column(s): {sorted(invalid)}. "
+                    f"Allowed: {sorted(_FORECAST_COLUMNS)}"
+                ),
+            )
+
+    rows = repo.get_economic_indicator_observations(
+        country=country,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    rows = list(rows)[:limit]
+
+    if not columns:
+        return rows
+
+    requested: set[str] = set(columns)
+    result = []
+    for row in rows:
+        row_dict: dict = {
+            "id": row.id,
+            "country": row.country,
+            "date": row.date,
+            "reference_date": row.reference_date,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+        for col in requested:
+            row_dict[col] = getattr(row, col)
+        result.append(row_dict)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Macro news endpoints
+# ---------------------------------------------------------------------------
+
+_news_job_service = BackgroundJobService(
+    job_type="macro_news_fetch",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
+
+
+def _run_macro_news_fetch(
+    job_id: str,
+    request: MacroNewsFetchRequest,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
+    """Thin wrapper managing job lifecycle around the service function."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(job_id, _news_job_service, cancel_event)
+    _news_job_service.update_job(job_id, status="running")
+    try:
+        run_macro_news_fetch(request, on_progress=on_progress)
+    except CancelledError:
+        return
+    except Exception as exc:
+        logger.error("Macro news fetch %s failed: %s", job_id, exc)
+        _news_job_service.update_job(
+            job_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=str(exc),
+        )
+
+
+@router.post(
+    "/news/fetch",
+    response_model=MacroFetchJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_macro_news_fetch(
+    request: MacroNewsFetchRequest = MacroNewsFetchRequest(),
+):
+    """Start a background job to fetch macro-themed news from yfinance."""
+    try:
+        job_id = _news_job_service.create_job()
+    except JobAlreadyRunningError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    _news_job_service.start_background(
+        target=_run_macro_news_fetch,
+        args=(job_id, request),
+    )
+
+    return MacroFetchJobResponse(
+        job_id=job_id,
+        status="pending",
+        message="Macro news fetch started. Poll GET /macro-data/news/fetch/{job_id}.",
+    )
+
+
+@router.get("/news/fetch/{job_id}", response_model=MacroFetchProgress)
+def get_macro_news_fetch_status(job_id: str):
+    """Poll the status of a macro news fetch background job."""
+    job = _news_job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    return MacroFetchProgress(
+        job_id=job["job_id"],
+        status=job["status"],
+        current=job.get("current", 0),
+        total=job.get("total", 0),
+        current_country=job.get("current_country", ""),
+        errors=job.get("errors", []),
+        result=job.get("result"),
+        error=job.get("error"),
+    )
+
+
+@router.get(
+    "/news",
+    response_model=list[MacroNewsResponse],
+)
+def get_macro_news(
+    theme: str | None = Query(default=None, description="Filter by macro theme"),
+    start_date: date | None = Query(default=None, description="Start date YYYY-MM-DD"),
+    end_date: date | None = Query(default=None, description="End date YYYY-MM-DD"),
+    limit: int = Query(default=50, le=500, description="Max rows to return"),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Query stored macro news with optional theme and date filters."""
+    from datetime import datetime as dt
+    from datetime import time
+
+    start_dt = dt.combine(start_date, time.min) if start_date else None
+    end_dt = dt.combine(end_date, time.max) if end_date else None
+
+    return repo.get_macro_news(
+        theme=theme,
+        start_date=start_dt,
+        end_date=end_dt,
+        limit=limit,
+    )
+
+
+@router.get("/news/themes")
+def get_macro_news_themes():
+    """Return available macro theme enum values."""
+    from app.services.market_data.yfinance.news.macro_news import MacroTheme
+
+    return [
+        {"value": t.value, "label": t.value.replace("_", " ").title()}
+        for t in MacroTheme
+    ]
+
+
+# ---------------------------------------------------------------------------
+# FRED catalog endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get("/fred/catalog")
+def get_fred_catalog():
+    """Return the static FRED series registry with group metadata."""
+    from app.services.macro.scrapers.fred_scraper import (
+        FRED_CLI_SERIES,
+        FRED_GDP_SERIES,
+        FRED_RATE_SERIES,
+        FRED_RECESSION_SERIES,
+        FRED_SERIES,
+        FRED_SPREAD_SERIES,
+        FRED_VOLATILITY_SERIES,
+    )
+
+    group_map: dict[str, str] = {}
+    for sid in FRED_SPREAD_SERIES:
+        group_map[sid] = "spreads"
+    for sid in FRED_VOLATILITY_SERIES:
+        group_map[sid] = "volatility"
+    for sid in FRED_CLI_SERIES:
+        group_map[sid] = "cli"
+    for sid in FRED_RECESSION_SERIES:
+        group_map[sid] = "recession"
+    for sid in FRED_RATE_SERIES:
+        group_map[sid] = "rates"
+    for sid in FRED_GDP_SERIES:
+        group_map[sid] = "gdp"
+
+    return [
+        {"series_id": sid, "description": desc, "group": group_map.get(sid, "other")}
+        for sid, desc in FRED_SERIES.items()
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Distinct countries endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get("/countries", response_model=list[str])
+def get_distinct_countries(
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Return a sorted deduplicated list of all countries with stored macro data."""
+    return repo.get_distinct_countries()
+
+
+# ---------------------------------------------------------------------------
+# News summary endpoints
+# ---------------------------------------------------------------------------
+
+_summarize_job_service = BackgroundJobService(
+    job_type="news_summarize",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
+
+
+def _run_news_summarize(
+    job_id: str,
+    request: MacroNewsSummarizeRequest,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
+    """Thin wrapper managing job lifecycle around the service function."""
+    if cancel_event is None:
+        cancel_event = threading.Event()
+    on_progress = make_cancellable_progress(
+        job_id,
+        _summarize_job_service,
+        cancel_event,
+    )
+    _summarize_job_service.update_job(job_id, status="running")
+    try:
+        run_news_summarize(request, on_progress=on_progress)
+    except CancelledError:
+        return
+    except Exception as exc:
+        logger.error("News summarize %s failed: %s", job_id, exc)
+        _summarize_job_service.update_job(
+            job_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=str(exc),
+        )
+
+
+@router.post(
+    "/news/summarize",
+    response_model=MacroNewsSummarizeJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_news_summarize(
+    request: MacroNewsSummarizeRequest = MacroNewsSummarizeRequest(),
+):
+    """Start a background job to generate daily news summaries per country."""
+    try:
+        job_id = _summarize_job_service.create_job(current_country="")
+    except JobAlreadyRunningError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    _summarize_job_service.start_background(
+        target=_run_news_summarize,
+        args=(job_id, request),
+    )
+
+    return MacroNewsSummarizeJobResponse(
+        job_id=job_id,
+        status="pending",
+        message="News summarize started. Poll GET /macro-data/news/summarize/{job_id}.",
+    )
+
+
+@router.get("/news/summarize/{job_id}", response_model=MacroNewsSummarizeProgress)
+def get_news_summarize_status(job_id: str):
+    """Poll the status of a news summarize background job."""
+    job = _summarize_job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    return MacroNewsSummarizeProgress(
+        job_id=job["job_id"],
+        status=job["status"],
+        current=job.get("current", 0),
+        total=job.get("total", 0),
+        current_country=job.get("current_country", ""),
+        errors=job.get("errors", []),
+        result=job.get("result"),
+        error=job.get("error"),
+    )
+
+
+@router.get(
+    "/news/summaries",
+    response_model=list[MacroNewsSummaryResponse],
+)
+def get_all_news_summaries(
+    summary_date: date | None = Query(
+        default=None, description="Filter by summary date YYYY-MM-DD"
+    ),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """List all daily news summaries, optionally filtered by date."""
+    return repo.get_all_news_summaries(summary_date=summary_date)
+
+
+@router.get(
+    "/news/summaries/{country}",
+    response_model=MacroNewsSummaryResponse,
+)
+def get_country_news_summary(
+    country: str,
+    summary_date: date | None = Query(
+        default=None, description="Filter by summary date YYYY-MM-DD"
+    ),
+    repo: MacroRegimeRepository = Depends(_get_repo),
+):
+    """Get the news summary for a specific country."""
+    result = repo.get_macro_news_summary(country, summary_date)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No news summary found for country '{country}'",
+        )
+    return result

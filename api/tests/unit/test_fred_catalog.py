@@ -7,7 +7,7 @@ fails with a list of the missing IDs.
 
 from __future__ import annotations
 
-from app.services.scrapers.fred_scraper import FRED_SERIES
+from app.services.macro.scrapers.fred_scraper import FRED_SERIES
 from research._preflight import _REQUIRED_FRED_SERIES
 
 

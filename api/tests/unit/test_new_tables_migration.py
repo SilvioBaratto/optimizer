@@ -66,15 +66,18 @@ def _sqlite_engine():
 def _create_prereq_tables(engine) -> None:
     """Create the tables that the six new tables reference via FK."""
     with engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             CREATE TABLE IF NOT EXISTS portfolios (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
-        """))
-        conn.execute(text("""
+        """)
+        )
+        conn.execute(
+            text("""
             CREATE TABLE IF NOT EXISTS background_jobs (
                 id TEXT PRIMARY KEY,
                 job_type TEXT NOT NULL,
@@ -82,7 +85,8 @@ def _create_prereq_tables(engine) -> None:
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
-        """))
+        """)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -171,20 +175,30 @@ class TestUpgradeIndexes:
         return {idx["name"] for idx in inspect(engine).get_indexes(table)}
 
     def test_factor_scores_has_ticker_index(self, upgraded_engine) -> None:
-        assert "ix_factor_scores_ticker" in self._index_names(upgraded_engine, "factor_scores")
+        assert "ix_factor_scores_ticker" in self._index_names(
+            upgraded_engine, "factor_scores"
+        )
 
     def test_factor_scores_has_score_date_index(self, upgraded_engine) -> None:
-        assert "ix_factor_scores_score_date" in self._index_names(upgraded_engine, "factor_scores")
+        assert "ix_factor_scores_score_date" in self._index_names(
+            upgraded_engine, "factor_scores"
+        )
 
     def test_factor_scores_has_factor_type_index(self, upgraded_engine) -> None:
-        assert "ix_factor_scores_factor_type" in self._index_names(upgraded_engine, "factor_scores")
+        assert "ix_factor_scores_factor_type" in self._index_names(
+            upgraded_engine, "factor_scores"
+        )
 
-    def test_factor_validation_reports_has_report_date_index(self, upgraded_engine) -> None:
+    def test_factor_validation_reports_has_report_date_index(
+        self, upgraded_engine
+    ) -> None:
         assert "ix_factor_validation_reports_report_date" in self._index_names(
             upgraded_engine, "factor_validation_reports"
         )
 
-    def test_factor_validation_reports_has_factor_type_index(self, upgraded_engine) -> None:
+    def test_factor_validation_reports_has_factor_type_index(
+        self, upgraded_engine
+    ) -> None:
         assert "ix_factor_validation_reports_factor_type" in self._index_names(
             upgraded_engine, "factor_validation_reports"
         )
@@ -237,73 +251,96 @@ class TestUpgradeUniqueConstraints:
         self, upgraded_engine
     ) -> None:
         with upgraded_engine.begin() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 INSERT INTO factor_scores
                   (id, ticker, score_date, factor_type, factor_group, raw_score,
                    created_at, updated_at)
                 VALUES ('id-uc-1', 'AAPL', '2024-01-01', 'momentum', 'momentum', 1.0,
                         datetime('now'), datetime('now'))
-            """))
+            """)
+            )
         from sqlalchemy.exc import IntegrityError
+
         with pytest.raises(IntegrityError):
             with upgraded_engine.begin() as conn:
-                conn.execute(text("""
+                conn.execute(
+                    text("""
                     INSERT INTO factor_scores
                       (id, ticker, score_date, factor_type, factor_group, raw_score,
                        created_at, updated_at)
                     VALUES ('id-uc-2', 'AAPL', '2024-01-01', 'momentum', 'momentum', 2.0,
                             datetime('now'), datetime('now'))
-                """))
+                """)
+                )
 
     def test_risk_limits_rejects_duplicate_portfolio_metric_limit_type(
         self, upgraded_engine
     ) -> None:
         portfolio_id = "portfolio-uc-1"
         with upgraded_engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO portfolios (id, name) VALUES (:pid, 'UC Portfolio')"
-            ), {"pid": portfolio_id})
-            conn.execute(text("""
+            conn.execute(
+                text("INSERT INTO portfolios (id, name) VALUES (:pid, 'UC Portfolio')"),
+                {"pid": portfolio_id},
+            )
+            conn.execute(
+                text("""
                 INSERT INTO risk_limits
                   (id, portfolio_id, metric, limit_type, threshold, is_breached,
                    created_at, updated_at)
                 VALUES ('rl-uc-1', :pid, 'volatility', 'max', 0.2, 0,
                         datetime('now'), datetime('now'))
-            """), {"pid": portfolio_id})
+            """),
+                {"pid": portfolio_id},
+            )
         from sqlalchemy.exc import IntegrityError
+
         with pytest.raises(IntegrityError), upgraded_engine.begin() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                     INSERT INTO risk_limits
                       (id, portfolio_id, metric, limit_type, threshold, is_breached,
                        created_at, updated_at)
                     VALUES ('rl-uc-2', :pid, 'volatility', 'max', 0.3, 0,
                             datetime('now'), datetime('now'))
-                """), {"pid": portfolio_id})
+                """),
+                {"pid": portfolio_id},
+            )
 
     def test_rebalancing_policies_rejects_duplicate_portfolio_name(
         self, upgraded_engine
     ) -> None:
         portfolio_id = "portfolio-uc-2"
         with upgraded_engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO portfolios (id, name) VALUES (:pid, 'UC Portfolio 2')"
-            ), {"pid": portfolio_id})
-            conn.execute(text("""
+            conn.execute(
+                text(
+                    "INSERT INTO portfolios (id, name) VALUES (:pid, 'UC Portfolio 2')"
+                ),
+                {"pid": portfolio_id},
+            )
+            conn.execute(
+                text("""
                 INSERT INTO rebalancing_policies
                   (id, portfolio_id, name, policy_type, config, is_active,
                    created_at, updated_at)
                 VALUES ('rp-uc-1', :pid, 'quarterly', 'calendar', '{}', 0,
                         datetime('now'), datetime('now'))
-            """), {"pid": portfolio_id})
+            """),
+                {"pid": portfolio_id},
+            )
         from sqlalchemy.exc import IntegrityError
+
         with pytest.raises(IntegrityError), upgraded_engine.begin() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                     INSERT INTO rebalancing_policies
                       (id, portfolio_id, name, policy_type, config, is_active,
                        created_at, updated_at)
                     VALUES ('rp-uc-2', :pid, 'quarterly', 'threshold', '{}', 0,
                             datetime('now'), datetime('now'))
-                """), {"pid": portfolio_id})
+                """),
+                {"pid": portfolio_id},
+            )
 
 
 # ---------------------------------------------------------------------------

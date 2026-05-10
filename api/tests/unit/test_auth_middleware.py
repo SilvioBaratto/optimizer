@@ -20,8 +20,8 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models.api_key import ApiKey
-from app.models.base import Base
+from app.models._shared import Base
+from app.models.auth.api_key import ApiKey
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -64,9 +64,11 @@ def _make_key() -> tuple[str, str]:
 
 def _pinned_factory(session: Session):
     """Return a session_factory that always yields the given session."""
+
     @contextmanager
     def factory():
         yield session
+
     return factory
 
 
@@ -83,7 +85,14 @@ class TestApiKeyModel:
     def test_columns_exist(self, engine):
         inspector = inspect(engine)
         cols = {c["name"] for c in inspector.get_columns("api_keys")}
-        assert {"id", "key_hash", "name", "is_active", "created_at", "updated_at"} <= cols
+        assert {
+            "id",
+            "key_hash",
+            "name",
+            "is_active",
+            "created_at",
+            "updated_at",
+        } <= cols
 
     def test_insert_and_retrieve(self, db: Session):
         _, key_hash = _make_key()
@@ -140,7 +149,9 @@ def _make_test_app(session: Session) -> tuple[FastAPI, str]:
         # Register each public path as an endpoint
         test_app.add_api_route(path, lambda: {"ok": True})
 
-    test_app.add_middleware(ApiKeyAuthMiddleware, session_factory=_pinned_factory(session))
+    test_app.add_middleware(
+        ApiKeyAuthMiddleware, session_factory=_pinned_factory(session)
+    )
 
     return test_app, plaintext
 
@@ -223,7 +234,9 @@ class TestApiKeyAuthMiddleware:
 
         app = FastAPI()
         app.add_api_route("/api/v1/protected", lambda: {"ok": True})
-        app.add_middleware(ApiKeyAuthMiddleware, session_factory=_pinned_factory(session))
+        app.add_middleware(
+            ApiKeyAuthMiddleware, session_factory=_pinned_factory(session)
+        )
 
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get("/api/v1/protected", headers={"X-API-Key": plaintext})
@@ -262,7 +275,9 @@ class TestApiKeyAuthMiddleware:
             handler_called.append(True)
             return {"ok": True}
 
-        app.add_middleware(ApiKeyAuthMiddleware, session_factory=_pinned_factory(session))
+        app.add_middleware(
+            ApiKeyAuthMiddleware, session_factory=_pinned_factory(session)
+        )
 
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get("/api/v1/guarded")

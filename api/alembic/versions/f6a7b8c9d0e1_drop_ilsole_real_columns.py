@@ -93,7 +93,9 @@ def downgrade() -> None:
     )
     op.add_column(
         "economic_indicators",
-        sa.Column("source", sa.String(50), nullable=False, server_default="ilsole_forecast"),
+        sa.Column(
+            "source", sa.String(50), nullable=False, server_default="ilsole_forecast"
+        ),
     )
 
     # Restore old unique constraint

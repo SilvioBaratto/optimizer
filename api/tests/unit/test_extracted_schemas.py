@@ -20,51 +20,51 @@ class TestViewsSchemasModuleExists:
     """api/app/schemas/views.py must exist and contain the expected schemas."""
 
     def test_generate_views_request_importable(self):
-        from app.schemas.views import GenerateViewsRequest  # noqa: F401
+        from app.schemas.views.views import GenerateViewsRequest  # noqa: F401
 
     def test_asset_view_response_importable(self):
-        from app.schemas.views import AssetViewResponse  # noqa: F401
+        from app.schemas.views.views import AssetViewResponse  # noqa: F401
 
     def test_generate_views_response_importable(self):
-        from app.schemas.views import GenerateViewsResponse  # noqa: F401
+        from app.schemas.views.views import GenerateViewsResponse  # noqa: F401
 
     def test_ic_history_importable(self):
-        from app.schemas.views import ICHistory  # noqa: F401
+        from app.schemas.views.views import ICHistory  # noqa: F401
 
     def test_expert_view_summary_importable(self):
-        from app.schemas.views import ExpertViewSummary  # noqa: F401
+        from app.schemas.views.views import ExpertViewSummary  # noqa: F401
 
     def test_opinion_pool_request_importable(self):
-        from app.schemas.views import OpinionPoolRequest  # noqa: F401
+        from app.schemas.views.views import OpinionPoolRequest  # noqa: F401
 
     def test_opinion_pool_response_importable(self):
-        from app.schemas.views import OpinionPoolResponse  # noqa: F401
+        from app.schemas.views.views import OpinionPoolResponse  # noqa: F401
 
 
 class TestViewsResponseSchemasExtendCamelCaseModel:
     """Response schemas must extend CamelCaseModel for camelCase JSON."""
 
     def test_asset_view_response_extends_camel_case_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.views import AssetViewResponse
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.views import AssetViewResponse
 
         assert issubclass(AssetViewResponse, CamelCaseModel)
 
     def test_generate_views_response_extends_camel_case_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.views import GenerateViewsResponse
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.views import GenerateViewsResponse
 
         assert issubclass(GenerateViewsResponse, CamelCaseModel)
 
     def test_expert_view_summary_extends_camel_case_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.views import ExpertViewSummary
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.views import ExpertViewSummary
 
         assert issubclass(ExpertViewSummary, CamelCaseModel)
 
     def test_opinion_pool_response_extends_camel_case_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.views import OpinionPoolResponse
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.views import OpinionPoolResponse
 
         assert issubclass(OpinionPoolResponse, CamelCaseModel)
 
@@ -73,22 +73,22 @@ class TestViewsRequestSchemasKeepBaseModel:
     """Request schemas must use BaseModel, not CamelCaseModel."""
 
     def test_generate_views_request_uses_base_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.views import GenerateViewsRequest
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.views import GenerateViewsRequest
 
         assert issubclass(GenerateViewsRequest, BaseModel)
         assert not issubclass(GenerateViewsRequest, CamelCaseModel)
 
     def test_ic_history_uses_base_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.views import ICHistory
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.views import ICHistory
 
         assert issubclass(ICHistory, BaseModel)
         assert not issubclass(ICHistory, CamelCaseModel)
 
     def test_opinion_pool_request_uses_base_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.views import OpinionPoolRequest
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.views import OpinionPoolRequest
 
         assert issubclass(OpinionPoolRequest, BaseModel)
         assert not issubclass(OpinionPoolRequest, CamelCaseModel)
@@ -98,31 +98,31 @@ class TestViewsSchemasValidatorsPreserved:
     """Field validators must remain intact after migration."""
 
     def test_generate_views_request_normalises_tickers(self):
-        from app.schemas.views import GenerateViewsRequest
+        from app.schemas.views.views import GenerateViewsRequest
 
         req = GenerateViewsRequest(tickers=["  aapl  ", "msft"])
         assert req.tickers == ["AAPL", "MSFT"]
 
     def test_generate_views_request_rejects_empty_tickers(self):
-        from app.schemas.views import GenerateViewsRequest
+        from app.schemas.views.views import GenerateViewsRequest
 
         with pytest.raises(Exception):
             GenerateViewsRequest(tickers=["AAPL", ""])
 
     def test_opinion_pool_request_normalises_tickers(self):
-        from app.schemas.views import OpinionPoolRequest
+        from app.schemas.views.views import OpinionPoolRequest
 
         req = OpinionPoolRequest(tickers=["  spy  ", "qqq"])
         assert req.tickers == ["SPY", "QQQ"]
 
     def test_opinion_pool_request_validates_personas(self):
-        from app.schemas.views import OpinionPoolRequest
+        from app.schemas.views.views import OpinionPoolRequest
 
         with pytest.raises(Exception):
             OpinionPoolRequest(tickers=["SPY", "QQQ"], personas=["INVALID_PERSONA"])
 
     def test_generate_views_response_serialises_to_camel_case(self):
-        from app.schemas.views import AssetViewResponse, GenerateViewsResponse
+        from app.schemas.views.views import AssetViewResponse, GenerateViewsResponse
 
         resp = GenerateViewsResponse(
             n_views=1,
@@ -164,16 +164,18 @@ class TestMacroCalibrationResponseInMacroRegimeModule:
     """MacroCalibrationResponse must live in api/app/schemas/macro_regime."""
 
     def test_macro_calibration_response_importable(self):
-        from app.schemas.macro_regime import MacroCalibrationResponse  # noqa: F401
+        from app.schemas.macro.macro_regime import (
+            MacroCalibrationResponse,  # noqa: F401
+        )
 
     def test_macro_calibration_response_extends_camel_case_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.macro_regime import MacroCalibrationResponse
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.macro.macro_regime import MacroCalibrationResponse
 
         assert issubclass(MacroCalibrationResponse, CamelCaseModel)
 
     def test_macro_calibration_response_serialises_to_camel_case(self):
-        from app.schemas.macro_regime import MacroCalibrationResponse
+        from app.schemas.macro.macro_regime import MacroCalibrationResponse
 
         resp = MacroCalibrationResponse(
             phase="MID_EXPANSION",
@@ -198,34 +200,40 @@ class TestStressScenariosSchemasModuleExists:
     """api/app/schemas/stress_scenarios.py must exist with expected schemas."""
 
     def test_stress_scenario_request_importable(self):
-        from app.schemas.stress_scenarios import StressScenarioRequest  # noqa: F401
+        from app.schemas.scenarios.stress_scenarios import (
+            StressScenarioRequest,  # noqa: F401
+        )
 
     def test_stress_scenario_item_importable(self):
-        from app.schemas.stress_scenarios import StressScenarioItem  # noqa: F401
+        from app.schemas.scenarios.stress_scenarios import (
+            StressScenarioItem,  # noqa: F401
+        )
 
     def test_stress_scenario_response_importable(self):
-        from app.schemas.stress_scenarios import StressScenarioResponse  # noqa: F401
+        from app.schemas.scenarios.stress_scenarios import (
+            StressScenarioResponse,  # noqa: F401
+        )
 
 
 class TestStressSchemasBaseClasses:
     """Correct base classes for stress scenario schemas."""
 
     def test_stress_scenario_request_uses_base_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.stress_scenarios import StressScenarioRequest
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.scenarios.stress_scenarios import StressScenarioRequest
 
         assert issubclass(StressScenarioRequest, BaseModel)
         assert not issubclass(StressScenarioRequest, CamelCaseModel)
 
     def test_stress_scenario_item_extends_camel_case_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.stress_scenarios import StressScenarioItem
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.scenarios.stress_scenarios import StressScenarioItem
 
         assert issubclass(StressScenarioItem, CamelCaseModel)
 
     def test_stress_scenario_response_extends_camel_case_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.stress_scenarios import StressScenarioResponse
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.scenarios.stress_scenarios import StressScenarioResponse
 
         assert issubclass(StressScenarioResponse, CamelCaseModel)
 
@@ -234,7 +242,7 @@ class TestStressSchemasValidatorsPreserved:
     """Validators preserved after migration."""
 
     def test_stress_scenario_request_normalises_portfolio_tickers(self):
-        from app.schemas.stress_scenarios import StressScenarioRequest
+        from app.schemas.scenarios.stress_scenarios import StressScenarioRequest
 
         req = StressScenarioRequest(
             current_portfolio={"  spy  ": 0.5, "qqq": 0.5},
@@ -245,7 +253,7 @@ class TestStressSchemasValidatorsPreserved:
         assert "QQQ" in req.current_portfolio
 
     def test_stress_scenario_request_rejects_empty_portfolio(self):
-        from app.schemas.stress_scenarios import StressScenarioRequest
+        from app.schemas.scenarios.stress_scenarios import StressScenarioRequest
 
         with pytest.raises(Exception):
             StressScenarioRequest(
@@ -263,63 +271,67 @@ class TestLlmMomentsSchemasModuleExists:
     """api/app/schemas/llm_moments.py must exist with expected schemas."""
 
     def test_calibrate_delta_request_importable(self):
-        from app.schemas.llm_moments import CalibrateDeltaRequest  # noqa: F401
+        from app.schemas.views.llm_moments import CalibrateDeltaRequest  # noqa: F401
 
     def test_calibrate_delta_response_importable(self):
-        from app.schemas.llm_moments import CalibrateDeltaResponse  # noqa: F401
+        from app.schemas.views.llm_moments import CalibrateDeltaResponse  # noqa: F401
 
     def test_adapt_factor_weights_request_importable(self):
-        from app.schemas.llm_moments import AdaptFactorWeightsRequest  # noqa: F401
+        from app.schemas.views.llm_moments import (
+            AdaptFactorWeightsRequest,  # noqa: F401
+        )
 
     def test_adapt_factor_weights_response_importable(self):
-        from app.schemas.llm_moments import AdaptFactorWeightsResponse  # noqa: F401
+        from app.schemas.views.llm_moments import (
+            AdaptFactorWeightsResponse,  # noqa: F401
+        )
 
     def test_select_cov_regime_request_importable(self):
-        from app.schemas.llm_moments import SelectCovRegimeRequest  # noqa: F401
+        from app.schemas.views.llm_moments import SelectCovRegimeRequest  # noqa: F401
 
     def test_select_cov_regime_response_importable(self):
-        from app.schemas.llm_moments import SelectCovRegimeResponse  # noqa: F401
+        from app.schemas.views.llm_moments import SelectCovRegimeResponse  # noqa: F401
 
 
 class TestLlmMomentsSchemasBaseClasses:
     """Correct base classes for LLM moments schemas."""
 
     def test_calibrate_delta_request_uses_base_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.llm_moments import CalibrateDeltaRequest
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.llm_moments import CalibrateDeltaRequest
 
         assert issubclass(CalibrateDeltaRequest, BaseModel)
         assert not issubclass(CalibrateDeltaRequest, CamelCaseModel)
 
     def test_calibrate_delta_response_extends_camel_case_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.llm_moments import CalibrateDeltaResponse
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.llm_moments import CalibrateDeltaResponse
 
         assert issubclass(CalibrateDeltaResponse, CamelCaseModel)
 
     def test_adapt_factor_weights_request_uses_base_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.llm_moments import AdaptFactorWeightsRequest
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.llm_moments import AdaptFactorWeightsRequest
 
         assert issubclass(AdaptFactorWeightsRequest, BaseModel)
         assert not issubclass(AdaptFactorWeightsRequest, CamelCaseModel)
 
     def test_adapt_factor_weights_response_extends_camel_case_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.llm_moments import AdaptFactorWeightsResponse
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.llm_moments import AdaptFactorWeightsResponse
 
         assert issubclass(AdaptFactorWeightsResponse, CamelCaseModel)
 
     def test_select_cov_regime_request_uses_base_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.llm_moments import SelectCovRegimeRequest
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.llm_moments import SelectCovRegimeRequest
 
         assert issubclass(SelectCovRegimeRequest, BaseModel)
         assert not issubclass(SelectCovRegimeRequest, CamelCaseModel)
 
     def test_select_cov_regime_response_extends_camel_case_model(self):
-        from app.schemas.base import CamelCaseModel
-        from app.schemas.llm_moments import SelectCovRegimeResponse
+        from app.schemas._shared import CamelCaseModel
+        from app.schemas.views.llm_moments import SelectCovRegimeResponse
 
         assert issubclass(SelectCovRegimeResponse, CamelCaseModel)
 
@@ -328,7 +340,7 @@ class TestLlmMomentsSchemasValidatorsPreserved:
     """Validators preserved after migration."""
 
     def test_adapt_factor_weights_request_rejects_empty_group(self):
-        from app.schemas.llm_moments import AdaptFactorWeightsRequest
+        from app.schemas.views.llm_moments import AdaptFactorWeightsRequest
 
         with pytest.raises(Exception):
             AdaptFactorWeightsRequest(
@@ -337,7 +349,7 @@ class TestLlmMomentsSchemasValidatorsPreserved:
             )
 
     def test_select_cov_regime_request_rejects_empty_headline(self):
-        from app.schemas.llm_moments import SelectCovRegimeRequest
+        from app.schemas.views.llm_moments import SelectCovRegimeRequest
 
         with pytest.raises(Exception):
             SelectCovRegimeRequest(
@@ -347,7 +359,7 @@ class TestLlmMomentsSchemasValidatorsPreserved:
             )
 
     def test_calibrate_delta_response_serialises_to_camel_case(self):
-        from app.schemas.llm_moments import CalibrateDeltaResponse
+        from app.schemas.views.llm_moments import CalibrateDeltaResponse
 
         resp = CalibrateDeltaResponse(delta=3.0, rationale="Mid-expansion.")
         data = resp.model_dump(by_alias=True)
@@ -356,7 +368,7 @@ class TestLlmMomentsSchemasValidatorsPreserved:
         assert "rationale" in data
 
     def test_adapt_factor_weights_response_serialises_to_camel_case(self):
-        from app.schemas.llm_moments import AdaptFactorWeightsResponse
+        from app.schemas.views.llm_moments import AdaptFactorWeightsResponse
 
         resp = AdaptFactorWeightsResponse(
             phase="MID_EXPANSION",
@@ -383,36 +395,36 @@ class TestRouteFilesNoInlineSchemas:
         return inspect.getsource(module)
 
     def test_views_route_imports_from_schema_module(self):
-        source = self._get_source("app.api.v1.views")
-        assert "from app.schemas.views import" in source
+        source = self._get_source("app.api.v1.views.views")
+        assert "from app.schemas.views.views import" in source
         # No inline class definitions for the moved schemas
         assert "class GenerateViewsRequest" not in source
         assert "class AssetViewResponse" not in source
         assert "class GenerateViewsResponse" not in source
 
     def test_opinion_pooling_route_imports_from_schema_module(self):
-        source = self._get_source("app.api.v1.opinion_pooling")
-        assert "from app.schemas.views import" in source
+        source = self._get_source("app.api.v1.views.opinion_pooling")
+        assert "from app.schemas.views.views import" in source
         assert "class ICHistory" not in source
         assert "class ExpertViewSummary" not in source
         assert "class OpinionPoolRequest" not in source
         assert "class OpinionPoolResponse" not in source
 
     def test_macro_calibration_route_imports_from_schema_module(self):
-        source = self._get_source("app.api.v1.macro_calibration")
+        source = self._get_source("app.api.v1.macro.macro_calibration")
         assert "MacroCalibrationResponse" in source
         assert "class MacroCalibrationResponse" not in source
 
     def test_stress_scenarios_route_imports_from_schema_module(self):
-        source = self._get_source("app.api.v1.stress_scenarios")
-        assert "from app.schemas.stress_scenarios import" in source
+        source = self._get_source("app.api.v1.scenarios.stress_scenarios")
+        assert "from app.schemas.scenarios.stress_scenarios import" in source
         assert "class StressScenarioRequest" not in source
         assert "class StressScenarioItem" not in source
         assert "class StressScenarioResponse" not in source
 
     def test_llm_moments_route_imports_from_schema_module(self):
-        source = self._get_source("app.api.v1.llm_moments")
-        assert "from app.schemas.llm_moments import" in source
+        source = self._get_source("app.api.v1.views.llm_moments")
+        assert "from app.schemas.views.llm_moments import" in source
         assert "class CalibrateDeltaRequest" not in source
         assert "class CalibrateDeltaResponse" not in source
         assert "class AdaptFactorWeightsRequest" not in source

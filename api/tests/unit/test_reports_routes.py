@@ -14,7 +14,7 @@ Covers:
 
 Note on background job mocking
 --------------------------------
-The module-level ``_report_job_service`` in ``app.api.v1.reports`` uses
+The module-level ``_report_job_service`` in ``app.api.v1.reports.reports`` uses
 ``database_manager.get_session`` and bypasses FastAPI DI.  All job service
 methods must be mocked at the module level (same pattern as test_backtest_routes.py).
 """
@@ -30,9 +30,9 @@ from fastapi.testclient import TestClient
 
 BASE_URL = "/api/v1/reports"
 
-_JOB_SVC_CREATE = "app.api.v1.reports._report_job_service.create_job"
-_JOB_SVC_START = "app.api.v1.reports._report_job_service.start_background"
-_JOB_SVC_GET = "app.api.v1.reports._report_job_service.get_job"
+_JOB_SVC_CREATE = "app.api.v1.reports.reports._report_job_service.create_job"
+_JOB_SVC_START = "app.api.v1.reports.reports._report_job_service.start_background"
+_JOB_SVC_GET = "app.api.v1.reports.reports._report_job_service.get_job"
 
 _MOCK_JOB_ID = "00000000-0000-0000-0000-000000000099"
 
@@ -124,7 +124,7 @@ class TestPostGenerateReport:
         mock_start.assert_called_once()
 
     def test_job_already_running_returns_409(self, client: TestClient) -> None:
-        from app.services.background_job import JobAlreadyRunningError
+        from app.services.jobs.background_job import JobAlreadyRunningError
 
         with patch(_JOB_SVC_CREATE, side_effect=JobAlreadyRunningError(_MOCK_JOB_ID)):
             resp = client.post(f"{BASE_URL}/generate", json=_VALID_REQUEST)
@@ -167,7 +167,10 @@ class TestPostGenerateValidation:
     def test_unknown_section_id_returns_422(self, client: TestClient) -> None:
         resp = client.post(
             f"{BASE_URL}/generate",
-            json={**_VALID_REQUEST, "sections": ["portfolio_summary", "nonexistent_section"]},
+            json={
+                **_VALID_REQUEST,
+                "sections": ["portfolio_summary", "nonexistent_section"],
+            },
         )
         assert resp.status_code == 422
 
@@ -262,7 +265,7 @@ class TestGetReportDownload:
 
         try:
             with patch(
-                "app.api.v1.reports._find_report_path",
+                "app.api.v1.reports.reports._find_report_path",
                 return_value=tmp_path,
             ):
                 resp = client.get(f"{BASE_URL}/{report_id}/download")
@@ -281,7 +284,7 @@ class TestGetReportDownload:
 
         try:
             with patch(
-                "app.api.v1.reports._find_report_path",
+                "app.api.v1.reports.reports._find_report_path",
                 return_value=tmp_path,
             ):
                 resp = client.get(f"{BASE_URL}/{report_id}/download")
@@ -302,7 +305,7 @@ class TestGetReportDownload:
 
         try:
             with patch(
-                "app.api.v1.reports._find_report_path",
+                "app.api.v1.reports.reports._find_report_path",
                 return_value=tmp_path,
             ):
                 resp = client.get(f"{BASE_URL}/{report_id}/download")
@@ -314,7 +317,7 @@ class TestGetReportDownload:
 
     def test_missing_report_returns_404(self, client: TestClient) -> None:
         with patch(
-            "app.api.v1.reports._find_report_path",
+            "app.api.v1.reports.reports._find_report_path",
             return_value=None,
         ):
             resp = client.get(f"{BASE_URL}/nonexistent-report-id/download")

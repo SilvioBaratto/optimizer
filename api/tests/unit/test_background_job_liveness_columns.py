@@ -24,8 +24,7 @@ class TestBackgroundJobLivenessColumns:
 
     def test_when_schema_inspected_then_new_columns_are_nullable(self, test_engine):
         cols = {
-            c["name"]: c
-            for c in inspect(test_engine).get_columns("background_jobs")
+            c["name"]: c for c in inspect(test_engine).get_columns("background_jobs")
         }
         for name in EXPECTED_NEW_COLUMNS:
             assert cols[name]["nullable"] is True, name
@@ -44,16 +43,16 @@ class TestBackgroundJobLivenessColumns:
 
 class TestBackgroundJobModelMappedAttributes:
     def test_when_model_inspected_then_worker_pid_attribute_present(self):
-        from app.models.background_job import BackgroundJob
+        from app.models.jobs.background_job import BackgroundJob
 
         assert hasattr(BackgroundJob, "worker_pid")
 
     def test_when_model_inspected_then_worker_host_attribute_present(self):
-        from app.models.background_job import BackgroundJob
+        from app.models.jobs.background_job import BackgroundJob
 
         assert hasattr(BackgroundJob, "worker_host")
 
     def test_when_model_inspected_then_last_heartbeat_at_attribute_present(self):
-        from app.models.background_job import BackgroundJob
+        from app.models.jobs.background_job import BackgroundJob
 
         assert hasattr(BackgroundJob, "last_heartbeat_at")

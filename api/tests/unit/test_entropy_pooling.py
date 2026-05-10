@@ -26,8 +26,8 @@ BASE_URL = "/api/v1/views/entropy-pooling"
 
 _TICKERS = ["AAPL", "MSFT", "GOOGL"]
 
-_FETCH_PRICES = "app.api.v1.views.fetch_prices_df"
-_RUN_ENTROPY = "app.api.v1.views.run_entropy_pooling"
+_FETCH_PRICES = "app.api.v1.views.views.fetch_prices_df"
+_RUN_ENTROPY = "app.api.v1.views.views.run_entropy_pooling"
 
 
 def _make_ep_result(tickers: list[str] | None = None) -> dict:
@@ -162,10 +162,7 @@ class TestEntropyPoolingSolverFailure:
         assert resp.status_code == 500
         body = resp.json()
         # App may wrap in {"error": {"message": ...}} or {"detail": ...}
-        message = (
-            body.get("detail")
-            or body.get("error", {}).get("message", "")
-        )
+        message = body.get("detail") or body.get("error", {}).get("message", "")
         assert "converge" in message.lower()
 
 
@@ -382,7 +379,7 @@ class TestRunEntropyPoolingService:
     def test_returns_dict_with_mu_covariance_tickers(self) -> None:
         import pandas as pd
 
-        from app.services.entropy_pooling_service import run_entropy_pooling
+        from app.services.views.entropy_pooling_service import run_entropy_pooling
 
         np.random.seed(0)
         dates = pd.date_range("2022-01-01", periods=300, freq="B")
@@ -393,7 +390,7 @@ class TestRunEntropyPoolingService:
         )
 
         with patch(
-            "app.services.entropy_pooling_service.build_entropy_pooling"
+            "app.services.views.entropy_pooling_service.build_entropy_pooling"
         ) as mock_build:
             mock_estimator = MagicMock()
             mock_estimator.return_distribution_ = MagicMock()
@@ -414,7 +411,7 @@ class TestRunEntropyPoolingService:
     def test_mu_length_matches_tickers(self) -> None:
         import pandas as pd
 
-        from app.services.entropy_pooling_service import run_entropy_pooling
+        from app.services.views.entropy_pooling_service import run_entropy_pooling
 
         np.random.seed(1)
         dates = pd.date_range("2022-01-01", periods=300, freq="B")
@@ -425,7 +422,7 @@ class TestRunEntropyPoolingService:
         )
 
         with patch(
-            "app.services.entropy_pooling_service.build_entropy_pooling"
+            "app.services.views.entropy_pooling_service.build_entropy_pooling"
         ) as mock_build:
             mock_estimator = MagicMock()
             mock_estimator.return_distribution_ = MagicMock()
@@ -445,7 +442,7 @@ class TestRunEntropyPoolingService:
     def test_covariance_is_square_matrix(self) -> None:
         import pandas as pd
 
-        from app.services.entropy_pooling_service import run_entropy_pooling
+        from app.services.views.entropy_pooling_service import run_entropy_pooling
 
         np.random.seed(2)
         dates = pd.date_range("2022-01-01", periods=300, freq="B")
@@ -456,7 +453,7 @@ class TestRunEntropyPoolingService:
         )
 
         with patch(
-            "app.services.entropy_pooling_service.build_entropy_pooling"
+            "app.services.views.entropy_pooling_service.build_entropy_pooling"
         ) as mock_build:
             mock_estimator = MagicMock()
             mock_estimator.return_distribution_ = MagicMock()
@@ -484,7 +481,7 @@ class TestCorrelationViewFormat:
     """Correlation views must use (ASSET1, ASSET2) == value format."""
 
     def test_valid_correlation_view_accepted(self) -> None:
-        from app.schemas.views import EntropyPoolingRequest
+        from app.schemas.views.views import EntropyPoolingRequest
 
         req = EntropyPoolingRequest(
             tickers=["AAPL", "MSFT"],
@@ -495,7 +492,7 @@ class TestCorrelationViewFormat:
     def test_invalid_correlation_format_raises(self) -> None:
         from pydantic import ValidationError
 
-        from app.schemas.views import EntropyPoolingRequest
+        from app.schemas.views.views import EntropyPoolingRequest
 
         with pytest.raises(ValidationError):
             EntropyPoolingRequest(
@@ -506,7 +503,7 @@ class TestCorrelationViewFormat:
     def test_all_null_views_raises(self) -> None:
         from pydantic import ValidationError
 
-        from app.schemas.views import EntropyPoolingRequest
+        from app.schemas.views.views import EntropyPoolingRequest
 
         with pytest.raises(ValidationError):
             EntropyPoolingRequest(tickers=["AAPL", "MSFT"])
@@ -514,7 +511,7 @@ class TestCorrelationViewFormat:
     def test_empty_tickers_raises(self) -> None:
         from pydantic import ValidationError
 
-        from app.schemas.views import EntropyPoolingRequest
+        from app.schemas.views.views import EntropyPoolingRequest
 
         with pytest.raises(ValidationError):
             EntropyPoolingRequest(tickers=[], mean_views=["AAPL == 0.001"])

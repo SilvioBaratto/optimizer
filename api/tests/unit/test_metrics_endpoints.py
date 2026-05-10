@@ -215,7 +215,7 @@ class TestMetricsEndpointExposesHistograms:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from app.api.v1.metrics import router as metrics_router
+        from app.api.v1._shared.metrics import router as metrics_router
 
         app = FastAPI()
         app.include_router(metrics_router)
@@ -267,11 +267,9 @@ class TestRouteHandlersEmitObservations:
     def test_post_optimize_records_into_optimize_histogram(self, client) -> None:
         from fastapi import HTTPException as _HTTPException
 
-        before = _count(
-            "optimize_request_duration_seconds", {"status": "error"}
-        )
+        before = _count("optimize_request_duration_seconds", {"status": "error"})
         with patch(
-            "app.api.v1.optimize.build_pipeline",
+            "app.api.v1.optimization.optimize.build_pipeline",
             side_effect=_HTTPException(status_code=500, detail="forced error"),
         ):
             response = client.post(
@@ -285,9 +283,7 @@ class TestRouteHandlersEmitObservations:
                 },
             )
         assert response.status_code == 500
-        after = _count(
-            "optimize_request_duration_seconds", {"status": "error"}
-        )
+        after = _count("optimize_request_duration_seconds", {"status": "error"})
         assert after == before + 1
 
     def test_post_tune_records_into_tune_histogram(self, client) -> None:

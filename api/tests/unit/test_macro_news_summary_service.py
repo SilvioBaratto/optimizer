@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.models.macro_regime import MacroNews
-from app.services.macro_news_summary import (
+from app.models.macro.macro_regime import MacroNews
+from app.services.macro.macro_news_summary import (
     QUERY_COUNTRY_MAP,
     TICKER_COUNTRY_MAP,
     _clamp_sentiment_score,
@@ -41,7 +41,9 @@ def _make_article(
     article = MagicMock(spec=MacroNews)
     article.title = title
     article.publisher = publisher
-    article.publish_time = _DEFAULT_PUBLISH_TIME if publish_time is _SENTINEL else publish_time
+    article.publish_time = (
+        _DEFAULT_PUBLISH_TIME if publish_time is _SENTINEL else publish_time
+    )
     article.source_ticker = source_ticker
     article.source_query = source_query
     article.snippet = snippet
@@ -311,10 +313,12 @@ class TestSummarizeCountry:
 
         with (
             patch(
-                "app.services.macro_news_summary.MacroRegimeRepository",
+                "app.services.macro.macro_news_summary.MacroRegimeRepository",
                 return_value=mock_repo,
             ),
-            patch("app.services.macro_news_summary.b.SummarizeCountryNews") as mock_llm,
+            patch(
+                "app.services.macro.macro_news_summary.b.SummarizeCountryNews"
+            ) as mock_llm,
         ):
             results = generate_country_summaries(mock_session, force_refresh=False)
 
@@ -333,7 +337,7 @@ class TestSummarizeCountry:
         ]
 
         with patch(
-            "app.services.macro_news_summary.MacroRegimeRepository",
+            "app.services.macro.macro_news_summary.MacroRegimeRepository",
             return_value=mock_repo,
         ):
             results = generate_country_summaries(mock_session, force_refresh=True)
@@ -352,11 +356,11 @@ class TestSummarizeCountry:
 
         with (
             patch(
-                "app.services.macro_news_summary.MacroRegimeRepository",
+                "app.services.macro.macro_news_summary.MacroRegimeRepository",
                 return_value=mock_repo,
             ),
             patch(
-                "app.services.macro_news_summary.b.SummarizeCountryNews",
+                "app.services.macro.macro_news_summary.b.SummarizeCountryNews",
                 return_value=mock_llm_output,
             ) as mock_llm,
         ):
@@ -377,11 +381,11 @@ class TestSummarizeCountry:
 
         with (
             patch(
-                "app.services.macro_news_summary.MacroRegimeRepository",
+                "app.services.macro.macro_news_summary.MacroRegimeRepository",
                 return_value=mock_repo,
             ),
             patch(
-                "app.services.macro_news_summary.b.SummarizeCountryNews",
+                "app.services.macro.macro_news_summary.b.SummarizeCountryNews",
                 return_value=_make_llm_output(),
             ),
         ):
@@ -400,11 +404,11 @@ class TestSummarizeCountry:
 
         with (
             patch(
-                "app.services.macro_news_summary.MacroRegimeRepository",
+                "app.services.macro.macro_news_summary.MacroRegimeRepository",
                 return_value=mock_repo,
             ),
             patch(
-                "app.services.macro_news_summary.b.SummarizeCountryNews",
+                "app.services.macro.macro_news_summary.b.SummarizeCountryNews",
                 return_value=_make_llm_output(),
             ),
         ):
@@ -428,13 +432,17 @@ class TestSummarizeCountry:
         ]
 
         with patch(
-            "app.services.macro_news_summary.MacroRegimeRepository",
+            "app.services.macro.macro_news_summary.MacroRegimeRepository",
             return_value=mock_repo,
         ):
             generate_country_summaries(mock_session, force_refresh=False)
 
         call_args = mock_repo.get_macro_news_summary.call_args
-        passed_date = call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs.get("summary_date")
+        passed_date = (
+            call_args.args[1]
+            if len(call_args.args) > 1
+            else call_args.kwargs.get("summary_date")
+        )
         today = datetime.now(timezone.utc).date()
         assert passed_date == today
 
@@ -451,11 +459,11 @@ class TestSummarizeCountry:
 
         with (
             patch(
-                "app.services.macro_news_summary.MacroRegimeRepository",
+                "app.services.macro.macro_news_summary.MacroRegimeRepository",
                 return_value=mock_repo,
             ),
             patch(
-                "app.services.macro_news_summary.b.SummarizeCountryNews",
+                "app.services.macro.macro_news_summary.b.SummarizeCountryNews",
                 return_value=mock_llm_output,
             ),
         ):
@@ -479,7 +487,7 @@ class TestGenerateCountrySummaries:
         ]
 
         with patch(
-            "app.services.macro_news_summary.MacroRegimeRepository",
+            "app.services.macro.macro_news_summary.MacroRegimeRepository",
             return_value=mock_repo,
         ):
             results = generate_country_summaries(mock_session, force_refresh=True)
@@ -491,19 +499,18 @@ class TestGenerateCountrySummaries:
         mock_repo = MagicMock()
         mock_repo.get_macro_news_summary.return_value = None
         mock_repo.get_macro_news.return_value = [
-            _make_article(source_query="European Central Bank rate")
-            for _ in range(5)
+            _make_article(source_query="European Central Bank rate") for _ in range(5)
         ]
 
         mock_llm_output = _make_llm_output()
 
         with (
             patch(
-                "app.services.macro_news_summary.MacroRegimeRepository",
+                "app.services.macro.macro_news_summary.MacroRegimeRepository",
                 return_value=mock_repo,
             ),
             patch(
-                "app.services.macro_news_summary.b.SummarizeCountryNews",
+                "app.services.macro.macro_news_summary.b.SummarizeCountryNews",
                 return_value=mock_llm_output,
             ),
         ):
@@ -519,7 +526,7 @@ class TestGenerateCountrySummaries:
         mock_repo.get_macro_news.return_value = []
 
         with patch(
-            "app.services.macro_news_summary.MacroRegimeRepository",
+            "app.services.macro.macro_news_summary.MacroRegimeRepository",
             return_value=mock_repo,
         ):
             results = generate_country_summaries(mock_session)
@@ -544,11 +551,11 @@ class TestGenerateCountrySummaries:
 
         with (
             patch(
-                "app.services.macro_news_summary.MacroRegimeRepository",
+                "app.services.macro.macro_news_summary.MacroRegimeRepository",
                 return_value=mock_repo,
             ),
             patch(
-                "app.services.macro_news_summary.b.SummarizeCountryNews",
+                "app.services.macro.macro_news_summary.b.SummarizeCountryNews",
                 return_value=mock_llm_output,
             ),
         ):
@@ -577,11 +584,11 @@ class TestGenerateCountrySummaries:
 
         with (
             patch(
-                "app.services.macro_news_summary.MacroRegimeRepository",
+                "app.services.macro.macro_news_summary.MacroRegimeRepository",
                 return_value=mock_repo,
             ),
             patch(
-                "app.services.macro_news_summary.b.SummarizeCountryNews",
+                "app.services.macro.macro_news_summary.b.SummarizeCountryNews",
                 return_value=_make_llm_output(),
             ),
         ):

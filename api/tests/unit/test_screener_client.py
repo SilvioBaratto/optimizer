@@ -15,7 +15,7 @@ import pytest
 pytest.importorskip("yfinance")
 from yfinance import EquityQuery, ETFQuery, FundQuery
 
-from app.services.yfinance.market.screener import ScreenerClient
+from app.services.market_data.yfinance.market.screener import ScreenerClient
 
 
 def _build_client() -> ScreenerClient:
@@ -33,7 +33,7 @@ def _patch_yf_screen(return_value: pd.DataFrame | None = None):
     if return_value is None:
         return_value = pd.DataFrame({"symbol": ["AAPL"]})
     return patch(
-        "app.services.yfinance.market.screener.yf.screen",
+        "app.services.market_data.yfinance.market.screener.yf.screen",
         return_value=return_value,
     )
 
@@ -56,7 +56,9 @@ def test_when_query_is_predefined_string_then_yf_screen_receives_count_kwarg() -
     assert kwargs.get("sortAsc") is False
 
 
-def test_when_query_is_equity_query_instance_then_yf_screen_receives_size_kwarg() -> None:
+def test_when_query_is_equity_query_instance_then_yf_screen_receives_size_kwarg() -> (
+    None
+):
     client = _build_client()
     query = MagicMock(spec=EquityQuery)
     with _patch_yf_screen() as mock_screen:

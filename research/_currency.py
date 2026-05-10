@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 if TYPE_CHECKING:
-    from app.models.yfinance_data import TickerProfile
+    from app.models.market_data.yfinance_data import TickerProfile
 
 logger = logging.getLogger(__name__)
 

@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services._progress import make_cancellable_progress
-from app.services.background_job import BackgroundJobService
+from app.services._shared import make_cancellable_progress
+from app.services.jobs.background_job import BackgroundJobService
 
 # ---------------------------------------------------------------------------
 # Fixtures — autouse teardown to set every stop-event created in a test
@@ -58,7 +58,7 @@ def _make_session_factory(repo_mock: MagicMock):
         yield session
 
     repo_factory_patch = patch(
-        "app.services.background_job.BackgroundJobRepository",
+        "app.services.jobs.background_job.BackgroundJobRepository",
         return_value=repo_mock,
     )
     return _factory, repo_factory_patch
@@ -185,7 +185,9 @@ class TestStartBackgroundReturn:
             )
             done = threading.Event()
 
-            def _target(_job_id: str, *, cancel_event: threading.Event | None = None) -> None:
+            def _target(
+                _job_id: str, *, cancel_event: threading.Event | None = None
+            ) -> None:
                 done.set()
 
             result = svc.start_background(target=_target, args=(str(uuid.uuid4()),))
@@ -206,12 +208,16 @@ class TestStartBackgroundReturn:
 
 class TestUpdateJobNoopWarning:
     def test_when_repo_update_returns_zero_then_warning_emitted(
-        self, caplog: pytest.LogCaptureFixture,
+        self,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         repo = MagicMock()
         repo.update.return_value = 0
         factory, repo_patch = _make_session_factory(repo)
-        with repo_patch, caplog.at_level(logging.WARNING, logger="app.services.background_job"):
+        with (
+            repo_patch,
+            caplog.at_level(logging.WARNING, logger="app.services.jobs.background_job"),
+        ):
             svc = BackgroundJobService("noop", session_factory=factory)
             svc.update_job(str(uuid.uuid4()), current=42, status="running")
 

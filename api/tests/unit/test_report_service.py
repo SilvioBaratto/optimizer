@@ -60,7 +60,7 @@ class TestReportDataAggregatorNoRawSQL:
     """ReportDataAggregator must not execute raw SQL — only repository calls."""
 
     def test_portfolio_summary_uses_portfolio_repository_not_raw_sql(self) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         portfolio_repo, execution_repo = _make_repos(
             portfolio=_make_portfolio("Alpha Fund")
@@ -77,7 +77,7 @@ class TestReportDataAggregatorNoRawSQL:
         execution_repo.get_optimization_runs.assert_not_called()
 
     def test_portfolio_summary_returns_placeholder_when_not_found(self) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         portfolio_repo, execution_repo = _make_repos(portfolio=None)
         aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
@@ -87,7 +87,7 @@ class TestReportDataAggregatorNoRawSQL:
         assert result["available"] is False
 
     def test_weights_uses_execution_repository_not_raw_sql(self) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         opt_run = _make_optimization_run({"AAPL": 0.6, "MSFT": 0.4})
         portfolio_repo, execution_repo = _make_repos(opt_runs=[opt_run])
@@ -103,7 +103,7 @@ class TestReportDataAggregatorNoRawSQL:
         execution_repo.get_optimization_runs.assert_called_once()
 
     def test_weights_returns_placeholder_when_no_completed_run(self) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         portfolio_repo, execution_repo = _make_repos(opt_runs=[])
         aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
@@ -115,7 +115,7 @@ class TestReportDataAggregatorNoRawSQL:
     def test_performance_metrics_uses_execution_repository_not_raw_sql(
         self,
     ) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         stats = {"sharpe": 1.5, "cagr": 0.12}
         backtest_run = _make_backtest_run(stats)
@@ -132,7 +132,7 @@ class TestReportDataAggregatorNoRawSQL:
     def test_performance_metrics_returns_placeholder_when_no_completed_run(
         self,
     ) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         portfolio_repo, execution_repo = _make_repos(backtest_runs=[])
         aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
@@ -142,7 +142,7 @@ class TestReportDataAggregatorNoRawSQL:
         assert result["available"] is False
 
     def test_risk_analytics_returns_placeholder_without_raw_sql(self) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         portfolio_repo, execution_repo = _make_repos()
         aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
@@ -172,7 +172,7 @@ class TestAdHocBacktestFallback:
     def test_performance_metrics_falls_back_when_portfolio_id_is_none(
         self,
     ) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         stats = {"sharpe": 1.5, "cagr": 0.12}
         backtest_run = _make_backtest_run(stats)
@@ -190,7 +190,7 @@ class TestAdHocBacktestFallback:
 
     def test_performance_metrics_empty_summary_stats_is_not_no_data(self) -> None:
         """Empty ``summary_stats`` dict is valid data, not a missing run."""
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         # BacktestRun.summary_stats defaults to {} on creation, not None.
         backtest_run = _make_backtest_run({})
@@ -204,7 +204,7 @@ class TestAdHocBacktestFallback:
 
     def test_performance_metrics_none_summary_stats_is_no_data(self) -> None:
         """When ``summary_stats`` is explicitly ``None``, fall back to placeholder."""
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         backtest_run = _make_backtest_run(None)  # type: ignore[arg-type]
         portfolio_repo, execution_repo = _make_repos(backtest_runs=[backtest_run])
@@ -215,7 +215,7 @@ class TestAdHocBacktestFallback:
         assert result["available"] is False
 
     def test_weights_falls_back_when_portfolio_id_is_none(self) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         opt_run = _make_optimization_run({"AAPL": 0.6, "MSFT": 0.4})
         portfolio_repo, execution_repo = _make_repos(opt_runs=[opt_run])
@@ -230,7 +230,7 @@ class TestAdHocBacktestFallback:
 
     def test_weights_empty_dict_is_not_no_data(self) -> None:
         """Empty ``weights`` dict is valid data (run completed, items just empty)."""
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         opt_run = _make_optimization_run({})
         portfolio_repo, execution_repo = _make_repos(opt_runs=[opt_run])
@@ -243,7 +243,7 @@ class TestAdHocBacktestFallback:
 
     def test_weights_none_weights_is_no_data(self) -> None:
         """When ``weights`` is explicitly ``None``, fall back to placeholder."""
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         opt_run = _make_optimization_run(None)  # type: ignore[arg-type]
         portfolio_repo, execution_repo = _make_repos(opt_runs=[opt_run])
@@ -258,7 +258,7 @@ class TestReportDataAggregator:
     """ReportDataAggregator collects section data from repositories."""
 
     def test_portfolio_summary_returns_placeholder_when_no_data(self) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         portfolio_repo, execution_repo = _make_repos()
         aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
@@ -268,7 +268,7 @@ class TestReportDataAggregator:
         assert isinstance(result, dict)
 
     def test_weights_section_returns_placeholder_when_no_data(self) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         portfolio_repo, execution_repo = _make_repos()
         aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
@@ -278,7 +278,7 @@ class TestReportDataAggregator:
         assert isinstance(result, dict)
 
     def test_performance_metrics_returns_placeholder_when_no_data(self) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         portfolio_repo, execution_repo = _make_repos()
         aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
@@ -288,7 +288,7 @@ class TestReportDataAggregator:
         assert isinstance(result, dict)
 
     def test_risk_analytics_returns_placeholder_when_no_data(self) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         portfolio_repo, execution_repo = _make_repos()
         aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
@@ -299,7 +299,7 @@ class TestReportDataAggregator:
 
     def test_missing_section_does_not_raise(self) -> None:
         """Graceful degradation: repository error returns placeholder, not exception."""
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         portfolio_repo = MagicMock()
         portfolio_repo.get_by_id.side_effect = Exception("DB unavailable")
@@ -312,7 +312,7 @@ class TestReportDataAggregator:
         assert result["available"] is False
 
     def test_collect_sections_returns_dict_per_section(self) -> None:
-        from app.services.report_service import ReportDataAggregator
+        from app.services.reports.report_service import ReportDataAggregator
 
         portfolio_repo, execution_repo = _make_repos()
         aggregator = ReportDataAggregator(portfolio_repo, execution_repo)
@@ -328,7 +328,7 @@ class TestPdfBuilder:
     """PdfBuilder renders section data into PDF bytes."""
 
     def test_build_returns_bytes(self) -> None:
-        from app.services.report_service import PdfBuilder
+        from app.services.reports.report_service import PdfBuilder
 
         section_data = {
             "portfolio_summary": {"available": False, "message": "No data available"},
@@ -349,7 +349,7 @@ class TestPdfBuilder:
         assert len(pdf_bytes) > 0
 
     def test_build_produces_pdf_header(self) -> None:
-        from app.services.report_service import PdfBuilder
+        from app.services.reports.report_service import PdfBuilder
 
         section_data = {
             "weights": {"available": False, "message": "No data available"},
@@ -357,7 +357,11 @@ class TestPdfBuilder:
         builder = PdfBuilder()
         pdf_bytes = builder.build(
             section_data=section_data,
-            branding={"company_name": "Corp", "primary_color": "#000", "include_disclaimer": False},
+            branding={
+                "company_name": "Corp",
+                "primary_color": "#000",
+                "include_disclaimer": False,
+            },
             orientation="portrait",
         )
 
@@ -365,7 +369,7 @@ class TestPdfBuilder:
         assert pdf_bytes[:4] == b"%PDF"
 
     def test_build_landscape_does_not_raise(self) -> None:
-        from app.services.report_service import PdfBuilder
+        from app.services.reports.report_service import PdfBuilder
 
         section_data = {
             "portfolio_summary": {"available": False, "message": "No data available"},
@@ -373,7 +377,11 @@ class TestPdfBuilder:
         builder = PdfBuilder()
         pdf_bytes = builder.build(
             section_data=section_data,
-            branding={"company_name": "Corp", "primary_color": "#000", "include_disclaimer": False},
+            branding={
+                "company_name": "Corp",
+                "primary_color": "#000",
+                "include_disclaimer": False,
+            },
             orientation="landscape",
         )
 
@@ -381,7 +389,7 @@ class TestPdfBuilder:
         assert len(pdf_bytes) > 0
 
     def test_build_with_real_data_produces_larger_output(self) -> None:
-        from app.services.report_service import PdfBuilder
+        from app.services.reports.report_service import PdfBuilder
 
         section_data = {
             "portfolio_summary": {
@@ -417,13 +425,17 @@ class TestReportService:
     """ReportService orchestrates aggregation + PDF building + file persistence."""
 
     def test_generate_saves_pdf_to_output_dir(self, tmp_path: Any) -> None:
-        from app.services.report_service import ReportService
+        from app.services.reports.report_service import ReportService
 
         session = MagicMock()
         service = ReportService(session, output_dir=str(tmp_path))
         report_id = service.generate(
             sections=["portfolio_summary"],
-            branding={"company_name": "X", "primary_color": "#000", "include_disclaimer": False},
+            branding={
+                "company_name": "X",
+                "primary_color": "#000",
+                "include_disclaimer": False,
+            },
             orientation="portrait",
             portfolio_id=None,
         )
@@ -434,13 +446,17 @@ class TestReportService:
         assert report_id in saved_files[0].name
 
     def test_generate_returns_non_empty_report_id(self, tmp_path: Any) -> None:
-        from app.services.report_service import ReportService
+        from app.services.reports.report_service import ReportService
 
         session = MagicMock()
         service = ReportService(session, output_dir=str(tmp_path))
         report_id = service.generate(
             sections=["portfolio_summary"],
-            branding={"company_name": "X", "primary_color": "#000", "include_disclaimer": False},
+            branding={
+                "company_name": "X",
+                "primary_color": "#000",
+                "include_disclaimer": False,
+            },
             orientation="portrait",
             portfolio_id=None,
         )
@@ -449,13 +465,17 @@ class TestReportService:
         assert isinstance(report_id, str)
 
     def test_generate_produces_valid_pdf_file(self, tmp_path: Any) -> None:
-        from app.services.report_service import ReportService
+        from app.services.reports.report_service import ReportService
 
         session = MagicMock()
         service = ReportService(session, output_dir=str(tmp_path))
         service.generate(
             sections=["portfolio_summary", "weights"],
-            branding={"company_name": "X", "primary_color": "#000", "include_disclaimer": False},
+            branding={
+                "company_name": "X",
+                "primary_color": "#000",
+                "include_disclaimer": False,
+            },
             orientation="portrait",
             portfolio_id=None,
         )

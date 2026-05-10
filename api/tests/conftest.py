@@ -16,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
 from app.main import app
-from app.models.base import Base
+from app.models._shared import Base
 
 # Test database URL - use SQLite for fast tests
 TEST_DATABASE_URL = "sqlite:///:memory:"

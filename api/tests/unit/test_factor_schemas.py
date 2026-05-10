@@ -43,11 +43,12 @@ class TestFactorScoreResponse:
         return SimpleNamespace(**defaults)
 
     def test_importable(self) -> None:
-        from app.schemas.factors import FactorScoreResponse
+        from app.schemas.factors.factors import FactorScoreResponse
+
         _ = FactorScoreResponse
 
     def test_orm_deserialization_succeeds(self) -> None:
-        from app.schemas.factors import FactorScoreResponse
+        from app.schemas.factors.factors import FactorScoreResponse
 
         orm_obj = self._make_orm()
         response = FactorScoreResponse.model_validate(orm_obj)
@@ -56,7 +57,7 @@ class TestFactorScoreResponse:
         assert response.raw_score == pytest.approx(1.23)
 
     def test_camel_case_output(self) -> None:
-        from app.schemas.factors import FactorScoreResponse
+        from app.schemas.factors.factors import FactorScoreResponse
 
         orm_obj = self._make_orm()
         data = FactorScoreResponse.model_validate(orm_obj).model_dump(by_alias=True)
@@ -69,7 +70,7 @@ class TestFactorScoreResponse:
         assert "createdAt" in data
 
     def test_id_serializes_as_string(self) -> None:
-        from app.schemas.factors import FactorScoreResponse
+        from app.schemas.factors.factors import FactorScoreResponse
 
         uid = uuid.uuid4()
         orm_obj = self._make_orm(id=uid)
@@ -77,7 +78,7 @@ class TestFactorScoreResponse:
         assert response.id == str(uid)
 
     def test_optional_scores_none(self) -> None:
-        from app.schemas.factors import FactorScoreResponse
+        from app.schemas.factors.factors import FactorScoreResponse
 
         orm_obj = self._make_orm(standardized_score=None, composite_score=None)
         response = FactorScoreResponse.model_validate(orm_obj)
@@ -85,7 +86,7 @@ class TestFactorScoreResponse:
         assert response.composite_score is None
 
     def test_round_trip_serialization(self) -> None:
-        from app.schemas.factors import FactorScoreResponse
+        from app.schemas.factors.factors import FactorScoreResponse
 
         uid = uuid.uuid4()
         orm_obj = self._make_orm(id=uid)
@@ -104,18 +105,19 @@ class TestFactorScoreListResponse:
     """FactorScoreListResponse wraps a list of items with a total count."""
 
     def test_importable(self) -> None:
-        from app.schemas.factors import FactorScoreListResponse
+        from app.schemas.factors.factors import FactorScoreListResponse
+
         _ = FactorScoreListResponse
 
     def test_empty_list(self) -> None:
-        from app.schemas.factors import FactorScoreListResponse
+        from app.schemas.factors.factors import FactorScoreListResponse
 
         resp = FactorScoreListResponse(items=[], total=0)
         assert resp.total == 0
         assert resp.items == []
 
     def test_camel_case_keys(self) -> None:
-        from app.schemas.factors import FactorScoreListResponse
+        from app.schemas.factors.factors import FactorScoreListResponse
 
         resp = FactorScoreListResponse(items=[], total=0)
         data = resp.model_dump(by_alias=True)
@@ -123,7 +125,7 @@ class TestFactorScoreListResponse:
         assert "total" in data
 
     def test_total_must_be_non_negative(self) -> None:
-        from app.schemas.factors import FactorScoreListResponse
+        from app.schemas.factors.factors import FactorScoreListResponse
 
         with pytest.raises(ValidationError):
             FactorScoreListResponse(items=[], total=-1)
@@ -157,11 +159,12 @@ class TestFactorValidationReportResponse:
         return SimpleNamespace(**defaults)
 
     def test_importable(self) -> None:
-        from app.schemas.factors import FactorValidationReportResponse
+        from app.schemas.factors.factors import FactorValidationReportResponse
+
         _ = FactorValidationReportResponse
 
     def test_orm_deserialization_succeeds(self) -> None:
-        from app.schemas.factors import FactorValidationReportResponse
+        from app.schemas.factors.factors import FactorValidationReportResponse
 
         orm_obj = self._make_orm()
         response = FactorValidationReportResponse.model_validate(orm_obj)
@@ -169,7 +172,7 @@ class TestFactorValidationReportResponse:
         assert response.ic_mean == pytest.approx(0.05)
 
     def test_camel_case_output(self) -> None:
-        from app.schemas.factors import FactorValidationReportResponse
+        from app.schemas.factors.factors import FactorValidationReportResponse
 
         data = FactorValidationReportResponse.model_validate(
             self._make_orm()
@@ -183,7 +186,7 @@ class TestFactorValidationReportResponse:
         assert "pValue" in data
 
     def test_all_optional_metrics_can_be_none(self) -> None:
-        from app.schemas.factors import FactorValidationReportResponse
+        from app.schemas.factors.factors import FactorValidationReportResponse
 
         orm_obj = self._make_orm(
             factor_type=None,
@@ -210,11 +213,12 @@ class TestFactorComputeRequest:
     """FactorComputeRequest validates incoming compute requests."""
 
     def test_importable(self) -> None:
-        from app.schemas.factors import FactorComputeRequest
+        from app.schemas.factors.factors import FactorComputeRequest
+
         _ = FactorComputeRequest
 
     def test_valid_request(self) -> None:
-        from app.schemas.factors import FactorComputeRequest
+        from app.schemas.factors.factors import FactorComputeRequest
 
         req = FactorComputeRequest(
             tickers=["AAPL", "MSFT"],
@@ -224,7 +228,7 @@ class TestFactorComputeRequest:
         assert req.tickers == ["AAPL", "MSFT"]
 
     def test_empty_tickers_raises(self) -> None:
-        from app.schemas.factors import FactorComputeRequest
+        from app.schemas.factors.factors import FactorComputeRequest
 
         with pytest.raises(ValidationError):
             FactorComputeRequest(
@@ -234,7 +238,7 @@ class TestFactorComputeRequest:
             )
 
     def test_optional_factor_config(self) -> None:
-        from app.schemas.factors import FactorComputeRequest
+        from app.schemas.factors.factors import FactorComputeRequest
 
         req = FactorComputeRequest(
             tickers=["AAPL"],
@@ -254,13 +258,14 @@ class TestFactorValidateRequest:
     """FactorValidateRequest validates incoming validation requests."""
 
     def test_importable(self) -> None:
-        from app.schemas.factors import FactorValidateRequest
+        from app.schemas.factors.factors import FactorValidateRequest
+
         _ = FactorValidateRequest
 
     def test_valid_request(self) -> None:
         import datetime
 
-        from app.schemas.factors import FactorValidateRequest
+        from app.schemas.factors.factors import FactorValidateRequest
 
         req = FactorValidateRequest(
             tickers=["AAPL", "MSFT"],
@@ -274,7 +279,7 @@ class TestFactorValidateRequest:
     def test_default_validation_type_is_in_sample(self) -> None:
         import datetime
 
-        from app.schemas.factors import FactorValidateRequest
+        from app.schemas.factors.factors import FactorValidateRequest
 
         req = FactorValidateRequest(
             tickers=["AAPL"],

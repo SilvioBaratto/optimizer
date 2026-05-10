@@ -29,9 +29,9 @@ from sqlalchemy.orm import Session
 
 BASE_URL = "/api/v1/backtest"
 
-_JOB_SVC_CREATE = "app.api.v1.backtest._job_service.create_job"
-_JOB_SVC_START = "app.api.v1.backtest._job_service.start_background"
-_JOB_SVC_GET = "app.api.v1.backtest._job_service.get_job"
+_JOB_SVC_CREATE = "app.api.v1.backtest.backtest._job_service.create_job"
+_JOB_SVC_START = "app.api.v1.backtest.backtest._job_service.start_background"
+_JOB_SVC_GET = "app.api.v1.backtest.backtest._job_service.get_job"
 
 _MOCK_JOB_ID = "00000000-0000-0000-0000-000000000001"
 
@@ -60,7 +60,7 @@ def cleanup_backtest_runs(db_session: Session) -> Generator[None, None, None]:
     fixture commits the deletion so no rows leak into subsequent test modules.
     """
     yield
-    from app.models.execution import BacktestRun
+    from app.models.execution.execution import BacktestRun
 
     db_session.query(BacktestRun).delete()
     db_session.commit()
@@ -110,7 +110,7 @@ class TestPostBacktest:
         assert resp.status_code == 422
 
     def test_job_already_running_returns_409(self, client: TestClient) -> None:
-        from app.services.background_job import JobAlreadyRunningError
+        from app.services.jobs.background_job import JobAlreadyRunningError
 
         with patch(_JOB_SVC_CREATE, side_effect=JobAlreadyRunningError(_MOCK_JOB_ID)):
             resp = client.post(BASE_URL, json=_VALID_REQUEST)
@@ -162,7 +162,9 @@ class TestGetBacktestJob:
 class TestGetBacktestRun:
     """GET /api/v1/backtest/runs/{run_id} returns the persisted BacktestRun (issue #464)."""
 
-    def test_existing_run_returns_200(self, client: TestClient, db_session: Session) -> None:
+    def test_existing_run_returns_200(
+        self, client: TestClient, db_session: Session
+    ) -> None:
         run = _create_backtest_run(db_session)
 
         resp = client.get(f"{BASE_URL}/runs/{run.id}")
@@ -232,7 +234,7 @@ def _create_backtest_run(
     summary_stats: dict[str, Any] | None = None,
 ) -> Any:
     """Insert a minimal BacktestRun row covering every NOT NULL column."""
-    from app.models.execution import BacktestRun
+    from app.models.execution.execution import BacktestRun
 
     run = BacktestRun(
         status=status,

@@ -28,7 +28,7 @@ if str(_api_path) not in sys.path:
     sys.path.insert(0, str(_api_path))
 
 from app.database import DatabaseManager  # noqa: E402
-from app.models.macro_regime import (  # noqa: E402
+from app.models.macro.macro_regime import (  # noqa: E402
     BondYield,
     BondYieldObservation,
     EconomicIndicator,
@@ -38,14 +38,14 @@ from app.models.macro_regime import (  # noqa: E402
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
 )
-from app.models.universe import Instrument  # noqa: E402
-from app.models.yfinance_data import (  # noqa: E402
+from app.models.market_data.yfinance_data import (  # noqa: E402
     AnalystRecommendation,
     FinancialStatement,
     InsiderTransaction,
     PriceHistory,
     TickerProfile,
 )
+from app.models.universe.universe import Instrument  # noqa: E402
 
 from research._currency import (  # noqa: E402
     build_currency_map,

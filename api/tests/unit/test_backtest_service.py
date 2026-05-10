@@ -26,20 +26,20 @@ class TestValidatePrices:
     """validate_prices raises ValueError with descriptive message on bad data."""
 
     def test_empty_dataframe_raises(self) -> None:
-        from app.services.backtest_service import validate_prices
+        from app.services.backtest.backtest_service import validate_prices
 
         with pytest.raises(ValueError, match="price data"):
             validate_prices(pd.DataFrame(), ["AAPL", "MSFT"])
 
     def test_single_missing_ticker_mentioned_in_error(self) -> None:
-        from app.services.backtest_service import validate_prices
+        from app.services.backtest.backtest_service import validate_prices
 
         prices = pd.DataFrame({"AAPL": [1.0, 2.0]})
         with pytest.raises(ValueError, match="MSFT"):
             validate_prices(prices, ["AAPL", "MSFT"])
 
     def test_valid_prices_does_not_raise(self) -> None:
-        from app.services.backtest_service import validate_prices
+        from app.services.backtest.backtest_service import validate_prices
 
         prices = pd.DataFrame({"AAPL": [1.0, 2.0], "MSFT": [3.0, 4.0]})
         validate_prices(prices, ["AAPL", "MSFT"])  # no exception
@@ -51,19 +51,19 @@ class TestBuildOptimizer:
     def test_mean_risk_config_builds_optimizer(self) -> None:
         from skfolio.optimization import MeanRisk
 
-        from app.services.backtest_service import build_optimizer
+        from app.services.backtest.backtest_service import build_optimizer
 
         opt = build_optimizer({"optimizer_type": "mean_risk"})
         assert isinstance(opt, MeanRisk)
 
     def test_default_type_when_missing(self) -> None:
-        from app.services.backtest_service import build_optimizer
+        from app.services.backtest.backtest_service import build_optimizer
 
         opt = build_optimizer({})
         assert opt is not None
 
     def test_unknown_type_raises(self) -> None:
-        from app.services.backtest_service import build_optimizer
+        from app.services.backtest.backtest_service import build_optimizer
 
         with pytest.raises(ValueError, match="Unsupported optimizer_type"):
             build_optimizer({"optimizer_type": "unknown_xyz"})
@@ -79,7 +79,7 @@ class TestEnsureDatetimeIndex:
     """
 
     def test_plain_date_index_is_coerced_to_datetimeindex(self) -> None:
-        from app.services.backtest_service import _ensure_datetime_index
+        from app.services.backtest.backtest_service import _ensure_datetime_index
 
         prices = pd.DataFrame(
             {"AAPL": [100.0, 101.0], "MSFT": [200.0, 201.0]},
@@ -92,7 +92,7 @@ class TestEnsureDatetimeIndex:
         assert isinstance(out.index, pd.DatetimeIndex)
 
     def test_result_is_tz_naive(self) -> None:
-        from app.services.backtest_service import _ensure_datetime_index
+        from app.services.backtest.backtest_service import _ensure_datetime_index
 
         prices = pd.DataFrame(
             {"AAPL": [100.0]},
@@ -104,7 +104,7 @@ class TestEnsureDatetimeIndex:
         assert out.index.tz is None
 
     def test_input_is_not_mutated(self) -> None:
-        from app.services.backtest_service import _ensure_datetime_index
+        from app.services.backtest.backtest_service import _ensure_datetime_index
 
         prices = pd.DataFrame(
             {"AAPL": [100.0]},
@@ -117,7 +117,7 @@ class TestEnsureDatetimeIndex:
         assert type(prices.index) is original_index_type
 
     def test_existing_datetimeindex_is_preserved(self) -> None:
-        from app.services.backtest_service import _ensure_datetime_index
+        from app.services.backtest.backtest_service import _ensure_datetime_index
 
         dates = pd.date_range("2020-01-01", periods=3, freq="D")
         prices = pd.DataFrame({"AAPL": [1.0, 2.0, 3.0]}, index=dates)
@@ -128,7 +128,7 @@ class TestEnsureDatetimeIndex:
         assert out.index.tz is None
 
     def test_tz_aware_datetimeindex_is_normalised_to_naive(self) -> None:
-        from app.services.backtest_service import _ensure_datetime_index
+        from app.services.backtest.backtest_service import _ensure_datetime_index
 
         dates = pd.date_range("2020-01-01", periods=3, freq="D", tz="UTC")
         prices = pd.DataFrame({"AAPL": [1.0, 2.0, 3.0]}, index=dates)
@@ -149,7 +149,7 @@ class TestRunAndPersistCoercesPrices:
 
     def test_plain_date_index_does_not_raise_typeerror(self) -> None:
         """run_and_persist normalises the index before handing off to the pipeline."""
-        from app.services import backtest_service
+        from app.services.backtest import backtest_service
 
         prices = pd.DataFrame(
             {"AAPL": [100.0, 101.0], "MSFT": [200.0, 201.0]},
@@ -167,7 +167,9 @@ class TestRunAndPersistCoercesPrices:
 
         with (
             patch.object(backtest_service, "fetch_close_prices", return_value=prices),
-            patch.object(backtest_service, "run_full_pipeline", side_effect=_fake_pipeline),
+            patch.object(
+                backtest_service, "run_full_pipeline", side_effect=_fake_pipeline
+            ),
             patch.object(backtest_service, "ExecutionRepository", return_value=repo),
             patch.object(backtest_service, "extract_backtest_metrics", return_value={}),
         ):
@@ -187,7 +189,7 @@ class TestExtractBacktestMetrics:
     """extract_backtest_metrics returns all keys required by BacktestRun model."""
 
     def test_required_keys_present(self) -> None:
-        from app.services.backtest_service import extract_backtest_metrics
+        from app.services.backtest.backtest_service import extract_backtest_metrics
 
         result = _make_mock_result()
         metrics = extract_backtest_metrics(result)
@@ -204,13 +206,13 @@ class TestExtractBacktestMetrics:
         assert required.issubset(metrics.keys())
 
     def test_equity_curve_is_dict(self) -> None:
-        from app.services.backtest_service import extract_backtest_metrics
+        from app.services.backtest.backtest_service import extract_backtest_metrics
 
         metrics = extract_backtest_metrics(_make_mock_result())
         assert isinstance(metrics["equity_curve"], dict)
 
     def test_cv_fold_metrics_none_when_no_backtest(self) -> None:
-        from app.services.backtest_service import extract_backtest_metrics
+        from app.services.backtest.backtest_service import extract_backtest_metrics
 
         result = _make_mock_result(with_backtest=False)
         metrics = extract_backtest_metrics(result)
@@ -225,7 +227,7 @@ class TestSeriesToDictSanitisesNonFiniteValues:
     """
 
     def test_nan_value_becomes_none(self) -> None:
-        from app.services.backtest_service import _series_to_dict
+        from app.services.backtest.backtest_service import _series_to_dict
 
         series = pd.Series(
             [1.0, float("nan"), 2.0],
@@ -239,7 +241,7 @@ class TestSeriesToDictSanitisesNonFiniteValues:
         assert out["2020-01-03"] == 2.0
 
     def test_positive_infinity_becomes_none(self) -> None:
-        from app.services.backtest_service import _series_to_dict
+        from app.services.backtest.backtest_service import _series_to_dict
 
         series = pd.Series(
             [float("inf"), 1.0],
@@ -251,7 +253,7 @@ class TestSeriesToDictSanitisesNonFiniteValues:
         assert out["2020-01-01"] is None
 
     def test_negative_infinity_becomes_none(self) -> None:
-        from app.services.backtest_service import _series_to_dict
+        from app.services.backtest.backtest_service import _series_to_dict
 
         series = pd.Series(
             [float("-inf"), 1.0],
@@ -264,7 +266,7 @@ class TestSeriesToDictSanitisesNonFiniteValues:
 
     def test_numpy_nan_becomes_none(self) -> None:
         """numpy.nan propagated through arithmetic must also be sanitised."""
-        from app.services.backtest_service import _series_to_dict
+        from app.services.backtest.backtest_service import _series_to_dict
 
         series = pd.Series(
             [np.nan, 1.5],
@@ -278,7 +280,7 @@ class TestSeriesToDictSanitisesNonFiniteValues:
 
     def test_output_is_strict_json_safe(self) -> None:
         """Strict JSON (allow_nan=False) must succeed for mixed input."""
-        from app.services.backtest_service import _series_to_dict
+        from app.services.backtest.backtest_service import _series_to_dict
 
         series = pd.Series(
             [1.0, float("nan"), float("inf"), float("-inf"), 2.5],
@@ -302,7 +304,7 @@ class TestExtractBacktestMetricsIsJsonSafe:
     """
 
     def test_metrics_with_nan_values_serialise_to_strict_json(self) -> None:
-        from app.services.backtest_service import extract_backtest_metrics
+        from app.services.backtest.backtest_service import extract_backtest_metrics
 
         result = _make_mock_result_with_nans()
         metrics = extract_backtest_metrics(result)
@@ -312,7 +314,7 @@ class TestExtractBacktestMetricsIsJsonSafe:
         json.dumps(metrics, allow_nan=False, default=str)
 
     def test_equity_curve_nan_entry_is_none(self) -> None:
-        from app.services.backtest_service import extract_backtest_metrics
+        from app.services.backtest.backtest_service import extract_backtest_metrics
 
         result = _make_mock_result_with_nans()
         metrics = extract_backtest_metrics(result)
@@ -321,7 +323,7 @@ class TestExtractBacktestMetricsIsJsonSafe:
         assert any(v is None for v in equity.values())
 
     def test_monthly_returns_handle_nan(self) -> None:
-        from app.services.backtest_service import extract_backtest_metrics
+        from app.services.backtest.backtest_service import extract_backtest_metrics
 
         result = _make_mock_result_with_nans()
         metrics = extract_backtest_metrics(result)
@@ -386,9 +388,7 @@ def _make_mock_portfolio() -> MagicMock:
         index=dates,
         name="returns",
     )
-    portfolio.rolling_measure.return_value = pd.Series(
-        data=[1.0] * 10, index=dates
-    )
+    portfolio.rolling_measure.return_value = pd.Series(data=[1.0] * 10, index=dates)
     portfolio.summary.return_value = pd.Series(
         {"Annualized Sharpe Ratio": 1.2, "Max Drawdown": -0.05}
     )

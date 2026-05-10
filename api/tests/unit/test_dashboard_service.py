@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.services.dashboard_service import (
+from app.services.dashboard.dashboard_service import (
     _annualized_return,
     _compute_change,
     _cvar_95,

@@ -22,8 +22,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.portfolio import Portfolio, PortfolioSnapshot, SnapshotWeight
-from app.models.rebalancing import RebalancingPolicy
+from app.models.portfolio.portfolio import Portfolio, PortfolioSnapshot, SnapshotWeight
+from app.models.rebalancing.rebalancing import RebalancingPolicy
 
 BASE = "/api/v1/rebalance/preview"
 

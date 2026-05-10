@@ -36,14 +36,14 @@ sys.path.insert(0, str(_REPO_ROOT / "api"))
 import yfinance as yf
 from dateutil import parser as dateutil_parser
 
-from app.services.yfinance.news.macro_news import MACRO_SEARCH_QUERIES
+from app.services.market_data.yfinance.news.macro_news import MACRO_SEARCH_QUERIES
 
 _MAX_AGE_DAYS = 60
 _DEFAULT_MAX_RESULTS = 8
 
 
 # ---------------------------------------------------------------------------
-# Helpers (mirrors logic in app.services.yfinance.news aggregator/_process)
+# Helpers (mirrors logic in app.services.market_data.yfinance.news aggregator/_process)
 # ---------------------------------------------------------------------------
 
 
@@ -144,10 +144,7 @@ def main() -> int:
 
     for query in MACRO_SEARCH_QUERIES:
         result = evaluate_query(query, cutoff)
-        passed = (
-            result["error"] is None
-            and result["recent"] >= args.min_recent
-        )
+        passed = result["error"] is None and result["recent"] >= args.min_recent
         rows.append(
             {
                 "query": query,

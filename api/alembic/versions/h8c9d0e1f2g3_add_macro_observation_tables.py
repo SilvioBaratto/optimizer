@@ -39,12 +39,18 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.UniqueConstraint(
-            "country", "indicator_key", "date",
+            "country",
+            "indicator_key",
+            "date",
             name="uq_te_obs_country_key_date",
         ),
     )
-    op.create_index("ix_te_observations_country", "trading_economics_observations", ["country"])
-    op.create_index("ix_te_observations_date", "trading_economics_observations", ["date"])
+    op.create_index(
+        "ix_te_observations_country", "trading_economics_observations", ["country"]
+    )
+    op.create_index(
+        "ix_te_observations_date", "trading_economics_observations", ["date"]
+    )
 
     # -- bond_yield_observations --
     op.create_table(
@@ -67,11 +73,15 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.UniqueConstraint(
-            "country", "maturity", "date",
+            "country",
+            "maturity",
+            "date",
             name="uq_bond_obs_country_mat_date",
         ),
     )
-    op.create_index("ix_bond_observations_country", "bond_yield_observations", ["country"])
+    op.create_index(
+        "ix_bond_observations_country", "bond_yield_observations", ["country"]
+    )
     op.create_index("ix_bond_observations_date", "bond_yield_observations", ["date"])
 
     # -- Seed from existing snapshot tables (if they exist) --

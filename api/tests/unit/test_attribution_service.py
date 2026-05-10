@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.attribution_service import (
+from app.services.attribution.attribution_service import (
     BrinsonDecomposition,
     InsufficientSectorCoverageError,
     MissingDataError,
@@ -129,7 +129,9 @@ class TestBrinsonDecomposition:
             + result["total_selection"]
             + result["total_interaction"]
         )
-        assert pytest.approx(total_via_effects, abs=1e-9) == result["total_active_return"]
+        assert (
+            pytest.approx(total_via_effects, abs=1e-9) == result["total_active_return"]
+        )
 
     def test_null_sector_grouped_as_unclassified(self) -> None:
         portfolio_weights = {"AAPL": 0.5, "UNKN": 0.5}

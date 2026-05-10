@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import pandas as pd
 
-from app.services.yfinance_data_service import YFinanceDataService
+from app.services.market_data.yfinance_data_service import YFinanceDataService
 
 
 def _valuation_fixture() -> pd.DataFrame:
@@ -103,8 +103,12 @@ def _statement_type_calls(repo: MagicMock) -> list[tuple[str, str, str | None]]:
     """Extract ``(statement_type, period_type, currency_code)`` for every upsert."""
     triples: list[tuple[str, str, str | None]] = []
     for call in repo.upsert_financial_statements.call_args_list:
-        stmt_type = call.args[2] if len(call.args) >= 3 else call.kwargs["statement_type"]
-        period_type = call.args[3] if len(call.args) >= 4 else call.kwargs["period_type"]
+        stmt_type = (
+            call.args[2] if len(call.args) >= 3 else call.kwargs["statement_type"]
+        )
+        period_type = (
+            call.args[3] if len(call.args) >= 4 else call.kwargs["period_type"]
+        )
         currency = call.kwargs.get("currency_code")
         triples.append((stmt_type, period_type, currency))
     return triples

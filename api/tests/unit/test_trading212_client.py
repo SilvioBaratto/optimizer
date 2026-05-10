@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from app.services.trading212.client import Trading212Client
+from app.services.universe.trading212.client import Trading212Client
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -80,8 +80,8 @@ class TestTrading212ClientInit:
 # ---------------------------------------------------------------------------
 
 
-@patch("app.services.trading212.client.time.sleep")
-@patch("app.services.trading212.client.requests.get")
+@patch("app.services.universe.trading212.client.time.sleep")
+@patch("app.services.universe.trading212.client.requests.get")
 class TestGetInternal:
     def test_success_on_first_attempt(self, mock_get, _sleep):
         mock_get.return_value = _mock_response({"ok": True})
@@ -235,8 +235,14 @@ class TestGetPaginated:
 class TestGetAccountCash:
     @patch.object(Trading212Client, "_get")
     def test_returns_cash_dict(self, mock_get):
-        data = {"blocked": 0.0, "free": 1000.0, "invested": 5000.0,
-                "pieCash": 0.0, "result": 200.0, "total": 6200.0}
+        data = {
+            "blocked": 0.0,
+            "free": 1000.0,
+            "invested": 5000.0,
+            "pieCash": 0.0,
+            "result": 200.0,
+            "total": 6200.0,
+        }
         mock_get.return_value = data
         c = _make_client()
         assert c.get_account_cash() == data
@@ -346,7 +352,8 @@ class TestGetAllOrderHistory:
         c = _make_client()
         c.get_all_order_history()
         mock_pag.assert_called_once_with(
-            "/api/v0/equity/history/orders", ticker=None,
+            "/api/v0/equity/history/orders",
+            ticker=None,
         )
 
     @patch.object(Trading212Client, "_get_paginated")
@@ -361,7 +368,8 @@ class TestGetAllOrderHistory:
         c = _make_client()
         c.get_all_order_history(ticker="MSFT_US_EQ")
         mock_pag.assert_called_once_with(
-            "/api/v0/equity/history/orders", ticker="MSFT_US_EQ",
+            "/api/v0/equity/history/orders",
+            ticker="MSFT_US_EQ",
         )
 
 
@@ -417,7 +425,8 @@ class TestGetAllDividendHistory:
         c = _make_client()
         c.get_all_dividend_history()
         mock_pag.assert_called_once_with(
-            "/api/v0/history/dividends", ticker=None,
+            "/api/v0/history/dividends",
+            ticker=None,
         )
 
     @patch.object(Trading212Client, "_get_paginated")
@@ -432,7 +441,8 @@ class TestGetAllDividendHistory:
         c = _make_client()
         c.get_all_dividend_history(ticker="VOD_L_EQ")
         mock_pag.assert_called_once_with(
-            "/api/v0/history/dividends", ticker="VOD_L_EQ",
+            "/api/v0/history/dividends",
+            ticker="VOD_L_EQ",
         )
 
 
@@ -442,12 +452,12 @@ class TestGetAllDividendHistory:
 
 
 class TestFromSettings:
-    @patch("app.services.trading212.client.settings")
+    @patch("app.services.universe.trading212.client.settings")
     def test_returns_none_when_no_api_key(self, mock_settings):
         mock_settings.trading_212_api_key = ""
         assert Trading212Client.from_settings() is None
 
-    @patch("app.services.trading212.client.settings")
+    @patch("app.services.universe.trading212.client.settings")
     def test_returns_client_when_key_set(self, mock_settings):
         mock_settings.trading_212_api_key = "key123"
         mock_settings.trading_212_mode = "live"
@@ -455,14 +465,14 @@ class TestFromSettings:
         assert client is not None
         assert client.api_key == "key123"
 
-    @patch("app.services.trading212.client.settings")
+    @patch("app.services.universe.trading212.client.settings")
     def test_mode_from_settings_when_no_override(self, mock_settings):
         mock_settings.trading_212_api_key = "key123"
         mock_settings.trading_212_mode = "demo"
         client = Trading212Client.from_settings()
         assert client.base_url == "https://demo.trading212.com"
 
-    @patch("app.services.trading212.client.settings")
+    @patch("app.services.universe.trading212.client.settings")
     def test_mode_override_takes_precedence(self, mock_settings):
         mock_settings.trading_212_api_key = "key123"
         mock_settings.trading_212_mode = "live"

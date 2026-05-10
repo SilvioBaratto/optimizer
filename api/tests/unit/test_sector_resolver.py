@@ -19,8 +19,8 @@ from collections.abc import Iterator
 import pytest
 from sqlalchemy.orm import Session
 
-from app.models.universe import Exchange, Instrument
-from app.models.yfinance_data import TickerProfile
+from app.models.market_data.yfinance_data import TickerProfile
+from app.models.universe.universe import Exchange, Instrument
 
 
 @pytest.fixture
@@ -41,14 +41,11 @@ def seeded_instruments(db_session: Session) -> Iterator[None]:
     db_session.flush()
 
     by_yf: dict[str, Instrument] = {
-        inst.yfinance_ticker or "": inst
-        for inst in db_session.query(Instrument).all()
+        inst.yfinance_ticker or "": inst for inst in db_session.query(Instrument).all()
     }
     db_session.add_all(
         [
-            TickerProfile(
-                instrument_id=by_yf["ENGI.PA"].id, sector="Utilities"
-            ),
+            TickerProfile(instrument_id=by_yf["ENGI.PA"].id, sector="Utilities"),
             TickerProfile(
                 instrument_id=by_yf["ORA.PA"].id, sector="Communication Services"
             ),
@@ -88,7 +85,7 @@ class TestResolveSectorMapTickerProfileFallback:
         self, db_session: Session, seeded_instruments: None
     ) -> None:
         """Regression for #427: `.PA` tickers now resolve via yfinance_ticker."""
-        from app.services._sector_resolver import resolve_sector_map
+        from app.services._shared import resolve_sector_map
 
         result = resolve_sector_map(
             session=db_session,
@@ -103,7 +100,7 @@ class TestResolveSectorMapTickerProfileFallback:
     def test_us_ticker_resolves(
         self, db_session: Session, seeded_instruments: None
     ) -> None:
-        from app.services._sector_resolver import resolve_sector_map
+        from app.services._shared import resolve_sector_map
 
         result = resolve_sector_map(session=db_session, tickers=["AAPL"])
 
@@ -112,7 +109,7 @@ class TestResolveSectorMapTickerProfileFallback:
     def test_unmapped_ticker_falls_back_to_unclassified(
         self, db_session: Session, seeded_instruments: None
     ) -> None:
-        from app.services._sector_resolver import UNCLASSIFIED, resolve_sector_map
+        from app.services._shared import UNCLASSIFIED, resolve_sector_map
 
         result = resolve_sector_map(
             session=db_session,
@@ -136,7 +133,7 @@ class TestResolveSectorMapSnapshotFirst:
     def test_snapshot_entries_override_profile(
         self, db_session: Session, seeded_instruments: None
     ) -> None:
-        from app.services._sector_resolver import resolve_sector_map
+        from app.services._shared import resolve_sector_map
 
         snapshot_mapping = {"ENGI.PA": "Custom-Sector"}
 
@@ -152,7 +149,7 @@ class TestResolveSectorMapSnapshotFirst:
     def test_missing_tickers_still_default_to_unclassified(
         self, db_session: Session, seeded_instruments: None
     ) -> None:
-        from app.services._sector_resolver import UNCLASSIFIED, resolve_sector_map
+        from app.services._shared import UNCLASSIFIED, resolve_sector_map
 
         snapshot_mapping = {"ENGI.PA": "Utilities"}
 
@@ -177,7 +174,7 @@ class TestResolveSectorMapEdgeCases:
     def test_empty_tickers_returns_empty_map(
         self, db_session: Session, seeded_instruments: None
     ) -> None:
-        from app.services._sector_resolver import resolve_sector_map
+        from app.services._shared import resolve_sector_map
 
         result = resolve_sector_map(session=db_session, tickers=[])
 
@@ -187,7 +184,7 @@ class TestResolveSectorMapEdgeCases:
         self, db_session: Session
     ) -> None:
         """A NULL ``sector`` column must not override with empty string."""
-        from app.services._sector_resolver import UNCLASSIFIED, resolve_sector_map
+        from app.services._shared import UNCLASSIFIED, resolve_sector_map
 
         exchange = Exchange(name="TEST_NULL_SECTOR_EXCH")
         db_session.add(exchange)

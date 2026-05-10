@@ -18,8 +18,12 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from app.services.yfinance._facade import YFinanceClient
-from app.services.yfinance.infrastructure import CircuitBreaker, LRUCache, RateLimiter
+from app.services.market_data.yfinance._facade import YFinanceClient
+from app.services.market_data.yfinance.infrastructure import (
+    CircuitBreaker,
+    LRUCache,
+    RateLimiter,
+)
 
 _HISTORY_KWARGS: dict[str, Any] = {
     "interval": "1d",
@@ -41,16 +45,12 @@ def _history_fixture(rows: int = 12) -> pd.DataFrame:
 
 
 def _adjusted_nvda_fixture() -> pd.DataFrame:
-    index = pd.DatetimeIndex(
-        ["2024-06-07", "2024-06-10", "2024-06-11", "2024-06-14"]
-    )
+    index = pd.DatetimeIndex(["2024-06-07", "2024-06-10", "2024-06-11", "2024-06-14"])
     return pd.DataFrame({"Close": [120.0, 121.0, 119.0, 122.0]}, index=index)
 
 
 def _raw_nvda_fixture() -> pd.DataFrame:
-    index = pd.DatetimeIndex(
-        ["2024-06-07", "2024-06-10", "2024-06-11", "2024-06-14"]
-    )
+    index = pd.DatetimeIndex(["2024-06-07", "2024-06-10", "2024-06-11", "2024-06-14"])
     return pd.DataFrame({"Close": [1200.0, 1198.0, 120.0, 122.0]}, index=index)
 
 
@@ -113,7 +113,9 @@ def test_when_calling_bulk_download_with_defaults_then_auto_adjust_is_true(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mock_download = MagicMock(return_value=_history_fixture())
-    monkeypatch.setattr("app.services.yfinance._facade.yf.download", mock_download)
+    monkeypatch.setattr(
+        "app.services.market_data.yfinance._facade.yf.download", mock_download
+    )
 
     client.bulk_download(["NVDA"])
 
@@ -126,7 +128,9 @@ def test_when_inspecting_adjusted_nvda_fixture_then_no_split_day_step() -> None:
     assert 0.9 <= ratio <= 1.1
 
 
-def test_when_inspecting_raw_nvda_fixture_then_pre_post_split_ratio_exceeds_five() -> None:
+def test_when_inspecting_raw_nvda_fixture_then_pre_post_split_ratio_exceeds_five() -> (
+    None
+):
     raw = _raw_nvda_fixture()
     ratio = raw["Close"].iloc[0] / raw["Close"].iloc[-1]
     assert ratio > 5

@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from app.services.dashboard_service import get_market_snapshot
+from app.services.dashboard.dashboard_service import get_market_snapshot
 
 
 class TestGetMarketSnapshot:
@@ -33,12 +33,16 @@ class TestGetMarketSnapshot:
         result = get_market_snapshot(fred_data, spy_prices, bond_yield, as_of_date)
         assert result["vix"] == pytest.approx(16.8, abs=0.01)
 
-    def test_vix_change_is_absolute(self, fred_data, spy_prices, bond_yield, as_of_date):
+    def test_vix_change_is_absolute(
+        self, fred_data, spy_prices, bond_yield, as_of_date
+    ):
         result = get_market_snapshot(fred_data, spy_prices, bond_yield, as_of_date)
         expected = 16.8 - 18.0  # -1.2
         assert result["vix_change"] == pytest.approx(expected, abs=0.01)
 
-    def test_sp500_return_is_fraction(self, fred_data, spy_prices, bond_yield, as_of_date):
+    def test_sp500_return_is_fraction(
+        self, fred_data, spy_prices, bond_yield, as_of_date
+    ):
         result = get_market_snapshot(fred_data, spy_prices, bond_yield, as_of_date)
         expected = (457.48 - 449.30) / 449.30
         assert result["sp500_return"] == pytest.approx(expected, abs=1e-5)
@@ -65,7 +69,13 @@ class TestGetMarketSnapshot:
     def test_all_keys_present(self, fred_data, spy_prices, bond_yield, as_of_date):
         result = get_market_snapshot(fred_data, spy_prices, bond_yield, as_of_date)
         expected_keys = {
-            "vix", "vix_change", "sp500_return", "ten_year_yield",
-            "yield_change", "usd_index", "usd_change", "as_of",
+            "vix",
+            "vix_change",
+            "sp500_return",
+            "ten_year_yield",
+            "yield_change",
+            "usd_index",
+            "usd_change",
+            "as_of",
         }
         assert set(result.keys()) == expected_keys

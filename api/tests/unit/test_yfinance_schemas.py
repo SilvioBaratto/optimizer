@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.yfinance_data import YFinanceFetchRequest
+from app.schemas.market_data.yfinance_data import YFinanceFetchRequest
 
 
 class TestYFinanceFetchRequestWorkers:

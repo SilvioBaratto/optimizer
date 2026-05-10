@@ -200,9 +200,7 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
     )
-    op.create_index(
-        "ix_backtest_runs_portfolio_id", "backtest_runs", ["portfolio_id"]
-    )
+    op.create_index("ix_backtest_runs_portfolio_id", "backtest_runs", ["portfolio_id"])
     op.create_index("ix_backtest_runs_status", "backtest_runs", ["status"])
     op.create_index("ix_backtest_runs_created_at", "backtest_runs", ["created_at"])
 
@@ -283,7 +281,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_rebalancing_policies_portfolio_id", table_name="rebalancing_policies")
+    op.drop_index(
+        "ix_rebalancing_policies_portfolio_id", table_name="rebalancing_policies"
+    )
     op.drop_table("rebalancing_policies")
 
     op.drop_index("ix_risk_limits_portfolio_id", table_name="risk_limits")

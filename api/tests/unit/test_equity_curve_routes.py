@@ -14,8 +14,8 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-_PORTFOLIO_REPO = "app.api.v1.dashboard.PortfolioRepository"
-_DASHBOARD_REPO = "app.api.v1.dashboard.DashboardRepository"
+_PORTFOLIO_REPO = "app.api.v1.dashboard.dashboard.PortfolioRepository"
+_DASHBOARD_REPO = "app.api.v1.dashboard.dashboard.DashboardRepository"
 
 BASE_URL = "/api/v1/portfolio-analytics"
 
@@ -117,9 +117,7 @@ class TestGetEquityCurve:
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
 
-            resp = client.get(
-                f"{BASE_URL}/myport/equity-curve?period={period}"
-            )
+            resp = client.get(f"{BASE_URL}/myport/equity-curve?period={period}")
 
         assert resp.status_code == 200
 
@@ -132,9 +130,7 @@ class TestGetEquityCurve:
             repo.get_by_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
-            resp = client.get(
-                f"{BASE_URL}/myport/equity-curve?period=10Y"
-            )
+            resp = client.get(f"{BASE_URL}/myport/equity-curve?period=10Y")
 
         assert resp.status_code == 422
 
@@ -203,9 +199,7 @@ class TestGetEquityCurve:
             dash.instrument_exists.return_value = False
             dash.get_multi_ticker_prices.return_value = prices
 
-            resp = client.get(
-                f"{BASE_URL}/test/equity-curve?benchmark=FAKE"
-            )
+            resp = client.get(f"{BASE_URL}/test/equity-curve?benchmark=FAKE")
 
         assert resp.status_code == 422
         msg = resp.json()["error"]["message"].lower()
@@ -230,9 +224,7 @@ class TestGetEquityCurve:
             dash.instrument_exists.return_value = True
             dash.get_multi_ticker_prices.return_value = prices
 
-            resp = client.get(
-                f"{BASE_URL}/test/equity-curve?benchmark=SPY"
-            )
+            resp = client.get(f"{BASE_URL}/test/equity-curve?benchmark=SPY")
 
         assert resp.status_code == 422
         msg = resp.json()["error"]["message"].lower()
@@ -254,8 +246,6 @@ class TestGetEquityCurve:
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
 
-            resp = client.get(
-                f"{BASE_URL}/test/equity-curve?benchmark=QQQ"
-            )
+            resp = client.get(f"{BASE_URL}/test/equity-curve?benchmark=QQQ")
 
         assert resp.status_code == 200

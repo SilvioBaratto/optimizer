@@ -26,8 +26,8 @@ from typing import Any
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.portfolio import Portfolio
-from app.models.rebalancing import RebalancingPolicy
+from app.models.portfolio.portfolio import Portfolio
+from app.models.rebalancing.rebalancing import RebalancingPolicy
 
 BASE = "/api/v1/portfolio"
 
@@ -252,9 +252,7 @@ class TestActivatePolicy:
         portfolio = _make_portfolio(db_session)
         policy = _make_policy(db_session, portfolio.id, name="target", is_active=False)
 
-        resp = client.post(
-            f"{BASE}/{portfolio.name}/activate-policy/{policy.id}"
-        )
+        resp = client.post(f"{BASE}/{portfolio.name}/activate-policy/{policy.id}")
 
         assert resp.status_code == 204
 
@@ -265,9 +263,7 @@ class TestActivatePolicy:
         first = _make_policy(db_session, portfolio.id, name="first", is_active=True)
         second = _make_policy(db_session, portfolio.id, name="second", is_active=False)
 
-        resp = client.post(
-            f"{BASE}/{portfolio.name}/activate-policy/{second.id}"
-        )
+        resp = client.post(f"{BASE}/{portfolio.name}/activate-policy/{second.id}")
 
         assert resp.status_code == 204
         db_session.expire_all()
@@ -275,9 +271,7 @@ class TestActivatePolicy:
         assert db_session.get(RebalancingPolicy, second.id).is_active is True
 
     def test_returns_404_for_unknown_portfolio(self, client: TestClient) -> None:
-        resp = client.post(
-            f"{BASE}/ghost-portfolio/activate-policy/{uuid.uuid4()}"
-        )
+        resp = client.post(f"{BASE}/ghost-portfolio/activate-policy/{uuid.uuid4()}")
 
         assert resp.status_code == 404
 
@@ -286,9 +280,7 @@ class TestActivatePolicy:
     ) -> None:
         portfolio = _make_portfolio(db_session)
 
-        resp = client.post(
-            f"{BASE}/{portfolio.name}/activate-policy/{uuid.uuid4()}"
-        )
+        resp = client.post(f"{BASE}/{portfolio.name}/activate-policy/{uuid.uuid4()}")
 
         assert resp.status_code == 404
 
@@ -300,8 +292,6 @@ class TestActivatePolicy:
         policy_b = _make_policy(db_session, portfolio_b.id, name="policy-b")
 
         # Try to activate portfolio_b's policy via portfolio_a's route
-        resp = client.post(
-            f"{BASE}/{portfolio_a.name}/activate-policy/{policy_b.id}"
-        )
+        resp = client.post(f"{BASE}/{portfolio_a.name}/activate-policy/{policy_b.id}")
 
         assert resp.status_code == 404

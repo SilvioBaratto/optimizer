@@ -16,8 +16,8 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock
 
-from app.schemas.universe_screen import UniverseScreenRequest
-from app.services.universe_screening_service import (
+from app.schemas.universe.universe_screen import UniverseScreenRequest
+from app.services.universe.universe_screening_service import (
     _assemble_price_volume,
     run_universe_screen,
 )

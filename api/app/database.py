@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
 from app.config import settings
-from app.models.base import Base
+from app.models._shared import Base
 
 # Configure module logger
 logger = logging.getLogger(__name__)

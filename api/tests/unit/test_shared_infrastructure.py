@@ -31,7 +31,9 @@ class TestCircuitBreaker:
         assert cb.is_active
 
     def test_check_raises_after_max_attempts(self):
-        cb = CircuitBreaker(service_name="TestService", max_attempts=1, base_wait_minutes=0.0001)
+        cb = CircuitBreaker(
+            service_name="TestService", max_attempts=1, base_wait_minutes=0.0001
+        )
         cb.trigger()
         # Wait for the short backoff to expire so check() evaluates attempt count
         time.sleep(0.05)

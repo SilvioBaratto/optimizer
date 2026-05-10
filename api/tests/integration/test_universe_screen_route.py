@@ -20,8 +20,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.universe import Exchange, Instrument
-from app.models.yfinance_data import PriceHistory, TickerProfile
+from app.models.market_data.yfinance_data import PriceHistory, TickerProfile
+from app.models.universe.universe import Exchange, Instrument
 
 BASE = "/api/v1/universe/screen"
 
@@ -48,28 +48,40 @@ def seeded_universe_with_duplicates(
 
     db_session.add_all(
         [
-            TickerProfile(instrument_id=inst_a.id, market_cap=2_000_000_000, current_price=50.0),
-            TickerProfile(instrument_id=inst_b.id, market_cap=2_100_000_000, current_price=50.5),
-            TickerProfile(instrument_id=other.id, market_cap=5_000_000_000, current_price=120.0),
+            TickerProfile(
+                instrument_id=inst_a.id, market_cap=2_000_000_000, current_price=50.0
+            ),
+            TickerProfile(
+                instrument_id=inst_b.id, market_cap=2_100_000_000, current_price=50.5
+            ),
+            TickerProfile(
+                instrument_id=other.id, market_cap=5_000_000_000, current_price=120.0
+            ),
         ]
     )
 
     dates = [date(2024, 1, 2) + timedelta(days=i) for i in range(5)]
     db_session.add_all(
         [
-            PriceHistory(instrument_id=inst_a.id, date=d, close=50.0 + i, volume=1_000_000)
+            PriceHistory(
+                instrument_id=inst_a.id, date=d, close=50.0 + i, volume=1_000_000
+            )
             for i, d in enumerate(dates)
         ]
     )
     db_session.add_all(
         [
-            PriceHistory(instrument_id=inst_b.id, date=d, close=50.5 + i, volume=1_100_000)
+            PriceHistory(
+                instrument_id=inst_b.id, date=d, close=50.5 + i, volume=1_100_000
+            )
             for i, d in enumerate(dates)
         ]
     )
     db_session.add_all(
         [
-            PriceHistory(instrument_id=other.id, date=d, close=120.0 + i, volume=2_000_000)
+            PriceHistory(
+                instrument_id=other.id, date=d, close=120.0 + i, volume=2_000_000
+            )
             for i, d in enumerate(dates)
         ]
     )

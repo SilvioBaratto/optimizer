@@ -43,9 +43,7 @@ def upgrade() -> None:
         ),
         sa.UniqueConstraint("country", name="uq_macro_calibration_country"),
     )
-    op.create_index(
-        "ix_macro_calibrations_country", "macro_calibrations", ["country"]
-    )
+    op.create_index("ix_macro_calibrations_country", "macro_calibrations", ["country"])
 
 
 def downgrade() -> None:

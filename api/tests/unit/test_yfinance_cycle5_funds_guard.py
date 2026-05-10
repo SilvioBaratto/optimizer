@@ -15,8 +15,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.services.infrastructure.cache import LRUCache
-from app.services.yfinance.protocols import FundsClientProtocol
-from app.services.yfinance.ticker.funds import FundsClient
+from app.services.market_data.yfinance.protocols import FundsClientProtocol
+from app.services.market_data.yfinance.ticker.funds import FundsClient
 
 
 class _StubFastInfo:

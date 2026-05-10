@@ -37,7 +37,7 @@ Stubs in play
 * ``database_manager.get_session`` — replaced with a no-op context
   manager so the wrapper's own session block does not blow up
   before reaching the patched inner call.
-* ``app.api.v1.optimize._fail_run`` and ``app.api.v1.backtest._fail_run``
+* ``app.api.v1.optimization.optimize._fail_run`` and ``app.api.v1.backtest.backtest._fail_run``
   — no-op (those helpers open a fresh session of their own *after* the
   webhook has already fired; testing them is out of scope for #443).
 """
@@ -54,16 +54,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.api.v1 import backtest as backtest_module
-from app.api.v1 import optimize as optimize_module
-from app.api.v1 import tune as tune_module
-from app.api.v1 import validate as validate_module
+import app.api.v1.backtest.backtest as backtest_module
+import app.api.v1.optimization.optimize as optimize_module
+import app.api.v1.optimization.tune as tune_module
+import app.api.v1.optimization.validate as validate_module
 from app.config import settings
-from app.schemas.backtest import BacktestRequest
-from app.schemas.optimization import OptimizeRequest
-from app.schemas.tuning import TuneRequest
-from app.schemas.validation import ValidateRequest
-from app.services.background_job import BackgroundJobService
+from app.schemas.backtest.backtest import BacktestRequest
+from app.schemas.optimization.optimization import OptimizeRequest
+from app.schemas.optimization.tuning import TuneRequest
+from app.schemas.optimization.validation import ValidateRequest
+from app.services.jobs.background_job import BackgroundJobService
 from tests.integration.test_notifications_webhook import (
     _HTTPX_POST_PATH,
     _TEST_WEBHOOK_URL,
@@ -81,13 +81,13 @@ _FORCED_ERROR_MESSAGE = "forced wrapper failure"
 class WrapperCase:
     """Self-contained description of one wrapper for parametrized tests."""
 
-    job_type: str                                       # "optimize", etc.
-    module: Any                                         # the route module
-    wrapper: Callable[..., None]                        # _run_*_bg
-    inner_attr: str                                     # name of the inner call
-    fail_run_attr: str | None                           # optional _fail_run name
-    service: BackgroundJobService                       # wrapper's job service
-    build_args: Callable[[str], tuple[Any, ...]]        # job_id → wrapper args
+    job_type: str  # "optimize", etc.
+    module: Any  # the route module
+    wrapper: Callable[..., None]  # _run_*_bg
+    inner_attr: str  # name of the inner call
+    fail_run_attr: str | None  # optional _fail_run name
+    service: BackgroundJobService  # wrapper's job service
+    build_args: Callable[[str], tuple[Any, ...]]  # job_id → wrapper args
 
 
 def _new_run_id() -> str:
@@ -209,7 +209,7 @@ def stub_all_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # 2) BackgroundJobRepository.update — make persistence a no-op.
     monkeypatch.setattr(
-        "app.repositories.background_job_repository.BackgroundJobRepository.update",
+        "app.repositories.jobs.background_job_repository.BackgroundJobRepository.update",
         lambda self, *args, **kwargs: None,
     )
 
@@ -217,9 +217,7 @@ def stub_all_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
     #    runs *before* the patched inner call.  The four route modules share
     #    the same `database_manager` singleton — patching its method here is
     #    enough to make every wrapper's session block a no-op.
-    monkeypatch.setattr(
-        optimize_module.database_manager, "get_session", _noop_session
-    )
+    monkeypatch.setattr(optimize_module.database_manager, "get_session", _noop_session)
 
     # 4) Optimize and backtest call _fail_run *after* the failed update_job;
     #    those helpers open another session of their own.  No-op them.

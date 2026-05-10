@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-_DASHBOARD_REPO = "app.api.v1.dashboard.DashboardRepository"
+_DASHBOARD_REPO = "app.api.v1.dashboard.dashboard.DashboardRepository"
 
 BASE_URL = "/api/v1/market"
 

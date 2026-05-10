@@ -18,8 +18,8 @@ from fastapi.testclient import TestClient
 
 BASE_PORTFOLIO = "/api/v1/portfolio"
 
-_PORTFOLIO_REPO = "app.api.v1.risk_analytics.PortfolioRepository"
-_SERVICE = "app.api.v1.risk_analytics.RiskAnalyticsService"
+_PORTFOLIO_REPO = "app.api.v1.risk.risk_analytics.PortfolioRepository"
+_SERVICE = "app.api.v1.risk.risk_analytics.RiskAnalyticsService"
 
 _MOCK_PORTFOLIO_NAME = "my-portfolio"
 _BASE = f"{BASE_PORTFOLIO}/{_MOCK_PORTFOLIO_NAME}/risk"
@@ -168,7 +168,9 @@ class TestVarEndpoint:
             patch(_SERVICE) as MockSvc,
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
-            MockSvc.return_value.compute_var.side_effect = ValueError("Insufficient data")
+            MockSvc.return_value.compute_var.side_effect = ValueError(
+                "Insufficient data"
+            )
             resp = client.get(f"{_BASE}/var")
 
         assert resp.status_code == 400
@@ -449,7 +451,9 @@ class TestConcentrationEndpoint:
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_concentration.return_value = _make_concentration_result()
+            MockSvc.return_value.compute_concentration.return_value = (
+                _make_concentration_result()
+            )
             resp = client.get(f"{_BASE}/concentration")
 
         assert resp.status_code == 200
@@ -461,7 +465,9 @@ class TestConcentrationEndpoint:
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_concentration.return_value = _make_concentration_result()
+            MockSvc.return_value.compute_concentration.return_value = (
+                _make_concentration_result()
+            )
             resp = client.get(f"{_BASE}/concentration")
 
         body = resp.json()
@@ -475,21 +481,27 @@ class TestConcentrationEndpoint:
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_concentration.return_value = _make_concentration_result()
+            MockSvc.return_value.compute_concentration.return_value = (
+                _make_concentration_result()
+            )
             resp = client.get(f"{_BASE}/concentration")
 
         body = resp.json()
         assert "summary" in body
         assert "hhi" in body["summary"]
 
-    def test_response_summary_contains_effective_n_and_top_n_ratio(self, client: TestClient) -> None:
+    def test_response_summary_contains_effective_n_and_top_n_ratio(
+        self, client: TestClient
+    ) -> None:
         with (
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_concentration.return_value = _make_concentration_result()
+            MockSvc.return_value.compute_concentration.return_value = (
+                _make_concentration_result()
+            )
             resp = client.get(f"{_BASE}/concentration")
 
         body = resp.json()
@@ -503,7 +515,9 @@ class TestConcentrationEndpoint:
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_concentration.return_value = _make_concentration_result()
+            MockSvc.return_value.compute_concentration.return_value = (
+                _make_concentration_result()
+            )
             resp = client.get(f"{_BASE}/concentration")
 
         assert resp.status_code == 200
@@ -523,7 +537,9 @@ class TestConcentrationEndpoint:
 
         assert resp.status_code == 404
 
-    def test_empty_portfolio_returns_200_with_empty_assets(self, client: TestClient) -> None:
+    def test_empty_portfolio_returns_200_with_empty_assets(
+        self, client: TestClient
+    ) -> None:
         empty_result = {
             "assets": [],
             "summary": {"hhi": 0.0, "effective_n": 0.0, "top_n_ratio": 0.0},
@@ -533,7 +549,9 @@ class TestConcentrationEndpoint:
             patch(_SERVICE) as MockSvc,
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
-            MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot(weights={})
+            MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot(
+                weights={}
+            )
             MockSvc.return_value.compute_concentration.return_value = empty_result
             resp = client.get(f"{_BASE}/concentration")
 
@@ -547,7 +565,9 @@ class TestConcentrationEndpoint:
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_concentration.return_value = _make_concentration_result()
+            MockSvc.return_value.compute_concentration.return_value = (
+                _make_concentration_result()
+            )
             resp = client.get(f"{_BASE}/concentration")
 
         for asset in resp.json()["assets"]:
@@ -595,7 +615,9 @@ class TestLiquidityEndpoint:
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_liquidity.return_value = _make_liquidity_result()
+            MockSvc.return_value.compute_liquidity.return_value = (
+                _make_liquidity_result()
+            )
             resp = client.get(f"{_BASE}/liquidity")
 
         assert resp.status_code == 200
@@ -607,7 +629,9 @@ class TestLiquidityEndpoint:
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_liquidity.return_value = _make_liquidity_result()
+            MockSvc.return_value.compute_liquidity.return_value = (
+                _make_liquidity_result()
+            )
             resp = client.get(f"{_BASE}/liquidity")
 
         assert isinstance(resp.json()["assets"], list)
@@ -619,7 +643,9 @@ class TestLiquidityEndpoint:
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_liquidity.return_value = _make_liquidity_result()
+            MockSvc.return_value.compute_liquidity.return_value = (
+                _make_liquidity_result()
+            )
             resp = client.get(f"{_BASE}/liquidity")
 
         assert "summary" in resp.json()
@@ -632,11 +658,20 @@ class TestLiquidityEndpoint:
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_liquidity.return_value = _make_liquidity_result()
+            MockSvc.return_value.compute_liquidity.return_value = (
+                _make_liquidity_result()
+            )
             resp = client.get(f"{_BASE}/liquidity")
 
         asset = resp.json()["assets"][0]
-        for field in ("ticker", "name", "weight", "avgDailyVolume", "daysToLiquidate", "liquidityCost"):
+        for field in (
+            "ticker",
+            "name",
+            "weight",
+            "avgDailyVolume",
+            "daysToLiquidate",
+            "liquidityCost",
+        ):
             assert field in asset, f"Missing field: {field}"
 
     def test_missing_asset_data_returns_null_fields(self, client: TestClient) -> None:
@@ -646,7 +681,9 @@ class TestLiquidityEndpoint:
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_liquidity.return_value = _make_liquidity_result()
+            MockSvc.return_value.compute_liquidity.return_value = (
+                _make_liquidity_result()
+            )
             resp = client.get(f"{_BASE}/liquidity")
 
         msft = next(a for a in resp.json()["assets"] if a["ticker"] == "MSFT")
@@ -673,7 +710,9 @@ class TestLiquidityEndpoint:
         ):
             MockRepo.return_value.get_by_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
-            MockSvc.return_value.compute_liquidity.return_value = _make_liquidity_result()
+            MockSvc.return_value.compute_liquidity.return_value = (
+                _make_liquidity_result()
+            )
             resp = client.get(f"{_BASE}/liquidity?participation_rate=1.0")
 
         assert resp.status_code == 200

@@ -21,8 +21,8 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models.base import Base
-from app.models.execution import BacktestRun, OptimizationRun
+from app.models._shared import Base
+from app.models.execution.execution import BacktestRun, OptimizationRun
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -91,9 +91,9 @@ class TestOptimizationRunInsertion:
         session.add(run)
         session.flush()
 
-        result = session.query(OptimizationRun).filter_by(
-            optimizer_type="mean_risk"
-        ).first()
+        result = (
+            session.query(OptimizationRun).filter_by(optimizer_type="mean_risk").first()
+        )
         assert result is not None
         assert result.optimizer_type == "mean_risk"
         assert result.weights == {"AAPL": 0.6, "MSFT": 0.4}
@@ -200,7 +200,9 @@ class TestOptimizationRunInsertion:
         session.flush()
 
         result = session.query(OptimizationRun).filter_by(id=run.id).one()
-        assert result.error_message == "Solver failed to converge after 1000 iterations."
+        assert (
+            result.error_message == "Solver failed to converge after 1000 iterations."
+        )
 
     def test_optional_jsonb_columns_are_nullable(self, session: Session) -> None:
         run = OptimizationRun(

@@ -19,8 +19,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models.base import Base
-from app.models.factor import FactorScore, FactorValidationReport
+from app.models._shared import Base
+from app.models.factors.factor import FactorScore, FactorValidationReport
 
 
 @pytest.fixture(scope="module")
@@ -143,9 +143,7 @@ class TestFactorScoreUniqueConstraint:
         with pytest.raises(IntegrityError):
             session.flush()
 
-    def test_allows_same_ticker_different_factor_type(
-        self, session: Session
-    ) -> None:
+    def test_allows_same_ticker_different_factor_type(self, session: Session) -> None:
         score_a = FactorScore(
             ticker="NVDA",
             score_date=datetime.date(2024, 2, 1),
@@ -166,9 +164,7 @@ class TestFactorScoreUniqueConstraint:
         count = session.query(FactorScore).filter_by(ticker="NVDA").count()
         assert count == 2
 
-    def test_allows_same_factor_type_different_date(
-        self, session: Session
-    ) -> None:
+    def test_allows_same_factor_type_different_date(self, session: Session) -> None:
         score_a = FactorScore(
             ticker="META",
             score_date=datetime.date(2024, 1, 1),
@@ -201,9 +197,11 @@ class TestFactorValidationReportInsertion:
         session.add(report)
         session.flush()
 
-        result = session.query(FactorValidationReport).filter_by(
-            validation_type="in_sample"
-        ).first()
+        result = (
+            session.query(FactorValidationReport)
+            .filter_by(validation_type="in_sample")
+            .first()
+        )
         assert result is not None
         assert result.report_date == datetime.date(2024, 3, 1)
 
@@ -221,9 +219,11 @@ class TestFactorValidationReportInsertion:
         session.add(report)
         session.flush()
 
-        result = session.query(FactorValidationReport).filter_by(
-            report_date=datetime.date(2024, 3, 2)
-        ).first()
+        result = (
+            session.query(FactorValidationReport)
+            .filter_by(report_date=datetime.date(2024, 3, 2))
+            .first()
+        )
         assert result is not None
         assert result.factor_type is None
         assert result.icir == pytest.approx(2.5)
@@ -244,9 +244,11 @@ class TestFactorValidationReportInsertion:
         session.add(report)
         session.flush()
 
-        result = session.query(FactorValidationReport).filter_by(
-            factor_type="momentum", report_date=datetime.date(2024, 3, 3)
-        ).first()
+        result = (
+            session.query(FactorValidationReport)
+            .filter_by(factor_type="momentum", report_date=datetime.date(2024, 3, 3))
+            .first()
+        )
         assert result is not None
         assert result.details == {"factors": ["momentum"], "observations": 252}
         assert result.p_value == pytest.approx(0.0005)
@@ -260,9 +262,11 @@ class TestFactorValidationReportInsertion:
         session.add(report)
         session.flush()
 
-        result = session.query(FactorValidationReport).filter_by(
-            factor_type="quality", report_date=datetime.date(2024, 3, 4)
-        ).first()
+        result = (
+            session.query(FactorValidationReport)
+            .filter_by(factor_type="quality", report_date=datetime.date(2024, 3, 4))
+            .first()
+        )
         assert result is not None
         assert result.ic_mean is None
         assert result.ic_std is None
@@ -314,9 +318,11 @@ class TestFactorValidationReportUniqueConstraint:
         session.add_all([report_a, report_b])
         session.flush()  # must not raise
 
-        count = session.query(FactorValidationReport).filter_by(
-            factor_type="growth", report_date=datetime.date(2024, 4, 2)
-        ).count()
+        count = (
+            session.query(FactorValidationReport)
+            .filter_by(factor_type="growth", report_date=datetime.date(2024, 4, 2))
+            .count()
+        )
         assert count == 2
 
     def test_allows_same_factor_and_validation_different_date(
@@ -335,7 +341,9 @@ class TestFactorValidationReportUniqueConstraint:
         session.add_all([report_a, report_b])
         session.flush()  # must not raise
 
-        count = session.query(FactorValidationReport).filter_by(
-            factor_type="quality"
-        ).count()
+        count = (
+            session.query(FactorValidationReport)
+            .filter_by(factor_type="quality")
+            .count()
+        )
         assert count == 2

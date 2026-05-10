@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.models.api_key import ApiKey
+from app.models.auth.api_key import ApiKey
 
 
 class ApiKeyAuthMiddleware(BaseHTTPMiddleware):

@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from bs4 import BeautifulSoup
 
-from app.services.scrapers.exceptions import ParseStructureError
-from app.services.scrapers.tradingeconomics_scraper import (
+from app.services.macro.scrapers.exceptions import ParseStructureError
+from app.services.macro.scrapers.tradingeconomics_scraper import (
     _MIN_BOND_YIELDS,
     _MIN_CAPACITY_UTILIZATION_ROWS,
     _MIN_INDICATORS,
@@ -27,7 +27,7 @@ from app.services.scrapers.tradingeconomics_scraper import (
 # Module path used for patching module-level names
 # ---------------------------------------------------------------------------
 
-_MOD = "app.services.scrapers.tradingeconomics_scraper"
+_MOD = "app.services.macro.scrapers.tradingeconomics_scraper"
 
 # ---------------------------------------------------------------------------
 # HTML fixture helpers
@@ -52,9 +52,7 @@ def _indicators_row(name: str, last: str, prev: str = "1.0") -> str:
 def _indicators_soup(*rows: str) -> BeautifulSoup:
     """Wrap rows in a table-hover table."""
     html = (
-        '<table class="table table-hover"><tbody>'
-        + "".join(rows)
-        + "</tbody></table>"
+        '<table class="table table-hover"><tbody>' + "".join(rows) + "</tbody></table>"
     )
     return BeautifulSoup(html, "html.parser")
 
@@ -76,11 +74,7 @@ def _bond_row(name: str, yield_val: str) -> str:
 
 def _bond_soup(*rows: str) -> BeautifulSoup:
     """Wrap rows in a table-heatmap table."""
-    html = (
-        '<table class="table-heatmap"><tbody>'
-        + "".join(rows)
-        + "</tbody></table>"
-    )
+    html = '<table class="table-heatmap"><tbody>' + "".join(rows) + "</tbody></table>"
     return BeautifulSoup(html, "html.parser")
 
 
@@ -98,11 +92,7 @@ def _country_row(country: str, last: str) -> str:
 
 
 def _country_list_soup(*rows: str) -> BeautifulSoup:
-    html = (
-        '<table class="table-heatmap"><tbody>'
-        + "".join(rows)
-        + "</tbody></table>"
-    )
+    html = '<table class="table-heatmap"><tbody>' + "".join(rows) + "</tbody></table>"
     return BeautifulSoup(html, "html.parser")
 
 

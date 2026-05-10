@@ -51,7 +51,9 @@ def upgrade() -> None:
         ),
     )
     op.create_index(
-        "ix_background_jobs_job_type", "background_jobs", ["job_type"],
+        "ix_background_jobs_job_type",
+        "background_jobs",
+        ["job_type"],
     )
     op.create_index(
         "ix_background_jobs_type_status",

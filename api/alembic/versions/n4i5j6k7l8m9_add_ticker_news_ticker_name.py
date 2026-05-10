@@ -18,7 +18,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("ticker_news", sa.Column("ticker_name", sa.String(500), nullable=True))
+    op.add_column(
+        "ticker_news", sa.Column("ticker_name", sa.String(500), nullable=True)
+    )
     # Backfill from instruments.name
     op.execute(
         """

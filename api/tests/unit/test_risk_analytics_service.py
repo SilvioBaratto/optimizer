@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.services.risk_analytics_service import RiskAnalyticsService
+from app.services.risk.risk_analytics_service import RiskAnalyticsService
 
 _PORTFOLIO_ID = "00000000-0000-0000-0000-000000000001"
 _WEIGHTS = {"AAPL": 0.6, "MSFT": 0.4}
@@ -221,7 +221,9 @@ class TestComputeVarHistorical:
 
     def _patch_prices(self):  # type: ignore[return]
         return patch.object(
-            self.service, "_fetch_weighted_returns", return_value=self._weighted_returns()
+            self.service,
+            "_fetch_weighted_returns",
+            return_value=self._weighted_returns(),
         )
 
     def _weighted_returns(self) -> pd.Series:
@@ -302,9 +304,12 @@ class TestComputeVarHistorical:
 
     def test_raises_value_error_when_insufficient_data(self) -> None:
         empty_series = pd.Series(dtype=float)
-        with patch.object(
-            self.service, "_fetch_weighted_returns", return_value=empty_series
-        ), pytest.raises(ValueError, match="[Ii]nsufficient"):
+        with (
+            patch.object(
+                self.service, "_fetch_weighted_returns", return_value=empty_series
+            ),
+            pytest.raises(ValueError, match="[Ii]nsufficient"),
+        ):
             self.service.compute_var(
                 portfolio_id=_PORTFOLIO_ID,
                 weights=_WEIGHTS,
@@ -420,7 +425,9 @@ class TestComputeCorrelation:
                 lookback=252,
             )
         mat = np.array(result["matrix"])
-        np.testing.assert_allclose(np.diag(mat), np.ones(len(result["assets"])), atol=1e-9)
+        np.testing.assert_allclose(
+            np.diag(mat), np.ones(len(result["assets"])), atol=1e-9
+        )
 
     def test_cluster_labels_length_matches_assets(self) -> None:
         with self._patch_prices():
@@ -442,9 +449,12 @@ class TestComputeCorrelation:
 
     def test_raises_value_error_for_single_asset(self) -> None:
         single_asset_prices = self.prices[["AAPL"]]
-        with patch.object(
-            self.service, "_fetch_prices", return_value=single_asset_prices
-        ), pytest.raises(ValueError, match="[Aa]t least 2"):
+        with (
+            patch.object(
+                self.service, "_fetch_prices", return_value=single_asset_prices
+            ),
+            pytest.raises(ValueError, match="[Aa]t least 2"),
+        ):
             self.service.compute_correlation(
                 portfolio_id=_PORTFOLIO_ID,
                 weights={"AAPL": 1.0},
@@ -466,7 +476,9 @@ class TestComputeFactorExposure:
 
     def test_returns_exposures_dict(self) -> None:
         scores = _make_factor_scores(["AAPL", "MSFT"], ["momentum", "quality"])
-        with patch.object(self.service, "_fetch_latest_factor_scores", return_value=scores):
+        with patch.object(
+            self.service, "_fetch_latest_factor_scores", return_value=scores
+        ):
             result = self.service.compute_factor_exposure(
                 portfolio_id=_PORTFOLIO_ID,
                 weights=_WEIGHTS,
@@ -475,7 +487,9 @@ class TestComputeFactorExposure:
 
     def test_returns_asset_exposures_dict(self) -> None:
         scores = _make_factor_scores(["AAPL", "MSFT"], ["momentum", "quality"])
-        with patch.object(self.service, "_fetch_latest_factor_scores", return_value=scores):
+        with patch.object(
+            self.service, "_fetch_latest_factor_scores", return_value=scores
+        ):
             result = self.service.compute_factor_exposure(
                 portfolio_id=_PORTFOLIO_ID,
                 weights=_WEIGHTS,
@@ -497,7 +511,9 @@ class TestComputeFactorExposure:
             s.score_date = datetime.date(2024, 1, 2)
             scores.append(s)
 
-        with patch.object(self.service, "_fetch_latest_factor_scores", return_value=scores):
+        with patch.object(
+            self.service, "_fetch_latest_factor_scores", return_value=scores
+        ):
             result = self.service.compute_factor_exposure(
                 portfolio_id=_PORTFOLIO_ID,
                 weights={"AAPL": aapl_weight, "MSFT": msft_weight},
@@ -519,7 +535,9 @@ class TestComputeFactorExposure:
 
     def test_asset_exposures_contain_all_weights_tickers(self) -> None:
         scores = _make_factor_scores(["AAPL", "MSFT"], ["momentum"])
-        with patch.object(self.service, "_fetch_latest_factor_scores", return_value=scores):
+        with patch.object(
+            self.service, "_fetch_latest_factor_scores", return_value=scores
+        ):
             result = self.service.compute_factor_exposure(
                 portfolio_id=_PORTFOLIO_ID,
                 weights=_WEIGHTS,
@@ -619,7 +637,9 @@ class TestComputeLiquidity:
 
     def test_returns_assets_list(self) -> None:
         with self._patch_addv(1_000_000), self._patch_names({"AAPL": "Apple Inc"}):
-            result = self.service.compute_liquidity({"AAPL": 0.5}, 20, self._PARTICIPATION)
+            result = self.service.compute_liquidity(
+                {"AAPL": 0.5}, 20, self._PARTICIPATION
+            )
         assert isinstance(result["assets"], list)
         assert len(result["assets"]) == 1
 
@@ -627,23 +647,33 @@ class TestComputeLiquidity:
         # weight=0.5, ADDV=1e6, participation_rate=0.1 → 0.5 / (1e6 × 0.1) = 5e-6
         expected = 0.5 / (1_000_000 * self._PARTICIPATION)
         with self._patch_addv(1_000_000), self._patch_names({"AAPL": "Apple Inc"}):
-            result = self.service.compute_liquidity({"AAPL": 0.5}, 20, self._PARTICIPATION)
+            result = self.service.compute_liquidity(
+                {"AAPL": 0.5}, 20, self._PARTICIPATION
+            )
         assert abs(result["assets"][0]["days_to_liquidate"] - expected) < 1e-12
 
     def test_liquidity_cost_is_days_times_market_impact_constant(self) -> None:
         with self._patch_addv(1_000_000), self._patch_names({"AAPL": "Apple Inc"}):
-            result = self.service.compute_liquidity({"AAPL": 0.5}, 20, self._PARTICIPATION)
+            result = self.service.compute_liquidity(
+                {"AAPL": 0.5}, 20, self._PARTICIPATION
+            )
         asset = result["assets"][0]
-        assert abs(asset["liquidity_cost"] - asset["days_to_liquidate"] * 0.0005) < 1e-12
+        assert (
+            abs(asset["liquidity_cost"] - asset["days_to_liquidate"] * 0.0005) < 1e-12
+        )
 
     def test_avg_daily_volume_matches_mocked_addv(self) -> None:
         with self._patch_addv(2_500_000), self._patch_names({"AAPL": "Apple Inc"}):
-            result = self.service.compute_liquidity({"AAPL": 0.5}, 20, self._PARTICIPATION)
+            result = self.service.compute_liquidity(
+                {"AAPL": 0.5}, 20, self._PARTICIPATION
+            )
         assert result["assets"][0]["avg_daily_volume"] == pytest.approx(2_500_000)
 
     def test_missing_price_history_yields_null_liquidity_fields(self) -> None:
         with self._patch_addv(None), self._patch_names({"AAPL": "Apple Inc"}):
-            result = self.service.compute_liquidity({"AAPL": 0.5}, 20, self._PARTICIPATION)
+            result = self.service.compute_liquidity(
+                {"AAPL": 0.5}, 20, self._PARTICIPATION
+            )
         asset = result["assets"][0]
         assert asset["avg_daily_volume"] is None
         assert asset["days_to_liquidate"] is None
@@ -659,7 +689,9 @@ class TestComputeLiquidity:
             patch.object(self.service, "_fetch_addv", side_effect=side_effect),
             self._patch_names({"AAPL": "Apple Inc", "MSFT": "Microsoft Corp"}),
         ):
-            result = self.service.compute_liquidity({"AAPL": 0.6, "MSFT": 0.4}, 20, self._PARTICIPATION)
+            result = self.service.compute_liquidity(
+                {"AAPL": 0.6, "MSFT": 0.4}, 20, self._PARTICIPATION
+            )
 
         tickers = {a["ticker"]: a for a in result["assets"]}
         assert tickers["AAPL"]["days_to_liquidate"] is not None
@@ -676,11 +708,20 @@ class TestComputeLiquidity:
             patch.object(self.service, "_fetch_addv", side_effect=side_effect),
             self._patch_names({"AAPL": "Apple Inc", "MSFT": "Microsoft Corp"}),
         ):
-            result = self.service.compute_liquidity({"AAPL": 0.6, "MSFT": 0.4}, 20, self._PARTICIPATION)
+            result = self.service.compute_liquidity(
+                {"AAPL": 0.6, "MSFT": 0.4}, 20, self._PARTICIPATION
+            )
 
-        assert abs(result["summary"]["weighted_avg_days_to_liquidate"] - expected_days_aapl) < 1e-12
+        assert (
+            abs(
+                result["summary"]["weighted_avg_days_to_liquidate"] - expected_days_aapl
+            )
+            < 1e-12
+        )
 
     def test_returns_summary_with_weighted_avg_days(self) -> None:
         with self._patch_addv(1_000_000), self._patch_names({"AAPL": "Apple Inc"}):
-            result = self.service.compute_liquidity({"AAPL": 0.5}, 20, self._PARTICIPATION)
+            result = self.service.compute_liquidity(
+                {"AAPL": 0.5}, 20, self._PARTICIPATION
+            )
         assert "weighted_avg_days_to_liquidate" in result["summary"]

@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services import macro_regime_service as svc_mod
-from app.services.macro_regime_service import MacroRegimeService
+from app.services.macro import macro_regime_service as svc_mod
+from app.services.macro.macro_regime_service import MacroRegimeService
 
 
 def _build_service() -> MacroRegimeService:
@@ -40,7 +40,8 @@ class TestFredKeyEnvironmentAwareMessage:
         )
 
     def test_when_key_empty_fetch_returns_environment_aware_error(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from app.config import settings as app_settings
 
@@ -68,6 +69,4 @@ class TestFredKeyEnvironmentAwareMessage:
             scraper = svc.fred_scraper
         assert scraper is not None
         fake_scraper_cls.assert_called_once_with(api_key="real-key")
-        assert not any(
-            "docker exec" in rec.message for rec in caplog.records
-        )
+        assert not any("docker exec" in rec.message for rec in caplog.records)

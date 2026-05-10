@@ -11,9 +11,9 @@ import uuid
 import pytest
 from sqlalchemy.orm import Session
 
-from app.models.portfolio import Portfolio
-from app.models.rebalancing import RebalancingPolicy
-from app.repositories.rebalancing_repository import RebalancingRepository
+from app.models.portfolio.portfolio import Portfolio
+from app.models.rebalancing.rebalancing import RebalancingPolicy
+from app.repositories.rebalancing.rebalancing_repository import RebalancingRepository
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -90,7 +90,9 @@ class TestGetActivePolicy:
         portfolio = _create_portfolio(db_session)
         repo = RebalancingRepository(db_session)
         repo.create_policy(_policy_data(portfolio.id, name="inactive", is_active=False))
-        active = repo.create_policy(_policy_data(portfolio.id, name="active", is_active=True))
+        active = repo.create_policy(
+            _policy_data(portfolio.id, name="active", is_active=True)
+        )
 
         result = repo.get_active_policy(portfolio.id)
 
@@ -108,7 +110,9 @@ class TestCreatePolicy:
     def test_creates_and_returns_policy(self, db_session: Session) -> None:
         portfolio = _create_portfolio(db_session)
         repo = RebalancingRepository(db_session)
-        data = _policy_data(portfolio.id, name="threshold-5pct", policy_type="threshold")
+        data = _policy_data(
+            portfolio.id, name="threshold-5pct", policy_type="threshold"
+        )
 
         policy = repo.create_policy(data)
 
@@ -127,8 +131,12 @@ class TestActivatePolicy:
     def test_activates_target_and_deactivates_others(self, db_session: Session) -> None:
         portfolio = _create_portfolio(db_session)
         repo = RebalancingRepository(db_session)
-        first = repo.create_policy(_policy_data(portfolio.id, name="first", is_active=True))
-        second = repo.create_policy(_policy_data(portfolio.id, name="second", is_active=False))
+        first = repo.create_policy(
+            _policy_data(portfolio.id, name="first", is_active=True)
+        )
+        second = repo.create_policy(
+            _policy_data(portfolio.id, name="second", is_active=False)
+        )
 
         repo.activate_policy(second.id, portfolio.id)
 
@@ -140,7 +148,9 @@ class TestActivatePolicy:
         assert updated_first.is_active is False
         assert updated_second.is_active is True
 
-    def test_raises_value_error_when_policy_not_found(self, db_session: Session) -> None:
+    def test_raises_value_error_when_policy_not_found(
+        self, db_session: Session
+    ) -> None:
         portfolio = _create_portfolio(db_session)
         repo = RebalancingRepository(db_session)
 

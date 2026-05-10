@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.services.dashboard_service import (
+from app.services.dashboard.dashboard_service import (
     _sector_return_for_period,
     compute_asset_class_returns,
 )
@@ -40,16 +40,12 @@ def _make_prices(
 class TestSectorReturnForPeriod:
     def test_normal_case(self):
         prices = _make_prices(["AAPL", "MSFT"], n_days=10)
-        result = _sector_return_for_period(
-            ["AAPL", "MSFT"], [0.6, 0.4], prices, -2
-        )
+        result = _sector_return_for_period(["AAPL", "MSFT"], [0.6, 0.4], prices, -2)
         assert isinstance(result, float)
 
     def test_missing_ticker_skipped(self):
         prices = _make_prices(["AAPL"], n_days=10)
-        result = _sector_return_for_period(
-            ["AAPL", "MISSING"], [0.5, 0.5], prices, -2
-        )
+        result = _sector_return_for_period(["AAPL", "MISSING"], [0.5, 0.5], prices, -2)
         # Only AAPL contributes; should not raise
         assert isinstance(result, float)
 
@@ -62,9 +58,7 @@ class TestSectorReturnForPeriod:
 
     def test_zero_weights_returns_zero(self):
         prices = _make_prices(["AAPL", "MSFT"], n_days=10)
-        result = _sector_return_for_period(
-            ["AAPL", "MSFT"], [0.0, 0.0], prices, -2
-        )
+        result = _sector_return_for_period(["AAPL", "MSFT"], [0.0, 0.0], prices, -2)
         assert result == 0.0
 
 

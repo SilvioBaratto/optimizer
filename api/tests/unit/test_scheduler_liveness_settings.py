@@ -19,14 +19,16 @@ class TestLivenessSettings:
         assert s.scheduler_orphan_heartbeat_timeout_seconds == 300
 
     def test_when_env_overrides_cadence_then_value_is_applied(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("SCHEDULER_HEARTBEAT_CADENCE_SECONDS", "10")
         s = Settings()
         assert s.scheduler_heartbeat_cadence_seconds == 10
 
     def test_when_env_overrides_timeout_then_value_is_applied(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS", "120")
         s = Settings()
@@ -58,21 +60,26 @@ class TestLifespanForwardsTimeout:
         # Reset the per-process sentinel so reconcile actually fires.
         main_module._reconciled_this_process = False
 
-        with patch.object(main_module, "init_db"), \
-             patch.object(main_module.database_manager, "health_check", return_value=True), \
-             patch.object(
-                 main_module.database_manager, "get_session",
-                 side_effect=fake_get_session,
-             ), \
-             patch.object(main_module, "create_scheduler", return_value=scheduler_mock), \
-             patch(
-                 "app.services._benchmark_bootstrap.bootstrap_benchmarks",
-                 return_value=None,
-             ), \
-             patch(
-                 "app.repositories.background_job_repository.BackgroundJobRepository",
-                 return_value=repo_instance,
-             ):
+        with (
+            patch.object(main_module, "init_db"),
+            patch.object(
+                main_module.database_manager, "health_check", return_value=True
+            ),
+            patch.object(
+                main_module.database_manager,
+                "get_session",
+                side_effect=fake_get_session,
+            ),
+            patch.object(main_module, "create_scheduler", return_value=scheduler_mock),
+            patch(
+                "app.services._shared._benchmark_bootstrap.bootstrap_benchmarks",
+                return_value=None,
+            ),
+            patch(
+                "app.repositories.jobs.background_job_repository.BackgroundJobRepository",
+                return_value=repo_instance,
+            ),
+        ):
             app = FastAPI()
             async with main_module.lifespan(app):
                 pass
@@ -86,7 +93,7 @@ class TestRouteServicesAdoptCadence:
     """Module-level BackgroundJobService instances pick up the cadence setting."""
 
     def test_yfinance_service_cadence_matches_settings(self) -> None:
-        from app.api.v1.yfinance_data import _job_service
+        from app.api.v1.market_data.yfinance_data import _job_service
         from app.config import settings
 
         assert (
@@ -95,7 +102,7 @@ class TestRouteServicesAdoptCadence:
         )
 
     def test_macro_regime_service_cadence_matches_settings(self) -> None:
-        from app.api.v1.macro_regime import _job_service
+        from app.api.v1.macro.macro_regime import _job_service
         from app.config import settings
 
         assert (
@@ -105,7 +112,7 @@ class TestRouteServicesAdoptCadence:
 
     def test_scheduler_yfinance_jobs_cadence_matches_settings(self) -> None:
         from app.config import settings
-        from app.services.scheduler import _yfinance_jobs
+        from app.services.jobs.scheduler import _yfinance_jobs
 
         assert (
             _yfinance_jobs._heartbeat_cadence

@@ -20,9 +20,9 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy.orm import Session
 
-from app.repositories.background_job_repository import BackgroundJobRepository
-from app.services._progress import make_cancellable_progress
-from app.services.background_job import BackgroundJobService
+from app.repositories.jobs.background_job_repository import BackgroundJobRepository
+from app.services._shared import make_cancellable_progress
+from app.services.jobs.background_job import BackgroundJobService
 
 
 @pytest.fixture()
@@ -52,7 +52,9 @@ def _service_factory_yielding(session: Session):
 
 class TestCooperativeCancellation:
     def test_when_reaper_flips_row_then_progress_callback_raises_cancelled(
-        self, db_session: Session, stale_running_job: uuid.UUID,
+        self,
+        db_session: Session,
+        stale_running_job: uuid.UUID,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         reaped = repo.reconcile_orphans("orphan")
@@ -68,14 +70,18 @@ class TestCooperativeCancellation:
         cancel_event.set()  # simulate heartbeat-thread signalling reap
 
         on_progress = make_cancellable_progress(
-            str(stale_running_job), svc, cancel_event,
+            str(stale_running_job),
+            svc,
+            cancel_event,
         )
 
         with pytest.raises(CancelledError):
             on_progress(current=1, total=10)
 
     def test_when_wrapper_observes_cancel_then_no_terminal_status_write(
-        self, db_session: Session, stale_running_job: uuid.UUID,
+        self,
+        db_session: Session,
+        stale_running_job: uuid.UUID,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         repo.reconcile_orphans("orphan")  # row -> failed
@@ -84,7 +90,9 @@ class TestCooperativeCancellation:
         cancel_event = threading.Event()
         cancel_event.set()
         on_progress = make_cancellable_progress(
-            str(stale_running_job), svc, cancel_event,
+            str(stale_running_job),
+            svc,
+            cancel_event,
         )
 
         # Simulated wrapper body — fake "service function" that calls on_progress
@@ -117,18 +125,24 @@ class TestCooperativeCancellation:
         svc.update_job.assert_not_called()
 
     def test_when_event_clear_then_progress_forwards_to_update_job(
-        self, db_session: Session, stale_running_job: uuid.UUID,
+        self,
+        db_session: Session,
+        stale_running_job: uuid.UUID,
     ) -> None:
         svc = MagicMock()
         cancel_event = threading.Event()  # not set
         on_progress = make_cancellable_progress(
-            str(stale_running_job), svc, cancel_event,
+            str(stale_running_job),
+            svc,
+            cancel_event,
         )
 
         on_progress(current=3, total=10)
 
         svc.update_job.assert_called_once_with(
-            str(stale_running_job), current=3, total=10,
+            str(stale_running_job),
+            current=3,
+            total=10,
         )
 
 
@@ -146,7 +160,9 @@ class TestStartBackgroundAcceptsExternalCancelEvent:
         external = threading.Event()
         done = threading.Event()
 
-        def _target(_job_id: str, *, cancel_event: threading.Event | None = None) -> None:
+        def _target(
+            _job_id: str, *, cancel_event: threading.Event | None = None
+        ) -> None:
             done.set()
 
         thread, returned = svc.start_background(

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app.models.macro_regime import MacroNewsSummary
+from app.models.macro.macro_regime import MacroNewsSummary
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -50,11 +50,14 @@ def _make_summary_row(
 class TestStartNewsSummarize:
     def test_returns_202_with_job_id(self, client: TestClient) -> None:
         job_id = str(uuid.uuid4())
-        with patch(
-            "app.api.v1.macro_regime._summarize_job_service.create_job",
-            return_value=job_id,
-        ), patch(
-            "app.api.v1.macro_regime._summarize_job_service.start_background",
+        with (
+            patch(
+                "app.api.v1.macro.macro_regime._summarize_job_service.create_job",
+                return_value=job_id,
+            ),
+            patch(
+                "app.api.v1.macro.macro_regime._summarize_job_service.start_background",
+            ),
         ):
             resp = client.post(_SUMMARIZE_POST)
 
@@ -64,10 +67,10 @@ class TestStartNewsSummarize:
         assert data["status"] == "pending"
 
     def test_returns_409_when_already_running(self, client: TestClient) -> None:
-        from app.services.background_job import JobAlreadyRunningError
+        from app.services.jobs.background_job import JobAlreadyRunningError
 
         with patch(
-            "app.api.v1.macro_regime._summarize_job_service.create_job",
+            "app.api.v1.macro.macro_regime._summarize_job_service.create_job",
             side_effect=JobAlreadyRunningError("existing-id"),
         ):
             resp = client.post(_SUMMARIZE_POST)
@@ -79,11 +82,14 @@ class TestStartNewsSummarize:
 
     def test_accepts_force_refresh_param(self, client: TestClient) -> None:
         job_id = str(uuid.uuid4())
-        with patch(
-            "app.api.v1.macro_regime._summarize_job_service.create_job",
-            return_value=job_id,
-        ), patch(
-            "app.api.v1.macro_regime._summarize_job_service.start_background",
+        with (
+            patch(
+                "app.api.v1.macro.macro_regime._summarize_job_service.create_job",
+                return_value=job_id,
+            ),
+            patch(
+                "app.api.v1.macro.macro_regime._summarize_job_service.start_background",
+            ),
         ):
             resp = client.post(_SUMMARIZE_POST, json={"force_refresh": True})
 
@@ -103,17 +109,20 @@ class TestGetNewsSummarizeStatus:
     def test_returns_progress_for_known_job(self, client: TestClient) -> None:
         job_id = str(uuid.uuid4())
         # Create a job and then poll it
-        with patch(
-            "app.api.v1.macro_regime._summarize_job_service.create_job",
-            return_value=job_id,
-        ), patch(
-            "app.api.v1.macro_regime._summarize_job_service.start_background",
+        with (
+            patch(
+                "app.api.v1.macro.macro_regime._summarize_job_service.create_job",
+                return_value=job_id,
+            ),
+            patch(
+                "app.api.v1.macro.macro_regime._summarize_job_service.start_background",
+            ),
         ):
             post_resp = client.post(_SUMMARIZE_POST)
         assert post_resp.status_code == 202
 
         with patch(
-            "app.api.v1.macro_regime._summarize_job_service.get_job",
+            "app.api.v1.macro.macro_regime._summarize_job_service.get_job",
             return_value={
                 "job_id": job_id,
                 "status": "running",
@@ -144,9 +153,7 @@ class TestGetAllNewsSummaries:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    def test_returns_persisted_summaries(
-        self, client: TestClient, db_session
-    ) -> None:
+    def test_returns_persisted_summaries(self, client: TestClient, db_session) -> None:
         row = _make_summary_row(country="USA")
         db_session.add(row)
         db_session.flush()
@@ -160,9 +167,7 @@ class TestGetAllNewsSummaries:
         # news_summary (raw input) should NOT be in response
         assert "news_summary" not in data[0]
 
-    def test_filters_by_summary_date(
-        self, client: TestClient, db_session
-    ) -> None:
+    def test_filters_by_summary_date(self, client: TestClient, db_session) -> None:
         row1 = _make_summary_row(country="Japan", summary_date=date(2026, 2, 10))
         row2 = _make_summary_row(country="Canada", summary_date=date(2026, 2, 11))
         db_session.add_all([row1, row2])
@@ -202,9 +207,7 @@ class TestGetCountryNewsSummary:
         assert "id" in data
         assert "created_at" in data
 
-    def test_filters_by_summary_date(
-        self, client: TestClient, db_session
-    ) -> None:
+    def test_filters_by_summary_date(self, client: TestClient, db_session) -> None:
         row = _make_summary_row(country="France", summary_date=date(2026, 3, 15))
         db_session.add(row)
         db_session.flush()

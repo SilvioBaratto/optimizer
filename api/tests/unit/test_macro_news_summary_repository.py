@@ -4,7 +4,7 @@ import datetime
 
 from sqlalchemy.orm import Session
 
-from app.repositories.macro_regime_repository import MacroRegimeRepository
+from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 
 
 def _make_data(
@@ -26,7 +26,9 @@ def _make_data(
 class TestUpsertMacroNewsSummary:
     def test_inserts_new_row(self, db_session: Session) -> None:
         repo = MacroRegimeRepository(db_session)
-        count = repo.upsert_macro_news_summary("USA", datetime.date(2026, 3, 15), _make_data())
+        count = repo.upsert_macro_news_summary(
+            "USA", datetime.date(2026, 3, 15), _make_data()
+        )
         db_session.flush()
 
         assert count == 1
@@ -73,8 +75,12 @@ class TestGetMacroNewsSummary:
 
     def test_returns_row_for_exact_date(self, db_session: Session) -> None:
         repo = MacroRegimeRepository(db_session)
-        repo.upsert_macro_news_summary("USA", datetime.date(2026, 3, 14), _make_data(summary="Day 14"))
-        repo.upsert_macro_news_summary("USA", datetime.date(2026, 3, 15), _make_data(summary="Day 15"))
+        repo.upsert_macro_news_summary(
+            "USA", datetime.date(2026, 3, 14), _make_data(summary="Day 14")
+        )
+        repo.upsert_macro_news_summary(
+            "USA", datetime.date(2026, 3, 15), _make_data(summary="Day 15")
+        )
         db_session.flush()
 
         row = repo.get_macro_news_summary("USA", datetime.date(2026, 3, 14))
@@ -83,8 +89,12 @@ class TestGetMacroNewsSummary:
 
     def test_returns_latest_when_no_date(self, db_session: Session) -> None:
         repo = MacroRegimeRepository(db_session)
-        repo.upsert_macro_news_summary("USA", datetime.date(2026, 3, 14), _make_data(summary="Day 14"))
-        repo.upsert_macro_news_summary("USA", datetime.date(2026, 3, 15), _make_data(summary="Day 15"))
+        repo.upsert_macro_news_summary(
+            "USA", datetime.date(2026, 3, 14), _make_data(summary="Day 14")
+        )
+        repo.upsert_macro_news_summary(
+            "USA", datetime.date(2026, 3, 15), _make_data(summary="Day 15")
+        )
         db_session.flush()
 
         row = repo.get_macro_news_summary("USA")
@@ -100,8 +110,12 @@ class TestGetMacroNewsSummary:
 
     def test_country_isolation(self, db_session: Session) -> None:
         repo = MacroRegimeRepository(db_session)
-        repo.upsert_macro_news_summary("USA", datetime.date(2026, 3, 15), _make_data(summary="US news"))
-        repo.upsert_macro_news_summary("UK", datetime.date(2026, 3, 15), _make_data(summary="UK news"))
+        repo.upsert_macro_news_summary(
+            "USA", datetime.date(2026, 3, 15), _make_data(summary="US news")
+        )
+        repo.upsert_macro_news_summary(
+            "UK", datetime.date(2026, 3, 15), _make_data(summary="UK news")
+        )
         db_session.flush()
 
         row = repo.get_macro_news_summary("UK", datetime.date(2026, 3, 15))
@@ -161,7 +175,9 @@ class TestDeleteOldNewsSummaries:
 
         assert deleted == 1
         assert repo.get_macro_news_summary("USA", datetime.date(2025, 12, 1)) is None
-        assert repo.get_macro_news_summary("USA", datetime.date(2026, 3, 15)) is not None
+        assert (
+            repo.get_macro_news_summary("USA", datetime.date(2026, 3, 15)) is not None
+        )
 
     def test_preserves_rows_on_or_after_cutoff(self, db_session: Session) -> None:
         repo = MacroRegimeRepository(db_session)
@@ -178,7 +194,9 @@ class TestDeleteOldNewsSummaries:
     def test_returns_correct_count(self, db_session: Session) -> None:
         repo = MacroRegimeRepository(db_session)
         for day in range(1, 6):
-            repo.upsert_macro_news_summary("USA", datetime.date(2025, 1, day), _make_data())
+            repo.upsert_macro_news_summary(
+                "USA", datetime.date(2025, 1, day), _make_data()
+            )
         db_session.flush()
 
         deleted = repo.delete_old_news_summaries(datetime.date(2025, 1, 4))

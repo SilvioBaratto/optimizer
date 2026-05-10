@@ -21,10 +21,10 @@ BASE_EXPOSURE = "/api/v1/factors/exposure-constraints"
 BASE_QUINTILE = "/api/v1/factors/quintile-spread"
 BASE_REGIME = "/api/v1/factors/regime-tilt"
 
-_SERVICE_SELECT = "app.api.v1.factors.select_stocks_for_tickers"
-_SERVICE_EXPOSURE = "app.api.v1.factors.build_exposure_constraints_for_tickers"
-_SERVICE_QUINTILE = "app.api.v1.factors.compute_quintile_spread_for_tickers"
-_SERVICE_REGIME = "app.api.v1.factors.compute_regime_tilt"
+_SERVICE_SELECT = "app.api.v1.factors.factors.select_stocks_for_tickers"
+_SERVICE_EXPOSURE = "app.api.v1.factors.factors.build_exposure_constraints_for_tickers"
+_SERVICE_QUINTILE = "app.api.v1.factors.factors.compute_quintile_spread_for_tickers"
+_SERVICE_REGIME = "app.api.v1.factors.factors.compute_regime_tilt"
 
 # ---------------------------------------------------------------------------
 # Shared mock payloads
@@ -148,7 +148,7 @@ class TestPostFactorSelect:
         assert resp.status_code == 422
 
     def test_no_factor_data_returns_404(self, client: TestClient) -> None:
-        from app.services.factor_service import FactorDataError
+        from app.services.factors.factor_service import FactorDataError
 
         with patch(_SERVICE_SELECT, side_effect=FactorDataError("no data")):
             resp = client.post(BASE_SELECT, json=_VALID_SELECT_REQUEST)
@@ -177,7 +177,11 @@ class TestPostFactorSelect:
         assert resp.status_code == 200
 
     def test_fixed_count_mode_returns_exact_count(self, client: TestClient) -> None:
-        result_2 = {**_MOCK_SELECT_RESULT, "selected_tickers": ["AAPL", "MSFT"], "count": 2}
+        result_2 = {
+            **_MOCK_SELECT_RESULT,
+            "selected_tickers": ["AAPL", "MSFT"],
+            "count": 2,
+        }
         req = {**_VALID_SELECT_REQUEST, "method": "fixed_count", "target_count": 2}
         with patch(_SERVICE_SELECT, return_value=result_2):
             resp = client.post(BASE_SELECT, json=req)
@@ -185,7 +189,9 @@ class TestPostFactorSelect:
         assert resp.status_code == 200
         assert resp.json()["count"] == 2
 
-    def test_quantile_mode_returns_tickers_above_threshold(self, client: TestClient) -> None:
+    def test_quantile_mode_returns_tickers_above_threshold(
+        self, client: TestClient
+    ) -> None:
         result = {**_MOCK_SELECT_RESULT, "selected_tickers": ["AAPL"], "count": 1}
         req = {**_VALID_SELECT_REQUEST, "method": "quantile", "target_quantile": 0.5}
         with patch(_SERVICE_SELECT, return_value=result):
@@ -194,13 +200,17 @@ class TestPostFactorSelect:
         assert resp.status_code == 200
         assert resp.json()["selected_tickers"] == ["AAPL"]
 
-    def test_fixed_count_without_target_count_returns_422(self, client: TestClient) -> None:
+    def test_fixed_count_without_target_count_returns_422(
+        self, client: TestClient
+    ) -> None:
         req = {**_VALID_SELECT_REQUEST, "method": "fixed_count"}
         resp = client.post(BASE_SELECT, json=req)
 
         assert resp.status_code == 422
 
-    def test_quantile_without_target_quantile_returns_422(self, client: TestClient) -> None:
+    def test_quantile_without_target_quantile_returns_422(
+        self, client: TestClient
+    ) -> None:
         req = {**_VALID_SELECT_REQUEST, "method": "quantile"}
         resp = client.post(BASE_SELECT, json=req)
 
@@ -237,7 +247,7 @@ class TestPostExposureConstraints:
         assert isinstance(ri, list)
 
     def test_no_factor_data_returns_404(self, client: TestClient) -> None:
-        from app.services.factor_service import FactorDataError
+        from app.services.factors.factor_service import FactorDataError
 
         with patch(_SERVICE_EXPOSURE, side_effect=FactorDataError("no data")):
             resp = client.post(BASE_EXPOSURE, json=_VALID_EXPOSURE_REQUEST)
@@ -297,7 +307,7 @@ class TestPostQuintileSpread:
         assert resp.json()["annualized_spread"] == pytest.approx(0.15)
 
     def test_no_factor_data_returns_404(self, client: TestClient) -> None:
-        from app.services.factor_service import FactorDataError
+        from app.services.factors.factor_service import FactorDataError
 
         with patch(_SERVICE_QUINTILE, side_effect=FactorDataError("no data")):
             resp = client.post(BASE_QUINTILE, json=_VALID_QUINTILE_REQUEST)
@@ -361,7 +371,7 @@ class TestPostRegimeTilt:
         assert "value" in tm
 
     def test_no_macro_data_returns_404(self, client: TestClient) -> None:
-        from app.services.factor_service import FactorDataError
+        from app.services.factors.factor_service import FactorDataError
 
         with patch(_SERVICE_REGIME, side_effect=FactorDataError("no macro data")):
             resp = client.post(BASE_REGIME, json=_VALID_REGIME_REQUEST)

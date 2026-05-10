@@ -36,10 +36,10 @@ _VALID_REQUEST: dict[str, Any] = {
 }
 
 # Module-level patch targets per CLAUDE.md
-_JOB_SVC_CREATE = "app.api.v1.optimize._job_service.create_job"
-_JOB_SVC_START = "app.api.v1.optimize._job_service.start_background"
-_SERVICE_BUILD = "app.api.v1.optimize.build_pipeline"
-_SERVICE_EXTRACT = "app.api.v1.optimize.extract_results"
+_JOB_SVC_CREATE = "app.api.v1.optimization.optimize._job_service.create_job"
+_JOB_SVC_START = "app.api.v1.optimization.optimize._job_service.start_background"
+_SERVICE_BUILD = "app.api.v1.optimization.optimize.build_pipeline"
+_SERVICE_EXTRACT = "app.api.v1.optimization.optimize.extract_results"
 
 
 def _mock_service_calls(mock_pipeline: MagicMock | None = None):
@@ -85,7 +85,10 @@ class TestPostOptimizeSync:
 
         body = resp.json()
         assert "weights" in body
-        assert body["weights"] == {"AAPL": pytest.approx(0.6), "MSFT": pytest.approx(0.4)}
+        assert body["weights"] == {
+            "AAPL": pytest.approx(0.6),
+            "MSFT": pytest.approx(0.4),
+        }
 
     def test_sync_path_persists_run(self, client: TestClient) -> None:
         """Optimization run is written to the database."""
@@ -180,7 +183,7 @@ class TestPostOptimizeJobAlreadyRunning:
     _ASYNC_REQUEST = {**_VALID_REQUEST, "tickers": _ASYNC_TICKERS}
 
     def test_job_already_running_returns_409(self, client: TestClient) -> None:
-        from app.services.background_job import JobAlreadyRunningError
+        from app.services.jobs.background_job import JobAlreadyRunningError
 
         with patch(
             _JOB_SVC_CREATE,
@@ -191,7 +194,7 @@ class TestPostOptimizeJobAlreadyRunning:
         assert resp.status_code == 409
 
     def test_409_body_contains_error_message(self, client: TestClient) -> None:
-        from app.services.background_job import JobAlreadyRunningError
+        from app.services.jobs.background_job import JobAlreadyRunningError
 
         with patch(
             _JOB_SVC_CREATE,
@@ -212,20 +215,24 @@ class TestPostOptimizeJobAlreadyRunning:
 class TestGetOptimizeRun:
     """GET /api/v1/optimize/{run_id} retrieves a completed run or returns 404."""
 
-    def test_existing_run_returns_200(self, client: TestClient, db_session: Session) -> None:
+    def test_existing_run_returns_200(
+        self, client: TestClient, db_session: Session
+    ) -> None:
         """A run that exists in the DB is returned with 200."""
-        from app.repositories.execution_repository import ExecutionRepository
+        from app.repositories.execution.execution_repository import ExecutionRepository
 
         repo = ExecutionRepository(db_session)
-        run = repo.create_optimization_run({
-            "status": "completed",
-            "optimizer_type": "mean_risk",
-            "universe_tickers": ["AAPL", "MSFT"],
-            "config": {},
-            "weights": {"AAPL": 0.6, "MSFT": 0.4},
-            "metrics": {"annualized_sharpe_ratio": 1.5},
-            "risk_contributions": {"AAPL": 0.4, "MSFT": 0.6},
-        })
+        run = repo.create_optimization_run(
+            {
+                "status": "completed",
+                "optimizer_type": "mean_risk",
+                "universe_tickers": ["AAPL", "MSFT"],
+                "config": {},
+                "weights": {"AAPL": 0.6, "MSFT": 0.4},
+                "metrics": {"annualized_sharpe_ratio": 1.5},
+                "risk_contributions": {"AAPL": 0.4, "MSFT": 0.6},
+            }
+        )
         db_session.commit()
 
         resp = client.get(f"{BASE_URL}/{run.id}")
@@ -235,18 +242,20 @@ class TestGetOptimizeRun:
     def test_existing_run_returns_correct_id(
         self, client: TestClient, db_session: Session
     ) -> None:
-        from app.repositories.execution_repository import ExecutionRepository
+        from app.repositories.execution.execution_repository import ExecutionRepository
 
         repo = ExecutionRepository(db_session)
-        run = repo.create_optimization_run({
-            "status": "completed",
-            "optimizer_type": "hrp",
-            "universe_tickers": ["AAPL"],
-            "config": {},
-            "weights": {"AAPL": 1.0},
-            "metrics": {},
-            "risk_contributions": {"AAPL": 1.0},
-        })
+        run = repo.create_optimization_run(
+            {
+                "status": "completed",
+                "optimizer_type": "hrp",
+                "universe_tickers": ["AAPL"],
+                "config": {},
+                "weights": {"AAPL": 1.0},
+                "metrics": {},
+                "risk_contributions": {"AAPL": 1.0},
+            }
+        )
         db_session.commit()
 
         resp = client.get(f"{BASE_URL}/{run.id}")

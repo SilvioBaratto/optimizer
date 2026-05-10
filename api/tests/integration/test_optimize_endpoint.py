@@ -20,12 +20,12 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models.execution import OptimizationRun
+from app.models.execution.execution import OptimizationRun
 
 BASE_URL = "/api/v1/optimize"
 _TICKERS = ["AAPL", "MSFT", "GOOG"]
-_FETCHER = "app.services.optimization_service.fetch_close_prices"
-_REPO = "app.api.v1.optimize.ExecutionRepository"
+_FETCHER = "app.services.optimization.optimization_service.fetch_close_prices"
+_REPO = "app.api.v1.optimization.optimize.ExecutionRepository"
 
 
 @contextmanager

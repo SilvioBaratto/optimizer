@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 from fastapi.testclient import TestClient
 
-_PORTFOLIO_REPO = "app.api.v1.dashboard.PortfolioRepository"
-_DASHBOARD_REPO = "app.api.v1.dashboard.DashboardRepository"
+_PORTFOLIO_REPO = "app.api.v1.dashboard.dashboard.PortfolioRepository"
+_DASHBOARD_REPO = "app.api.v1.dashboard.dashboard.DashboardRepository"
 
 BASE_URL = "/api/v1/portfolio-analytics"
 

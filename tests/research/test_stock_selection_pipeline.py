@@ -227,12 +227,12 @@ class TestClassifyAndTiltCachesRegime:
         # Patch the late-imported MacroRegimeRepository inside the helper.
         import sys
 
-        fake_module = type(sys)("app.repositories.macro_regime_repository")
+        fake_module = type(sys)("app.repositories.macro.macro_regime_repository")
         fake_module.MacroRegimeRepository = _StubRepo  # type: ignore[attr-defined]
         with (
             patch.dict(
                 sys.modules,
-                {"app.repositories.macro_regime_repository": fake_module},
+                {"app.repositories.macro.macro_regime_repository": fake_module},
             ),
             patch.object(ssp, "classify_regime", return_value=MacroRegime.RECESSION),
         ):

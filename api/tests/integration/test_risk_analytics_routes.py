@@ -29,10 +29,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.factor import FactorScore
-from app.models.portfolio import Portfolio, PortfolioSnapshot, SnapshotWeight
-from app.models.universe import Exchange, Instrument
-from app.models.yfinance_data import PriceHistory
+from app.models.factors.factor import FactorScore
+from app.models.market_data.yfinance_data import PriceHistory
+from app.models.portfolio.portfolio import Portfolio, PortfolioSnapshot, SnapshotWeight
+from app.models.universe.universe import Exchange, Instrument
 
 BASE = "/api/v1/portfolio"
 
@@ -338,9 +338,7 @@ def test_factor_exposure_no_scores_returns_200_with_empty_dict(
     seeded_portfolios_with_factor_scores: dict[str, uuid.UUID],
 ) -> None:
     """Regression for #424: portfolio exists but has no scores → 200 + empty, not 404."""
-    resp = client.get(
-        f"{BASE}/{_PORTFOLIO_WITHOUT_FACTOR_SCORES}/risk/factor-exposure"
-    )
+    resp = client.get(f"{BASE}/{_PORTFOLIO_WITHOUT_FACTOR_SCORES}/risk/factor-exposure")
 
     assert resp.status_code == 200, resp.text
     body = resp.json()

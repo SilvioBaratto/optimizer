@@ -25,7 +25,7 @@ from datetime import date
 from typing import Any, Protocol
 
 from app.database import database_manager
-from app.repositories.portfolio_repository import PortfolioRepository
+from app.repositories.portfolio.portfolio_repository import PortfolioRepository
 from sqlalchemy.orm import Session
 
 from optimizer.optimization import MeanRiskConfig

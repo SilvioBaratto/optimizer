@@ -11,8 +11,8 @@ import uuid
 import pytest
 from sqlalchemy.orm import Session
 
-from app.models.portfolio import Portfolio
-from app.repositories.risk_repository import RiskRepository
+from app.models.portfolio.portfolio import Portfolio
+from app.repositories.risk.risk_repository import RiskRepository
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,7 +55,9 @@ class TestGetLimitsByPortfolio:
         other = _create_portfolio(db_session)
         repo = RiskRepository(db_session)
         repo.create_limit(_limit_data(portfolio.id, metric="volatility"))
-        repo.create_limit(_limit_data(portfolio.id, metric="drawdown", limit_type="min"))
+        repo.create_limit(
+            _limit_data(portfolio.id, metric="drawdown", limit_type="min")
+        )
         repo.create_limit(_limit_data(other.id, metric="volatility"))
 
         result = repo.get_limits_by_portfolio(portfolio.id)
@@ -73,8 +75,14 @@ class TestGetBreachedLimits:
     def test_returns_only_breached_limits(self, db_session: Session) -> None:
         portfolio = _create_portfolio(db_session)
         repo = RiskRepository(db_session)
-        repo.create_limit(_limit_data(portfolio.id, metric="volatility", is_breached=False))
-        repo.create_limit(_limit_data(portfolio.id, metric="drawdown", limit_type="min", is_breached=True))
+        repo.create_limit(
+            _limit_data(portfolio.id, metric="volatility", is_breached=False)
+        )
+        repo.create_limit(
+            _limit_data(
+                portfolio.id, metric="drawdown", limit_type="min", is_breached=True
+            )
+        )
 
         result = repo.get_breached_limits(portfolio.id)
 
@@ -145,7 +153,9 @@ class TestUpdateLimitValue:
         repo = RiskRepository(db_session)
         limit = repo.create_limit(_limit_data(portfolio.id, is_breached=False))
 
-        updated = repo.update_limit_value(limit.id, current_value=0.25, is_breached=True)
+        updated = repo.update_limit_value(
+            limit.id, current_value=0.25, is_breached=True
+        )
 
         assert updated.current_value == pytest.approx(0.25)
         assert updated.is_breached is True

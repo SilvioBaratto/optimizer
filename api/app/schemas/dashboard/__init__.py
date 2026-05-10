@@ -1,0 +1,45 @@
+"""Dashboard schemas."""
+
+from app.schemas._shared import CamelCaseModel
+from app.schemas.dashboard.dashboard import (
+    ActivityFeedResponse,
+    ActivityItem,
+    AllocationChild,
+    AllocationNode,
+    AllocationResponse,
+    AssetClassReturnRow,
+    AssetClassReturnsResponse,
+    DriftEntry,
+    DriftResponse,
+    EquityCurvePoint,
+    EquityCurveResponse,
+    KpiItem,
+    MarketSnapshotResponse,
+    PerformanceMetricsResponse,
+    ReferenceIndexItem,
+    ReferenceIndicesResponse,
+    RollingMetricPoint,
+    RollingMetricsResponse,
+)
+
+__all__ = [
+    "ActivityFeedResponse",
+    "ActivityItem",
+    "AllocationChild",
+    "AllocationNode",
+    "AllocationResponse",
+    "AssetClassReturnRow",
+    "AssetClassReturnsResponse",
+    "CamelCaseModel",
+    "DriftEntry",
+    "DriftResponse",
+    "EquityCurvePoint",
+    "EquityCurveResponse",
+    "KpiItem",
+    "MarketSnapshotResponse",
+    "PerformanceMetricsResponse",
+    "ReferenceIndexItem",
+    "ReferenceIndicesResponse",
+    "RollingMetricPoint",
+    "RollingMetricsResponse",
+]

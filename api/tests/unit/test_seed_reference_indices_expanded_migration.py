@@ -32,7 +32,15 @@ EXPECTED_REVISION = "a7b8c9d0e1f2"
 EXPECTED_DOWN_REVISION = "z6a7b8c9d0e1"
 
 EXPECTED_TICKERS = (
-    "QQQ", "IWM", "EFA", "EEM", "AGG", "VGK", "VWO", "TLT", "GLD",
+    "QQQ",
+    "IWM",
+    "EFA",
+    "EEM",
+    "AGG",
+    "VGK",
+    "VWO",
+    "TLT",
+    "GLD",
 )
 NASDAQ_TICKERS = {"QQQ"}
 NYSE_TICKERS = {"IWM", "EFA", "EEM", "AGG", "VGK", "VWO", "TLT", "GLD"}
@@ -81,15 +89,18 @@ def _sqlite_engine():
 
 def _create_tables(engine) -> None:
     with engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             CREATE TABLE exchanges (
                 id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
                 name TEXT NOT NULL UNIQUE,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
-        """))
-        conn.execute(text("""
+        """)
+        )
+        conn.execute(
+            text("""
             CREATE TABLE instruments (
                 id TEXT PRIMARY KEY,
                 ticker TEXT NOT NULL,
@@ -104,7 +115,8 @@ def _create_tables(engine) -> None:
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                 CONSTRAINT uq_instrument_ticker_exchange UNIQUE (ticker, exchange_id)
             )
-        """))
+        """)
+        )
 
 
 def _sqlite_insert_sql(
@@ -274,9 +286,9 @@ class TestWhereExistsGuardBehavior:
         mod = _load_migration()
 
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')"
-            ))
+            conn.execute(
+                text("INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')")
+            )
             for row in mod.INDICES:
                 conn.execute(text(_sqlite_insert_sql(row[0], row[2], row[3], row[4])))
 
@@ -290,12 +302,14 @@ class TestWhereExistsGuardBehavior:
         mod = _load_migration()
 
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')"
-            ))
-            conn.execute(text(
-                "INSERT INTO exchanges (id, name) VALUES ('nasdaq-uuid', 'NASDAQ')"
-            ))
+            conn.execute(
+                text("INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')")
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO exchanges (id, name) VALUES ('nasdaq-uuid', 'NASDAQ')"
+                )
+            )
             for row in mod.INDICES:
                 conn.execute(text(_sqlite_insert_sql(row[0], row[2], row[3], row[4])))
 
@@ -308,15 +322,19 @@ class TestWhereExistsGuardBehavior:
         mod = _load_migration()
 
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')"
-            ))
-            conn.execute(text(
-                "INSERT INTO exchanges (id, name) VALUES ('nasdaq-uuid', 'NASDAQ')"
-            ))
+            conn.execute(
+                text("INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')")
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO exchanges (id, name) VALUES ('nasdaq-uuid', 'NASDAQ')"
+                )
+            )
             for _ in range(2):
                 for row in mod.INDICES:
-                    conn.execute(text(_sqlite_insert_sql(row[0], row[2], row[3], row[4])))
+                    conn.execute(
+                        text(_sqlite_insert_sql(row[0], row[2], row[3], row[4]))
+                    )
 
         for ticker in EXPECTED_TICKERS:
             assert _count(engine, ticker) == 1
@@ -352,17 +370,21 @@ class TestDowngradeSQLContent:
         mod = _load_migration()
 
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')"
-            ))
-            conn.execute(text(
-                "INSERT INTO exchanges (id, name) VALUES ('nasdaq-uuid', 'NASDAQ')"
-            ))
+            conn.execute(
+                text("INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')")
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO exchanges (id, name) VALUES ('nasdaq-uuid', 'NASDAQ')"
+                )
+            )
             # Seed SPY (owned by predecessor migration) + the 9 expanded rows.
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 INSERT INTO instruments (id, ticker, short_name, name, instrument_type, currency_code, yfinance_ticker, exchange_id)
                 VALUES ('uuid-spy', 'SPY', 'SPY', 'SPDR S&P 500 ETF Trust', 'ETF', 'USD', 'SPY', 'nyse-uuid')
-            """))
+            """)
+            )
             for row in mod.INDICES:
                 conn.execute(text(_sqlite_insert_sql(row[0], row[2], row[3], row[4])))
 

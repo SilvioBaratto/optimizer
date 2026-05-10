@@ -44,14 +44,10 @@ def upgrade() -> None:
     op.create_index(
         "ix_fred_observations_series_id", "fred_observations", ["series_id"]
     )
-    op.create_index(
-        "ix_fred_observations_date", "fred_observations", ["date"]
-    )
+    op.create_index("ix_fred_observations_date", "fred_observations", ["date"])
 
 
 def downgrade() -> None:
     op.drop_index("ix_fred_observations_date", table_name="fred_observations")
-    op.drop_index(
-        "ix_fred_observations_series_id", table_name="fred_observations"
-    )
+    op.drop_index("ix_fred_observations_series_id", table_name="fred_observations")
     op.drop_table("fred_observations")

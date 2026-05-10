@@ -25,12 +25,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.execution import BacktestRun
+from app.models.execution.execution import BacktestRun
 
 BASE_URL = "/api/v1/backtest"
 _TICKERS = ["AAPL", "MSFT", "GOOG"]
-_FETCHER = "app.services.backtest_service.fetch_close_prices"
-_SESSION_CM = "app.api.v1.backtest.database_manager.get_session"
+_FETCHER = "app.services.backtest.backtest_service.fetch_close_prices"
+_SESSION_CM = "app.api.v1.backtest.backtest.database_manager.get_session"
 
 
 @pytest.fixture(autouse=True)

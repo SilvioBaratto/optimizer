@@ -26,27 +26,30 @@ class TestResolveOptimizer:
     def test_mean_risk_builds_mean_risk_optimizer(self) -> None:
         from skfolio.optimization import MeanRisk
 
-        from app.services.optimization_service import _build_optimizer
+        from app.services.optimization.optimization_service import _build_optimizer
 
         optimizer = _build_optimizer("mean_risk", {})
 
         assert isinstance(optimizer, MeanRisk)
 
     def test_unknown_type_raises_value_error(self) -> None:
-        from app.services.optimization_service import _build_optimizer
+        from app.services.optimization.optimization_service import _build_optimizer
 
         with pytest.raises(ValueError, match="Unsupported optimizer_type"):
             _build_optimizer("does_not_exist", {})
 
     def test_mean_risk_is_in_frontier_types(self) -> None:
         """mean_risk is listed in FRONTIER_TYPES so the /optimize route applies frontier sizing."""
-        from app.services.optimization_service import FRONTIER_TYPES
+        from app.services.optimization.optimization_service import FRONTIER_TYPES
 
         assert "mean_risk" in FRONTIER_TYPES
 
     def test_build_optimizer_does_not_set_efficient_frontier_size(self) -> None:
         """_build_optimizer returns a plain optimizer; frontier sizing is the route's job."""
-        from app.services.optimization_service import FRONTIER_SIZE, _build_optimizer
+        from app.services.optimization.optimization_service import (
+            FRONTIER_SIZE,
+            _build_optimizer,
+        )
 
         optimizer = _build_optimizer("mean_risk", {})
 
@@ -62,7 +65,7 @@ class TestResolveOptimizer:
         """
         from skfolio.measures import RiskMeasure
 
-        from app.services.optimization_service import _build_optimizer
+        from app.services.optimization.optimization_service import _build_optimizer
 
         optimizer = _build_optimizer("mean_risk", {"risk_measure": "cvar"})
 
@@ -72,7 +75,11 @@ class TestResolveOptimizer:
         ("config_dict", "expected_field", "expected_value"),
         [
             ({"risk_measure": "variance"}, "risk_measure", "VARIANCE"),
-            ({"risk_measure": "standard_deviation"}, "risk_measure", "STANDARD_DEVIATION"),
+            (
+                {"risk_measure": "standard_deviation"},
+                "risk_measure",
+                "STANDARD_DEVIATION",
+            ),
             ({"objective": "maximize_ratio"}, "objective_function", "MAXIMIZE_RATIO"),
             ({"min_weights": -0.2, "max_weights": 0.6}, "min_weights", -0.2),
             ({"budget": 0.8}, "budget", 0.8),
@@ -85,7 +92,7 @@ class TestResolveOptimizer:
         expected_value: Any,
     ) -> None:
         """Service must translate config-dict primitives into typed MeanRiskConfig."""
-        from app.services.optimization_service import _build_optimizer
+        from app.services.optimization.optimization_service import _build_optimizer
 
         optimizer = _build_optimizer("mean_risk", config_dict)
 
@@ -128,21 +135,19 @@ class TestExtractResults:
     """extract_results extracts weights, metrics, contributions from a fitted pipeline."""
 
     def test_returns_weights_dict(self) -> None:
-        from app.services.optimization_service import extract_results
+        from app.services.optimization.optimization_service import extract_results
 
         tickers = ["AAPL", "MSFT", "GOOG"]
         portfolio = _make_mock_portfolio(tickers)
         pipeline = _make_mock_pipeline(portfolio)
-        returns_df = pd.DataFrame(
-            np.random.randn(100, 3) * 0.01, columns=tickers
-        )
+        returns_df = pd.DataFrame(np.random.randn(100, 3) * 0.01, columns=tickers)
 
         result = extract_results(pipeline, returns_df)
 
         assert result["weights"] == {t: pytest.approx(1 / 3, abs=1e-9) for t in tickers}
 
     def test_returns_metrics_with_sharpe(self) -> None:
-        from app.services.optimization_service import extract_results
+        from app.services.optimization.optimization_service import extract_results
 
         portfolio = _make_mock_portfolio(sharpe=2.5)
         pipeline = _make_mock_pipeline(portfolio)
@@ -153,7 +158,7 @@ class TestExtractResults:
         assert result["metrics"]["annualized_sharpe_ratio"] == pytest.approx(2.5)
 
     def test_returns_risk_contributions(self) -> None:
-        from app.services.optimization_service import extract_results
+        from app.services.optimization.optimization_service import extract_results
 
         tickers = ["AAPL", "MSFT"]
         portfolio = _make_mock_portfolio(tickers)
@@ -168,7 +173,7 @@ class TestExtractResults:
 
     def test_efficient_frontier_null_when_portfolio_not_population(self) -> None:
         """Non-frontier optimizers return null efficient_frontier."""
-        from app.services.optimization_service import extract_results
+        from app.services.optimization.optimization_service import extract_results
 
         portfolio = _make_mock_portfolio()
         pipeline = _make_mock_pipeline(portfolio)
@@ -182,7 +187,7 @@ class TestExtractResults:
         """When predict returns Population, efficient_frontier is a list."""
         from skfolio import Population
 
-        from app.services.optimization_service import extract_results
+        from app.services.optimization.optimization_service import extract_results
 
         p1 = _make_mock_portfolio(sharpe=0.8)
         p2 = _make_mock_portfolio(sharpe=1.5)
@@ -204,7 +209,7 @@ class TestExtractResults:
         """When Population returned, optimal portfolio has max annualized_sharpe_ratio."""
         from skfolio import Population
 
-        from app.services.optimization_service import extract_results
+        from app.services.optimization.optimization_service import extract_results
 
         low_sharpe = _make_mock_portfolio(sharpe=0.5)
         high_sharpe = _make_mock_portfolio(sharpe=2.0)

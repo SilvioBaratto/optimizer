@@ -873,7 +873,7 @@ def _cache_regime_classification(
     db_manager: DatabaseManager, regime: MacroRegime
 ) -> None:
     """Persist the rule-based regime to ``macro_calibrations`` for country='US'."""
-    from app.repositories.macro_regime_repository import MacroRegimeRepository
+    from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 
     with db_manager.get_session() as session:
         MacroRegimeRepository(session).upsert_regime_classification(

@@ -74,9 +74,7 @@ def upgrade() -> None:
 
     # 5. Recreate unique constraint on name (skip if already present)
     uqs = {
-        c["name"]
-        for c in inspector.get_unique_constraints("exchanges")
-        if c["name"]
+        c["name"] for c in inspector.get_unique_constraints("exchanges") if c["name"]
     }
     if "uq_exchanges_name" not in uqs:
         op.create_unique_constraint("uq_exchanges_name", "exchanges", ["name"])

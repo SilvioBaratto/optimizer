@@ -121,7 +121,11 @@ def upgrade() -> None:
     inspector = sa.inspect(conn)
     existing_tables = set(inspector.get_table_names())
 
-    macro_tables = ("economic_indicators", "trading_economics_indicators", "bond_yields")
+    macro_tables = (
+        "economic_indicators",
+        "trading_economics_indicators",
+        "bond_yields",
+    )
 
     # 9. Add country indexes
     for tbl in macro_tables:
@@ -141,7 +145,8 @@ def upgrade() -> None:
             cols = {c["name"] for c in inspector.get_columns(tbl)}
             if "reference_date" in cols:
                 col_type = next(
-                    c["type"] for c in inspector.get_columns(tbl)
+                    c["type"]
+                    for c in inspector.get_columns(tbl)
                     if c["name"] == "reference_date"
                 )
                 if isinstance(col_type, sa.types.String):

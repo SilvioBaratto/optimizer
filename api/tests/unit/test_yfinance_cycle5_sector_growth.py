@@ -16,8 +16,10 @@ import pytest
 
 pytest.importorskip("yfinance")
 
-from app.services.yfinance.market.sector_industry import SectorIndustryClient
-from app.services.yfinance.protocols import SectorIndustryClientProtocol
+from app.services.market_data.yfinance.market.sector_industry import (
+    SectorIndustryClient,
+)
+from app.services.market_data.yfinance.protocols import SectorIndustryClientProtocol
 
 
 def _build_client() -> SectorIndustryClient:
@@ -39,7 +41,7 @@ def _patch_sector(**attrs: Any):
     for attr in drop:
         delattr(instance, attr)
     return patch(
-        "app.services.yfinance.market.sector_industry.yf.Sector",
+        "app.services.market_data.yfinance.market.sector_industry.yf.Sector",
         return_value=instance,
     )
 
@@ -52,7 +54,7 @@ def _patch_industry(**attrs: Any):
     for attr in drop:
         delattr(instance, attr)
     return patch(
-        "app.services.yfinance.market.sector_industry.yf.Industry",
+        "app.services.market_data.yfinance.market.sector_industry.yf.Industry",
         return_value=instance,
     )
 
@@ -62,7 +64,9 @@ def _patch_industry(**attrs: Any):
 # -----------------------------------------------------------------------------
 
 
-def test_when_fetch_sector_industries_called_then_yf_sector_industries_returned() -> None:
+def test_when_fetch_sector_industries_called_then_yf_sector_industries_returned() -> (
+    None
+):
     df = pd.DataFrame({"key": ["software"], "name": ["Software"]})
     client = _build_client()
     with _patch_sector(industries=df) as mock_cls:
@@ -72,7 +76,9 @@ def test_when_fetch_sector_industries_called_then_yf_sector_industries_returned(
     pd.testing.assert_frame_equal(result, df)
 
 
-def test_when_fetch_sector_research_reports_called_then_yf_sector_attribute_returned() -> None:
+def test_when_fetch_sector_research_reports_called_then_yf_sector_attribute_returned() -> (
+    None
+):
     df = pd.DataFrame({"title": ["Tech Outlook"]})
     client = _build_client()
     with _patch_sector(research_reports=df) as mock_cls:
@@ -82,7 +88,9 @@ def test_when_fetch_sector_research_reports_called_then_yf_sector_attribute_retu
     pd.testing.assert_frame_equal(result, df)
 
 
-def test_when_fetch_sector_top_growth_companies_called_then_yf_sector_attribute_returned() -> None:
+def test_when_fetch_sector_top_growth_companies_called_then_yf_sector_attribute_returned() -> (
+    None
+):
     df = pd.DataFrame({"symbol": ["AAPL"], "growth": [0.25]})
     client = _build_client()
     with _patch_sector(top_growth_companies=df) as mock_cls:
@@ -97,7 +105,9 @@ def test_when_fetch_sector_top_growth_companies_called_then_yf_sector_attribute_
 # -----------------------------------------------------------------------------
 
 
-def test_when_fetch_industry_research_reports_called_then_yf_industry_attribute_returned() -> None:
+def test_when_fetch_industry_research_reports_called_then_yf_industry_attribute_returned() -> (
+    None
+):
     df = pd.DataFrame({"title": ["Software Outlook"]})
     client = _build_client()
     with _patch_industry(research_reports=df) as mock_cls:
@@ -107,7 +117,9 @@ def test_when_fetch_industry_research_reports_called_then_yf_industry_attribute_
     pd.testing.assert_frame_equal(result, df)
 
 
-def test_when_fetch_industry_top_growth_companies_called_then_yf_industry_attribute_returned() -> None:
+def test_when_fetch_industry_top_growth_companies_called_then_yf_industry_attribute_returned() -> (
+    None
+):
     df = pd.DataFrame({"symbol": ["MSFT"], "growth": [0.30]})
     client = _build_client()
     with _patch_industry(top_growth_companies=df) as mock_cls:
@@ -149,7 +161,10 @@ def test_when_industry_lacks_research_reports_attr_then_returns_none() -> None:
 def test_when_industry_lacks_top_growth_companies_attr_then_returns_none() -> None:
     client = _build_client()
     with _patch_industry(drop=("top_growth_companies",)):
-        assert client.fetch_industry_top_growth_companies("software-infrastructure") is None
+        assert (
+            client.fetch_industry_top_growth_companies("software-infrastructure")
+            is None
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -163,7 +178,9 @@ def test_when_sector_industries_returns_empty_dataframe_then_none_returned() -> 
         assert client.fetch_sector_industries("technology") is None
 
 
-def test_when_industry_top_growth_companies_returns_empty_dataframe_then_none_returned() -> None:
+def test_when_industry_top_growth_companies_returns_empty_dataframe_then_none_returned() -> (
+    None
+):
     client = _build_client()
     with _patch_industry(top_growth_companies=pd.DataFrame()):
         assert (
@@ -189,9 +206,7 @@ def test_when_inspecting_protocol_then_five_new_methods_declared() -> None:
         "fetch_sector_top_growth_companies",
         "fetch_industry_top_growth_companies",
     }
-    methods = {
-        m for m in dir(SectorIndustryClientProtocol) if not m.startswith("_")
-    }
+    methods = {m for m in dir(SectorIndustryClientProtocol) if not m.startswith("_")}
     assert expected <= methods
 
 
@@ -202,7 +217,9 @@ def test_when_existing_fetch_sector_overview_called_then_still_returns_dict() ->
         assert client.fetch_sector_overview("technology") == overview
 
 
-def test_when_existing_fetch_industry_top_companies_called_then_still_returns_df() -> None:
+def test_when_existing_fetch_industry_top_companies_called_then_still_returns_df() -> (
+    None
+):
     df = pd.DataFrame({"symbol": ["AAPL"]})
     client = _build_client()
     with _patch_industry(top_companies=df):

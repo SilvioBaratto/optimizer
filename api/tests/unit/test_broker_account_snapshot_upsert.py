@@ -15,8 +15,8 @@ from datetime import date, datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.portfolio import BrokerAccountSnapshot, Portfolio
-from app.repositories.portfolio_repository import PortfolioRepository
+from app.models.portfolio.portfolio import BrokerAccountSnapshot, Portfolio
+from app.repositories.portfolio.portfolio_repository import PortfolioRepository
 
 # ---------------------------------------------------------------------------
 # Helpers

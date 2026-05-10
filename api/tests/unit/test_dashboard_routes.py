@@ -14,8 +14,8 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-_PORTFOLIO_REPO = "app.api.v1.dashboard.PortfolioRepository"
-_DASHBOARD_REPO = "app.api.v1.dashboard.DashboardRepository"
+_PORTFOLIO_REPO = "app.api.v1.dashboard.dashboard.PortfolioRepository"
+_DASHBOARD_REPO = "app.api.v1.dashboard.dashboard.DashboardRepository"
 
 BASE_URL = "/api/v1/portfolio-analytics"
 
@@ -160,9 +160,7 @@ class TestGetPerformanceMetrics:
             dash.instrument_exists.return_value = False
             dash.get_multi_ticker_prices.return_value = prices
 
-            resp = client.get(
-                f"{BASE_URL}/test/performance-metrics?benchmark=FAKE"
-            )
+            resp = client.get(f"{BASE_URL}/test/performance-metrics?benchmark=FAKE")
 
         assert resp.status_code == 422
         msg = resp.json()["error"]["message"].lower()
@@ -189,9 +187,7 @@ class TestGetPerformanceMetrics:
             dash.instrument_exists.return_value = True
             dash.get_multi_ticker_prices.return_value = prices
 
-            resp = client.get(
-                f"{BASE_URL}/test/performance-metrics?benchmark=SPY"
-            )
+            resp = client.get(f"{BASE_URL}/test/performance-metrics?benchmark=SPY")
 
         assert resp.status_code == 422
         msg = resp.json()["error"]["message"].lower()
@@ -214,9 +210,7 @@ class TestGetPerformanceMetrics:
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
 
-            resp = client.get(
-                f"{BASE_URL}/test/performance-metrics?benchmark=QQQ"
-            )
+            resp = client.get(f"{BASE_URL}/test/performance-metrics?benchmark=QQQ")
 
         assert resp.status_code == 200
 
@@ -244,7 +238,9 @@ class TestGetPerformanceMetrics:
 
     @pytest.mark.parametrize("period", ["1Y", "3Y", "5Y", "MAX"])
     def test_accepts_period_query_param(
-        self, client: TestClient, period: str,
+        self,
+        client: TestClient,
+        period: str,
     ):
         """Issue #433: performance-metrics must honor a ``period`` query param.
 
@@ -266,9 +262,7 @@ class TestGetPerformanceMetrics:
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
 
-            resp = client.get(
-                f"{BASE_URL}/myport/performance-metrics?period={period}"
-            )
+            resp = client.get(f"{BASE_URL}/myport/performance-metrics?period={period}")
 
         assert resp.status_code == 200
 
@@ -281,9 +275,7 @@ class TestGetPerformanceMetrics:
             repo.get_by_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
-            resp = client.get(
-                f"{BASE_URL}/myport/performance-metrics?period=10Y"
-            )
+            resp = client.get(f"{BASE_URL}/myport/performance-metrics?period=10Y")
 
         assert resp.status_code == 422
 
@@ -318,9 +310,7 @@ class TestGetPerformanceMetrics:
             dash = MockDashRepo.return_value
             dash.get_multi_ticker_prices.return_value = prices
 
-            resp = client.get(
-                f"{BASE_URL}/myport/performance-metrics?period={period}"
-            )
+            resp = client.get(f"{BASE_URL}/myport/performance-metrics?period={period}")
 
         assert resp.status_code == 200
         call_args = dash.get_multi_ticker_prices.call_args
@@ -349,7 +339,9 @@ def _make_snapshot_with_sectors(
 ) -> MagicMock:
     s = MagicMock()
     s.weights = weights or _SAMPLE_WEIGHTS
-    s.sector_mapping = sector_mapping if sector_mapping is not None else _SAMPLE_SECTOR_MAP
+    s.sector_mapping = (
+        sector_mapping if sector_mapping is not None else _SAMPLE_SECTOR_MAP
+    )
     return s
 
 
@@ -584,9 +576,7 @@ class TestGetRollingMetrics:
             dash.instrument_exists.return_value = False
             dash.get_multi_ticker_prices.return_value = prices
 
-            resp = client.get(
-                f"{BASE_URL}/test/rolling-metrics?benchmark=FAKE"
-            )
+            resp = client.get(f"{BASE_URL}/test/rolling-metrics?benchmark=FAKE")
 
         assert resp.status_code == 422
         msg = resp.json()["error"]["message"].lower()
@@ -611,9 +601,7 @@ class TestGetRollingMetrics:
             dash.instrument_exists.return_value = True
             dash.get_multi_ticker_prices.return_value = prices
 
-            resp = client.get(
-                f"{BASE_URL}/test/rolling-metrics?benchmark=URTH"
-            )
+            resp = client.get(f"{BASE_URL}/test/rolling-metrics?benchmark=URTH")
 
         assert resp.status_code == 422
         msg = resp.json()["error"]["message"].lower()

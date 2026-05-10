@@ -21,7 +21,7 @@ BASE_URL = "/api/v1/jobs"
 _MOCK_JOB_ID = "00000000-0000-0000-0000-000000000099"
 
 # Patch target: the repository's get() method as called inside the stream generator
-_REPO_GET = "app.api.v1.jobs.BackgroundJobRepository"
+_REPO_GET = "app.api.v1.jobs.jobs.BackgroundJobRepository"
 
 
 def _make_job_row(
@@ -50,9 +50,9 @@ def _parse_sse_events(text: str) -> list[dict[str, str]]:
     current: dict[str, str] = {}
     for line in text.splitlines():
         if line.startswith("event:"):
-            current["event"] = line[len("event:"):].strip()
+            current["event"] = line[len("event:") :].strip()
         elif line.startswith("data:"):
-            current["data"] = line[len("data:"):].strip()
+            current["data"] = line[len("data:") :].strip()
         elif line == "" and current:
             events.append(current)
             current = {}
@@ -79,7 +79,10 @@ class TestStreamInvalidInterval:
     def test_interval_at_max_is_accepted(self, client: TestClient) -> None:
         """interval=10 is the boundary maximum — must not return 422."""
         completed_row = _make_job_row(status="completed", current=100)
-        with patch(_REPO_GET) as MockRepo, patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(_REPO_GET) as MockRepo,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             instance = MockRepo.return_value
             # pre-flight check + generator immediate done
             instance.get.return_value = completed_row
@@ -161,7 +164,10 @@ class TestStreamProgressEvents:
         running_row = _make_job_row(status="running", current=10, total=100)
         completed_row = _make_job_row(status="completed", current=100, total=100)
         # side_effect order: [pre-flight check, generator poll 1, generator poll 2]
-        with patch(_REPO_GET) as MockRepo, patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(_REPO_GET) as MockRepo,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             instance = MockRepo.return_value
             instance.get.side_effect = [running_row, running_row, completed_row]
             resp = client.get(
@@ -194,7 +200,10 @@ class TestStreamProgressEvents:
         running_row = _make_job_row(status="running", current=5, total=20)
         completed_row = _make_job_row(status="completed", current=20, total=20)
         # side_effect order: [pre-flight check, generator poll 1, generator poll 2]
-        with patch(_REPO_GET) as MockRepo, patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(_REPO_GET) as MockRepo,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             instance = MockRepo.return_value
             instance.get.side_effect = [running_row, running_row, completed_row]
             resp = client.get(f"{BASE_URL}/{_MOCK_JOB_ID}/stream")
@@ -225,7 +234,10 @@ class TestStreamProgressEvents:
         running_row = _make_job_row(status="running")
         completed_row = _make_job_row(status="completed")
         # side_effect: [pre-flight, generator poll 1 (running), generator poll 2 (done)]
-        with patch(_REPO_GET) as MockRepo, patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(_REPO_GET) as MockRepo,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             instance = MockRepo.return_value
             instance.get.side_effect = [running_row, running_row, completed_row]
             client.get(f"{BASE_URL}/{_MOCK_JOB_ID}/stream")

@@ -13,7 +13,7 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.portfolio import (
+from app.models.portfolio.portfolio import (
     Portfolio,
     PortfolioSnapshot,
     SnapshotOptimizerParam,
@@ -21,7 +21,7 @@ from app.models.portfolio import (
     SnapshotSummaryEntry,
     SnapshotWeight,
 )
-from app.repositories.portfolio_repository import PortfolioRepository
+from app.repositories.portfolio.portfolio_repository import PortfolioRepository
 
 # ---------------------------------------------------------------------------
 # Helpers

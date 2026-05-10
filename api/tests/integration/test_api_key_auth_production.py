@@ -43,8 +43,8 @@ from sqlalchemy.pool import StaticPool
 from app.config import settings
 from app.database import get_db
 from app.main import create_application
-from app.models.api_key import ApiKey
-from app.models.base import Base
+from app.models._shared import Base
+from app.models.auth.api_key import ApiKey
 
 # ---------------------------------------------------------------------------
 # Fixtures — isolated SQLite engine + production app factory
@@ -67,7 +67,9 @@ def auth_engine():
 @pytest.fixture
 def auth_session(auth_engine) -> Generator[Session, None, None]:
     """Fresh session per test; rolled back on teardown so state never leaks."""
-    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=auth_engine)
+    TestingSessionLocal = sessionmaker(
+        autocommit=False, autoflush=False, bind=auth_engine
+    )
     session = TestingSessionLocal()
     try:
         yield session
@@ -120,7 +122,9 @@ def client(production_app: FastAPI) -> Generator[TestClient, None, None]:
 # ---------------------------------------------------------------------------
 
 
-def _make_key(session: Session, *, is_active: bool = True, name: str = "int-key") -> str:
+def _make_key(
+    session: Session, *, is_active: bool = True, name: str = "int-key"
+) -> str:
     """Seed an ``ApiKey`` row and return the plaintext token."""
     plaintext = secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(plaintext.encode()).hexdigest()

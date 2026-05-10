@@ -1,13 +1,8 @@
-from app.models.background_job import BackgroundJob, BackgroundJobError
-from app.models.base import (
-    Base,
-    BaseModel,
-    TimestampMixin,
-    UUIDPrimaryKeyMixin,
-)
-from app.models.execution import BacktestRun, OptimizationRun
-from app.models.factor import FactorScore, FactorValidationReport
-from app.models.macro_regime import (
+from app.models._shared import Base, BaseModel, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.execution.execution import BacktestRun, OptimizationRun
+from app.models.factors.factor import FactorScore, FactorValidationReport
+from app.models.jobs.background_job import BackgroundJob, BackgroundJobError
+from app.models.macro.macro_regime import (
     BondYield,
     EconomicIndicator,
     MacroCalibration,
@@ -16,22 +11,7 @@ from app.models.macro_regime import (
     MacroNewsTheme,
     TradingEconomicsIndicator,
 )
-from app.models.portfolio import (
-    ActivityEvent,
-    ActivityEventDetail,
-    BrokerAccountSnapshot,
-    BrokerPosition,
-    Portfolio,
-    PortfolioSnapshot,
-    SnapshotOptimizerParam,
-    SnapshotSectorMapping,
-    SnapshotSummaryEntry,
-    SnapshotWeight,
-)
-from app.models.rebalancing import RebalancingPolicy
-from app.models.risk import RiskLimit
-from app.models.universe import Exchange, Instrument
-from app.models.yfinance_data import (
+from app.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
     Dividend,
@@ -44,6 +24,21 @@ from app.models.yfinance_data import (
     TickerNews,
     TickerProfile,
 )
+from app.models.portfolio.portfolio import (
+    ActivityEvent,
+    ActivityEventDetail,
+    BrokerAccountSnapshot,
+    BrokerPosition,
+    Portfolio,
+    PortfolioSnapshot,
+    SnapshotOptimizerParam,
+    SnapshotSectorMapping,
+    SnapshotSummaryEntry,
+    SnapshotWeight,
+)
+from app.models.rebalancing.rebalancing import RebalancingPolicy
+from app.models.risk.risk import RiskLimit
+from app.models.universe.universe import Exchange, Instrument
 
 __all__ = [
     "ActivityEvent",

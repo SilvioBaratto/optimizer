@@ -1,4 +1,4 @@
-"""Unit tests for app.services.tuning_service.
+"""Unit tests for app.services.optimization.tuning_service.
 
 Covers:
   - search_type="grid"        → build_grid_search_cv is called
@@ -14,14 +14,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-_BUILD_PIPELINE = "app.services.tuning_service.build_pipeline"
-_BUILD_GRID = "app.services.tuning_service.build_grid_search_cv"
-_BUILD_RAND = "app.services.tuning_service.build_randomized_search_cv"
+_BUILD_PIPELINE = "app.services.optimization.tuning_service.build_pipeline"
+_BUILD_GRID = "app.services.optimization.tuning_service.build_grid_search_cv"
+_BUILD_RAND = "app.services.optimization.tuning_service.build_randomized_search_cv"
 
 
 def _make_request(search_type: str = "grid", **overrides: Any):
     """Return a TuneRequest-like object without hitting Pydantic validation."""
-    from app.schemas.tuning import TuneRequest
+    from app.schemas.optimization.tuning import TuneRequest
 
     data: dict[str, Any] = {
         "tickers": ["AAPL", "MSFT"],
@@ -77,7 +77,7 @@ class TestRunTuneGrid:
             patch(_BUILD_GRID, return_value=search_cv) as mock_grid,
             patch(_BUILD_RAND) as mock_rand,
         ):
-            from app.services.tuning_service import run_tune
+            from app.services.optimization.tuning_service import run_tune
 
             run_tune(session, request)
 
@@ -99,7 +99,7 @@ class TestRunTuneRandomized:
             patch(_BUILD_GRID) as mock_grid,
             patch(_BUILD_RAND, return_value=search_cv) as mock_rand,
         ):
-            from app.services.tuning_service import run_tune
+            from app.services.optimization.tuning_service import run_tune
 
             run_tune(session, request)
 
@@ -114,8 +114,10 @@ class TestRunTuneUnknownOptimizer:
         request = _make_request(optimizer_type="not_real")
         session = MagicMock()
 
-        with patch(_BUILD_PIPELINE, side_effect=ValueError("Unsupported optimizer_type")):
-            from app.services.tuning_service import run_tune
+        with patch(
+            _BUILD_PIPELINE, side_effect=ValueError("Unsupported optimizer_type")
+        ):
+            from app.services.optimization.tuning_service import run_tune
 
             with pytest.raises(ValueError, match="Unsupported optimizer_type"):
                 run_tune(session, request)

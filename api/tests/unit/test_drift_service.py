@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.services.dashboard_service import (
+from app.services.dashboard.dashboard_service import (
     _actual_weights_from_positions,
     _actual_weights_from_prices,
     compute_drift,
@@ -20,8 +20,18 @@ from app.services.dashboard_service import (
 class TestActualWeightsFromPositions:
     def test_valid_positions(self):
         positions = [
-            {"yfinance_ticker": "AAPL", "name": "Apple", "quantity": 10, "current_price": 100.0},
-            {"yfinance_ticker": "MSFT", "name": "Microsoft", "quantity": 20, "current_price": 50.0},
+            {
+                "yfinance_ticker": "AAPL",
+                "name": "Apple",
+                "quantity": 10,
+                "current_price": 100.0,
+            },
+            {
+                "yfinance_ticker": "MSFT",
+                "name": "Microsoft",
+                "quantity": 20,
+                "current_price": 50.0,
+            },
         ]
         result = _actual_weights_from_positions(positions)
         assert result is not None
@@ -30,8 +40,18 @@ class TestActualWeightsFromPositions:
 
     def test_excludes_none_current_price(self):
         positions = [
-            {"yfinance_ticker": "AAPL", "name": "Apple", "quantity": 10, "current_price": 100.0},
-            {"yfinance_ticker": "MSFT", "name": "Microsoft", "quantity": 20, "current_price": None},
+            {
+                "yfinance_ticker": "AAPL",
+                "name": "Apple",
+                "quantity": 10,
+                "current_price": 100.0,
+            },
+            {
+                "yfinance_ticker": "MSFT",
+                "name": "Microsoft",
+                "quantity": 20,
+                "current_price": None,
+            },
         ]
         result = _actual_weights_from_positions(positions)
         assert result is not None
@@ -40,8 +60,18 @@ class TestActualWeightsFromPositions:
 
     def test_excludes_none_yfinance_ticker(self):
         positions = [
-            {"yfinance_ticker": None, "name": "Unknown", "quantity": 10, "current_price": 100.0},
-            {"yfinance_ticker": "AAPL", "name": "Apple", "quantity": 10, "current_price": 100.0},
+            {
+                "yfinance_ticker": None,
+                "name": "Unknown",
+                "quantity": 10,
+                "current_price": 100.0,
+            },
+            {
+                "yfinance_ticker": "AAPL",
+                "name": "Apple",
+                "quantity": 10,
+                "current_price": 100.0,
+            },
         ]
         result = _actual_weights_from_positions(positions)
         assert result is not None
@@ -49,8 +79,18 @@ class TestActualWeightsFromPositions:
 
     def test_all_excluded_returns_none(self):
         positions = [
-            {"yfinance_ticker": None, "name": "X", "quantity": 10, "current_price": 100.0},
-            {"yfinance_ticker": "MSFT", "name": "Microsoft", "quantity": 20, "current_price": None},
+            {
+                "yfinance_ticker": None,
+                "name": "X",
+                "quantity": 10,
+                "current_price": 100.0,
+            },
+            {
+                "yfinance_ticker": "MSFT",
+                "name": "Microsoft",
+                "quantity": 20,
+                "current_price": None,
+            },
         ]
         assert _actual_weights_from_positions(positions) is None
 
@@ -110,8 +150,18 @@ class TestComputeDrift:
     def test_primary_path_with_positions(self):
         target = {"AAPL": 0.5, "MSFT": 0.5}
         positions = [
-            {"yfinance_ticker": "AAPL", "name": "Apple", "quantity": 10, "current_price": 120.0},
-            {"yfinance_ticker": "MSFT", "name": "Microsoft", "quantity": 10, "current_price": 80.0},
+            {
+                "yfinance_ticker": "AAPL",
+                "name": "Apple",
+                "quantity": 10,
+                "current_price": 120.0,
+            },
+            {
+                "yfinance_ticker": "MSFT",
+                "name": "Microsoft",
+                "quantity": 10,
+                "current_price": 80.0,
+            },
         ]
         result = compute_drift(target, positions, threshold=0.05)
         assert len(result["entries"]) == 2
@@ -139,9 +189,24 @@ class TestComputeDrift:
     def test_sorted_by_abs_drift_descending(self):
         target = {"A": 0.5, "B": 0.3, "C": 0.2}
         positions = [
-            {"yfinance_ticker": "A", "name": "A Inc", "quantity": 10, "current_price": 50.0},
-            {"yfinance_ticker": "B", "name": "B Inc", "quantity": 10, "current_price": 40.0},
-            {"yfinance_ticker": "C", "name": "C Inc", "quantity": 10, "current_price": 10.0},
+            {
+                "yfinance_ticker": "A",
+                "name": "A Inc",
+                "quantity": 10,
+                "current_price": 50.0,
+            },
+            {
+                "yfinance_ticker": "B",
+                "name": "B Inc",
+                "quantity": 10,
+                "current_price": 40.0,
+            },
+            {
+                "yfinance_ticker": "C",
+                "name": "C Inc",
+                "quantity": 10,
+                "current_price": 10.0,
+            },
         ]
         result = compute_drift(target, positions, threshold=0.01)
         drifts = [abs(e["drift"]) for e in result["entries"]]
@@ -150,8 +215,18 @@ class TestComputeDrift:
     def test_breached_count(self):
         target = {"AAPL": 0.5, "MSFT": 0.5}
         positions = [
-            {"yfinance_ticker": "AAPL", "name": "Apple", "quantity": 10, "current_price": 120.0},
-            {"yfinance_ticker": "MSFT", "name": "Microsoft", "quantity": 10, "current_price": 80.0},
+            {
+                "yfinance_ticker": "AAPL",
+                "name": "Apple",
+                "quantity": 10,
+                "current_price": 120.0,
+            },
+            {
+                "yfinance_ticker": "MSFT",
+                "name": "Microsoft",
+                "quantity": 10,
+                "current_price": 80.0,
+            },
         ]
         result = compute_drift(target, positions, threshold=0.05)
         assert result["breached_count"] == 2  # both drift ±0.1 > 0.05
@@ -159,8 +234,18 @@ class TestComputeDrift:
     def test_total_drift(self):
         target = {"AAPL": 0.5, "MSFT": 0.5}
         positions = [
-            {"yfinance_ticker": "AAPL", "name": "Apple", "quantity": 10, "current_price": 120.0},
-            {"yfinance_ticker": "MSFT", "name": "Microsoft", "quantity": 10, "current_price": 80.0},
+            {
+                "yfinance_ticker": "AAPL",
+                "name": "Apple",
+                "quantity": 10,
+                "current_price": 120.0,
+            },
+            {
+                "yfinance_ticker": "MSFT",
+                "name": "Microsoft",
+                "quantity": 10,
+                "current_price": 80.0,
+            },
         ]
         result = compute_drift(target, positions, threshold=0.05)
         assert result["total_drift"] == pytest.approx(0.2)
@@ -168,8 +253,18 @@ class TestComputeDrift:
     def test_zero_threshold_all_breached(self):
         target = {"AAPL": 0.5, "MSFT": 0.5}
         positions = [
-            {"yfinance_ticker": "AAPL", "name": "Apple", "quantity": 11, "current_price": 100.0},
-            {"yfinance_ticker": "MSFT", "name": "Microsoft", "quantity": 10, "current_price": 100.0},
+            {
+                "yfinance_ticker": "AAPL",
+                "name": "Apple",
+                "quantity": 11,
+                "current_price": 100.0,
+            },
+            {
+                "yfinance_ticker": "MSFT",
+                "name": "Microsoft",
+                "quantity": 10,
+                "current_price": 100.0,
+            },
         ]
         result = compute_drift(target, positions, threshold=0.0)
         assert result["breached_count"] == 2
@@ -177,7 +272,12 @@ class TestComputeDrift:
     def test_ticker_in_target_not_in_actual(self):
         target = {"AAPL": 0.6, "MISSING": 0.4}
         positions = [
-            {"yfinance_ticker": "AAPL", "name": "Apple", "quantity": 10, "current_price": 100.0},
+            {
+                "yfinance_ticker": "AAPL",
+                "name": "Apple",
+                "quantity": 10,
+                "current_price": 100.0,
+            },
         ]
         result = compute_drift(target, positions, threshold=0.05)
         missing = next(e for e in result["entries"] if e["ticker"] == "MISSING")

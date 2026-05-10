@@ -16,9 +16,11 @@ from uuid import uuid4
 
 import pandas as pd
 
-from app.services.yfinance.protocols.interfaces import FinancialsClientProtocol
-from app.services.yfinance.ticker.financials import FinancialsClient
-from app.services.yfinance_data_service import YFinanceDataService
+from app.services.market_data.yfinance.protocols.interfaces import (
+    FinancialsClientProtocol,
+)
+from app.services.market_data.yfinance.ticker.financials import FinancialsClient
+from app.services.market_data.yfinance_data_service import YFinanceDataService
 
 _DEPRECATION_MESSAGE = "'Ticker.earnings' is deprecated"
 
@@ -86,21 +88,23 @@ def _run_fetch_and_store(
     return SimpleNamespace(repo=repo, yf_client=yf_client)
 
 
-def test_when_fetch_and_store_runs_then_no_ticker_earnings_deprecation_warning() -> None:
+def test_when_fetch_and_store_runs_then_no_ticker_earnings_deprecation_warning() -> (
+    None
+):
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         _run_fetch_and_store()
 
-    earnings_warnings = [
-        w for w in caught if _DEPRECATION_MESSAGE in str(w.message)
-    ]
+    earnings_warnings = [w for w in caught if _DEPRECATION_MESSAGE in str(w.message)]
     assert earnings_warnings == [], (
         f"Expected zero 'Ticker.earnings' deprecation warnings, "
         f"got: {[str(w.message) for w in earnings_warnings]}"
     )
 
 
-def test_when_income_statement_returns_data_then_upsert_uses_income_statement_type() -> None:
+def test_when_income_statement_returns_data_then_upsert_uses_income_statement_type() -> (
+    None
+):
     income_df = pd.DataFrame(
         {pd.Timestamp("2025-12-31"): [1_000.0]},
         index=["TotalRevenue"],

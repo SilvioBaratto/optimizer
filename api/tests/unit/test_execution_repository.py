@@ -11,7 +11,7 @@ import uuid
 import pytest
 from sqlalchemy.orm import Session
 
-from app.repositories.execution_repository import ExecutionRepository
+from app.repositories.execution.execution_repository import ExecutionRepository
 
 # ---------------------------------------------------------------------------
 # Helpers

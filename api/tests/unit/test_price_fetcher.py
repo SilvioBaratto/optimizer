@@ -31,7 +31,8 @@ def _make_repo(ticker_to_rows: dict[str, list]) -> MagicMock:
     def get_price_history(instrument_id, start_date=None, end_date=None, **_):
         rows = ticker_to_rows.get(instrument_id, [])
         return [
-            r for r in rows
+            r
+            for r in rows
             if (start_date is None or r.date >= start_date)
             and (end_date is None or r.date <= end_date)
         ]
@@ -57,7 +58,7 @@ class TestFetchClosePricesReturnsDataFrame:
     """fetch_close_prices returns a DataFrame indexed by date."""
 
     def test_returns_dataframe(self) -> None:
-        from app.services._price_fetcher import fetch_close_prices
+        from app.services._shared import fetch_close_prices
 
         rows = [_make_row(date(2024, 1, 2), 100.0), _make_row(date(2024, 1, 3), 101.0)]
         repo = _make_repo({"AAPL": rows})
@@ -70,7 +71,7 @@ class TestFetchClosePricesReturnsDataFrame:
         assert "AAPL" in result.columns
 
     def test_prices_sorted_ascending_by_date(self) -> None:
-        from app.services._price_fetcher import fetch_close_prices
+        from app.services._shared import fetch_close_prices
 
         rows = [
             _make_row(date(2024, 1, 3), 101.0),
@@ -85,12 +86,14 @@ class TestFetchClosePricesReturnsDataFrame:
         assert list(result.index) == sorted(result.index)
 
     def test_multiple_tickers_become_columns(self) -> None:
-        from app.services._price_fetcher import fetch_close_prices
+        from app.services._shared import fetch_close_prices
 
-        repo = _make_repo({
-            "AAPL": [_make_row(date(2024, 1, 2), 100.0)],
-            "MSFT": [_make_row(date(2024, 1, 2), 200.0)],
-        })
+        repo = _make_repo(
+            {
+                "AAPL": [_make_row(date(2024, 1, 2), 100.0)],
+                "MSFT": [_make_row(date(2024, 1, 2), 200.0)],
+            }
+        )
         session = MagicMock()
 
         with _patch_repo(repo):
@@ -108,7 +111,7 @@ class TestFetchClosePricesDateFiltering:
     """start_date / end_date are passed to the repository."""
 
     def test_date_range_forwarded_to_repository(self) -> None:
-        from app.services._price_fetcher import fetch_close_prices
+        from app.services._shared import fetch_close_prices
 
         rows = [
             _make_row(date(2024, 1, 1), 99.0),
@@ -130,7 +133,7 @@ class TestFetchClosePricesDateFiltering:
         assert len(result) == 2
 
     def test_no_dates_returns_all_rows(self) -> None:
-        from app.services._price_fetcher import fetch_close_prices
+        from app.services._shared import fetch_close_prices
 
         rows = [_make_row(date(2024, 1, i), float(i)) for i in range(1, 6)]
         repo = _make_repo({"AAPL": rows})
@@ -151,7 +154,7 @@ class TestFetchClosePricesEdgeCases:
     """Handles missing tickers and None close values gracefully."""
 
     def test_unknown_ticker_silently_dropped(self) -> None:
-        from app.services._price_fetcher import fetch_close_prices
+        from app.services._shared import fetch_close_prices
 
         repo = _make_repo({})
         session = MagicMock()
@@ -162,7 +165,7 @@ class TestFetchClosePricesEdgeCases:
         assert result.empty
 
     def test_none_close_value_excluded(self) -> None:
-        from app.services._price_fetcher import fetch_close_prices
+        from app.services._shared import fetch_close_prices
 
         rows = [
             _make_row(date(2024, 1, 2), None),
@@ -178,7 +181,7 @@ class TestFetchClosePricesEdgeCases:
         assert date(2024, 1, 2) not in result.index
 
     def test_empty_ticker_list_returns_empty_dataframe(self) -> None:
-        from app.services._price_fetcher import fetch_close_prices
+        from app.services._shared import fetch_close_prices
 
         repo = _make_repo({})
         session = MagicMock()
@@ -200,7 +203,7 @@ class TestAttributionServiceUsesRepository:
 
     def test_uses_repository_not_raw_sql(self) -> None:
         """Repository get_instrument_by_yfinance_ticker called, not session.execute."""
-        from app.services.attribution_service import _fetch_ticker_returns
+        from app.services.attribution.attribution_service import _fetch_ticker_returns
 
         repo = MagicMock()
         inst = MagicMock()
@@ -226,7 +229,7 @@ class TestAttributionServiceUsesRepository:
         assert result["AAPL"] == pytest.approx(0.1)
 
     def test_missing_ticker_skipped(self) -> None:
-        from app.services.attribution_service import _fetch_ticker_returns
+        from app.services.attribution.attribution_service import _fetch_ticker_returns
 
         repo = MagicMock()
         repo.get_instrument_by_yfinance_ticker.return_value = None
@@ -249,7 +252,7 @@ def _patch_repo(repo: MagicMock):
     from unittest.mock import patch
 
     return patch(
-        "app.services._price_fetcher.YFinanceRepository",
+        "app.services._shared._price_fetcher.YFinanceRepository",
         return_value=repo,
     )
 
@@ -258,6 +261,6 @@ def _patch_repo_attribution(repo: MagicMock):
     from unittest.mock import patch
 
     return patch(
-        "app.services.attribution_service.YFinanceRepository",
+        "app.services.attribution.attribution_service.YFinanceRepository",
         return_value=repo,
     )

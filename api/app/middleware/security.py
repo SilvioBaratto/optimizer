@@ -44,9 +44,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         # HSTS only in production (breaks localhost by forcing HTTPS)
         if not settings.is_development and not settings.debug:
-            headers["Strict-Transport-Security"] = (
-                "max-age=31536000; includeSubDomains"
-            )
+            headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
         # Content Security Policy based on endpoint and environment
         if is_docs_endpoint and (settings.debug or settings.is_development):

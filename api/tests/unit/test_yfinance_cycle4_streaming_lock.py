@@ -22,11 +22,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.yfinance.market.streaming import (
+from app.services.market_data.yfinance.market.streaming import (
     AsyncStreamingClient,
     StreamingClient,
 )
-from app.services.yfinance.protocols import (
+from app.services.market_data.yfinance.protocols import (
     AsyncStreamingClientProtocol,
     StreamingClientProtocol,
 )
@@ -53,7 +53,7 @@ def test_when_20_threads_subscribe_then_yf_websocket_constructed_once() -> None:
     errors: list[BaseException] = []
 
     with patch(
-        "app.services.yfinance.market.streaming.yf.WebSocket",
+        "app.services.market_data.yfinance.market.streaming.yf.WebSocket",
         side_effect=fake_ws_factory,
     ):
 
@@ -72,7 +72,9 @@ def test_when_20_threads_subscribe_then_yf_websocket_constructed_once() -> None:
             t.join(timeout=15.0)
 
     assert not errors, f"Worker threads raised: {errors!r}"
-    assert counter["n"] == 1, f"yf.WebSocket constructed {counter['n']} times, expected 1"
+    assert counter["n"] == 1, (
+        f"yf.WebSocket constructed {counter['n']} times, expected 1"
+    )
 
 
 async def test_when_20_tasks_subscribe_async_then_yf_async_websocket_constructed_once() -> (
@@ -102,7 +104,7 @@ async def test_when_20_tasks_subscribe_async_then_yf_async_websocket_constructed
     start_event = asyncio.Event()
 
     with patch(
-        "app.services.yfinance.market.streaming.yf.AsyncWebSocket",
+        "app.services.market_data.yfinance.market.streaming.yf.AsyncWebSocket",
         side_effect=sync_factory,
     ):
 

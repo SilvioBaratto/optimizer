@@ -23,11 +23,12 @@ class TestRebalancingPolicyCreate:
     """RebalancingPolicyCreate validates POST request bodies."""
 
     def test_importable(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyCreate
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyCreate
+
         _ = RebalancingPolicyCreate
 
     def test_valid_create(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyCreate
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyCreate
 
         create = RebalancingPolicyCreate(
             name="Monthly Threshold",
@@ -38,7 +39,7 @@ class TestRebalancingPolicyCreate:
         assert create.policy_type == "calendar"
 
     def test_empty_name_raises(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyCreate
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyCreate
 
         with pytest.raises(ValidationError):
             RebalancingPolicyCreate(
@@ -48,7 +49,7 @@ class TestRebalancingPolicyCreate:
             )
 
     def test_optional_config_defaults_to_empty(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyCreate
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyCreate
 
         create = RebalancingPolicyCreate(
             name="Simple Policy",
@@ -75,11 +76,12 @@ class TestRebalancingPolicyResponse:
         return SimpleNamespace(**defaults)
 
     def test_importable(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyResponse
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyResponse
+
         _ = RebalancingPolicyResponse
 
     def test_orm_deserialization_succeeds(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyResponse
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyResponse
 
         orm_obj = self._make_orm()
         response = RebalancingPolicyResponse.model_validate(orm_obj)
@@ -87,11 +89,11 @@ class TestRebalancingPolicyResponse:
         assert response.is_active is True
 
     def test_camel_case_output(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyResponse
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyResponse
 
-        data = RebalancingPolicyResponse.model_validate(
-            self._make_orm()
-        ).model_dump(by_alias=True)
+        data = RebalancingPolicyResponse.model_validate(self._make_orm()).model_dump(
+            by_alias=True
+        )
         assert "portfolioId" in data
         assert "policyType" in data
         assert "isActive" in data
@@ -99,7 +101,7 @@ class TestRebalancingPolicyResponse:
         assert "updatedAt" in data
 
     def test_id_and_portfolio_id_as_strings(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyResponse
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyResponse
 
         uid = uuid.uuid4()
         pid = uuid.uuid4()
@@ -110,7 +112,7 @@ class TestRebalancingPolicyResponse:
         assert response.portfolio_id == str(pid)
 
     def test_is_active_false(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyResponse
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyResponse
 
         response = RebalancingPolicyResponse.model_validate(
             self._make_orm(is_active=False)
@@ -118,7 +120,7 @@ class TestRebalancingPolicyResponse:
         assert response.is_active is False
 
     def test_round_trip_serialization(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyResponse
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyResponse
 
         uid = uuid.uuid4()
         orm_obj = self._make_orm(id=uid)
@@ -132,17 +134,18 @@ class TestRebalancingPolicyListResponse:
     """RebalancingPolicyListResponse wraps paginated results."""
 
     def test_importable(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyListResponse
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyListResponse
+
         _ = RebalancingPolicyListResponse
 
     def test_empty_list(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyListResponse
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyListResponse
 
         resp = RebalancingPolicyListResponse(items=[], total=0)
         assert resp.total == 0
 
     def test_camel_case_keys(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyListResponse
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyListResponse
 
         resp = RebalancingPolicyListResponse(items=[], total=5)
         data = resp.model_dump(by_alias=True)
@@ -150,7 +153,7 @@ class TestRebalancingPolicyListResponse:
         assert "total" in data
 
     def test_total_must_be_non_negative(self) -> None:
-        from app.schemas.rebalancing import RebalancingPolicyListResponse
+        from app.schemas.rebalancing.rebalancing import RebalancingPolicyListResponse
 
         with pytest.raises(ValidationError):
             RebalancingPolicyListResponse(items=[], total=-1)

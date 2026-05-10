@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.models.macro_regime import MacroCalibration
-from app.repositories.macro_regime_repository import MacroRegimeRepository
+from app.models.macro.macro_regime import MacroCalibration
+from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 
 
 def _row(session: Session, country: str) -> MacroCalibration | None:

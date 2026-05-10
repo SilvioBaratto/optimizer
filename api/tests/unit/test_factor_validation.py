@@ -72,7 +72,7 @@ class TestPostFactorValidate:
 
     def test_in_sample_returns_200(self, client: TestClient) -> None:
         with patch(
-            "app.api.v1.factors.validate_factors",
+            "app.api.v1.factors.factors.validate_factors",
             return_value=_MOCK_VALIDATE_RESULT,
         ):
             resp = client.post(BASE_VALIDATE, json=_VALID_VALIDATE_REQUEST)
@@ -81,7 +81,7 @@ class TestPostFactorValidate:
 
     def test_in_sample_returns_ic_mean(self, client: TestClient) -> None:
         with patch(
-            "app.api.v1.factors.validate_factors",
+            "app.api.v1.factors.factors.validate_factors",
             return_value=_MOCK_VALIDATE_RESULT,
         ):
             resp = client.post(BASE_VALIDATE, json=_VALID_VALIDATE_REQUEST)
@@ -90,7 +90,7 @@ class TestPostFactorValidate:
 
     def test_in_sample_returns_t_stat(self, client: TestClient) -> None:
         with patch(
-            "app.api.v1.factors.validate_factors",
+            "app.api.v1.factors.factors.validate_factors",
             return_value=_MOCK_VALIDATE_RESULT,
         ):
             resp = client.post(BASE_VALIDATE, json=_VALID_VALIDATE_REQUEST)
@@ -99,7 +99,7 @@ class TestPostFactorValidate:
 
     def test_in_sample_returns_validation_type(self, client: TestClient) -> None:
         with patch(
-            "app.api.v1.factors.validate_factors",
+            "app.api.v1.factors.factors.validate_factors",
             return_value=_MOCK_VALIDATE_RESULT,
         ):
             resp = client.post(BASE_VALIDATE, json=_VALID_VALIDATE_REQUEST)
@@ -110,7 +110,7 @@ class TestPostFactorValidate:
         oos_result = {**_MOCK_VALIDATE_RESULT, "validation_type": "out_of_sample"}
         payload = {**_VALID_VALIDATE_REQUEST, "validation_type": "out_of_sample"}
         with patch(
-            "app.api.v1.factors.validate_factors",
+            "app.api.v1.factors.factors.validate_factors",
             return_value=oos_result,
         ):
             resp = client.post(BASE_VALIDATE, json=payload)
@@ -124,11 +124,15 @@ class TestPostFactorValidate:
         assert resp.status_code == 422
 
     def test_empty_tickers_returns_422(self, client: TestClient) -> None:
-        resp = client.post(BASE_VALIDATE, json={**_VALID_VALIDATE_REQUEST, "tickers": []})
+        resp = client.post(
+            BASE_VALIDATE, json={**_VALID_VALIDATE_REQUEST, "tickers": []}
+        )
         assert resp.status_code == 422
 
     def test_missing_start_date_returns_422(self, client: TestClient) -> None:
-        payload = {k: v for k, v in _VALID_VALIDATE_REQUEST.items() if k != "start_date"}
+        payload = {
+            k: v for k, v in _VALID_VALIDATE_REQUEST.items() if k != "start_date"
+        }
         resp = client.post(BASE_VALIDATE, json=payload)
         assert resp.status_code == 422
 
@@ -138,15 +142,17 @@ class TestPostFactorValidate:
         assert resp.status_code == 422
 
     def test_missing_factor_type_returns_422(self, client: TestClient) -> None:
-        payload = {k: v for k, v in _VALID_VALIDATE_REQUEST.items() if k != "factor_type"}
+        payload = {
+            k: v for k, v in _VALID_VALIDATE_REQUEST.items() if k != "factor_type"
+        }
         resp = client.post(BASE_VALIDATE, json=payload)
         assert resp.status_code == 422
 
     def test_missing_data_returns_422(self, client: TestClient) -> None:
-        from app.services.factor_service import FactorDataError
+        from app.services.factors.factor_service import FactorDataError
 
         with patch(
-            "app.api.v1.factors.validate_factors",
+            "app.api.v1.factors.factors.validate_factors",
             side_effect=FactorDataError("No factor scores found"),
         ):
             resp = client.post(BASE_VALIDATE, json=_VALID_VALIDATE_REQUEST)
@@ -154,9 +160,11 @@ class TestPostFactorValidate:
         assert resp.status_code == 422
 
     def test_default_validation_type_is_in_sample(self, client: TestClient) -> None:
-        payload = {k: v for k, v in _VALID_VALIDATE_REQUEST.items() if k != "validation_type"}
+        payload = {
+            k: v for k, v in _VALID_VALIDATE_REQUEST.items() if k != "validation_type"
+        }
         with patch(
-            "app.api.v1.factors.validate_factors",
+            "app.api.v1.factors.factors.validate_factors",
             return_value=_MOCK_VALIDATE_RESULT,
         ) as mock_validate:
             client.post(BASE_VALIDATE, json=payload)
@@ -165,7 +173,7 @@ class TestPostFactorValidate:
 
     def test_returns_details_field(self, client: TestClient) -> None:
         with patch(
-            "app.api.v1.factors.validate_factors",
+            "app.api.v1.factors.factors.validate_factors",
             return_value=_MOCK_VALIDATE_RESULT,
         ):
             resp = client.post(BASE_VALIDATE, json=_VALID_VALIDATE_REQUEST)
@@ -183,7 +191,7 @@ class TestPostFactorScore:
 
     def test_equal_weight_returns_200(self, client: TestClient) -> None:
         with patch(
-            "app.api.v1.factors.compute_factor_scores",
+            "app.api.v1.factors.factors.compute_factor_scores",
             return_value=_MOCK_SCORE_RESULT,
         ):
             resp = client.post(BASE_SCORE, json=_VALID_SCORE_REQUEST)
@@ -192,7 +200,7 @@ class TestPostFactorScore:
 
     def test_equal_weight_returns_scores(self, client: TestClient) -> None:
         with patch(
-            "app.api.v1.factors.compute_factor_scores",
+            "app.api.v1.factors.factors.compute_factor_scores",
             return_value=_MOCK_SCORE_RESULT,
         ):
             resp = client.post(BASE_SCORE, json=_VALID_SCORE_REQUEST)
@@ -203,7 +211,7 @@ class TestPostFactorScore:
 
     def test_equal_weight_returns_group_contributions(self, client: TestClient) -> None:
         with patch(
-            "app.api.v1.factors.compute_factor_scores",
+            "app.api.v1.factors.factors.compute_factor_scores",
             return_value=_MOCK_SCORE_RESULT,
         ):
             resp = client.post(BASE_SCORE, json=_VALID_SCORE_REQUEST)
@@ -214,7 +222,7 @@ class TestPostFactorScore:
     def test_ic_weighted_accepted(self, client: TestClient) -> None:
         payload = {**_VALID_SCORE_REQUEST, "composite_method": "ic_weighted"}
         with patch(
-            "app.api.v1.factors.compute_factor_scores",
+            "app.api.v1.factors.factors.compute_factor_scores",
             return_value=_MOCK_SCORE_RESULT,
         ):
             resp = client.post(BASE_SCORE, json=payload)
@@ -224,7 +232,7 @@ class TestPostFactorScore:
     def test_icir_weighted_accepted(self, client: TestClient) -> None:
         payload = {**_VALID_SCORE_REQUEST, "composite_method": "icir_weighted"}
         with patch(
-            "app.api.v1.factors.compute_factor_scores",
+            "app.api.v1.factors.factors.compute_factor_scores",
             return_value=_MOCK_SCORE_RESULT,
         ):
             resp = client.post(BASE_SCORE, json=payload)
@@ -239,7 +247,7 @@ class TestPostFactorScore:
             "training_end_date": "2023-12-31",
         }
         with patch(
-            "app.api.v1.factors.compute_factor_scores",
+            "app.api.v1.factors.factors.compute_factor_scores",
             return_value=_MOCK_SCORE_RESULT,
         ):
             resp = client.post(BASE_SCORE, json=payload)
@@ -254,7 +262,7 @@ class TestPostFactorScore:
             "training_end_date": "2023-12-31",
         }
         with patch(
-            "app.api.v1.factors.compute_factor_scores",
+            "app.api.v1.factors.factors.compute_factor_scores",
             return_value=_MOCK_SCORE_RESULT,
         ):
             resp = client.post(BASE_SCORE, json=payload)
@@ -262,7 +270,13 @@ class TestPostFactorScore:
         assert resp.status_code == 200
 
     def test_all_five_methods_accepted(self, client: TestClient) -> None:
-        methods = ["equal_weight", "ic_weighted", "icir_weighted", "ridge_weighted", "gbt_weighted"]
+        methods = [
+            "equal_weight",
+            "ic_weighted",
+            "icir_weighted",
+            "ridge_weighted",
+            "gbt_weighted",
+        ]
         for method in methods:
             payload = {
                 **_VALID_SCORE_REQUEST,
@@ -271,7 +285,7 @@ class TestPostFactorScore:
                 "training_end_date": "2023-12-31",
             }
             with patch(
-                "app.api.v1.factors.compute_factor_scores",
+                "app.api.v1.factors.factors.compute_factor_scores",
                 return_value=_MOCK_SCORE_RESULT,
             ):
                 resp = client.post(BASE_SCORE, json=payload)
@@ -298,10 +312,10 @@ class TestPostFactorScore:
         assert resp.status_code == 422
 
     def test_missing_data_returns_422(self, client: TestClient) -> None:
-        from app.services.factor_service import FactorDataError
+        from app.services.factors.factor_service import FactorDataError
 
         with patch(
-            "app.api.v1.factors.compute_factor_scores",
+            "app.api.v1.factors.factors.compute_factor_scores",
             side_effect=FactorDataError("No standardized factor scores found"),
         ):
             resp = client.post(BASE_SCORE, json=_VALID_SCORE_REQUEST)
@@ -314,7 +328,7 @@ class TestPostFactorScore:
             "group_weights": {"value": 0.6, "momentum": 0.4},
         }
         with patch(
-            "app.api.v1.factors.compute_factor_scores",
+            "app.api.v1.factors.factors.compute_factor_scores",
             return_value=_MOCK_SCORE_RESULT,
         ):
             resp = client.post(BASE_SCORE, json=payload)
@@ -323,7 +337,7 @@ class TestPostFactorScore:
 
     def test_returns_score_date(self, client: TestClient) -> None:
         with patch(
-            "app.api.v1.factors.compute_factor_scores",
+            "app.api.v1.factors.factors.compute_factor_scores",
             return_value=_MOCK_SCORE_RESULT,
         ):
             resp = client.post(BASE_SCORE, json=_VALID_SCORE_REQUEST)

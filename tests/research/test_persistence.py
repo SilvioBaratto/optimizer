@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from datetime import date
 
 import pytest
-from app.models.base import Base
+from app.models._shared.base import Base
 from app.models.portfolio import (
     Portfolio,
     PortfolioSnapshot,

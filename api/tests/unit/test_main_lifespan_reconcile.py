@@ -36,24 +36,22 @@ def _patched_startup(reconcile_return: int = 0, reconcile_exc: Exception | None 
 
     scheduler_mock = MagicMock()
 
-    with patch.object(main_module, "init_db"), \
-         patch.object(
-             main_module.database_manager, "health_check", return_value=True
-         ), \
-         patch.object(
-             main_module.database_manager, "get_session", side_effect=fake_get_session
-         ), \
-         patch.object(
-             main_module, "create_scheduler", return_value=scheduler_mock
-         ), \
-         patch(
-             "app.services._benchmark_bootstrap.bootstrap_benchmarks",
-             return_value=None,
-         ), \
-         patch(
-             "app.repositories.background_job_repository.BackgroundJobRepository",
-             return_value=repo_instance,
-         ) as repo_cls:
+    with (
+        patch.object(main_module, "init_db"),
+        patch.object(main_module.database_manager, "health_check", return_value=True),
+        patch.object(
+            main_module.database_manager, "get_session", side_effect=fake_get_session
+        ),
+        patch.object(main_module, "create_scheduler", return_value=scheduler_mock),
+        patch(
+            "app.services._shared._benchmark_bootstrap.bootstrap_benchmarks",
+            return_value=None,
+        ),
+        patch(
+            "app.repositories.jobs.background_job_repository.BackgroundJobRepository",
+            return_value=repo_instance,
+        ) as repo_cls,
+    ):
         yield {
             "repo_cls": repo_cls,
             "repo": repo_instance,
@@ -92,9 +90,7 @@ async def test_when_reconcile_succeeds_count_logged(caplog) -> None:
     with _patched_startup(reconcile_return=5):
         async with main_module.lifespan(app):
             pass
-    assert any(
-        "Reconciled 5 orphan job" in rec.message for rec in caplog.records
-    )
+    assert any("Reconciled 5 orphan job" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.asyncio
@@ -104,9 +100,7 @@ async def test_when_reconcile_raises_warning_logged(caplog) -> None:
     with _patched_startup(reconcile_exc=RuntimeError("db down")):
         async with main_module.lifespan(app):
             pass
-    assert any(
-        "Orphan reconciliation failed" in rec.message for rec in caplog.records
-    )
+    assert any("Orphan reconciliation failed" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.asyncio
@@ -116,10 +110,12 @@ async def test_when_reconciliation_runs_it_runs_before_scheduler() -> None:
     call_order: list[str] = []
 
     with _patched_startup(reconcile_return=1) as m:
-        m["repo"].reconcile_orphans.side_effect = (
-            lambda *a, **kw: call_order.append("reconcile") or 1
+        m["repo"].reconcile_orphans.side_effect = lambda *a, **kw: (
+            call_order.append("reconcile") or 1
         )
-        m["scheduler"].start.side_effect = lambda *a, **kw: call_order.append("scheduler")
+        m["scheduler"].start.side_effect = lambda *a, **kw: call_order.append(
+            "scheduler"
+        )
         async with main_module.lifespan(app):
             pass
 

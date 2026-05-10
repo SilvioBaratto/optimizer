@@ -15,10 +15,12 @@ from unittest.mock import patch
 
 from sqlalchemy.orm import Session
 
-from app.repositories.background_job_repository import BackgroundJobRepository
+from app.repositories.jobs.background_job_repository import BackgroundJobRepository
 
 
-def _make_stale(repo: BackgroundJobRepository, jid: uuid.UUID, session: Session) -> None:
+def _make_stale(
+    repo: BackgroundJobRepository, jid: uuid.UUID, session: Session
+) -> None:
     """Force the row's heartbeat past the default 5-minute timeout."""
     stale = datetime.now(timezone.utc) - timedelta(minutes=10)
     repo.update(jid, last_heartbeat_at=stale)
@@ -54,8 +56,7 @@ class TestClaimOrCreate:
         repo = BackgroundJobRepository(db_session)
         job_id = repo.claim_or_create("test_job_type_314_d")
         assert job_id is not None
-        repo.update(job_id, status="completed",
-                    finished_at=datetime.now(timezone.utc))
+        repo.update(job_id, status="completed", finished_at=datetime.now(timezone.utc))
         db_session.flush()
 
         second = repo.claim_or_create("test_job_type_314_d")
@@ -66,8 +67,7 @@ class TestClaimOrCreate:
         repo = BackgroundJobRepository(db_session)
         job_id = repo.claim_or_create("test_job_type_314_e")
         assert job_id is not None
-        repo.update(job_id, status="failed",
-                    finished_at=datetime.now(timezone.utc))
+        repo.update(job_id, status="failed", finished_at=datetime.now(timezone.utc))
         db_session.flush()
 
         second = repo.claim_or_create("test_job_type_314_e")
@@ -288,7 +288,8 @@ class TestReconcileOrphans:
         assert count == 0
 
     def test_when_called_twice_second_call_is_noop(
-        self, db_session: Session,
+        self,
+        db_session: Session,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         jid = repo.claim_or_create("test_557_idempotent")
@@ -301,7 +302,8 @@ class TestReconcileOrphans:
         assert second == 0
 
     def test_when_multiple_active_jobs_returns_count(
-        self, db_session: Session,
+        self,
+        db_session: Session,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         for i in range(3):
@@ -313,14 +315,17 @@ class TestReconcileOrphans:
         assert count == 3
 
     def test_when_terminal_jobs_present_does_not_touch_them(
-        self, db_session: Session,
+        self,
+        db_session: Session,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         completed_id = repo.claim_or_create("test_557_mixed_completed")
         assert completed_id is not None
         original_finished = datetime.now(timezone.utc) - timedelta(hours=1)
         repo.update(
-            completed_id, status="completed", finished_at=original_finished,
+            completed_id,
+            status="completed",
+            finished_at=original_finished,
         )
         pending_id = repo.claim_or_create("test_557_mixed_pending")
         assert pending_id is not None
@@ -335,7 +340,8 @@ class TestReconcileOrphans:
         assert completed_row.error is None
 
     def test_marks_pending_and_running_as_failed(
-        self, db_session: Session,
+        self,
+        db_session: Session,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         pending_id = repo.claim_or_create("test_558_pending")
@@ -361,14 +367,16 @@ class TestReconcileOrphans:
         assert running_row.error == "test msg"
 
     def test_returns_zero_when_no_active_jobs(
-        self, db_session: Session,
+        self,
+        db_session: Session,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         count = repo.reconcile_orphans("test msg")
         assert count == 0
 
     def test_does_not_touch_completed_jobs(
-        self, db_session: Session,
+        self,
+        db_session: Session,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         jid = repo.claim_or_create("test_558_completed")
@@ -388,14 +396,18 @@ class TestReconcileOrphans:
         assert row.finished_at.replace(tzinfo=timezone.utc) == finished
 
     def test_does_not_touch_already_failed_jobs(
-        self, db_session: Session,
+        self,
+        db_session: Session,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         jid = repo.claim_or_create("test_558_already_failed")
         assert jid is not None
         finished = datetime.now(timezone.utc) - timedelta(hours=1)
         repo.update(
-            jid, status="failed", error="original error", finished_at=finished,
+            jid,
+            status="failed",
+            error="original error",
+            finished_at=finished,
         )
         db_session.flush()
 
@@ -410,7 +422,7 @@ class TestReconcileOrphans:
         assert row.finished_at.replace(tzinfo=timezone.utc) == finished
 
 
-_REPO_MODULE = "app.repositories.background_job_repository"
+_REPO_MODULE = "app.repositories.jobs.background_job_repository"
 
 
 class TestLivenessPredicate:
@@ -422,8 +434,9 @@ class TestLivenessPredicate:
         assert jid is not None
         db_session.flush()
 
-        with patch(f"{_REPO_MODULE}.sys.platform", "linux"), patch(
-            f"{_REPO_MODULE}.os.path.exists", return_value=True
+        with (
+            patch(f"{_REPO_MODULE}.sys.platform", "linux"),
+            patch(f"{_REPO_MODULE}.os.path.exists", return_value=True),
         ):
             count = repo.reconcile_orphans("orphan")
 
@@ -438,8 +451,9 @@ class TestLivenessPredicate:
         assert jid is not None
         db_session.flush()
 
-        with patch(f"{_REPO_MODULE}.sys.platform", "linux"), patch(
-            f"{_REPO_MODULE}.os.path.exists", return_value=False
+        with (
+            patch(f"{_REPO_MODULE}.sys.platform", "linux"),
+            patch(f"{_REPO_MODULE}.os.path.exists", return_value=False),
         ):
             count = repo.reconcile_orphans("orphan")
 
@@ -475,7 +489,8 @@ class TestLivenessPredicate:
         assert row.status == "failed"
 
     def test_claim_or_create_writes_pid_host_heartbeat(
-        self, db_session: Session,
+        self,
+        db_session: Session,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         jid = repo.claim_or_create("liveness_claim_writes")
@@ -489,13 +504,16 @@ class TestLivenessPredicate:
         assert row.last_heartbeat_at is not None
 
     def test_update_heartbeat_returns_false_for_failed_row(
-        self, db_session: Session,
+        self,
+        db_session: Session,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         jid = repo.claim_or_create("liveness_hb_failed")
         assert jid is not None
         repo.update(
-            jid, status="failed", finished_at=datetime.now(timezone.utc),
+            jid,
+            status="failed",
+            finished_at=datetime.now(timezone.utc),
         )
         db_session.flush()
 
@@ -503,7 +521,8 @@ class TestLivenessPredicate:
         assert ok is False
 
     def test_update_job_noop_when_reaper_has_failed_row(
-        self, db_session: Session,
+        self,
+        db_session: Session,
     ) -> None:
         repo = BackgroundJobRepository(db_session)
         jid = repo.claim_or_create("liveness_race")

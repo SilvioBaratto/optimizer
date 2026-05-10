@@ -18,9 +18,9 @@ from fastapi.testclient import TestClient
 
 BASE_URL = "/api/v1/validate/walk-forward"
 
-_JOB_SVC_CREATE = "app.api.v1.validate._job_service.create_job"
-_JOB_SVC_START = "app.api.v1.validate._job_service.start_background"
-_JOB_SVC_GET = "app.api.v1.validate._job_service.get_job"
+_JOB_SVC_CREATE = "app.api.v1.optimization.validate._job_service.create_job"
+_JOB_SVC_START = "app.api.v1.optimization.validate._job_service.start_background"
+_JOB_SVC_GET = "app.api.v1.optimization.validate._job_service.get_job"
 
 _MOCK_JOB_ID = "00000000-0000-0000-0000-000000000099"
 
@@ -106,7 +106,7 @@ class TestPostValidateWalkForward:
         assert resp.status_code == 422
 
     def test_job_already_running_returns_409(self, client: TestClient) -> None:
-        from app.services.background_job import JobAlreadyRunningError
+        from app.services.jobs.background_job import JobAlreadyRunningError
 
         with patch(_JOB_SVC_CREATE, side_effect=JobAlreadyRunningError(_MOCK_JOB_ID)):
             resp = client.post(BASE_URL, json=_WALK_FORWARD_REQUEST)

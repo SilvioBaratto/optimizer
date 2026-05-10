@@ -27,7 +27,9 @@ def _make_init_side_effect(mgr: DatabaseManager):
 def test_get_session_calls_initialize_when_not_initialized() -> None:
     mgr = DatabaseManager()
     with patch.object(
-        mgr, "initialize", side_effect=_make_init_side_effect(mgr),
+        mgr,
+        "initialize",
+        side_effect=_make_init_side_effect(mgr),
     ) as init_mock:
         with mgr.get_session():
             pass

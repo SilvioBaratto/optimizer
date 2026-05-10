@@ -13,7 +13,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from app.services import yfinance_data_service as svc
+from app.services.market_data import yfinance_data_service as svc
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -82,10 +82,14 @@ def _patch_module(
 class TestParallelDispatch:
     def test_when_workers_is_one_then_parallel_function_not_called(self):
         request = SimpleNamespace(workers=1, period="5y", mode="incremental")
-        with patch.object(svc, "_run_bulk_yfinance_fetch_parallel") as parallel, \
-             patch("app.database.database_manager") as db_mgr:
+        with (
+            patch.object(svc, "_run_bulk_yfinance_fetch_parallel") as parallel,
+            patch("app.database.database_manager") as db_mgr,
+        ):
             db_mgr.get_session.return_value.__enter__.return_value = MagicMock(
-                **{"execute.return_value.scalars.return_value.unique.return_value.all.return_value": []}
+                **{
+                    "execute.return_value.scalars.return_value.unique.return_value.all.return_value": []
+                }
             )
             db_mgr.get_session.return_value.__exit__.return_value = False
             repo = MagicMock()
@@ -162,9 +166,7 @@ class TestParallelExecution:
             return _ok_result()
 
         request = SimpleNamespace(workers=3, period="5y", mode="incremental")
-        repo_p, service_p, db_p = _patch_module(
-            instruments, tracker, fetch_side_effect
-        )
+        repo_p, service_p, db_p = _patch_module(instruments, tracker, fetch_side_effect)
 
         with repo_p, service_p, db_p:
             result = svc._run_bulk_yfinance_fetch_parallel(

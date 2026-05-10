@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from baml_client.types import AssetFactorData, AssetView, ViewOutput
 
 if TYPE_CHECKING:
-    from app.services.view_generation import GeneratedViews
+    from app.services.views.view_generation import GeneratedViews
 
 # ---------------------------------------------------------------------------
 # Helpers — fixture factories
@@ -72,7 +72,7 @@ def _make_view_output(views: list[AssetView] | None = None) -> ViewOutput:
 
 class TestViewsToArrays:
     def test_p_shape(self) -> None:
-        from app.services.view_generation import _views_to_arrays
+        from app.services.views.view_generation import _views_to_arrays
 
         views = [_make_asset_view("AAPL"), _make_asset_view("MSFT", direction=-1)]
         _, P, Q, _ = _views_to_arrays(views, TICKERS)
@@ -80,7 +80,7 @@ class TestViewsToArrays:
         assert P.shape == (2, len(TICKERS))
 
     def test_q_shape(self) -> None:
-        from app.services.view_generation import _views_to_arrays
+        from app.services.views.view_generation import _views_to_arrays
 
         views = [_make_asset_view("AAPL"), _make_asset_view("MSFT")]
         _, P, Q, _ = _views_to_arrays(views, TICKERS)
@@ -88,7 +88,7 @@ class TestViewsToArrays:
         assert Q.shape == (2,)
 
     def test_p_is_one_hot_per_row(self) -> None:
-        from app.services.view_generation import _views_to_arrays
+        from app.services.views.view_generation import _views_to_arrays
 
         views = [_make_asset_view("AAPL"), _make_asset_view("MSFT")]
         _, P, _, _ = _views_to_arrays(views, TICKERS)
@@ -99,7 +99,7 @@ class TestViewsToArrays:
 
     def test_q_values_in_decimal(self) -> None:
         """200 bps with direction +1 → Q = +0.02."""
-        from app.services.view_generation import _views_to_arrays
+        from app.services.views.view_generation import _views_to_arrays
 
         views = [_make_asset_view("AAPL", direction=1, magnitude_bps=200.0)]
         _, _, Q, _ = _views_to_arrays(views, TICKERS)
@@ -107,7 +107,7 @@ class TestViewsToArrays:
         assert Q[0] == pytest.approx(0.02)
 
     def test_negative_direction_negates_q(self) -> None:
-        from app.services.view_generation import _views_to_arrays
+        from app.services.views.view_generation import _views_to_arrays
 
         views = [_make_asset_view("MSFT", direction=-1, magnitude_bps=150.0)]
         _, _, Q, _ = _views_to_arrays(views, TICKERS)
@@ -115,7 +115,7 @@ class TestViewsToArrays:
         assert Q[0] == pytest.approx(-0.015)
 
     def test_view_strings_parseable(self) -> None:
-        from app.services.view_generation import _views_to_arrays
+        from app.services.views.view_generation import _views_to_arrays
 
         views = [_make_asset_view("AAPL", magnitude_bps=200.0)]
         view_strings, _, _, _ = _views_to_arrays(views, TICKERS)
@@ -125,7 +125,7 @@ class TestViewsToArrays:
         assert "0.02" in view_strings[0]
 
     def test_view_confidences_match_views(self) -> None:
-        from app.services.view_generation import _views_to_arrays
+        from app.services.views.view_generation import _views_to_arrays
 
         views = [
             _make_asset_view("AAPL", confidence=0.8),
@@ -138,7 +138,7 @@ class TestViewsToArrays:
         assert confidences[1] == pytest.approx(0.5)
 
     def test_unknown_asset_skipped(self) -> None:
-        from app.services.view_generation import _views_to_arrays
+        from app.services.views.view_generation import _views_to_arrays
 
         views = [_make_asset_view("UNKNOWN_XYZ"), _make_asset_view("AAPL")]
         _, P, Q, _ = _views_to_arrays(views, TICKERS)
@@ -148,7 +148,7 @@ class TestViewsToArrays:
         assert Q.shape == (1,)
 
     def test_empty_views_returns_empty_arrays(self) -> None:
-        from app.services.view_generation import _views_to_arrays
+        from app.services.views.view_generation import _views_to_arrays
 
         _, P, Q, conf = _views_to_arrays([], TICKERS)
         assert P.shape == (0, len(TICKERS))
@@ -163,7 +163,7 @@ class TestViewsToArrays:
 
 class TestValidateIdzorekAlphas:
     def test_values_clamped_to_open_unit_interval(self) -> None:
-        from app.services.view_generation import _validate_idzorek_alphas
+        from app.services.views.view_generation import _validate_idzorek_alphas
 
         raw = {"AAPL": 0.0, "MSFT": 1.0, "GOOGL": 1.5}
         result = _validate_idzorek_alphas(raw, ["AAPL", "MSFT", "GOOGL"])
@@ -171,13 +171,13 @@ class TestValidateIdzorekAlphas:
         assert all(0.0 < v < 1.0 for v in result.values())
 
     def test_missing_key_defaults_to_half(self) -> None:
-        from app.services.view_generation import _validate_idzorek_alphas
+        from app.services.views.view_generation import _validate_idzorek_alphas
 
         result = _validate_idzorek_alphas({}, ["AAPL"])
         assert result["AAPL"] == pytest.approx(0.5)
 
     def test_valid_values_unchanged(self) -> None:
-        from app.services.view_generation import _validate_idzorek_alphas
+        from app.services.views.view_generation import _validate_idzorek_alphas
 
         result = _validate_idzorek_alphas({"AAPL": 0.7}, ["AAPL"])
         assert result["AAPL"] == pytest.approx(0.7)
@@ -190,19 +190,20 @@ class TestValidateIdzorekAlphas:
 
 class TestGenerateViews:
     def test_raises_on_empty_factor_data(self) -> None:
-        from app.services.view_generation import generate_views
+        from app.services.views.view_generation import generate_views
 
         with pytest.raises(ValueError, match="empty"):
             generate_views(TICKERS, [])
 
     def test_returns_generated_views(self) -> None:
-        from app.services.view_generation import generate_views
+        from app.services.views.view_generation import generate_views
 
         factor_data = [_make_factor_data("AAPL")]
         mock_output = _make_view_output([_make_asset_view("AAPL")])
 
         with patch(
-            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+            "app.services.views.view_generation.b.GenerateViews",
+            return_value=mock_output,
         ):
             result = generate_views(TICKERS, factor_data)
 
@@ -211,40 +212,43 @@ class TestGenerateViews:
         assert result.Q.shape == (1,)
 
     def test_p_shape_matches_n_views_n_assets(self) -> None:
-        from app.services.view_generation import generate_views
+        from app.services.views.view_generation import generate_views
 
         factor_data = [_make_factor_data("AAPL"), _make_factor_data("MSFT")]
         views = [_make_asset_view("AAPL"), _make_asset_view("MSFT")]
         mock_output = _make_view_output(views)
 
         with patch(
-            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+            "app.services.views.view_generation.b.GenerateViews",
+            return_value=mock_output,
         ):
             result = generate_views(TICKERS, factor_data)
 
         assert result.P.shape == (2, len(TICKERS))
 
     def test_q_shape_matches_n_views(self) -> None:
-        from app.services.view_generation import generate_views
+        from app.services.views.view_generation import generate_views
 
         factor_data = [_make_factor_data("AAPL")]
         mock_output = _make_view_output([_make_asset_view("AAPL")])
 
         with patch(
-            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+            "app.services.views.view_generation.b.GenerateViews",
+            return_value=mock_output,
         ):
             result = generate_views(TICKERS, factor_data)
 
         assert result.Q.shape == (len(result.view_strings),)
 
     def test_all_idzorek_alphas_in_unit_interval(self) -> None:
-        from app.services.view_generation import generate_views
+        from app.services.views.view_generation import generate_views
 
         factor_data = [_make_factor_data("AAPL")]
         mock_output = _make_view_output([_make_asset_view("AAPL", confidence=0.9)])
 
         with patch(
-            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+            "app.services.views.view_generation.b.GenerateViews",
+            return_value=mock_output,
         ):
             result = generate_views(TICKERS, factor_data)
 
@@ -252,13 +256,14 @@ class TestGenerateViews:
 
     def test_view_strings_compatible_with_bl(self) -> None:
         """Each view string must contain '==' — required by skfolio BlackLitterman."""
-        from app.services.view_generation import generate_views
+        from app.services.views.view_generation import generate_views
 
         factor_data = [_make_factor_data("AAPL")]
         mock_output = _make_view_output()
 
         with patch(
-            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+            "app.services.views.view_generation.b.GenerateViews",
+            return_value=mock_output,
         ):
             result = generate_views(TICKERS, factor_data)
 
@@ -267,7 +272,7 @@ class TestGenerateViews:
 
     def test_views_on_non_requested_tickers_filtered(self) -> None:
         """LLM may hallucinate a ticker not in the universe — must be dropped."""
-        from app.services.view_generation import generate_views
+        from app.services.views.view_generation import generate_views
 
         factor_data = [_make_factor_data("AAPL")]
         mock_output = _make_view_output(
@@ -275,7 +280,8 @@ class TestGenerateViews:
         )
 
         with patch(
-            "app.services.view_generation.b.GenerateViews", return_value=mock_output
+            "app.services.views.view_generation.b.GenerateViews",
+            return_value=mock_output,
         ):
             result = generate_views(TICKERS, factor_data)
 
@@ -289,20 +295,20 @@ class TestGenerateViews:
 
 class TestMomentumRSI:
     def test_momentum_returns_none_on_insufficient_data(self) -> None:
-        from app.services.view_generation import _compute_momentum
+        from app.services.views.view_generation import _compute_momentum
 
         mom_12_1m, mom_1m = _compute_momentum([100.0] * 5)
         assert mom_12_1m is None
         assert mom_1m is None
 
     def test_rsi_returns_none_on_insufficient_data(self) -> None:
-        from app.services.view_generation import _compute_rsi
+        from app.services.views.view_generation import _compute_rsi
 
         assert _compute_rsi([100.0] * 5) is None
 
     def test_rsi_overbought(self) -> None:
         """All-upward price series → RSI approaches 100."""
-        from app.services.view_generation import _compute_rsi
+        from app.services.views.view_generation import _compute_rsi
 
         prices = [float(i) for i in range(1, 31)]  # strictly increasing
         rsi = _compute_rsi(prices)
@@ -310,7 +316,7 @@ class TestMomentumRSI:
         assert rsi > 70.0
 
     def test_rsi_oversold(self) -> None:
-        from app.services.view_generation import _compute_rsi
+        from app.services.views.view_generation import _compute_rsi
 
         prices = [float(30 - i) for i in range(30)]  # strictly decreasing
         rsi = _compute_rsi(prices)
@@ -332,7 +338,7 @@ def _make_generated_views(
     asset_views: list[AssetView] | None = None,
 ) -> GeneratedViews:
     """Build a GeneratedViews result for mocking the endpoint's generate_views call."""
-    from app.services.view_generation import (
+    from app.services.views.view_generation import (
         GeneratedViews,
         _validate_idzorek_alphas,
         _views_to_arrays,
@@ -361,13 +367,13 @@ class TestGenerateViewsEndpoint:
     """Endpoint tests use the 'client' fixture from conftest (DB override included).
 
     Both fetch_factor_data and generate_views are patched at their import site
-    in the views module (app.api.v1.views.*) to avoid touching the real DB or LLM.
+    in the views module (app.api.v1.views.views.*) to avoid touching the real DB or LLM.
     """
 
     PAYLOAD = {"tickers": TICKERS_PAYLOAD}
     # Patch targets: where the names are imported in the endpoint module
-    _FETCH = "app.api.v1.views.fetch_factor_data"
-    _GENERATE = "app.api.v1.views.generate_views"
+    _FETCH = "app.api.v1.views.views.fetch_factor_data"
+    _GENERATE = "app.api.v1.views.views.generate_views"
 
     def test_successful_response_shape(self, client: TestClient) -> None:
         asset_views = [_make_asset_view("AAPL"), _make_asset_view("MSFT")]

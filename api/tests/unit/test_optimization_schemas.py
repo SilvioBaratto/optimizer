@@ -23,11 +23,12 @@ class TestOptimizeRequest:
     """OptimizeRequest validates POST /optimize request bodies."""
 
     def test_importable(self) -> None:
-        from app.schemas.optimization import OptimizeRequest
+        from app.schemas.optimization.optimization import OptimizeRequest
+
         _ = OptimizeRequest
 
     def test_valid_request(self) -> None:
-        from app.schemas.optimization import OptimizeRequest
+        from app.schemas.optimization.optimization import OptimizeRequest
 
         req = OptimizeRequest(
             tickers=["AAPL", "MSFT", "GOOGL"],
@@ -40,7 +41,7 @@ class TestOptimizeRequest:
         assert req.config == {"risk_measure": "variance"}
 
     def test_empty_tickers_raises(self) -> None:
-        from app.schemas.optimization import OptimizeRequest
+        from app.schemas.optimization.optimization import OptimizeRequest
 
         with pytest.raises(ValidationError):
             OptimizeRequest(
@@ -52,7 +53,7 @@ class TestOptimizeRequest:
             )
 
     def test_optional_config_defaults_to_empty(self) -> None:
-        from app.schemas.optimization import OptimizeRequest
+        from app.schemas.optimization.optimization import OptimizeRequest
 
         req = OptimizeRequest(
             tickers=["AAPL"],
@@ -63,7 +64,7 @@ class TestOptimizeRequest:
         assert req.config == {}
 
     def test_supported_optimizer_type_parses_successfully(self) -> None:
-        from app.schemas.optimization import OptimizeRequest
+        from app.schemas.optimization.optimization import OptimizeRequest
 
         req = OptimizeRequest(
             tickers=["AAPL"],
@@ -90,8 +91,10 @@ class TestOptimizeRequest:
             "regime_risk_budgeting",
         ],
     )
-    def test_removed_optimizer_types_raise_validation_error(self, bad_type: str) -> None:
-        from app.schemas.optimization import OptimizeRequest
+    def test_removed_optimizer_types_raise_validation_error(
+        self, bad_type: str
+    ) -> None:
+        from app.schemas.optimization.optimization import OptimizeRequest
 
         with pytest.raises(ValidationError):
             OptimizeRequest(
@@ -102,7 +105,7 @@ class TestOptimizeRequest:
             )
 
     def test_optional_constraints(self) -> None:
-        from app.schemas.optimization import OptimizeRequest
+        from app.schemas.optimization.optimization import OptimizeRequest
 
         req = OptimizeRequest(
             tickers=["AAPL", "MSFT"],
@@ -140,11 +143,12 @@ class TestOptimizationRunResponse:
         return SimpleNamespace(**defaults)
 
     def test_importable(self) -> None:
-        from app.schemas.optimization import OptimizationRunResponse
+        from app.schemas.optimization.optimization import OptimizationRunResponse
+
         _ = OptimizationRunResponse
 
     def test_orm_deserialization_succeeds(self) -> None:
-        from app.schemas.optimization import OptimizationRunResponse
+        from app.schemas.optimization.optimization import OptimizationRunResponse
 
         orm_obj = self._make_orm()
         response = OptimizationRunResponse.model_validate(orm_obj)
@@ -152,11 +156,11 @@ class TestOptimizationRunResponse:
         assert response.optimizer_type == "mean_risk"
 
     def test_camel_case_output(self) -> None:
-        from app.schemas.optimization import OptimizationRunResponse
+        from app.schemas.optimization.optimization import OptimizationRunResponse
 
-        data = OptimizationRunResponse.model_validate(
-            self._make_orm()
-        ).model_dump(by_alias=True)
+        data = OptimizationRunResponse.model_validate(self._make_orm()).model_dump(
+            by_alias=True
+        )
         assert "optimizerType" in data
         assert "universeTickers" in data
         assert "riskContributions" in data
@@ -166,14 +170,14 @@ class TestOptimizationRunResponse:
         assert "createdAt" in data
 
     def test_id_serializes_as_string(self) -> None:
-        from app.schemas.optimization import OptimizationRunResponse
+        from app.schemas.optimization.optimization import OptimizationRunResponse
 
         uid = uuid.uuid4()
         response = OptimizationRunResponse.model_validate(self._make_orm(id=uid))
         assert response.id == str(uid)
 
     def test_nullable_portfolio_id(self) -> None:
-        from app.schemas.optimization import OptimizationRunResponse
+        from app.schemas.optimization.optimization import OptimizationRunResponse
 
         response = OptimizationRunResponse.model_validate(
             self._make_orm(portfolio_id=None)
@@ -181,7 +185,7 @@ class TestOptimizationRunResponse:
         assert response.portfolio_id is None
 
     def test_portfolio_id_as_uuid_coerced_to_string(self) -> None:
-        from app.schemas.optimization import OptimizationRunResponse
+        from app.schemas.optimization.optimization import OptimizationRunResponse
 
         pid = uuid.uuid4()
         response = OptimizationRunResponse.model_validate(
@@ -190,7 +194,7 @@ class TestOptimizationRunResponse:
         assert response.portfolio_id == str(pid)
 
     def test_optional_fields_none(self) -> None:
-        from app.schemas.optimization import OptimizationRunResponse
+        from app.schemas.optimization.optimization import OptimizationRunResponse
 
         response = OptimizationRunResponse.model_validate(
             self._make_orm(
@@ -205,7 +209,7 @@ class TestOptimizationRunResponse:
         assert response.duration_seconds is None
 
     def test_round_trip_serialization(self) -> None:
-        from app.schemas.optimization import OptimizationRunResponse
+        from app.schemas.optimization.optimization import OptimizationRunResponse
 
         uid = uuid.uuid4()
         orm_obj = self._make_orm(id=uid)
@@ -219,17 +223,18 @@ class TestOptimizationRunListResponse:
     """OptimizationRunListResponse wraps paginated results."""
 
     def test_importable(self) -> None:
-        from app.schemas.optimization import OptimizationRunListResponse
+        from app.schemas.optimization.optimization import OptimizationRunListResponse
+
         _ = OptimizationRunListResponse
 
     def test_empty_list(self) -> None:
-        from app.schemas.optimization import OptimizationRunListResponse
+        from app.schemas.optimization.optimization import OptimizationRunListResponse
 
         resp = OptimizationRunListResponse(items=[], total=0)
         assert resp.total == 0
 
     def test_camel_case_keys(self) -> None:
-        from app.schemas.optimization import OptimizationRunListResponse
+        from app.schemas.optimization.optimization import OptimizationRunListResponse
 
         resp = OptimizationRunListResponse(items=[], total=0)
         data = resp.model_dump(by_alias=True)
@@ -237,7 +242,7 @@ class TestOptimizationRunListResponse:
         assert "total" in data
 
     def test_total_must_be_non_negative(self) -> None:
-        from app.schemas.optimization import OptimizationRunListResponse
+        from app.schemas.optimization.optimization import OptimizationRunListResponse
 
         with pytest.raises(ValidationError):
             OptimizationRunListResponse(items=[], total=-1)

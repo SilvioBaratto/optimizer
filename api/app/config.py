@@ -76,12 +76,23 @@ class Settings(BaseSettings):
 
     # Benchmarks / reference indices
     default_benchmark_ticker: str = Field(
-        default="SPY", alias="DEFAULT_BENCHMARK_TICKER",
+        default="SPY",
+        alias="DEFAULT_BENCHMARK_TICKER",
     )
     benchmark_tickers: list[str] = Field(
         default=[
-            "SPY", "QQQ", "IWM", "EFA", "EEM", "AGG",
-            "VGK", "VWO", "TLT", "GLD", "URTH", "VBINX",
+            "SPY",
+            "QQQ",
+            "IWM",
+            "EFA",
+            "EEM",
+            "AGG",
+            "VGK",
+            "VWO",
+            "TLT",
+            "GLD",
+            "URTH",
+            "VBINX",
         ],
         alias="BENCHMARK_TICKERS",
         description=(
@@ -111,36 +122,45 @@ class Settings(BaseSettings):
 
     # Scheduler — cron expressions (5-field: min hour dom month dow)
     scheduler_daily_pipeline_cron: str = Field(
-        default="0 7 * * *", alias="SCHEDULER_DAILY_PIPELINE_CRON",
+        default="0 7 * * *",
+        alias="SCHEDULER_DAILY_PIPELINE_CRON",
     )
     scheduler_midday_news_cron: str = Field(
-        default="0 14 * * *", alias="SCHEDULER_MIDDAY_NEWS_CRON",
+        default="0 14 * * *",
+        alias="SCHEDULER_MIDDAY_NEWS_CRON",
     )
     scheduler_weekly_refetch_cron: str = Field(
-        default="0 3 * * 0", alias="SCHEDULER_WEEKLY_REFETCH_CRON",
+        default="0 3 * * 0",
+        alias="SCHEDULER_WEEKLY_REFETCH_CRON",
     )
     scheduler_fred_monthly_cron: str = Field(
-        default="0 8 1 * *", alias="SCHEDULER_FRED_MONTHLY_CRON",
+        default="0 8 1 * *",
+        alias="SCHEDULER_FRED_MONTHLY_CRON",
     )
     scheduler_news_refresh_interval_minutes: int = Field(
-        default=30, alias="SCHEDULER_NEWS_REFRESH_INTERVAL_MIN",
+        default=30,
+        alias="SCHEDULER_NEWS_REFRESH_INTERVAL_MIN",
     )
     scheduler_misfire_grace_time_seconds: int = Field(
-        default=3600, alias="SCHEDULER_MISFIRE_GRACE_TIME_SECONDS",
+        default=3600,
+        alias="SCHEDULER_MISFIRE_GRACE_TIME_SECONDS",
     )
     # Liveness reaper (issues #585-#590): heartbeat cadence written by each
     # background worker, and the staleness threshold past which the orphan
     # reaper marks a row failed.
     scheduler_heartbeat_cadence_seconds: int = Field(
-        default=30, alias="SCHEDULER_HEARTBEAT_CADENCE_SECONDS",
+        default=30,
+        alias="SCHEDULER_HEARTBEAT_CADENCE_SECONDS",
     )
     scheduler_orphan_heartbeat_timeout_seconds: int = Field(
-        default=300, alias="SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS",
+        default=300,
+        alias="SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS",
     )
 
     # Notifications
     notification_webhook_url: str | None = Field(
-        default=None, alias="NOTIFICATION_WEBHOOK_URL",
+        default=None,
+        alias="NOTIFICATION_WEBHOOK_URL",
     )
 
     # Performance

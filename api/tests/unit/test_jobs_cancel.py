@@ -8,13 +8,15 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.repositories.background_job_repository import BackgroundJobRepository
+from app.repositories.jobs.background_job_repository import BackgroundJobRepository
 
 BASE_URL = "/api/v1/jobs"
 
 
 def _seed(
-    db_session: Session, job_type: str, status: str | None = None,
+    db_session: Session,
+    job_type: str,
+    status: str | None = None,
 ) -> UUID:
     repo = BackgroundJobRepository(db_session)
     jid = repo.claim_or_create(job_type)
@@ -41,7 +43,9 @@ class TestCancelJob:
         assert resp.status_code == 404
 
     def test_completed_job_returns_409(
-        self, client: TestClient, db_session: Session,
+        self,
+        client: TestClient,
+        db_session: Session,
     ) -> None:
         jid = _seed(db_session, "test_561_completed", status="completed")
         resp = client.post(f"{BASE_URL}/{jid}/cancel")
@@ -49,7 +53,9 @@ class TestCancelJob:
         assert "already terminal" in resp.json()["error"]["message"]
 
     def test_failed_job_returns_409(
-        self, client: TestClient, db_session: Session,
+        self,
+        client: TestClient,
+        db_session: Session,
     ) -> None:
         jid = _seed(db_session, "test_561_failed", status="failed")
         resp = client.post(f"{BASE_URL}/{jid}/cancel")
@@ -57,7 +63,9 @@ class TestCancelJob:
         assert "already terminal" in resp.json()["error"]["message"]
 
     def test_cancelled_job_returns_409(
-        self, client: TestClient, db_session: Session,
+        self,
+        client: TestClient,
+        db_session: Session,
     ) -> None:
         jid = _seed(db_session, "test_561_cancelled", status="cancelled")
         resp = client.post(f"{BASE_URL}/{jid}/cancel")
@@ -65,7 +73,9 @@ class TestCancelJob:
         assert "already terminal" in resp.json()["error"]["message"]
 
     def test_pending_job_cancels_successfully(
-        self, client: TestClient, db_session: Session,
+        self,
+        client: TestClient,
+        db_session: Session,
     ) -> None:
         jid = _seed(db_session, "test_561_pending")
         resp = client.post(f"{BASE_URL}/{jid}/cancel")
@@ -76,7 +86,9 @@ class TestCancelJob:
         assert "operator-cancelled" in body["error"]
 
     def test_running_job_cancels_successfully(
-        self, client: TestClient, db_session: Session,
+        self,
+        client: TestClient,
+        db_session: Session,
     ) -> None:
         jid = _seed(db_session, "test_561_running", status="running")
         resp = client.post(f"{BASE_URL}/{jid}/cancel")
@@ -87,7 +99,9 @@ class TestCancelJob:
         assert "operator-cancelled" in body["error"]
 
     def test_cancel_is_idempotent_after_first_cancel(
-        self, client: TestClient, db_session: Session,
+        self,
+        client: TestClient,
+        db_session: Session,
     ) -> None:
         jid = _seed(db_session, "test_561_idempotent")
         first = client.post(f"{BASE_URL}/{jid}/cancel")

@@ -10,8 +10,10 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 
-from app.services.yfinance.protocols.interfaces import MetadataClientProtocol
-from app.services.yfinance.ticker.metadata import MetadataClient
+from app.services.market_data.yfinance.protocols.interfaces import (
+    MetadataClientProtocol,
+)
+from app.services.market_data.yfinance.ticker.metadata import MetadataClient
 
 
 def _build_client(valuation: pd.DataFrame) -> MetadataClient:

@@ -1,4 +1,4 @@
-"""Unit tests for app.services.factor_service.
+"""Unit tests for app.services.factors.factor_service.
 
 Covers:
   - run_factor_compute() calls compute_all_factors() with correct params
@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-_MODULE = "app.services.factor_compute_service"
+_MODULE = "app.services.factors.factor_compute_service"
 _COMPUTE_ALL = f"{_MODULE}.compute_all_factors"
 _ALIGN_PIT = f"{_MODULE}.align_to_pit"
 
@@ -61,8 +61,10 @@ def _sample_fundamentals() -> pd.DataFrame:
 def _sample_prices() -> pd.DataFrame:
     idx = pd.date_range("2023-01-01", periods=5)
     return pd.DataFrame(
-        {"AAPL": [150.0, 151.0, 152.0, 153.0, 154.0],
-         "MSFT": [280.0, 281.0, 282.0, 283.0, 284.0]},
+        {
+            "AAPL": [150.0, 151.0, 152.0, 153.0, 154.0],
+            "MSFT": [280.0, 281.0, 282.0, 283.0, 284.0],
+        },
         index=idx,
     )
 
@@ -81,11 +83,11 @@ def _sample_factor_df() -> pd.DataFrame:
 
 class TestFactorServiceImportable:
     def test_module_importable(self) -> None:
-        import app.services.factor_service  # noqa: F401
-
+        import app.services.factors.factor_service  # noqa: F401
 
     def test_run_factor_compute_exists(self) -> None:
-        from app.services.factor_service import run_factor_compute
+        from app.services.factors.factor_service import run_factor_compute
+
         assert callable(run_factor_compute)
 
 
@@ -106,7 +108,7 @@ class TestRunFactorCompute:
         on_progress=None,
     ) -> int:
         """Helper that mocks heavy deps and calls run_factor_compute."""
-        from app.services.factor_service import run_factor_compute
+        from app.services.factors.factor_service import run_factor_compute
 
         if tickers is None:
             tickers = ["AAPL", "MSFT"]
@@ -124,8 +126,14 @@ class TestRunFactorCompute:
         with (
             patch(_COMPUTE_ALL, return_value=factor_df),
             patch(_ALIGN_PIT, return_value=_sample_fundamentals()),
-            patch("app.services.factor_compute_service.FactorRepository", return_value=factor_repo),
-            patch("app.services.factor_compute_service.YFinanceRepository", return_value=yf_repo),
+            patch(
+                "app.services.factors.factor_compute_service.FactorRepository",
+                return_value=factor_repo,
+            ),
+            patch(
+                "app.services.factors.factor_compute_service.YFinanceRepository",
+                return_value=yf_repo,
+            ),
         ):
             kwargs: dict = {}
             if on_progress is not None:
@@ -143,7 +151,7 @@ class TestRunFactorCompute:
         assert isinstance(result, int)
 
     def test_upsert_called_when_factors_computed(self) -> None:
-        from app.services.factor_service import run_factor_compute
+        from app.services.factors.factor_service import run_factor_compute
 
         factor_df = _sample_factor_df()
         session = _make_session()
@@ -153,8 +161,14 @@ class TestRunFactorCompute:
         with (
             patch(_COMPUTE_ALL, return_value=factor_df),
             patch(_ALIGN_PIT, return_value=_sample_fundamentals()),
-            patch("app.services.factor_compute_service.FactorRepository", return_value=factor_repo),
-            patch("app.services.factor_compute_service.YFinanceRepository", return_value=yf_repo),
+            patch(
+                "app.services.factors.factor_compute_service.FactorRepository",
+                return_value=factor_repo,
+            ),
+            patch(
+                "app.services.factors.factor_compute_service.YFinanceRepository",
+                return_value=yf_repo,
+            ),
         ):
             result = run_factor_compute(
                 session=session,
@@ -167,7 +181,7 @@ class TestRunFactorCompute:
         assert result == 4
 
     def test_empty_factor_df_skips_upsert(self) -> None:
-        from app.services.factor_service import run_factor_compute
+        from app.services.factors.factor_service import run_factor_compute
 
         empty_df = pd.DataFrame()
         session = _make_session()
@@ -177,8 +191,14 @@ class TestRunFactorCompute:
         with (
             patch(_COMPUTE_ALL, return_value=empty_df),
             patch(_ALIGN_PIT, return_value=_sample_fundamentals()),
-            patch("app.services.factor_compute_service.FactorRepository", return_value=factor_repo),
-            patch("app.services.factor_compute_service.YFinanceRepository", return_value=yf_repo),
+            patch(
+                "app.services.factors.factor_compute_service.FactorRepository",
+                return_value=factor_repo,
+            ),
+            patch(
+                "app.services.factors.factor_compute_service.YFinanceRepository",
+                return_value=yf_repo,
+            ),
         ):
             result = run_factor_compute(
                 session=session,
@@ -201,7 +221,7 @@ class TestRunFactorCompute:
         assert result >= 0
 
     def test_compute_all_factors_called_with_fundamentals_and_prices(self) -> None:
-        from app.services.factor_service import run_factor_compute
+        from app.services.factors.factor_service import run_factor_compute
 
         factor_df = _sample_factor_df()
         session = _make_session()
@@ -211,8 +231,14 @@ class TestRunFactorCompute:
         with (
             patch(_COMPUTE_ALL, return_value=factor_df) as mock_compute,
             patch(_ALIGN_PIT, return_value=_sample_fundamentals()),
-            patch("app.services.factor_compute_service.FactorRepository", return_value=factor_repo),
-            patch("app.services.factor_compute_service.YFinanceRepository", return_value=yf_repo),
+            patch(
+                "app.services.factors.factor_compute_service.FactorRepository",
+                return_value=factor_repo,
+            ),
+            patch(
+                "app.services.factors.factor_compute_service.YFinanceRepository",
+                return_value=yf_repo,
+            ),
         ):
             run_factor_compute(
                 session=session,
@@ -229,7 +255,7 @@ class TestRunFactorCompute:
         We mock _load_fundamentals directly to bypass the DB layer and ensure
         align_to_pit is called with the correct lag_days value.
         """
-        from app.services.factor_service import run_factor_compute
+        from app.services.factors.factor_service import run_factor_compute
 
         factor_df = _sample_factor_df()
         session = _make_session()
@@ -238,13 +264,16 @@ class TestRunFactorCompute:
         with (
             patch(_COMPUTE_ALL, return_value=factor_df),
             patch(_ALIGN_PIT, return_value=_sample_fundamentals()) as mock_pit,
-            patch("app.services.factor_compute_service.FactorRepository", return_value=factor_repo),
             patch(
-                "app.services.factor_compute_service._load_fundamentals",
+                "app.services.factors.factor_compute_service.FactorRepository",
+                return_value=factor_repo,
+            ),
+            patch(
+                "app.services.factors.factor_compute_service._load_fundamentals",
                 return_value=_sample_fundamentals(),
             ),
             patch(
-                "app.services.factor_compute_service._load_prices",
+                "app.services.factors.factor_compute_service._load_prices",
                 return_value=_sample_prices(),
             ),
         ):
@@ -262,7 +291,7 @@ class TestRunFactorCompute:
 
     def test_align_to_pit_called_inside_load_fundamentals(self) -> None:
         """_load_fundamentals invokes align_to_pit with lag_days from PublicationLagConfig."""
-        from app.services.factor_service import _load_fundamentals
+        from app.services.factors.factor_service import _load_fundamentals
         from optimizer.factors import PublicationLagConfig
 
         stmt_mock = MagicMock()
@@ -278,8 +307,14 @@ class TestRunFactorCompute:
         yf_repo.get_financial_statements.return_value = [stmt_mock]
 
         with (
-            patch("app.services.factor_compute_service._find_instrument", return_value=instrument_mock),
-            patch("app.services.factor_compute_service.YFinanceRepository", return_value=yf_repo),
+            patch(
+                "app.services.factors.factor_compute_service._find_instrument",
+                return_value=instrument_mock,
+            ),
+            patch(
+                "app.services.factors.factor_compute_service.YFinanceRepository",
+                return_value=yf_repo,
+            ),
             patch(_ALIGN_PIT, return_value=_sample_fundamentals()) as mock_pit,
         ):
             lag_cfg = PublicationLagConfig()

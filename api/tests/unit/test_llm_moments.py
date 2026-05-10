@@ -55,10 +55,10 @@ def _cov_response(
 
 class TestCalibrateDelta:
     def test_returns_delta_calibration(self) -> None:
-        from app.services.llm_moments import calibrate_delta
+        from app.services.views.llm_moments import calibrate_delta
 
         with patch(
-            "app.services.llm_moments.b.CalibrateDelta",
+            "app.services.views.llm_moments.b.CalibrateDelta",
             return_value=_delta_response(4.0),
         ):
             result = calibrate_delta("Global growth slowing.")
@@ -67,10 +67,10 @@ class TestCalibrateDelta:
         assert result.rationale
 
     def test_clamps_delta_above_max(self) -> None:
-        from app.services.llm_moments import DELTA_MAX, calibrate_delta
+        from app.services.views.llm_moments import DELTA_MAX, calibrate_delta
 
         with patch(
-            "app.services.llm_moments.b.CalibrateDelta",
+            "app.services.views.llm_moments.b.CalibrateDelta",
             return_value=_delta_response(99.0),
         ):
             result = calibrate_delta("Extreme panic.")
@@ -78,10 +78,10 @@ class TestCalibrateDelta:
         assert result.delta == pytest.approx(DELTA_MAX)
 
     def test_clamps_delta_below_min(self) -> None:
-        from app.services.llm_moments import DELTA_MIN, calibrate_delta
+        from app.services.views.llm_moments import DELTA_MIN, calibrate_delta
 
         with patch(
-            "app.services.llm_moments.b.CalibrateDelta",
+            "app.services.views.llm_moments.b.CalibrateDelta",
             return_value=_delta_response(-5.0),
         ):
             result = calibrate_delta("Manic euphoria.")
@@ -89,11 +89,11 @@ class TestCalibrateDelta:
         assert result.delta == pytest.approx(DELTA_MIN)
 
     def test_delta_boundary_values_not_clamped(self) -> None:
-        from app.services.llm_moments import DELTA_MAX, DELTA_MIN, calibrate_delta
+        from app.services.views.llm_moments import DELTA_MAX, DELTA_MIN, calibrate_delta
 
         for v in (DELTA_MIN, DELTA_MAX, 5.0):
             with patch(
-                "app.services.llm_moments.b.CalibrateDelta",
+                "app.services.views.llm_moments.b.CalibrateDelta",
                 return_value=_delta_response(v),
             ):
                 result = calibrate_delta("Some macro text.")
@@ -109,10 +109,10 @@ class TestAdaptFactorWeights:
     GROUPS = ["momentum", "value", "quality", "low_volatility"]
 
     def test_returns_correct_phase(self) -> None:
-        from app.services.llm_moments import adapt_factor_weights
+        from app.services.views.llm_moments import adapt_factor_weights
 
         with patch(
-            "app.services.llm_moments.b.AdaptFactorWeights",
+            "app.services.views.llm_moments.b.AdaptFactorWeights",
             return_value=_factor_response(BusinessCyclePhase.RECESSION),
         ):
             result = adapt_factor_weights("Recession signals.", self.GROUPS)
@@ -120,10 +120,10 @@ class TestAdaptFactorWeights:
         assert result.phase == BusinessCyclePhase.RECESSION
 
     def test_weights_sum_to_n(self) -> None:
-        from app.services.llm_moments import adapt_factor_weights
+        from app.services.views.llm_moments import adapt_factor_weights
 
         with patch(
-            "app.services.llm_moments.b.AdaptFactorWeights",
+            "app.services.views.llm_moments.b.AdaptFactorWeights",
             return_value=_factor_response(),
         ):
             result = adapt_factor_weights("Macro text.", self.GROUPS)
@@ -131,7 +131,7 @@ class TestAdaptFactorWeights:
         assert sum(result.weights.values()) == pytest.approx(len(self.GROUPS), rel=1e-6)
 
     def test_all_weights_positive(self) -> None:
-        from app.services.llm_moments import adapt_factor_weights
+        from app.services.views.llm_moments import adapt_factor_weights
 
         raw_weights = {
             "momentum": -1.0,
@@ -140,7 +140,7 @@ class TestAdaptFactorWeights:
             "low_volatility": 2.0,
         }
         with patch(
-            "app.services.llm_moments.b.AdaptFactorWeights",
+            "app.services.views.llm_moments.b.AdaptFactorWeights",
             return_value=_factor_response(weights=raw_weights),
         ):
             result = adapt_factor_weights("Macro text.", self.GROUPS)
@@ -148,12 +148,12 @@ class TestAdaptFactorWeights:
         assert all(w > 0 for w in result.weights.values())
 
     def test_missing_group_defaults_to_one(self) -> None:
-        from app.services.llm_moments import adapt_factor_weights
+        from app.services.views.llm_moments import adapt_factor_weights
 
         # LLM returns only 2 of 4 groups
         partial_weights = {"momentum": 1.5, "value": 0.5}
         with patch(
-            "app.services.llm_moments.b.AdaptFactorWeights",
+            "app.services.views.llm_moments.b.AdaptFactorWeights",
             return_value=_factor_response(weights=partial_weights),
         ):
             result = adapt_factor_weights("Macro text.", self.GROUPS)
@@ -162,10 +162,10 @@ class TestAdaptFactorWeights:
         assert sum(result.weights.values()) == pytest.approx(len(self.GROUPS), rel=1e-6)
 
     def test_weights_cover_all_factor_groups(self) -> None:
-        from app.services.llm_moments import adapt_factor_weights
+        from app.services.views.llm_moments import adapt_factor_weights
 
         with patch(
-            "app.services.llm_moments.b.AdaptFactorWeights",
+            "app.services.views.llm_moments.b.AdaptFactorWeights",
             return_value=_factor_response(),
         ):
             result = adapt_factor_weights("Macro text.", self.GROUPS)
@@ -182,10 +182,10 @@ class TestSelectCovRegime:
     HEADLINES = ["Stocks rally on Fed pivot hopes."]
 
     def test_returns_valid_estimator(self) -> None:
-        from app.services.llm_moments import select_cov_regime
+        from app.services.views.llm_moments import select_cov_regime
 
         with patch(
-            "app.services.llm_moments.b.SelectCovRegime",
+            "app.services.views.llm_moments.b.SelectCovRegime",
             return_value=_cov_response(CovEstimatorChoice.EW),
         ):
             result = select_cov_regime(self.HEADLINES, -0.5, 0.25)
@@ -193,10 +193,10 @@ class TestSelectCovRegime:
         assert result.estimator == CovEstimatorChoice.EW
 
     def test_confidence_clamped_to_unit_interval(self) -> None:
-        from app.services.llm_moments import select_cov_regime
+        from app.services.views.llm_moments import select_cov_regime
 
         with patch(
-            "app.services.llm_moments.b.SelectCovRegime",
+            "app.services.views.llm_moments.b.SelectCovRegime",
             return_value=_cov_response(confidence=1.5),
         ):
             result = select_cov_regime(self.HEADLINES, 0.1, 0.12)
@@ -204,10 +204,10 @@ class TestSelectCovRegime:
         assert result.confidence <= 1.0
 
     def test_confidence_negative_clamped(self) -> None:
-        from app.services.llm_moments import select_cov_regime
+        from app.services.views.llm_moments import select_cov_regime
 
         with patch(
-            "app.services.llm_moments.b.SelectCovRegime",
+            "app.services.views.llm_moments.b.SelectCovRegime",
             return_value=_cov_response(confidence=-0.2),
         ):
             result = select_cov_regime(self.HEADLINES, 0.1, 0.12)
@@ -215,7 +215,10 @@ class TestSelectCovRegime:
         assert result.confidence >= 0.0
 
     def test_cov_estimator_type_str_mapping(self) -> None:
-        from app.services.llm_moments import cov_estimator_type_str, select_cov_regime
+        from app.services.views.llm_moments import (
+            cov_estimator_type_str,
+            select_cov_regime,
+        )
 
         for choice, expected in [
             (CovEstimatorChoice.LEDOIT_WOLF, "ledoit_wolf"),
@@ -224,7 +227,7 @@ class TestSelectCovRegime:
             (CovEstimatorChoice.DENOISE, "denoise"),
         ]:
             with patch(
-                "app.services.llm_moments.b.SelectCovRegime",
+                "app.services.views.llm_moments.b.SelectCovRegime",
                 return_value=_cov_response(choice),
             ):
                 result = select_cov_regime(self.HEADLINES, 0.0, 0.15)
@@ -241,7 +244,7 @@ class TestCalibrateDeltaEndpoint:
 
     def test_successful_response(self) -> None:
         with patch(
-            "app.services.llm_moments.b.CalibrateDelta",
+            "app.services.views.llm_moments.b.CalibrateDelta",
             return_value=_delta_response(5.0),
         ):
             resp = client.post(
@@ -259,7 +262,7 @@ class TestCalibrateDeltaEndpoint:
 
     def test_llm_error_returns_502(self) -> None:
         with patch(
-            "app.services.llm_moments.b.CalibrateDelta",
+            "app.services.views.llm_moments.b.CalibrateDelta",
             side_effect=RuntimeError("LLM timeout"),
         ):
             resp = client.post(
@@ -270,7 +273,7 @@ class TestCalibrateDeltaEndpoint:
 
     def test_delta_clamped_in_response(self) -> None:
         with patch(
-            "app.services.llm_moments.b.CalibrateDelta",
+            "app.services.views.llm_moments.b.CalibrateDelta",
             return_value=_delta_response(99.0),
         ):
             resp = client.post(
@@ -296,7 +299,7 @@ class TestAdaptFactorWeightsEndpoint:
     def test_successful_response(self) -> None:
         weights = {"momentum": 1.3, "value": 0.8, "quality": 0.9}
         with patch(
-            "app.services.llm_moments.b.AdaptFactorWeights",
+            "app.services.views.llm_moments.b.AdaptFactorWeights",
             return_value=_factor_response(
                 BusinessCyclePhase.EARLY_EXPANSION, weights=weights
             ),
@@ -321,7 +324,7 @@ class TestAdaptFactorWeightsEndpoint:
 
     def test_llm_error_returns_502(self) -> None:
         with patch(
-            "app.services.llm_moments.b.AdaptFactorWeights",
+            "app.services.views.llm_moments.b.AdaptFactorWeights",
             side_effect=RuntimeError("timeout"),
         ):
             resp = client.post(self.URL, json=self.PAYLOAD)
@@ -344,7 +347,7 @@ class TestSelectCovRegimeEndpoint:
 
     def test_successful_response(self) -> None:
         with patch(
-            "app.services.llm_moments.b.SelectCovRegime",
+            "app.services.views.llm_moments.b.SelectCovRegime",
             return_value=_cov_response(CovEstimatorChoice.EW, confidence=0.9),
         ):
             resp = client.post(self.URL, json=self.PAYLOAD)
@@ -373,7 +376,7 @@ class TestSelectCovRegimeEndpoint:
 
     def test_llm_error_returns_502(self) -> None:
         with patch(
-            "app.services.llm_moments.b.SelectCovRegime",
+            "app.services.views.llm_moments.b.SelectCovRegime",
             side_effect=RuntimeError("LLM failure"),
         ):
             resp = client.post(self.URL, json=self.PAYLOAD)
@@ -382,12 +385,12 @@ class TestSelectCovRegimeEndpoint:
 
     def test_estimator_type_is_valid_optimizer_value(self) -> None:
         """estimator_type must be a valid CovEstimatorType string value."""
-        from app.services.llm_moments import _COV_CHOICE_TO_ESTIMATOR_TYPE
+        from app.services.views.llm_moments import _COV_CHOICE_TO_ESTIMATOR_TYPE
 
         valid_values = set(_COV_CHOICE_TO_ESTIMATOR_TYPE.values())
 
         with patch(
-            "app.services.llm_moments.b.SelectCovRegime",
+            "app.services.views.llm_moments.b.SelectCovRegime",
             return_value=_cov_response(CovEstimatorChoice.GERBER),
         ):
             resp = client.post(self.URL, json=self.PAYLOAD)

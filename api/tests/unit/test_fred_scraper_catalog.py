@@ -6,7 +6,7 @@ and the scraper registry.
 
 from __future__ import annotations
 
-from app.services.scrapers.fred_scraper import (
+from app.services.macro.scrapers.fred_scraper import (
     FRED_GDP_SERIES,
     FRED_RATE_SERIES,
     FRED_RECESSION_SERIES,

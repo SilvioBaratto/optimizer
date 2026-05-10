@@ -26,8 +26,8 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.portfolio import Portfolio, PortfolioSnapshot, SnapshotWeight
-from app.models.rebalancing import RebalancingPolicy
+from app.models.portfolio.portfolio import Portfolio, PortfolioSnapshot, SnapshotWeight
+from app.models.rebalancing.rebalancing import RebalancingPolicy
 
 BASE_DECIDE = "/api/v1/rebalance/decide"
 BASE_PREVIEW = "/api/v1/rebalance/preview"
@@ -79,9 +79,13 @@ def _make_snapshot(
     db_session.add(snap)
     db_session.flush()
     for ticker, weight in (weights or {"AAPL": 0.6, "MSFT": 0.4}).items():
-        db_session.add(SnapshotWeight(
-            snapshot_id=snap.id, ticker=ticker, weight=weight,
-        ))
+        db_session.add(
+            SnapshotWeight(
+                snapshot_id=snap.id,
+                ticker=ticker,
+                weight=weight,
+            )
+        )
     db_session.flush()
     return snap
 
@@ -103,7 +107,7 @@ class TestDecideThreshold:
 
     def test_returns_200_with_expected_fields(self, client: TestClient) -> None:
         with patch(
-            "app.services.rebalancing_service.should_rebalance",
+            "app.services.rebalancing.rebalancing_service.should_rebalance",
             return_value=False,
         ):
             resp = client.post(BASE_DECIDE, json=self._REQUEST)
@@ -116,7 +120,7 @@ class TestDecideThreshold:
         self, client: TestClient
     ) -> None:
         with patch(
-            "app.services.rebalancing_service.should_rebalance",
+            "app.services.rebalancing.rebalancing_service.should_rebalance",
             return_value=True,
         ):
             resp = client.post(BASE_DECIDE, json=self._REQUEST)
@@ -129,7 +133,7 @@ class TestDecideThreshold:
 
     def test_response_contains_turnover(self, client: TestClient) -> None:
         with patch(
-            "app.services.rebalancing_service.should_rebalance",
+            "app.services.rebalancing.rebalancing_service.should_rebalance",
             return_value=False,
         ):
             resp = client.post(BASE_DECIDE, json=self._REQUEST)
@@ -140,7 +144,7 @@ class TestDecideThreshold:
 
     def test_response_contains_estimated_cost(self, client: TestClient) -> None:
         with patch(
-            "app.services.rebalancing_service.should_rebalance",
+            "app.services.rebalancing.rebalancing_service.should_rebalance",
             return_value=False,
         ):
             resp = client.post(BASE_DECIDE, json=self._REQUEST)
@@ -152,7 +156,7 @@ class TestDecideThreshold:
 
     def test_response_contains_trade_weights(self, client: TestClient) -> None:
         with patch(
-            "app.services.rebalancing_service.should_rebalance",
+            "app.services.rebalancing.rebalancing_service.should_rebalance",
             return_value=False,
         ):
             resp = client.post(BASE_DECIDE, json=self._REQUEST)
@@ -164,7 +168,7 @@ class TestDecideThreshold:
 
     def test_trade_weights_computed_correctly(self, client: TestClient) -> None:
         with patch(
-            "app.services.rebalancing_service.should_rebalance",
+            "app.services.rebalancing.rebalancing_service.should_rebalance",
             return_value=False,
         ):
             resp = client.post(BASE_DECIDE, json=self._REQUEST)
@@ -196,7 +200,7 @@ class TestDecideCalendar:
 
     def test_returns_200(self, client: TestClient) -> None:
         with patch(
-            "app.services.rebalancing_service._calendar_should_rebalance",
+            "app.services.rebalancing.rebalancing_service._calendar_should_rebalance",
             return_value=True,
         ):
             resp = client.post(BASE_DECIDE, json=self._REQUEST)
@@ -205,7 +209,7 @@ class TestDecideCalendar:
 
     def test_calendar_rebalance_after_enough_days(self, client: TestClient) -> None:
         with patch(
-            "app.services.rebalancing_service._calendar_should_rebalance",
+            "app.services.rebalancing.rebalancing_service._calendar_should_rebalance",
             return_value=True,
         ):
             resp = client.post(BASE_DECIDE, json=self._REQUEST)
@@ -250,7 +254,7 @@ class TestDecideHybrid:
         self, client: TestClient
     ) -> None:
         with patch(
-            "app.services.rebalancing_service.should_rebalance_hybrid",
+            "app.services.rebalancing.rebalancing_service.should_rebalance_hybrid",
             return_value=(False, "between_review_dates"),
         ):
             resp = client.post(BASE_DECIDE, json=self._REQUEST_OK)
@@ -266,7 +270,7 @@ class TestDecideHybrid:
 
     def test_hybrid_uses_should_rebalance_hybrid(self, client: TestClient) -> None:
         with patch(
-            "app.services.rebalancing_service.should_rebalance_hybrid",
+            "app.services.rebalancing.rebalancing_service.should_rebalance_hybrid",
             return_value=(True, "threshold_met"),
         ) as mock_fn:
             resp = client.post(BASE_DECIDE, json=self._REQUEST_OK)
@@ -296,7 +300,7 @@ class TestDecideUnknownPolicy:
 
     def test_custom_transaction_costs_accepted(self, client: TestClient) -> None:
         with patch(
-            "app.services.rebalancing_service.should_rebalance",
+            "app.services.rebalancing.rebalancing_service.should_rebalance",
             return_value=False,
         ):
             resp = client.post(
@@ -443,9 +447,7 @@ class TestPreviewHappy:
     ) -> None:
         portfolio = _make_portfolio(db_session)
         _make_policy(db_session, portfolio.id, is_active=True)
-        _make_snapshot(
-            db_session, portfolio.id, weights={"AAPL": 0.6, "MSFT": 0.4}
-        )
+        _make_snapshot(db_session, portfolio.id, weights={"AAPL": 0.6, "MSFT": 0.4})
 
         resp = client.get(f"{BASE_PREVIEW}/{portfolio.name}")
 

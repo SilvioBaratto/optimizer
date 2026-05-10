@@ -13,8 +13,8 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy.orm import Session
 
-from app.models.factor import FactorScore, FactorValidationReport
-from app.repositories.factor_repository import FactorRepository
+from app.models.factors.factor import FactorScore, FactorValidationReport
+from app.repositories.factors.factor_repository import FactorRepository
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -139,8 +139,12 @@ class TestGetScoresByDate:
         target = datetime.date(2024, 1, 15)
         other = datetime.date(2024, 2, 1)
         db_session.add(_make_score(ticker="AAPL", score_date=target))
-        db_session.add(_make_score(ticker="MSFT", score_date=target, factor_type="value"))
-        db_session.add(_make_score(ticker="GOOG", score_date=other, factor_type="quality"))
+        db_session.add(
+            _make_score(ticker="MSFT", score_date=target, factor_type="value")
+        )
+        db_session.add(
+            _make_score(ticker="GOOG", score_date=other, factor_type="quality")
+        )
         db_session.flush()
         repo = FactorRepository(db_session)
 
@@ -237,7 +241,9 @@ class TestGetValidationReports:
         db_session.flush()
         repo = FactorRepository(db_session)
 
-        result = repo.get_validation_reports(factor_type="momentum", validation_type="ic")
+        result = repo.get_validation_reports(
+            factor_type="momentum", validation_type="ic"
+        )
 
         assert len(result) == 1
         assert result[0].factor_type == "momentum"

@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 
 BASE_URL = "/api/v1/universe/screen"
 
-_SERVICE_PATH = "app.api.v1.universe_screen.run_universe_screen"
+_SERVICE_PATH = "app.api.v1.universe.universe_screen.run_universe_screen"
 
 _DEFAULT_SERVICE_RESULT: dict[str, Any] = {
     "passing_tickers": ["AAPL", "MSFT"],
@@ -110,17 +110,13 @@ class TestScreenPreset:
         "preset",
         ["developed_markets", "broad_universe", "small_cap", "large_cap"],
     )
-    def test_valid_preset_returns_200(
-        self, client: TestClient, preset: str
-    ) -> None:
+    def test_valid_preset_returns_200(self, client: TestClient, preset: str) -> None:
         with patch(_SERVICE_PATH, return_value=_DEFAULT_SERVICE_RESULT):
             resp = client.post(BASE_URL, json={"preset": preset})
 
         assert resp.status_code == 200
 
-    def test_service_receives_request_with_preset(
-        self, client: TestClient
-    ) -> None:
+    def test_service_receives_request_with_preset(self, client: TestClient) -> None:
         with patch(_SERVICE_PATH, return_value=_DEFAULT_SERVICE_RESULT) as mock_svc:
             client.post(BASE_URL, json={"preset": "broad_universe"})
 
@@ -201,9 +197,7 @@ class TestScreenEmptyUniverse:
 class TestScreenValidation:
     """Invalid request bodies return 422 Unprocessable Entity."""
 
-    def test_preset_and_custom_fields_returns_422(
-        self, client: TestClient
-    ) -> None:
+    def test_preset_and_custom_fields_returns_422(self, client: TestClient) -> None:
         payload = {
             "preset": "developed_markets",
             "market_cap": {"entry": 500_000_000, "exit": 400_000_000},

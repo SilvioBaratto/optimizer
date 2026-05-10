@@ -9,7 +9,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
-from app.services import reference_index_seeder as mod
+from app.services.market_data import reference_index_seeder as mod
 
 
 @contextmanager
@@ -49,9 +49,11 @@ class TestSeedReferenceIndicesProgressOrdering:
         session = _build_session_with_nyse()
         repo, service = _build_repo_and_service()
 
-        with patch("app.database.database_manager") as db_mgr, patch.object(
-            mod, "YFinanceRepository", return_value=repo
-        ), patch.object(mod, "YFinanceDataService", return_value=service):
+        with (
+            patch("app.database.database_manager") as db_mgr,
+            patch.object(mod, "YFinanceRepository", return_value=repo),
+            patch.object(mod, "YFinanceDataService", return_value=service),
+        ):
             db_mgr.get_session.return_value = _fake_session_ctx(session)
 
             mod.seed_reference_indices(
@@ -67,9 +69,11 @@ class TestSeedReferenceIndicesProgressOrdering:
         session = _build_session_with_nyse()
         repo, service = _build_repo_and_service()
 
-        with patch("app.database.database_manager") as db_mgr, patch.object(
-            mod, "YFinanceRepository", return_value=repo
-        ), patch.object(mod, "YFinanceDataService", return_value=service):
+        with (
+            patch("app.database.database_manager") as db_mgr,
+            patch.object(mod, "YFinanceRepository", return_value=repo),
+            patch.object(mod, "YFinanceDataService", return_value=service),
+        ):
             db_mgr.get_session.return_value = _fake_session_ctx(session)
 
             mod.seed_reference_indices(
@@ -85,9 +89,11 @@ class TestSeedReferenceIndicesProgressOrdering:
         session = _build_session_with_nyse(nyse_id=None)
         repo, service = _build_repo_and_service()
 
-        with patch("app.database.database_manager") as db_mgr, patch.object(
-            mod, "YFinanceRepository", return_value=repo
-        ), patch.object(mod, "YFinanceDataService", return_value=service):
+        with (
+            patch("app.database.database_manager") as db_mgr,
+            patch.object(mod, "YFinanceRepository", return_value=repo),
+            patch.object(mod, "YFinanceDataService", return_value=service),
+        ):
             db_mgr.get_session.return_value = _fake_session_ctx(session)
 
             mod.seed_reference_indices(
@@ -95,7 +101,6 @@ class TestSeedReferenceIndicesProgressOrdering:
             )
 
         total_only_calls = [
-            c for c in spy.call_args_list
-            if set(c.kwargs.keys()) == {"total"}
+            c for c in spy.call_args_list if set(c.kwargs.keys()) == {"total"}
         ]
         assert total_only_calls == []

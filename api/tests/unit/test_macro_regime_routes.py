@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 # Module-level patch target
 # ---------------------------------------------------------------------------
 
-_REPO_CLS = "app.api.v1.macro_regime.MacroRegimeRepository"
+_REPO_CLS = "app.api.v1.macro.macro_regime.MacroRegimeRepository"
 
 BASE_URL = "/api/v1/macro-data"
 
@@ -449,7 +449,7 @@ class TestGetMacroNewsThemes:
             assert "label" in item
 
     def test_all_macro_theme_values_present(self, client: TestClient) -> None:
-        from app.services.yfinance.news.macro_news import MacroTheme
+        from app.services.market_data.yfinance.news.macro_news import MacroTheme
 
         resp = client.get(self.URL)
         returned = {item["value"] for item in resp.json()}
@@ -506,7 +506,7 @@ class TestGetFredCatalog:
             assert "group" in item
 
     def test_total_count_matches_fred_series(self, client: TestClient) -> None:
-        from app.services.scrapers.fred_scraper import FRED_SERIES
+        from app.services.macro.scrapers.fred_scraper import FRED_SERIES
 
         resp = client.get(self.URL)
         assert len(resp.json()) == len(FRED_SERIES)
@@ -518,7 +518,7 @@ class TestGetFredCatalog:
         assert "VIXCLS" in series_ids
 
     def test_spread_series_group(self, client: TestClient) -> None:
-        from app.services.scrapers.fred_scraper import FRED_SPREAD_SERIES
+        from app.services.macro.scrapers.fred_scraper import FRED_SPREAD_SERIES
 
         resp = client.get(self.URL)
         by_id = {item["series_id"]: item for item in resp.json()}
@@ -526,7 +526,7 @@ class TestGetFredCatalog:
             assert by_id[sid]["group"] == "spreads"
 
     def test_volatility_series_group(self, client: TestClient) -> None:
-        from app.services.scrapers.fred_scraper import FRED_VOLATILITY_SERIES
+        from app.services.macro.scrapers.fred_scraper import FRED_VOLATILITY_SERIES
 
         resp = client.get(self.URL)
         by_id = {item["series_id"]: item for item in resp.json()}
@@ -534,7 +534,7 @@ class TestGetFredCatalog:
             assert by_id[sid]["group"] == "volatility"
 
     def test_cli_series_group(self, client: TestClient) -> None:
-        from app.services.scrapers.fred_scraper import FRED_CLI_SERIES
+        from app.services.macro.scrapers.fred_scraper import FRED_CLI_SERIES
 
         resp = client.get(self.URL)
         by_id = {item["series_id"]: item for item in resp.json()}
@@ -542,7 +542,7 @@ class TestGetFredCatalog:
             assert by_id[sid]["group"] == "cli"
 
     def test_recession_series_group(self, client: TestClient) -> None:
-        from app.services.scrapers.fred_scraper import FRED_RECESSION_SERIES
+        from app.services.macro.scrapers.fred_scraper import FRED_RECESSION_SERIES
 
         resp = client.get(self.URL)
         by_id = {item["series_id"]: item for item in resp.json()}
@@ -552,17 +552,15 @@ class TestGetFredCatalog:
     def test_when_rate_series_requested_group_is_rates(
         self, client: TestClient
     ) -> None:
-        from app.services.scrapers.fred_scraper import FRED_RATE_SERIES
+        from app.services.macro.scrapers.fred_scraper import FRED_RATE_SERIES
 
         resp = client.get(self.URL)
         by_id = {item["series_id"]: item for item in resp.json()}
         for sid in FRED_RATE_SERIES:
             assert by_id[sid]["group"] == "rates"
 
-    def test_when_gdp_series_requested_group_is_gdp(
-        self, client: TestClient
-    ) -> None:
-        from app.services.scrapers.fred_scraper import FRED_GDP_SERIES
+    def test_when_gdp_series_requested_group_is_gdp(self, client: TestClient) -> None:
+        from app.services.macro.scrapers.fred_scraper import FRED_GDP_SERIES
 
         resp = client.get(self.URL)
         by_id = {item["series_id"]: item for item in resp.json()}
@@ -724,9 +722,7 @@ class TestGetEconomicIndicatorObservations:
         message = body.get("detail") or body.get("error", {}).get("message", "")
         assert "nonexistent_col" in message
 
-    def test_mixed_valid_invalid_columns_returns_422(
-        self, client: TestClient
-    ) -> None:
+    def test_mixed_valid_invalid_columns_returns_422(self, client: TestClient) -> None:
         mock_repo = _make_mock_repo()
         with _patch_repo(mock_repo):
             resp = client.get(
@@ -852,9 +848,7 @@ class TestGetBondYieldObservations:
         call_kw = mock_repo.get_bond_yield_observations.call_args.kwargs
         assert call_kw["country"] is None
 
-    def test_no_maturities_filter_passes_none_to_repo(
-        self, client: TestClient
-    ) -> None:
+    def test_no_maturities_filter_passes_none_to_repo(self, client: TestClient) -> None:
         mock_repo = _make_mock_repo()
         with _patch_repo(mock_repo):
             client.get(self.URL)

@@ -15,8 +15,8 @@ import pytest
 
 pytest.importorskip("yfinance")
 
-from app.services.yfinance.market.search import SearchClient
-from app.services.yfinance.protocols import SearchClientProtocol
+from app.services.market_data.yfinance.market.search import SearchClient
+from app.services.market_data.yfinance.protocols import SearchClientProtocol
 
 
 def _build_client() -> SearchClient:
@@ -50,7 +50,7 @@ def _patch_search(
     for attr in drop:
         delattr(instance, attr)
     return patch(
-        "app.services.yfinance.market.search.yf.Search",
+        "app.services.market_data.yfinance.market.search.yf.Search",
         return_value=instance,
     )
 

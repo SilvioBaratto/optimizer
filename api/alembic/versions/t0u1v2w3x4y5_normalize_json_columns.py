@@ -24,93 +24,241 @@ def upgrade() -> None:
     op.create_table(
         "snapshot_weights",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("snapshot_id", UUID(as_uuid=True), sa.ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "snapshot_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("ticker", sa.String(100), nullable=False),
         sa.Column("weight", sa.Float, nullable=False),
         sa.UniqueConstraint("snapshot_id", "ticker", name="uq_snapshot_weight_ticker"),
     )
-    op.create_index("ix_snapshot_weights_snapshot_id", "snapshot_weights", ["snapshot_id"])
+    op.create_index(
+        "ix_snapshot_weights_snapshot_id", "snapshot_weights", ["snapshot_id"]
+    )
 
     op.create_table(
         "snapshot_sector_mappings",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("snapshot_id", UUID(as_uuid=True), sa.ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "snapshot_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("ticker", sa.String(100), nullable=False),
         sa.Column("sector", sa.String(200), nullable=False),
-        sa.UniqueConstraint("snapshot_id", "ticker", name="uq_snapshot_sector_mapping_ticker"),
+        sa.UniqueConstraint(
+            "snapshot_id", "ticker", name="uq_snapshot_sector_mapping_ticker"
+        ),
     )
-    op.create_index("ix_snapshot_sector_mappings_snapshot_id", "snapshot_sector_mappings", ["snapshot_id"])
+    op.create_index(
+        "ix_snapshot_sector_mappings_snapshot_id",
+        "snapshot_sector_mappings",
+        ["snapshot_id"],
+    )
 
     op.create_table(
         "snapshot_summary_entries",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("snapshot_id", UUID(as_uuid=True), sa.ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "snapshot_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("key", sa.String(200), nullable=False),
         sa.Column("value_text", sa.Text, nullable=False),
         sa.UniqueConstraint("snapshot_id", "key", name="uq_snapshot_summary_key"),
     )
-    op.create_index("ix_snapshot_summary_entries_snapshot_id", "snapshot_summary_entries", ["snapshot_id"])
+    op.create_index(
+        "ix_snapshot_summary_entries_snapshot_id",
+        "snapshot_summary_entries",
+        ["snapshot_id"],
+    )
 
     op.create_table(
         "snapshot_optimizer_params",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("snapshot_id", UUID(as_uuid=True), sa.ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "snapshot_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("key", sa.String(200), nullable=False),
         sa.Column("value_text", sa.Text, nullable=False),
-        sa.UniqueConstraint("snapshot_id", "key", name="uq_snapshot_optimizer_param_key"),
+        sa.UniqueConstraint(
+            "snapshot_id", "key", name="uq_snapshot_optimizer_param_key"
+        ),
     )
-    op.create_index("ix_snapshot_optimizer_params_snapshot_id", "snapshot_optimizer_params", ["snapshot_id"])
+    op.create_index(
+        "ix_snapshot_optimizer_params_snapshot_id",
+        "snapshot_optimizer_params",
+        ["snapshot_id"],
+    )
 
     op.create_table(
         "activity_event_metadata",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("event_id", UUID(as_uuid=True), sa.ForeignKey("activity_events.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "event_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("activity_events.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("key", sa.String(200), nullable=False),
         sa.Column("value_text", sa.Text, nullable=False),
         sa.UniqueConstraint("event_id", "key", name="uq_activity_event_detail_key"),
     )
-    op.create_index("ix_activity_event_metadata_event_id", "activity_event_metadata", ["event_id"])
+    op.create_index(
+        "ix_activity_event_metadata_event_id", "activity_event_metadata", ["event_id"]
+    )
 
     op.create_table(
         "regime_state_probabilities",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("regime_state_id", UUID(as_uuid=True), sa.ForeignKey("regime_states.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "regime_state_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("regime_states.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("regime", sa.String(20), nullable=False),
         sa.Column("probability", sa.Float, nullable=False),
-        sa.UniqueConstraint("regime_state_id", "regime", name="uq_regime_state_prob_regime"),
+        sa.UniqueConstraint(
+            "regime_state_id", "regime", name="uq_regime_state_prob_regime"
+        ),
     )
-    op.create_index("ix_regime_state_probs_state_id", "regime_state_probabilities", ["regime_state_id"])
+    op.create_index(
+        "ix_regime_state_probs_state_id",
+        "regime_state_probabilities",
+        ["regime_state_id"],
+    )
 
     op.create_table(
         "background_job_errors",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("job_id", UUID(as_uuid=True), sa.ForeignKey("background_jobs.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "job_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("background_jobs.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("error_index", sa.Integer, nullable=False),
         sa.Column("message", sa.Text, nullable=False),
         sa.UniqueConstraint("job_id", "error_index", name="uq_bg_job_error_index"),
     )
-    op.create_index("ix_background_job_errors_job_id", "background_job_errors", ["job_id"])
+    op.create_index(
+        "ix_background_job_errors_job_id", "background_job_errors", ["job_id"]
+    )
 
     op.create_table(
         "macro_news_themes",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("news_id", UUID(as_uuid=True), sa.ForeignKey("macro_news.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "news_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("macro_news.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("theme", sa.String(50), nullable=False),
         sa.UniqueConstraint("news_id", "theme", name="uq_macro_news_theme"),
     )
@@ -122,7 +270,10 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     op.add_column("regime_states", sa.Column("since", sa.Date, nullable=True))
     op.add_column("regime_states", sa.Column("n_states", sa.Integer, nullable=True))
-    op.add_column("regime_states", sa.Column("last_fitted", sa.DateTime(timezone=True), nullable=True))
+    op.add_column(
+        "regime_states",
+        sa.Column("last_fitted", sa.DateTime(timezone=True), nullable=True),
+    )
 
     # ------------------------------------------------------------------
     # 3. Data migration (PostgreSQL-specific)
@@ -226,9 +377,13 @@ def downgrade() -> None:
     # 1. Re-add dropped columns
     # ------------------------------------------------------------------
     op.add_column("portfolio_snapshots", sa.Column("weights", JSONB, nullable=True))
-    op.add_column("portfolio_snapshots", sa.Column("sector_mapping", JSONB, nullable=True))
+    op.add_column(
+        "portfolio_snapshots", sa.Column("sector_mapping", JSONB, nullable=True)
+    )
     op.add_column("portfolio_snapshots", sa.Column("summary", JSONB, nullable=True))
-    op.add_column("portfolio_snapshots", sa.Column("optimizer_config", JSONB, nullable=True))
+    op.add_column(
+        "portfolio_snapshots", sa.Column("optimizer_config", JSONB, nullable=True)
+    )
     op.add_column("activity_events", sa.Column("metadata", JSONB, nullable=True))
     op.add_column("regime_states", sa.Column("probabilities", JSONB, nullable=True))
     op.add_column("regime_states", sa.Column("metadata", JSONB, nullable=True))
@@ -353,7 +508,9 @@ def downgrade() -> None:
     op.alter_column("portfolio_snapshots", "weights", nullable=False)
 
     # Reconstruct probabilities NOT NULL
-    op.execute("UPDATE regime_states SET probabilities = '[]' WHERE probabilities IS NULL")
+    op.execute(
+        "UPDATE regime_states SET probabilities = '[]' WHERE probabilities IS NULL"
+    )
     op.alter_column("regime_states", "probabilities", nullable=False)
 
     # Re-create dropped index

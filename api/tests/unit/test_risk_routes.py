@@ -18,8 +18,8 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-_PORTFOLIO_REPO = "app.api.v1.risk.PortfolioRepository"
-_RISK_REPO = "app.api.v1.risk.RiskRepository"
+_PORTFOLIO_REPO = "app.api.v1.risk.risk.PortfolioRepository"
+_RISK_REPO = "app.api.v1.risk.risk.RiskRepository"
 
 BASE = "/api/v1/risk"
 PORTFOLIO_NAME = "test-portfolio"
@@ -126,9 +126,7 @@ class TestListLimits:
         assert resp.status_code == 200
         assert resp.json()["breachCount"] == 1
 
-    def test_refresh_true_re_evaluates_breach_flags(
-        self, client: TestClient
-    ) -> None:
+    def test_refresh_true_re_evaluates_breach_flags(self, client: TestClient) -> None:
         """upper limit: current_value > threshold → breached."""
         limit = _make_limit(
             limit_type="upper", threshold=0.20, current_value=0.25, is_breached=False
@@ -221,7 +219,11 @@ class TestCreateLimit:
 
             resp = client.post(
                 LIMITS_URL,
-                json={"metric": "max_drawdown", "limit_type": "upper", "threshold": 0.15},
+                json={
+                    "metric": "max_drawdown",
+                    "limit_type": "upper",
+                    "threshold": 0.15,
+                },
             )
 
         assert resp.status_code == 201

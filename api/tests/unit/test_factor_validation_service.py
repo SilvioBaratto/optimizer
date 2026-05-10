@@ -1,4 +1,4 @@
-"""Unit tests for app.services.factor_service: validate_factors() and compute_factor_scores().
+"""Unit tests for app.services.factors.factor_service: validate_factors() and compute_factor_scores().
 
 Covers:
   - validate_factors(): in-sample calls run_factor_validation with correct shapes
@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-_MODULE = "app.services.factor_scoring_service"
+_MODULE = "app.services.factors.factor_scoring_service"
 _RUN_VALIDATION = f"{_MODULE}.run_factor_validation"
 _RUN_OOS_VALIDATION = f"{_MODULE}.run_factor_oos_validation"
 _COMPUTE_COMPOSITE = f"{_MODULE}.compute_composite_score"
@@ -38,7 +38,9 @@ def _make_session() -> MagicMock:
     return MagicMock()
 
 
-def _make_factor_repo(scores: list | None = None, reports: list | None = None) -> MagicMock:
+def _make_factor_repo(
+    scores: list | None = None, reports: list | None = None
+) -> MagicMock:
     repo = MagicMock()
     repo.get_scores_by_tickers_and_date_range.return_value = scores or []
     repo.get_scores_by_tickers_at_date.return_value = scores or []
@@ -125,15 +127,18 @@ def _make_oos_result() -> MagicMock:
 
 class TestFactorServiceImports:
     def test_validate_factors_importable(self) -> None:
-        from app.services.factor_service import validate_factors
+        from app.services.factors.factor_service import validate_factors
+
         assert callable(validate_factors)
 
     def test_compute_factor_scores_importable(self) -> None:
-        from app.services.factor_service import compute_factor_scores
+        from app.services.factors.factor_service import compute_factor_scores
+
         assert callable(compute_factor_scores)
 
     def test_factor_data_error_importable(self) -> None:
-        from app.services.factor_service import FactorDataError
+        from app.services.factors.factor_service import FactorDataError
+
         assert issubclass(FactorDataError, Exception)
 
 
@@ -146,11 +151,13 @@ class TestFactorRepositoryHelpers:
     """FactorRepository gains new query methods used by validate/score services."""
 
     def test_get_scores_by_tickers_and_date_range_exists(self) -> None:
-        from app.repositories.factor_repository import FactorRepository
+        from app.repositories.factors.factor_repository import FactorRepository
+
         assert hasattr(FactorRepository, "get_scores_by_tickers_and_date_range")
 
     def test_get_scores_by_tickers_at_date_exists(self) -> None:
-        from app.repositories.factor_repository import FactorRepository
+        from app.repositories.factors.factor_repository import FactorRepository
+
         assert hasattr(FactorRepository, "get_scores_by_tickers_at_date")
 
 
@@ -169,7 +176,7 @@ class TestValidateFactorsInSample:
         library_result=None,
         price_rows: list | None = None,
     ) -> dict:
-        from app.services.factor_service import validate_factors
+        from app.services.factors.factor_service import validate_factors
 
         tickers = tickers or ["AAPL", "MSFT"]
         if factor_scores is None:
@@ -225,10 +232,13 @@ class TestValidateFactorsInSample:
 
         with (
             patch(f"{_MODULE}.FactorRepository", return_value=factor_repo),
-            patch(_RUN_VALIDATION, return_value=_make_validation_report_result()) as mock_val,
+            patch(
+                _RUN_VALIDATION, return_value=_make_validation_report_result()
+            ) as mock_val,
             patch(f"{_MODULE}._fetch_price_rows", return_value=_make_price_rows()),
         ):
-            from app.services.factor_service import validate_factors
+            from app.services.factors.factor_service import validate_factors
+
             validate_factors(
                 session=session,
                 tickers=["AAPL", "MSFT"],
@@ -250,7 +260,8 @@ class TestValidateFactorsInSample:
             patch(_RUN_VALIDATION, return_value=_make_validation_report_result()),
             patch(f"{_MODULE}._fetch_price_rows", return_value=_make_price_rows()),
         ):
-            from app.services.factor_service import validate_factors
+            from app.services.factors.factor_service import validate_factors
+
             validate_factors(
                 session=session,
                 tickers=["AAPL", "MSFT"],
@@ -263,7 +274,10 @@ class TestValidateFactorsInSample:
         factor_repo.save_validation_report.assert_called_once()
 
     def test_raises_factor_data_error_when_no_scores(self) -> None:
-        from app.services.factor_service import FactorDataError, validate_factors
+        from app.services.factors.factor_service import (
+            FactorDataError,
+            validate_factors,
+        )
 
         factor_repo = _make_factor_repo(scores=[])
         session = _make_session()
@@ -299,7 +313,8 @@ class TestValidateFactorsInSample:
             patch(_RUN_VALIDATION, side_effect=capture_call),
             patch(f"{_MODULE}._fetch_price_rows", return_value=_make_price_rows()),
         ):
-            from app.services.factor_service import validate_factors
+            from app.services.factors.factor_service import validate_factors
+
             validate_factors(
                 session=session,
                 tickers=["AAPL", "MSFT"],
@@ -324,7 +339,7 @@ class TestValidateFactorsOutOfSample:
     """validate_factors() out_of_sample path calls run_factor_oos_validation()."""
 
     def _invoke(self, factor_scores: list | None = None) -> dict:
-        from app.services.factor_service import validate_factors
+        from app.services.factors.factor_service import validate_factors
 
         if factor_scores is None:
             factor_scores = [
@@ -367,7 +382,8 @@ class TestValidateFactorsOutOfSample:
             patch(_RUN_OOS_VALIDATION, return_value=_make_oos_result()) as mock_oos,
             patch(f"{_MODULE}._fetch_price_rows", return_value=_make_price_rows()),
         ):
-            from app.services.factor_service import validate_factors
+            from app.services.factors.factor_service import validate_factors
+
             validate_factors(
                 session=session,
                 tickers=["AAPL", "MSFT"],
@@ -399,7 +415,8 @@ class TestValidateFactorsOutOfSample:
             patch(_RUN_OOS_VALIDATION, side_effect=capture_call),
             patch(f"{_MODULE}._fetch_price_rows", return_value=_make_price_rows()),
         ):
-            from app.services.factor_service import validate_factors
+            from app.services.factors.factor_service import validate_factors
+
             validate_factors(
                 session=session,
                 tickers=["AAPL", "MSFT"],
@@ -436,7 +453,7 @@ class TestComputeFactorScores:
         factor_scores: list | None = None,
         reports: list | None = None,
     ) -> dict:
-        from app.services.factor_service import compute_factor_scores
+        from app.services.factors.factor_service import compute_factor_scores
 
         if composite_return is None:
             composite_return = pd.Series({"AAPL": 0.8, "MSFT": 0.6})
@@ -483,10 +500,13 @@ class TestComputeFactorScores:
 
         with (
             patch(f"{_MODULE}.FactorRepository", return_value=factor_repo),
-            patch(_COMPUTE_COMPOSITE, return_value=pd.Series({"AAPL": 0.8})) as mock_comp,
+            patch(
+                _COMPUTE_COMPOSITE, return_value=pd.Series({"AAPL": 0.8})
+            ) as mock_comp,
             patch(f"{_MODULE}._fetch_price_rows", return_value=_make_price_rows()),
         ):
-            from app.services.factor_service import compute_factor_scores
+            from app.services.factors.factor_service import compute_factor_scores
+
             compute_factor_scores(
                 session=session,
                 tickers=["AAPL", "MSFT"],
@@ -505,7 +525,8 @@ class TestComputeFactorScores:
             patch(_COMPUTE_COMPOSITE, return_value=pd.Series({"AAPL": 0.8})),
             patch(f"{_MODULE}._fetch_price_rows", return_value=_make_price_rows()),
         ):
-            from app.services.factor_service import compute_factor_scores
+            from app.services.factors.factor_service import compute_factor_scores
+
             compute_factor_scores(
                 session=session,
                 tickers=["AAPL", "MSFT"],
@@ -524,7 +545,8 @@ class TestComputeFactorScores:
             patch(_COMPUTE_COMPOSITE, return_value=pd.Series({"AAPL": 0.8})),
             patch(f"{_MODULE}._fetch_price_rows", return_value=_make_price_rows()),
         ):
-            from app.services.factor_service import compute_factor_scores
+            from app.services.factors.factor_service import compute_factor_scores
+
             compute_factor_scores(
                 session=session,
                 tickers=["AAPL", "MSFT"],
@@ -543,7 +565,8 @@ class TestComputeFactorScores:
             patch(_COMPUTE_COMPOSITE, return_value=pd.Series({"AAPL": 0.8})),
             patch(f"{_MODULE}._fetch_price_rows", return_value=_make_price_rows()),
         ):
-            from app.services.factor_service import compute_factor_scores
+            from app.services.factors.factor_service import compute_factor_scores
+
             compute_factor_scores(
                 session=session,
                 tickers=["AAPL", "MSFT"],
@@ -554,7 +577,10 @@ class TestComputeFactorScores:
         factor_repo.get_validation_reports.assert_called()
 
     def test_raises_factor_data_error_when_no_standardized_scores(self) -> None:
-        from app.services.factor_service import FactorDataError, compute_factor_scores
+        from app.services.factors.factor_service import (
+            FactorDataError,
+            compute_factor_scores,
+        )
 
         # Scores with no standardized_score
         scores = [_make_factor_score("AAPL", standardized_score=None)]
@@ -571,7 +597,10 @@ class TestComputeFactorScores:
                 )
 
     def test_raises_factor_data_error_when_no_scores_at_date(self) -> None:
-        from app.services.factor_service import FactorDataError, compute_factor_scores
+        from app.services.factors.factor_service import (
+            FactorDataError,
+            compute_factor_scores,
+        )
 
         factor_repo = _make_factor_repo(scores=[])
         session = _make_session()
@@ -595,12 +624,22 @@ class TestDataReshaping:
     """Internal reshaping functions produce correct DataFrame shapes."""
 
     def test_build_factor_scores_dict_returns_dict_of_dataframes(self) -> None:
-        from app.services.factor_service import _build_factor_scores_dict
+        from app.services.factors.factor_service import _build_factor_scores_dict
 
         scores = [
-            _make_factor_score("AAPL", score_date=datetime.date(2023, 6, 30), factor_type="book_to_price"),
-            _make_factor_score("MSFT", score_date=datetime.date(2023, 6, 30), factor_type="book_to_price"),
-            _make_factor_score("AAPL", score_date=datetime.date(2023, 7, 31), factor_type="momentum"),
+            _make_factor_score(
+                "AAPL",
+                score_date=datetime.date(2023, 6, 30),
+                factor_type="book_to_price",
+            ),
+            _make_factor_score(
+                "MSFT",
+                score_date=datetime.date(2023, 6, 30),
+                factor_type="book_to_price",
+            ),
+            _make_factor_score(
+                "AAPL", score_date=datetime.date(2023, 7, 31), factor_type="momentum"
+            ),
         ]
 
         result = _build_factor_scores_dict(scores)
@@ -611,7 +650,7 @@ class TestDataReshaping:
         assert isinstance(result["book_to_price"], pd.DataFrame)
 
     def test_build_factor_scores_dict_date_index(self) -> None:
-        from app.services.factor_service import _build_factor_scores_dict
+        from app.services.factors.factor_service import _build_factor_scores_dict
 
         scores = [
             _make_factor_score("AAPL", score_date=datetime.date(2023, 6, 30)),
@@ -623,7 +662,7 @@ class TestDataReshaping:
         assert "AAPL" in df.columns or "MSFT" in df.columns
 
     def test_build_multiindex_dataframe_has_multiindex(self) -> None:
-        from app.services.factor_service import _build_multiindex_factor_df
+        from app.services.factors.factor_service import _build_multiindex_factor_df
 
         scores = [
             _make_factor_score("AAPL", score_date=datetime.date(2023, 6, 30)),
@@ -636,12 +675,16 @@ class TestDataReshaping:
         assert isinstance(result.index, pd.MultiIndex)
 
     def test_build_standardized_scores_df(self) -> None:
-        from app.services.factor_service import _build_standardized_scores_df
+        from app.services.factors.factor_service import _build_standardized_scores_df
 
         scores = [
-            _make_factor_score("AAPL", factor_type="book_to_price", standardized_score=0.8),
+            _make_factor_score(
+                "AAPL", factor_type="book_to_price", standardized_score=0.8
+            ),
             _make_factor_score("AAPL", factor_type="momentum", standardized_score=0.5),
-            _make_factor_score("MSFT", factor_type="book_to_price", standardized_score=0.6),
+            _make_factor_score(
+                "MSFT", factor_type="book_to_price", standardized_score=0.6
+            ),
         ]
 
         result, coverage = _build_standardized_scores_df(scores)

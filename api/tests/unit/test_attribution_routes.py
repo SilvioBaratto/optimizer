@@ -17,8 +17,8 @@ from fastapi.testclient import TestClient
 BASE_BRINSON = "/api/v1/attribution/brinson"
 BASE_FACTOR = "/api/v1/attribution/factor"
 
-_SVC_BRINSON = "app.api.v1.attribution.run_brinson_attribution"
-_SVC_FACTOR = "app.api.v1.attribution.run_factor_attribution"
+_SVC_BRINSON = "app.api.v1.attribution.attribution.run_brinson_attribution"
+_SVC_FACTOR = "app.api.v1.attribution.attribution.run_factor_attribution"
 
 # ---------------------------------------------------------------------------
 # Shared valid payloads
@@ -115,7 +115,11 @@ class TestBrinsonEndpoint:
         assert resp.status_code == 422
 
     def test_start_date_after_end_date_returns_422(self, client: TestClient) -> None:
-        bad_payload = {**_VALID_BRINSON, "start_date": "2024-01-01", "end_date": "2023-01-01"}
+        bad_payload = {
+            **_VALID_BRINSON,
+            "start_date": "2024-01-01",
+            "end_date": "2023-01-01",
+        }
         resp = client.post(BASE_BRINSON, json=bad_payload)
         assert resp.status_code == 422
 
@@ -125,13 +129,17 @@ class TestBrinsonEndpoint:
         assert resp.status_code == 422
 
     def test_missing_benchmark_returns_404(self, client: TestClient) -> None:
-        from app.services.attribution_service import MissingDataError
+        from app.services.attribution.attribution_service import MissingDataError
+
         with patch(_SVC_BRINSON, side_effect=MissingDataError("benchmark not found")):
             resp = client.post(BASE_BRINSON, json=_VALID_BRINSON)
         assert resp.status_code == 404
 
     def test_insufficient_sector_coverage_returns_422(self, client: TestClient) -> None:
-        from app.services.attribution_service import InsufficientSectorCoverageError
+        from app.services.attribution.attribution_service import (
+            InsufficientSectorCoverageError,
+        )
+
         with patch(
             _SVC_BRINSON,
             side_effect=InsufficientSectorCoverageError("sector coverage < 80%"),
@@ -176,7 +184,8 @@ class TestFactorAttributionEndpoint:
         assert "residual" in resp.json()
 
     def test_missing_factor_scores_returns_404(self, client: TestClient) -> None:
-        from app.services.attribution_service import MissingDataError
+        from app.services.attribution.attribution_service import MissingDataError
+
         with patch(_SVC_FACTOR, side_effect=MissingDataError("no factor scores")):
             resp = client.post(BASE_FACTOR, json=_VALID_FACTOR)
         assert resp.status_code == 404
@@ -197,6 +206,10 @@ class TestFactorAttributionEndpoint:
         assert resp.status_code == 422
 
     def test_start_date_after_end_date_returns_422(self, client: TestClient) -> None:
-        bad_payload = {**_VALID_FACTOR, "start_date": "2024-01-01", "end_date": "2023-01-01"}
+        bad_payload = {
+            **_VALID_FACTOR,
+            "start_date": "2024-01-01",
+            "end_date": "2023-01-01",
+        }
         resp = client.post(BASE_FACTOR, json=bad_payload)
         assert resp.status_code == 422

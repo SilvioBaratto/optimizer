@@ -8,16 +8,16 @@ class TestCamelCaseModelDefinedInBase:
 
     def test_camel_case_model_importable_from_base(self):
         """Acceptance criterion: CamelCaseModel is defined in api/app/schemas/base."""
-        from app.schemas.base import CamelCaseModel  # noqa: F401
+        from app.schemas._shared import CamelCaseModel  # noqa: F401
 
     def test_camel_case_model_is_pydantic_base_model_subclass(self):
-        from app.schemas.base import CamelCaseModel
+        from app.schemas._shared import CamelCaseModel
 
         assert issubclass(CamelCaseModel, BaseModel)
 
     def test_camel_case_model_serialises_snake_to_camel(self):
         """Fields named in snake_case must appear as camelCase in JSON."""
-        from app.schemas.base import CamelCaseModel
+        from app.schemas._shared import CamelCaseModel
 
         class SampleResponse(CamelCaseModel):
             total_count: int
@@ -33,7 +33,7 @@ class TestCamelCaseModelDefinedInBase:
 
     def test_camel_case_model_accepts_snake_case_input(self):
         """populate_by_name=True: model can be constructed with snake_case names."""
-        from app.schemas.base import CamelCaseModel
+        from app.schemas._shared import CamelCaseModel
 
         class SampleResponse(CamelCaseModel):
             total_count: int
@@ -48,7 +48,7 @@ class TestDashboardImportsCamelCaseModelFromBase:
     def test_dashboard_imports_camel_case_model_from_base(self):
         """Acceptance criterion: dashboard.py imports CamelCaseModel from base."""
 
-        import app.schemas.base as base_module
+        import app.schemas._shared.base as base_module
         import app.schemas.dashboard as dashboard_module
 
         assert dashboard_module.CamelCaseModel is base_module.CamelCaseModel
@@ -71,7 +71,7 @@ class TestDashboardSchemasStillWork:
     """All dashboard response schemas must continue to serialize correctly."""
 
     def test_kpi_item_serialises_to_camel_case(self):
-        from app.schemas.dashboard import KpiItem
+        from app.schemas.dashboard.dashboard import KpiItem
 
         kpi = KpiItem(
             label="Return",
@@ -86,7 +86,7 @@ class TestDashboardSchemasStillWork:
 
     def test_equity_curve_response_serialises_to_camel_case(self):
 
-        from app.schemas.dashboard import EquityCurveResponse
+        from app.schemas.dashboard.dashboard import EquityCurveResponse
 
         resp = EquityCurveResponse(
             points=[],
@@ -98,7 +98,7 @@ class TestDashboardSchemasStillWork:
         assert "benchmarkTotalReturn" in data
 
     def test_drift_response_serialises_to_camel_case(self):
-        from app.schemas.dashboard import DriftResponse
+        from app.schemas.dashboard.dashboard import DriftResponse
 
         resp = DriftResponse(
             entries=[],
@@ -120,7 +120,7 @@ class TestInitReexportsCamelCaseModel:
 
     def test_schemas_camel_case_model_is_same_object_as_base(self):
         from app.schemas import CamelCaseModel as FromInit
-        from app.schemas.base import CamelCaseModel as FromBase
+        from app.schemas._shared import CamelCaseModel as FromBase
 
         assert FromInit is FromBase
 
@@ -128,6 +128,6 @@ class TestInitReexportsCamelCaseModel:
         """Importing base, then dashboard, then __init__ must not raise."""
         import importlib
 
-        importlib.import_module("app.schemas.base")
+        importlib.import_module("app.schemas._shared.base")
         importlib.import_module("app.schemas.dashboard")
         importlib.import_module("app.schemas")

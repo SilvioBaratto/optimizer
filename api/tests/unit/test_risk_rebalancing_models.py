@@ -21,9 +21,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models.base import Base
-from app.models.rebalancing import RebalancingPolicy
-from app.models.risk import RiskLimit
+from app.models._shared import Base
+from app.models.rebalancing.rebalancing import RebalancingPolicy
+from app.models.risk.risk import RiskLimit
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -226,9 +226,11 @@ class TestRiskLimitUniqueConstraint:
         session.add_all([limit_a, limit_b])
         session.flush()  # must not raise
 
-        count = session.query(RiskLimit).filter_by(
-            portfolio_id=portfolio_id, metric="cvar_99"
-        ).count()
+        count = (
+            session.query(RiskLimit)
+            .filter_by(portfolio_id=portfolio_id, metric="cvar_99")
+            .count()
+        )
         assert count == 2
 
     def test_allows_same_metric_and_limit_type_different_portfolio(
@@ -313,9 +315,11 @@ class TestRebalancingPolicyInsertion:
         session.add(policy)
         session.flush()
 
-        result = session.query(RebalancingPolicy).filter_by(
-            portfolio_id=portfolio_id
-        ).first()
+        result = (
+            session.query(RebalancingPolicy)
+            .filter_by(portfolio_id=portfolio_id)
+            .first()
+        )
         assert result is not None
         assert result.name == "quarterly-calendar"
         assert result.policy_type == "calendar"
@@ -397,9 +401,7 @@ class TestRebalancingPolicyUniqueConstraint:
         with pytest.raises(IntegrityError):
             session.flush()
 
-    def test_allows_same_name_different_portfolio(
-        self, session: Session
-    ) -> None:
+    def test_allows_same_name_different_portfolio(self, session: Session) -> None:
         pid_a = uuid.uuid4()
         pid_b = uuid.uuid4()
         policy_a = RebalancingPolicy(
@@ -438,9 +440,11 @@ class TestRebalancingPolicyUniqueConstraint:
         session.add_all([policy_a, policy_b])
         session.flush()  # must not raise
 
-        count = session.query(RebalancingPolicy).filter_by(
-            portfolio_id=portfolio_id
-        ).count()
+        count = (
+            session.query(RebalancingPolicy)
+            .filter_by(portfolio_id=portfolio_id)
+            .count()
+        )
         assert count == 2
 
 

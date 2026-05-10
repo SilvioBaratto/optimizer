@@ -42,7 +42,8 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
         sa.UniqueConstraint(
-            "country", "summary_date",
+            "country",
+            "summary_date",
             name="uq_macro_news_summary_country_date",
         ),
     )

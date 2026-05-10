@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 BASE_URL = "/api/v1/scheduler/status"
 
-_REPO_PATH = "app.api.v1.scheduler.BackgroundJobRepository"
+_REPO_PATH = "app.api.v1.jobs.scheduler.BackgroundJobRepository"
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +34,9 @@ def _make_apscheduler_job(
     job = MagicMock()
     job.id = job_id
     job.name = name
-    job.next_run_time = next_run_time or datetime(2026, 4, 16, 7, 0, 0, tzinfo=timezone.utc)
+    job.next_run_time = next_run_time or datetime(
+        2026, 4, 16, 7, 0, 0, tzinfo=timezone.utc
+    )
     trigger = MagicMock()
     trigger.__str__ = lambda _: trigger_str
     job.trigger = trigger
@@ -49,7 +51,9 @@ def _make_bg_job(
     row = MagicMock()
     row.job_type = job_type
     row.status = status
-    row.finished_at = finished_at or datetime(2026, 4, 15, 7, 30, 0, tzinfo=timezone.utc)
+    row.finished_at = finished_at or datetime(
+        2026, 4, 15, 7, 30, 0, tzinfo=timezone.utc
+    )
     return row
 
 
@@ -78,7 +82,9 @@ class TestSchedulerStatusRunning:
             mock_repo = MockRepo.return_value
             mock_repo.get_latest_by_type.return_value = _make_bg_job("yfinance_fetch")
 
-            with patch.object(cast(FastAPI, client.app).state, "scheduler", scheduler, create=True):
+            with patch.object(
+                cast(FastAPI, client.app).state, "scheduler", scheduler, create=True
+            ):
                 response = client.get(BASE_URL)
 
         assert response.status_code == 200
@@ -91,7 +97,9 @@ class TestSchedulerStatusRunning:
             mock_repo = MockRepo.return_value
             mock_repo.get_latest_by_type.return_value = None
 
-            with patch.object(cast(FastAPI, client.app).state, "scheduler", scheduler, create=True):
+            with patch.object(
+                cast(FastAPI, client.app).state, "scheduler", scheduler, create=True
+            ):
                 response = client.get(BASE_URL)
 
         data = response.json()
@@ -109,7 +117,9 @@ class TestSchedulerStatusRunning:
             mock_repo = MockRepo.return_value
             mock_repo.get_latest_by_type.return_value = None
 
-            with patch.object(cast(FastAPI, client.app).state, "scheduler", scheduler, create=True):
+            with patch.object(
+                cast(FastAPI, client.app).state, "scheduler", scheduler, create=True
+            ):
                 response = client.get(BASE_URL)
 
         data = response.json()
@@ -117,14 +127,18 @@ class TestSchedulerStatusRunning:
 
     def test_job_entry_contains_required_fields(self, client: TestClient) -> None:
         next_run = datetime(2026, 4, 16, 7, 0, 0, tzinfo=timezone.utc)
-        apsjobs = [_make_apscheduler_job("daily_pipeline", "Daily data pipeline", next_run)]
+        apsjobs = [
+            _make_apscheduler_job("daily_pipeline", "Daily data pipeline", next_run)
+        ]
         scheduler = _make_scheduler(apsjobs)
 
         with patch(_REPO_PATH) as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_latest_by_type.return_value = None
 
-            with patch.object(cast(FastAPI, client.app).state, "scheduler", scheduler, create=True):
+            with patch.object(
+                cast(FastAPI, client.app).state, "scheduler", scheduler, create=True
+            ):
                 response = client.get(BASE_URL)
 
         job = response.json()["jobs"][0]
@@ -143,7 +157,9 @@ class TestSchedulerStatusRunning:
             mock_repo = MockRepo.return_value
             mock_repo.get_latest_by_type.return_value = None
 
-            with patch.object(cast(FastAPI, client.app).state, "scheduler", scheduler, create=True):
+            with patch.object(
+                cast(FastAPI, client.app).state, "scheduler", scheduler, create=True
+            ):
                 response = client.get(BASE_URL)
 
         job = response.json()["jobs"][0]
@@ -161,7 +177,9 @@ class TestSchedulerStatusRunning:
                 "yfinance_fetch", "completed", finished
             )
 
-            with patch.object(cast(FastAPI, client.app).state, "scheduler", scheduler, create=True):
+            with patch.object(
+                cast(FastAPI, client.app).state, "scheduler", scheduler, create=True
+            ):
                 response = client.get(BASE_URL)
 
         job = response.json()["jobs"][0]
@@ -178,18 +196,24 @@ class TestSchedulerStatusNotRunning:
     """Endpoint returns safe defaults when scheduler is None or not running."""
 
     def test_returns_200_when_scheduler_none(self, client: TestClient) -> None:
-        with patch.object(cast(FastAPI, client.app).state, "scheduler", None, create=True):
+        with patch.object(
+            cast(FastAPI, client.app).state, "scheduler", None, create=True
+        ):
             response = client.get(BASE_URL)
         assert response.status_code == 200
 
     def test_scheduler_running_false_when_none(self, client: TestClient) -> None:
-        with patch.object(cast(FastAPI, client.app).state, "scheduler", None, create=True):
+        with patch.object(
+            cast(FastAPI, client.app).state, "scheduler", None, create=True
+        ):
             response = client.get(BASE_URL)
         data = response.json()
         assert data["schedulerRunning"] is False
 
     def test_empty_jobs_list_when_scheduler_none(self, client: TestClient) -> None:
-        with patch.object(cast(FastAPI, client.app).state, "scheduler", None, create=True):
+        with patch.object(
+            cast(FastAPI, client.app).state, "scheduler", None, create=True
+        ):
             response = client.get(BASE_URL)
         data = response.json()
         assert data["jobs"] == []
@@ -199,7 +223,9 @@ class TestSchedulerStatusNotRunning:
         scheduler.running = False
         scheduler.get_jobs.return_value = []
 
-        with patch.object(cast(FastAPI, client.app).state, "scheduler", scheduler, create=True):
+        with patch.object(
+            cast(FastAPI, client.app).state, "scheduler", scheduler, create=True
+        ):
             response = client.get(BASE_URL)
 
         data = response.json()
@@ -223,7 +249,9 @@ class TestSchedulerStatusMissingHistory:
             mock_repo = MockRepo.return_value
             mock_repo.get_latest_by_type.return_value = None
 
-            with patch.object(cast(FastAPI, client.app).state, "scheduler", scheduler, create=True):
+            with patch.object(
+                cast(FastAPI, client.app).state, "scheduler", scheduler, create=True
+            ):
                 response = client.get(BASE_URL)
 
         job = response.json()["jobs"][0]

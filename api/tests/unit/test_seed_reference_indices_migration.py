@@ -58,15 +58,18 @@ def _sqlite_engine():
 def _create_exchanges_and_instruments_tables(engine) -> None:
     """Create minimal exchanges + instruments tables compatible with SQLite."""
     with engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             CREATE TABLE exchanges (
                 id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
                 name TEXT NOT NULL UNIQUE,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
-        """))
-        conn.execute(text("""
+        """)
+        )
+        conn.execute(
+            text("""
             CREATE TABLE instruments (
                 id TEXT PRIMARY KEY,
                 ticker TEXT NOT NULL,
@@ -81,7 +84,8 @@ def _create_exchanges_and_instruments_tables(engine) -> None:
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                 CONSTRAINT uq_instrument_ticker_exchange UNIQUE (ticker, exchange_id)
             )
-        """))
+        """)
+        )
 
 
 def _spy_count(engine) -> int:
@@ -235,14 +239,12 @@ class TestWhereExistsGuardBehavior:
         _create_exchanges_and_instruments_tables(engine)
 
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')"
-            ))
+            conn.execute(
+                text("INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')")
+            )
             conn.execute(text(self._SQLITE_INSERT))
 
-        assert _spy_count(engine) == 1, (
-            "Expected 1 SPY row when NYSE exchange exists"
-        )
+        assert _spy_count(engine) == 1, "Expected 1 SPY row when NYSE exchange exists"
 
     def test_spy_row_has_correct_ticker(self) -> None:
         """Inserted SPY row must have correct ticker and instrument_type."""
@@ -250,14 +252,16 @@ class TestWhereExistsGuardBehavior:
         _create_exchanges_and_instruments_tables(engine)
 
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')"
-            ))
+            conn.execute(
+                text("INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')")
+            )
             conn.execute(text(self._SQLITE_INSERT))
 
         with engine.connect() as conn:
             row = conn.execute(
-                text("SELECT ticker, instrument_type, isin FROM instruments WHERE ticker = 'SPY'")
+                text(
+                    "SELECT ticker, instrument_type, isin FROM instruments WHERE ticker = 'SPY'"
+                )
             ).fetchone()
 
         assert row is not None
@@ -271,9 +275,9 @@ class TestWhereExistsGuardBehavior:
         _create_exchanges_and_instruments_tables(engine)
 
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')"
-            ))
+            conn.execute(
+                text("INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')")
+            )
             conn.execute(text(self._SQLITE_INSERT))
             # Second run — must be a no-op due to ON CONFLICT / INSERT OR IGNORE
             conn.execute(text(self._SQLITE_INSERT))
@@ -288,9 +292,9 @@ class TestWhereExistsGuardBehavior:
         _create_exchanges_and_instruments_tables(engine)
 
         with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')"
-            ))
+            conn.execute(
+                text("INSERT INTO exchanges (id, name) VALUES ('nyse-uuid', 'NYSE')")
+            )
             conn.execute(text(self._SQLITE_INSERT))
 
         assert _spy_count(engine) == 1
@@ -298,9 +302,7 @@ class TestWhereExistsGuardBehavior:
         with engine.begin() as conn:
             conn.execute(text(self._SQLITE_DELETE))
 
-        assert _spy_count(engine) == 0, (
-            "Expected SPY row removed after downgrade"
-        )
+        assert _spy_count(engine) == 0, "Expected SPY row removed after downgrade"
 
     def test_downgrade_is_safe_when_spy_absent(self) -> None:
         """downgrade() must not error when SPY row is already missing."""

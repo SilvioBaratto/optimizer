@@ -10,14 +10,14 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from app.services.sentiment import (
+from app.services.views.sentiment import (
     _ALPHA_MAX,
     _ALPHA_MIN,
     adjust_idzorek_alpha,
     compute_sentiment_signal,
     fetch_news_sentiment,
 )
-from app.services.view_generation import adjust_view_confidences
+from app.services.views.view_generation import adjust_view_confidences
 from baml_client.types import AssetView, NewsSentimentOutput
 
 # ---------------------------------------------------------------------------
@@ -230,7 +230,7 @@ class TestFetchNewsSentiment:
         assert isinstance(result, pd.Series)
         assert result.empty
 
-    @patch("app.services.sentiment.b.ScoreNewsSentiment")
+    @patch("app.services.views.sentiment.b.ScoreNewsSentiment")
     def test_returns_series_with_scores(self, mock_score: MagicMock) -> None:
         mock_score.return_value = NewsSentimentOutput(
             scores=[0.8, -0.3],
@@ -250,7 +250,7 @@ class TestFetchNewsSentiment:
         assert result.iloc[0] == pytest.approx(0.8)
         assert result.iloc[1] == pytest.approx(-0.3)
 
-    @patch("app.services.sentiment.b.ScoreNewsSentiment")
+    @patch("app.services.views.sentiment.b.ScoreNewsSentiment")
     def test_mismatched_score_count_padded(self, mock_score: MagicMock) -> None:
         """If BAML returns fewer scores than articles, pad with zeros."""
         mock_score.return_value = NewsSentimentOutput(
@@ -270,7 +270,7 @@ class TestFetchNewsSentiment:
         assert result.iloc[0] == pytest.approx(0.5)
         assert result.iloc[1] == pytest.approx(0.0)  # padded
 
-    @patch("app.services.sentiment.b.ScoreNewsSentiment")
+    @patch("app.services.views.sentiment.b.ScoreNewsSentiment")
     def test_mismatched_score_count_truncated(self, mock_score: MagicMock) -> None:
         """If BAML returns more scores than articles, truncate."""
         mock_score.return_value = NewsSentimentOutput(
@@ -286,7 +286,7 @@ class TestFetchNewsSentiment:
         assert len(result) == 1
         assert result.iloc[0] == pytest.approx(0.5)
 
-    @patch("app.services.sentiment.b.ScoreNewsSentiment")
+    @patch("app.services.views.sentiment.b.ScoreNewsSentiment")
     def test_baml_failure_returns_empty_series(self, mock_score: MagicMock) -> None:
         """If BAML call throws, return empty Series gracefully."""
         mock_score.side_effect = RuntimeError("LLM timeout")
@@ -298,7 +298,7 @@ class TestFetchNewsSentiment:
 
         assert result.empty
 
-    @patch("app.services.sentiment.b.ScoreNewsSentiment")
+    @patch("app.services.views.sentiment.b.ScoreNewsSentiment")
     def test_none_publish_time_handled(self, mock_score: MagicMock) -> None:
         """News rows with NULL publish_time fall back to current time."""
         mock_score.return_value = NewsSentimentOutput(
@@ -317,7 +317,7 @@ class TestFetchNewsSentiment:
         assert len(result) == 1
         assert result.iloc[0] == pytest.approx(0.5)
 
-    @patch("app.services.sentiment.b.ScoreNewsSentiment")
+    @patch("app.services.views.sentiment.b.ScoreNewsSentiment")
     def test_macro_news_fallback_used(self, mock_score: MagicMock) -> None:
         """When ticker_news is empty, macro_news fallback provides articles."""
         mock_score.return_value = NewsSentimentOutput(
@@ -325,7 +325,9 @@ class TestFetchNewsSentiment:
             reasoning="macro fallback",
         )
 
-        macro_row = self._make_news_row("Tech sector rallies on AI momentum", age_days=2.0)
+        macro_row = self._make_news_row(
+            "Tech sector rallies on AI momentum", age_days=2.0
+        )
         repo = self._make_repo(instrument_id=uuid.uuid4(), news_rows=[])
         repo.get_macro_news_fallback.return_value = [macro_row]
 

@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-_REPO = "app.api.v1.database.DatabaseAdminRepository"
+_REPO = "app.api.v1._shared.database.DatabaseAdminRepository"
 
 BASE_URL = "/api/v1/database"
 
@@ -54,7 +54,8 @@ class TestGetDatabaseTables:
         assert len(body) == 2
 
     def test_response_contains_name_schema_row_count_and_size_keys(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ):
         """Issue #435 contract: every row must carry the four columns the
         Settings → Data Management table renders."""
@@ -72,7 +73,8 @@ class TestGetDatabaseTables:
             assert "size_pretty" in row
 
     def test_response_does_not_use_legacy_table_name_key(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ):
         """Regression: the legacy ``table_name`` key was renamed to ``name``
         to match the frontend ``TableInfo`` model (issue #435)."""
@@ -93,7 +95,8 @@ class TestGetDatabaseTables:
 
 class TestGetDatabaseHealth:
     def test_returns_healthy_true_when_repo_check_succeeds(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ):
         with patch(_REPO) as MockRepo:
             MockRepo.return_value.check_health.return_value = (True, 1.23)
@@ -106,7 +109,8 @@ class TestGetDatabaseHealth:
         assert body["latency_ms"] == 1.23
 
     def test_returns_healthy_false_when_repo_check_fails(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ):
         with patch(_REPO) as MockRepo:
             MockRepo.return_value.check_health.return_value = (False, 9999.0)
@@ -118,7 +122,8 @@ class TestGetDatabaseHealth:
         assert body["healthy"] is False
 
     def test_response_keys_match_frontend_HealthCheck_contract(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ):
         """Issue #436: freezes the {healthy, latency_ms, database_url} shape
         that the frontend ``HealthCheck`` interface depends on."""
@@ -174,7 +179,7 @@ class TestGetTableInfoRepo:
         return session
 
     def test_returns_name_schema_size_bytes_size_pretty(self):
-        from app.repositories.database_admin_repository import (
+        from app.repositories._shared.database_admin_repository import (
             DatabaseAdminRepository,
         )
 
@@ -196,7 +201,7 @@ class TestGetTableInfoRepo:
         assert row["size_pretty"] == "16 kB"
 
     def test_missing_table_returns_zero_size_and_dash(self):
-        from app.repositories.database_admin_repository import (
+        from app.repositories._shared.database_admin_repository import (
             DatabaseAdminRepository,
         )
 

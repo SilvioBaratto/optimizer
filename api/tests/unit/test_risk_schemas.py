@@ -23,11 +23,12 @@ class TestRiskLimitCreate:
     """RiskLimitCreate validates POST request bodies for risk limits."""
 
     def test_importable(self) -> None:
-        from app.schemas.risk import RiskLimitCreate
+        from app.schemas.risk.risk import RiskLimitCreate
+
         _ = RiskLimitCreate
 
     def test_valid_create(self) -> None:
-        from app.schemas.risk import RiskLimitCreate
+        from app.schemas.risk.risk import RiskLimitCreate
 
         create = RiskLimitCreate(
             metric="max_drawdown",
@@ -38,7 +39,7 @@ class TestRiskLimitCreate:
         assert create.threshold == pytest.approx(0.15)
 
     def test_negative_threshold_raises(self) -> None:
-        from app.schemas.risk import RiskLimitCreate
+        from app.schemas.risk.risk import RiskLimitCreate
 
         with pytest.raises(ValidationError):
             RiskLimitCreate(
@@ -48,7 +49,7 @@ class TestRiskLimitCreate:
             )
 
     def test_zero_threshold_raises(self) -> None:
-        from app.schemas.risk import RiskLimitCreate
+        from app.schemas.risk.risk import RiskLimitCreate
 
         with pytest.raises(ValidationError):
             RiskLimitCreate(
@@ -58,7 +59,7 @@ class TestRiskLimitCreate:
             )
 
     def test_empty_metric_raises(self) -> None:
-        from app.schemas.risk import RiskLimitCreate
+        from app.schemas.risk.risk import RiskLimitCreate
 
         with pytest.raises(ValidationError):
             RiskLimitCreate(
@@ -88,11 +89,12 @@ class TestRiskLimitResponse:
         return SimpleNamespace(**defaults)
 
     def test_importable(self) -> None:
-        from app.schemas.risk import RiskLimitResponse
+        from app.schemas.risk.risk import RiskLimitResponse
+
         _ = RiskLimitResponse
 
     def test_orm_deserialization_succeeds(self) -> None:
-        from app.schemas.risk import RiskLimitResponse
+        from app.schemas.risk.risk import RiskLimitResponse
 
         orm_obj = self._make_orm()
         response = RiskLimitResponse.model_validate(orm_obj)
@@ -100,11 +102,11 @@ class TestRiskLimitResponse:
         assert response.is_breached is False
 
     def test_camel_case_output(self) -> None:
-        from app.schemas.risk import RiskLimitResponse
+        from app.schemas.risk.risk import RiskLimitResponse
 
-        data = RiskLimitResponse.model_validate(
-            self._make_orm()
-        ).model_dump(by_alias=True)
+        data = RiskLimitResponse.model_validate(self._make_orm()).model_dump(
+            by_alias=True
+        )
         assert "portfolioId" in data
         assert "limitType" in data
         assert "currentValue" in data
@@ -113,7 +115,7 @@ class TestRiskLimitResponse:
         assert "createdAt" in data
 
     def test_id_and_portfolio_id_as_strings(self) -> None:
-        from app.schemas.risk import RiskLimitResponse
+        from app.schemas.risk.risk import RiskLimitResponse
 
         uid = uuid.uuid4()
         pid = uuid.uuid4()
@@ -124,15 +126,13 @@ class TestRiskLimitResponse:
         assert response.portfolio_id == str(pid)
 
     def test_current_value_none(self) -> None:
-        from app.schemas.risk import RiskLimitResponse
+        from app.schemas.risk.risk import RiskLimitResponse
 
-        response = RiskLimitResponse.model_validate(
-            self._make_orm(current_value=None)
-        )
+        response = RiskLimitResponse.model_validate(self._make_orm(current_value=None))
         assert response.current_value is None
 
     def test_last_checked_at_none(self) -> None:
-        from app.schemas.risk import RiskLimitResponse
+        from app.schemas.risk.risk import RiskLimitResponse
 
         response = RiskLimitResponse.model_validate(
             self._make_orm(last_checked_at=None)
@@ -140,7 +140,7 @@ class TestRiskLimitResponse:
         assert response.last_checked_at is None
 
     def test_round_trip_serialization(self) -> None:
-        from app.schemas.risk import RiskLimitResponse
+        from app.schemas.risk.risk import RiskLimitResponse
 
         uid = uuid.uuid4()
         orm_obj = self._make_orm(id=uid)
@@ -154,17 +154,18 @@ class TestRiskLimitListResponse:
     """RiskLimitListResponse wraps items with breach count."""
 
     def test_importable(self) -> None:
-        from app.schemas.risk import RiskLimitListResponse
+        from app.schemas.risk.risk import RiskLimitListResponse
+
         _ = RiskLimitListResponse
 
     def test_empty_list(self) -> None:
-        from app.schemas.risk import RiskLimitListResponse
+        from app.schemas.risk.risk import RiskLimitListResponse
 
         resp = RiskLimitListResponse(items=[], breach_count=0)
         assert resp.breach_count == 0
 
     def test_camel_case_keys(self) -> None:
-        from app.schemas.risk import RiskLimitListResponse
+        from app.schemas.risk.risk import RiskLimitListResponse
 
         resp = RiskLimitListResponse(items=[], breach_count=2)
         data = resp.model_dump(by_alias=True)
@@ -172,7 +173,7 @@ class TestRiskLimitListResponse:
         assert "breachCount" in data
 
     def test_breach_count_non_negative(self) -> None:
-        from app.schemas.risk import RiskLimitListResponse
+        from app.schemas.risk.risk import RiskLimitListResponse
 
         with pytest.raises(ValidationError):
             RiskLimitListResponse(items=[], breach_count=-1)

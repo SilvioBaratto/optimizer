@@ -13,11 +13,11 @@ import datetime
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.models.macro_regime import (
+from app.models.macro.macro_regime import (
     EconomicIndicator,
     TradingEconomicsObservation,
 )
-from app.repositories.macro_regime_repository import MacroRegimeRepository
+from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 
 _PAST = datetime.datetime(2000, 1, 1, 0, 0, 0)
 
@@ -94,9 +94,7 @@ class TestUpsertUpdatedAtStamping:
         created_at = row.created_at
 
         db_session.execute(
-            text(
-                "UPDATE economic_indicators SET updated_at = :ts WHERE country = :c"
-            ),
+            text("UPDATE economic_indicators SET updated_at = :ts WHERE country = :c"),
             {"ts": _PAST, "c": "USA_311_B"},
         )
         db_session.flush()

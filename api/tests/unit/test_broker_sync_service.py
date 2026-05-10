@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
-from app.services.broker_sync_service import BrokerSyncResult, sync_portfolio
+from app.services.portfolio.broker_sync_service import BrokerSyncResult, sync_portfolio
 
 
 def _make_order(
@@ -54,7 +54,9 @@ def _run_sync(
     session = MagicMock()
     client = _make_t212_client(orders)
 
-    with patch("app.services.broker_sync_service.PortfolioRepository") as MockRepo:
+    with patch(
+        "app.services.portfolio.broker_sync_service.PortfolioRepository"
+    ) as MockRepo:
         repo = repo_mock or _make_repo_mock()
         MockRepo.return_value = repo
         result = sync_portfolio(client, portfolio_id, session)
@@ -115,7 +117,12 @@ class TestSyncPortfolioDeduplication:
 
     def test_order_without_id_uses_none_external_id(self) -> None:
         """Orders with no id field pass external_id=None (non-broker fallback)."""
-        order = {"status": "FILLED", "type": "BUY", "ticker": "TSLA", "filledQuantity": 1}
+        order = {
+            "status": "FILLED",
+            "type": "BUY",
+            "ticker": "TSLA",
+            "filledQuantity": 1,
+        }
         _, repo = _run_sync([order])
         call_kwargs = repo.add_event_idempotent.call_args.kwargs
         assert call_kwargs["external_id"] is None
@@ -179,7 +186,9 @@ def _run_sync_dividends(
     session = MagicMock()
     client = _make_t212_client_with_dividends(dividends)
 
-    with patch("app.services.broker_sync_service.PortfolioRepository") as MockRepo:
+    with patch(
+        "app.services.portfolio.broker_sync_service.PortfolioRepository"
+    ) as MockRepo:
         repo = repo_mock or _make_repo_mock()
         MockRepo.return_value = repo
         result = sync_portfolio(client, portfolio_id, session)
@@ -191,7 +200,8 @@ class TestSyncPortfolioDividends:
     def test_calls_add_event_idempotent_with_reference_as_external_id(self) -> None:
         portfolio_id = uuid.uuid4()
         result, repo = _run_sync_dividends(
-            [_make_dividend("div-ref-001")], portfolio_id,
+            [_make_dividend("div-ref-001")],
+            portfolio_id,
         )
 
         repo.add_event_idempotent.assert_called_once_with(
@@ -302,7 +312,9 @@ class TestSyncPortfolioDividends:
         client = _make_t212_client_with_dividends([])
         client.get_all_dividend_history.side_effect = RuntimeError("timeout")
 
-        with patch("app.services.broker_sync_service.PortfolioRepository") as MockRepo:
+        with patch(
+            "app.services.portfolio.broker_sync_service.PortfolioRepository"
+        ) as MockRepo:
             MockRepo.return_value = _make_repo_mock()
             result = sync_portfolio(client, uuid.uuid4(), session)
 

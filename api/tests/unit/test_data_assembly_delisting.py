@@ -260,9 +260,7 @@ class TestAssemblePricesDelisting:
         price_rows = [(inst_id, date(2024, 1, 2), 100.0)]
         delisting_rows: list = []  # no delistings
 
-        mock_session = self._make_session(
-            ticker_rank_rows, price_rows, delisting_rows
-        )
+        mock_session = self._make_session(ticker_rank_rows, price_rows, delisting_rows)
         assemble_prices(mock_session, include_delisted=True)
 
     def test_delisted_stock_gets_synthetic_price_row(self) -> None:
@@ -287,9 +285,7 @@ class TestAssemblePricesDelisting:
         # DEAD delists on Jan 5 with -30% return
         delisting_rows = [("DEAD", date(2024, 1, 5), -0.30)]
 
-        mock_session = self._make_session(
-            ticker_rank_rows, price_rows, delisting_rows
-        )
+        mock_session = self._make_session(ticker_rank_rows, price_rows, delisting_rows)
         result = assemble_prices(mock_session, include_delisted=True)
 
         delisting_ts = pd.Timestamp("2024-01-05")
