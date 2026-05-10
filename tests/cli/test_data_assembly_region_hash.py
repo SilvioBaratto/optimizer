@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("typer")
 
-from cli.data_assembly import (
+from research.data_assembly import (
     FRED_SERIES_IDS,
     REGION_MAP,
     DataAssembly,

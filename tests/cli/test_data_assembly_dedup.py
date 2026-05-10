@@ -10,8 +10,8 @@ import pytest
 
 pytest.importorskip("typer")
 
-from cli._currency import CURRENCY_DEDUP_PRIORITY, currency_dedup_rank
-from cli.data_assembly import (
+from research._currency import CURRENCY_DEDUP_PRIORITY, currency_dedup_rank
+from research.data_assembly import (
     _DEDUP_DROP_THRESHOLD_PCT,
     _dedup_fundamentals_df,
     _pivot_with_dedup,
@@ -372,7 +372,7 @@ class TestPivotWithDedupGuard:
                 {"date": "2024-01-01", "ticker": "MSFT", "close": 2.0, "_ccy_rank": 0},
             ]
         )
-        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+        with caplog.at_level(logging.INFO, logger="research.data_assembly"):
             out = _pivot_with_dedup(df, "date", "ticker", "close", "test")
         assert out.shape == (1, 2)
         assert not any("dedup" in r.getMessage().lower() for r in caplog.records)
@@ -389,7 +389,7 @@ class TestPivotWithDedupGuard:
             {"date": "2024-01-01", "ticker": "T0", "close": 99.0, "_ccy_rank": 1}
         )
         df = _pivot_input(rows)
-        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+        with caplog.at_level(logging.INFO, logger="research.data_assembly"):
             _pivot_with_dedup(df, "date", "ticker", "close", "assemble_prices")
         info_records = [
             r
@@ -458,7 +458,7 @@ class TestPivotWithDedup:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         df = _pivot_rows_with_drop_ratio(n_unique=10, n_duplicates=0)
-        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+        with caplog.at_level(logging.INFO, logger="research.data_assembly"):
             _pivot_with_dedup(df, "date", "ticker", "close", "noop")
         assert not any(
             r.levelname == "INFO" and "dedup" in r.getMessage().lower()
@@ -470,7 +470,7 @@ class TestPivotWithDedup:
     ) -> None:
         # 1 dup / 101 ≈ 0.99% — well below 5%.
         df = _pivot_rows_with_drop_ratio(n_unique=100, n_duplicates=1)
-        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+        with caplog.at_level(logging.INFO, logger="research.data_assembly"):
             _pivot_with_dedup(df, "date", "ticker", "close", "assemble_prices")
         info = [
             r
@@ -491,7 +491,7 @@ class TestPivotWithDedup:
     ) -> None:
         # 18 / 10018 ≈ 0.18% — current production observation.
         df = _pivot_rows_with_drop_ratio(n_unique=10_000, n_duplicates=18)
-        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+        with caplog.at_level(logging.INFO, logger="research.data_assembly"):
             _pivot_with_dedup(df, "date", "ticker", "close", "assemble_prices")
         # Must not raise; must emit the structured info log.
         info = [
@@ -508,7 +508,7 @@ class TestPivotWithDedup:
         # 5 dups / 100 unique = 5/(100+5) ≈ 4.76% — strictly below 5%.
         # To get exactly 5%: 5 dups / 100 total → unique=95, dups=5.
         df = _pivot_rows_with_drop_ratio(n_unique=95, n_duplicates=5)
-        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+        with caplog.at_level(logging.INFO, logger="research.data_assembly"):
             _pivot_with_dedup(df, "date", "ticker", "close", "boundary")
         info = [
             r

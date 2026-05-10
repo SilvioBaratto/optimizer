@@ -31,10 +31,10 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from cli.data_assembly import DataAssembly
 from optimizer.factors import FactorOOSResult, FactorValidationReport
 from research import _persistence
 from research import stock_selection_pipeline as ssp
+from research.data_assembly import DataAssembly
 
 # ---------------------------------------------------------------------------
 # Fixture factories

@@ -16,7 +16,7 @@ pytestmark = pytest.mark.skipif(
 
 def _make_assembly(**kwargs):
     """Build a minimal DataAssembly with defaults for required fields."""
-    from cli.data_assembly import DataAssembly
+    from research.data_assembly import DataAssembly
 
     defaults: dict = {
         "prices": pd.DataFrame(),

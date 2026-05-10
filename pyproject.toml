@@ -53,11 +53,8 @@ docs = [
 ]
 dev = ["portopt[test,lint,typecheck,docs]", "pre-commit>=4.5.1"]
 
-[project.scripts]
-optimizer = "cli:app"
-
 [tool.setuptools.packages.find]
-include = ["optimizer*", "cli*", "research*"]
+include = ["optimizer*", "research*"]
 
 [tool.setuptools.package-data]
 optimizer = ["py.typed"]
@@ -120,7 +117,7 @@ module = [
 disallow_subclassing_any = false
 
 [tool.ruff.lint.isort]
-known-first-party = ["optimizer", "cli", "research"]
+known-first-party = ["optimizer", "research"]
 
 [tool.ruff.format]
 quote-style = "double"

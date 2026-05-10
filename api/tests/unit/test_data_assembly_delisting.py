@@ -11,13 +11,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-# Ensure the repo root is on sys.path so ``cli.data_assembly`` resolves
+# Ensure the repo root is on sys.path so ``research.data_assembly`` resolves
 # without relying on the optimizer editable install.
 _repo_root = Path(__file__).parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from cli.data_assembly import _apply_delisting_returns
+from research.data_assembly import _apply_delisting_returns
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -238,7 +238,7 @@ class TestAssemblePricesDelisting:
         """When include_delisted=False, the delisting rows query is never made."""
         import uuid
 
-        from cli.data_assembly import assemble_prices
+        from research.data_assembly import assemble_prices
 
         inst_id = uuid.uuid4()
         ticker_rank_rows = [(inst_id, "AAPL", "USD")]
@@ -253,7 +253,7 @@ class TestAssemblePricesDelisting:
         """When include_delisted=True, a third query fetches delisting rows."""
         import uuid
 
-        from cli.data_assembly import assemble_prices
+        from research.data_assembly import assemble_prices
 
         inst_id = uuid.uuid4()
         ticker_rank_rows = [(inst_id, "AAPL", "USD")]
@@ -269,7 +269,7 @@ class TestAssemblePricesDelisting:
         """The delisting synthetic row appears in the returned DataFrame."""
         import uuid
 
-        from cli.data_assembly import assemble_prices
+        from research.data_assembly import assemble_prices
 
         active_id = uuid.uuid4()
         delisted_id = uuid.uuid4()

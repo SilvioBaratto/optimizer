@@ -47,7 +47,7 @@ from app.models.yfinance_data import (  # noqa: E402
     TickerProfile,
 )
 
-from cli._currency import (  # noqa: E402
+from research._currency import (  # noqa: E402
     build_currency_map,
     currency_dedup_rank,
     normalize_fundamentals,
@@ -167,7 +167,7 @@ def _build_ticker_rank_map(
 ) -> dict[str, tuple[str, int]]:
     """Return ``{instrument_id_hex: (yfinance_ticker, currency_rank)}``.
 
-    The currency rank is derived from :func:`~cli._currency.currency_dedup_rank`
+    The currency rank is derived from :func:`~research._currency.currency_dedup_rank`
     and is used to deterministically resolve cross-listed instruments that share
     the same ``yfinance_ticker`` (e.g. LSE vs Frankfurt listings).  Lower rank
     means higher priority (USD=0 beats GBX=3 beats unknown=99).
@@ -2033,7 +2033,7 @@ class DataAssembly:
         if series.empty:
             logger.warning(
                 "DGS3MO not found in fred_data; using rf=0.0. "
-                "Run 'python -m cli fred fetch' to populate."
+                "POST /api/v1/macro-data/fred/fetch to populate."
             )
             return 0.0
         return float(series.iloc[-1])

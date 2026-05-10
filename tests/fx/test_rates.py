@@ -136,7 +136,7 @@ class TestAssembleFxRates:
 
     def test_eur_base_fetches_gbp_and_usd(self) -> None:
         """Mock yfinance and verify cross-rate computation for EUR base."""
-        from cli.data_assembly import assemble_fx_rates
+        from research.data_assembly import assemble_fx_rates
 
         price_index = pd.bdate_range("2024-01-02", periods=10)
         cmap = {"LLOY.L": "GBP", "ORA.PA": "EUR", "SPY": "USD"}
@@ -171,7 +171,7 @@ class TestAssembleFxRates:
 
     def test_all_base_currency_returns_empty(self) -> None:
         """When all tickers are in the base currency, return empty DataFrame."""
-        from cli.data_assembly import assemble_fx_rates
+        from research.data_assembly import assemble_fx_rates
 
         price_index = pd.bdate_range("2024-01-02", periods=5)
         cmap = {"ORA.PA": "EUR", "BNP.PA": "EUR"}
@@ -182,7 +182,7 @@ class TestAssembleFxRates:
 
     def test_usd_base_direct_rate(self) -> None:
         """USD base with GBP foreign — direct rate, no reciprocal needed."""
-        from cli.data_assembly import assemble_fx_rates
+        from research.data_assembly import assemble_fx_rates
 
         price_index = pd.bdate_range("2024-01-02", periods=5)
         cmap = {"LLOY.L": "GBP", "SPY": "USD"}
@@ -203,7 +203,7 @@ class TestAssembleFxRates:
 
     def test_download_failure_returns_empty(self) -> None:
         """When yfinance download fails, return empty DataFrame gracefully."""
-        from cli.data_assembly import assemble_fx_rates
+        from research.data_assembly import assemble_fx_rates
 
         price_index = pd.bdate_range("2024-01-02", periods=5)
         cmap = {"LLOY.L": "GBP"}

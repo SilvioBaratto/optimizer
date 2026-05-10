@@ -1,4 +1,4 @@
-"""Portfolio optimization command group — the glue layer.
+"""Portfolio optimization glue layer.
 
 Connects the database (API data layer) to the optimizer library
 by assembling DataFrames and calling ``run_full_pipeline_with_selection()``.
@@ -13,11 +13,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-import typer
 from rich.console import Console
 from rich.table import Table
 
-from cli.display import (
+from research._display import (
     dict_table,
     error_panel,
     info_panel,
@@ -33,19 +32,9 @@ if str(_api_path) not in sys.path:
 logger = logging.getLogger(__name__)
 console = Console()
 
-portfolio_app = typer.Typer(
-    name="portfolio",
-    help="Portfolio optimization — run the full pipeline from DB to weights.",
-)
-
-
-# ---------------------------------------------------------------------------
-# Strategy enum for CLI --strategy option
-# ---------------------------------------------------------------------------
-
 
 class Strategy(str, Enum):
-    """Named optimizer strategies exposed via CLI."""
+    """Named optimizer strategies."""
 
     MAX_SHARPE = "max-sharpe"
     MIN_VARIANCE = "min-variance"
@@ -225,57 +214,15 @@ def _display_backtest(backtest_result: Any) -> None:
     console.print(table)
 
 
-# ---------------------------------------------------------------------------
-# Commands
-# ---------------------------------------------------------------------------
-
-
-@portfolio_app.command()
 def optimize(
-    strategy: Strategy = typer.Option(  # noqa: B008
-        Strategy.MAX_SHARPE,
-        "--strategy",
-        "-s",
-        help="Optimization strategy.",
-    ),
-    backtest: bool = typer.Option(
-        False,
-        "--backtest",
-        "-b",
-        help="Run walk-forward backtest (quarterly rolling).",
-    ),
-    selection: bool = typer.Option(
-        True,
-        "--selection/--no-selection",
-        help="Enable stock pre-selection (universe screening + factor scoring).",
-    ),
-    macro_country: str = typer.Option(
-        "United States",
-        "--macro-country",
-        help="Country for macro regime data.",
-    ),
-    top_n: int = typer.Option(
-        20,
-        "--top-n",
-        help="Number of top weights to display.",
-    ),
-    universe: str = typer.Option(
-        "developed",
-        "--universe",
-        "-u",
-        help="Universe: developed, large-cap, broad, small-cap.",
-    ),
-    sector_tolerance: float = typer.Option(
-        0.05,
-        "--sector-tolerance",
-        help="Max sector weight deviation (0.0-1.0). Use 0.03 for low tracking error.",
-    ),
-    output: str | None = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Save weights to CSV file.",
-    ),
+    strategy: Strategy = Strategy.MAX_SHARPE,
+    backtest: bool = False,
+    selection: bool = True,
+    macro_country: str = "United States",
+    top_n: int = 20,
+    universe: str = "developed",
+    sector_tolerance: float = 0.05,
+    output: str | None = None,
 ) -> None:
     """Run the full optimization pipeline: DB → DataFrames → weights.
 
@@ -283,7 +230,7 @@ def optimize(
     (universe screening, factor scoring, regime tilts), then runs
     portfolio optimization with the chosen strategy.
     """
-    from cli.data_assembly import assemble_all
+    from research.data_assembly import assemble_all
 
     # 1. Initialize database
     console.print("[bold]Initializing database connection...[/bold]")
@@ -291,7 +238,7 @@ def optimize(
         db_manager = _get_db_manager()
     except Exception as exc:
         error_panel(f"Cannot connect to database: {exc}")
-        raise typer.Exit(code=1) from exc
+        raise SystemExit(1) from exc
 
     # 2. Assemble data
     console.print("[bold]Assembling data from database...[/bold]")
@@ -300,16 +247,16 @@ def optimize(
     except Exception as exc:
         error_panel(f"Data assembly failed: {exc}")
         db_manager.close()
-        raise typer.Exit(code=1) from exc
+        raise SystemExit(1) from exc
 
     dict_table(data.summary(), title="Data Summary")
 
     if data.n_tickers == 0:
         error_panel(
-            "No price data found in database. Run 'python -m cli yfinance fetch' first."
+            "No price data found in database. POST /api/v1/yfinance-data/fetch first."
         )
         db_manager.close()
-        raise typer.Exit(code=1)
+        raise SystemExit(1)
 
     if data.n_trading_days < 60:
         warning_panel(
@@ -408,7 +355,7 @@ def optimize(
         error_panel(f"Optimization failed: {exc}")
         logger.exception("Pipeline error")
         db_manager.close()
-        raise typer.Exit(code=1) from exc
+        raise SystemExit(1) from exc
 
     # 6. Display results
     console.print()
@@ -432,24 +379,23 @@ def optimize(
     db_manager.close()
 
 
-@portfolio_app.command()
 def data_summary() -> None:
     """Show a summary of available data in the database for optimization."""
-    from cli.data_assembly import assemble_all
+    from research.data_assembly import assemble_all
 
     console.print("[bold]Checking database data availability...[/bold]")
     try:
         db_manager = _get_db_manager()
     except Exception as exc:
         error_panel(f"Cannot connect to database: {exc}")
-        raise typer.Exit(code=1) from exc
+        raise SystemExit(1) from exc
 
     try:
         data = assemble_all(db_manager)
     except Exception as exc:
         error_panel(f"Data assembly failed: {exc}")
         db_manager.close()
-        raise typer.Exit(code=1) from exc
+        raise SystemExit(1) from exc
 
     dict_table(data.summary(), title="Data Available for Optimization")
 
@@ -496,12 +442,11 @@ def data_summary() -> None:
             if macro_info:
                 dict_table(macro_info, title="Macro Indicators")
     else:
-        warning_panel("No data found. Run 'python -m cli yfinance fetch' to populate.")
+        warning_panel("No data found. POST /api/v1/yfinance-data/fetch to populate.")
 
     db_manager.close()
 
 
-@portfolio_app.command()
 def strategies() -> None:
     """List all available optimization strategies."""
     table = Table(

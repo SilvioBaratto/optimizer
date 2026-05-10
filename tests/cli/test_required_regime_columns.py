@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("typer")
 
-from cli.data_assembly import (
+from research.data_assembly import (
     _FRED_REGIME_MAP,
     _REQUIRED_REGIME_COLUMNS,
     assemble_regime_data,

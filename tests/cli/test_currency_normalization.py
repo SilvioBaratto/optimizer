@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("typer")
 
-from cli._currency import (
+from research._currency import (
     MINOR_CURRENCY_DIVISORS,
     build_currency_map,
     normalize_fundamentals,

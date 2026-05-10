@@ -360,7 +360,7 @@ class TestAssembleFxRatesEmptyPriceIndex:
     """Verify assemble_fx_rates handles empty price index gracefully."""
 
     def test_empty_price_index_returns_empty_df(self) -> None:
-        from cli.data_assembly import assemble_fx_rates
+        from research.data_assembly import assemble_fx_rates
 
         currency_map = {"LLOY.L": "GBP", "SPY": "USD"}
         empty_index = pd.DatetimeIndex([])
@@ -379,21 +379,21 @@ class TestAssembleFxRatesEmptyPriceIndex:
 class TestAssembleAllBaseCurrency:
     """Verify assemble_all() threads base_currency parameter."""
 
-    @patch("cli.data_assembly.assemble_fx_rates")
-    @patch("cli.data_assembly.assemble_regime_data")
-    @patch("cli.data_assembly.assemble_delisting_returns")
-    @patch("cli.data_assembly.assemble_fundamental_history")
-    @patch("cli.data_assembly.assemble_sentiment")
-    @patch("cli.data_assembly.assemble_bond_observations")
-    @patch("cli.data_assembly.assemble_te_observations")
-    @patch("cli.data_assembly.assemble_fred_series")
-    @patch("cli.data_assembly.assemble_macro_data")
-    @patch("cli.data_assembly.assemble_insider_data")
-    @patch("cli.data_assembly.assemble_analyst_data")
-    @patch("cli.data_assembly.assemble_financial_statements")
-    @patch("cli.data_assembly.assemble_volumes")
-    @patch("cli.data_assembly.assemble_prices")
-    @patch("cli.data_assembly.assemble_fundamentals")
+    @patch("research.data_assembly.assemble_fx_rates")
+    @patch("research.data_assembly.assemble_regime_data")
+    @patch("research.data_assembly.assemble_delisting_returns")
+    @patch("research.data_assembly.assemble_fundamental_history")
+    @patch("research.data_assembly.assemble_sentiment")
+    @patch("research.data_assembly.assemble_bond_observations")
+    @patch("research.data_assembly.assemble_te_observations")
+    @patch("research.data_assembly.assemble_fred_series")
+    @patch("research.data_assembly.assemble_macro_data")
+    @patch("research.data_assembly.assemble_insider_data")
+    @patch("research.data_assembly.assemble_analyst_data")
+    @patch("research.data_assembly.assemble_financial_statements")
+    @patch("research.data_assembly.assemble_volumes")
+    @patch("research.data_assembly.assemble_prices")
+    @patch("research.data_assembly.assemble_fundamentals")
     def test_base_currency_passed_to_fx_rates(
         self,
         mock_fundamentals: MagicMock,
@@ -412,7 +412,7 @@ class TestAssembleAllBaseCurrency:
         mock_regime: MagicMock,
         mock_fx_rates: MagicMock,
     ) -> None:
-        from cli.data_assembly import assemble_all
+        from research.data_assembly import assemble_all
 
         dates = pd.bdate_range("2024-01-02", periods=10)
         prices = pd.DataFrame(

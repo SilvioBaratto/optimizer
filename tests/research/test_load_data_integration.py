@@ -8,8 +8,8 @@ import pytest
 
 pytest.importorskip("typer")
 
-from cli.data_assembly import DataAssembly
 from research import stock_selection_pipeline as ssp
+from research.data_assembly import DataAssembly
 
 # ---------------------------------------------------------------------------
 # Fixture builders

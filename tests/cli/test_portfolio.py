@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("typer")
 
-from cli.portfolio import Strategy, _build_optimizer
+from research.portfolio import Strategy, _build_optimizer
 
 # ---------------------------------------------------------------------------
 # TestStrategy

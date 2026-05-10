@@ -283,10 +283,6 @@ cd api && pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --reload     # http://localhost:8000
 
-# CLI
-python -m cli --help
-python -m cli db health
-python -m cli universe stats
 ```
 
 ### Environment Variables

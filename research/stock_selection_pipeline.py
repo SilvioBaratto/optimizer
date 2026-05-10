@@ -51,11 +51,6 @@ for _p in [str(_PROJECT_ROOT), str(_API_DIR)]:
 
 from app.database import DatabaseManager  # noqa: E402
 
-from cli.data_assembly import (  # noqa: E402
-    DataAssembly,
-    assemble_all,
-    assemble_regime_data,
-)
 from optimizer.exceptions import FactorCoverageError  # noqa: E402
 from optimizer.factors import (  # noqa: E402
     FactorOOSConfig,
@@ -76,6 +71,11 @@ from optimizer.factors._config import (  # noqa: E402
     StandardizationConfig,
 )
 from optimizer.optimization import build_region_linear_constraints  # noqa: E402
+from research.data_assembly import (  # noqa: E402
+    DataAssembly,
+    assemble_all,
+    assemble_regime_data,
+)
 
 # Cycle-2 §4.3 spec: NW lag=4, BH alpha=0.10, |t|>=1.645 (two-sided p<0.10).
 _IS_VALIDATION_CONFIG = FactorValidationConfig(

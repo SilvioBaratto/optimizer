@@ -21,7 +21,7 @@ import pytest
 
 pytest.importorskip("typer")
 
-from cli.data_assembly import (
+from research.data_assembly import (
     _apply_delisting_returns,
     _to_float,
     assemble_delisting_returns,
@@ -276,7 +276,7 @@ class TestAssemblePrices:
                 *unique_prices,
             ],
         )
-        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+        with caplog.at_level(logging.INFO, logger="research.data_assembly"):
             result = assemble_prices(session, include_delisted=False, currency_map={})
         assert "RDSA.L" in result.columns
         # USD listing (200.0) must be selected over GBX listing (21000.0)
@@ -306,7 +306,7 @@ class TestAssemblePrices:
             [(id_a, "RDSA.L", "USD"), (id_b, "RDSA.L", "USD"), *unique_instruments],
             [(id_a, "2024-01-02", 200.0), (id_b, "2024-01-02", 210.0), *unique_prices],
         )
-        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+        with caplog.at_level(logging.INFO, logger="research.data_assembly"):
             result = assemble_prices(session, include_delisted=False, currency_map={})
         assert "RDSA.L" in result.columns
         assert any(
@@ -433,7 +433,7 @@ class TestAssembleVolumes:
                 *unique_volumes,
             ],
         )
-        with caplog.at_level(logging.INFO, logger="cli.data_assembly"):
+        with caplog.at_level(logging.INFO, logger="research.data_assembly"):
             result = assemble_volumes(session, include_delisted=False)
         assert "SHEL.L" in result.columns
         assert result.loc[pd.Timestamp("2024-01-02"), "SHEL.L"] == pytest.approx(

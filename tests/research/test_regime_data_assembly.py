@@ -13,7 +13,7 @@ import pytest
 
 pytest.importorskip("typer")
 
-from cli.data_assembly import assemble_regime_data
+from research.data_assembly import assemble_regime_data
 
 
 def _macro(
