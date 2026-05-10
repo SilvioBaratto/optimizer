@@ -9,6 +9,7 @@ Revises: a1b2c3d4e5f6
 Create Date: 2026-02-18
 """
 
+import contextlib
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -32,14 +33,12 @@ def upgrade() -> None:
 
     # Remove FK from country_regime_assessments → economic_indicators
     if "country_regime_assessments" in existing:
-        try:
+        with contextlib.suppress(Exception):
             op.drop_constraint(
                 "country_regime_assessments_economic_indicators_id_fkey",
                 "country_regime_assessments",
                 type_="foreignkey",
             )
-        except Exception:
-            pass
 
     # Drop in FK-safe order: children first, then parents.
     for tbl in (

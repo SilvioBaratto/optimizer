@@ -82,7 +82,5 @@ class TestRequiredColumnStaleEmitsWarningNotRaise:
             warnings.simplefilter("always", UserWarning)
             assemble_regime_data(macro, _empty_fred(), _empty_te(), fill_limit=45)
 
-        gdp_warnings = [
-            w for w in record if "gdp_growth" in str(w.message)
-        ]
+        gdp_warnings = [w for w in record if "gdp_growth" in str(w.message)]
         assert gdp_warnings, "expected UserWarning for stale gdp_growth"

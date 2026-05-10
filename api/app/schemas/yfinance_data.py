@@ -16,7 +16,9 @@ from app.schemas.base_job import AsyncJobCreateResponse, AsyncJobProgress
 class YFinanceFetchRequest(BaseModel):
     """Request body for bulk yfinance data fetch."""
 
-    max_workers: int = Field(default=4, ge=1, le=20, description="Parallel workers")
+    workers: int = Field(
+        default=1, ge=1, le=16, description="Parallel workers (1 = serial)"
+    )
     period: str = Field(default="5y", description="Price history period")
     mode: Literal["full", "incremental"] = Field(
         default="incremental",

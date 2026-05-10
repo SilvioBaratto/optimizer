@@ -1,6 +1,8 @@
 """Service layer orchestrating yfinance data fetching and storage."""
 
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -499,8 +501,11 @@ def run_bulk_yfinance_fetch(
 ) -> dict[str, Any]:
     """Execute bulk yfinance fetch for all instruments.
 
+    Dispatches to a thread-pool implementation when ``request.workers > 1``;
+    otherwise uses the in-process serial path with a single shared session.
+
     Args:
-        request: ``YFinanceFetchRequest`` with ``period`` and ``mode`` fields.
+        request: ``YFinanceFetchRequest`` with ``period``, ``mode``, ``workers``.
         yf_client: Configured yfinance client instance.
         on_progress: Optional callback for progress updates.
 
@@ -508,6 +513,11 @@ def run_bulk_yfinance_fetch(
         Result dict with ``tickers_processed``, ``counts``, ``error_count``,
         and ``skipped_category_count``.
     """
+    if request.workers > 1:
+        return _run_bulk_yfinance_fetch_parallel(
+            request, yf_client, on_progress=on_progress, workers=request.workers
+        )
+
     from app.database import database_manager
 
     with database_manager.get_session() as session:
@@ -568,4 +578,142 @@ def run_bulk_yfinance_fetch(
         )
         logger.info("Bulk yfinance fetch completed: %d tickers", total)
 
+    return result_dict
+
+
+# ---------------------------------------------------------------------------
+# Parallel bulk fetch
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _InstrumentSpec:
+    """Detached instrument fields used by worker threads."""
+
+    instrument_id: UUID
+    yfinance_ticker: str
+    exchange_name: str | None
+    currency_code: str | None
+
+
+def _load_instrument_specs(database_manager: Any) -> list[_InstrumentSpec]:
+    """Load instruments inside a short-lived main-thread session."""
+    with database_manager.get_session() as session:
+        repo = YFinanceRepository(session)
+        return [
+            _InstrumentSpec(
+                instrument_id=inst.id,
+                yfinance_ticker=inst.yfinance_ticker or "",
+                exchange_name=inst.exchange_name,
+                currency_code=inst.currency_code,
+            )
+            for inst in repo.get_instruments_with_yfinance_ticker()
+        ]
+
+
+def _fetch_one_ticker(
+    spec: _InstrumentSpec,
+    request: Any,
+    yf_client: YFinanceClient,
+    database_manager: Any,
+) -> dict[str, Any]:
+    """Fetch a single ticker inside an isolated per-thread session."""
+    if not spec.yfinance_ticker:
+        raise ValueError("missing yfinance_ticker")
+    with database_manager.get_session() as session:
+        repo = YFinanceRepository(session)
+        service = YFinanceDataService(repo, yf_client)
+        try:
+            result = service.fetch_and_store(
+                instrument_id=spec.instrument_id,
+                yfinance_ticker=spec.yfinance_ticker,
+                period=request.period,
+                mode=request.mode,
+                exchange_name=spec.exchange_name,
+                currency_code=spec.currency_code,
+            )
+            session.commit()
+            return result
+        except Exception:
+            session.rollback()
+            raise
+
+
+def _aggregate_outcome(
+    spec: _InstrumentSpec,
+    outcome: dict[str, Any] | Exception,
+    counts: dict[str, int],
+    errors: list[str],
+) -> int:
+    """Fold a single worker outcome into the running aggregates.
+
+    Returns the number of skipped sub-categories for this ticker.
+    """
+    if isinstance(outcome, Exception):
+        errors.append(f"{spec.yfinance_ticker}: {outcome}")
+        return 0
+    for key, value in outcome["counts"].items():
+        counts[key] = counts.get(key, 0) + value
+    for err in outcome["errors"]:
+        errors.append(f"{spec.yfinance_ticker}: {err}")
+    return len(outcome.get("skipped", []))
+
+
+def _run_bulk_yfinance_fetch_parallel(
+    request: Any,
+    yf_client: YFinanceClient,
+    *,
+    on_progress: ProgressCallback,
+    workers: int,
+) -> dict[str, Any]:
+    """Execute bulk yfinance fetch across a thread pool.
+
+    Each worker opens its own session via ``database_manager.get_session()``;
+    sessions never cross thread boundaries. A ``threading.Lock``-guarded
+    counter drives ``on_progress``. Worker exceptions are isolated and
+    aggregated into the final ``error_count``.
+    """
+    from app.database import database_manager
+
+    specs = _load_instrument_specs(database_manager)
+    total = len(specs)
+    on_progress(total=total)
+
+    counter = [0]
+    counter_lock = threading.Lock()
+    aggregate_lock = threading.Lock()
+    counts: dict[str, int] = {}
+    errors: list[str] = []
+    skipped = 0
+
+    def _worker(spec: _InstrumentSpec) -> tuple[_InstrumentSpec, dict[str, Any] | Exception]:
+        try:
+            return spec, _fetch_one_ticker(spec, request, yf_client, database_manager)
+        except Exception as exc:
+            return spec, exc
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_worker, spec) for spec in specs]
+        for future in as_completed(futures):
+            spec, outcome = future.result()
+            with counter_lock:
+                counter[0] += 1
+                idx = counter[0]
+            on_progress(current=idx, current_ticker=spec.yfinance_ticker)
+            with aggregate_lock:
+                skipped += _aggregate_outcome(spec, outcome, counts, errors)
+
+    result_dict = {
+        "tickers_processed": total,
+        "counts": counts,
+        "error_count": len(errors),
+        "skipped_category_count": skipped,
+    }
+    on_progress(
+        status="completed",
+        finished_at=datetime.now(timezone.utc).isoformat(),
+        errors=errors,
+        result=result_dict,
+    )
+    logger.info("Parallel yfinance fetch completed: %d tickers (%d workers)", total, workers)
     return result_dict

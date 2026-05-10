@@ -1,4 +1,5 @@
 extend = "../pyproject.toml"
+extend-exclude = ["baml_client"]
 
 [lint]
 # Ignore rules that are intentional FastAPI/SQLAlchemy/test patterns
@@ -54,3 +55,5 @@ extend-ignore = [
 # __all__ with intentional categorical grouping — categories are documentation
 "app/services/yfinance/__init__.py" = ["RUF022"]
 "app/services/__init__.py" = ["RUF022"]
+# Alembic migrations use table names from constants/introspection, not user input
+"alembic/**" = ["S608"]

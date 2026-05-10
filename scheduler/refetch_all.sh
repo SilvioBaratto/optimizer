@@ -109,7 +109,7 @@ fire_and_poll "universe" "/universe/build" '{}'
 UNIVERSE_EXIT=$?
 
 fire_and_poll "yfinance" "/yfinance-data/fetch" \
-    '{"max_workers":4,"period":"5y","mode":"incremental"}'
+    '{"workers":1,"period":"5y","mode":"incremental"}'
 YFINANCE_EXIT=$?
 
 fire_and_poll "macro" "/macro-data/fetch" \
