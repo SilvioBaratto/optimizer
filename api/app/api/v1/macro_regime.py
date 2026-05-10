@@ -592,6 +592,8 @@ def get_fred_catalog():
     """Return the static FRED series registry with group metadata."""
     from app.services.scrapers.fred_scraper import (
         FRED_CLI_SERIES,
+        FRED_GDP_SERIES,
+        FRED_RATE_SERIES,
         FRED_RECESSION_SERIES,
         FRED_SERIES,
         FRED_SPREAD_SERIES,
@@ -607,6 +609,10 @@ def get_fred_catalog():
         group_map[sid] = "cli"
     for sid in FRED_RECESSION_SERIES:
         group_map[sid] = "recession"
+    for sid in FRED_RATE_SERIES:
+        group_map[sid] = "rates"
+    for sid in FRED_GDP_SERIES:
+        group_map[sid] = "gdp"
 
     return [
         {"series_id": sid, "description": desc, "group": group_map.get(sid, "other")}

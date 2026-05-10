@@ -51,11 +51,19 @@ FRED_RECESSION_SERIES: dict[str, str] = {
     "RECPROUSM156N": "Smoothed US Recession Probability (%)",
     "JHGDPBRINDX": "GDP-Based Recession Indicator Index",
     "USREC": "NBER Recession Indicator (0=expansion, 1=recession)",
+    "USRECDM": "NBER Recession Indicator, Daily, Midpoint Method",
 }
 
-# Risk-free rate proxy (daily)
+# Treasury constant-maturity rates (daily)
 FRED_RATE_SERIES: dict[str, str] = {
+    "DGS2": "2-Year Treasury Constant Maturity Rate",
     "DGS3MO": "3-Month Treasury Constant Maturity Rate",
+    "DGS10": "10-Year Treasury Constant Maturity Rate",
+}
+
+# Real GDP growth (quarterly, seasonally adjusted annualised rate)
+FRED_GDP_SERIES: dict[str, str] = {
+    "A191RL1Q225SBEA": "Real GDP, % Change from Preceding Period (SAAR)",
 }
 
 # FX / Dollar Index (daily)
@@ -70,6 +78,7 @@ FRED_SERIES: dict[str, str] = {
     **FRED_CLI_SERIES,
     **FRED_RECESSION_SERIES,
     **FRED_RATE_SERIES,
+    **FRED_GDP_SERIES,
     **FRED_FX_SERIES,
 }
 

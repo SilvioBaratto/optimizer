@@ -209,12 +209,15 @@ class MacroRegimeService:
         self,
         series_ids: list[str] | None = None,
         incremental: bool = True,
+        on_progress: ProgressCallback = _noop,
     ) -> dict[str, Any]:
         """Fetch FRED time-series observations and store in DB.
 
         Args:
             series_ids: Series to fetch. ``None`` means all ``FRED_SERIES`` keys.
             incremental: When ``True``, fetch only observations newer than last stored.
+            on_progress: Callback invoked once per series with ``current``,
+                ``total``, and ``current_country`` (the FRED series ID).
 
         Returns:
             Dict with ``"counts"`` and ``"errors"`` keys.
@@ -234,10 +237,12 @@ class MacroRegimeService:
             }
 
         ids = series_ids if series_ids is not None else list(FRED_SERIES.keys())
+        total = len(ids)
         counts: dict[str, int] = {}
         errors: list[str] = []
 
-        for series_id in ids:
+        for idx, series_id in enumerate(ids, 1):
+            on_progress(current=idx, total=total, current_country=series_id)
             try:
                 start_date: str | None = None
                 if incremental:
@@ -452,6 +457,7 @@ def run_bulk_fred_fetch(
         result = service.fetch_fred_series(
             series_ids=request.series_ids,
             incremental=request.incremental,
+            on_progress=on_progress,
         )
         session.commit()
 

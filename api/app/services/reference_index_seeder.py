@@ -94,6 +94,8 @@ def seed_reference_indices(
             )
             return result
 
+        on_progress(total=len(tickers))
+
         for idx, ticker in enumerate(tickers, 1):
             ticker_upper = ticker.upper()
             on_progress(current=idx, current_ticker=ticker_upper)

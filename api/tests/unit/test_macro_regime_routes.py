@@ -549,6 +549,26 @@ class TestGetFredCatalog:
         for sid in FRED_RECESSION_SERIES:
             assert by_id[sid]["group"] == "recession"
 
+    def test_when_rate_series_requested_group_is_rates(
+        self, client: TestClient
+    ) -> None:
+        from app.services.scrapers.fred_scraper import FRED_RATE_SERIES
+
+        resp = client.get(self.URL)
+        by_id = {item["series_id"]: item for item in resp.json()}
+        for sid in FRED_RATE_SERIES:
+            assert by_id[sid]["group"] == "rates"
+
+    def test_when_gdp_series_requested_group_is_gdp(
+        self, client: TestClient
+    ) -> None:
+        from app.services.scrapers.fred_scraper import FRED_GDP_SERIES
+
+        resp = client.get(self.URL)
+        by_id = {item["series_id"]: item for item in resp.json()}
+        for sid in FRED_GDP_SERIES:
+            assert by_id[sid]["group"] == "gdp"
+
 
 # ===========================================================================
 # GET /api/v1/macro-data/countries  -- distinct country list

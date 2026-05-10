@@ -1568,10 +1568,17 @@ def assemble_fred_series(
 _FRED_REGIME_MAP: dict[str, str] = {
     "T10Y2Y": "spread_2s10s",
     "BAMLH0A0HYM2": "hy_oas",
+    "A191RL1Q225SBEA": "gdp_growth",
 }
 _TE_REGIME_MAP: dict[str, str] = {
     "manufacturing_pmi": "pmi",
 }
+
+# Regime columns that MUST have at least one valid observation. When such a
+# column has ``last_valid_index() is None`` after merging, the assembler
+# raises ValueError instead of silently warning, because downstream regime
+# classification cannot recover from missing data.
+_REQUIRED_REGIME_COLUMNS: frozenset[str] = frozenset({"gdp_growth"})
 
 
 def assemble_regime_data(
@@ -1613,9 +1620,15 @@ def assemble_regime_data(
     pd.DataFrame
         Merged DataFrame with any subset of ``gdp_growth``,
         ``yield_spread``, ``pmi``, ``spread_2s10s``, ``hy_oas``,
-        ``sentiment``.  Never raises on missing data.  Columns with
-        data older than ``fill_limit`` consecutive rows will contain
-        trailing NaN values.
+        ``sentiment``.  Columns with data older than ``fill_limit``
+        consecutive rows will contain trailing NaN values.
+
+    Raises
+    ------
+    ValueError
+        If a column listed in ``_REQUIRED_REGIME_COLUMNS`` ends up in
+        the merged frame with no valid observations
+        (``last_valid_index() is None``).
     """
     parts: list[pd.DataFrame] = []
 
@@ -1687,11 +1700,18 @@ def assemble_regime_data(
 
     merged = merged.ffill(limit=fill_limit)
 
-    # Warn for any column still NaN at the tail (data too stale to fill)
+    # Warn for any column still NaN at the tail (data too stale to fill).
+    # Required columns with NO observation ever raise instead, because regime
+    # classification cannot proceed without them.
     for col in merged.columns:
         if pd.isna(merged[col].iloc[-1]):
             trailing_nans = int(merged[col].isna()[::-1].cumprod().sum())
             last_valid = last_actual[col]
+            if col in _REQUIRED_REGIME_COLUMNS and last_valid is None:
+                raise ValueError(
+                    f"Required regime column '{col}' has no valid observations; "
+                    "cannot classify regime."
+                )
             last_valid_str = (
                 last_valid.strftime("%Y-%m-%d") if last_valid is not None else "never"
             )
