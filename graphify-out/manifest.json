@@ -1,7 +1,7 @@
 {
   "/Volumes/External SSD/optimizer/research/data_assembly.py": {
-    "mtime": 1778415563.2916694,
-    "hash": "724441b6cf0877a042551326056c56dc"
+    "mtime": 1778446054.535612,
+    "hash": "10ada1406fb96612616db294517024a5"
   },
   "/Volumes/External SSD/optimizer/research/_report.py": {
     "mtime": 1778359291.509109,
@@ -12,8 +12,8 @@
     "hash": "7a04b00f6d7a67510a2b9ca484d20aa6"
   },
   "/Volumes/External SSD/optimizer/research/_persistence.py": {
-    "mtime": 1778358861.090575,
-    "hash": "253e99de7d868f8d1c97f1ed5cd44c7e"
+    "mtime": 1778445716.2264555,
+    "hash": "bf0072d2814c93c5a2ee95678ab15e5d"
   },
   "/Volumes/External SSD/optimizer/research/_cli.py": {
     "mtime": 1778359530.062242,
@@ -36,8 +36,8 @@
     "hash": "be1e8ad8b8a568b123aa85f7ffc46a8f"
   },
   "/Volumes/External SSD/optimizer/research/stock_selection_pipeline.py": {
-    "mtime": 1778415598.7126856,
-    "hash": "3ba9b3bc979110e5cf39d211b950ad18"
+    "mtime": 1778445758.3604395,
+    "hash": "809ff6ab38c5970d336132ffee4aee43"
   },
   "/Volumes/External SSD/optimizer/research/_preflight.py": {
     "mtime": 1778406989.3040574,
@@ -56,8 +56,8 @@
     "hash": "c718674da27f58a22d2c339bf2a3a815"
   },
   "/Volumes/External SSD/optimizer/research/_currency.py": {
-    "mtime": 1774342760.838258,
-    "hash": "5a9d00cea71981901e1c59dffe222493"
+    "mtime": 1778438569.6648283,
+    "hash": "03739c2ed653eaa75450f2d9fcec2d0d"
   },
   "/Volumes/External SSD/optimizer/frontend/scripts/a11y.mjs": {
     "mtime": 1776471705.4232197,
@@ -1836,12 +1836,12 @@
     "hash": "1ff52db4090ab3f780cf1c176ca53afa"
   },
   "/Volumes/External SSD/optimizer/tests/research/test_pipeline_smoke.py": {
-    "mtime": 1778415598.7093577,
-    "hash": "318297cee49a7ccc0a9c8a1b64e53e7f"
+    "mtime": 1778445845.0249975,
+    "hash": "66530b7ff84c204d4307ecaa0b89f937"
   },
   "/Volumes/External SSD/optimizer/tests/research/test_persistence.py": {
-    "mtime": 1778361081.8742037,
-    "hash": "bfbeef05220bb7cdf1b95c7788917a19"
+    "mtime": 1778445844.8343525,
+    "hash": "44a0d7fbf9da455260f0cc81d5f8a5c6"
   },
   "/Volumes/External SSD/optimizer/tests/research/__init__.py": {
     "mtime": 1778345685.5346487,
@@ -1852,8 +1852,8 @@
     "hash": "c8c67df82328801c80597c478bba3dea"
   },
   "/Volumes/External SSD/optimizer/tests/research/test_stock_selection_pipeline.py": {
-    "mtime": 1778357354.2841475,
-    "hash": "c3c06610c65648cf5c6b4dd3d7dd367e"
+    "mtime": 1778445924.210095,
+    "hash": "ce5b774b8d15f8c001b2119d0fd7d004"
   },
   "/Volumes/External SSD/optimizer/tests/research/test_select_optimizer.py": {
     "mtime": 1778354291.7318525,
@@ -2552,16 +2552,16 @@
     "hash": "185b93ebc008f99370eccd9274d04629"
   },
   "/Volumes/External SSD/optimizer/api/app/metrics.py": {
-    "mtime": 1776509336.5655634,
-    "hash": "16b9c77b31969c981dce86278b8fbdf3"
+    "mtime": 1778445187.919466,
+    "hash": "25f5e2e66aeca2404628d3f0c2610c81"
   },
   "/Volumes/External SSD/optimizer/api/app/config.py": {
-    "mtime": 1778412960.496188,
-    "hash": "ed6623cdcab1448a45cc7f471a9c1650"
+    "mtime": 1778445187.9175599,
+    "hash": "dc849a97bbb387b9b0331ba2d7982cd7"
   },
   "/Volumes/External SSD/optimizer/api/app/database.py": {
-    "mtime": 1778401134.04206,
-    "hash": "1f1231495e1d1cf4bdfa7e1efe4c01cc"
+    "mtime": 1778435308.031703,
+    "hash": "859754bb88a686d03de12739df3e099a"
   },
   "/Volumes/External SSD/optimizer/api/app/__init__.py": {
     "mtime": 1774342760.8218484,
@@ -2572,16 +2572,16 @@
     "hash": "7acb8b0cce226fecfbf631399067b48c"
   },
   "/Volumes/External SSD/optimizer/api/app/main.py": {
-    "mtime": 1778412963.34128,
-    "hash": "4ee171a6514d4b24ff8667e363dfe8fa"
+    "mtime": 1778445187.9175158,
+    "hash": "b6b82907d306a3818dd0d2665aeebc76"
   },
   "/Volumes/External SSD/optimizer/api/app/dependencies.py": {
     "mtime": 1777387439.8172152,
     "hash": "7120790d15b7ccd8cbc3093496f498bd"
   },
   "/Volumes/External SSD/optimizer/api/app/middleware/auth.py": {
-    "mtime": 1776243432.0640934,
-    "hash": "0b17d6a7dcb2c8e4ce565010dc348cf7"
+    "mtime": 1778438331.8306153,
+    "hash": "4fc2fd74b1be80d31c5a0787363245c4"
   },
   "/Volumes/External SSD/optimizer/api/app/middleware/logging.py": {
     "mtime": 1774342760.8241563,
@@ -2592,8 +2592,8 @@
     "hash": "0e0e29bc69ba7bb61271ecaa860ca685"
   },
   "/Volumes/External SSD/optimizer/api/app/middleware/security.py": {
-    "mtime": 1774342760.8243139,
-    "hash": "1ca39db1a6abdc003be9d3072ff415b4"
+    "mtime": 1778445187.9161606,
+    "hash": "fe47c7be2ca5f1650778778508ca6f0f"
   },
   "/Volumes/External SSD/optimizer/api/app/middleware/__init__.py": {
     "mtime": 1774342760.824064,
@@ -2602,10 +2602,6 @@
   "/Volumes/External SSD/optimizer/api/app/middleware/metrics_middleware.py": {
     "mtime": 1776253540.6319137,
     "hash": "29731a3e992452ccdf04dcec19ad2cc5"
-  },
-  "/Volumes/External SSD/optimizer/api/app/core/__init__.py": {
-    "mtime": 1774342760.823516,
-    "hash": "fe715e266d650088faa75f225c9a0a88"
   },
   "/Volumes/External SSD/optimizer/api/app/utils/__init__.py": {
     "mtime": 1774342760.8324146,
@@ -2619,693 +2615,937 @@
     "mtime": 1774342760.832471,
     "hash": "dcf06f8261555aa8931ecb1e5ff512f2"
   },
-  "/Volumes/External SSD/optimizer/api/app/repositories/yfinance_repository.py": {
-    "mtime": 1778354482.425832,
-    "hash": "eeba58a668c1d460930b327aa7c5513b"
-  },
-  "/Volumes/External SSD/optimizer/api/app/repositories/universe_repository.py": {
-    "mtime": 1778333276.1176803,
-    "hash": "b521b974d94f5ba27b7909c5f58bfa60"
-  },
-  "/Volumes/External SSD/optimizer/api/app/repositories/macro_regime_repository.py": {
-    "mtime": 1778349918.7810013,
-    "hash": "b92fdd6b100e63636e586f529f2c34a0"
-  },
-  "/Volumes/External SSD/optimizer/api/app/repositories/background_job_repository.py": {
-    "mtime": 1778411824.7696345,
-    "hash": "277fc78d8bac5756e21f26bd32574c27"
-  },
-  "/Volumes/External SSD/optimizer/api/app/repositories/database_admin_repository.py": {
-    "mtime": 1777386445.3181434,
-    "hash": "d6f4182c2500b50fd9197b001e330e15"
-  },
   "/Volumes/External SSD/optimizer/api/app/repositories/__init__.py": {
-    "mtime": 1776238874.6541178,
-    "hash": "2ecc4d05fc5beb479c1d3601345019cb"
+    "mtime": 1778444011.0349414,
+    "hash": "18a8e7001b042dae88babeefbf1e209e"
   },
-  "/Volumes/External SSD/optimizer/api/app/repositories/risk_repository.py": {
-    "mtime": 1776236686.4797215,
-    "hash": "f09835dfb2c4e61a448d96a4079cba29"
+  "/Volumes/External SSD/optimizer/api/app/repositories/rebalancing/__init__.py": {
+    "mtime": 1778439273.4190698,
+    "hash": "7429bb35526ebba02ad12a134d9e7e7e"
   },
-  "/Volumes/External SSD/optimizer/api/app/repositories/factor_repository.py": {
-    "mtime": 1776247325.3557835,
-    "hash": "895882b0983bd58f8be9b7a16d261800"
+  "/Volumes/External SSD/optimizer/api/app/repositories/rebalancing/rebalancing_repository.py": {
+    "mtime": 1778438331.8430827,
+    "hash": "9939c03598db1fe68fe4107d6f4dbac4"
   },
-  "/Volumes/External SSD/optimizer/api/app/repositories/sentiment_repository.py": {
-    "mtime": 1774342760.8256109,
-    "hash": "41a9cc5e1f6822fa12c7b304074e8048"
+  "/Volumes/External SSD/optimizer/api/app/repositories/market_data/yfinance_repository.py": {
+    "mtime": 1778445187.9127676,
+    "hash": "8f54591b7513794f797a143f38538df2"
   },
-  "/Volumes/External SSD/optimizer/api/app/repositories/portfolio_repository.py": {
-    "mtime": 1778361081.871667,
-    "hash": "7087a99b9904ceec1bacbad2c268fde8"
+  "/Volumes/External SSD/optimizer/api/app/repositories/market_data/__init__.py": {
+    "mtime": 1778439272.5177531,
+    "hash": "80eff45275dfa35329ae735d41c020be"
   },
-  "/Volumes/External SSD/optimizer/api/app/repositories/view_generation_repository.py": {
-    "mtime": 1774342760.8258102,
-    "hash": "7067de9ff43397f13de9484f3493145d"
+  "/Volumes/External SSD/optimizer/api/app/repositories/factors/__init__.py": {
+    "mtime": 1778439273.1788597,
+    "hash": "97e5d666899a84465860074a1d1979f3"
   },
-  "/Volumes/External SSD/optimizer/api/app/repositories/rebalancing_repository.py": {
-    "mtime": 1776238913.1539502,
-    "hash": "484f46a334fc6bb6d32683a4e83cb76c"
+  "/Volumes/External SSD/optimizer/api/app/repositories/factors/factor_repository.py": {
+    "mtime": 1778438331.840575,
+    "hash": "708e9813eb2ec723be86946f62f9a03a"
   },
-  "/Volumes/External SSD/optimizer/api/app/repositories/dashboard_repository.py": {
-    "mtime": 1778354482.4244032,
-    "hash": "512ea1773091c69055ed19372c2ad916"
+  "/Volumes/External SSD/optimizer/api/app/repositories/dashboard/__init__.py": {
+    "mtime": 1778439273.6722426,
+    "hash": "257a435553b206c4455d1b9de6a20514"
   },
-  "/Volumes/External SSD/optimizer/api/app/repositories/execution_repository.py": {
-    "mtime": 1777030632.62645,
-    "hash": "90e9f16556743f3027ee52f3224e8e0a"
+  "/Volumes/External SSD/optimizer/api/app/repositories/dashboard/dashboard_repository.py": {
+    "mtime": 1778445187.904295,
+    "hash": "3c9f574ebe3deaa2c6edc59b1da1212c"
   },
-  "/Volumes/External SSD/optimizer/api/app/repositories/base.py": {
-    "mtime": 1777387707.3166332,
-    "hash": "2653fcc008b823e525975f591022cef9"
+  "/Volumes/External SSD/optimizer/api/app/repositories/macro/macro_regime_repository.py": {
+    "mtime": 1778445187.9103792,
+    "hash": "48814bd42e9f0e07023c489d1f907d82"
   },
-  "/Volumes/External SSD/optimizer/api/app/models/execution.py": {
-    "mtime": 1776238913.1539845,
-    "hash": "e389e37950179edf9499a8b478824d53"
+  "/Volumes/External SSD/optimizer/api/app/repositories/macro/__init__.py": {
+    "mtime": 1778439272.814561,
+    "hash": "f46f0fe7a4364c21aa463448a628b890"
   },
-  "/Volumes/External SSD/optimizer/api/app/models/macro_regime.py": {
-    "mtime": 1778349901.4692361,
-    "hash": "b38c143d2e901546d76c55fcc89427e0"
+  "/Volumes/External SSD/optimizer/api/app/repositories/macro/sentiment_repository.py": {
+    "mtime": 1778444011.035208,
+    "hash": "8c3ae4f49ea53108945cac3002c65eff"
   },
-  "/Volumes/External SSD/optimizer/api/app/models/rebalancing.py": {
-    "mtime": 1776238913.1539488,
-    "hash": "e0962652b0693ad70967229f37eb47a8"
+  "/Volumes/External SSD/optimizer/api/app/repositories/execution/__init__.py": {
+    "mtime": 1778439273.0597115,
+    "hash": "23d65562b1c52f39d73bc1b75f6aca55"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/execution/execution_repository.py": {
+    "mtime": 1778438331.8448138,
+    "hash": "b00ffa79e89db4ed20348045fa015184"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/portfolio/__init__.py": {
+    "mtime": 1778439272.9408338,
+    "hash": "a18095e76e452d09423df19bc4375f9c"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/portfolio/portfolio_repository.py": {
+    "mtime": 1778438331.8418558,
+    "hash": "cc62a67ebd13bbe1f264fee99e58b57a"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/_shared/database_admin_repository.py": {
+    "mtime": 1778445187.901058,
+    "hash": "b97978f7df18bd9cdfff51aa87c195ca"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/_shared/__init__.py": {
+    "mtime": 1778435389.8568044,
+    "hash": "bc9308c4e1d4b1823dc5f26288609664"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/_shared/base.py": {
+    "mtime": 1778435308.0302315,
+    "hash": "21db0834a24cabe8e985702ee3d26bfe"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/jobs/background_job_repository.py": {
+    "mtime": 1778445187.9073012,
+    "hash": "4bd09c94a3250e68f83f36be1de9dcce"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/jobs/__init__.py": {
+    "mtime": 1778439273.789542,
+    "hash": "5c044741ea4d17f07a2421925f72f7fa"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/universe/universe_repository.py": {
+    "mtime": 1778438331.835948,
+    "hash": "79bd59f31223d9f1d8742072a5b4adeb"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/universe/__init__.py": {
+    "mtime": 1778439272.6878223,
+    "hash": "31cce89b7c41f2181c069b0888d52b0d"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/views/__init__.py": {
+    "mtime": 1778439273.5516658,
+    "hash": "b90141fe23f40e2f05cf3cdb8ebae15c"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/views/view_generation_repository.py": {
+    "mtime": 1778444011.0439079,
+    "hash": "f83772cf14b596377a2fb159b00c35e7"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/risk/__init__.py": {
+    "mtime": 1778439273.296191,
+    "hash": "d7e5c986c8255ba5d327307dfad93b28"
+  },
+  "/Volumes/External SSD/optimizer/api/app/repositories/risk/risk_repository.py": {
+    "mtime": 1778438331.8402205,
+    "hash": "7389269761e697f961b6cd7436d1db46"
   },
   "/Volumes/External SSD/optimizer/api/app/models/__init__.py": {
-    "mtime": 1777385874.6468472,
-    "hash": "80ad83c1627a5389651038b78f59ec22"
+    "mtime": 1778444011.0374107,
+    "hash": "75ff091e7d584a6a26dd4891157f9970"
   },
-  "/Volumes/External SSD/optimizer/api/app/models/api_key.py": {
-    "mtime": 1776243362.2196755,
-    "hash": "33cfd90f4f5ca93c312d02175148e7c8"
+  "/Volumes/External SSD/optimizer/api/app/models/rebalancing/rebalancing.py": {
+    "mtime": 1778435659.1056423,
+    "hash": "a4145706e6c8f321800bcd58589727d5"
   },
-  "/Volumes/External SSD/optimizer/api/app/models/universe.py": {
-    "mtime": 1774342760.824816,
-    "hash": "793c2e5f055dd755cb1aaea4457e4032"
+  "/Volumes/External SSD/optimizer/api/app/models/rebalancing/__init__.py": {
+    "mtime": 1778437955.7538474,
+    "hash": "1a3e5945d5783c00c913853e851f482e"
   },
-  "/Volumes/External SSD/optimizer/api/app/models/factor.py": {
-    "mtime": 1776238913.153831,
-    "hash": "a95f774dc1be5ebfa412f609b4ead3a6"
+  "/Volumes/External SSD/optimizer/api/app/models/auth/__init__.py": {
+    "mtime": 1778437954.7017798,
+    "hash": "2a6accb90dae4684d718cd34e92e6085"
   },
-  "/Volumes/External SSD/optimizer/api/app/models/risk.py": {
-    "mtime": 1776238913.1537805,
-    "hash": "50c4137634e60ee56ac57e80bba6810e"
+  "/Volumes/External SSD/optimizer/api/app/models/auth/api_key.py": {
+    "mtime": 1778445187.9174757,
+    "hash": "6a13735988a6b37caa40754dbe1a47f2"
   },
-  "/Volumes/External SSD/optimizer/api/app/models/portfolio.py": {
-    "mtime": 1777386172.625069,
-    "hash": "279f2a52e6f71ca3baa1d26e8c366e86"
+  "/Volumes/External SSD/optimizer/api/app/models/market_data/__init__.py": {
+    "mtime": 1778437954.8696954,
+    "hash": "b5d9652a701949c68690fa772e44b4f4"
   },
-  "/Volumes/External SSD/optimizer/api/app/models/yfinance_data.py": {
-    "mtime": 1774342760.8248935,
-    "hash": "8112875e8d1aefb0eee3973e0a3e4dba"
+  "/Volumes/External SSD/optimizer/api/app/models/market_data/yfinance_data.py": {
+    "mtime": 1778438331.8498547,
+    "hash": "8f2316ede7cde56032c4555e4d2fabd9"
   },
-  "/Volumes/External SSD/optimizer/api/app/models/background_job.py": {
-    "mtime": 1778411371.2145095,
-    "hash": "5bea816bdb30c67fa0a1d1fb18e1bf4c"
+  "/Volumes/External SSD/optimizer/api/app/models/factors/__init__.py": {
+    "mtime": 1778437955.507887,
+    "hash": "187fcf26ce531125031679ac44f3d82d"
   },
-  "/Volumes/External SSD/optimizer/api/app/models/base.py": {
+  "/Volumes/External SSD/optimizer/api/app/models/factors/factor.py": {
+    "mtime": 1778435659.09863,
+    "hash": "ca57a942aef91d36b930cff1bfb3a5e7"
+  },
+  "/Volumes/External SSD/optimizer/api/app/models/macro/macro_regime.py": {
+    "mtime": 1778445187.8955066,
+    "hash": "e52f3563fb76f148bd3094967b957b1e"
+  },
+  "/Volumes/External SSD/optimizer/api/app/models/macro/__init__.py": {
+    "mtime": 1778437955.1462245,
+    "hash": "ed0163b61432f89f3b4cf41683ed9d8b"
+  },
+  "/Volumes/External SSD/optimizer/api/app/models/execution/execution.py": {
+    "mtime": 1778435659.0978534,
+    "hash": "5edbebfeecff01b001bc64788ff05474"
+  },
+  "/Volumes/External SSD/optimizer/api/app/models/execution/__init__.py": {
+    "mtime": 1778437955.3897445,
+    "hash": "49719ba6ca6c84031148ed3c0e4bef32"
+  },
+  "/Volumes/External SSD/optimizer/api/app/models/portfolio/__init__.py": {
+    "mtime": 1778437955.2669957,
+    "hash": "f3e6df9d98ecba9d875bb54bd927ae9d"
+  },
+  "/Volumes/External SSD/optimizer/api/app/models/portfolio/portfolio.py": {
+    "mtime": 1778445187.8987896,
+    "hash": "2a27b34fecd593e5ec5a1382409604d7"
+  },
+  "/Volumes/External SSD/optimizer/api/app/models/_shared/__init__.py": {
+    "mtime": 1778435308.0268164,
+    "hash": "a0d74dc304efc237a65d98daf0a49fd9"
+  },
+  "/Volumes/External SSD/optimizer/api/app/models/_shared/base.py": {
     "mtime": 1774342760.8245728,
     "hash": "96ff162700fc66158481f187146c40b6"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/stress_scenarios.py": {
-    "mtime": 1776237362.0136783,
-    "hash": "11f1cc285e3aad7e6573e30d3272e97a"
+  "/Volumes/External SSD/optimizer/api/app/models/jobs/__init__.py": {
+    "mtime": 1778437955.8710978,
+    "hash": "a8f088815fd0648813eb49b37e6dd6a5"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/synthetic.py": {
-    "mtime": 1776249294.300792,
-    "hash": "91f2a0b81564b10aee8ed36964ec2ba7"
+  "/Volumes/External SSD/optimizer/api/app/models/jobs/background_job.py": {
+    "mtime": 1778445187.893189,
+    "hash": "ce68476c69a9a4787a9a1c01990c93c6"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/factors.py": {
-    "mtime": 1776247837.3199654,
-    "hash": "6746e3085d3a5b5a322b170fd0767a56"
+  "/Volumes/External SSD/optimizer/api/app/models/universe/__init__.py": {
+    "mtime": 1778437955.027435,
+    "hash": "c691b135c6ca690c93585f758f9f6672"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/macro_regime.py": {
-    "mtime": 1777387198.852668,
-    "hash": "cd3ece603a2a93f07df221d6983d763f"
+  "/Volumes/External SSD/optimizer/api/app/models/universe/universe.py": {
+    "mtime": 1778438331.8529356,
+    "hash": "ba64b84f09aadad4f36c837d2a36481f"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/rebalancing.py": {
-    "mtime": 1777386172.6232445,
-    "hash": "3e2c0f400e98b89a135cd744cf6b2786"
+  "/Volumes/External SSD/optimizer/api/app/models/risk/__init__.py": {
+    "mtime": 1778437955.6290689,
+    "hash": "3e8c1210be1c8e380ab2cb7d19a33056"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/trading212.py": {
-    "mtime": 1778333276.1180098,
-    "hash": "b4e9b69b91ee1af5e0c2469dc700dcaf"
-  },
-  "/Volumes/External SSD/optimizer/api/app/schemas/universe_screen.py": {
-    "mtime": 1776246509.1371343,
-    "hash": "b36ed681f052b9c9c846544476064dd8"
-  },
-  "/Volumes/External SSD/optimizer/api/app/schemas/optimization.py": {
-    "mtime": 1777388097.323855,
-    "hash": "4f19db5acc4a69268191463a4f63e363"
+  "/Volumes/External SSD/optimizer/api/app/models/risk/risk.py": {
+    "mtime": 1778435659.1059546,
+    "hash": "5a310a73d1770bcf6f329ad8f2ecab69"
   },
   "/Volumes/External SSD/optimizer/api/app/schemas/__init__.py": {
-    "mtime": 1777383539.9031584,
-    "hash": "a7f169221ff04f39d8e85b46f3887600"
+    "mtime": 1778444011.0444088,
+    "hash": "5b8887a8a9d65d89998e0a94b36674be"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/risk_analytics.py": {
-    "mtime": 1776251011.563267,
-    "hash": "a3701e12c0193fd0dea962bd981c623e"
+  "/Volumes/External SSD/optimizer/api/app/schemas/rebalancing/rebalancing.py": {
+    "mtime": 1778445187.9060504,
+    "hash": "2126f7f106af953b2e53fe178eeee905"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/dashboard.py": {
-    "mtime": 1777386172.6082547,
-    "hash": "97b73be7de6bc0ab5ec5fddb1c17e037"
+  "/Volumes/External SSD/optimizer/api/app/schemas/rebalancing/__init__.py": {
+    "mtime": 1778438045.4009748,
+    "hash": "e4b91d17a603f50e2c9ca766705572a9"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/jobs.py": {
-    "mtime": 1774342760.8262892,
-    "hash": "9b9785b3d41190969a3c1f695a1f1c29"
+  "/Volumes/External SSD/optimizer/api/app/schemas/market_data/__init__.py": {
+    "mtime": 1778438044.378771,
+    "hash": "30df980ba284c4ba5ed911f1df18159f"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/attribution.py": {
-    "mtime": 1776250004.529243,
-    "hash": "878511f22869ded26fcb6c6fc1e08ee1"
+  "/Volumes/External SSD/optimizer/api/app/schemas/market_data/yfinance_data.py": {
+    "mtime": 1778435813.190246,
+    "hash": "3937ee1f85c80c4e0984ebd29fd10092"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/reports.py": {
-    "mtime": 1777386172.6269903,
-    "hash": "ed6b5624da9b516a47ef152c396a4cf8"
+  "/Volumes/External SSD/optimizer/api/app/schemas/market_data/reference_index.py": {
+    "mtime": 1778445187.9032943,
+    "hash": "443d237df7507b93298594cdf1c397db"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/risk.py": {
-    "mtime": 1776251331.3551493,
-    "hash": "835e2ab4ea76446c2cf753d58c3232d9"
+  "/Volumes/External SSD/optimizer/api/app/schemas/optimization/optimization.py": {
+    "mtime": 1778435813.181253,
+    "hash": "f16c518976cee04442422792f8fa61c2"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/tuning.py": {
+  "/Volumes/External SSD/optimizer/api/app/schemas/optimization/__init__.py": {
+    "mtime": 1778438044.9154534,
+    "hash": "c5addce6b109d7723bc71498a663da14"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/optimization/tuning.py": {
     "mtime": 1776245759.1724076,
     "hash": "2307849b71acd10bedcc244539d7f5b9"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/llm_moments.py": {
-    "mtime": 1776237383.6918533,
-    "hash": "71dc5d81ace39b8064617155d8ba0e0d"
+  "/Volumes/External SSD/optimizer/api/app/schemas/optimization/validation.py": {
+    "mtime": 1778435813.1882482,
+    "hash": "0953c5815a6d469093ff3311b42ae853"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/scheduler.py": {
-    "mtime": 1776253020.904237,
-    "hash": "76ea78410fb6d942c461503aa5a074e2"
+  "/Volumes/External SSD/optimizer/api/app/schemas/factors/factors.py": {
+    "mtime": 1778445187.9157314,
+    "hash": "ca987732a01281d12f018de5ef406e31"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/backtest.py": {
-    "mtime": 1776244602.6703937,
-    "hash": "c42ff45bbdfd41293df10d2c7506b8c4"
+  "/Volumes/External SSD/optimizer/api/app/schemas/factors/__init__.py": {
+    "mtime": 1778438045.1575813,
+    "hash": "67cc6b57895759185827c5159ed02d4b"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/base_job.py": {
-    "mtime": 1774342760.8261523,
-    "hash": "7b79a1401c00c04f6a1d6415f0ab24e9"
+  "/Volumes/External SSD/optimizer/api/app/schemas/backtest/__init__.py": {
+    "mtime": 1778438045.0394642,
+    "hash": "539970c5ae37a7f4ab311c8b9e35a1be"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/portfolio.py": {
+  "/Volumes/External SSD/optimizer/api/app/schemas/backtest/backtest.py": {
+    "mtime": 1778444011.0418267,
+    "hash": "a6a93721ca7be251d0546a8b34bed273"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/dashboard/__init__.py": {
+    "mtime": 1778444011.0431852,
+    "hash": "d78a2b405b011efb530fbb686c6c7647"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/dashboard/dashboard.py": {
+    "mtime": 1778435813.1774273,
+    "hash": "be214b984342af4eef6356d66f4e8e67"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/macro/macro_regime.py": {
+    "mtime": 1778444011.0423589,
+    "hash": "9561d82501e1e7e97e41b58f42e3beba"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/macro/__init__.py": {
+    "mtime": 1778438044.6735249,
+    "hash": "971d806558adc0d82b08950424c5976a"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/attribution/__init__.py": {
+    "mtime": 1778438045.6384492,
+    "hash": "28757df421cf0e6d524ba3b7ba419fec"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/attribution/attribution.py": {
+    "mtime": 1778445187.91448,
+    "hash": "1f6c2b7d67459587903330b0b6a9d4c3"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/scenarios/stress_scenarios.py": {
+    "mtime": 1778435813.1863034,
+    "hash": "7483b48a0286a4cbdc4163a7c1693978"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/scenarios/synthetic.py": {
+    "mtime": 1776249294.300792,
+    "hash": "91f2a0b81564b10aee8ed36964ec2ba7"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/scenarios/__init__.py": {
+    "mtime": 1778438078.0833857,
+    "hash": "4335836c5ac7ccab92e6d84a20e75ca6"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/portfolio/__init__.py": {
+    "mtime": 1778438044.7924507,
+    "hash": "a3fa5980aa84e756c55e2c80abea3a06"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/portfolio/portfolio.py": {
     "mtime": 1778358691.027353,
     "hash": "d08feb9a95f5fd2278039ab9c2aa5f29"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/yfinance_data.py": {
-    "mtime": 1778404183.8455734,
-    "hash": "372f34840d8cafa16007505cfc24e5f1"
+  "/Volumes/External SSD/optimizer/api/app/schemas/_shared/__init__.py": {
+    "mtime": 1778435334.1141033,
+    "hash": "f50cf286d699bf4382b9e7949c1842ab"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/base.py": {
+  "/Volumes/External SSD/optimizer/api/app/schemas/_shared/base_job.py": {
+    "mtime": 1774342760.8261523,
+    "hash": "7b79a1401c00c04f6a1d6415f0ab24e9"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/_shared/base.py": {
     "mtime": 1776238965.2164457,
     "hash": "1114dfc8d3d4316c68687e528dec41e7"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/reference_index.py": {
-    "mtime": 1778333276.117807,
-    "hash": "d489a0bf6f3d0cb5375bc5f2ca7be3e7"
+  "/Volumes/External SSD/optimizer/api/app/schemas/jobs/__init__.py": {
+    "mtime": 1778438078.3937714,
+    "hash": "1310aa2d9833c928a9f14f1893e5c1df"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/views.py": {
-    "mtime": 1777386445.314263,
-    "hash": "2616e1e89fd7f57aa8dd7dcf4584ca74"
+  "/Volumes/External SSD/optimizer/api/app/schemas/jobs/jobs.py": {
+    "mtime": 1774342760.8262892,
+    "hash": "9b9785b3d41190969a3c1f695a1f1c29"
   },
-  "/Volumes/External SSD/optimizer/api/app/schemas/validation.py": {
-    "mtime": 1776501910.1257982,
-    "hash": "ef6ffa4da95b9fbd29924accea482ae8"
+  "/Volumes/External SSD/optimizer/api/app/schemas/jobs/scheduler.py": {
+    "mtime": 1778445187.901058,
+    "hash": "b25fac8e9087702b388c7f766f590007"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/universe/trading212.py": {
+    "mtime": 1778435813.186717,
+    "hash": "f9e812f45030eabf464abc81d629a911"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/universe/universe_screen.py": {
+    "mtime": 1778445187.906111,
+    "hash": "79d18814f37d888993c0589ec9a69288"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/universe/__init__.py": {
+    "mtime": 1778438044.549656,
+    "hash": "ef7ef17e45ebb5a9762b535ec5c7cc7f"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/views/__init__.py": {
+    "mtime": 1778438045.5203874,
+    "hash": "2636fa2f8f1d25fbe29c2fcfd41712c9"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/views/llm_moments.py": {
+    "mtime": 1778435813.1796446,
+    "hash": "d828484eafc1bd44499b2ab5f3c8737c"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/views/views.py": {
+    "mtime": 1778445187.9061308,
+    "hash": "8b5a5715b06e1ae6277329f61abb8e08"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/risk/__init__.py": {
+    "mtime": 1778438045.2762718,
+    "hash": "7f2c586e4ea80e7567b82434f677ddaf"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/risk/risk_analytics.py": {
+    "mtime": 1778445187.9090242,
+    "hash": "05bee3b258930907fc2c033706e29b40"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/risk/risk.py": {
+    "mtime": 1778445187.9078152,
+    "hash": "b54b5d13e23c7419421a797aa27b1426"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/reports/__init__.py": {
+    "mtime": 1778438078.2735562,
+    "hash": "7c846d03681a5aae4cb5e62b44597988"
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/reports/reports.py": {
+    "mtime": 1778445187.907241,
+    "hash": "a83b76504c5db1c1b16d1df4161c35b5"
   },
   "/Volumes/External SSD/optimizer/api/app/api/__init__.py": {
-    "mtime": 1774342760.8219407,
-    "hash": "767fdeca5c97e980d03914d9d62ea6cb"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/stress_scenarios.py": {
-    "mtime": 1776237451.8922153,
-    "hash": "373f0571c1be7ee2051d2e5d0a4c74a9"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/optimize.py": {
-    "mtime": 1778412989.3996603,
-    "hash": "769f0978ddd65bdf5f2dda08c9908621"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/synthetic.py": {
-    "mtime": 1776249460.7678003,
-    "hash": "26ec8fcf78460fb4b048b79597919eb8"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/metrics.py": {
-    "mtime": 1774342760.8226175,
-    "hash": "105d436040a1baff00d642273454b2f8"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/factors.py": {
-    "mtime": 1778412992.5142078,
-    "hash": "c5664f3376eb8e094aa2ae0a22ab0068"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/macro_regime.py": {
-    "mtime": 1778412986.6873686,
-    "hash": "5f55cc09acefdf58af0044cf4a1976ed"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/trading212.py": {
-    "mtime": 1778413105.7053976,
-    "hash": "148e780dd754c32b1dd3dbc651fc600a"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/opinion_pooling.py": {
-    "mtime": 1777386445.314474,
-    "hash": "46da3f3f367a2cabcb32aeb270e8a371"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/database.py": {
-    "mtime": 1777386578.3616853,
-    "hash": "0eec16fc7aab3f5d33355fb5043d674e"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/rebalance_policy.py": {
-    "mtime": 1777386358.2422376,
-    "hash": "e29217d8121ecfafe79db5dbe0b0b9bd"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/universe_screen.py": {
-    "mtime": 1776246607.2877698,
-    "hash": "01dcfc75d01e2a487afbdf95727891b6"
+    "mtime": 1778435575.2135773,
+    "hash": "787e847a2d98de14a8daade58ecde38c"
   },
   "/Volumes/External SSD/optimizer/api/app/api/v1/__init__.py": {
     "mtime": 1774342760.8220305,
     "hash": "419e08cae9823de81ca3dfbbfc6fe9f6"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/risk_analytics.py": {
-    "mtime": 1776500598.4502597,
-    "hash": "46085db4d26d1ad9b11b2595afa7f792"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/rebalancing/rebalance_policy.py": {
+    "mtime": 1778445187.917506,
+    "hash": "d9b9c479f3f5ef9a705ca90eab7551af"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/test.py": {
+  "/Volumes/External SSD/optimizer/api/app/api/v1/rebalancing/__init__.py": {
+    "mtime": 1778445187.915092,
+    "hash": "28f85097b906053f36ec8454fad4886d"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/rebalancing/rebalance.py": {
+    "mtime": 1778441237.3833458,
+    "hash": "addb3f2c3d9309f02b20c84556be6731"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/market_data/__init__.py": {
+    "mtime": 1778445187.9090679,
+    "hash": "154cce6a3f822dfb3bae1a8c7d6b5dce"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/market_data/reference_indices.py": {
+    "mtime": 1778444011.0398283,
+    "hash": "356d4c1728c3609d684cf784b61d6efe"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/market_data/yfinance_data.py": {
+    "mtime": 1778444011.035189,
+    "hash": "b107dcc45bc560120bd6cb7ba2f88257"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/optimization/optimize.py": {
+    "mtime": 1778445187.9117243,
+    "hash": "401f983113c8ef31d0c2579d0bd0268b"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/optimization/__init__.py": {
+    "mtime": 1778445187.910384,
+    "hash": "4ed0d3e4904ca6f83363951a75c0c064"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/optimization/validate.py": {
+    "mtime": 1778444011.038265,
+    "hash": "772eb4ee53920cfea4f031f31f759fc3"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/optimization/tune.py": {
+    "mtime": 1778445187.913044,
+    "hash": "15084e6249922dab1c68b38085b03959"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/factors/factors.py": {
+    "mtime": 1778445187.8941035,
+    "hash": "6ed7833cffcb973518100f8a6ec013a7"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/factors/__init__.py": {
+    "mtime": 1778445187.8927596,
+    "hash": "49ff6c391bf3b3ea0f86e1121a10ee30"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/backtest/__init__.py": {
+    "mtime": 1778445187.8948174,
+    "hash": "402ff0a4dd9715365d8dbebbb0323186"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/backtest/backtest.py": {
+    "mtime": 1778444011.0351489,
+    "hash": "eac5a2d12eeec439db1ba1423cbbacd6"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/dashboard/__init__.py": {
+    "mtime": 1778445187.8958545,
+    "hash": "e719e6e540fa3b7f253b3a10ef67f75b"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/dashboard/dashboard.py": {
+    "mtime": 1778445187.8984818,
+    "hash": "d1b76371e806dd64ea1d44be55ea40c0"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/macro/macro_regime.py": {
+    "mtime": 1778445187.906122,
+    "hash": "2f62ec41fc73442adfc5181f07178485"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/macro/__init__.py": {
+    "mtime": 1778445187.9010253,
+    "hash": "bea45f5c3b0fe3117baf7641f8ddf98b"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/macro/macro_calibration.py": {
+    "mtime": 1778445187.90431,
+    "hash": "b88f968c0c81cb2ad6261aa81abfa154"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/attribution/__init__.py": {
+    "mtime": 1778445187.8927526,
+    "hash": "50fe4eac3eb527f732fb034c089a6489"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/attribution/attribution.py": {
+    "mtime": 1778445187.8941033,
+    "hash": "efc09ca7f1c7ddd1d0ddeef327377534"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/scenarios/stress_scenarios.py": {
+    "mtime": 1778441237.3721137,
+    "hash": "c8c2ae8c3161e276a4856ba798307628"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/scenarios/synthetic.py": {
+    "mtime": 1778441237.373176,
+    "hash": "e1bc4310dabaad035704ce046da5c346"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/scenarios/__init__.py": {
+    "mtime": 1778445187.9219706,
+    "hash": "7d1bc4a9752ff10a585b69dc6cb532fd"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/portfolio/__init__.py": {
+    "mtime": 1778445187.9143174,
+    "hash": "a22489a1ca2c4c16b26a31b8a4c8bb08"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/portfolio/portfolio.py": {
+    "mtime": 1778444011.0410655,
+    "hash": "3829b8230a8524ee313a92387ee0c78b"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/_shared/metrics.py": {
+    "mtime": 1774342760.8226175,
+    "hash": "105d436040a1baff00d642273454b2f8"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/_shared/database.py": {
+    "mtime": 1778435389.873015,
+    "hash": "351aafc07c661403fee12fcac77dabd3"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/_shared/__init__.py": {
+    "mtime": 1778435575.2095006,
+    "hash": "aafb1496d61ea89d48410afca4d84ed2"
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/_shared/test.py": {
     "mtime": 1777387432.4640718,
     "hash": "47ee89452afd4581cee4ef23f4974590"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/dashboard.py": {
-    "mtime": 1778343543.864762,
-    "hash": "c919e950cb2b9c33a738595c1838e033"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/_shared/router.py": {
+    "mtime": 1778444011.0346556,
+    "hash": "1c93ca1e6754f5d312642c90cd27889c"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/jobs.py": {
-    "mtime": 1778401538.9802537,
-    "hash": "9b2eb0f5b442799a54e018cf72239b83"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/jobs/__init__.py": {
+    "mtime": 1778445187.895824,
+    "hash": "648697a4725fe89dc656fa61ba0cdde9"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/validate.py": {
-    "mtime": 1778412995.2260725,
-    "hash": "ca69204044cf001db7f6ae0afcfc148d"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/jobs/jobs.py": {
+    "mtime": 1778445187.8987987,
+    "hash": "eaec5fef88807fde5273d1b9496ca122"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/attribution.py": {
-    "mtime": 1776250025.3868735,
-    "hash": "a8e270a4a475ab78829bf1c595c71faa"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/jobs/scheduler.py": {
+    "mtime": 1778439387.301454,
+    "hash": "bd753cdbc8719e9ebd8c6c9eeccaf77f"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/reference_indices.py": {
-    "mtime": 1778413104.234484,
-    "hash": "856b9c8f8231aedebd026b584cbc416a"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/universe/trading212.py": {
+    "mtime": 1778444011.0385811,
+    "hash": "2676774e2530ebe052b1257f56257852"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/tune.py": {
-    "mtime": 1778412997.504791,
-    "hash": "636038eca770a0b66395a736871040a5"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/universe/universe_screen.py": {
+    "mtime": 1778444011.0413947,
+    "hash": "82a8b3705be2fedf6210a8357b4002cd"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/macro_calibration.py": {
-    "mtime": 1778413000.4522645,
-    "hash": "363f69a6b0d0dc84cdb6e6db1fa88f61"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/universe/__init__.py": {
+    "mtime": 1778445187.9131918,
+    "hash": "9550f94d88d88e15f95fd4fd1bf1c775"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/reports.py": {
-    "mtime": 1778413003.2641177,
-    "hash": "b2c8ece3c7e8bf0a5cd50a4a33e86445"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/views/opinion_pooling.py": {
+    "mtime": 1778441237.3760436,
+    "hash": "934b4833da09b36917305033ecf0b897"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/risk.py": {
-    "mtime": 1777388086.9710433,
-    "hash": "c3f4034340351f4999228af3fde1f0aa"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/views/__init__.py": {
+    "mtime": 1778445187.9143326,
+    "hash": "034b2e956081d844adb8d122142ea6b7"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/llm_moments.py": {
-    "mtime": 1776237484.0460794,
-    "hash": "a175e76be62c8b8d31548aa3b75c1ea6"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/views/llm_moments.py": {
+    "mtime": 1778441237.3823164,
+    "hash": "eb9b66a251ac7f33ad6c8747bc669427"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/scheduler.py": {
-    "mtime": 1776253033.0826826,
-    "hash": "558c55a8105cbea5aee87afbd216a28d"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/views/views.py": {
+    "mtime": 1778445187.9158146,
+    "hash": "b2321a2dd064df8e1ec1e541e0bd6bab"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/router.py": {
-    "mtime": 1777386172.6129177,
-    "hash": "f553cc82e8dabeccdcb484cb5c3f273b"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/risk/__init__.py": {
+    "mtime": 1778445187.9209058,
+    "hash": "b937cdb51af2e1539eb7c7103d139010"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/rebalance.py": {
-    "mtime": 1778333276.11621,
-    "hash": "d3ec33e6b12ed13b6bc92a43a9ac54d5"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/risk/risk_analytics.py": {
+    "mtime": 1778445187.923103,
+    "hash": "36a651a43a24295d7db92844c36c0c7c"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/backtest.py": {
-    "mtime": 1778413005.6714258,
-    "hash": "2b382caddeb31a81d14f8efa140a211c"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/risk/risk.py": {
+    "mtime": 1778445187.9216003,
+    "hash": "05fd96a7fcc807bce596134ffe5c15cb"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/portfolio.py": {
-    "mtime": 1778413104.0157974,
-    "hash": "d8447f7c50e322cb84fed15f2e442c3b"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/reports/__init__.py": {
+    "mtime": 1778445187.918936,
+    "hash": "16a7fabb00c9638c94cb406aa8bdf4af"
   },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/yfinance_data.py": {
-    "mtime": 1778412984.4311352,
-    "hash": "e4de82b8fd2e205f2ea5facb54d78129"
-  },
-  "/Volumes/External SSD/optimizer/api/app/api/v1/views.py": {
-    "mtime": 1777386406.7971437,
-    "hash": "32631eec4c6836a11a0f6fbe5411094c"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/macro_news_summary.py": {
-    "mtime": 1778412820.5149035,
-    "hash": "b06044b4113bc4cbe3af5074dc55360d"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/stress_scenarios.py": {
-    "mtime": 1777386818.3762383,
-    "hash": "b6fd0f4a06a95f214cda977d0a1c5fdf"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/trading_calendar.py": {
-    "mtime": 1774342760.8297658,
-    "hash": "07f212fe37af470b9d4061add41136b8"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/entropy_pooling_service.py": {
-    "mtime": 1776255930.9861107,
-    "hash": "68be3eef45a38ad4a23531a02a3d0a9d"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance_data_service.py": {
-    "mtime": 1778420480.6324852,
-    "hash": "6cc32c56d7480409622a7730a77d93b3"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/sentiment.py": {
-    "mtime": 1777387231.1627145,
-    "hash": "58401abd1e26b74e9cb17cd32b2b471d"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/factor_compute_service.py": {
-    "mtime": 1777386172.6123984,
-    "hash": "a390efa6af8f1bf48c9793de30a0e115"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/_sector_resolver.py": {
-    "mtime": 1776501616.5610135,
-    "hash": "1f7bd29adc4d0248ac8669525488eae5"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/opinion_pooling.py": {
-    "mtime": 1777386445.3200855,
-    "hash": "5bcb95872e8dac18e1c7c3cd8db8259f"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/synthetic_service.py": {
-    "mtime": 1776255924.729654,
-    "hash": "0d39cabc2073adf2131821f7791be800"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/factor_analysis_service.py": {
-    "mtime": 1776255564.4906816,
-    "hash": "c121094cbe1f0e5942c36aff77efbdc2"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/_price_fetcher.py": {
-    "mtime": 1776255802.322289,
-    "hash": "b4330b013d502ba44a7161c77cffc662"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/_factor_helpers.py": {
-    "mtime": 1778333276.1183538,
-    "hash": "e38c0e4823d3909e913b43e07580fdbc"
+  "/Volumes/External SSD/optimizer/api/app/api/v1/reports/reports.py": {
+    "mtime": 1778444011.0346649,
+    "hash": "7e652b9840d5510270b91456a0343c70"
   },
   "/Volumes/External SSD/optimizer/api/app/services/__init__.py": {
-    "mtime": 1777386598.1213956,
-    "hash": "af6b9d0e280b37e174f6dd080a529d05"
+    "mtime": 1778441557.3667302,
+    "hash": "a1bcdc5f612c3d91a4ad7f6d5880aa4b"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/view_generation.py": {
-    "mtime": 1777386445.3142757,
-    "hash": "46fb93544c2fe60752906f89ec5923f6"
+  "/Volumes/External SSD/optimizer/api/app/services/rebalancing/__init__.py": {
+    "mtime": 1778441508.2156777,
+    "hash": "2e3e2b2ceaf731da3bd0632e71639ddc"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/universe_screening_service.py": {
-    "mtime": 1777386520.7360108,
-    "hash": "92408386ebedca1ad41927b8f4da5050"
+  "/Volumes/External SSD/optimizer/api/app/services/rebalancing/rebalancing_service.py": {
+    "mtime": 1778445187.9232314,
+    "hash": "675f5a9161758638126a1e7b7991b03d"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/dashboard_service.py": {
-    "mtime": 1777387482.4409733,
-    "hash": "b0f5045d828239d53412aeb09c814fe2"
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance_data_service.py": {
+    "mtime": 1778445187.9175336,
+    "hash": "599e815571b23836c269c1491533c37e"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/_benchmark_bootstrap.py": {
-    "mtime": 1778324761.4306452,
-    "hash": "372fdbb0de1f360b37259448fc93c37b"
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/__init__.py": {
+    "mtime": 1778441507.3743672,
+    "hash": "1221ae6f61f77c8b8e7dea7dcdeb629e"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/risk_analytics_service.py": {
-    "mtime": 1777386683.6405795,
-    "hash": "939fc0f69148c40a4997465a1a1d5881"
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/reference_index_seeder.py": {
+    "mtime": 1778441237.3909914,
+    "hash": "193cd3fe29fe90a5d54b4d57c96caec5"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/report_service.py": {
-    "mtime": 1777386814.1893485,
-    "hash": "502aaacec346b07686116a36b8931841"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/reference_index_seeder.py": {
-    "mtime": 1778403177.747968,
-    "hash": "a7b32bd41f3937734bc367283bfe9058"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/factor_service.py": {
-    "mtime": 1777386172.6186488,
-    "hash": "e957b672312b5b2b48e6148a32f208fc"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/macro_calibration.py": {
-    "mtime": 1777386445.3187406,
-    "hash": "e5816d5d65ce1d5828730ceb0ba20e0f"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/tuning_service.py": {
-    "mtime": 1777386464.41719,
-    "hash": "d723e1890ddd86a1c7c57712aa7bd707"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/attribution_service.py": {
-    "mtime": 1777387246.1228313,
-    "hash": "a190d9bf4e7aac5aee880cbce8a3dd60"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/optimization_service.py": {
-    "mtime": 1778333276.1189406,
-    "hash": "3fb380f5e350388a8c12dd35fd062964"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/_json_safe.py": {
-    "mtime": 1777029347.283464,
-    "hash": "ca158524b6392ed4e1bce5deb7f33229"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/notifications.py": {
-    "mtime": 1777386172.6293378,
-    "hash": "8a7a60b54734f3d7afb71d360acb4d6d"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/rebalancing_service.py": {
-    "mtime": 1778352262.7036583,
-    "hash": "1d622c88955029b63650c84b050589a5"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/llm_moments.py": {
-    "mtime": 1777386172.6227524,
-    "hash": "c1fe0782f1c0176259ef0e56c30efc7b"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/scheduler.py": {
-    "mtime": 1778413114.703123,
-    "hash": "6993bc83fa1b1821267de8df8a68ab7c"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/backtest_service.py": {
-    "mtime": 1778333276.1186934,
-    "hash": "9f5fa16956490a1dd126c5b53a482b20"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/macro_regime_service.py": {
-    "mtime": 1778402720.7631288,
-    "hash": "3d1e7aef7891106004d4e95e62ef69f4"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/factor_scoring_service.py": {
-    "mtime": 1777386172.6156123,
-    "hash": "05b51add8930ec78d4503008c70a16a8"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/broker_sync_service.py": {
-    "mtime": 1774357275.6170373,
-    "hash": "dba729a94e661d31a47d871c245cea29"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/background_job.py": {
-    "mtime": 1778412592.7786996,
-    "hash": "3c212530c64ce29c925afed3db011ce8"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/_progress.py": {
-    "mtime": 1778411935.8874402,
-    "hash": "641ec73c899417e6d062d783e8e1d757"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/validation_service.py": {
-    "mtime": 1777386745.567049,
-    "hash": "bccc159efd99d8dd466644e73596378b"
-  },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/_base.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/_base.py": {
     "mtime": 1774342760.8300216,
     "hash": "c1ecc447be5451efd61f0dd89c3d0f47"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/__init__.py": {
-    "mtime": 1778422159.8624876,
-    "hash": "6c731320934c4b737d8f99293dd358df"
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/__init__.py": {
+    "mtime": 1778444068.6849024,
+    "hash": "0990ca4ab99405677e9e7aa42cf94bb8"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/_facade.py": {
-    "mtime": 1778421714.4735334,
-    "hash": "f9966a1223ceddde14f2d16fc203800c"
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/_facade.py": {
+    "mtime": 1778445187.9087608,
+    "hash": "d2eafdf7f99188b5c4bb97266a2f2b10"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/news/scraper.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/news/scraper.py": {
     "mtime": 1774342760.8315043,
     "hash": "103563dcf3eda1c90f693fe48f358b35"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/news/aggregator.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/news/aggregator.py": {
     "mtime": 1777386710.812602,
     "hash": "8b992ee06db65f71a6d036822bc731e3"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/news/client.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/news/client.py": {
     "mtime": 1774342760.8313217,
     "hash": "7fbe521e5b6f87baddee323b93c72406"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/news/__init__.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/news/__init__.py": {
     "mtime": 1774342760.831168,
     "hash": "9ca344f4975e056a4b16c832e8ed847d"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/news/macro_news.py": {
-    "mtime": 1775639846.530331,
-    "hash": "1b68e7829459f601604a10d841093ec2"
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/news/macro_news.py": {
+    "mtime": 1778445187.91453,
+    "hash": "37e76646e1fb3df68fd739c05efd5902"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/ticker/holders.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/ticker/holders.py": {
     "mtime": 1774342760.8321128,
     "hash": "d0ab31a28d2edce5937d386f5b37376b"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/ticker/metadata.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/ticker/metadata.py": {
     "mtime": 1778418939.3884988,
     "hash": "c3cc976e4d7103342be863cdc78b98ad"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/ticker/analysis.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/ticker/analysis.py": {
     "mtime": 1778419047.5811615,
     "hash": "c9fd8ec2b07b1910addd0cb3ba8c9bef"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/ticker/financials.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/ticker/financials.py": {
     "mtime": 1778417773.384581,
     "hash": "f9cadc4907275911d92965b8f0e4ae86"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/ticker/__init__.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/ticker/__init__.py": {
     "mtime": 1774342760.831774,
     "hash": "8d2b884a091e9acea362d2c11a5136f9"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/ticker/corporate_actions.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/ticker/corporate_actions.py": {
     "mtime": 1774342760.8319046,
     "hash": "65a8b3a6c5f969710d9345dc375f10ae"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/ticker/funds.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/ticker/funds.py": {
     "mtime": 1778423513.6414967,
     "hash": "5f87ef18a69ac5079bf9b7d7ebedc0bc"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/market/market.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/market/market.py": {
     "mtime": 1774342760.8307295,
     "hash": "47667d5e8ce1a8fb92db2cd8b49d3542"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/market/sector_industry.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/market/sector_industry.py": {
     "mtime": 1778424148.4769652,
     "hash": "ea4e5b4c07746061b3a12aac52a2e8f5"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/market/screener.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/market/screener.py": {
     "mtime": 1778424296.8851855,
     "hash": "f36f7d6d75085ecacd096fa0a1e3f3bb"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/market/__init__.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/market/__init__.py": {
     "mtime": 1774342760.8305967,
     "hash": "aa646bed41091c599fe1bc3e027ead5f"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/market/search.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/market/search.py": {
     "mtime": 1778423823.232293,
     "hash": "c6c076dd90c6997bef00f4a20cc16a86"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/market/streaming.py": {
-    "mtime": 1778422175.5741272,
-    "hash": "1a5b382918004d0a5f553e1dc7aed5fa"
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/market/streaming.py": {
+    "mtime": 1778445187.9111753,
+    "hash": "6ae503cb7ecbf609f668eed0c66ae27f"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/market/calendars.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/market/calendars.py": {
     "mtime": 1774342760.8306656,
     "hash": "2519b63cef933d6052166c9a9697aa46"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/infrastructure/rate_limiter.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/infrastructure/rate_limiter.py": {
     "mtime": 1774342760.8304048,
     "hash": "fbeb0f1a8a6cd62855814d3efce36da5"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/infrastructure/cache.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/infrastructure/cache.py": {
     "mtime": 1774342760.8302784,
     "hash": "cb91fb27f70f5b264465d8dcb1190acc"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/infrastructure/__init__.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/infrastructure/__init__.py": {
     "mtime": 1774342760.830222,
     "hash": "0b0b39a9c7cc70900bb3ea0a368b69bb"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/infrastructure/retry.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/infrastructure/retry.py": {
     "mtime": 1774342760.8304904,
     "hash": "2852cb31a8d1dc4161ed392d892b5fdb"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/infrastructure/circuit_breaker.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/infrastructure/circuit_breaker.py": {
     "mtime": 1774342760.8303442,
     "hash": "2fe16d9f5d5e439ecf354dc001ef7cbf"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/protocols/interfaces.py": {
-    "mtime": 1778424299.505557,
-    "hash": "51786002247d4e16e32788cba9717c6a"
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/protocols/interfaces.py": {
+    "mtime": 1778445187.9153962,
+    "hash": "602de7100d7e46af3886b37c660eef2b"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/yfinance/protocols/__init__.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/market_data/yfinance/protocols/__init__.py": {
     "mtime": 1778422149.5861723,
     "hash": "ba3b57cd32de737be922773b1f1989b5"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/config.py": {
-    "mtime": 1777387001.742494,
-    "hash": "8491e30b26a2cb9bb27d7fc18d845810"
+  "/Volumes/External SSD/optimizer/api/app/services/optimization/__init__.py": {
+    "mtime": 1778441507.7587903,
+    "hash": "d6121e7207886fbaa34d2d5cf0a640a8"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/protocols.py": {
-    "mtime": 1774342760.8296003,
-    "hash": "2c7458b9969f5a3d0fc08db75664ed40"
+  "/Volumes/External SSD/optimizer/api/app/services/optimization/tuning_service.py": {
+    "mtime": 1778445187.920848,
+    "hash": "1b2df974f67880572f0efab021fe5e2e"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/client.py": {
-    "mtime": 1774371058.664895,
-    "hash": "19234110bb4730706caa670099d21084"
+  "/Volumes/External SSD/optimizer/api/app/services/optimization/optimization_service.py": {
+    "mtime": 1778445187.919655,
+    "hash": "777b68eb2534080a10a2f2e0df5329c9"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/__init__.py": {
-    "mtime": 1774342760.8286765,
-    "hash": "3a032628d1c88e0f9325e05fd5669b1f"
+  "/Volumes/External SSD/optimizer/api/app/services/optimization/validation_service.py": {
+    "mtime": 1778445187.9226277,
+    "hash": "903cc091475b41822e4466374755edff"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/builder.py": {
-    "mtime": 1774342760.8287632,
-    "hash": "a12e5dc16151e71096e09812766c65d7"
+  "/Volumes/External SSD/optimizer/api/app/services/factors/factor_compute_service.py": {
+    "mtime": 1778445187.9207876,
+    "hash": "8b9e370a6207820ea2ff8e341c64d81d"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/ticker_mapper.py": {
-    "mtime": 1777386822.7776034,
-    "hash": "9c85c919165d5c76f06980f533d46ff2"
+  "/Volumes/External SSD/optimizer/api/app/services/factors/factor_analysis_service.py": {
+    "mtime": 1778445187.9189515,
+    "hash": "035515ad709c45119888f8bd4f08a913"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/filters/liquidity.py": {
-    "mtime": 1774342760.8292694,
-    "hash": "78795dd77256df0ee7e0c09914082869"
+  "/Volumes/External SSD/optimizer/api/app/services/factors/_factor_helpers.py": {
+    "mtime": 1778445187.916373,
+    "hash": "de743294b20a9a1bf111d5c8fc53031b"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/filters/__init__.py": {
-    "mtime": 1774342760.8290133,
-    "hash": "5f1a6ed0f1dbb660d26295cc400e7412"
+  "/Volumes/External SSD/optimizer/api/app/services/factors/__init__.py": {
+    "mtime": 1778441507.9867487,
+    "hash": "892aa8db16ca414aa0a7a9af45501122"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/filters/historical_data.py": {
-    "mtime": 1778420486.3793063,
-    "hash": "f1c28a54a1ae90533813fe3173e416d9"
+  "/Volumes/External SSD/optimizer/api/app/services/factors/factor_service.py": {
+    "mtime": 1778441237.3949225,
+    "hash": "4d1607f80ae834748c2931b5e4c3b8ea"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/filters/pipeline.py": {
-    "mtime": 1774342760.8294294,
-    "hash": "0c92f7c2a6e8136402fa1e7685cb12eb"
+  "/Volumes/External SSD/optimizer/api/app/services/factors/factor_scoring_service.py": {
+    "mtime": 1778445187.9198153,
+    "hash": "830aed5d594bb97a8a5f085a0be153f6"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/filters/market_cap.py": {
-    "mtime": 1774342760.82935,
-    "hash": "a646736b8c50501e4d04031086e2cf3d"
+  "/Volumes/External SSD/optimizer/api/app/services/backtest/__init__.py": {
+    "mtime": 1778441507.8720946,
+    "hash": "c3045a19d9c5bc642d44ec325e4ad92d"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/filters/data_coverage.py": {
-    "mtime": 1774342760.8291006,
-    "hash": "442da38208c1f59f9ab8fcb759f3b2c9"
+  "/Volumes/External SSD/optimizer/api/app/services/backtest/backtest_service.py": {
+    "mtime": 1778445187.9122536,
+    "hash": "cff5426dee28928989ae434f15d2c19d"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/filters/price.py": {
-    "mtime": 1774342760.829517,
-    "hash": "ec53d85a040d86e0e085fb1ad0fbd34d"
+  "/Volumes/External SSD/optimizer/api/app/services/dashboard/__init__.py": {
+    "mtime": 1778441508.5598989,
+    "hash": "fe4847794d7f3763cfd69b656439220b"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/cache/ticker_cache.py": {
-    "mtime": 1774346915.6661692,
-    "hash": "db50733b6576fcb469a3a18dbc34c33c"
+  "/Volumes/External SSD/optimizer/api/app/services/dashboard/dashboard_service.py": {
+    "mtime": 1778445187.9143262,
+    "hash": "e9dc61217f1b319363957c2c5cd808c7"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/trading212/cache/__init__.py": {
-    "mtime": 1774346899.0648603,
-    "hash": "194a76507c87468a2bbd1441c14130f0"
+  "/Volumes/External SSD/optimizer/api/app/services/macro/macro_news_summary.py": {
+    "mtime": 1778445187.898801,
+    "hash": "3a517c1833871e58f7c564f24ff0d17a"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/scrapers/ilsole_scraper.py": {
-    "mtime": 1774342760.8283184,
-    "hash": "c044267c3e4fc8eaf36e735cd8b640a6"
+  "/Volumes/External SSD/optimizer/api/app/services/macro/__init__.py": {
+    "mtime": 1778441507.6455941,
+    "hash": "e6cb34ec2d3509143471b3aa2b6a2ddf"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/scrapers/tradingeconomics_scraper.py": {
-    "mtime": 1777386520.743423,
-    "hash": "b8f1add634804a763483bff87caaf32b"
+  "/Volumes/External SSD/optimizer/api/app/services/macro/macro_calibration.py": {
+    "mtime": 1778445187.8965142,
+    "hash": "c04312e80cd110cf001190b8a3c39be4"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/scrapers/__init__.py": {
-    "mtime": 1777386172.633313,
-    "hash": "cd4246b89d584fd0ffda278b8f90ce68"
+  "/Volumes/External SSD/optimizer/api/app/services/macro/macro_regime_service.py": {
+    "mtime": 1778445187.9003751,
+    "hash": "5ad8b23502373e0edbb1beea8ee215f3"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/scrapers/fred_scraper.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/macro/scrapers/ilsole_scraper.py": {
+    "mtime": 1778445187.9042656,
+    "hash": "e05cc7a78f022ffdcc730ab6db48504b"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/macro/scrapers/tradingeconomics_scraper.py": {
+    "mtime": 1778445187.9061153,
+    "hash": "7916ab022e9352a6dc0845cbdd07aeff"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/macro/scrapers/__init__.py": {
+    "mtime": 1778444011.043974,
+    "hash": "c1e704e068ae5ef2112d76a321d8ff11"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/macro/scrapers/fred_scraper.py": {
     "mtime": 1778402443.1180685,
     "hash": "9b21cc73177ec239a1961c3517e5863f"
   },
-  "/Volumes/External SSD/optimizer/api/app/services/scrapers/exceptions.py": {
+  "/Volumes/External SSD/optimizer/api/app/services/macro/scrapers/exceptions.py": {
     "mtime": 1774356150.2295756,
     "hash": "6a6ba3a89b084ead4f853bf17b5f3bae"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/attribution/__init__.py": {
+    "mtime": 1778441508.4441118,
+    "hash": "daed77cb6699d1e383ce670347c12093"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/attribution/attribution_service.py": {
+    "mtime": 1778445187.9106193,
+    "hash": "7e995d09ef1866c0f514cc4c74d4d3da"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/scenarios/stress_scenarios.py": {
+    "mtime": 1778441237.4005506,
+    "hash": "fe2fb36d80312ba5680fab04c49876b1"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/scenarios/synthetic_service.py": {
+    "mtime": 1778445187.9231281,
+    "hash": "e7a47f9929212f08ea1f30a1e597bda3"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/scenarios/__init__.py": {
+    "mtime": 1778441508.6753185,
+    "hash": "9f1dcff9b98e4dc6445f8772907431d1"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/portfolio/__init__.py": {
+    "mtime": 1778441509.0291626,
+    "hash": "326e075a903fba16a9d81d09fcf069d4"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/portfolio/broker_sync_service.py": {
+    "mtime": 1778445187.9218245,
+    "hash": "384f9802986bcd989021856fbd5cc40f"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/_shared/trading_calendar.py": {
+    "mtime": 1774342760.8297658,
+    "hash": "07f212fe37af470b9d4061add41136b8"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/_shared/_sector_resolver.py": {
+    "mtime": 1778444011.0381033,
+    "hash": "1e27698f144b60dbdf346bcab46dde13"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/_shared/_price_fetcher.py": {
+    "mtime": 1778439387.3434958,
+    "hash": "ba1e52e994ba8d4eb41840da79a7404a"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/_shared/__init__.py": {
+    "mtime": 1778444457.821797,
+    "hash": "d5298c8a1ff1144cf0bbb13fabf0c54f"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/_shared/_benchmark_bootstrap.py": {
+    "mtime": 1778441237.4033022,
+    "hash": "30c3cd20265220dee7ac90b4600b4683"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/_shared/_json_safe.py": {
+    "mtime": 1778441237.4043655,
+    "hash": "799527a4fab0790b5638591c254e4489"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/_shared/notifications.py": {
+    "mtime": 1778445187.9092672,
+    "hash": "1acb35ba7451bffe496750e8a00bbbfc"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/_shared/_progress.py": {
+    "mtime": 1778445187.9077609,
+    "hash": "6a548107baa0b642fe9a7e9dec871d8f"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/jobs/__init__.py": {
+    "mtime": 1778441508.9036818,
+    "hash": "ba0bb79a1b8027bf2095a6ffb7e8e14e"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/jobs/scheduler.py": {
+    "mtime": 1778445187.8951607,
+    "hash": "e03605be8441120307bd6bc533df464c"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/jobs/background_job.py": {
+    "mtime": 1778445187.8931022,
+    "hash": "c46bd8f52d4b4ba3818a5f8c26c96091"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/__init__.py": {
+    "mtime": 1778441507.5243654,
+    "hash": "3021a71311d80aa90fc5e0e406c3462b"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/universe_screening_service.py": {
+    "mtime": 1778445187.922919,
+    "hash": "eb35ea5a4373a3bfa763d3b1df11a7cc"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/config.py": {
+    "mtime": 1777387001.742494,
+    "hash": "8491e30b26a2cb9bb27d7fc18d845810"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/protocols.py": {
+    "mtime": 1774342760.8296003,
+    "hash": "2c7458b9969f5a3d0fc08db75664ed40"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/client.py": {
+    "mtime": 1778445187.923514,
+    "hash": "c9ad75f20634f6d9786e42f805498efb"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/__init__.py": {
+    "mtime": 1778444011.0378447,
+    "hash": "82e0db01131311db051c1766c2585f57"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/builder.py": {
+    "mtime": 1778440282.096131,
+    "hash": "ee928a8ff50441c1d57a5e5e31b1b26f"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/ticker_mapper.py": {
+    "mtime": 1778444011.0417795,
+    "hash": "a7374b301f02a5bd8975d30a5a033ff7"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/filters/liquidity.py": {
+    "mtime": 1778440282.0965872,
+    "hash": "62ff3c4e726a7d1c471e075466593248"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/filters/__init__.py": {
+    "mtime": 1778444011.039178,
+    "hash": "cfe21c7dda598ea892ee36355377c486"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/filters/historical_data.py": {
+    "mtime": 1778444011.041729,
+    "hash": "f99690f97ee0a04d3aadaec0a9fea268"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/filters/pipeline.py": {
+    "mtime": 1778440282.0978277,
+    "hash": "caf15d0d8bc53f39cd31e4d615a65965"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/filters/market_cap.py": {
+    "mtime": 1778440282.098011,
+    "hash": "f1544afb8f10b5a5b8dce4222249bf2b"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/filters/data_coverage.py": {
+    "mtime": 1778440282.0982623,
+    "hash": "82c7c6e9d7bb65e58228d6de89460623"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/filters/price.py": {
+    "mtime": 1778440282.0987291,
+    "hash": "0a20fa897a6889bc3f9f53e6d254423b"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/cache/ticker_cache.py": {
+    "mtime": 1774346915.6661692,
+    "hash": "db50733b6576fcb469a3a18dbc34c33c"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/universe/trading212/cache/__init__.py": {
+    "mtime": 1778440282.100218,
+    "hash": "14f6a765c715839d292a6dcad2d29dc8"
   },
   "/Volumes/External SSD/optimizer/api/app/services/infrastructure/rate_limiter.py": {
     "mtime": 1774342760.8273208,
@@ -3327,505 +3567,573 @@
     "mtime": 1774342760.827259,
     "hash": "2f5f6d1cb1fc4a2e064b46956c5ed4c2"
   },
+  "/Volumes/External SSD/optimizer/api/app/services/views/entropy_pooling_service.py": {
+    "mtime": 1778435458.3008876,
+    "hash": "ce34dd68cfb9bd95183a139b3a6f4109"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/views/sentiment.py": {
+    "mtime": 1778439387.3097978,
+    "hash": "27848240980180d597838550b3c345f7"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/views/opinion_pooling.py": {
+    "mtime": 1778444011.0420291,
+    "hash": "db12834000dcb236d86c55291b4fa812"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/views/__init__.py": {
+    "mtime": 1778441508.328908,
+    "hash": "22e6018bf8d3c94dc7ce502126a9f2d8"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/views/view_generation.py": {
+    "mtime": 1778445187.924126,
+    "hash": "4093955521626b275b52640be92fcc78"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/views/llm_moments.py": {
+    "mtime": 1777386172.6227524,
+    "hash": "c1fe0782f1c0176259ef0e56c30efc7b"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/risk/__init__.py": {
+    "mtime": 1778441508.1017826,
+    "hash": "c16871b2dfa5ec43217b474c1aba8fe1"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/risk/risk_analytics_service.py": {
+    "mtime": 1778445187.9209814,
+    "hash": "dd0eade07846da6fbfebb88e4ebd22a0"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/reports/__init__.py": {
+    "mtime": 1778441508.7910566,
+    "hash": "6ab1d19e152f22f9498e565c90d7a563"
+  },
+  "/Volumes/External SSD/optimizer/api/app/services/reports/report_service.py": {
+    "mtime": 1778445187.9250007,
+    "hash": "ea19032f580f259f240e5a8791c59b9c"
+  },
   "/Volumes/External SSD/optimizer/api/tests/conftest.py": {
-    "mtime": 1777386445.314311,
-    "hash": "9c6c5eb66745dd9e98c1c858cdeb100c"
+    "mtime": 1778435740.1408217,
+    "hash": "b3ffff3b18b761081a42e47bf41d973e"
   },
   "/Volumes/External SSD/optimizer/api/tests/__init__.py": {
     "mtime": 1774342760.8352563,
     "hash": "d85e38572aa997dc013634eaa9375e71"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_backtest_service.py": {
-    "mtime": 1777386445.3187914,
-    "hash": "5d08b46c1e95b6f5927cfdcfc09d00c8"
+    "mtime": 1778445187.9033241,
+    "hash": "c35416843c2f3aa1ec0ccfa1c066798e"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_fetch_earnings_deprecation.py": {
-    "mtime": 1778417827.754923,
-    "hash": "13123fc4a027fed468deadc28cc34b15"
+    "mtime": 1778445187.9090219,
+    "hash": "4950c62885103cfaa31b266ca4010013"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_macro_news_summary_api.py": {
-    "mtime": 1777386445.324273,
-    "hash": "e3fce4b998414698d02b967f60206487"
+    "mtime": 1778445187.9150283,
+    "hash": "a8bfee2e02cabd66c4663537e4b6cea0"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_entropy_pooling.py": {
-    "mtime": 1777386445.3227057,
-    "hash": "5eab968f6425596cdb0656ca05e82018"
+    "mtime": 1778445187.9062097,
+    "hash": "729581f5db7f3f021db15e64baf08db1"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_factor_validation_service.py": {
-    "mtime": 1776255299.0205564,
-    "hash": "99c8b3f598ab299183c107209bcb6e8f"
+    "mtime": 1778445187.906022,
+    "hash": "df4d7022778f9d6e3fd4d102ef23855e"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_cycle5_screener_etf.py": {
-    "mtime": 1778424283.761879,
-    "hash": "bf5d0faa811128dc516d9a024f74d1c1"
+    "mtime": 1778445187.9126666,
+    "hash": "b6cb5d6148c4aabc829463ffc6951d90"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_upsert_updated_at.py": {
-    "mtime": 1777386445.3187459,
-    "hash": "acd4755dbe641b190186821ef32ed1d7"
+    "mtime": 1778445187.9158132,
+    "hash": "dc4976685bd5ce5e65eb6919d0eb0990"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_rebalancing_schemas.py": {
-    "mtime": 1777386520.739792,
-    "hash": "abb848a11c4c299d67badd206ef58ef5"
+    "mtime": 1778445187.9090164,
+    "hash": "5d2f3baf2d9f29d0027d1454e3670c09"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_optimization_service.py": {
-    "mtime": 1777387846.1313124,
-    "hash": "94b48884648552c3fc50ff33fd197c0e"
+    "mtime": 1778445187.8953457,
+    "hash": "6058132bed408af925f169e0354ed2cf"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_cycle5_funds_guard.py": {
-    "mtime": 1778423495.0057635,
-    "hash": "7d8428a5da34bf4ad1739dfa225e4581"
+    "mtime": 1778440131.0362449,
+    "hash": "0c5e940c3b1bb640e691d50c400e10c7"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_seed_reference_indices_migration.py": {
-    "mtime": 1777386532.939338,
-    "hash": "92309323fc31ef16deb7749a436c1c80"
+    "mtime": 1778445187.9077077,
+    "hash": "2741e7e27c47d7068e82625f26d61ce1"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_main_lifespan_reconcile.py": {
-    "mtime": 1778413213.5007644,
-    "hash": "8e49737125a583c3d27ccd5f6e429768"
+    "mtime": 1778445187.920843,
+    "hash": "ea1b05244df41fda19cb6ac8491a8dcb"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_fred_scraper_catalog.py": {
-    "mtime": 1778402423.2883646,
-    "hash": "5d4c65745787bb5d136e88ba2384a047"
+    "mtime": 1778440420.896506,
+    "hash": "5bab1a331c4e15317171858de5d941e5"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_extracted_schemas.py": {
-    "mtime": 1777386172.6714072,
-    "hash": "72537e7d70b690d77cd0bb05f5437803"
+    "mtime": 1778445145.1315885,
+    "hash": "8b4055f1bb52aec08f1a59d931464be1"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_protocol_cycle3.py": {
-    "mtime": 1778420941.497424,
-    "hash": "ddee1c92ff923cad676e103e54fa3a86"
+    "mtime": 1778445145.1300278,
+    "hash": "2d34678ced25926fb833dad6bfd60ce2"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_cycle5_search_expansion.py": {
-    "mtime": 1778423721.035039,
-    "hash": "7c09c131eac05378ce060281aa974d44"
+    "mtime": 1778440131.0380545,
+    "hash": "dfdab4599a9c46105931128996c0c7be"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_screener_client.py": {
-    "mtime": 1778418083.9229963,
-    "hash": "5ad8f698408ac3a94b8da03fdf9dea2f"
+    "mtime": 1778445187.9249415,
+    "hash": "cd35dff3ac91127ffc52877480a72285"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_risk_analytics_service.py": {
-    "mtime": 1777386445.3222518,
-    "hash": "0f52adfc35e6c7b9a59ae29cce5be9c4"
+    "mtime": 1778445187.9172256,
+    "hash": "85c1cba59f0620dd52364b4ab6f4cf5b"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_tune_routes.py": {
-    "mtime": 1777386172.6458054,
-    "hash": "e3fd3a2a2e20c5e564a66f307efa087b"
+    "mtime": 1778443256.8751345,
+    "hash": "ffe85ca7e14530a9dfbfd4933eff8e93"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_reference_index_seeder.py": {
-    "mtime": 1778403166.7044754,
-    "hash": "b93784502ffa17276b659da5204e1ed7"
+    "mtime": 1778445187.910375,
+    "hash": "1506b093d55dbf3c452ea0a95eb90e1b"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_macro_calibration.py": {
-    "mtime": 1777386445.3245833,
-    "hash": "2986956c8986f18dfd4341ccc802f87a"
+    "mtime": 1778445187.9142725,
+    "hash": "b3e91560f15ff0dc0f6e4f633df14953"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_macro_regime_service_fred_key.py": {
-    "mtime": 1778401347.0041678,
-    "hash": "1a43c91854ef516bd37339350f5a82d8"
+    "mtime": 1778445187.9207857,
+    "hash": "1149a8fe61f9aa8df185df9c10786970"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_shared_infrastructure.py": {
-    "mtime": 1777386445.3204005,
-    "hash": "83b3af57edb30dda7ef3cfb74c3446ae"
+    "mtime": 1778445187.9143226,
+    "hash": "b7a0b57a70943b0af817191334c42048"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_portfolio_routes.py": {
-    "mtime": 1777386172.645826,
-    "hash": "f3af53b3fa86179edc919be3f30a03ce"
+    "mtime": 1778445187.8988485,
+    "hash": "0a0dadd8aabc051e5758cd9774e0b15f"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_parallel_fetch.py": {
-    "mtime": 1778404695.023856,
-    "hash": "b789a800e358d671a374892d62d1b639"
+    "mtime": 1778445187.9130526,
+    "hash": "813f96159126b67ab89ffa2d4b9abc24"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_market_snapshot_routes.py": {
-    "mtime": 1777030632.6279135,
-    "hash": "9d87b2801fbf09f9ed22ffa22011030e"
+    "mtime": 1778443256.879422,
+    "hash": "dc0147efb9567e7e828f8ed20827a932"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_report_service.py": {
-    "mtime": 1777386172.6562233,
-    "hash": "905b8c9b460b5481bd36cc5571ea4efa"
+    "mtime": 1778445187.9118311,
+    "hash": "9c4587e34516a28017ef28bca702a3db"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_database_routes.py": {
-    "mtime": 1776506716.653831,
-    "hash": "4f17eb7c6c5c901fe7d4bbdf0e138e57"
+    "mtime": 1778445187.899591,
+    "hash": "771bd80bde490e3fbbf42f3cb4aae629"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_risk_routes.py": {
-    "mtime": 1777386172.6582098,
-    "hash": "1dec543914d9467edc4c3695d6c86f7a"
+    "mtime": 1778445187.9221613,
+    "hash": "4fdf93782bd38f277e8df3d8f42c7e10"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_scheduler_routes.py": {
-    "mtime": 1776253262.524439,
-    "hash": "c88c674609b11671ab3752f5729873b2"
+    "mtime": 1778445187.9234924,
+    "hash": "ca8d1cc15aba928fe50e9771d716a2c3"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_risk_schemas.py": {
-    "mtime": 1777386520.7386122,
-    "hash": "672e3b5ec99151ac0bd034c76db3f32d"
+    "mtime": 1778445187.923093,
+    "hash": "362099503c3075cd29ebed169d677f68"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_execution_repository.py": {
-    "mtime": 1777386445.3226304,
-    "hash": "f30d2f6e1f89eb073f22320abf9e6b0a"
+    "mtime": 1778439387.3589363,
+    "hash": "7bd166d0d9e896531f1c6e0b3c0006ea"
+  },
+  "/Volumes/External SSD/optimizer/api/tests/unit/test_domain_file_migration.py": {
+    "mtime": 1778445187.901061,
+    "hash": "f6ae7cbc5407858f95d350b654b91388"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_execution_models.py": {
-    "mtime": 1777386445.3234596,
-    "hash": "b54305bcb711f57488db9786aa84294c"
+    "mtime": 1778445187.9014044,
+    "hash": "98a12e454582bf063493ddb4caa8017a"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_rebalance_policy_routes.py": {
-    "mtime": 1777386445.3226707,
-    "hash": "ec111805fff34fff372c4cce17cf0925"
+    "mtime": 1778445187.9042683,
+    "hash": "ea750acb6fbdb881fb60e52fde88c05c"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_market_history_and_indices_routes.py": {
-    "mtime": 1777383775.4823925,
-    "hash": "f078c45564713e0e318c987ebf6b2516"
+    "mtime": 1778443256.8853245,
+    "hash": "1f88b9d0a4ab990ef1b42a6b9f0dae1e"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_new_tables_migration.py": {
-    "mtime": 1777386532.9384294,
-    "hash": "c8542188ae4859319ba7d01f9b14079d"
+    "mtime": 1778445187.9215446,
+    "hash": "91b8dce513fa85252a34bc84d5f88eef"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_fred_progress.py": {
-    "mtime": 1778402813.5620368,
-    "hash": "264d9e47d6793528b3fa15efb416adf3"
+    "mtime": 1778441237.4495397,
+    "hash": "9167105955ee5374302980bd60331287"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_fetch_fred_series_progress.py": {
-    "mtime": 1778402689.3936327,
-    "hash": "07d49b9a214d476b670594daa77dcb5c"
+    "mtime": 1778441237.4500313,
+    "hash": "381c3a5203230329b02be9c06e10ac28"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_portfolio_snapshot_upsert.py": {
-    "mtime": 1778361081.8715718,
-    "hash": "1b970a2e04e5b481c94122d1dcbc9052"
+    "mtime": 1778439387.361117,
+    "hash": "267c49db5873624b4d9e4f9c30c5b48a"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_scheduler_liveness_settings.py": {
-    "mtime": 1778412948.1167328,
-    "hash": "61433c84b8e02d235221ebde81bc587c"
+    "mtime": 1778445187.9247038,
+    "hash": "e7499cbccbe44785c8539079a75cc669"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_rebalancing_repository.py": {
-    "mtime": 1777386445.323506,
-    "hash": "6cf5f6c246e74d7a480a6665616f7dd6"
+    "mtime": 1778445187.9061036,
+    "hash": "682b34f4f89e320158233ebaec5f5ac5"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/__init__.py": {
     "mtime": 1774342760.8356028,
     "hash": "6446a7d32af69b81d43b1a28ee77dbd3"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_cycle4_cached_property.py": {
-    "mtime": 1778421863.155669,
-    "hash": "8a870c13276a612147885e0b15945f5f"
+    "mtime": 1778440131.0454507,
+    "hash": "963b1626b87139c14218fe8b57bf3e29"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_data_service_cycle2.py": {
-    "mtime": 1778419232.168145,
-    "hash": "c8fdfeaf9ec68a3f672a2b2b0c6d33b3"
+    "mtime": 1778445187.9114695,
+    "hash": "4cdf5ba6e882e7aa0d8f22e0915800a1"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_metrics_middleware.py": {
-    "mtime": 1777386172.6489136,
-    "hash": "3dfbdc10141f5d5bfdf44d831ccf3e19"
+    "mtime": 1778445187.919436,
+    "hash": "a090cfa273c382f484efea41f66be2cc"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_equity_curve_service.py": {
-    "mtime": 1777386445.322602,
-    "hash": "84b5da629b19bc29f83e4f8e39aa623d"
+    "mtime": 1778441237.4537964,
+    "hash": "f3278dff6ce9e23e02d310a619450f0f"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_broker_account_snapshot_upsert.py": {
-    "mtime": 1777386445.3147829,
-    "hash": "6f93ff7f6464aa08f5ad0868134b8d4e"
+    "mtime": 1778439387.3635721,
+    "hash": "48b8d00932ed4d24f457eb4315004c64"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_activity_routes.py": {
-    "mtime": 1774369130.3418596,
-    "hash": "95f6b7837352a4eb3f403cf577f781bb"
+    "mtime": 1778443256.892413,
+    "hash": "dfd4236ab4d5091ead3383928c7c234a"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_tuning_service.py": {
-    "mtime": 1777384866.0858169,
-    "hash": "87b82aa77bed9c286f7f5d1ee3759921"
+    "mtime": 1778445187.914269,
+    "hash": "af7e88e000ff597b1b841557ed74c5bc"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_seed_reference_indices_expanded_migration.py": {
-    "mtime": 1777386532.9393382,
-    "hash": "eed3eb45a1bef3a23da7dfc38764ffe7"
+    "mtime": 1778445187.925058,
+    "hash": "ed769bf6f5f33aa44c589b02a67138d0"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_universe_screen_routes.py": {
-    "mtime": 1776246534.8314977,
-    "hash": "52ea44de169b42bfb97e27e1be564030"
+    "mtime": 1778445187.9147837,
+    "hash": "0e606abbec9b7069e87b019e0e9b2b8a"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_auth_middleware.py": {
-    "mtime": 1777386445.3148484,
-    "hash": "37c8abf98b28866fd9d561bae0cdeda2"
+    "mtime": 1778445187.8930483,
+    "hash": "229d190c52e6de7575c3e1f3e002796a"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_macro_news_summary_repository.py": {
-    "mtime": 1777386445.3240685,
-    "hash": "08314f4935237f50daa584f25274132d"
+    "mtime": 1778445187.9162488,
+    "hash": "8aeb68b118d4d5957f904e2007ea5bb9"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_llm_moments.py": {
-    "mtime": 1777386445.3242419,
-    "hash": "3e9d62387aab696e8aaf2f7e23994723"
+    "mtime": 1778445145.130594,
+    "hash": "38c1fea19ea380e953bcbd4e73a7123c"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_analysis_eps.py": {
-    "mtime": 1778419033.179785,
-    "hash": "da6984cd9219538aab8a8b575e610fdf"
+    "mtime": 1778445145.130041,
+    "hash": "7b4ccc08f9291bdb08fcb6a8224bf0bc"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_rebalancing_routes.py": {
-    "mtime": 1778352349.2245011,
-    "hash": "a9bf898758d4d3a55c28f83da06b20f3"
+    "mtime": 1778445187.9072824,
+    "hash": "373f129a832054d35fe602a75de161b5"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_universe_screening_service.py": {
-    "mtime": 1777386172.6430867,
-    "hash": "51bfdf5031519f1a7344a13e015fc9ad"
+    "mtime": 1778441237.458863,
+    "hash": "2f5059339b68f1061bc774bfb1ef4c6f"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_backtest_schemas.py": {
-    "mtime": 1777386520.7404225,
-    "hash": "7e0aa7f0c12432d5b0c51b7aaf95475b"
+    "mtime": 1778445187.9010644,
+    "hash": "78860aa8057c6b92bfb6266b1df0abaa"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_sentiment.py": {
-    "mtime": 1777386445.318795,
-    "hash": "4c5e7f7fef97cb6884e1bc1aa767a8a8"
+    "mtime": 1778445187.910332,
+    "hash": "eace54579a9e664c75a520442a60e5e3"
+  },
+  "/Volumes/External SSD/optimizer/api/tests/unit/test_repository_file_migration.py": {
+    "mtime": 1778445187.9131322,
+    "hash": "19908564c89bac85a6c3c2ebe1348024"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_notifications.py": {
-    "mtime": 1777386445.31427,
-    "hash": "4678878b330b1447054408683e775a26"
+    "mtime": 1778437077.0780163,
+    "hash": "30ba27f851fe5bed63a18f80e31d76c7"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_macro_news_summary_service.py": {
-    "mtime": 1777386445.3251116,
-    "hash": "dab68e08e84970cec441c5c1a0facb04"
+    "mtime": 1778445187.918947,
+    "hash": "d591b3e501113e6b7b19ee1e0a9c1b7c"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_jobs_cancel.py": {
-    "mtime": 1778401011.0387523,
-    "hash": "9a8fe1df2b63aad98339fb68d0fa6505"
+    "mtime": 1778445187.9105911,
+    "hash": "1b0c8eac4705e5d8c0e72559d42d1903"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_route_cancellation.py": {
-    "mtime": 1778412596.725967,
-    "hash": "26448c15abe242e3ea84ad42931bb167"
+    "mtime": 1778445187.923748,
+    "hash": "ac7adeb3c95b1aea9638ffbdf91096a2"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_price_fetcher.py": {
-    "mtime": 1777386172.656658,
-    "hash": "7d325133199dce3880569ca78a193e67"
+    "mtime": 1778445187.9011176,
+    "hash": "b80545e72f99151efc9cf32a00dc6a37"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_database_lazy_init.py": {
-    "mtime": 1778401226.2903168,
-    "hash": "bde0c66f2c0aa55b707bac5e7ed128a5"
+    "mtime": 1778445187.8987908,
+    "hash": "484def431d5ba31c4855dd2076fe6e99"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_background_job_repository.py": {
-    "mtime": 1778411704.9293468,
-    "hash": "ff71b6d586316a30f4f23a20233ede85"
+    "mtime": 1778445187.8959312,
+    "hash": "ff85a405203daddf0924e8950a2494d0"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_factor_compute_routes.py": {
-    "mtime": 1776247049.8492978,
-    "hash": "0c44eb82a258bbc490ec94801e550316"
+    "mtime": 1778443256.8999977,
+    "hash": "117546d13df3ad0194bf7eeea77bf341"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_attribution_routes.py": {
-    "mtime": 1777386172.6346433,
-    "hash": "c69123ff800cb0728d86236042e6c626"
+    "mtime": 1778445187.924057,
+    "hash": "b657488a7d0fea36e4d2b83703dc4f58"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_optimization_schemas.py": {
-    "mtime": 1777388108.715859,
-    "hash": "692b9f22f8069946fa8bacb54a8a9acf"
+    "mtime": 1778445187.8930979,
+    "hash": "324188af7471f0d1aaacb08402f43860"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_validate_walk_forward.py": {
-    "mtime": 1776501950.7918758,
-    "hash": "c12f7504b52410210a1c13baaf59ba67"
+    "mtime": 1778443256.9013302,
+    "hash": "1380c32666f43aad700fed57a5e4865c"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_cycle4_streaming_lock.py": {
-    "mtime": 1778422127.537038,
-    "hash": "cd598ce1b0198b32d9fdbde29f523f86"
+    "mtime": 1778445187.9121149,
+    "hash": "4dd0b07d95890e9f4f249bfa10f5a379"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_factor_models.py": {
-    "mtime": 1777386445.3233047,
-    "hash": "4a1fc94d6517ed62b7b1f093c3a0a1d5"
+    "mtime": 1778445187.895094,
+    "hash": "4aefd7e757aee677b025bb04645a8d3e"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_metrics_endpoints.py": {
-    "mtime": 1777388213.098683,
-    "hash": "5e34ca63dcb813df811141f2018e69c2"
+    "mtime": 1778445187.9172134,
+    "hash": "0461d0d3ccaf42f6cac0cd27a2ecbb19"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_market_snapshot_service.py": {
-    "mtime": 1777386445.3231542,
-    "hash": "9dac2b6deaaa457004d1014026443c93"
+    "mtime": 1778445187.9143126,
+    "hash": "e2a9ba1bc281f5a97aebb96e74ba9c1c"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_backtest_routes.py": {
-    "mtime": 1777386445.3161674,
-    "hash": "0a2957e69ab28f182c4da36c79e965b3"
+    "mtime": 1778445187.9001613,
+    "hash": "fdd87cc5b97bfdd14f83b659df4481fc"
+  },
+  "/Volumes/External SSD/optimizer/api/tests/unit/test_shared_file_migration.py": {
+    "mtime": 1778445187.911377,
+    "hash": "c78fdc4026787823805ff85ba2f746c6"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_macro_regime_routes.py": {
-    "mtime": 1778402580.0889988,
-    "hash": "ef08db12e9f511f23db04e0553d72db9"
+    "mtime": 1778445187.9215999,
+    "hash": "ae99274bed069065607111ec34aee7a5"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_broker_sync_service.py": {
-    "mtime": 1777386172.62275,
-    "hash": "66579a541d00dcd1c4a0150a304436f3"
+    "mtime": 1778445187.9060373,
+    "hash": "ccef2287fd778d46d7a227eb5d259e4d"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_background_job_service_heartbeat.py": {
-    "mtime": 1778412594.8923526,
-    "hash": "3b2b0332b7effe23f293eb2cf291e4fe"
+    "mtime": 1778445187.898471,
+    "hash": "f345e90fd6b68c56b60ddc3a3e92b1cb"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_fred_catalog.py": {
-    "mtime": 1778402529.1665957,
-    "hash": "a6d263a2cabfa034005c22485171708e"
+    "mtime": 1778440420.9133387,
+    "hash": "0f0af8611cf971020fdab46425492db3"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_schemas.py": {
-    "mtime": 1778404164.6955404,
-    "hash": "9352b4d18cd197b8d3f18c68188d9c3e"
+    "mtime": 1778438331.9601638,
+    "hash": "7cd018be97d44656894a141dc2434283"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_base_schema.py": {
-    "mtime": 1777386172.6068926,
-    "hash": "f35f0668e4242168f1afbc14d4734e03"
+    "mtime": 1778438331.9605367,
+    "hash": "570780d5d4a515aa814c15d772bac449"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_synthetic.py": {
-    "mtime": 1777386445.3241615,
-    "hash": "82e3850a015ac8b5bbecd73e9db9591f"
+    "mtime": 1778445187.9163322,
+    "hash": "3e727a6d430fc82ee44c51e8e61922dd"
+  },
+  "/Volumes/External SSD/optimizer/api/tests/unit/test_domain_scaffolding.py": {
+    "mtime": 1778445187.9032824,
+    "hash": "813fe829fac64880d0f2d182eef051b6"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_cycle3_price_quality.py": {
-    "mtime": 1778420700.3496528,
-    "hash": "5cd9d7b24696f3c5258da06520db8429"
+    "mtime": 1778445187.9111602,
+    "hash": "e9bd1a1e432a2b4191ec5184fe216114"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_dashboard_routes.py": {
-    "mtime": 1777030632.6275811,
-    "hash": "98362fa0f6ec9950436a66051ac74d09"
+    "mtime": 1778445187.9079404,
+    "hash": "f68c1ed9973fae8d382815d68da0b55b"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_risk_analytics_routes.py": {
-    "mtime": 1776500485.750216,
-    "hash": "ae628f3b5de2e4caa2c10233560ba4e2"
+    "mtime": 1778445187.9148045,
+    "hash": "974dca039baf4dac58a0dd6d2a3d3730"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_asset_class_returns_service.py": {
-    "mtime": 1777386445.3152432,
-    "hash": "119d2317bba4cfcfefed56f9ca99d41a"
+    "mtime": 1778445187.9240892,
+    "hash": "01e4aec08604e9d9b0c6d9cc834979be"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_data_assembly_delisting.py": {
-    "mtime": 1778415492.5736067,
-    "hash": "3a079fee3ed0b7c3d248651d1f73be89"
+    "mtime": 1778445187.9103851,
+    "hash": "87bed115341b84264248417a0eec68db"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_view_generation.py": {
-    "mtime": 1777386445.3217454,
-    "hash": "bf11eec328b3670cec516e6b24321583"
+    "mtime": 1778445187.9092977,
+    "hash": "7960eb20cfbe4d59278c944df59e5d8f"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_factor_utility_routes.py": {
-    "mtime": 1777386172.6376472,
-    "hash": "b96aef15490d760826226a6b08b087ff"
+    "mtime": 1778445187.9010253,
+    "hash": "d1e589c223d77eab64b1074b40ac0d6d"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_stress_scenarios.py": {
-    "mtime": 1777386445.3214748,
-    "hash": "58c499b4ece5d3969d17b82f51c74ee5"
+    "mtime": 1778441237.4761593,
+    "hash": "e40a9fad1c0bfb3fa4a0288bd98843e3"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_trading212_client.py": {
-    "mtime": 1777386445.3190782,
-    "hash": "03ec69f665540545d8ea5a21450c60c6"
+    "mtime": 1778445187.9194963,
+    "hash": "a1f845da8dff3a31c0c61da45225bb80"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_jobs_stream.py": {
-    "mtime": 1776256398.1920424,
-    "hash": "bb4c1573f88e760f31b352e599509d4e"
+    "mtime": 1778445187.912112,
+    "hash": "754d9d9e4b3d2bba8b117ae4e778d572"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_factor_validation.py": {
-    "mtime": 1776247634.8947518,
-    "hash": "90c012862cdae4a3d82d957d247db92f"
+    "mtime": 1778445187.9031515,
+    "hash": "5b32a41a72b66f8a103d38d08556714c"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_background_job_liveness_columns.py": {
-    "mtime": 1778411358.562839,
-    "hash": "8e7abb9aad07585dd0f2ff7b1ed1b317"
+    "mtime": 1778445187.8940873,
+    "hash": "80c427d615cdc4cf1fb7a3aab1f55797"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_metadata_valuation.py": {
-    "mtime": 1778418922.1244671,
-    "hash": "e45e04312cc0f2c81566806397c04cd5"
+    "mtime": 1778445145.1307573,
+    "hash": "30d262b6e33b3975137360edd4038494"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_risk_repository.py": {
-    "mtime": 1777386445.3228643,
-    "hash": "ba157b367ff4da16033732504a25da46"
+    "mtime": 1778445187.9209733,
+    "hash": "622158847ebadeffb5205fbd54caec2a"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_optimize_routes.py": {
-    "mtime": 1777385471.8194337,
-    "hash": "33aa91642c32b1f9b9a3f43b4f80ab83"
+    "mtime": 1778445187.8966386,
+    "hash": "5383a90125c9570de9082280b438016d"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_cycle5_sector_growth.py": {
-    "mtime": 1778424014.2704427,
-    "hash": "9264fe87c58e57988e33ecb7e05d077b"
+    "mtime": 1778445187.9103374,
+    "hash": "7f3c5588b8a81a5e90dc656107b1c3a5"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_reports_routes.py": {
-    "mtime": 1777386797.7640233,
-    "hash": "cc9272d44561a26a2c38567611828d00"
+    "mtime": 1778445187.9127202,
+    "hash": "c6bd050d5b82c2b3c4c6e1051d80d558"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_drift_service.py": {
-    "mtime": 1777386445.3204029,
-    "hash": "b3f29ef594ed3dfbae0b322c6db6827a"
+    "mtime": 1778445187.904538,
+    "hash": "8e75be29bf514fe2f0683e5e7e32f058"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_asset_class_returns_routes.py": {
-    "mtime": 1777386172.625098,
-    "hash": "49e2f3e94059f964611d75047c65b2f4"
+    "mtime": 1778443256.9176383,
+    "hash": "88aad328a0832199a56c4865d18dd7c2"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_drift_routes.py": {
-    "mtime": 1777386172.6433136,
-    "hash": "540143d6b8ab45f32f0168b97016479b"
+    "mtime": 1778443256.917936,
+    "hash": "c17bc95188e44edbc978383fe3b4b987"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_opinion_pooling.py": {
-    "mtime": 1777386445.3187945,
-    "hash": "41686ef1da80a01f12be98f0e249d035"
+    "mtime": 1778443351.8444417,
+    "hash": "05fc7788dec85921c006f14821610e9a"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_sector_resolver.py": {
-    "mtime": 1777386445.315739,
-    "hash": "7b1c107ee1edc730a4fc0a0c183f051c"
+    "mtime": 1778445187.9248621,
+    "hash": "c333e89d5a08fed83042359470b3e230"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_dashboard_service.py": {
-    "mtime": 1777386445.3163426,
-    "hash": "0f8bfd0e5c52e0ffd477bda954ab2862"
+    "mtime": 1778441237.4829376,
+    "hash": "05c1cff1757a9a77bb32005be559e79f"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_tradingeconomics_scraper.py": {
-    "mtime": 1777386445.3217487,
-    "hash": "92ccb85489e55b406e2962005417b6e0"
+    "mtime": 1778445187.9123821,
+    "hash": "02ba2fd2443b50ee932ba35eba6126cc"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_factor_compute_service.py": {
-    "mtime": 1777386445.3238962,
-    "hash": "30856566a753e8965c5e444bc5d65c74"
+    "mtime": 1778445187.9043183,
+    "hash": "7b2d618c851cee60c433d7fb96b3d2ec"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_attribution_service.py": {
-    "mtime": 1777386445.316861,
-    "hash": "fbf5a4f1dde11007041a4381762a3d0d"
+    "mtime": 1778445187.924948,
+    "hash": "14ca8b567bd8c1ec9fae46bd577bb3f1"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_factor_repository.py": {
-    "mtime": 1777386827.7539268,
-    "hash": "c3620336b5ceb76de7852b9de90272dc"
+    "mtime": 1778445187.896097,
+    "hash": "eb0e3b04dfde562c56c4f7a39762a4e9"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_factor_schemas.py": {
-    "mtime": 1777386520.7429335,
-    "hash": "203c0fa4edbe91e7297dbe0a61abec57"
+    "mtime": 1778445187.8977435,
+    "hash": "d376bf664baf30902443bda90b5f5750"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_equity_curve_routes.py": {
-    "mtime": 1777030632.6277444,
-    "hash": "1dfd0d25696727a44857cbe98846a2e4"
+    "mtime": 1778445187.8991985,
+    "hash": "7486ec2a3d986e85a1cc5458af774118"
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_risk_rebalancing_models.py": {
-    "mtime": 1777386445.3230557,
-    "hash": "8850cdb8c674c6f540622539f8422027"
+    "mtime": 1778445187.9189398,
+    "hash": "c374a3ded50751a5b0a030ae244d0d97"
+  },
+  "/Volumes/External SSD/optimizer/api/tests/integration/test_services_domain_imports.py": {
+    "mtime": 1778446054.5473592,
+    "hash": "8598ce0b4d7bf12de073202ac662ab3f"
   },
   "/Volumes/External SSD/optimizer/api/tests/integration/test_notifications_webhook.py": {
-    "mtime": 1777386445.3157575,
-    "hash": "1fe1112e9190b1cdc3233905aa56f944"
+    "mtime": 1778443351.8531249,
+    "hash": "49b99d93fe24debc38032d6b3bdde1e5"
   },
   "/Volumes/External SSD/optimizer/api/tests/integration/__init__.py": {
     "mtime": 1774342760.8355072,
     "hash": "0fca52f7a5d0a975521db54c41f6fbb1"
   },
   "/Volumes/External SSD/optimizer/api/tests/integration/test_rebalance_preview_route.py": {
-    "mtime": 1777386445.3187878,
-    "hash": "dd5cc23a0e5486fea7d1ea1bc56a4337"
+    "mtime": 1778438331.979117,
+    "hash": "8b6e31793b4234570fa19f8e26b8d8bf"
   },
   "/Volumes/External SSD/optimizer/api/tests/integration/test_api_key_auth_production.py": {
-    "mtime": 1777386445.3158274,
-    "hash": "366595d801d0c9b5a0467f75234d83c1"
+    "mtime": 1778445187.9224539,
+    "hash": "4e6a08a9851b9e05d30f902d59463b99"
   },
   "/Volumes/External SSD/optimizer/api/tests/integration/test_risk_analytics_routes.py": {
-    "mtime": 1777386445.3203106,
-    "hash": "54d8ac77e7bf7d96e086283ab9ff90fe"
+    "mtime": 1778445187.9218853,
+    "hash": "d14ee1dc71dcac3d083c2a347584bc6e"
+  },
+  "/Volumes/External SSD/optimizer/api/tests/integration/test_routes_flat_to_domain.py": {
+    "mtime": 1778443351.8596303,
+    "hash": "2e1c47c2781f582de18ee7f42231953d"
   },
   "/Volumes/External SSD/optimizer/api/tests/integration/test_optimize_endpoint.py": {
-    "mtime": 1777386445.3187408,
-    "hash": "f72aa813f9edf6b0dd85e3ec74346ef5"
+    "mtime": 1778443256.927156,
+    "hash": "0dac80826a33a9a52adf9fda2c8569f8"
   },
   "/Volumes/External SSD/optimizer/api/tests/integration/test_universe_screen_route.py": {
-    "mtime": 1777386445.3193123,
-    "hash": "eb47a3eaa2f9149394f27a41490a6d6a"
+    "mtime": 1778445187.9246175,
+    "hash": "32d0372be284cf7bc301f9c53ab599c1"
   },
   "/Volumes/External SSD/optimizer/api/tests/integration/test_attribution_brinson.py": {
-    "mtime": 1777386526.6313653,
-    "hash": "02f49a0a7b52c99c12ddc34e9fbc1ad5"
+    "mtime": 1778445145.12737,
+    "hash": "5af1b6618a510ae2614a717f3ca50d09"
+  },
+  "/Volumes/External SSD/optimizer/api/tests/integration/test_services_flat_to_domain.py": {
+    "mtime": 1778445187.9231386,
+    "hash": "854df4d3b0b7e0d42a1c0cfaca898037"
   },
   "/Volumes/External SSD/optimizer/api/tests/integration/test_backtest_route.py": {
-    "mtime": 1777386445.3145273,
-    "hash": "1023d7010ef81ddb6f74778414fabf2f"
+    "mtime": 1778443256.9285147,
+    "hash": "41d01267572c2d58acbecec805c59b86"
   },
   "/Volumes/External SSD/optimizer/api/tests/integration/test_notifications_webhook_wrappers.py": {
-    "mtime": 1777386445.3166413,
-    "hash": "c0cb14f071c8ea236afb2e25811769f5"
+    "mtime": 1778445187.923052,
+    "hash": "6e502ae3411b2d83bc18e2652f67dcad"
   },
   "/Volumes/External SSD/optimizer/api/tests/repositories/test_macro_regime_repository.py": {
-    "mtime": 1778349866.9473324,
-    "hash": "8d0f604f1d6fb03360a825498528c322"
+    "mtime": 1778439387.3874445,
+    "hash": "30a71b210392625602c9546dc46d786b"
   },
   "/Volumes/External SSD/optimizer/api/tests/repositories/__init__.py": {
     "mtime": 1778349856.6614153,
@@ -3840,8 +4148,8 @@
     "hash": "ec99ea01e6aea13fe7f45e9474cb1d64"
   },
   "/Volumes/External SSD/optimizer/api/scripts/validate_macro_queries.py": {
-    "mtime": 1777391455.2488866,
-    "hash": "70e5b390ab3e02f67a4dceb7a4e4e28b"
+    "mtime": 1778445187.9215987,
+    "hash": "7d27b02671e9c37827527b88e05d3474"
   },
   "/Volumes/External SSD/optimizer/api/scripts/__init__.py": {
     "mtime": 1774342760.8351653,
@@ -3920,20 +4228,20 @@
     "hash": "8d4254425c96acd72f13d17f44fbbe05"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/b0b30daa80c5_normalize_and_optimize_models.py": {
-    "mtime": 1778405378.0874543,
-    "hash": "5e19d5f0667b66340a3271aae2628da1"
+    "mtime": 1778445187.8958862,
+    "hash": "ecccb58ac830b789acfc4af6ccec5833"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/b1c2d3e4f5g6_add_regime_classification_to_macro_calibrations.py": {
     "mtime": 1778349908.6338873,
     "hash": "2c8abb16c69cc7c0eaca052c05199afa"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/s9t0u1v2w3x4_add_portfolio_tables.py": {
-    "mtime": 1774342760.8215754,
-    "hash": "53669325688881ced2cc3beabec0229f"
+    "mtime": 1778445187.8988554,
+    "hash": "0e79c63f1e827556b50d66f6c01aeb6e"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/y5z6a7b8c9d0_add_factor_scores_execution_runs_risk_limits_rebalancing_policies_tables.py": {
-    "mtime": 1776236361.8547719,
-    "hash": "502604e962640a6d92d44cda2da11413"
+    "mtime": 1778445187.904318,
+    "hash": "44e449022f9862acc2c8b1d7f25433d6"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/ff232ce0534f_initial_schema_users_exchanges_.py": {
     "mtime": 1777391455.2509828,
@@ -3948,12 +4256,12 @@
     "hash": "5397eaa2bfbbd7995334622ee10e3268"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/p6q7r8s9t0u1_add_macro_calibrations_table.py": {
-    "mtime": 1774342760.8213549,
-    "hash": "95e07e25081171f5092d0052e9d71e93"
+    "mtime": 1778445187.8952217,
+    "hash": "03910354f195c493a16bb5234432a775"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/a7b8c9d0e1f2_seed_reference_indices_expanded.py": {
-    "mtime": 1778405374.847545,
-    "hash": "ccefe4a83ded088d81ab3de11770c31a"
+    "mtime": 1778445187.8936212,
+    "hash": "46df0ff2ec2b3fe6e6606996342b45f9"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/u1v2w3x4y5z6_add_currency_code_to_financial_statements.py": {
     "mtime": 1777391455.2513309,
@@ -3968,16 +4276,16 @@
     "hash": "649f38893bf49935b58259ef457d8037"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/t0u1v2w3x4y5_normalize_json_columns.py": {
-    "mtime": 1777391455.2526793,
-    "hash": "0e9db6fa35cc50275a904fa2d9187bac"
+    "mtime": 1778445187.9014149,
+    "hash": "9a15dd5c55d154ebe90dc14524d5ee5f"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/c3d4e5f6a7b8_align_exchanges_with_orm.py": {
-    "mtime": 1777391455.2510197,
-    "hash": "63e2fff2870277be479c92864b52890c"
+    "mtime": 1778445187.8969274,
+    "hash": "f2b696ff5533456be6f5a6e91859b652"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/f6a7b8c9d0e1_drop_ilsole_real_columns.py": {
-    "mtime": 1774342760.8205783,
-    "hash": "daf780f1bb2b8a29269323881de755cc"
+    "mtime": 1778445187.8951693,
+    "hash": "7e0927f12339c23170a0f809e295fe4e"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/1c95f3fd3da4_remove_jsonb_columns_raw_json_and_.py": {
     "mtime": 1777391455.2476244,
@@ -3996,16 +4304,16 @@
     "hash": "6649f80d51ba8b1e45ec548256476add"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/i9d0e1f2g3h4_add_econ_indicator_observations.py": {
-    "mtime": 1777391455.2474823,
-    "hash": "ddc943e1e44dc37cb6a36ac1156b9cd5"
+    "mtime": 1778445187.8969727,
+    "hash": "c74079f5ca6eea6f0b0421f6b3b90f2c"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/q7r8s9t0u1v2_add_macro_news_summaries_table.py": {
-    "mtime": 1774342760.8214223,
-    "hash": "0402bf4178c33350048daf59bf72c1b4"
+    "mtime": 1778445187.8961024,
+    "hash": "5731d4356b291b5a632271fabc16b1bc"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/2a3be07fc983_drop_regime_tables.py": {
-    "mtime": 1777391455.2494357,
-    "hash": "c00591ebef4eea5160daca4461c13a94"
+    "mtime": 1778445187.8932233,
+    "hash": "52591fbe4d6ae69323270c43c0a906b3"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/bdd615f586f8_remove_users_table.py": {
     "mtime": 1777391455.2503955,
@@ -4028,12 +4336,12 @@
     "hash": "aabc054af1587afb65aff2a72e2b9a1b"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/r8s9t0u1v2w3_add_background_jobs_table.py": {
-    "mtime": 1774342760.821494,
-    "hash": "25a9a1958f39a36dcd9391c156f56ba3"
+    "mtime": 1778445187.8969164,
+    "hash": "c9542b6bfadcdba0ea067e25dd1794b7"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/e5f6a7b8c9d0_add_fred_observations_table.py": {
-    "mtime": 1777391455.2508562,
-    "hash": "8db3b10e153a6ff20736066f6f7770d8"
+    "mtime": 1778445187.8935263,
+    "hash": "377a1cb76bac89126cc6c0b36f9fa7a8"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/o5j6k7l8m9n0_add_composite_indexes_on_observation_tables.py": {
     "mtime": 1774342760.821284,
@@ -4044,8 +4352,8 @@
     "hash": "2f9aed1c2951de84c006b1c610022adc"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/h8c9d0e1f2g3_add_macro_observation_tables.py": {
-    "mtime": 1777391455.246825,
-    "hash": "5d74cf3d986f9924603f0e024bb87b2f"
+    "mtime": 1778445187.8963916,
+    "hash": "87ecd31add52cb94bcecdd7d9e843db2"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/z6a7b8c9d0e1_add_api_keys_table.py": {
     "mtime": 1776243515.4093096,
@@ -4056,8 +4364,8 @@
     "hash": "6aa2e622999a7b45f4205d6d2ebdc588"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/n4i5j6k7l8m9_add_ticker_news_ticker_name.py": {
-    "mtime": 1777391455.2513602,
-    "hash": "24ba79e40dca4855cbbbc880e654fda2"
+    "mtime": 1778445187.8932378,
+    "hash": "7ec873fa1cb306ff1b6ba7be42e39888"
   },
   "/Volumes/External SSD/optimizer/api/alembic/versions/j0e1f2g3h4i5_add_macro_news_table.py": {
     "mtime": 1777391455.24819,
@@ -4116,7 +4424,7 @@
     "hash": "b6bc593ff4cace0d1b2066bdfee38a6d"
   },
   "/Volumes/External SSD/optimizer/research/output/last_review_date.txt": {
-    "mtime": 1778421004.6800706,
+    "mtime": 1778445975.4498503,
     "hash": "acd8a960623d7eeddb30270358c8e8f5"
   },
   "/Volumes/External SSD/optimizer/frontend/README.md": {

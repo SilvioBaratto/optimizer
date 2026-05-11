@@ -15,7 +15,7 @@ from datetime import date
 
 import pytest
 from app.models._shared.base import Base
-from app.models.portfolio import (
+from app.models.portfolio.portfolio import (
     Portfolio,
     PortfolioSnapshot,
     SnapshotOptimizerParam,

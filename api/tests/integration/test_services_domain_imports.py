@@ -71,7 +71,9 @@ class TestYFinanceDomainImport:
 
     def test_old_yfinance_import_path_does_not_resolve(self) -> None:
         with pytest.raises(ModuleNotFoundError):
-            pass
+            from app.services.yfinance_data_service import (  # noqa: F401
+                YFinanceDataService,
+            )
 
 
 class TestTrading212DomainImport:
@@ -112,7 +114,9 @@ class TestTrading212DomainImport:
 
     def test_old_trading212_import_path_does_not_resolve(self) -> None:
         with pytest.raises(ModuleNotFoundError):
-            pass
+            from app.services.trading212_client import (  # noqa: F401
+                Trading212Client,
+            )
 
 
 class TestScrapersDomainImport:
@@ -135,7 +139,7 @@ class TestScrapersDomainImport:
 
     def test_old_scrapers_import_path_does_not_resolve(self) -> None:
         with pytest.raises(ModuleNotFoundError):
-            pass
+            from app.services.scrapers import FredScraper  # noqa: F401
 
 
 class TestServicesInitReExports:

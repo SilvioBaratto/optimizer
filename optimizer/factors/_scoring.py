@@ -238,7 +238,8 @@ def compute_ic_weighted_composite(
     for group in FactorGroupType:
         if group.value not in group_scores.columns:
             continue
-        ic_val = recent_ic.get(group.value, 0.0)
+        ic_val_raw = recent_ic.get(group.value, 0.0)
+        ic_val: float = float(ic_val_raw) if ic_val_raw is not None else 0.0
         if np.isnan(ic_val):
             ic_val = 0.0
         if ic_val < 0.0:
