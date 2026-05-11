@@ -256,8 +256,21 @@ Angular 21 single-page dashboard with Tailwind CSS v4 and ECharts for data visua
 
 ### API Layer (`api/app/`)
 
-Layered architecture: **Routes → Services → Repositories → Models**
+Domain-folder architecture: **Routes → Services → Repositories → Models → Schemas**
 
+Each layer is organized into 17 domain sub-folders + `_shared/` for cross-cutting utilities:
+
+| Layer | Path | Domains |
+|-------|------|---------|
+| Routes | `api/app/api/v1/` | `attribution`, `backtest`, `dashboard`, `factors`, `jobs`, `macro`, `market_data`, `optimization`, `portfolio`, `rebalancing`, `reports`, `risk`, `scenarios`, `universe`, `views` |
+| Services | `api/app/services/` | `attribution`, `backtest`, `dashboard`, `factors`, `infrastructure`, `jobs`, `macro`, `market_data`, `optimization`, `portfolio`, `rebalancing`, `reports`, `risk`, `scenarios`, `universe`, `views` |
+| Repositories | `api/app/repositories/` | `dashboard`, `execution`, `factors`, `jobs`, `macro`, `market_data`, `portfolio`, `rebalancing`, `risk`, `universe`, `views` |
+| Models | `api/app/models/` | `auth`, `execution`, `factors`, `jobs`, `macro`, `market_data`, `portfolio`, `rebalancing`, `risk`, `universe` |
+| Schemas | `api/app/schemas/` | `attribution`, `backtest`, `dashboard`, `factors`, `jobs`, `macro`, `market_data`, `optimization`, `portfolio`, `rebalancing`, `reports`, `risk`, `scenarios`, `universe`, `views` |
+
+**Conventions**:
+- `_shared/` subdirectory in each layer holds cross-cutting code (base classes, mixins, common utilities)
+- File naming: snake_case, mirroring the domain (e.g. `services/macro/macro_service.py`)
 - All routes under `/api/v1/`. CLI client (`cli/client.py`) prepends this automatically
 - Synchronous SQLAlchemy sessions (`Session`, not `AsyncSession`)
 - Repository pattern — all DB queries through typed repositories
@@ -279,36 +292,36 @@ APScheduler runs inside the FastAPI process (started in lifespan), with a `SQLAl
 | `fred_monthly` | Cron | `0 8 1 * *` | FRED economic data fetch |
 | `news_refresh` | Interval | Every 30 min | Incremental news re-summarization |
 
-**BackgroundJobService** (`api/app/services/background_job.py`) — instantiated once per job domain (e.g. `macro_fetch`, `fred_fetch`, `yfinance_fetch`) at module level in route files:
+**BackgroundJobService** (`api/app/services/jobs/background_job.py`) — instantiated once per job domain (e.g. `macro_fetch`, `fred_fetch`, `yfinance_fetch`) at module level in route files:
 - `create_job()` — atomically claims a slot; raises `JobAlreadyRunningError` if one is already pending/running
 - `get_job(job_id)` → dict — returns job state for polling endpoints
 - `update_job(job_id, **kwargs)` — updates status, progress, errors
 - `start_background(target, args)` — launches worker in daemon thread
 
-**Route pattern for async work** (used in `macro_regime.py`, `yfinance_data.py`, `macro_calibration.py`, `trading212.py`):
+**Route pattern for async work** (used in `macro/macro_regime.py`, `market_data/yfinance_data.py`, `macro/macro_calibration.py`, `universe/trading212.py`):
 1. Module-level `_job_service = BackgroundJobService(job_type="...", session_factory=database_manager.get_session)`
 2. POST endpoint → `create_job()` → `start_background(wrapper_fn)` → return `202 + job_id`
 3. Wrapper function: set `status="running"` → call service function with `on_progress=make_progress(job_id, svc)` → catch errors → set `status="completed"` or `"failed"`
 4. GET endpoint → `get_job(job_id)` → return progress
 
-**Progress callback**: `make_progress(job_id, job_svc)` in `api/app/services/_progress.py` returns a closure forwarding kwargs to `update_job`. Service functions accept `on_progress=` to report `current=`, `total=`, `current_country=`, etc.
+**Progress callback**: `make_progress(job_id, job_svc)` in `api/app/services/_shared/_progress.py` returns a closure forwarding kwargs to `update_job`. Service functions accept `on_progress=` to report `current=`, `total=`, `current_country=`, etc.
 
 **Persistence**: `background_jobs` table (UUID PK, `job_type` + `status` composite index, JSONB `extra`/`result`/`errors` columns). Model uses `JSON().with_variant(JSONB, "postgresql")` for SQLite test compatibility.
 
 **Observability**:
 - Prometheus metrics (`api/app/metrics.py`): counters `jobs_started_total`, `jobs_completed_total`, `jobs_failed_total`; histogram `job_duration_seconds`; gauge `jobs_in_progress` — all labeled by `domain`. Exposed at `/metrics`
-- Webhook notifications (`api/app/services/notifications.py`): Discord/Slack-compatible POST on job failure when `NOTIFICATION_WEBHOOK_URL` is set
+- Webhook notifications (`api/app/services/_shared/notifications.py`): Discord/Slack-compatible POST on job failure when `NOTIFICATION_WEBHOOK_URL` is set
 - Read-only jobs API: `GET /api/v1/jobs` (domain/status filtering, pagination), `GET /api/v1/jobs/{job_id}`
 
 ### Shared Infrastructure (`api/app/services/infrastructure/`)
 
-Generalized resilience primitives extracted from yfinance, re-exported as shims in `api/app/services/yfinance/infrastructure/`:
+Generalized resilience primitives extracted from yfinance, re-exported as shims in `api/app/services/market_data/yfinance/infrastructure/`:
 - **`CircuitBreaker`** — exponential backoff (2^attempt), max_attempts safety limit, service-name in errors
 - **`RateLimiter`** — thread-safe per-key delay enforcement (default 0.1s)
 - **`retry_with_backoff()`** — retry with full-jitter exponential backoff, transient error detection
 - **`LRUCache`** — in-memory TTL cache
 
-All three scrapers (`fred_scraper.py`, `ilsole_scraper.py`, `tradingeconomics_scraper.py`) instantiate module-level `CircuitBreaker` + `RateLimiter` from the shared package.
+All three scrapers (`services/macro/scrapers/fred_scraper.py`, `services/macro/scrapers/ilsole_scraper.py`, `services/macro/scrapers/tradingeconomics_scraper.py`) instantiate module-level `CircuitBreaker` + `RateLimiter` from the shared package.
 
 ### Shell Scripts (`scheduler/`)
 
@@ -345,7 +358,7 @@ Configuration via `.env` at project root:
 - SAVEPOINT pattern (`session.begin_nested()`) so `session.commit()` in app code is rolled back between tests
 - `client` fixture overrides FastAPI `get_db` dependency to inject the test session
 
-**Gotcha — BackgroundJobService in tests**: The service uses `database_manager.get_session` (bypasses FastAPI DI), so it does NOT use the test SQLite session. Tests that trigger background job creation/polling must mock `create_job`, `get_job`, and `start_background` on the module-level service instance (e.g. `patch("app.api.v1.macro_regime._summarize_job_service.create_job", ...)`).
+**Gotcha — BackgroundJobService in tests**: The service uses `database_manager.get_session` (bypasses FastAPI DI), so it does NOT use the test SQLite session. Tests that trigger background job creation/polling must mock `create_job`, `get_job`, and `start_background` on the module-level service instance (e.g. `patch("app.api.v1.macro.macro_regime._summarize_job_service.create_job", ...)`).
 
 **Gotcha — JSONB columns**: The `BackgroundJob` model uses `JSON().with_variant(JSONB, "postgresql")` so SQLite tests can create the table. Do NOT use raw `JSONB` type in new models that need test coverage.
 

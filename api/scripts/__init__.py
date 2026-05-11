@@ -26,50 +26,30 @@ Seed Database:
 Run Health Check:
     python -m scripts.healthcheck
 
-Example Script: create_superuser.py
+Example Script: sync_portfolio.py
 -----------------------------------
 ```python
 #!/usr/bin/env python3
-\"\"\"Create a superuser via command line.\"\"\"
+\"\"\"Sync portfolio from broker via command line.\"\"\"
 
-import asyncio
 import argparse
-import getpass
-
-from app.database import database_manager
-from app.services.user_service import UserService
-from app.schemas.user import UserCreate
-
-
-async def create_superuser(email: str, password: str):
-    \"\"\"Create a new superuser.\"\"\"
-    async with database_manager.get_session() as session:
-        service = UserService(session)
-
-        user_data = UserCreate(
-            email=email,
-            password=password,
-            is_superuser=True,
-            is_active=True
-        )
-
-        user = await service.create(user_data)
-        print(f"Superuser created: {user.email}")
+from app.services.infrastructure.database_manager import DatabaseManager
+from app.services.portfolio.broker_sync_service import sync_portfolio
+from app.repositories.portfolio.portfolio_repository import PortfolioRepository
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Create superuser")
-    parser.add_argument("--email", required=True, help="User email")
+    parser = argparse.ArgumentParser(description="Sync portfolio from broker")
+    parser.add_argument("--portfolio-id", required=True, help="Portfolio UUID")
     args = parser.parse_args()
 
-    password = getpass.getpass("Password: ")
-    confirm = getpass.getpass("Confirm password: ")
-
-    if password != confirm:
-        print("Passwords do not match!")
-        return
-
-    asyncio.run(create_superuser(args.email, password))
+    db = DatabaseManager()
+    with db.get_session() as session:
+        result = sync_portfolio(session, uuid=args.portfolio_id)
+        if result.success:
+            print(f"Portfolio synced: {result.holdings_count} holdings")
+        else:
+            print(f"Sync failed: {result.error}")
 
 
 if __name__ == "__main__":
@@ -82,19 +62,19 @@ Example Script: seed_database.py
 #!/usr/bin/env python3
 \"\"\"Seed database with initial data.\"\"\"
 
-import asyncio
-from app.database import database_manager
-from app.models.user import User
+from app.services.infrastructure.database_manager import DatabaseManager
+from app.models.portfolio.portfolio import Portfolio
 
 
-async def seed():
+def seed():
     \"\"\"Populate database with seed data.\"\"\"
-    async with database_manager.get_session() as session:
+    db = DatabaseManager()
+    with db.get_session() as session:
         # Add seed data here
         print("Database seeded successfully!")
 
 
 if __name__ == "__main__":
-    asyncio.run(seed())
+    seed()
 ```
 """

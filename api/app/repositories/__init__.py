@@ -122,35 +122,35 @@ Entity-Specific Repository
 Extend base repository for entity-specific operations:
 
 ```python
-# repositories/user_repository.py
+# repositories/portfolio/portfolio_repository.py
 from typing import Optional, Sequence
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.user import User
-from app.schemas.user import UserCreate, UserUpdate
+from app.models.portfolio.portfolio import Portfolio
+from app.schemas.portfolio.portfolio import PortfolioCreate, PortfolioUpdate
 from app.repositories._shared import BaseRepository
 
 
-class UserRepository(BaseRepository[User, UserCreate, UserUpdate]):
-    \"\"\"Repository for User-specific database operations.\"\"\"
+class PortfolioRepository(BaseRepository[Portfolio, PortfolioCreate, PortfolioUpdate]):
+    \"\"\"Repository for Portfolio-specific database operations.\"\"\"
 
     def __init__(self, session: AsyncSession):
-        super().__init__(User, session)
+        super().__init__(Portfolio, session)
 
-    async def get_by_email(self, email: str) -> Optional[User]:
-        \"\"\"Get user by email address.\"\"\"
-        stmt = select(User).where(User.email == email)
+    async def get_by_name(self, name: str) -> Optional[Portfolio]:
+        \"\"\"Get portfolio by name.\"\"\"
+        stmt = select(Portfolio).where(Portfolio.name == name)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_with_items(self, user_id: str) -> Optional[User]:
-        \"\"\"Get user with eagerly loaded items.\"\"\"
+    async def get_with_holdings(self, portfolio_id: str) -> Optional[Portfolio]:
+        \"\"\"Get portfolio with eagerly loaded holdings.\"\"\"
         stmt = (
-            select(User)
-            .where(User.id == user_id)
-            .options(selectinload(User.items))
+            select(Portfolio)
+            .where(Portfolio.id == portfolio_id)
+            .options(selectinload(Portfolio.holdings))
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -160,15 +160,15 @@ class UserRepository(BaseRepository[User, UserCreate, UserUpdate]):
         query: str,
         skip: int = 0,
         limit: int = 100
-    ) -> Sequence[User]:
-        \"\"\"Search users by email or name.\"\"\"
+    ) -> Sequence[Portfolio]:
+        \"\"\"Search portfolios by name or description.\"\"\"
         search_pattern = f"%{query}%"
         stmt = (
-            select(User)
+            select(Portfolio)
             .where(
                 or_(
-                    User.email.ilike(search_pattern),
-                    User.full_name.ilike(search_pattern)
+                    Portfolio.name.ilike(search_pattern),
+                    Portfolio.description.ilike(search_pattern)
                 )
             )
             .offset(skip)
@@ -177,9 +177,9 @@ class UserRepository(BaseRepository[User, UserCreate, UserUpdate]):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def get_active_users(self) -> Sequence[User]:
-        \"\"\"Get all active users.\"\"\"
-        stmt = select(User).where(User.is_active == True)
+    async def get_active_portfolios(self) -> Sequence[Portfolio]:
+        \"\"\"Get all active portfolios.\"\"\"
+        stmt = select(Portfolio).where(Portfolio.is_active == True)
         result = await self.session.execute(stmt)
         return result.scalars().all()
 ```
@@ -187,13 +187,13 @@ class UserRepository(BaseRepository[User, UserCreate, UserUpdate]):
 Using Repositories in Services
 ------------------------------
 ```python
-# services/user_service.py
-class UserService:
+# services/portfolio/portfolio_service.py
+class PortfolioService:
     def __init__(self, session: AsyncSession):
-        self.repository = UserRepository(session)
+        self.repository = PortfolioRepository(session)
 
-    async def get_user(self, user_id: str) -> Optional[User]:
-        return await self.repository.get(user_id)
+    async def get_portfolio(self, portfolio_id: str) -> Optional[Portfolio]:
+        return await self.repository.get(portfolio_id)
 ```
 
 Best Practices

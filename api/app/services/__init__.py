@@ -24,168 +24,163 @@ Service Layer Responsibilities
 Service Pattern
 ---------------
 ```python
-# services/user_service.py
+# services/portfolio/portfolio_service.py
 from typing import Optional, Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
-from app.schemas.user import UserCreate, UserUpdate, UserResponse
-from app.repositories.user_repository import UserRepository
-from app.core.security import get_password_hash, verify_password
+from app.models.portfolio.portfolio import Portfolio
+from app.schemas.portfolio.portfolio import PortfolioCreate, PortfolioUpdate, PortfolioResponse
+from app.repositories.portfolio.portfolio_repository import PortfolioRepository
 from app.core.exceptions import NotFoundError, ConflictError
 
 
-class UserService:
+class PortfolioService:
     \"\"\"
-    Service for user-related business logic.
+    Service for portfolio-related business logic.
 
     Handles:
-    - User CRUD with business rules
-    - Password hashing
-    - Email uniqueness validation
-    - User authentication
+    - Portfolio CRUD with business rules
+    - Name uniqueness validation
+    - Benchmark assignment
+    - Rebalancing triggers
     \"\"\"
 
     def __init__(self, session: AsyncSession):
         self.session = session
-        self.repository = UserRepository(session)
+        self.repository = PortfolioRepository(session)
 
-    async def get(self, user_id: str) -> Optional[User]:
-        \"\"\"Get user by ID.\"\"\"
-        return await self.repository.get(user_id)
+    async def get(self, portfolio_id: str) -> Optional[Portfolio]:
+        \"\"\"Get portfolio by ID.\"\"\"
+        return await self.repository.get(portfolio_id)
 
-    async def get_by_email(self, email: str) -> Optional[User]:
-        \"\"\"Get user by email.\"\"\"
-        return await self.repository.get_by_email(email)
+    async def get_by_name(self, name: str) -> Optional[Portfolio]:
+        \"\"\"Get portfolio by name.\"\"\"
+        return await self.repository.get_by_name(name)
 
     async def get_multi(
         self,
         skip: int = 0,
         limit: int = 100
-    ) -> Sequence[User]:
-        \"\"\"Get paginated list of users.\"\"\"
+    ) -> Sequence[Portfolio]:
+        \"\"\"Get paginated list of portfolios.\"\"\"
         return await self.repository.get_multi(skip=skip, limit=limit)
 
-    async def create(self, user_in: UserCreate) -> User:
+    async def create(self, portfolio_in: PortfolioCreate) -> Portfolio:
         \"\"\"
-        Create a new user.
+        Create a new portfolio.
 
         Raises:
-            ConflictError: If email already exists
+            ConflictError: If portfolio name already exists
         \"\"\"
-        # Check email uniqueness
-        existing = await self.repository.get_by_email(user_in.email)
+        # Check name uniqueness
+        existing = await self.repository.get_by_name(portfolio_in.name)
         if existing:
-            raise ConflictError(f"Email {user_in.email} already registered")
+            raise ConflictError(f"Portfolio '{portfolio_in.name}' already exists")
 
-        # Hash password before storing
-        user_data = user_in.model_dump()
-        user_data["hashed_password"] = get_password_hash(user_data.pop("password"))
-
-        # Create user
-        user = User(**user_data)
-        self.session.add(user)
+        # Create portfolio
+        portfolio_data = portfolio_in.model_dump()
+        portfolio = Portfolio(**portfolio_data)
+        self.session.add(portfolio)
         await self.session.commit()
-        await self.session.refresh(user)
+        await self.session.refresh(portfolio)
 
-        return user
+        return portfolio
 
     async def update(
         self,
-        user_id: str,
-        user_in: UserUpdate
-    ) -> User:
+        portfolio_id: str,
+        portfolio_in: PortfolioUpdate
+    ) -> Portfolio:
         \"\"\"
-        Update an existing user.
+        Update an existing portfolio.
 
         Raises:
-            NotFoundError: If user not found
-            ConflictError: If new email already exists
+            NotFoundError: If portfolio not found
+            ConflictError: If new name already exists
         \"\"\"
-        user = await self.repository.get(user_id)
-        if not user:
-            raise NotFoundError(f"User {user_id} not found")
+        portfolio = await self.repository.get(portfolio_id)
+        if not portfolio:
+            raise NotFoundError(f"Portfolio {portfolio_id} not found")
 
-        update_data = user_in.model_dump(exclude_unset=True)
+        update_data = portfolio_in.model_dump(exclude_unset=True)
 
-        # Check email uniqueness if changing
-        if "email" in update_data and update_data["email"] != user.email:
-            existing = await self.repository.get_by_email(update_data["email"])
+        # Check name uniqueness if changing
+        if "name" in update_data and update_data["name"] != portfolio.name:
+            existing = await self.repository.get_by_name(update_data["name"])
             if existing:
-                raise ConflictError(f"Email {update_data['email']} already registered")
-
-        # Hash new password if provided
-        if "password" in update_data:
-            update_data["hashed_password"] = get_password_hash(
-                update_data.pop("password")
-            )
+                raise ConflictError(f"Portfolio '{update_data['name']}' already exists")
 
         # Update fields
         for field, value in update_data.items():
-            setattr(user, field, value)
+            setattr(portfolio, field, value)
 
         await self.session.commit()
-        await self.session.refresh(user)
+        await self.session.refresh(portfolio)
 
-        return user
+        return portfolio
 
-    async def delete(self, user_id: str) -> bool:
+    async def delete(self, portfolio_id: str) -> bool:
         \"\"\"
-        Delete a user.
+        Delete a portfolio.
 
         Raises:
-            NotFoundError: If user not found
+            NotFoundError: If portfolio not found
         \"\"\"
-        user = await self.repository.get(user_id)
-        if not user:
-            raise NotFoundError(f"User {user_id} not found")
+        portfolio = await self.repository.get(portfolio_id)
+        if not portfolio:
+            raise NotFoundError(f"Portfolio {portfolio_id} not found")
 
-        await self.session.delete(user)
+        await self.session.delete(portfolio)
         await self.session.commit()
         return True
 
-    async def authenticate(
+    async def assign_benchmark(
         self,
-        email: str,
-        password: str
-    ) -> Optional[User]:
+        portfolio_id: str,
+        benchmark_ticker: str
+    ) -> Portfolio:
         \"\"\"
-        Authenticate user by email and password.
+        Assign a benchmark to a portfolio.
 
         Returns:
-            User if authentication successful, None otherwise
+            Portfolio with updated benchmark
+
+        Raises:
+            NotFoundError: If portfolio not found
         \"\"\"
-        user = await self.repository.get_by_email(email)
-        if not user:
-            return None
-        if not verify_password(password, user.hashed_password):
-            return None
-        return user
+        portfolio = await self.repository.get(portfolio_id)
+        if not portfolio:
+            raise NotFoundError(f"Portfolio {portfolio_id} not found")
+
+        portfolio.benchmark_ticker = benchmark_ticker
+        await self.session.commit()
+        await self.session.refresh(portfolio)
+        return portfolio
 ```
 
 Using Services in Routes
 ------------------------
 ```python
-# api/v1/users.py
+# api/v1/portfolio/portfolio.py
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.services.user_service import UserService
-from app.schemas.user import UserCreate, UserResponse
+from app.services.portfolio.portfolio_service import PortfolioService
+from app.schemas.portfolio.portfolio import PortfolioCreate, PortfolioResponse
 from app.core.exceptions import NotFoundError, ConflictError
 
-router = APIRouter(prefix="/users", tags=["Users"])
+router = APIRouter(prefix="/portfolios", tags=["Portfolios"])
 
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(
-    user_in: UserCreate,
+@router.post("/", response_model=PortfolioResponse, status_code=status.HTTP_201_CREATED)
+async def create_portfolio(
+    portfolio_in: PortfolioCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    service = UserService(db)
+    service = PortfolioService(db)
     try:
-        return await service.create(user_in)
+        return await service.create(portfolio_in)
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 ```

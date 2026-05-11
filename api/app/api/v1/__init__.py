@@ -16,93 +16,93 @@ Creating a New Route Module
 Each domain module should follow this pattern:
 
 ```python
-# api/v1/users.py
-\"\"\"User management endpoints\"\"\"
+# api/v1/portfolio/portfolio.py
+\"\"\"Portfolio management endpoints\"\"\"
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.schemas.user import UserCreate, UserResponse, UserUpdate
-from app.services.user_service import UserService
+from app.schemas.portfolio.portfolio import PortfolioCreate, PortfolioResponse, PortfolioUpdate
+from app.services.portfolio.portfolio_service import PortfolioService
 from app.dependencies import get_current_user
 
-router = APIRouter(prefix="/users", tags=["Users"])
+router = APIRouter(prefix="/portfolios", tags=["Portfolios"])
 
 
-@router.get("/", response_model=list[UserResponse])
-async def list_users(
+@router.get("/", response_model=list[PortfolioResponse])
+async def list_portfolios(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
 ):
     \"\"\"
-    List all users with pagination.
+    List all portfolios with pagination.
 
     - **skip**: Number of records to skip (default: 0)
     - **limit**: Maximum number of records to return (default: 100)
     \"\"\"
-    service = UserService(db)
+    service = PortfolioService(db)
     return await service.get_multi(skip=skip, limit=limit)
 
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(
-    user_in: UserCreate,
+@router.post("/", response_model=PortfolioResponse, status_code=status.HTTP_201_CREATED)
+async def create_portfolio(
+    portfolio_in: PortfolioCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    \"\"\"Create a new user.\"\"\"
-    service = UserService(db)
-    return await service.create(user_in)
+    \"\"\"Create a new portfolio.\"\"\"
+    service = PortfolioService(db)
+    return await service.create(portfolio_in)
 
 
-@router.get("/{user_id}", response_model=UserResponse)
-async def get_user(
-    user_id: str,
+@router.get("/{portfolio_id}", response_model=PortfolioResponse)
+async def get_portfolio(
+    portfolio_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    \"\"\"Get a specific user by ID.\"\"\"
-    service = UserService(db)
-    user = await service.get(user_id)
-    if not user:
+    \"\"\"Get a specific portfolio by ID.\"\"\"
+    service = PortfolioService(db)
+    portfolio = await service.get(portfolio_id)
+    if not portfolio:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="Portfolio not found"
         )
-    return user
+    return portfolio
 
 
-@router.put("/{user_id}", response_model=UserResponse)
-async def update_user(
-    user_id: str,
-    user_in: UserUpdate,
+@router.put("/{portfolio_id}", response_model=PortfolioResponse)
+async def update_portfolio(
+    portfolio_id: str,
+    portfolio_in: PortfolioUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    \"\"\"Update an existing user.\"\"\"
-    service = UserService(db)
-    user = await service.update(user_id, user_in)
-    if not user:
+    \"\"\"Update an existing portfolio.\"\"\"
+    service = PortfolioService(db)
+    portfolio = await service.update(portfolio_id, portfolio_in)
+    if not portfolio:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="Portfolio not found"
         )
-    return user
+    return portfolio
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(
-    user_id: str,
+@router.delete("/{portfolio_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_portfolio(
+    portfolio_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    \"\"\"Delete a user.\"\"\"
-    service = UserService(db)
-    success = await service.delete(user_id)
+    \"\"\"Delete a portfolio.\"\"\"
+    service = PortfolioService(db)
+    success = await service.delete(portfolio_id)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="Portfolio not found"
         )
 ```
 
@@ -110,12 +110,12 @@ Router Registration (router.py)
 -------------------------------
 ```python
 from fastapi import APIRouter
-from app.api.v1.users import router as users_router
-from app.api.v1.items import router as items_router
+from app.api.v1.portfolio.portfolio import router as portfolio_router
+from app.api.v1.market_data.yfinance_data import router as market_data_router
 
 api_router = APIRouter()
-api_router.include_router(users_router)
-api_router.include_router(items_router)
+api_router.include_router(portfolio_router)
+api_router.include_router(market_data_router)
 ```
 
 Best Practices

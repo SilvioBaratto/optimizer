@@ -1,4 +1,5 @@
 from app.models._shared import Base, BaseModel, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.auth.api_key import ApiKey
 from app.models.execution.execution import BacktestRun, OptimizationRun
 from app.models.factors.factor import FactorScore, FactorValidationReport
 from app.models.jobs.background_job import BackgroundJob, BackgroundJobError
@@ -45,6 +46,7 @@ __all__ = [
     "ActivityEventDetail",
     "AnalystPriceTarget",
     "AnalystRecommendation",
+    "ApiKey",
     "BackgroundJob",
     "BackgroundJobError",
     "BacktestRun",
