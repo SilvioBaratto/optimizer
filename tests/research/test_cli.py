@@ -1,4 +1,4 @@
-"""Tests for ``research/_cli.py`` — issue #550 (9-flag CLI surface)."""
+"""Tests for ``research/cli/_parser.py`` — issue #550 (9-flag CLI surface)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from datetime import date
 
 import pytest
 
-from research._cli import _parse_iso_date, build_parser
+from research.cli._parser import _parse_iso_date, build_parser
 
 # ---------------------------------------------------------------------------
 # _parse_iso_date

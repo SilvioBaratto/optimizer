@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import research.cli._main as _cli_main
+import research.pipeline._load as _load_module
 from research import stock_selection_pipeline as ssp
 from research.optimization._rebalance import _decide_rebalance
 
@@ -104,7 +106,7 @@ class TestMainRebalanceWiring:
     ) -> None:
         review_file = tmp_path / "last_review_date.txt"
         review_file.write_text("2025-01-15\n")
-        with patch.object(ssp, "_LAST_REVIEW_DATE_FILE", review_file):
+        with patch.object(_load_module, "_LAST_REVIEW_DATE_FILE", review_file):
             got = ssp._read_last_review_date(pd.Timestamp("2025-04-01"))
         assert got == pd.Timestamp("2025-01-15")
 
@@ -112,14 +114,14 @@ class TestMainRebalanceWiring:
         self, tmp_path: Any
     ) -> None:
         review_file = tmp_path / "missing.txt"
-        with patch.object(ssp, "_LAST_REVIEW_DATE_FILE", review_file):
+        with patch.object(_load_module, "_LAST_REVIEW_DATE_FILE", review_file):
             got = ssp._read_last_review_date(pd.Timestamp("2025-04-15"))
         # Prior quarter-end of Q2 2025 = end of Q1 2025
         assert got.normalize() == pd.Timestamp("2025-03-31")
 
     def test_when_write_called_then_file_contains_iso_date(self, tmp_path: Any) -> None:
         review_file = tmp_path / "last_review_date.txt"
-        with patch.object(ssp, "_LAST_REVIEW_DATE_FILE", review_file):
+        with patch.object(_load_module, "_LAST_REVIEW_DATE_FILE", review_file):
             ssp._write_last_review_date(pd.Timestamp("2025-04-01"))
         assert review_file.read_text().strip() == "2025-04-01"
 
@@ -134,18 +136,18 @@ class TestMainRebalanceWiring:
 
         with (
             patch.object(
-                ssp,
+                _cli_main,
                 "load_data",
                 return_value=(assembly_stub, {"AAA": "United States"}, None),
             ),
             patch.object(
-                ssp, "screen_investable", return_value=pd.Index(["AAA", "BBB"])
+                _cli_main, "screen_investable", return_value=pd.Index(["AAA", "BBB"])
             ),
             patch.object(
-                ssp, "_materialise_clean_returns", return_value=pd.DataFrame()
+                _cli_main, "_materialise_clean_returns", return_value=pd.DataFrame()
             ),
             patch.object(
-                ssp,
+                _cli_main,
                 "build_history",
                 return_value=(
                     {},
@@ -153,24 +155,24 @@ class TestMainRebalanceWiring:
                     SimpleNamespace(succeeded_dates=1, total_dates=1),
                 ),
             ),
-            patch.object(ssp, "validate_is", return_value=None),
+            patch.object(_cli_main, "validate_is", return_value=None),
             patch.object(
-                ssp,
+                _cli_main,
                 "validate_oos",
                 return_value=SimpleNamespace(per_fold_ic=pd.DataFrame()),
             ),
-            patch.object(ssp, "_check_factor_coverage", return_value=None),
+            patch.object(_cli_main, "_check_factor_coverage", return_value=None),
             patch.object(
-                ssp,
+                _cli_main,
                 "classify_and_tilt",
                 return_value=(SimpleNamespace(value="expansion"), {}),
             ),
-            patch.object(ssp, "optimize_portfolio", return_value=result_stub),
-            patch.object(ssp, "report_performance", return_value=(0, [], {}, [])),
-            patch.object(ssp, "_render_research_report"),
-            patch.object(ssp, "_apply_terminal_gate"),
+            patch.object(_cli_main, "optimize_portfolio", return_value=result_stub),
+            patch.object(_cli_main, "report_performance", return_value=(0, [], {}, [])),
+            patch.object(_cli_main, "_render_research_report"),
+            patch.object(_cli_main, "_apply_terminal_gate"),
             patch.object(
-                ssp,
+                _cli_main,
                 "_decide_rebalance",
                 return_value=(True, "threshold_met"),
             ) as mock_decide,

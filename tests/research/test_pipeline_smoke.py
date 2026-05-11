@@ -31,6 +31,8 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import research.cli._main as _cli_main
+import research.pipeline._report as _report_module
 from optimizer.factors import FactorOOSResult, FactorValidationReport
 from research import _persistence
 from research import stock_selection_pipeline as ssp
@@ -178,57 +180,59 @@ def _patch_pipeline(
         index=assembly.prices.index,
         columns=_TICKERS,
     )
+    _stub_db_mgr = SimpleNamespace(initialize=lambda: None)
+    monkeypatch.setattr(_cli_main, "DatabaseManager", lambda: _stub_db_mgr)
     monkeypatch.setattr(
-        ssp,
+        _cli_main,
         "load_data",
-        lambda **_: (assembly, {"T00": "US"}, None),
+        lambda *_, **__: (assembly, {"T00": "US"}, None),
     )
     monkeypatch.setattr(
-        ssp,
+        _cli_main,
         "screen_investable",
         lambda _a: pd.Index(_TICKERS),
     )
     monkeypatch.setattr(
-        ssp,
+        _cli_main,
         "_materialise_clean_returns",
         lambda _a, _i: clean_rets,
     )
     monkeypatch.setattr(
-        ssp,
+        _cli_main,
         "build_history",
         lambda *_a, **_kw: ({}, pd.DataFrame(), history_health),
     )
     monkeypatch.setattr(
-        ssp,
+        _cli_main,
         "validate_is",
         lambda *_a, **_kw: _make_validation_report(),
     )
     monkeypatch.setattr(
-        ssp,
+        _cli_main,
         "validate_oos",
         lambda *_a, **_kw: _make_oos_result(),
     )
     monkeypatch.setattr(
-        ssp,
+        _cli_main,
         "_check_factor_coverage",
         lambda *_a, **_kw: None,
     )
     monkeypatch.setattr(
-        ssp,
+        _cli_main,
         "classify_and_tilt",
         lambda *_a, **_kw: (regime_stub, {"value": 1.05}),
     )
-    monkeypatch.setattr(ssp, "optimize_portfolio", lambda **_kw: result)
+    monkeypatch.setattr(_cli_main, "optimize_portfolio", lambda **_kw: result)
     monkeypatch.setattr(
-        ssp,
+        _cli_main,
         "_decide_rebalance",
         lambda **_kw: (False, "between_review_dates"),
     )
-    monkeypatch.setattr(ssp, "_read_last_review_date", lambda _d: last_review)
-    monkeypatch.setattr(ssp, "_write_last_review_date", lambda _d: None)
-    monkeypatch.setattr(ssp, "compute_weighted_cost_bps", lambda _w, _c: 12.0)
+    monkeypatch.setattr(_cli_main, "_read_last_review_date", lambda _d: last_review)
+    monkeypatch.setattr(_cli_main, "_write_last_review_date", lambda _d: None)
+    monkeypatch.setattr(_cli_main, "compute_weighted_cost_bps", lambda _w, _c: 12.0)
     monkeypatch.setattr(
-        ssp,
+        _cli_main,
         "report_performance",
         _stub_report_performance(output_dir),
     )
@@ -381,7 +385,7 @@ def _patch_persist_factory(monkeypatch: pytest.MonkeyPatch, factory) -> None:
         kwargs.setdefault("session_factory", factory)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(ssp, "persist_research_run", patched)
+    monkeypatch.setattr(_report_module, "persist_research_run", patched)
 
 
 class TestPipelineSmokePersist:

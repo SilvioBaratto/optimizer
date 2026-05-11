@@ -764,6 +764,7 @@ class TestLoadDataIntegration:
     def test_when_preflight_fails_then_assemble_all_not_called(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        import research.pipeline._load as _load_module
         from research import stock_selection_pipeline as ssp
 
         sentinel = {"called": False}
@@ -775,15 +776,13 @@ class TestLoadDataIntegration:
         def _fake_preflight(_db: object, today: datetime.date | None = None) -> None:
             raise RuntimeError("Preflight: synthetic failure")
 
-        monkeypatch.setattr(ssp, "assemble_all", _fake_assemble_all)
-        monkeypatch.setattr(ssp, "_run_db_preflight", _fake_preflight)
+        monkeypatch.setattr(_load_module, "assemble_all", _fake_assemble_all)
+        monkeypatch.setattr(_load_module, "_run_db_preflight", _fake_preflight)
 
         class _StubMgr:
             def initialize(self) -> None:
                 pass
 
-        monkeypatch.setattr(ssp, "DatabaseManager", lambda: _StubMgr())
-
         with pytest.raises(RuntimeError, match="synthetic failure"):
-            ssp.load_data()
+            ssp.load_data(_StubMgr())
         assert sentinel["called"] is False

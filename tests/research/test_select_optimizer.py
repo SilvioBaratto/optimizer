@@ -11,6 +11,7 @@ import pytest
 from skfolio.optimization import MeanRisk
 from skfolio.uncertainty_set import EmpiricalMuUncertaintySet
 
+import research.pipeline._optimize as _opt_module
 from optimizer.optimization import (
     MeanRiskConfig,
     ObjectiveFunctionType,
@@ -213,7 +214,7 @@ class TestOptimizePortfolioRobustSignature:
             )
 
         with patch.object(
-            ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+            _opt_module, "run_full_pipeline_with_selection", side_effect=fake_pipeline
         ):
             ssp.optimize_portfolio(
                 assembly=self._stub_assembly(),

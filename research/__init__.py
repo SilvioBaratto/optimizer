@@ -1,5 +1,6 @@
 """Research module — factor history, optimization, strategies, and reporting."""
 
+from research.cli import build_parser, main
 from research.data import (
     _STMT_LINE_ITEMS,
     _TRADING_DAYS,
@@ -50,6 +51,34 @@ from research.persistence import (
     _flatten_metrics,
     persist_research_run,
 )
+from research.pipeline import (
+    _CHECKLIST_TOTAL,
+    _DEFAULT_COSTS,
+    _UNIVERSE_BAND,
+    _UNIVERSE_FLOOR,
+    COUNTRY_COSTS_BPS,
+    MIN_SUCCESS_FRACTION,
+    N_SELECTED,
+    N_SELECTED_MAX,
+    N_SELECTED_MIN,
+    OOS_CONFIG,
+    REBALANCE_FREQ,
+    TOP_N_DISPLAY,
+    _apply_terminal_gate,
+    _assert_assembly_size,
+    _check_factor_coverage,
+    _materialise_clean_returns,
+    _validate_n_selected,
+    build_history,
+    classify_and_tilt,
+    compute_weighted_cost_bps,
+    load_data,
+    optimize_portfolio,
+    report_performance,
+    screen_investable,
+    validate_is,
+    validate_oos,
+)
 from research.preflight import (
     _KNOWN_MAJOR_CURRENCIES,
     _MIN_INSTRUMENTS,
@@ -98,7 +127,7 @@ from research.strategies import (
     strategies,
 )
 
-__all__ = [
+__all__ = [  # noqa: RUF022
     "CURRENCY_DEDUP_PRIORITY",
     "DEFAULT_TAX_RATE",
     "MINOR_CURRENCY_DIVISORS",
@@ -180,4 +209,34 @@ __all__ = [
     "success_panel",
     "validate_factors",
     "warning_panel",
+    # pipeline
+    "COUNTRY_COSTS_BPS",
+    "MIN_SUCCESS_FRACTION",
+    "N_SELECTED",
+    "N_SELECTED_MAX",
+    "N_SELECTED_MIN",
+    "OOS_CONFIG",
+    "REBALANCE_FREQ",
+    "TOP_N_DISPLAY",
+    "_CHECKLIST_TOTAL",
+    "_DEFAULT_COSTS",
+    "_UNIVERSE_BAND",
+    "_UNIVERSE_FLOOR",
+    "_apply_terminal_gate",
+    "_assert_assembly_size",
+    "_check_factor_coverage",
+    "_materialise_clean_returns",
+    "_validate_n_selected",
+    "build_history",
+    "classify_and_tilt",
+    "compute_weighted_cost_bps",
+    "load_data",
+    "optimize_portfolio",
+    "report_performance",
+    "screen_investable",
+    "validate_is",
+    "validate_oos",
+    # cli
+    "build_parser",
+    "main",
 ]

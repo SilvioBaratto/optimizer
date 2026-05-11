@@ -8,6 +8,7 @@ import pytest
 
 pytest.importorskip("typer")
 
+import research.pipeline._load as _load_module
 from research import stock_selection_pipeline as ssp
 from research.data_assembly import DataAssembly
 
@@ -69,15 +70,15 @@ def _patch_load_data(
     *,
     preflight_raises: bool = False,
 ) -> None:
-    monkeypatch.setattr(ssp, "DatabaseManager", lambda: _StubMgr())
-
     def _fake_preflight(_db: object) -> None:
         if preflight_raises:
             raise RuntimeError("synthetic preflight failure")
 
-    monkeypatch.setattr(ssp, "_run_db_preflight", _fake_preflight)
-    monkeypatch.setattr(ssp, "assemble_all", lambda *_a, **_kw: assembly)
-    monkeypatch.setattr(ssp, "_build_country_map", lambda _db: {"AAA": "United States"})
+    monkeypatch.setattr(_load_module, "_run_db_preflight", _fake_preflight)
+    monkeypatch.setattr(_load_module, "assemble_all", lambda *_a, **_kw: assembly)
+    monkeypatch.setattr(
+        _load_module, "_build_country_map", lambda _db: {"AAA": "United States"}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +92,7 @@ class TestLoadDataIntegration:
     ) -> None:
         assembly = _make_assembly()
         _patch_load_data(monkeypatch, assembly)
-        result_assembly, country_map, _db = ssp.load_data()
+        result_assembly, country_map, _db = ssp.load_data(_StubMgr())
         assert isinstance(result_assembly, DataAssembly)
         assert isinstance(country_map, dict)
         assert "AAA" in country_map
@@ -102,7 +103,7 @@ class TestLoadDataIntegration:
         assembly = _make_assembly(foreign_ticker="AAA")
         original_aaa = assembly.prices["AAA"].copy()
         _patch_load_data(monkeypatch, assembly)
-        result, _, _db = ssp.load_data()
+        result, _, _db = ssp.load_data(_StubMgr())
         np.testing.assert_allclose(
             result.prices["AAA"].to_numpy(),
             (original_aaa * 0.9).to_numpy(),
@@ -116,7 +117,7 @@ class TestLoadDataIntegration:
         assembly = _make_assembly()
         assembly.assembly_hash = "abcdef1234567890"
         _patch_load_data(monkeypatch, assembly)
-        result, _, _db = ssp.load_data()
+        result, _, _db = ssp.load_data(_StubMgr())
         assert result.assembly_hash != ""
 
     def test_when_preflight_raises_then_runtime_error_propagates(
@@ -125,7 +126,7 @@ class TestLoadDataIntegration:
         assembly = _make_assembly()
         _patch_load_data(monkeypatch, assembly, preflight_raises=True)
         with pytest.raises(RuntimeError, match="synthetic preflight"):
-            ssp.load_data()
+            ssp.load_data(_StubMgr())
 
     def test_when_n_tickers_below_2000_then_runtime_error_raised(
         self, monkeypatch: pytest.MonkeyPatch
@@ -133,7 +134,7 @@ class TestLoadDataIntegration:
         assembly = _make_assembly(n_tickers=1_500)
         _patch_load_data(monkeypatch, assembly)
         with pytest.raises(RuntimeError, match="n_tickers"):
-            ssp.load_data()
+            ssp.load_data(_StubMgr())
 
     def test_when_n_trading_days_below_1260_then_runtime_error_raised(
         self, monkeypatch: pytest.MonkeyPatch
@@ -141,7 +142,7 @@ class TestLoadDataIntegration:
         assembly = _make_assembly(n_days=1_000)
         _patch_load_data(monkeypatch, assembly)
         with pytest.raises(RuntimeError, match="n_trading_days"):
-            ssp.load_data()
+            ssp.load_data(_StubMgr())
 
 
 class TestAssertAssemblySize:

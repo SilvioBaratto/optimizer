@@ -18,6 +18,9 @@ from optimizer.factors import (
 # Module under test imports api.app.database; ensure it can be loaded.
 pytest.importorskip("rich")
 
+import research.pipeline._factors as _factors_module
+import research.pipeline._optimize as _opt_module
+import research.pipeline._regime as _regime_module
 from research import stock_selection_pipeline as ssp
 
 
@@ -58,8 +61,14 @@ class TestValidateIsConfig:
             return FactorValidationReport()
 
         with (
-            patch.object(ssp, "run_factor_validation", side_effect=fake_run_validation),
-            patch.object(ssp, "validate_factors", return_value=_StubVifReport()),
+            patch.object(
+                _factors_module,
+                "run_factor_validation",
+                side_effect=fake_run_validation,
+            ),
+            patch.object(
+                _factors_module, "validate_factors", return_value=_StubVifReport()
+            ),
         ):
             ssp.validate_is(_stub_factor_scores(), _stub_returns())
 
@@ -72,9 +81,13 @@ class TestValidateIsConfig:
     def test_when_validate_is_returns_report_object(self) -> None:
         with (
             patch.object(
-                ssp, "run_factor_validation", return_value=FactorValidationReport()
+                _factors_module,
+                "run_factor_validation",
+                return_value=FactorValidationReport(),
             ),
-            patch.object(ssp, "validate_factors", return_value=_StubVifReport()),
+            patch.object(
+                _factors_module, "validate_factors", return_value=_StubVifReport()
+            ),
         ):
             report = ssp.validate_is(_stub_factor_scores(), _stub_returns())
         assert isinstance(report, FactorValidationReport)
@@ -103,7 +116,9 @@ class TestValidateOosHardFail:
     def test_when_n_folds_zero_raises_runtime_error(self) -> None:
         with (
             patch.object(
-                ssp, "run_factor_oos_validation", return_value=_empty_oos_result(0)
+                _factors_module,
+                "run_factor_oos_validation",
+                return_value=_empty_oos_result(0),
             ),
             pytest.raises(RuntimeError, match="0 folds"),
         ):
@@ -112,7 +127,9 @@ class TestValidateOosHardFail:
     def test_when_n_folds_zero_message_includes_oos_config_params(self) -> None:
         with (
             patch.object(
-                ssp, "run_factor_oos_validation", return_value=_empty_oos_result(0)
+                _factors_module,
+                "run_factor_oos_validation",
+                return_value=_empty_oos_result(0),
             ),
             pytest.raises(RuntimeError) as exc,
         ):
@@ -124,7 +141,9 @@ class TestValidateOosHardFail:
 
     def test_when_n_folds_positive_returns_result(self) -> None:
         stub = _empty_oos_result(3)
-        with patch.object(ssp, "run_factor_oos_validation", return_value=stub):
+        with patch.object(
+            _factors_module, "run_factor_oos_validation", return_value=stub
+        ):
             result = ssp.validate_oos(_stub_factor_scores(), _stub_returns())
         assert result is stub
         assert result.n_folds == 3
@@ -171,7 +190,7 @@ class TestOptimizePortfolioRegimeWiring:
             )
 
         with patch.object(
-            ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+            _opt_module, "run_full_pipeline_with_selection", side_effect=fake_pipeline
         ):
             ssp.optimize_portfolio(
                 assembly=self._stub_assembly(),
@@ -234,7 +253,11 @@ class TestClassifyAndTiltCachesRegime:
                 sys.modules,
                 {"app.repositories.macro.macro_regime_repository": fake_module},
             ),
-            patch.object(ssp, "classify_regime", return_value=MacroRegime.RECESSION),
+            patch.object(
+                _regime_module,
+                "classify_regime",
+                return_value=MacroRegime.RECESSION,
+            ),
         ):
             ssp.classify_and_tilt(
                 assembly,  # type: ignore[arg-type]
@@ -254,7 +277,9 @@ class TestClassifyAndTiltCachesRegime:
             te_observations=pd.DataFrame(),
             sentiment_data=pd.DataFrame(),
         )
-        with patch.object(ssp, "classify_regime", return_value=MacroRegime.EXPANSION):
+        with patch.object(
+            _regime_module, "classify_regime", return_value=MacroRegime.EXPANSION
+        ):
             regime, _tilts = ssp.classify_and_tilt(assembly)
         assert regime == MacroRegime.EXPANSION
 
@@ -298,7 +323,7 @@ class TestSpecCompliantSelectionAndScoring:
             )
 
         with patch.object(
-            ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+            _opt_module, "run_full_pipeline_with_selection", side_effect=fake_pipeline
         ):
             ssp.optimize_portfolio(
                 assembly=self._stub_assembly(),
@@ -429,7 +454,7 @@ def _capture_optimizer(
         )
 
     with patch.object(
-        ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+        _opt_module, "run_full_pipeline_with_selection", side_effect=fake_pipeline
     ):
         ssp.optimize_portfolio(
             assembly=_spec_assembly(),
@@ -580,7 +605,9 @@ class TestSklearnMetadataRouting:
 
         with (
             patch.object(
-                ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+                _opt_module,
+                "run_full_pipeline_with_selection",
+                side_effect=fake_pipeline,
             ),
             patch("sklearn.set_config") as mock_set_config,
         ):
@@ -617,9 +644,11 @@ class TestHockeyStickInvocation:
 
         with (
             patch.object(
-                ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+                _opt_module,
+                "run_full_pipeline_with_selection",
+                side_effect=fake_pipeline,
             ),
-            patch.object(ssp, "_hockey_stick_warn") as mock_warn,
+            patch.object(_opt_module, "_hockey_stick_warn") as mock_warn,
         ):
             ssp.optimize_portfolio(
                 assembly=_spec_assembly(),
@@ -677,11 +706,12 @@ class TestRetightenTraceWiring:
 
         with (
             patch.object(
-                ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+                _opt_module,
+                "run_full_pipeline_with_selection",
+                side_effect=fake_pipeline,
             ),
-            patch.object(
-                ssp,
-                "_solve_with_retighten",
+            patch(
+                "research.pipeline._optimize._solve_with_retighten",
                 return_value=("STUB_OPT", fake_trace),
             ) as mock_retighten,
         ):
@@ -708,9 +738,13 @@ class TestRetightenTraceWiring:
 
         with (
             patch.object(
-                ssp, "run_full_pipeline_with_selection", side_effect=fake_pipeline
+                _opt_module,
+                "run_full_pipeline_with_selection",
+                side_effect=fake_pipeline,
             ),
-            patch.object(ssp, "_solve_with_retighten") as mock_retighten,
+            patch(
+                "research.pipeline._optimize._solve_with_retighten"
+            ) as mock_retighten,
         ):
             assembly = self._wide_assembly(n_tickers=2)
             result = ssp.optimize_portfolio(

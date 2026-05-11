@@ -10,6 +10,7 @@ import pytest
 pytest.importorskip("typer")
 
 from research import stock_selection_pipeline as ssp
+from research.pipeline import _screen as _screen_module
 from research.stock_selection_pipeline import _assert_universe_size
 
 
@@ -100,7 +101,9 @@ class TestScreenInvestableIntegration:
         stub_assembly: object,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(ssp, "screen_universe", lambda **_: _make_passing(50))
+        monkeypatch.setattr(
+            _screen_module, "screen_universe", lambda **_: _make_passing(50)
+        )
         with pytest.raises(RuntimeError, match="50"):
             ssp.screen_investable(stub_assembly)  # type: ignore[arg-type]
 
@@ -110,7 +113,7 @@ class TestScreenInvestableIntegration:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         expected = _make_passing(800)
-        monkeypatch.setattr(ssp, "screen_universe", lambda **_: expected)
+        monkeypatch.setattr(_screen_module, "screen_universe", lambda **_: expected)
         result = ssp.screen_investable(stub_assembly)  # type: ignore[arg-type]
         assert list(result) == list(expected)
 
@@ -121,7 +124,7 @@ class TestScreenInvestableIntegration:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         expected = _make_passing(2500)
-        monkeypatch.setattr(ssp, "screen_universe", lambda **_: expected)
+        monkeypatch.setattr(_screen_module, "screen_universe", lambda **_: expected)
         with caplog.at_level(logging.WARNING):
             result = ssp.screen_investable(stub_assembly)  # type: ignore[arg-type]
         assert list(result) == list(expected)
