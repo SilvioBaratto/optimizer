@@ -201,7 +201,7 @@ class TestForwardReturnIntegration:
         import warnings
 
         from optimizer.factors import FactorConstructionConfig, StandardizationConfig
-        from research._factors import build_factor_scores_history
+        from research.factors._history import build_factor_scores_history
 
         rng = np.random.default_rng(42)
         n_dates, n_tickers = 300, 5
@@ -253,7 +253,7 @@ class TestForwardReturnIntegration:
         import warnings
 
         from optimizer.factors import FactorConstructionConfig, StandardizationConfig
-        from research._factors import build_factor_scores_history
+        from research.factors._history import build_factor_scores_history
 
         rng = np.random.default_rng(99)
         n_dates, n_tickers = 300, 3

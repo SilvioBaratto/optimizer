@@ -1,11 +1,6 @@
-"""Research module: factor history building and validation utilities."""
+"""Research module — factor history, optimization, strategies, and reporting."""
 
-from research._factors import (
-    _slice_fundamentals_at,
-    build_factor_scores_history,
-    validate_factors,
-)
-from research.data import (  # noqa: F401
+from research.data import (
     _STMT_LINE_ITEMS,
     _TRADING_DAYS,
     CURRENCY_DEDUP_PRIORITY,
@@ -21,18 +16,41 @@ from research.data import (  # noqa: F401
     normalize_fundamentals,
     normalize_prices,
 )
-from research.persistence import (  # noqa: F401
+from research.factors import (
+    _slice_fundamentals_at,
+    build_factor_scores_history,
+    validate_factors,
+)
+from research.optimization import (
+    _HOCKEY_STICK_NEG_THRESHOLD,
+    _HOCKEY_STICK_POS_THRESHOLD,
+    _MAX_REGION_WEIGHT,
+    _REGION_MAP,
+    _SECTOR_FLOORS,
+    _SHRINK_FACTOR,
+    _SOLVER_PARAMS,
+    _TOP4_THRESHOLD,
+    _TOP_N,
+    _TRADING_DAYS_PER_YEAR,
+    _annualized_sharpe,
+    _decide_rebalance,
+    _hockey_stick_warn,
+    _make_builder,
+    _make_opt_config,
+    _resolve_min_weights,
+    _retighten_error_message,
+    _select_optimizer,
+    _solve_with_retighten,
+    _split_into_subperiods,
+    _top4_weight,
+    build_research_optimizer,
+)
+from research.persistence import (
     _diff_from_default,
     _flatten_metrics,
     persist_research_run,
 )
-
-# Compat shims — re-export preflight and persistence APIs from their new
-# canonical locations so that `from research.preflight import ...` and
-# `from research.persistence import ...` resolve through the package.
-# Original `_preflight.py` and `_persistence.py` files remain in place
-# for backward compat with `from research._preflight import X` importers.
-from research.preflight import (  # noqa: F401
+from research.preflight import (
     _KNOWN_MAJOR_CURRENCIES,
     _MIN_INSTRUMENTS,
     _MIN_PRICE_TICKERS,
@@ -47,15 +65,119 @@ from research.preflight import (  # noqa: F401
     _check_universe_coverage,
     run_db_preflight,
 )
-from research.returns import (  # noqa: F401
+from research.reporting import (
+    compute_binding_constraints,
+    dict_table,
+    error_panel,
+    generate_backtest_plots,
+    info_panel,
+    list_table,
+    plot_country_allocation,
+    plot_cumulative_returns,
+    plot_drawdowns,
+    plot_factor_ic,
+    plot_rolling_sharpe,
+    plot_sector_weights_over_time,
+    progress_loop,
+    render_report,
+    success_panel,
+    warning_panel,
+)
+from research.returns import (
     DEFAULT_TAX_RATE,
     apply_fx_to_prices,
     build_return_preprocessing_pipeline,
     compute_after_tax_returns,
 )
+from research.strategies import (
+    Strategy,
+    _build_optimizer,
+    _get_db_manager,
+    data_summary,
+    optimize,
+    strategies,
+)
 
 __all__ = [
+    "CURRENCY_DEDUP_PRIORITY",
+    "DEFAULT_TAX_RATE",
+    "MINOR_CURRENCY_DIVISORS",
+    "REGION_MAP",
+    "_HOCKEY_STICK_NEG_THRESHOLD",
+    "_HOCKEY_STICK_POS_THRESHOLD",
+    "_KNOWN_MAJOR_CURRENCIES",
+    "_MAX_REGION_WEIGHT",
+    "_MIN_INSTRUMENTS",
+    "_MIN_PRICE_TICKERS",
+    "_PRICE_COVERAGE_WINDOW_DAYS",
+    "_REGION_MAP",
+    "_REQUIRED_FRED_SERIES",
+    "_SECTOR_FLOORS",
+    "_SHRINK_FACTOR",
+    "_SOLVER_PARAMS",
+    "_STMT_LINE_ITEMS",
+    "_TOP4_THRESHOLD",
+    "_TOP_N",
+    "_TRADING_DAYS",
+    "_TRADING_DAYS_PER_YEAR",
+    "Severity",
+    "Strategy",
+    "_annualized_sharpe",
+    "_apply_delisting_returns",
+    "_build_optimizer",
+    "_build_ticker_map",
+    "_build_ticker_rank_map",
+    "_check_country_coverage",
+    "_check_fred_freshness",
+    "_check_fx_coverage",
+    "_check_price_coverage",
+    "_check_price_staleness",
+    "_check_universe_coverage",
+    "_decide_rebalance",
+    "_diff_from_default",
+    "_flatten_metrics",
+    "_get_db_manager",
+    "_hockey_stick_warn",
+    "_make_builder",
+    "_make_opt_config",
+    "_pivot_with_dedup",
+    "_resolve_min_weights",
+    "_retighten_error_message",
+    "_select_optimizer",
     "_slice_fundamentals_at",
+    "_solve_with_retighten",
+    "_split_into_subperiods",
+    "_to_float",
+    "_top4_weight",
+    "apply_fx_to_prices",
+    "build_currency_map",
     "build_factor_scores_history",
+    "build_research_optimizer",
+    "build_return_preprocessing_pipeline",
+    "compute_after_tax_returns",
+    "compute_binding_constraints",
+    "currency_dedup_rank",
+    "data_summary",
+    "dict_table",
+    "error_panel",
+    "generate_backtest_plots",
+    "info_panel",
+    "list_table",
+    "normalize_fundamentals",
+    "normalize_prices",
+    "optimize",
+    "persist_research_run",
+    "plot_country_allocation",
+    "plot_cumulative_returns",
+    "plot_drawdowns",
+    "plot_factor_ic",
+    "plot_rolling_sharpe",
+    "plot_sector_weights_over_time",
+    "progress_loop",
+    "render_report",
+    "run_db_preflight",
+    "strategies",
+    "success_panel",
     "validate_factors",
+    "warning_panel",
 ]

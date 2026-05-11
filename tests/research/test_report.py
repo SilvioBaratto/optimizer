@@ -11,7 +11,7 @@ import pytest
 
 from optimizer.factors import FactorValidationReport
 from optimizer.factors._validation import ICResult
-from research._report import compute_binding_constraints, render_report
+from research.reporting._report import compute_binding_constraints, render_report
 
 # ---------------------------------------------------------------------------
 # Fixtures

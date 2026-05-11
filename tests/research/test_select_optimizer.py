@@ -20,7 +20,7 @@ from optimizer.optimization import (
     build_robust_mean_risk,
 )
 from research import stock_selection_pipeline as ssp
-from research._optimization import _select_optimizer
+from research.optimization._config import _select_optimizer
 
 
 def _hard_config() -> MeanRiskConfig:
@@ -94,7 +94,7 @@ class TestSelectOptimizerRobust:
 
     def test_when_robust_true_with_custom_level_then_confidence_matches(self) -> None:
         with patch(
-            "research._optimization.build_robust_mean_risk",
+            "research.optimization._config.build_robust_mean_risk",
             wraps=build_robust_mean_risk,
         ) as mock_build:
             _select_optimizer(
@@ -112,7 +112,7 @@ class TestSelectOptimizerRobust:
         self,
     ) -> None:
         with patch(
-            "research._optimization.build_robust_mean_risk",
+            "research.optimization._config.build_robust_mean_risk",
             wraps=build_robust_mean_risk,
         ) as mock_build:
             _select_optimizer(

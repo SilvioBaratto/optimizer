@@ -86,28 +86,35 @@ _IS_VALIDATION_CONFIG = FactorValidationConfig(
 from optimizer.pipeline import run_full_pipeline_with_selection  # noqa: E402
 from optimizer.universe import InvestabilityScreenConfig, screen_universe  # noqa: E402
 from optimizer.validation import WalkForwardConfig  # noqa: E402
-from research._backtest_plots import generate_backtest_plots  # noqa: E402
-from research._factors import (  # noqa: E402
-    build_factor_scores_history,
-    validate_factors,
-)
-from research._optimization import (  # noqa: E402
-    _REGION_MAP,
-    _TOP_N,
-    _decide_rebalance,
-    _hockey_stick_warn,
-    _make_builder,
-    _make_opt_config,
-    _solve_with_retighten,
-)
 from research._persistence import _diff_from_default, persist_research_run  # noqa: E402
 from research._preflight import run_db_preflight as _run_db_preflight  # noqa: E402
 from research._preprocessing import (  # noqa: E402
     apply_fx_to_prices,
     build_return_preprocessing_pipeline,
 )
-from research._report import compute_binding_constraints, render_report  # noqa: E402
 from research._returns import compute_after_tax_returns  # noqa: E402
+from research.factors._history import (  # noqa: E402
+    build_factor_scores_history,
+)
+from research.factors._validator import validate_factors  # noqa: E402
+from research.optimization._config import (  # noqa: E402
+    _REGION_MAP,
+    _make_builder,
+    _make_opt_config,
+)
+from research.optimization._rebalance import (  # noqa: E402
+    _decide_rebalance,
+    _hockey_stick_warn,
+)
+from research.optimization._retighten import (  # noqa: E402
+    _TOP_N,
+    _solve_with_retighten,
+)
+from research.reporting._plots import generate_backtest_plots  # noqa: E402
+from research.reporting._report import (  # noqa: E402
+    compute_binding_constraints,
+    render_report,
+)
 
 console = Console()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")

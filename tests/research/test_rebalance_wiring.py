@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from research import stock_selection_pipeline as ssp
-from research._optimization import _decide_rebalance
+from research.optimization._rebalance import _decide_rebalance
 
 
 class TestDecideRebalance:
@@ -36,7 +36,7 @@ class TestDecideRebalance:
         last_review = pd.Timestamp("2025-01-01")
 
         with patch(
-            "research._optimization.should_rebalance_hybrid",
+            "research.optimization._rebalance.should_rebalance_hybrid",
             return_value=(True, "threshold_met"),
         ) as mock_should:
             decision, reason = _decide_rebalance(
@@ -64,7 +64,7 @@ class TestDecideRebalance:
     def test_when_cold_start_then_logger_info_recorded(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        with caplog.at_level(logging.INFO, logger="research._optimization"):
+        with caplog.at_level(logging.INFO, logger="research.optimization._rebalance"):
             _decide_rebalance(
                 prev_weights=None,
                 target_weights=np.array([1.0]),

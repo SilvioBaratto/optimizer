@@ -14,14 +14,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from research._optimization import (
+from research.optimization._config import (
     _MAX_REGION_WEIGHT,
     _REGION_MAP,
     _make_builder,
     _make_opt_config,
     build_research_optimizer,
 )
-from research._report import compute_binding_constraints
+from research.reporting._report import compute_binding_constraints
 
 # ---------------------------------------------------------------------------
 # Fixtures

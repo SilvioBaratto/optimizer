@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from research._optimization import _hockey_stick_warn
+from research.optimization._rebalance import _hockey_stick_warn
 
 
 def _series_from_segments(*segments: np.ndarray) -> pd.Series:

@@ -189,8 +189,8 @@ class TestSliceFundamentalsAt:
 
     @pytest.fixture()
     def _import_slicer(self):
-        """Import the private helper from research._factors."""
-        from research._factors import _slice_fundamentals_at
+        """Import the private helper from research.factors._history."""
+        from research.factors._history import _slice_fundamentals_at
 
         return _slice_fundamentals_at
 
@@ -298,7 +298,7 @@ class TestBuildFactorScoresHistoryWarning:
     def test_warns_when_no_fundamental_history(self) -> None:
         """Should emit UserWarning when fundamental_history is None."""
         from optimizer.factors import FactorConstructionConfig, StandardizationConfig
-        from research._factors import build_factor_scores_history
+        from research.factors._history import build_factor_scores_history
 
         rng = np.random.default_rng(42)
         n_dates, n_tickers = 300, 5
@@ -347,7 +347,7 @@ class TestBuildFactorScoresHistoryWarning:
     def test_no_warning_when_history_provided(self) -> None:
         """Should NOT warn when fundamental_history is provided."""
         from optimizer.factors import FactorConstructionConfig, StandardizationConfig
-        from research._factors import build_factor_scores_history
+        from research.factors._history import build_factor_scores_history
 
         rng = np.random.default_rng(42)
         n_dates, n_tickers = 300, 3
@@ -514,7 +514,7 @@ class TestBuildFactorScoresHistoryPITCorrectness:
 
     def test_pit_fundamentals_differ_from_snapshot_at_early_dates(self) -> None:
         """PIT mode should produce different scores than snapshot at early dates."""
-        from research._factors import build_factor_scores_history
+        from research.factors._history import build_factor_scores_history
 
         prices, volumes, snapshot, history, sector_mapping = _build_pit_test_data()
 
@@ -596,7 +596,7 @@ class TestBuildFactorScoresHistoryPITCorrectness:
 
     def test_pit_mode_does_not_use_future_data(self) -> None:
         """At early dates, PIT factor scores must reflect 2021 data, not 2022."""
-        from research._factors import _slice_fundamentals_at
+        from research.factors._history import _slice_fundamentals_at
 
         prices, _, snapshot, history, _ = _build_pit_test_data()
 

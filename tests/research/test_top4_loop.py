@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 from optimizer.optimization import MeanRiskConfig
-from research._optimization import (
+from research.optimization._retighten import (
     _SHRINK_FACTOR,
     _TOP4_THRESHOLD,
     _solve_with_retighten,

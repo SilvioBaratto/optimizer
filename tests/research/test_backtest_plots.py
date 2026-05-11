@@ -23,7 +23,7 @@ from optimizer.factors import (
     FactorValidationReport,
 )
 from optimizer.factors._validation import ICResult
-from research._backtest_plots import (
+from research.reporting._plots import (
     generate_backtest_plots,
     plot_country_allocation,
     plot_factor_ic,
