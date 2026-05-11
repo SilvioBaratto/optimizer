@@ -2616,8 +2616,8 @@
     "hash": "dcf06f8261555aa8931ecb1e5ff512f2"
   },
   "/Volumes/External SSD/optimizer/api/app/repositories/__init__.py": {
-    "mtime": 1778444011.0349414,
-    "hash": "18a8e7001b042dae88babeefbf1e209e"
+    "mtime": 1778465407.7029169,
+    "hash": "2fd3f027be736b0bea0ef6b845a81338"
   },
   "/Volumes/External SSD/optimizer/api/app/repositories/rebalancing/__init__.py": {
     "mtime": 1778439273.4190698,
@@ -2724,8 +2724,8 @@
     "hash": "7389269761e697f961b6cd7436d1db46"
   },
   "/Volumes/External SSD/optimizer/api/app/models/__init__.py": {
-    "mtime": 1778444011.0374107,
-    "hash": "75ff091e7d584a6a26dd4891157f9970"
+    "mtime": 1778465979.076965,
+    "hash": "e3c0cdd500af7f8bea9616116336b781"
   },
   "/Volumes/External SSD/optimizer/api/app/models/rebalancing/rebalancing.py": {
     "mtime": 1778435659.1056423,
@@ -2988,8 +2988,8 @@
     "hash": "787e847a2d98de14a8daade58ecde38c"
   },
   "/Volumes/External SSD/optimizer/api/app/api/v1/__init__.py": {
-    "mtime": 1774342760.8220305,
-    "hash": "419e08cae9823de81ca3dfbbfc6fe9f6"
+    "mtime": 1778465208.4250758,
+    "hash": "d4dc120f7e1c138ea2cd0cad5223df62"
   },
   "/Volumes/External SSD/optimizer/api/app/api/v1/rebalancing/rebalance_policy.py": {
     "mtime": 1778445187.917506,
@@ -3176,8 +3176,8 @@
     "hash": "7e652b9840d5510270b91456a0343c70"
   },
   "/Volumes/External SSD/optimizer/api/app/services/__init__.py": {
-    "mtime": 1778441557.3667302,
-    "hash": "a1bcdc5f612c3d91a4ad7f6d5880aa4b"
+    "mtime": 1778465489.1866803,
+    "hash": "34f4bd081e877a6c774966a4d3141053"
   },
   "/Volumes/External SSD/optimizer/api/app/services/rebalancing/__init__.py": {
     "mtime": 1778441508.2156777,
@@ -4152,8 +4152,8 @@
     "hash": "7d27b02671e9c37827527b88e05d3474"
   },
   "/Volumes/External SSD/optimizer/api/scripts/__init__.py": {
-    "mtime": 1774342760.8351653,
-    "hash": "5db1aa3ac71bc2fe5b99792f177e076f"
+    "mtime": 1778466425.8899708,
+    "hash": "8d949eed74b87a911170860a91f5d27f"
   },
   "/Volumes/External SSD/optimizer/api/baml_client/tracing.py": {
     "mtime": 1777391455.2489426,
@@ -4375,6 +4375,10 @@
     "mtime": 1774342760.818307,
     "hash": "11d4f64bc255c2da58b6d5c3f7bac821"
   },
+  "/Volumes/External SSD/optimizer/new_research_architecture.md": {
+    "mtime": 1778481614.1815464,
+    "hash": "27d3efd26ce18b4797e294da9c0bae49"
+  },
   "/Volumes/External SSD/optimizer/mkdocs.yml": {
     "mtime": 1778342273.9876673,
     "hash": "78ec4c95b016de652c00b3e54e456e0f"
@@ -4386,10 +4390,6 @@
   "/Volumes/External SSD/optimizer/CHANGELOG.md": {
     "mtime": 1774342760.8180392,
     "hash": "8b5070844a00c6b66bf322f4baec5716"
-  },
-  "/Volumes/External SSD/optimizer/new_api_folder_architecture.md": {
-    "mtime": 1778422998.4111886,
-    "hash": "7b7fcf2fb5f58e6d325aacd48c502581"
   },
   "/Volumes/External SSD/optimizer/script.md": {
     "mtime": 1774693104.3356946,
@@ -4408,8 +4408,8 @@
     "hash": "adc474dd411d2591ee6b9b9ff0a0e3e4"
   },
   "/Volumes/External SSD/optimizer/CLAUDE.md": {
-    "mtime": 1778415549.2395184,
-    "hash": "b778819d1e800b01c771509d2b349725"
+    "mtime": 1778464601.999438,
+    "hash": "13ec448a53fe056c8df7a2b9b2a5f397"
   },
   "/Volumes/External SSD/optimizer/SECURITY.md": {
     "mtime": 1774342760.8187723,
@@ -4424,7 +4424,7 @@
     "hash": "b6bc593ff4cace0d1b2066bdfee38a6d"
   },
   "/Volumes/External SSD/optimizer/research/output/last_review_date.txt": {
-    "mtime": 1778462504.930069,
+    "mtime": 1778466661.1294436,
     "hash": "d0a6ae0a19c82cf854af3f667bbf8edc"
   },
   "/Volumes/External SSD/optimizer/frontend/README.md": {

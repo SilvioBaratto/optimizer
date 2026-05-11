@@ -379,21 +379,21 @@ class TestAssembleFxRatesEmptyPriceIndex:
 class TestAssembleAllBaseCurrency:
     """Verify assemble_all() threads base_currency parameter."""
 
-    @patch("research.data_assembly.assemble_fx_rates")
-    @patch("research.data_assembly.assemble_regime_data")
-    @patch("research.data_assembly.assemble_delisting_returns")
-    @patch("research.data_assembly.assemble_fundamental_history")
-    @patch("research.data_assembly.assemble_sentiment")
-    @patch("research.data_assembly.assemble_bond_observations")
-    @patch("research.data_assembly.assemble_te_observations")
-    @patch("research.data_assembly.assemble_fred_series")
-    @patch("research.data_assembly.assemble_macro_data")
-    @patch("research.data_assembly.assemble_insider_data")
-    @patch("research.data_assembly.assemble_analyst_data")
-    @patch("research.data_assembly.assemble_financial_statements")
-    @patch("research.data_assembly.assemble_volumes")
-    @patch("research.data_assembly.assemble_prices")
-    @patch("research.data_assembly.assemble_fundamentals")
+    @patch("research.data._orchestrator.assemble_fx_rates")
+    @patch("research.data._orchestrator.assemble_regime_data")
+    @patch("research.data._orchestrator.assemble_delisting_returns")
+    @patch("research.data._orchestrator.assemble_fundamental_history")
+    @patch("research.data._orchestrator.assemble_sentiment")
+    @patch("research.data._orchestrator.assemble_bond_observations")
+    @patch("research.data._orchestrator.assemble_te_observations")
+    @patch("research.data._orchestrator.assemble_fred_series")
+    @patch("research.data._orchestrator.assemble_macro_data")
+    @patch("research.data._orchestrator.assemble_insider_data")
+    @patch("research.data._orchestrator.assemble_analyst_data")
+    @patch("research.data._orchestrator.assemble_financial_statements")
+    @patch("research.data._orchestrator.assemble_volumes")
+    @patch("research.data._orchestrator.assemble_prices")
+    @patch("research.data._orchestrator.assemble_fundamentals")
     def test_base_currency_passed_to_fx_rates(
         self,
         mock_fundamentals: MagicMock,
