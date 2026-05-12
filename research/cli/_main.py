@@ -5,6 +5,7 @@ Extracted from ``stock_selection_pipeline.py`` lines 1752-1954.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from datetime import date
 from pathlib import Path
@@ -93,7 +94,8 @@ def main(
 
         # 1b. Optional date slicing (Cycle 5 §13)
         if start_date is not None or end_date is not None:
-            assembly.prices = assembly.prices.loc[start_date:end_date]
+            sliced = assembly.prices.loc[start_date:end_date]
+            assembly = dataclasses.replace(assembly, prices=sliced)
             console.print(
                 f"  Sliced prices to "
                 f"[cyan]{start_date or assembly.prices.index[0].date()}[/cyan] "
@@ -181,7 +183,7 @@ def main(
                 f"[{N_SELECTED_MIN}, {N_SELECTED_MAX}].[/yellow]"
             )
         missing_sectors = _missing_gics_sectors(
-            result.weights, assembly.sector_mapping
+            result.weights, dict(assembly.sector_mapping)
         )
         if missing_sectors:
             console.print(

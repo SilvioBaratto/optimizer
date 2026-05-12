@@ -27,6 +27,24 @@ from ._helpers import _STMT_LINE_ITEMS, _build_ticker_map, _to_float  # noqa: E4
 
 logger = logging.getLogger(__name__)
 
+_HISTORY_COLUMNS: list[str] = [
+    "net_income",
+    "gross_profit",
+    "operating_income",
+    "total_assets",
+    "total_equity",
+    "period_type",
+    "asset_growth",
+]
+
+
+def _empty_history_df() -> pd.DataFrame:
+    idx = pd.MultiIndex.from_arrays(
+        [pd.DatetimeIndex([]), pd.Index([], dtype=str)],
+        names=["period_date", "ticker"],
+    )
+    return pd.DataFrame(columns=_HISTORY_COLUMNS, index=idx)
+
 
 def assemble_delisting_returns(session: Session) -> dict[str, float]:
     """Build a ``{yfinance_ticker: delisting_return}`` mapping for delisted instruments.
@@ -120,22 +138,7 @@ def assemble_fundamental_history(
     ).all()
 
     if not rows:
-        idx = pd.MultiIndex.from_arrays(
-            [pd.DatetimeIndex([]), pd.Index([], dtype=str)],
-            names=["period_date", "ticker"],
-        )
-        return pd.DataFrame(
-            columns=[
-                "net_income",
-                "gross_profit",
-                "operating_income",
-                "total_assets",
-                "total_equity",
-                "period_type",
-                "asset_growth",
-            ],
-            index=idx,
-        )
+        return _empty_history_df()
 
     records: list[dict[str, Any]] = []
     for instrument_id, period_type, period_date, line_item, value in rows:
@@ -154,22 +157,7 @@ def assemble_fundamental_history(
         )
 
     if not records:
-        idx = pd.MultiIndex.from_arrays(
-            [pd.DatetimeIndex([]), pd.Index([], dtype=str)],
-            names=["period_date", "ticker"],
-        )
-        return pd.DataFrame(
-            columns=[
-                "net_income",
-                "gross_profit",
-                "operating_income",
-                "total_assets",
-                "total_equity",
-                "period_type",
-                "asset_growth",
-            ],
-            index=idx,
-        )
+        return _empty_history_df()
 
     raw = pd.DataFrame(records)
 

@@ -283,19 +283,19 @@ def report_performance(
     console.print(weights_table)
 
     # --- Diversification analysis ---
-    _print_diversification(all_weights, assembly.sector_mapping, country_map)
+    _print_diversification(all_weights, dict(assembly.sector_mapping), country_map)
 
     # --- Checklist validation (Cycle 4 §10) ---
     checklist_rules = _validate_checklist(
         all_weights,
-        assembly.sector_mapping,
+        dict(assembly.sector_mapping),
         country_map,
         metrics,
         benchmark_returns=benchmark_returns,
         net_returns=result.net_returns,
         after_tax_returns=after_tax_returns,
         cost_bps_actual=cost_bps_actual,
-        currency_map=assembly.currency_map,
+        currency_map=dict(assembly.currency_map),
     )
     _render_checklist_table(checklist_rules)
 
@@ -319,7 +319,7 @@ def report_performance(
         chart_paths = generate_backtest_plots(
             portfolio_returns=portfolio_returns,
             weight_history=result.weight_history,
-            sector_mapping=assembly.sector_mapping,
+            sector_mapping=dict(assembly.sector_mapping),
             benchmark_returns=benchmark_returns,
             rf_series=rf_series,
             country_map=country_map,
@@ -440,6 +440,6 @@ def _persist_research_snapshot(
         weights=result.weights.to_dict(),
         metrics=metrics,
         optimizer_cfg=opt_cfg,
-        sector_mapping=assembly.sector_mapping,
+        sector_mapping=dict(assembly.sector_mapping),
         turnover=getattr(result, "turnover", None),
     )

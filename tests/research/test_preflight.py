@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 pytest.importorskip("typer")
 
-from research._preflight import (
+from research.preflight import (
     _KNOWN_MAJOR_CURRENCIES,
     _MIN_INSTRUMENTS,
     _MIN_PRICE_TICKERS,
@@ -413,7 +413,7 @@ class TestCheckPriceCoverageMocked:
         today: datetime.date,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from research import _preflight as pf
+        import research.preflight._checks as pf
 
         call_order: list[str] = []
 
@@ -637,7 +637,7 @@ class TestCheckFxCoverageMixedCurrencies:
 
         _seed_healthy(engine, today)
         _seed_mixed_currencies(engine)
-        with caplog.at_level(_logging.WARNING, logger="research._preflight"):
+        with caplog.at_level(_logging.WARNING, logger="research.preflight._checks"):
             run_db_preflight(db_manager, today=today)
         warn_records = [r for r in caplog.records if r.levelname == "WARNING"]
         assert warn_records, "expected at least one logger.warning emission"
@@ -731,7 +731,7 @@ class TestRunDbPreflight:
         _seed_instrument_with_currency(engine, "id_brl_warn2", "VALE3.SA", "BRL")
         import logging as _logging
 
-        with caplog.at_level(_logging.WARNING, logger="research._preflight"):
+        with caplog.at_level(_logging.WARNING, logger="research.preflight._checks"):
             run_db_preflight(db_manager, today=today)
         warn_records = [r for r in caplog.records if r.levelname == "WARNING"]
         assert any("BRL" in r.getMessage() for r in warn_records)

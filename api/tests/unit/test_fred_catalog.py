@@ -8,7 +8,7 @@ fails with a list of the missing IDs.
 from __future__ import annotations
 
 from app.services.macro.scrapers.fred_scraper import FRED_SERIES
-from research._preflight import _REQUIRED_FRED_SERIES
+from research.preflight import _REQUIRED_FRED_SERIES
 
 
 def test_required_fred_series_subset_of_catalog() -> None:

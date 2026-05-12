@@ -5,6 +5,7 @@ Extracted from ``data_assembly.py``.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import sys
 from pathlib import Path
@@ -44,7 +45,6 @@ from ._sentiment import assemble_sentiment  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-
 def assemble_fx_rates(
     currency_map: dict[str, str],
     base_currency: str,
@@ -54,10 +54,6 @@ def assemble_fx_rates(
 ) -> pd.DataFrame:
     """Fetch FX rates from yfinance for all foreign currencies in the map.
 
-    Downloads exchange rate data and returns a DataFrame where each column
-    holds units-of-base per one unit-of-foreign currency (the format
-    expected by :class:`~optimizer.fx.FxPriceConverter`).
-
     Parameters
     ----------
     currency_map : dict[str, str]
@@ -65,17 +61,14 @@ def assemble_fx_rates(
     base_currency : str
         Target base currency (e.g. ``"EUR"``).
     price_index : pd.DatetimeIndex
-        Date index from the price DataFrame (used to determine the
-        download range).
+        Date range for the download.
     cross_via_usd : bool
         Compute cross rates via USD for non-USD pairs.
 
     Returns
     -------
     pd.DataFrame
-        Index = dates, columns = foreign currency codes, values =
-        units-of-base per one unit-of-foreign.  Empty DataFrame when
-        no foreign currencies are needed or download fails.
+        Columns = foreign currency codes.  Empty when no FX needed.
     """
     import yfinance as yf
 
@@ -163,7 +156,7 @@ def assemble_fx_rates(
                     to_ticker,
                 )
                 continue
-            rate = compute_cross_rate(close[from_ticker], close[to_ticker])
+            rate = compute_cross_rate(close[from_ticker], close[to_ticker])  # pyright: ignore[reportArgumentType]
             rates[ccy] = rate
         else:
             if pair not in close.columns:
@@ -172,10 +165,10 @@ def assemble_fx_rates(
             downloaded = close[pair]
             if ccy.upper() == "USD":
                 # Ticker is {base}USD=X → gives USD per 1 base → reciprocal
-                rates[ccy] = 1.0 / downloaded
+                rates[ccy] = 1.0 / downloaded  # pyright: ignore[reportArgumentType]
             else:
                 # Ticker gives base per 1 foreign → direct
-                rates[ccy] = downloaded
+                rates[ccy] = downloaded  # pyright: ignore[reportArgumentType]
 
     if not rates:
         logger.warning("Could not compute any FX rates.")
@@ -196,7 +189,7 @@ def assemble_all(
     include_delisted: bool = True,
     base_currency: str = "EUR",
 ) -> DataAssembly:
-    """Query the database and assemble all DataFrames.
+    """Query the database and assemble all DataFrames into a DataAssembly.
 
     Parameters
     ----------
@@ -222,7 +215,7 @@ def assemble_all(
         logger.info("Assembling fundamentals...")
         fundamentals, sector_mapping, currency_map = assemble_fundamentals(session)
 
-        logger.info("Assembling price data (include_delisted=%s)...", include_delisted)
+        logger.info("Assembling price data...")
         prices = assemble_prices(
             session,
             include_delisted=include_delisted,
@@ -278,7 +271,7 @@ def assemble_all(
         fx_rates = assemble_fx_rates(
             currency_map=currency_map,
             base_currency=base_currency,
-            price_index=prices.index,
+            price_index=prices.index,  # pyright: ignore[reportArgumentType]
         )
 
     assembly = DataAssembly(
@@ -301,5 +294,7 @@ def assemble_all(
         currency_map=currency_map,
         fx_rates=fx_rates,
     )
-    assembly.assembly_hash = _compute_assembly_hash(assembly)
+    assembly = dataclasses.replace(
+        assembly, assembly_hash=_compute_assembly_hash(assembly)
+    )
     return assembly

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 
 import pandas as pd
@@ -123,21 +124,30 @@ class TestAssemblyHashField:
         )
         assert assembly.assembly_hash == ""
 
-    def test_when_constructed_with_hash_then_attribute_is_set(self) -> None:
+    def test_when_mutated_then_raises_frozen_instance_error(self) -> None:
         assembly = _make_synthetic_assembly(
             pd.date_range("2024-01-02", periods=3, freq="B"),
             ["AAA"],
         )
-        assembly.assembly_hash = "abcdef0123456789"
-        assert assembly.assembly_hash == "abcdef0123456789"
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            assembly.assembly_hash = "should_fail"  # type: ignore[misc]
+
+    def test_when_replaced_then_new_instance_has_new_hash(self) -> None:
+        assembly = _make_synthetic_assembly(
+            pd.date_range("2024-01-02", periods=3, freq="B"),
+            ["AAA"],
+        )
+        updated = dataclasses.replace(assembly, assembly_hash="abcdef0123456789")
+        assert updated.assembly_hash == "abcdef0123456789"
+        assert assembly.assembly_hash == ""  # original unchanged
 
     def test_when_summary_then_includes_assembly_hash(self) -> None:
         assembly = _make_synthetic_assembly(
             pd.date_range("2024-01-02", periods=3, freq="B"),
             ["AAA"],
         )
-        assembly.assembly_hash = "deadbeefcafef00d"
-        summary = assembly.summary()
+        updated = dataclasses.replace(assembly, assembly_hash="deadbeefcafef00d")
+        summary = updated.summary()
         assert summary["assembly_hash"] == "deadbeefcafef00d"
 
 

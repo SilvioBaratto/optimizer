@@ -8,6 +8,7 @@ path inserts exactly one ``PortfolioSnapshot`` row.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -34,7 +35,7 @@ from sqlalchemy.pool import StaticPool
 import research.cli._main as _cli_main
 import research.pipeline._report as _report_module
 from optimizer.factors import FactorOOSResult, FactorValidationReport
-from research import _persistence
+from research import persistence as _persistence
 from research import stock_selection_pipeline as ssp
 from research.data_assembly import DataAssembly
 
@@ -68,7 +69,7 @@ def _make_assembly() -> DataAssembly:
         currency_map=dict.fromkeys(_TICKERS, "EUR"),
         fx_rates=pd.DataFrame(),
     )
-    assembly.assembly_hash = "smoke0000aaaa1111"
+    assembly = dataclasses.replace(assembly, assembly_hash="smoke0000aaaa1111")
     return assembly
 
 

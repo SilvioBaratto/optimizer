@@ -10,37 +10,36 @@ import pytest
 
 from research.data._container import DataAssembly
 
+_RNG = np.random.default_rng(0)
 
-def _make_assembly(**overrides: object) -> DataAssembly:
-    assembly = MagicMock(spec=DataAssembly)
-    assembly.prices = pd.DataFrame(
-        {"AAA": [100.0, 101.0, 102.0], "BBB": [50.0, 51.0, 52.0]},
-        index=pd.date_range("2024-01-02", periods=3, freq="B"),
+
+def _make_assembly(n_tickers: int = 2, n_trading_days: int = 3) -> DataAssembly:
+    dates = pd.date_range("2024-01-02", periods=n_trading_days, freq="B")
+    named = ["AAA", "BBB"]
+    extra = [f"T{i:04d}" for i in range(max(0, n_tickers - 2))]
+    tickers = (named + extra)[:n_tickers]
+    data = _RNG.standard_normal((n_trading_days, n_tickers)) + 100.0
+    prices = pd.DataFrame(data, index=dates, columns=tickers)
+    volumes = pd.DataFrame(
+        np.ones((n_trading_days, n_tickers)) * 1000.0, index=dates, columns=tickers
     )
-    assembly.volumes = pd.DataFrame(
-        {"AAA": [1000.0] * 3, "BBB": [2000.0] * 3},
-        index=pd.date_range("2024-01-02", periods=3, freq="B"),
+    fx_rates = pd.DataFrame(
+        {"EUR": np.ones(n_trading_days), "USD": np.full(n_trading_days, 1.1)},
+        index=dates,
     )
-    assembly.fundamentals = pd.DataFrame(
-        {"market_cap": [1e9, 5e8]}, index=["AAA", "BBB"]
+    return DataAssembly(
+        prices=prices,
+        volumes=volumes,
+        fundamentals=pd.DataFrame({"market_cap": [1e9, 5e8]}, index=["AAA", "BBB"]),
+        sector_mapping=dict.fromkeys(tickers, "Tech"),
+        financial_statements=pd.DataFrame(),
+        analyst_data=pd.DataFrame(),
+        insider_data=pd.DataFrame(),
+        macro_data=pd.DataFrame(),
+        currency_map={t: ("USD" if t == "AAA" else "EUR") for t in tickers},
+        fx_rates=fx_rates,
+        assembly_hash="test_hash_123",
     )
-    assembly.sector_mapping = {"AAA": "Tech", "BBB": "Finance"}
-    assembly.financial_statements = pd.DataFrame()
-    assembly.analyst_data = pd.DataFrame()
-    assembly.insider_data = pd.DataFrame()
-    assembly.macro_data = pd.DataFrame()
-    assembly.regime_data = pd.DataFrame()
-    assembly.currency_map = {"AAA": "USD", "BBB": "EUR"}
-    assembly.fx_rates = pd.DataFrame(
-        {"EUR": [1.0, 1.0, 1.0], "USD": [1.1, 1.1, 1.1]},
-        index=pd.date_range("2024-01-02", periods=3, freq="B"),
-    )
-    assembly.delisting_returns = {}
-    assembly.risk_free_rate = 0.05
-    assembly.n_tickers = overrides.get("n_tickers", 2500)
-    assembly.n_trading_days = overrides.get("n_trading_days", 1500)
-    assembly.assembly_hash = overrides.get("assembly_hash", "test_hash_123")
-    return assembly
 
 
 class TestAssertAssemblySize:
@@ -156,6 +155,7 @@ def _patch_load_data(
     else:
         monkeypatch.setattr(_load, "_run_db_preflight", MagicMock())
     monkeypatch.setattr(_load, "assemble_all", MagicMock(return_value=assembly))
+    monkeypatch.setattr(_load, "_assert_assembly_size", MagicMock())
     monkeypatch.setattr(
         _load, "apply_fx_to_prices", MagicMock(return_value=assembly.prices)
     )

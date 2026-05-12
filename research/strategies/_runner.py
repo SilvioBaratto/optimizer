@@ -15,19 +15,6 @@ from typing import Any
 
 from rich.console import Console
 
-from research.reporting._display import (
-    dict_table,
-    error_panel,
-    info_panel,
-    success_panel,
-    warning_panel,
-)
-from research.strategies._inspect import (
-    _display_backtest,
-    _display_summary,
-    _display_weights,
-)
-
 # Ensure the api package is importable.
 _api_path = Path(__file__).parent.parent.parent / "api"
 if str(_api_path) not in sys.path:
@@ -129,6 +116,18 @@ def optimize(
     portfolio optimization with the chosen strategy.
     """
     from research.data_assembly import assemble_all
+    from research.reporting._display import (
+        dict_table,
+        error_panel,
+        info_panel,
+        success_panel,
+        warning_panel,
+    )
+    from research.strategies._inspect import (
+        _display_backtest,
+        _display_summary,
+        _display_weights,
+    )
 
     # 1. Initialize database
     console.print("[bold]Initializing database connection...[/bold]")
@@ -214,7 +213,7 @@ def optimize(
             analyst = data.analyst_data if len(data.analyst_data) > 0 else None
             insider = data.insider_data if len(data.insider_data) > 0 else None
             macro = data.macro_data if len(data.macro_data) > 0 else None
-            sectors = data.sector_mapping if data.sector_mapping else None
+            sectors = dict(data.sector_mapping) if data.sector_mapping else None
 
             regime = (
                 data.regime_data if len(data.regime_data) > 0 else None
@@ -246,7 +245,9 @@ def optimize(
             result = run_full_pipeline(
                 prices=data.prices,
                 optimizer=optimizer_instance,
-                sector_mapping=data.sector_mapping if data.sector_mapping else None,
+                sector_mapping=(
+                    dict(data.sector_mapping) if data.sector_mapping else None
+                ),
                 cv_config=cv_config,
             )
     except Exception as exc:

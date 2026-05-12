@@ -5,6 +5,7 @@ Extracted from ``stock_selection_pipeline.py`` lines 46–540.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -103,7 +104,7 @@ def _materialise_clean_returns(
     cols = list(investable)
     investable_prices = assembly.prices.loc[:, cols]
     returns = cast(pd.DataFrame, prices_to_returns(investable_prices))
-    pipeline = build_return_preprocessing_pipeline(assembly.sector_mapping)
+    pipeline = build_return_preprocessing_pipeline(dict(assembly.sector_mapping))
     clean: pd.DataFrame = pipeline.fit_transform(returns)
     arr = clean.to_numpy()
     if np.isnan(arr).any() or np.isinf(arr).any():
@@ -144,11 +145,14 @@ def load_data(
     console.print(Panel("[bold]Step 1[/bold] — Loading data", style="blue"))
     _run_db_preflight(db_manager)
     assembly = assemble_all(db_manager, include_delisted=True)
-    assembly.prices = apply_fx_to_prices(
-        assembly.prices,
-        assembly.currency_map,
-        assembly.fx_rates,
-        base_currency=base_currency,
+    assembly = dataclasses.replace(
+        assembly,
+        prices=apply_fx_to_prices(
+            assembly.prices,
+            dict(assembly.currency_map),
+            assembly.fx_rates,
+            base_currency=base_currency,
+        ),
     )
     _assert_assembly_size(assembly)
     country_map = _build_country_map(db_manager)

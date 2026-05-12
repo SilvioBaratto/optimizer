@@ -16,9 +16,21 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from app.models.market_data.yfinance_data import TickerProfile
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "CURRENCY_DEDUP_PRIORITY",
+    "MINOR_CURRENCY_DIVISORS",
+    "build_currency_map",
+    "currency_dedup_rank",
+    "normalize_fundamentals",
+    "normalize_prices",
+    "normalize_to_major_currency",
+]
 
 # ---------------------------------------------------------------------------
 # Minor-currency divisor map
@@ -109,7 +121,7 @@ def currency_dedup_rank(currency_code: str | None) -> int:
     return CURRENCY_DEDUP_PRIORITY.get(currency_code, 99)
 
 
-def build_currency_map(profiles: list[TickerProfile]) -> dict[str, str]:
+def build_currency_map(profiles: Sequence[TickerProfile]) -> dict[str, str]:
     """Build ``{yfinance_ticker: currency_code}`` from loaded profiles.
 
     Uses ``Instrument.currency_code`` when available, falling back to

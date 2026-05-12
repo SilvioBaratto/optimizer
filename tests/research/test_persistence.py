@@ -31,7 +31,7 @@ from optimizer.optimization import (
     ObjectiveFunctionType,
     RiskMeasureType,
 )
-from research._persistence import (
+from research.persistence import (
     _diff_from_default,
     _flatten_metrics,
     persist_research_run,

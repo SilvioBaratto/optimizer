@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("typer")
 
-from research._currency import CURRENCY_DEDUP_PRIORITY, currency_dedup_rank
+from research.data._currency import CURRENCY_DEDUP_PRIORITY, currency_dedup_rank
 from research.data_assembly import (
     _DEDUP_DROP_THRESHOLD_PCT,
     _dedup_fundamentals_df,

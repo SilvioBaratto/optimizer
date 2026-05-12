@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -70,14 +72,14 @@ def _patch_load_data(
     *,
     preflight_raises: bool = False,
 ) -> None:
-    def _fake_preflight(_db: object) -> None:
+    def _fake_preflight(_: object) -> None:
         if preflight_raises:
             raise RuntimeError("synthetic preflight failure")
 
     monkeypatch.setattr(_load_module, "_run_db_preflight", _fake_preflight)
-    monkeypatch.setattr(_load_module, "assemble_all", lambda *_a, **_kw: assembly)
+    monkeypatch.setattr(_load_module, "assemble_all", lambda *_a, **_kw: assembly)  # pyright: ignore[reportUnusedVariable]
     monkeypatch.setattr(
-        _load_module, "_build_country_map", lambda _db: {"AAA": "United States"}
+        _load_module, "_build_country_map", lambda _: {"AAA": "United States"}
     )
 
 
@@ -92,7 +94,7 @@ class TestLoadDataIntegration:
     ) -> None:
         assembly = _make_assembly()
         _patch_load_data(monkeypatch, assembly)
-        result_assembly, country_map, _db = ssp.load_data(_StubMgr())
+        result_assembly, country_map, _ = ssp.load_data(_StubMgr())
         assert isinstance(result_assembly, DataAssembly)
         assert isinstance(country_map, dict)
         assert "AAA" in country_map
@@ -103,7 +105,7 @@ class TestLoadDataIntegration:
         assembly = _make_assembly(foreign_ticker="AAA")
         original_aaa = assembly.prices["AAA"].copy()
         _patch_load_data(monkeypatch, assembly)
-        result, _, _db = ssp.load_data(_StubMgr())
+        result, *_ = ssp.load_data(_StubMgr())
         np.testing.assert_allclose(
             result.prices["AAA"].to_numpy(),
             (original_aaa * 0.9).to_numpy(),
@@ -115,9 +117,9 @@ class TestLoadDataIntegration:
         # Hash is set by assemble_all in production; the stub bypasses it,
         # so seed it explicitly to mirror the production contract.
         assembly = _make_assembly()
-        assembly.assembly_hash = "abcdef1234567890"
+        assembly = dataclasses.replace(assembly, assembly_hash="abcdef1234567890")
         _patch_load_data(monkeypatch, assembly)
-        result, _, _db = ssp.load_data(_StubMgr())
+        result, *_ = ssp.load_data(_StubMgr())
         assert result.assembly_hash != ""
 
     def test_when_preflight_raises_then_runtime_error_propagates(

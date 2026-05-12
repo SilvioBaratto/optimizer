@@ -17,7 +17,7 @@ from optimizer.preprocessing import (
     RegressionImputer,
     SectorImputer,
 )
-from research._preprocessing import (
+from research.returns import (
     apply_fx_to_prices,
     build_return_preprocessing_pipeline,
 )

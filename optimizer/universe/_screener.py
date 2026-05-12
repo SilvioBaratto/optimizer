@@ -272,7 +272,7 @@ def apply_investability_screens(
         All monetary columns (``market_cap``, ``current_price``, etc.)
         must be denominated in major currency units (e.g. GBP, not
         GBX).  Minor-unit normalisation must be applied upstream via
-        ``research._currency.normalize_fundamentals()`` before this
+        ``research.data._currency.normalize_fundamentals()`` before this
         function is called.
     price_history : pd.DataFrame
         Price matrix (dates x tickers).

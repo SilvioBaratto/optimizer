@@ -2,20 +2,24 @@
 
 from research.cli import build_parser, main
 from research.data import (
-    _STMT_LINE_ITEMS,
-    _TRADING_DAYS,
     CURRENCY_DEDUP_PRIORITY,
     MINOR_CURRENCY_DIVISORS,
     REGION_MAP,
-    _apply_delisting_returns,
-    _build_ticker_map,
-    _build_ticker_rank_map,
-    _pivot_with_dedup,
-    _to_float,
     build_currency_map,
     currency_dedup_rank,
     normalize_fundamentals,
     normalize_prices,
+)
+from research.data._equity import (
+    _apply_delisting_returns,
+    _build_ticker_rank_map,
+)
+from research.data._helpers import (
+    _STMT_LINE_ITEMS,
+    _TRADING_DAYS,
+    _build_ticker_map,
+    _pivot_with_dedup,
+    _to_float,
 )
 from research.factors import (
     _slice_fundamentals_at,

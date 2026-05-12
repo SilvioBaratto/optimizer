@@ -12,7 +12,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -24,9 +23,17 @@ if str(_api_path) not in sys.path:
 
 from app.models.universe.universe import Instrument  # noqa: E402
 
-from research.data._currency import currency_dedup_rank  # noqa: E402
-
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "REGION_MAP",
+    "_DEDUP_DROP_THRESHOLD_PCT",
+    "_STMT_LINE_ITEMS",
+    "_TRADING_DAYS",
+    "_build_ticker_map",
+    "_pivot_with_dedup",
+    "_to_float",
+]
 
 # Number of trading days per year (equity convention).
 _TRADING_DAYS: int = 252
@@ -134,45 +141,6 @@ def _build_ticker_map(
     return {str(r[0]): r[1] for r in rows}
 
 
-def _build_ticker_rank_map(
-    session: Session, include_delisted: bool = True
-) -> dict[str, tuple[str, int]]:
-    """Return ``{instrument_id_hex: (yfinance_ticker, currency_rank)}``.
-
-    The currency rank is derived from :func:`~research._currency.currency_dedup_rank`
-    and is used to deterministically resolve cross-listed instruments that share
-    the same ``yfinance_ticker`` (e.g. LSE vs Frankfurt listings).  Lower rank
-    means higher priority (USD=0 beats GBX=3 beats unknown=99).
-    """
-    stmt = (
-        select(Instrument.id, Instrument.yfinance_ticker, Instrument.currency_code)
-        .where(Instrument.yfinance_ticker.isnot(None))
-        .where(Instrument.yfinance_ticker != "")
-    )
-    if not include_delisted:
-        stmt = stmt.where(Instrument.delisted_at.is_(None))
-    rows = session.execute(stmt).all()
-    return {
-        str(r[0]): (str(r[1]), currency_dedup_rank(r[2] if r[2] is not None else None))
-        for r in rows
-    }
-
-
-def _build_currency_map_from_instruments(session: Session) -> dict[str, str]:
-    """Return {yfinance_ticker: currency_code} from the Instrument table.
-
-    Lightweight query for price/volume normalisation when TickerProfile
-    is not loaded.
-    """
-    rows = session.execute(
-        select(Instrument.yfinance_ticker, Instrument.currency_code)
-        .where(Instrument.yfinance_ticker.isnot(None))
-        .where(Instrument.yfinance_ticker != "")
-        .where(Instrument.currency_code.isnot(None))
-    ).all()
-    return {str(t): str(c) for t, c in rows}
-
-
 def _pivot_with_dedup(
     df: pd.DataFrame,
     index: str,
@@ -224,65 +192,3 @@ def _pivot_with_dedup(
         aggfunc="first",
     )
     return pivoted
-
-
-def _apply_delisting_returns(
-    prices: pd.DataFrame,
-    delistings: list[tuple[str, pd.Timestamp, float]],
-) -> pd.DataFrame:
-    """Append a synthetic delisting-date price row for each delisted instrument.
-
-    For each ``(yf_ticker, delisted_at, delisting_return)`` tuple, finds the
-    last known close price on or before ``delisted_at`` and adds a synthetic
-    price row at ``delisted_at`` equal to ``last_price * (1 + delisting_return)``.
-
-    When ``prices_to_returns`` is subsequently applied, this synthetic row
-    produces the correct delisting return as the final observation for that
-    instrument.
-
-    Parameters
-    ----------
-    prices : pd.DataFrame
-        dates × tickers close-price DataFrame.
-    delistings : list[tuple[str, pd.Timestamp, float]]
-        ``(yf_ticker, delisted_at, delisting_return)`` for each delisted
-        instrument.  Instruments not in ``prices.columns`` are silently
-        skipped.
-
-    Returns
-    -------
-    pd.DataFrame
-        Copy of ``prices`` with synthetic delisting rows appended and sorted.
-    """
-    if not delistings:
-        return prices
-
-    out = prices.copy()
-
-    for yf_ticker, delisted_ts, r in delistings:
-        if yf_ticker not in out.columns:
-            continue
-
-        col = out[yf_ticker].dropna()
-        if col.empty:
-            continue
-
-        # Last known price on or before the delisting date.
-        before = col[col.index <= delisted_ts]
-        if before.empty:
-            continue
-
-        last_price = float(before.iloc[-1])
-        synthetic_price = last_price * (1.0 + r)
-
-        # Add a new index row for the delisting date if not already present.
-        if delisted_ts not in out.index:
-            new_row = pd.Series(dict.fromkeys(out.columns, np.nan), name=delisted_ts)
-            out = pd.concat([out, new_row.to_frame().T])
-            out = out.sort_index()
-
-        # Only write synthetic price if the cell is currently NaN.
-        if pd.isna(out.loc[delisted_ts, yf_ticker]):
-            out.loc[delisted_ts, yf_ticker] = synthetic_price
-
-    return out

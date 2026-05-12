@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from research._returns import compute_after_tax_returns
+from research.returns import compute_after_tax_returns
 
 
 @pytest.fixture()

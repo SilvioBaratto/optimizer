@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("typer")
 
-from research._currency import (
+from research.data._currency import (
     MINOR_CURRENCY_DIVISORS,
     build_currency_map,
     normalize_fundamentals,
@@ -247,10 +247,10 @@ class TestNormalizePrices:
         result = normalize_prices(df, currency_map)
 
         np.testing.assert_array_almost_equal(
-            result["BARC.L"].values, [1.50, 1.52, 1.48]
+            result["BARC.L"].to_numpy(), [1.50, 1.52, 1.48]
         )
         np.testing.assert_array_almost_equal(
-            result["AAPL"].values, [180.0, 182.0, 179.0]
+            result["AAPL"].to_numpy(), [180.0, 182.0, 179.0]
         )
 
     def test_no_minor_currencies(self) -> None:

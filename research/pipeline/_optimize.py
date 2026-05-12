@@ -103,7 +103,7 @@ def optimize_portfolio(
         cost_bps=cost_bps,
     )
     builder = _make_builder(
-        sector_mapping=assembly.sector_mapping,
+        sector_mapping=dict(assembly.sector_mapping),
         country_map=country_map,
         previous_weights=previous_weights,
         robust=robust,
@@ -139,7 +139,7 @@ def optimize_portfolio(
         insider_data=assembly.insider_data,
         macro_data=assembly.macro_data,
         regime_data=assembly.regime_data,
-        sector_mapping=assembly.sector_mapping,
+        sector_mapping=dict(assembly.sector_mapping),
         scoring_config=scoring_config,  # Fix #238: explicitly IC-weighted
         selection_config=SelectionConfig(
             target_count=n_selected,
@@ -157,8 +157,8 @@ def optimize_portfolio(
         ),
         ic_history=ic_history,
         risk_free_rate=assembly.risk_free_rate,  # Fix #246: proper rf
-        delisting_returns=assembly.delisting_returns,
-        currency_map=assembly.currency_map,
+        delisting_returns=dict(assembly.delisting_returns),
+        currency_map=dict(assembly.currency_map),
         fx_rates=assembly.fx_rates,
         cost_bps=cost_bps,
     )
