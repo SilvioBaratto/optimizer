@@ -21,16 +21,6 @@ _api_path = Path(__file__).parent.parent.parent / "api"
 if str(_api_path) not in sys.path:
     sys.path.insert(0, str(_api_path))
 
-from app.models.macro.macro_regime import (  # noqa: E402
-    BondYield,
-    BondYieldObservation,
-    EconomicIndicator,
-    EconomicIndicatorObservation,
-    FredObservation,
-    TradingEconomicsIndicator,
-    TradingEconomicsObservation,
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +51,12 @@ def assemble_macro_data(
         Single-row DataFrame with ``gdp_growth`` and ``yield_spread``
         columns, indexed by date.
     """
+    from app.models.macro.macro_regime import (
+        BondYield,
+        EconomicIndicator,
+        TradingEconomicsIndicator,
+    )
+
     # GDP growth from TradingEconomics
     te_gdp = session.execute(
         select(TradingEconomicsIndicator).where(
@@ -156,6 +152,12 @@ def assemble_macro_timeseries(
         ``yield_spread``, and IlSole forecast columns when available.
         May be empty if observation tables have no data yet.
     """
+    from app.models.macro.macro_regime import (
+        BondYieldObservation,
+        EconomicIndicatorObservation,
+        TradingEconomicsObservation,
+    )
+
     # GDP growth from TE observations
     gdp_stmt = (
         select(
@@ -288,6 +290,8 @@ def assemble_te_observations(
         Index = DatetimeIndex, columns = indicator_key strings
         (e.g. "manufacturing_pmi", "gdp_growth_rate").
     """
+    from app.models.macro.macro_regime import TradingEconomicsObservation
+
     stmt = select(
         TradingEconomicsObservation.date,
         TradingEconomicsObservation.indicator_key,
@@ -348,6 +352,8 @@ def assemble_bond_observations(
     pd.DataFrame
         Index = DatetimeIndex, columns = maturity strings ("2Y", "5Y", "10Y", "30Y").
     """
+    from app.models.macro.macro_regime import BondYieldObservation
+
     stmt = select(
         BondYieldObservation.date,
         BondYieldObservation.maturity,
@@ -434,6 +440,8 @@ def assemble_fred_series(
         Index = ``pd.DatetimeIndex`` (daily), columns = FRED series IDs.
         Values are floats; missing observations are NaN (not forward-filled).
     """
+    from app.models.macro.macro_regime import FredObservation
+
     ids = series_ids if series_ids is not None else FRED_SERIES_IDS
 
     stmt = select(

@@ -24,8 +24,6 @@ from contextlib import AbstractContextManager
 from datetime import date
 from typing import Any, Protocol
 
-from app.database import database_manager
-from app.repositories.portfolio.portfolio_repository import PortfolioRepository
 from sqlalchemy.orm import Session
 
 from optimizer.optimization import MeanRiskConfig
@@ -47,7 +45,7 @@ def persist_research_run(
     turnover: float | None,
     *,
     portfolio_name: str = _RESEARCH_PORTFOLIO_NAME,
-    session_factory: _SessionFactory = database_manager.get_session,
+    session_factory: _SessionFactory | None = None,
 ) -> uuid.UUID:
     """Persist one research run as a ``snapshot_type='research_run'`` snapshot.
 
@@ -59,9 +57,15 @@ def persist_research_run(
 
     Returns the ``Portfolio.id`` of the row that owns the snapshot.
     """
+    from app.database import database_manager
+    from app.repositories.portfolio.portfolio_repository import PortfolioRepository
+
+    effective_factory: _SessionFactory = (
+        session_factory if session_factory is not None else database_manager.get_session
+    )
     summary = _flatten_metrics(metrics)
     optimizer_diff = _diff_from_default(optimizer_cfg)
-    with session_factory() as session:
+    with effective_factory() as session:
         repo = PortfolioRepository(session)
         portfolio = repo.get_or_create(portfolio_name)
         portfolio_id: uuid.UUID = portfolio.id

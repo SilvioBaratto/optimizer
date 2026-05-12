@@ -10,6 +10,8 @@ import pytest
 
 from research.optimization._rebalance import _hockey_stick_warn
 
+_LOGGER_NAME = "research.optimization._rebalance"
+
 
 def _series_from_segments(*segments: np.ndarray) -> pd.Series:
     arr = np.concatenate(segments)
@@ -25,7 +27,7 @@ class TestHockeyStickWarn:
         # 3 sub-periods, all moderate positive returns
         seg = rng.normal(loc=0.001, scale=0.01, size=63)
         returns = _series_from_segments(seg, seg.copy(), seg.copy())
-        with caplog.at_level(logging.WARNING, logger="research._optimization"):
+        with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
             _hockey_stick_warn(returns)
         assert "hockey-stick" not in caplog.text.lower()
 
@@ -41,7 +43,7 @@ class TestHockeyStickWarn:
         # Sub-period 3: moderate
         moderate = rng.normal(loc=0.0005, scale=0.01, size=63)
         returns = _series_from_segments(loss, gain, moderate)
-        with caplog.at_level(logging.WARNING, logger="research._optimization"):
+        with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
             _hockey_stick_warn(returns)
         assert "hockey-stick" in caplog.text.lower()
 
@@ -54,7 +56,7 @@ class TestHockeyStickWarn:
         gain = rng.normal(loc=0.020, scale=0.005, size=63)
         moderate = rng.normal(loc=0.0005, scale=0.01, size=63)
         returns = _series_from_segments(loss, gain, moderate)
-        with caplog.at_level(logging.WARNING, logger="research._optimization"):
+        with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
             _hockey_stick_warn(returns)
         # Sub-period 2 is the concentration period — message should reference it
         assert any(
@@ -69,7 +71,7 @@ class TestHockeyStickWarn:
     ) -> None:
         # Only 2 days of returns; n_subperiods=3 → can't split
         returns = pd.Series([0.01, 0.02], index=pd.bdate_range("2020-01-01", periods=2))
-        with caplog.at_level(logging.DEBUG, logger="research._optimization"):
+        with caplog.at_level(logging.DEBUG, logger=_LOGGER_NAME):
             _hockey_stick_warn(returns, n_subperiods=3)
         assert "hockey-stick" not in caplog.text.lower()
 
@@ -77,7 +79,7 @@ class TestHockeyStickWarn:
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        with caplog.at_level(logging.WARNING, logger="research._optimization"):
+        with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
             _hockey_stick_warn(None)
             _hockey_stick_warn(pd.Series(dtype=float))
         assert "hockey-stick" not in caplog.text.lower()
@@ -90,7 +92,7 @@ class TestHockeyStickWarn:
         # All sub-periods slightly negative — min<0 but max not >1.5
         seg = rng.normal(loc=-0.001, scale=0.01, size=63)
         returns = _series_from_segments(seg, seg.copy(), seg.copy())
-        with caplog.at_level(logging.WARNING, logger="research._optimization"):
+        with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
             _hockey_stick_warn(returns)
         assert "hockey-stick" not in caplog.text.lower()
 
@@ -104,7 +106,7 @@ class TestHockeyStickWarn:
         gain = rng.normal(loc=0.020, scale=0.005, size=63)
         moderate = rng.normal(loc=0.0005, scale=0.01, size=63)
         returns = _series_from_segments(loss, gain, moderate)
-        with caplog.at_level(logging.WARNING, logger="research._optimization"):
+        with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
             _hockey_stick_warn(returns)
         captured = capsys.readouterr()
         assert "hockey-stick" not in captured.out.lower()

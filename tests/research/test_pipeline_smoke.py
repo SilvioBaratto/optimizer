@@ -36,7 +36,7 @@ import research.cli._main as _cli_main
 import research.pipeline._report as _report_module
 from optimizer.factors import FactorOOSResult, FactorValidationReport
 from research import persistence as _persistence
-from research import stock_selection_pipeline as ssp
+from research.cli._main import main
 from research.data_assembly import DataAssembly
 
 # ---------------------------------------------------------------------------
@@ -182,7 +182,7 @@ def _patch_pipeline(
         columns=_TICKERS,
     )
     _stub_db_mgr = SimpleNamespace(initialize=lambda: None)
-    monkeypatch.setattr(_cli_main, "DatabaseManager", lambda: _stub_db_mgr)
+    monkeypatch.setattr("app.database.DatabaseManager", lambda: _stub_db_mgr)
     monkeypatch.setattr(
         _cli_main,
         "load_data",
@@ -268,7 +268,7 @@ class TestPipelineSmokeArtefacts:
         )
 
         with pytest.raises(SystemExit) as excinfo:
-            ssp.main(n_selected=25, output_dir=tmp_path)
+            main(n_selected=25, output_dir=tmp_path)
         assert excinfo.value.code in (0, 1)
 
     def test_when_main_run_then_six_pngs_written(
@@ -284,7 +284,7 @@ class TestPipelineSmokeArtefacts:
         )
 
         with pytest.raises(SystemExit):
-            ssp.main(n_selected=25, output_dir=tmp_path)
+            main(n_selected=25, output_dir=tmp_path)
 
         for name in _EXPECTED_PNGS:
             png = tmp_path / name
@@ -304,7 +304,7 @@ class TestPipelineSmokeArtefacts:
         )
 
         with pytest.raises(SystemExit):
-            ssp.main(n_selected=25, output_dir=tmp_path)
+            main(n_selected=25, output_dir=tmp_path)
 
         report = tmp_path / "report.md"
         assert report.exists()
@@ -323,7 +323,7 @@ class TestPipelineSmokeArtefacts:
         )
 
         with pytest.raises(SystemExit):
-            ssp.main(n_selected=25, output_dir=tmp_path)
+            main(n_selected=25, output_dir=tmp_path)
 
         assert (tmp_path / "metrics.json").exists()
         assert (tmp_path / "checklist.json").exists()
@@ -341,7 +341,7 @@ class TestPipelineSmokeArtefacts:
         )
 
         with pytest.raises(SystemExit):
-            ssp.main(n_selected=25, output_dir=tmp_path)
+            main(n_selected=25, output_dir=tmp_path)
 
         weights_csv = tmp_path / "weights.csv"
         assert weights_csv.exists()
@@ -408,7 +408,7 @@ class TestPipelineSmokePersist:
         _patch_persist_factory(monkeypatch, factory)
 
         with pytest.raises(SystemExit):
-            ssp.main(persist=True, n_selected=25, output_dir=tmp_path)
+            main(persist=True, n_selected=25, output_dir=tmp_path)
 
         SessionLocal = sessionmaker(bind=engine)
         with SessionLocal() as s:
@@ -437,7 +437,7 @@ class TestPipelineSmokePersist:
         _patch_persist_factory(monkeypatch, factory)
 
         with pytest.raises(SystemExit):
-            ssp.main(persist=True, n_selected=25, output_dir=tmp_path)
+            main(persist=True, n_selected=25, output_dir=tmp_path)
 
         SessionLocal = sessionmaker(bind=engine)
         with SessionLocal() as s:
@@ -464,7 +464,7 @@ class TestPipelineSmokePersist:
 
         for _ in range(2):
             with pytest.raises(SystemExit):
-                ssp.main(persist=True, n_selected=25, output_dir=tmp_path)
+                main(persist=True, n_selected=25, output_dir=tmp_path)
 
         SessionLocal = sessionmaker(bind=engine)
         with SessionLocal() as s:
@@ -491,7 +491,7 @@ class TestPipelineSmokePersist:
         _patch_persist_factory(monkeypatch, factory)
 
         with pytest.raises(SystemExit):
-            ssp.main(persist=False, n_selected=25, output_dir=tmp_path)
+            main(persist=False, n_selected=25, output_dir=tmp_path)
 
         SessionLocal = sessionmaker(bind=engine)
         with SessionLocal() as s:

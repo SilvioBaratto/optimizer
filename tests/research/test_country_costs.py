@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from research.stock_selection_pipeline import (
+from research.pipeline._optimize import (
     _DEFAULT_COSTS,
     COUNTRY_COSTS_BPS,
     compute_weighted_cost_bps,

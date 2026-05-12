@@ -82,6 +82,10 @@ ignore = ["RUF002", "RUF003"]  # allow unicode in docstrings/comments (mathemati
 "tests/research/test_cycle2_boundary_gate.py" = ["N803", "N806", "S101", "S603", "S607", "E501"]
 "tests/research/test_reporting_boundaries.py" = ["N803", "N806", "S101", "S603", "S607", "E501"]
 "tests/research/test_reporting_init.py" = ["N803", "N806", "S101", "S603", "S607", "E501"]
+# CLI import isolation test spawns a fresh interpreter with fixed args (sys.executable + hardcoded -c).
+"tests/research/test_cli_imports.py" = ["N803", "N806", "S101", "S603", "S607"]
+# Pipeline regime import isolation test spawns a fresh interpreter with fixed literal args.
+"tests/research/test_pipeline_regime.py" = ["N803", "N806", "S101", "S603", "S607", "E501"]
 
 [tool.mypy]
 python_version = "3.10"

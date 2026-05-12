@@ -45,6 +45,7 @@ from ._sentiment import assemble_sentiment  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+
 def assemble_fx_rates(
     currency_map: dict[str, str],
     base_currency: str,

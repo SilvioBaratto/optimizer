@@ -19,8 +19,6 @@ _api_path = Path(__file__).parent.parent.parent / "api"
 if str(_api_path) not in sys.path:
     sys.path.insert(0, str(_api_path))
 
-from app.models.macro.macro_regime import MacroNewsSummary  # noqa: E402
-
 logger = logging.getLogger(__name__)
 
 
@@ -46,6 +44,8 @@ def assemble_sentiment(
         Index = DatetimeIndex (summary_date), columns = country strings.
         Values are sentiment scores in [-1, 1].
     """
+    from app.models.macro.macro_regime import MacroNewsSummary
+
     stmt = select(
         MacroNewsSummary.summary_date,
         MacroNewsSummary.country,

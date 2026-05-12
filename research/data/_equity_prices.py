@@ -22,9 +22,6 @@ _api_path = Path(__file__).parent.parent.parent / "api"
 if str(_api_path) not in sys.path:
     sys.path.insert(0, str(_api_path))
 
-from app.models.market_data.yfinance_data import PriceHistory  # noqa: E402
-from app.models.universe.universe import Instrument  # noqa: E402
-
 from ._currency import (  # noqa: E402
     currency_dedup_rank,
     normalize_prices,
@@ -58,6 +55,8 @@ def _build_ticker_rank_map(
     Used to deterministically resolve cross-listed instruments sharing
     the same ``yfinance_ticker``.  Lower rank = higher priority (USD=0).
     """
+    from app.models.universe.universe import Instrument
+
     stmt = (
         select(Instrument.id, Instrument.yfinance_ticker, Instrument.currency_code)
         .where(Instrument.yfinance_ticker.isnot(None))
@@ -74,6 +73,8 @@ def _build_ticker_rank_map(
 
 def _build_currency_map_from_instruments(session: Session) -> dict[str, str]:
     """Return {yfinance_ticker: currency_code} from the Instrument table."""
+    from app.models.universe.universe import Instrument
+
     rows = session.execute(
         select(Instrument.yfinance_ticker, Instrument.currency_code)
         .where(Instrument.yfinance_ticker.isnot(None))
@@ -144,6 +145,9 @@ def assemble_prices(
     pd.DataFrame
         Index = ``pd.DatetimeIndex``, columns = yfinance tickers.
     """
+    from app.models.market_data.yfinance_data import PriceHistory
+    from app.models.universe.universe import Instrument
+
     ticker_rank_map = _build_ticker_rank_map(session, include_delisted=include_delisted)
 
     price_query = select(
@@ -243,6 +247,9 @@ def assemble_volumes(
     pd.DataFrame
         Index = ``pd.DatetimeIndex``, columns = yfinance tickers.
     """
+    from app.models.market_data.yfinance_data import PriceHistory
+    from app.models.universe.universe import Instrument
+
     ticker_rank_map = _build_ticker_rank_map(session, include_delisted=include_delisted)
 
     vol_query = select(

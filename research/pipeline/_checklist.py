@@ -31,9 +31,7 @@ _CHECKLIST_TOTAL = 17
 # ---------------------------------------------------------------------------
 
 
-def _rule(
-    rule: str, *, ok: bool, measured: str | float, target: str
-) -> dict[str, Any]:
+def _rule(rule: str, *, ok: bool, measured: str | float, target: str) -> dict[str, Any]:
     """Build a single checklist rule result dict."""
     return {"rule": rule, "pass": bool(ok), "measured": measured, "target": target}
 
@@ -79,9 +77,7 @@ def _eval_metric_threshold(
     value = metrics.get(label, {}).get(key, float("nan"))
     if isinstance(value, float) and np.isnan(value):
         return _rule(rule, ok=False, measured="N/A", target=target)
-    return _rule(
-        rule, ok=pass_pred(value), measured=fmt.format(value), target=target
-    )
+    return _rule(rule, ok=pass_pred(value), measured=fmt.format(value), target=target)
 
 
 # ---------------------------------------------------------------------------
@@ -205,14 +201,8 @@ def _render_checklist_table(rules: list[dict[str, Any]]) -> None:
         pass_count += int(bool(r["pass"]))
     console.print(table)
     total = len(rules)
-    color = (
-        "green" if pass_count == total
-        else "yellow" if pass_count >= 13
-        else "red"
-    )
-    console.print(
-        f"  [{color}]Checklist: {pass_count}/{total} passed[/{color}]"
-    )
+    color = "green" if pass_count == total else "yellow" if pass_count >= 13 else "red"
+    console.print(f"  [{color}]Checklist: {pass_count}/{total} passed[/{color}]")
 
 
 # ---------------------------------------------------------------------------
@@ -233,9 +223,7 @@ def _apply_terminal_gate(
     pass_count = sum(1 for r in rules if r.get("pass"))
     total = len(rules)
     if pass_count == total:
-        console.print(
-            f"  [green]Checklist: {pass_count}/{total} PASS[/green]"
-        )
+        console.print(f"  [green]Checklist: {pass_count}/{total} PASS[/green]")
         weights_path = write_weights_csv(weights, output_dir)
         console.print(f"  [cyan]Saved weights:[/cyan] {weights_path}")
         raise SystemExit(0)
@@ -295,9 +283,7 @@ def _validate_checklist(
     )
     # Rule 2 — sector ≤ 15%
     max_sector = max(sector_w.values()) if sector_w else 0.0
-    max_sector_name = (
-        max(sector_w, key=lambda k: sector_w[k]) if sector_w else "N/A"
-    )
+    max_sector_name = max(sector_w, key=lambda k: sector_w[k]) if sector_w else "N/A"
     rules.append(
         _rule(
             "No single sector > 15%",
@@ -309,9 +295,7 @@ def _validate_checklist(
     # Rule 3 — HHI < 0.12
     hhi = sum(w**2 for w in sorted_w)
     rules.append(
-        _rule(
-            "HHI < 0.12", ok=hhi < 0.12, measured=f"{hhi:.4f}", target="< 0.12"
-        )
+        _rule("HHI < 0.12", ok=hhi < 0.12, measured=f"{hhi:.4f}", target="< 0.12")
     )
     # Rule 4 — Top-4 < 30%
     top4 = sum(sorted_w[:4])
@@ -334,9 +318,7 @@ def _validate_checklist(
         )
     )
     # Rule 6 — Information Technology ≥ 10%
-    tech_w = _sector_lookup(
-        sector_w, "Information Technology", "Technology"
-    )
+    tech_w = _sector_lookup(sector_w, "Information Technology", "Technology")
     rules.append(
         _rule(
             "Information Technology exposure ≥ 10%",
@@ -352,9 +334,7 @@ def _validate_checklist(
         _rule(
             "All 11 GICS sectors present",
             ok=len(missing) == 0,
-            measured=(
-                f"{11 - len(missing)}/11 ({', '.join(missing) or 'all'})"
-            ),
+            measured=(f"{11 - len(missing)}/11 ({', '.join(missing) or 'all'})"),
             target="11/11",
         )
     )
@@ -470,10 +450,7 @@ def _validate_checklist(
                 _rule(
                     "Downside vol < 75% x total vol",
                     ok=d_vol < 0.75 * p_vol,
-                    measured=(
-                        f"{d_vol:.1%} vs 75% x {p_vol:.1%} = "
-                        f"{0.75 * p_vol:.1%}"
-                    ),
+                    measured=(f"{d_vol:.1%} vs 75% x {p_vol:.1%} = {0.75 * p_vol:.1%}"),
                     target="< 75% total",
                 )
             )
@@ -509,9 +486,7 @@ def _validate_checklist(
             )
         )
     else:
-        years = (
-            (net_returns.index[-1] - net_returns.index[0]).days / 365.25
-        )
+        years = (net_returns.index[-1] - net_returns.index[0]).days / 365.25
         rules.append(
             _rule(
                 "OOS span ≥ 8 years",

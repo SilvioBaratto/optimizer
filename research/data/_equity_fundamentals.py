@@ -20,14 +20,6 @@ _api_path = Path(__file__).parent.parent.parent / "api"
 if str(_api_path) not in sys.path:
     sys.path.insert(0, str(_api_path))
 
-from app.models.market_data.yfinance_data import (  # noqa: E402
-    AnalystRecommendation,
-    FinancialStatement,
-    InsiderTransaction,
-    TickerProfile,
-)
-from app.models.universe.universe import Instrument  # noqa: E402
-
 from ._currency import (  # noqa: E402
     build_currency_map,
     currency_dedup_rank,
@@ -137,6 +129,8 @@ def _compute_asset_growth_from_statements(
     currency for the same ticker, so the currency cancels regardless of
     denomination (GBP, USD, EUR, etc.).  No normalization is needed.
     """
+    from app.models.market_data.yfinance_data import FinancialStatement
+
     rows = session.execute(
         select(
             FinancialStatement.instrument_id,
@@ -195,6 +189,8 @@ def _enrich_from_financial_statements(
     """
     if not ticker_map:
         return df
+
+    from app.models.market_data.yfinance_data import FinancialStatement
 
     line_item_names = list(_STMT_LINE_ITEMS.keys())
 
@@ -288,6 +284,9 @@ def assemble_fundamentals(
         - ``{ticker: sector}`` mapping.
         - ``{ticker: currency_code}`` mapping (major-unit normalised).
     """
+    from app.models.market_data.yfinance_data import TickerProfile
+    from app.models.universe.universe import Instrument
+
     profiles = (
         session.execute(
             select(TickerProfile).options(
@@ -367,6 +366,8 @@ def assemble_financial_statements(session: Session) -> pd.DataFrame:
         Rows with ``ticker``, ``statement_type``, ``period_type``,
         ``period_date`` columns.
     """
+    from app.models.market_data.yfinance_data import FinancialStatement
+
     ticker_map = _build_ticker_map(session)
 
     rows = session.execute(
@@ -408,6 +409,8 @@ def assemble_analyst_data(session: Session) -> pd.DataFrame:
         Rows with ``ticker``, ``strong_buy``, ``buy``, ``hold``,
         ``sell``, ``strong_sell`` columns.
     """
+    from app.models.market_data.yfinance_data import AnalystRecommendation
+
     ticker_map = _build_ticker_map(session)
 
     rows = session.execute(
@@ -462,6 +465,8 @@ def assemble_insider_data(session: Session) -> pd.DataFrame:
     pd.DataFrame
         Rows with ``ticker``, ``shares``, ``transaction_type`` columns.
     """
+    from app.models.market_data.yfinance_data import InsiderTransaction
+
     ticker_map = _build_ticker_map(session)
 
     rows = session.execute(

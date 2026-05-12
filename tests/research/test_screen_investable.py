@@ -7,11 +7,8 @@ import logging
 import pandas as pd
 import pytest
 
-pytest.importorskip("typer")
-
-from research import stock_selection_pipeline as ssp
 from research.pipeline import _screen as _screen_module
-from research.stock_selection_pipeline import _assert_universe_size
+from research.pipeline._screen import _assert_universe_size, screen_investable
 
 
 def _make_passing(n: int) -> pd.Index:
@@ -105,7 +102,7 @@ class TestScreenInvestableIntegration:
             _screen_module, "screen_universe", lambda **_: _make_passing(50)
         )
         with pytest.raises(RuntimeError, match="50"):
-            ssp.screen_investable(stub_assembly)  # type: ignore[arg-type]
+            screen_investable(stub_assembly)  # type: ignore[arg-type]
 
     def test_when_screen_universe_returns_band_size_then_returns_index(
         self,
@@ -114,7 +111,7 @@ class TestScreenInvestableIntegration:
     ) -> None:
         expected = _make_passing(800)
         monkeypatch.setattr(_screen_module, "screen_universe", lambda **_: expected)
-        result = ssp.screen_investable(stub_assembly)  # type: ignore[arg-type]
+        result = screen_investable(stub_assembly)  # type: ignore[arg-type]
         assert list(result) == list(expected)
 
     def test_when_screen_universe_returns_above_band_then_warning_and_index(
@@ -126,7 +123,7 @@ class TestScreenInvestableIntegration:
         expected = _make_passing(2500)
         monkeypatch.setattr(_screen_module, "screen_universe", lambda **_: expected)
         with caplog.at_level(logging.WARNING):
-            result = ssp.screen_investable(stub_assembly)  # type: ignore[arg-type]
+            result = screen_investable(stub_assembly)  # type: ignore[arg-type]
         assert list(result) == list(expected)
         assert any(
             "2500" in r.getMessage() and r.levelno == logging.WARNING

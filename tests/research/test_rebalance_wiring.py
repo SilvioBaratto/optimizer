@@ -11,8 +11,9 @@ import pandas as pd
 import pytest
 
 import research.cli._main as _cli_main
+import research.pipeline as ssp
 import research.pipeline._load as _load_module
-from research import stock_selection_pipeline as ssp
+from research.cli._main import main
 from research.optimization._rebalance import _decide_rebalance
 
 
@@ -177,7 +178,7 @@ class TestMainRebalanceWiring:
                 return_value=(True, "threshold_met"),
             ) as mock_decide,
         ):
-            ssp.main(n_selected=25)
+            main(n_selected=25)
 
         mock_decide.assert_called_once()
         assert hasattr(result_stub, "rebalance_decision")

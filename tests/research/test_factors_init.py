@@ -151,18 +151,3 @@ def test_all_has_no_duplicates() -> None:
         f"__all__ contains duplicate entries: "
         f"{[n for n in all_list if all_list.count(n) > 1]}"
     )
-
-
-# ---------------------------------------------------------------------------
-# 8. Backward-compat shim re-exports all three symbols
-# ---------------------------------------------------------------------------
-
-
-def test_backward_compat_shim_re_exports_all_symbols() -> None:
-    """research/_factors.py shim must expose all three re-exported names."""
-    import research._factors as shim
-
-    for name in _EXPECTED_ALL:
-        assert hasattr(shim, name), (
-            f"Backward-compat shim research/_factors.py must re-export '{name}'"
-        )

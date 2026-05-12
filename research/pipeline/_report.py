@@ -158,9 +158,7 @@ def report_performance(
     Returns ``(pass_count, rules, metrics, chart_paths)`` so :func:`main`
     can apply the §10 terminal gate, render ``report.md``, and persist.
     """
-    console.print(
-        Panel("[bold]Step 8[/bold] — Performance report", style="blue")
-    )
+    console.print(Panel("[bold]Step 8[/bold] — Performance report", style="blue"))
 
     rf_series = assembly.risk_free_rate_series  # pd.Series from FRED DGS3MO
 
@@ -203,9 +201,7 @@ def report_performance(
         )
         # Align to portfolio trading dates
         if benchmark_returns is not None and not benchmark_returns.empty:
-            common_idx = portfolio_returns.index.intersection(
-                benchmark_returns.index
-            )
+            common_idx = portfolio_returns.index.intersection(benchmark_returns.index)
             benchmark_returns = benchmark_returns.loc[common_idx]
 
     # Compute metrics for portfolio and benchmark
@@ -412,9 +408,7 @@ def _build_binding_constraints(
         region = groups.get(ticker)
         if region in region_order:
             a_mat[region_order.index(region), j] = 1.0
-    return compute_binding_constraints(
-        a_mat, caps, weight_arr, labels=labels
-    )
+    return compute_binding_constraints(a_mat, caps, weight_arr, labels=labels)
 
 
 # ---------------------------------------------------------------------------

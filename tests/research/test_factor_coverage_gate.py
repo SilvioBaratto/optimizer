@@ -10,7 +10,7 @@ from optimizer.factors import FactorOOSResult, FactorValidationReport
 
 pytest.importorskip("rich")
 
-from research import stock_selection_pipeline as ssp
+import research.pipeline as ssp
 
 
 def _report(significant: list[str]) -> FactorValidationReport:

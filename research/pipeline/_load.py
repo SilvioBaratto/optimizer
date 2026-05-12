@@ -8,15 +8,12 @@ from __future__ import annotations
 import dataclasses
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 from rich.console import Console
 from rich.panel import Panel
-
-if TYPE_CHECKING:
-    from app.database import DatabaseManager
 
 from research.data._container import DataAssembly
 from research.data._orchestrator import assemble_all
@@ -124,10 +121,10 @@ def _materialise_clean_returns(
 
 
 def load_data(
-    db_manager: DatabaseManager,
+    db_manager: Any,
     *,
     base_currency: str = "EUR",
-) -> tuple[DataAssembly, dict[str, str], DatabaseManager]:
+) -> tuple[DataAssembly, dict[str, str], Any]:
     """Assemble all data from the database.
 
     Args:
@@ -136,7 +133,7 @@ def load_data(
 
     Returns
     -------
-    tuple[DataAssembly, dict[str, str], DatabaseManager]
+    tuple[DataAssembly, dict[str, str], Any]
         (assembly, country_map, db_manager) where ``assembly.prices`` is
         FX-converted to ``base_currency`` (default EUR), ``country_map`` is
         ticker → country, and ``db_manager`` is the initialised handle so

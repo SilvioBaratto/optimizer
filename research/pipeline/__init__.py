@@ -7,10 +7,6 @@ Re-exports all public symbols from the 8 step modules so callers can
 from optimizer.factors._regime import classify_regime
 from optimizer.pipeline import run_full_pipeline_with_selection
 from optimizer.universe import screen_universe
-from research.data._orchestrator import assemble_all
-from research.optimization._config import _REGION_MAP
-from research.optimization._rebalance import _decide_rebalance
-from research.optimization._retighten import _solve_with_retighten
 from research.pipeline._checklist import (
     _CHECKLIST_TOTAL,
     _apply_terminal_gate,
@@ -143,8 +139,6 @@ __all__ = [  # noqa: RUF022
     # _optimize.py
     "COUNTRY_COSTS_BPS",
     "_DEFAULT_COSTS",
-    "_decide_rebalance",
-    "_solve_with_retighten",
     "compute_weighted_cost_bps",
     "optimize_portfolio",
     "run_full_pipeline_with_selection",
@@ -153,7 +147,6 @@ __all__ = [  # noqa: RUF022
     "classify_and_tilt",
     "classify_regime",
     # _report.py
-    "_REGION_MAP",
     "_build_binding_constraints",
     "_persist_research_snapshot",
     "_print_diversification",
@@ -165,6 +158,5 @@ __all__ = [  # noqa: RUF022
     "_assert_universe_size",
     "screen_investable",
     # compat shims (still referenced by callers)
-    "assemble_all",
     "screen_universe",
 ]

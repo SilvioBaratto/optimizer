@@ -205,27 +205,7 @@ def test_module_docstring_mentions_private_export_convention() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 7. Backward-compat shim research._optimization re-exports the same surface
-# ---------------------------------------------------------------------------
-
-
-def test_backward_compat_shim_importable() -> None:
-    """research._optimization (shim) must import without error."""
-    mod = importlib.import_module("research._optimization")
-    assert mod is not None
-
-
-def test_backward_compat_shim_exposes_all_symbols() -> None:
-    """Every symbol in research.optimization.__all__ is accessible via shim."""
-    import research._optimization as shim
-    import research.optimization as m
-
-    missing = [name for name in m.__all__ if not hasattr(shim, name)]
-    assert missing == [], f"Shim research._optimization missing symbols: {missing}"
-
-
-# ---------------------------------------------------------------------------
-# 8. build_research_optimizer is callable (smoke test for sole public symbol)
+# 7. build_research_optimizer is callable (smoke test for sole public symbol)
 # ---------------------------------------------------------------------------
 
 

@@ -19,15 +19,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "_TOP_N",
-    "_TOP4_THRESHOLD",
     "_SHRINK_FACTOR",
+    "_TOP4_THRESHOLD",
+    "_TOP_N",
     "_TRADING_DAYS_PER_YEAR",
-    "_top4_weight",
+    "_annualized_sharpe",
     "_retighten_error_message",
     "_solve_with_retighten",
-    "_annualized_sharpe",
     "_split_into_subperiods",
+    "_top4_weight",
 ]
 
 # Cycle-3 §7.3 Top-4 retighten constants
@@ -106,9 +106,7 @@ def _annualized_sharpe(returns: np.ndarray) -> float:
     return float(np.mean(returns) / std * np.sqrt(_TRADING_DAYS_PER_YEAR))
 
 
-def _split_into_subperiods(
-    returns: pd.Series, n_subperiods: int
-) -> list[pd.Series]:
+def _split_into_subperiods(returns: pd.Series, n_subperiods: int) -> list[pd.Series]:
     """Split *returns* into ``n_subperiods`` equal contiguous slices."""
     n = len(returns)
     edges = np.linspace(0, n, n_subperiods + 1, dtype=int)

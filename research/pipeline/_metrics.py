@@ -82,10 +82,10 @@ def _sortino(returns: pd.Series, rf_series: pd.Series | None = None) -> float:
     downside = excess[excess < 0.0]
     if downside.empty:
         return 0.0
-    downside_vol = float(downside.std(ddof=1)) * np.sqrt(252.0)
+    downside_vol = float(downside.std(ddof=1)) * float(np.sqrt(252.0))
     if downside_vol <= 0.0:
         return 0.0
-    return _annualized_return(excess) / downside_vol
+    return float(_annualized_return(excess) / downside_vol)
 
 
 def _downside_vol(returns: pd.Series, rf_series: pd.Series | None = None) -> float:
@@ -96,7 +96,7 @@ def _downside_vol(returns: pd.Series, rf_series: pd.Series | None = None) -> flo
     downside = (returns - daily_rf)[(returns - daily_rf) < 0.0]
     if downside.empty:
         return 0.0
-    return float(downside.std(ddof=1)) * np.sqrt(252.0)
+    return float(downside.std(ddof=1)) * float(np.sqrt(252.0))
 
 
 def _information_ratio(
@@ -112,7 +112,7 @@ def _information_ratio(
     std_val = float(active.std(ddof=1))
     if std_val <= 1e-12:
         return 0.0
-    return float(active.mean()) / std_val * np.sqrt(252.0)
+    return float(float(active.mean()) / std_val * float(np.sqrt(252.0)))
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ def _fetch_benchmark_returns(
     close = data["Close"]
     if isinstance(close, pd.DataFrame):
         close = close.iloc[:, 0]
-    close_series: pd.Series = close  # type: ignore[assignment]
+    close_series: pd.Series = close
     ret_df = prices_to_returns(close_series.to_frame(ticker))
     ret_series: pd.Series = ret_df.iloc[:, 0]
     ret_series.name = ticker

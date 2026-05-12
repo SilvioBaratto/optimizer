@@ -215,9 +215,7 @@ def optimize(
             macro = data.macro_data if len(data.macro_data) > 0 else None
             sectors = dict(data.sector_mapping) if data.sector_mapping else None
 
-            regime = (
-                data.regime_data if len(data.regime_data) > 0 else None
-            )
+            regime = data.regime_data if len(data.regime_data) > 0 else None
 
             result = run_full_pipeline_with_selection(
                 prices=data.prices,

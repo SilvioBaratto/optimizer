@@ -9,11 +9,10 @@ import dataclasses
 import logging
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
-from app.database import DatabaseManager
 from rich.console import Console
 from rich.panel import Panel
 
@@ -54,6 +53,21 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 
+class _RegimeRepoPersistence:
+    """Adapter satisfying RegimePersistenceProtocol via MacroRegimeRepository."""
+
+    def __init__(self, db_manager: Any, repo_class: Any) -> None:
+        self._db_manager = db_manager
+        self._repo_class = repo_class
+
+    def upsert_regime_classification(self, country: str, regime: str) -> None:
+        with self._db_manager.get_session() as session:
+            self._repo_class(session).upsert_regime_classification(
+                country=country, regime=regime
+            )
+            session.commit()
+
+
 def main(
     rebalance_freq: int = REBALANCE_FREQ,
     n_selected: int = N_SELECTED,
@@ -86,6 +100,8 @@ def main(
 
     try:
         # 1. Load
+        from app.database import DatabaseManager
+
         db_manager = DatabaseManager()
         db_manager.initialize()
         assembly, country_map, db_manager = load_data(
@@ -94,7 +110,7 @@ def main(
 
         # 1b. Optional date slicing (Cycle 5 §13)
         if start_date is not None or end_date is not None:
-            sliced = assembly.prices.loc[start_date:end_date]
+            sliced = assembly.prices.loc[start_date:end_date]  # type: ignore[misc]
             assembly = dataclasses.replace(assembly, prices=sliced)
             console.print(
                 f"  Sliced prices to "
@@ -136,10 +152,15 @@ def main(
         _check_factor_coverage(is_report, oos_result)
 
         # 6. Regime + tilts (regime_data passed to pipeline internally).
-        # db_manager forwarded so the rule-based regime is cached to
+        # MacroRegimeRepository injected so the rule-based regime is cached to
         # macro_calibrations.regime_classification (issue #530).
+        from app.repositories.macro.macro_regime_repository import (
+            MacroRegimeRepository,
+        )
+
+        regime_persistence = _RegimeRepoPersistence(db_manager, MacroRegimeRepository)
         current_regime, tilts = classify_and_tilt(
-            assembly, db_manager=db_manager
+            assembly, regime_persistence=regime_persistence
         )
         logger.info("Regime: %s, tilts: %s", current_regime.value, tilts)
 
@@ -161,9 +182,7 @@ def main(
         prev_weights = getattr(assembly, "previous_weights", None)
         target_arr = result.weights.to_numpy(dtype=float)
         prev_arr = (
-            np.asarray(prev_weights, dtype=float)
-            if prev_weights is not None
-            else None
+            np.asarray(prev_weights, dtype=float) if prev_weights is not None else None
         )
         result.rebalance_decision = _decide_rebalance(
             prev_weights=prev_arr,
@@ -192,12 +211,8 @@ def main(
             )
 
         # 7c. Cycle 4 §9.1: portfolio-weighted measured cost in bps.
-        cost_bps_actual = compute_weighted_cost_bps(
-            result.weights, country_map
-        )
-        logger.info(
-            "Measured cost: %.2f bps (weighted by country)", cost_bps_actual
-        )
+        cost_bps_actual = compute_weighted_cost_bps(result.weights, country_map)
+        logger.info("Measured cost: %.2f bps (weighted by country)", cost_bps_actual)
 
         # 8. Report
         pass_count, checklist_rules, metrics, chart_paths = report_performance(
@@ -218,7 +233,7 @@ def main(
             output_dir=output_dir,
             assembly_hash=assembly.assembly_hash,
             current_regime=current_regime,
-            tilts=tilts,
+            tilts=cast(dict[str, float], tilts),
             validation_report=is_report,
             oos_per_fold_ic=oos_result.per_fold_ic,
             result=result,

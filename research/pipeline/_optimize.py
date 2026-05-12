@@ -46,9 +46,7 @@ _DEFAULT_COSTS: dict[str, float] = {"stamp": 0.0, "spread": 6.0, "fx": 12.0}  # 
 # ---------------------------------------------------------------------------
 
 
-def compute_weighted_cost_bps(
-    weights: pd.Series, country_map: dict[str, str]
-) -> float:
+def compute_weighted_cost_bps(weights: pd.Series, country_map: dict[str, str]) -> float:
     """Portfolio-weighted total round-trip cost in bps (Cycle 4 §9.1)."""
     clean = weights.dropna()
     if clean.empty:
@@ -172,6 +170,6 @@ def optimize_portfolio(
     if net_sharpe is not None:
         msg += f", Net Sharpe = [cyan]{net_sharpe:.3f}[/cyan]"
     console.print(msg)
-    result.retighten_trace = retighten_trace
+    result.retighten_trace = retighten_trace  # type: ignore[attr-defined]
     _hockey_stick_warn(getattr(result, "net_returns", None))
     return result

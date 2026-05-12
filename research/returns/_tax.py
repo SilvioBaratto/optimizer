@@ -63,9 +63,7 @@ def compute_after_tax_returns(
     return after_tax
 
 
-def _txn_cost(
-    prev_w: pd.Series | None, new_w: pd.Series, cost_frac: float
-) -> float:
+def _txn_cost(prev_w: pd.Series | None, new_w: pd.Series, cost_frac: float) -> float:
     """One-way turnover × cost fraction; cold-start treats prior as cash."""
     if prev_w is None:
         delta = new_w.abs()

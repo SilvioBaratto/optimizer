@@ -6,7 +6,7 @@ Extracted from ``stock_selection_pipeline.py`` lines 827–889.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -19,6 +19,13 @@ from optimizer.factors._config import (
 from optimizer.factors._regime import apply_regime_tilts, classify_regime
 from research.data._regime import assemble_regime_data
 
+if TYPE_CHECKING:
+    from typing import Protocol
+
+    class RegimePersistenceProtocol(Protocol):
+        def upsert_regime_classification(self, country: str, regime: str) -> None: ...
+
+
 console = Console()
 logger = logging.getLogger(__name__)
 
@@ -30,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 def classify_and_tilt(
     assembly: Any,
-    db_manager: Any = None,
+    regime_persistence: RegimePersistenceProtocol | None = None,
 ) -> tuple[MacroRegime, dict[FactorGroupType, float]]:
     """Classify macro regime and compute regime-conditional group tilts.
 
@@ -43,8 +50,8 @@ def classify_and_tilt(
     classification + tilt application against publication-lag-shifted macro
     data; the regime printed here is the unlagged snapshot for inspection.
 
-    Issue #530: when ``db_manager`` is supplied, the rule-based regime is
-    cached into ``macro_calibrations.regime_classification`` for the ``US``
+    Issue #530: when ``regime_persistence`` is supplied, the rule-based regime
+    is cached into ``macro_calibrations.regime_classification`` for the ``US``
     country row so downstream services can read it without re-classifying.
     """
     console.print(Panel("[bold]Step 6[/bold] — Regime classification", style="blue"))
@@ -73,20 +80,15 @@ def classify_and_tilt(
     color = regime_colors.get(regime, "")
     console.print(f"  Macro regime: {color}{regime.value.upper()}[/]")
 
-    if db_manager is not None:
-        _cache_regime_classification(db_manager, regime)
+    if regime_persistence is not None:
+        _cache_regime_classification(regime_persistence, regime)
 
     return regime, tilts
 
 
 def _cache_regime_classification(
-    db_manager: Any, regime: MacroRegime
+    regime_persistence: RegimePersistenceProtocol,
+    regime: MacroRegime,
 ) -> None:
-    """Persist the rule-based regime to ``macro_calibrations`` for country='US'."""
-    from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
-
-    with db_manager.get_session() as session:
-        MacroRegimeRepository(session).upsert_regime_classification(
-            country="US", regime=regime.value
-        )
-        session.commit()
+    """Persist the rule-based regime via the injected persistence protocol."""
+    regime_persistence.upsert_regime_classification(country="US", regime=regime.value)

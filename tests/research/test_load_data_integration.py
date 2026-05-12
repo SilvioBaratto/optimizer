@@ -10,8 +10,8 @@ import pytest
 
 pytest.importorskip("typer")
 
+import research.pipeline as ssp
 import research.pipeline._load as _load_module
-from research import stock_selection_pipeline as ssp
 from research.data_assembly import DataAssembly
 
 # ---------------------------------------------------------------------------

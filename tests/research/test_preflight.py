@@ -764,8 +764,8 @@ class TestLoadDataIntegration:
     def test_when_preflight_fails_then_assemble_all_not_called(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        import research.pipeline as ssp
         import research.pipeline._load as _load_module
-        from research import stock_selection_pipeline as ssp
 
         sentinel = {"called": False}
 

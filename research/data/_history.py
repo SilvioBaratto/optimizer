@@ -20,9 +20,6 @@ _api_path = Path(__file__).parent.parent.parent / "api"
 if str(_api_path) not in sys.path:
     sys.path.insert(0, str(_api_path))
 
-from app.models.market_data.yfinance_data import FinancialStatement  # noqa: E402
-from app.models.universe.universe import Instrument  # noqa: E402
-
 from ._helpers import _STMT_LINE_ITEMS, _build_ticker_map, _to_float  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -58,6 +55,8 @@ def assemble_delisting_returns(session: Session) -> dict[str, float]:
         Empty when no delisted instruments exist.  Defaults to ``-0.30``
         when ``delisting_return`` is ``NULL`` in the database.
     """
+    from app.models.universe.universe import Instrument
+
     rows = session.execute(
         select(
             Instrument.yfinance_ticker,
@@ -116,6 +115,8 @@ def assemble_fundamental_history(
     units to major units (e.g. via ``normalize_fundamentals()``) before
     computing ratios.
     """
+    from app.models.market_data.yfinance_data import FinancialStatement
+
     ticker_map = _build_ticker_map(session)
     if tickers is not None:
         inv = {v: k for k, v in ticker_map.items()}

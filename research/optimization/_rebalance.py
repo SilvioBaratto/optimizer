@@ -50,8 +50,7 @@ def _hockey_stick_warn(
 
     peak_idx = int(np.argmax(sharpes)) + 1  # 1-indexed for human-readable log
     logger.warning(
-        "[WARN] hockey-stick — outperformance concentrated in period %d "
-        "(sharpes=%s)",
+        "[WARN] hockey-stick — outperformance concentrated in period %d (sharpes=%s)",
         peak_idx,
         [round(s, 3) for s in sharpes],
     )

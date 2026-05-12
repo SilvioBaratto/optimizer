@@ -19,8 +19,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
+from matplotlib.figure import Figure
 
 if TYPE_CHECKING:
     from optimizer.factors import FactorValidationReport
@@ -48,7 +50,7 @@ def _ensure_output_dir(output_dir: Path) -> Path:
     return output_dir
 
 
-def _save(fig: plt.Figure, path: Path) -> None:
+def _save(fig: Figure, path: Path) -> None:
     fig.savefig(path, dpi=DPI, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     logger.info("Saved %s", path)
@@ -119,7 +121,7 @@ def plot_drawdowns(
 
     ax.set_title("Underwater Chart", fontsize=14, fontweight="bold")
     ax.set_ylabel("Drawdown")
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y:.0%}"))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:.0%}"))
     ax.legend(loc="lower left")
     ax.grid(True, alpha=0.3)
     ax.set_xlim(drawdowns.index[0], drawdowns.index[-1])
@@ -206,7 +208,7 @@ def plot_sector_weights_over_time(
     )
     ax.set_title("Sector Allocation Over Time", fontsize=14, fontweight="bold")
     ax.set_ylabel("Weight")
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y:.0%}"))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:.0%}"))
     ax.legend(loc="upper left", fontsize=8, ncol=2)
     ax.grid(True, alpha=0.3)
     ax.set_xlim(sector_df.index[0], sector_df.index[-1])
@@ -239,7 +241,7 @@ def plot_country_allocation(
     )
     ax.set_title("Country Allocation Over Time", fontsize=14, fontweight="bold")
     ax.set_ylabel("Weight")
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y:.0%}"))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:.0%}"))
     ax.legend(loc="upper left", fontsize=8, ncol=2)
     ax.grid(True, alpha=0.3)
     ax.set_xlim(country_df.index[0], country_df.index[-1])

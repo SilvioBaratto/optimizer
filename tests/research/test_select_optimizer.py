@@ -11,6 +11,7 @@ import pytest
 from skfolio.optimization import MeanRisk
 from skfolio.uncertainty_set import EmpiricalMuUncertaintySet
 
+import research.pipeline as ssp
 import research.pipeline._optimize as _opt_module
 from optimizer.optimization import (
     MeanRiskConfig,
@@ -20,7 +21,6 @@ from optimizer.optimization import (
     build_mean_risk,
     build_robust_mean_risk,
 )
-from research import stock_selection_pipeline as ssp
 from research.optimization._config import _select_optimizer
 
 

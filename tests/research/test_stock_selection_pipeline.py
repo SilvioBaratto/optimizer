@@ -18,10 +18,11 @@ from optimizer.factors import (
 # Module under test imports api.app.database; ensure it can be loaded.
 pytest.importorskip("rich")
 
+import research.pipeline as ssp
 import research.pipeline._factors as _factors_module
 import research.pipeline._optimize as _opt_module
 import research.pipeline._regime as _regime_module
-from research import stock_selection_pipeline as ssp
+from research.optimization._config import _REGION_MAP
 
 
 def _stub_factor_scores() -> dict[str, pd.DataFrame]:
@@ -209,10 +210,11 @@ class TestOptimizePortfolioRegimeWiring:
 class TestClassifyAndTiltCachesRegime:
     """Issue #530: classify_and_tilt persists rule-based regime to DB."""
 
-    def test_when_db_manager_supplied_repository_upsert_called_with_us(
+    def test_when_regime_persistence_supplied_then_upsert_called_with_us(
         self,
     ) -> None:
         from types import SimpleNamespace
+        from unittest.mock import MagicMock
 
         from optimizer.factors import MacroRegime
 
@@ -222,49 +224,21 @@ class TestClassifyAndTiltCachesRegime:
             te_observations=pd.DataFrame(),
             sentiment_data=pd.DataFrame(),
         )
-        recorded: list[tuple[str, str]] = []
+        persistence = MagicMock()
 
-        class _StubRepo:
-            def __init__(self, _session: Any) -> None:
-                pass
-
-            def upsert_regime_classification(self, country: str, regime: str) -> None:
-                recorded.append((country, regime))
-
-        from contextlib import contextmanager
-        from unittest.mock import MagicMock
-
-        class _StubDb:
-            @contextmanager
-            def get_session(self) -> Any:
-                session = MagicMock()
-                try:
-                    yield session
-                finally:
-                    pass
-
-        # Patch the late-imported MacroRegimeRepository inside the helper.
-        import sys
-
-        fake_module = type(sys)("app.repositories.macro.macro_regime_repository")
-        fake_module.MacroRegimeRepository = _StubRepo  # type: ignore[attr-defined]
-        with (
-            patch.dict(
-                sys.modules,
-                {"app.repositories.macro.macro_regime_repository": fake_module},
-            ),
-            patch.object(
-                _regime_module,
-                "classify_regime",
-                return_value=MacroRegime.RECESSION,
-            ),
+        with patch.object(
+            _regime_module,
+            "classify_regime",
+            return_value=MacroRegime.RECESSION,
         ):
             ssp.classify_and_tilt(
                 assembly,  # type: ignore[arg-type]
-                db_manager=_StubDb(),  # type: ignore[arg-type]
+                regime_persistence=persistence,
             )
 
-        assert recorded == [("US", "recession")]
+        persistence.upsert_regime_classification.assert_called_once_with(
+            country="US", regime="recession"
+        )
 
     def test_when_db_manager_omitted_no_persistence_attempt(self) -> None:
         from types import SimpleNamespace
@@ -470,11 +444,10 @@ def _capture_optimizer(
 
 class TestRegionMapModuleConstant:
     def test_when_imported_then_module_constant_exists(self) -> None:
-        assert hasattr(ssp, "_REGION_MAP")
-        assert isinstance(ssp._REGION_MAP, dict)
-        assert ssp._REGION_MAP["United States"] == "Americas"
-        assert ssp._REGION_MAP["Germany"] == "Europe"
-        assert ssp._REGION_MAP["Japan"] == "Asia-Pacific"
+        assert isinstance(_REGION_MAP, dict)
+        assert _REGION_MAP["United States"] == "Americas"
+        assert _REGION_MAP["Germany"] == "Europe"
+        assert _REGION_MAP["Japan"] == "Asia-Pacific"
 
 
 class TestHardConstrainedMeanRiskSpec:

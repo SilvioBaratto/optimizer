@@ -136,9 +136,7 @@ def _slice_fundamentals_at(
                 [c for c in quarterly_slice.columns if c not in pit_slice.columns]
             ]
         )
-        shared_cols = [
-            c for c in quarterly_slice.columns if c in pit_slice.columns
-        ]
+        shared_cols = [c for c in quarterly_slice.columns if c in pit_slice.columns]
         if shared_cols:
             pit_slice.update(quarterly_slice[shared_cols])
 
@@ -288,14 +286,10 @@ def build_factor_scores_history(
                 price_history=price_history,
                 volume_history=volume_history,
                 analyst_data=(
-                    assembly.analyst_data
-                    if not assembly.analyst_data.empty
-                    else None
+                    assembly.analyst_data if not assembly.analyst_data.empty else None
                 ),
                 insider_data=(
-                    assembly.insider_data
-                    if not assembly.insider_data.empty
-                    else None
+                    assembly.insider_data if not assembly.insider_data.empty else None
                 ),
                 config=factor_config,
             )

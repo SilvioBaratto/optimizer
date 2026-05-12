@@ -106,42 +106,19 @@ class TestCliMain:
 
 class TestPipelineShim:
     def test_imports_from_pipeline(self) -> None:
-        from research import _pipeline
+        import research.pipeline as pipeline
 
-        assert hasattr(_pipeline, "load_data")
-        assert hasattr(_pipeline, "optimize_portfolio")
-        assert hasattr(_pipeline, "classify_and_tilt")
+        assert hasattr(pipeline, "load_data")
+        assert hasattr(pipeline, "optimize_portfolio")
+        assert hasattr(pipeline, "classify_and_tilt")
 
     def test_has_all_dunder(self) -> None:
-        from research import _pipeline
+        import research.pipeline as pipeline
 
-        all_list = getattr(_pipeline, "__all__", None)
+        all_list = getattr(pipeline, "__all__", None)
         assert all_list is not None
         assert "load_data" in all_list
         assert "optimize_portfolio" in all_list
-
-
-class TestStockSelectionPipelineCompat:
-    def test_imports_from_pipeline(self) -> None:
-        import research.stock_selection_pipeline as ssp
-
-        assert hasattr(ssp, "load_data")
-        assert hasattr(ssp, "optimize_portfolio")
-
-    def test_all_public_symbols_in_all(self) -> None:
-        import research.stock_selection_pipeline as ssp
-
-        all_list = getattr(ssp, "__all__", None)
-        assert all_list is not None
-        for name in ("load_data", "optimize_portfolio", "screen_investable"):
-            assert name in all_list, f"{name} not in __all__"
-
-
-class TestCliCompat:
-    def test_re_exports(self) -> None:
-        from research._cli import build_parser
-
-        assert callable(build_parser)
 
 
 # ---------------------------------------------------------------------------

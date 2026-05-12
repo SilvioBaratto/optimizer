@@ -21,8 +21,6 @@ _api_path = Path(__file__).parent.parent.parent / "api"
 if str(_api_path) not in sys.path:
     sys.path.insert(0, str(_api_path))
 
-from app.models.universe.universe import Instrument  # noqa: E402
-
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -130,6 +128,8 @@ def _build_ticker_map(
     include_delisted : bool, default=True
         When ``False``, exclude instruments with a non-null ``delisted_at``.
     """
+    from app.models.universe.universe import Instrument
+
     stmt = (
         select(Instrument.id, Instrument.yfinance_ticker)
         .where(Instrument.yfinance_ticker.isnot(None))

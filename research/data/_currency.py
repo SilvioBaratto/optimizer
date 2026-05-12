@@ -199,8 +199,11 @@ def normalize_fundamentals(
     logger.info(
         "Normalized %d tickers from minor-unit currencies (divisors: %s).",
         total_normalized,
-        {ccy: div for ccy, div in MINOR_CURRENCY_DIVISORS.items()
-         if any(currency_map.get(t) == ccy for t in df.index)},
+        {
+            ccy: div
+            for ccy, div in MINOR_CURRENCY_DIVISORS.items()
+            if any(currency_map.get(t) == ccy for t in df.index)
+        },
     )
 
     normalized_map = {

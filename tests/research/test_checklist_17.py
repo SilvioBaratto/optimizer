@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from research import stock_selection_pipeline as ssp
+import research.pipeline as ssp
 
 # ---------------------------------------------------------------------------
 # Baseline fixtures — values chosen so every rule passes.
@@ -324,7 +324,7 @@ class TestCurrencyHedgeAdvisory:
             currency_map[t] = "USD"
         with caplog.at_level(
             logging.WARNING,
-            logger="research.stock_selection_pipeline",
+            logger="research.pipeline._checklist",
         ):
             rules = _validate(currency_map=currency_map)
         assert any(
@@ -342,7 +342,7 @@ class TestCurrencyHedgeAdvisory:
         currency_map[_TICKERS[0]] = "USD"  # 4% only
         with caplog.at_level(
             logging.WARNING,
-            logger="research.stock_selection_pipeline",
+            logger="research.pipeline._checklist",
         ):
             _validate(currency_map=currency_map)
         assert not any("hedging" in rec.message.lower() for rec in caplog.records)
