@@ -18,7 +18,15 @@ from rich.progress import (
 )
 from rich.table import Table
 
-console = Console()
+_console: Console | None = None
+
+
+def _get_console() -> Console:
+    """Return the module-level Rich Console, creating it lazily on first call."""
+    global _console
+    if _console is None:
+        _console = Console()
+    return _console
 
 
 # ------------------------------------------------------------------
@@ -28,22 +36,22 @@ console = Console()
 
 def error_panel(msg: str) -> None:
     """Print a red error panel."""
-    console.print(Panel(msg, title="Error", border_style="red"))
+    _get_console().print(Panel(msg, title="Error", border_style="red"))
 
 
 def success_panel(msg: str) -> None:
     """Print a green success panel."""
-    console.print(Panel(msg, title="Success", border_style="green"))
+    _get_console().print(Panel(msg, title="Success", border_style="green"))
 
 
 def warning_panel(msg: str) -> None:
     """Print a yellow warning panel."""
-    console.print(Panel(msg, title="Warning", border_style="yellow"))
+    _get_console().print(Panel(msg, title="Warning", border_style="yellow"))
 
 
 def info_panel(title: str, body: str) -> None:
     """Print a blue informational panel."""
-    console.print(Panel(body, title=title, border_style="blue"))
+    _get_console().print(Panel(body, title=title, border_style="blue"))
 
 
 # ------------------------------------------------------------------
@@ -58,7 +66,7 @@ def dict_table(data: dict[str, Any], title: str = "") -> None:
     table.add_column("Value")
     for key, value in data.items():
         table.add_row(str(key), str(value))
-    console.print(table)
+    _get_console().print(table)
 
 
 def list_table(
@@ -71,7 +79,7 @@ def list_table(
     Only the keys listed in *columns* are shown, in order.
     """
     if not rows:
-        console.print(f"[dim]No data to display for '{title}'.[/dim]")
+        _get_console().print(f"[dim]No data to display for '{title}'.[/dim]")
         return
 
     table = Table(title=title, show_header=True, header_style="bold cyan")
@@ -79,7 +87,7 @@ def list_table(
         table.add_column(col)
     for row in rows:
         table.add_row(*(str(row.get(col, "")) for col in columns))
-    console.print(table)
+    _get_console().print(table)
 
 
 # ------------------------------------------------------------------
@@ -96,6 +104,7 @@ def progress_loop(
     *poll_fn* must return a dict with at least ``status``, ``current``,
     and ``total`` keys.  Returns the final poll result.
     """
+    console = _get_console()
     progress = Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),

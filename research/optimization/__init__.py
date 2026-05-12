@@ -1,4 +1,20 @@
-"""Optimization module — config construction, retighten loop, and rebalancing."""
+"""Optimization module — config construction, retighten loop, and rebalancing.
+
+Convention — intentional private exports
+-----------------------------------------
+Unlike ``research.data``, which exposes only a stable public API (zero
+underscore-prefixed symbols), this sub-package intentionally includes
+private (underscore-prefixed) symbols in ``__all__``.  The reason is
+test-patching: internal constants (``_REGION_MAP``, ``_SECTOR_FLOORS``,
+``_TOP4_THRESHOLD``, etc.) and helpers (``_make_builder``, ``_solve_with_retighten``,
+etc.) must be reachable for ``unittest.mock.patch`` calls such as::
+
+    patch("research.optimization._config._REGION_MAP", {...})
+
+Removing them from ``__all__`` would break test isolation without providing
+any meaningful encapsulation benefit, since this module is not a shipped
+public library API.
+"""
 
 from research.optimization._config import (
     _MAX_REGION_WEIGHT,

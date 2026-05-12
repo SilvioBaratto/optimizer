@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import warnings
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -107,7 +108,7 @@ class TestAlignToPitWithPanel:
         result = align_to_pit(
             hist_reset,
             period_date_col="period_date",
-            as_of_date=pd.Timestamp("2025-02-01"),
+            as_of_date=cast(pd.Timestamp, pd.Timestamp("2025-02-01")),
             lag_days=90,
             ticker_col="ticker",
         )
@@ -131,7 +132,7 @@ class TestAlignToPitWithPanel:
         result = align_to_pit(
             hist_reset,
             period_date_col="period_date",
-            as_of_date=pd.Timestamp("2025-04-15"),
+            as_of_date=cast(pd.Timestamp, pd.Timestamp("2025-04-15")),
             lag_days=90,
             ticker_col="ticker",
         )
@@ -153,7 +154,7 @@ class TestAlignToPitWithPanel:
         result_q = align_to_pit(
             hist_reset,
             period_date_col="period_date",
-            as_of_date=pd.Timestamp("2025-03-01"),
+            as_of_date=cast(pd.Timestamp, pd.Timestamp("2025-03-01")),
             lag_days=45,
             ticker_col="ticker",
         )
@@ -171,7 +172,7 @@ class TestAlignToPitWithPanel:
         result = align_to_pit(
             hist_reset,
             period_date_col="period_date",
-            as_of_date=pd.Timestamp("2025-02-01"),
+            as_of_date=cast(pd.Timestamp, pd.Timestamp("2025-02-01")),
             lag_days=90,
             ticker_col="ticker",
         )
@@ -181,6 +182,163 @@ class TestAlignToPitWithPanel:
 # ---------------------------------------------------------------------------
 # Tests: _slice_fundamentals_at (imported from research module)
 # ---------------------------------------------------------------------------
+
+
+@_skip_no_research
+class TestSliceFundamentalsAtPITBoundary:
+    """Explicit boundary contract for _slice_fundamentals_at.
+
+    The only observable guarantee that _slice_fundamentals_at cannot silently
+    include future data if align_to_pit's boundary changes.
+
+    Contract (from align_to_pit docstring):
+        A record is available when D + lag_days <= as_of_date,
+        equivalently D <= as_of_date - lag_days.
+
+    Therefore:
+    - period_date = as_of_date - lag_days  → IS included (D == cutoff, <=)
+    - period_date = as_of_date - lag_days + 1  → EXCLUDED (D > cutoff, >)
+    """
+
+    LAG_DAYS = 90
+
+    @pytest.fixture()
+    def _slicer(self):
+        from research.factors._history import _slice_fundamentals_at
+
+        return _slice_fundamentals_at
+
+    @pytest.fixture()
+    def _as_of(self) -> pd.Timestamp:
+        return cast(pd.Timestamp, pd.Timestamp("2025-04-01"))
+
+    @pytest.fixture()
+    def _lag_config(self) -> PublicationLagConfig:
+        return PublicationLagConfig(annual_days=self.LAG_DAYS)
+
+    def _make_single_row_history(
+        self,
+        period_date: pd.Timestamp,
+        ticker: str = "AAPL",
+        value: float = 1.0,
+    ) -> pd.DataFrame:
+        """Build a one-row history panel with a known earnings value."""
+        record = {
+            "period_date": period_date,
+            "ticker": ticker,
+            "net_income": value,
+            "total_assets": 1e10,
+            "total_equity": 5e9,
+            "period_type": "annual",
+        }
+        return pd.DataFrame([record]).set_index(["period_date", "ticker"]).sort_index()
+
+    def _make_snapshot(self, ticker: str = "AAPL") -> pd.DataFrame:
+        return pd.DataFrame(
+            {"market_cap": [1e10]},
+            index=pd.Index([ticker], name="ticker"),
+        )
+
+    def test_boundary_row_at_exact_cutoff_is_included(
+        self,
+        _slicer,
+        _as_of: pd.Timestamp,
+        _lag_config: PublicationLagConfig,
+    ) -> None:
+        """period_date = as_of_date - lag_days MUST be included.
+
+        Publication date = as_of_date (D + lag_days = as_of_date), which means
+        the data is available exactly today — it must appear in the slice.
+        """
+        period_date = _as_of - pd.Timedelta(days=self.LAG_DAYS)
+        history = self._make_single_row_history(period_date, value=42.0)
+        snapshot = self._make_snapshot()
+
+        result = _slicer(_as_of, history, snapshot, _lag_config)
+
+        assert "AAPL" in result.index, (
+            f"Row with period_date={period_date.date()} (as_of - {self.LAG_DAYS} days) "
+            f"must be included but was absent. "
+            f"This means _slice_fundamentals_at leaks future data."
+        )
+        assert result.loc["AAPL", "net_income"] == pytest.approx(42.0)
+
+    def test_boundary_row_one_day_too_recent_is_excluded(
+        self,
+        _slicer,
+        _as_of: pd.Timestamp,
+        _lag_config: PublicationLagConfig,
+    ) -> None:
+        """period_date = as_of_date - lag_days + 1 MUST be excluded.
+
+        Publication date = as_of_date + 1 (one day in the future) — future data
+        that has not yet been published must never appear in the slice.
+        """
+        period_date = _as_of - pd.Timedelta(days=self.LAG_DAYS - 1)
+        history = self._make_single_row_history(period_date, value=99.0)
+        snapshot = self._make_snapshot()
+
+        result = _slicer(_as_of, history, snapshot, _lag_config)
+
+        # No history row passes the cutoff, so the function falls back to snapshot.
+        # The snapshot does NOT contain net_income; if it does appear it came from
+        # the history row that should have been excluded.
+        if "AAPL" in result.index and "net_income" in result.columns:
+            lag_minus_1 = self.LAG_DAYS - 1
+            assert result.loc["AAPL", "net_income"] != pytest.approx(99.0), (
+                f"Row with period_date={period_date.date()} "
+                f"(as_of - {lag_minus_1} days) leaked into the slice. "
+                f"This is look-ahead bias — publication date is as_of + 1."
+            )
+
+    def test_both_boundary_rows_present_only_included_row_wins(
+        self,
+        _slicer,
+        _as_of: pd.Timestamp,
+        _lag_config: PublicationLagConfig,
+    ) -> None:
+        """When two rows exist, only the on-boundary row must be returned.
+
+        - period_date = as_of - lag_days  (value=10) → IS included
+        - period_date = as_of - lag_days + 1 (value=20) → EXCLUDED
+
+        The slice must return 10, not 20.
+        """
+        included_date = _as_of - pd.Timedelta(days=self.LAG_DAYS)
+        excluded_date = _as_of - pd.Timedelta(days=self.LAG_DAYS - 1)
+
+        records = [
+            {
+                "period_date": included_date,
+                "ticker": "AAPL",
+                "net_income": 10.0,
+                "total_assets": 1e10,
+                "total_equity": 5e9,
+                "period_type": "annual",
+            },
+            {
+                "period_date": excluded_date,
+                "ticker": "AAPL",
+                "net_income": 20.0,
+                "total_assets": 1.1e10,
+                "total_equity": 5.5e9,
+                "period_type": "annual",
+            },
+        ]
+        history = (
+            pd.DataFrame(records).set_index(["period_date", "ticker"]).sort_index()
+        )
+        snapshot = self._make_snapshot()
+
+        result = _slicer(_as_of, history, snapshot, _lag_config)
+
+        assert "AAPL" in result.index
+        assert result.loc["AAPL", "net_income"] == pytest.approx(10.0), (
+            f"Expected 10.0 (boundary row at as_of - {self.LAG_DAYS} days) "
+            f"but got {result.loc['AAPL', 'net_income']}. "
+            f"The excluded row (as_of - {self.LAG_DAYS - 1} days, value=20) "
+            f"must NOT be used."
+        )
 
 
 @_skip_no_research

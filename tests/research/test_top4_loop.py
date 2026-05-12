@@ -18,7 +18,10 @@ from optimizer.optimization import MeanRiskConfig
 from research.optimization._retighten import (
     _SHRINK_FACTOR,
     _TOP4_THRESHOLD,
+    _TRADING_DAYS_PER_YEAR,
+    _annualized_sharpe,
     _solve_with_retighten,
+    _split_into_subperiods,
     _top4_weight,
 )
 
@@ -34,7 +37,7 @@ class _FakeMeanRisk:
         self.max_weights = max_weights
         self._weights = np.asarray(weights, dtype=float)
 
-    def fit(self, X: pd.DataFrame) -> _FakeMeanRisk:
+    def fit(self, _: pd.DataFrame) -> _FakeMeanRisk:
         self.weights_ = self._weights
         return self
 
@@ -113,7 +116,7 @@ class TestRetightenConvergence:
         self, returns_20: pd.DataFrame
     ) -> None:
         diversified = np.full(20, 1.0 / 20)  # top4 = 0.20 < 0.30
-        opt = _FakeMeanRisk(0.10, diversified)
+        opt: Any = _FakeMeanRisk(0.10, diversified)
         builder, seen_max = _builder_from_sequence([])
 
         result, trace = _solve_with_retighten(
@@ -136,10 +139,10 @@ class TestRetightenConvergence:
         concentrated[4:] = 0.60 / 16
         diversified = np.full(20, 1.0 / 20)
 
-        opt = _FakeMeanRisk(0.10, concentrated)
-        builder, _seen = _builder_from_sequence([concentrated, diversified])
+        opt: Any = _FakeMeanRisk(0.10, concentrated)
+        builder, _ = _builder_from_sequence([concentrated, diversified])
 
-        _result, trace = _solve_with_retighten(
+        _, trace = _solve_with_retighten(
             opt,
             returns_20,
             config=_config(0.10),
@@ -160,10 +163,10 @@ class TestRetightenConvergence:
         concentrated[:4] = 0.10
         concentrated[4:] = 0.60 / 16
         diversified = np.full(20, 1.0 / 20)
-        opt = _FakeMeanRisk(0.10, concentrated)
+        opt: Any = _FakeMeanRisk(0.10, concentrated)
         builder, _ = _builder_from_sequence([concentrated, diversified])
 
-        _result, trace = _solve_with_retighten(
+        _, trace = _solve_with_retighten(
             opt,
             returns_20,
             config=_config(0.10),
@@ -185,7 +188,7 @@ class TestRetightenDivergence:
         concentrated = np.array(
             [0.10, 0.10, 0.10, 0.10, 0.20, 0.20, 0.10, 0.10],
         )
-        opt = _FakeMeanRisk(0.10, concentrated)
+        opt: Any = _FakeMeanRisk(0.10, concentrated)
         builder, _ = _builder_from_sequence(
             [concentrated.copy() for _ in range(5)],
         )
@@ -204,7 +207,7 @@ class TestRetightenDivergence:
         concentrated = np.array(
             [0.10, 0.10, 0.10, 0.10, 0.15, 0.15, 0.15, 0.15],
         )
-        opt = _FakeMeanRisk(0.10, concentrated)
+        opt: Any = _FakeMeanRisk(0.10, concentrated)
         builder, _ = _builder_from_sequence(
             [concentrated.copy() for _ in range(5)],
         )
@@ -222,7 +225,7 @@ class TestRetightenDivergence:
         concentrated = np.array(
             [0.10, 0.10, 0.10, 0.10, 0.15, 0.15, 0.15, 0.15],
         )
-        opt = _FakeMeanRisk(0.10, concentrated)
+        opt: Any = _FakeMeanRisk(0.10, concentrated)
         builder, _ = _builder_from_sequence(
             [concentrated.copy() for _ in range(5)],
         )
@@ -240,7 +243,7 @@ class TestRetightenDivergence:
         concentrated = np.array(
             [0.10, 0.10, 0.10, 0.10, 0.20, 0.20, 0.10, 0.10],
         )
-        opt = _FakeMeanRisk(0.10, concentrated)
+        opt: Any = _FakeMeanRisk(0.10, concentrated)
         builder, seen_max = _builder_from_sequence(
             [concentrated.copy() for _ in range(5)],
         )
@@ -264,9 +267,9 @@ class TestTraceShape:
         self, returns_20: pd.DataFrame
     ) -> None:
         diversified = np.full(20, 1.0 / 20)
-        opt = _FakeMeanRisk(0.10, diversified)
+        opt: Any = _FakeMeanRisk(0.10, diversified)
         builder, _ = _builder_from_sequence([])
-        _result, trace = _solve_with_retighten(
+        _, trace = _solve_with_retighten(
             opt,
             returns_20,
             config=_config(0.10),
@@ -279,9 +282,9 @@ class TestTraceShape:
         self, returns_20: pd.DataFrame
     ) -> None:
         diversified = np.full(20, 1.0 / 20)
-        opt = _FakeMeanRisk(0.10, diversified)
+        opt: Any = _FakeMeanRisk(0.10, diversified)
         builder, _ = _builder_from_sequence([])
-        _result, trace = _solve_with_retighten(
+        _, trace = _solve_with_retighten(
             opt,
             returns_20,
             config=_config(0.10),
@@ -297,3 +300,91 @@ class TestTraceShape:
 
     def test_when_shrink_factor_imported_then_equals_095(self) -> None:
         assert pytest.approx(0.95) == _SHRINK_FACTOR
+
+
+# ---------------------------------------------------------------------------
+# _annualized_sharpe — edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestAnnualizedSharpe:
+    def test_when_empty_array_then_returns_zero(self) -> None:
+        assert _annualized_sharpe(np.array([])) == 0.0
+
+    def test_when_single_element_array_then_returns_zero(self) -> None:
+        # std with ddof=1 is undefined for size-1; falls back to 0
+        assert _annualized_sharpe(np.array([0.05])) == 0.0
+
+    def test_when_zero_variance_returns_then_returns_zero(self) -> None:
+        # All identical values → std == 0
+        assert _annualized_sharpe(np.full(10, 0.01)) == 0.0
+
+    def test_when_normal_returns_then_result_is_finite_float(self) -> None:
+        rng = np.random.default_rng(0)
+        returns = rng.normal(loc=0.001, scale=0.01, size=252)
+        result = _annualized_sharpe(returns)
+        assert isinstance(result, float)
+        assert np.isfinite(result)
+
+    def test_when_positive_mean_positive_std_then_positive_sharpe(self) -> None:
+        # Positive drift → positive Sharpe
+        rng = np.random.default_rng(1)
+        returns = rng.normal(loc=0.005, scale=0.01, size=252)
+        assert _annualized_sharpe(returns) > 0.0
+
+    def test_when_annualized_then_scales_by_sqrt_trading_days(self) -> None:
+        # Use a deterministic array; verify annualization factor
+        returns = np.array([0.01, 0.02, -0.01, 0.03])
+        mean = float(np.mean(returns))
+        std = float(np.std(returns, ddof=1))
+        expected = mean / std * np.sqrt(_TRADING_DAYS_PER_YEAR)
+        assert _annualized_sharpe(returns) == pytest.approx(expected)
+
+
+# ---------------------------------------------------------------------------
+# _split_into_subperiods — edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestSplitIntoSubperiods:
+    def _make_series(self, n: int) -> pd.Series:
+        idx = pd.date_range("2020-01-01", periods=n, freq="B")
+        return pd.Series(np.arange(float(n)), index=idx)
+
+    def test_when_n_equals_one_then_returns_single_slice_with_all_data(
+        self,
+    ) -> None:
+        s = self._make_series(10)
+        slices = _split_into_subperiods(s, 1)
+        assert len(slices) == 1
+        assert len(slices[0]) == 10
+
+    def test_when_n_equals_length_then_each_slice_has_one_element(self) -> None:
+        s = self._make_series(4)
+        slices = _split_into_subperiods(s, 4)
+        assert len(slices) == 4
+        assert all(len(sl) == 1 for sl in slices)
+
+    def test_when_n_larger_than_length_then_some_slices_are_empty(self) -> None:
+        s = self._make_series(2)
+        slices = _split_into_subperiods(s, 5)
+        assert len(slices) == 5
+        total = sum(len(sl) for sl in slices)
+        assert total == 2
+
+    def test_when_three_subperiods_then_slices_are_contiguous_and_cover_all(
+        self,
+    ) -> None:
+        s = self._make_series(9)
+        slices = _split_into_subperiods(s, 3)
+        assert len(slices) == 3
+        assert sum(len(sl) for sl in slices) == 9
+
+    def test_when_split_then_values_match_original_order(self) -> None:
+        s = self._make_series(6)
+        slices = _split_into_subperiods(s, 3)
+        reconstructed = pd.concat(slices)
+        pd.testing.assert_series_equal(reconstructed, s)
+
+    def test_when_trading_days_constant_then_equals_252(self) -> None:
+        assert _TRADING_DAYS_PER_YEAR == 252

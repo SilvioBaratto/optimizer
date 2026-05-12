@@ -438,3 +438,104 @@ class TestValidateFactorsVIFExceptionHandling:
         ):
             validate_factors(fsh, rh, std)
             assert any("VIF" in r.message for r in caplog.records)
+
+    def test_happy_path_returns_factor_validation_report(
+        self, _validation_inputs: tuple
+    ) -> None:
+        """validate_factors returns a FactorValidationReport on success."""
+        from optimizer.factors._validation import FactorValidationReport
+        from research.factors._validator import validate_factors
+
+        fsh, rh, std = _validation_inputs
+        with patch(
+            "research.factors._validator.compute_vif",
+            return_value=pd.Series([1.2, 1.5, 1.1, 1.3]),
+        ):
+            report = validate_factors(fsh, rh, std)
+        assert isinstance(report, FactorValidationReport)
+        assert report.vif_scores is not None
+
+
+# ---------------------------------------------------------------------------
+# _validator.py boundary tests
+# ---------------------------------------------------------------------------
+
+
+@_skip_no_research
+class TestValidatorImportBoundary:
+    """Verify _validator.py only imports from allowed modules.
+
+    No ``research.*`` imports are permitted (boundary).
+    """
+
+    def test_no_research_imports_in_validator_module(self) -> None:
+        """_validator.py must not import from research.* (boundary violation)."""
+        import ast
+        import importlib.util
+        from pathlib import Path
+
+        spec = importlib.util.find_spec("research.factors._validator")
+        assert spec is not None, "research.factors._validator not found"
+        assert spec.origin is not None
+
+        source = Path(spec.origin).read_text()
+        tree = ast.parse(source)
+
+        research_imports: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.module and node.module.startswith("research"):
+                    research_imports.append(node.module)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.startswith("research"):
+                        research_imports.append(alias.name)
+
+        assert research_imports == [], (
+            f"_validator.py must not import from research.*; found: {research_imports}"
+        )
+
+    def test_validator_imports_only_from_allowed_modules(self) -> None:
+        """_validator.py imports come only from stdlib, pandas, and optimizer.*."""
+        import ast
+        import importlib.util
+        from pathlib import Path
+
+        spec = importlib.util.find_spec("research.factors._validator")
+        assert spec is not None
+        assert spec.origin is not None
+
+        source = Path(spec.origin).read_text()
+        tree = ast.parse(source)
+
+        allowed_prefixes = ("__future__", "logging", "pandas", "numpy", "optimizer")
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                assert any(module.startswith(p) for p in allowed_prefixes), (
+                    f"Unexpected import from '{module}' in _validator.py"
+                )
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert any(alias.name.startswith(p) for p in allowed_prefixes), (
+                        f"Unexpected import '{alias.name}' in _validator.py"
+                    )
+
+
+@_skip_no_research
+class TestValidatorPackageSurface:
+    """Verify validate_factors is exported from the research.factors package."""
+
+    def test_validate_factors_importable_from_research_factors(self) -> None:
+        """validate_factors must be importable directly from research.factors."""
+        from research.factors import validate_factors as vf
+
+        assert callable(vf)
+
+    def test_validate_factors_in_research_factors_all(self) -> None:
+        """validate_factors must appear in research.factors.__all__."""
+        import research.factors as rf
+
+        assert hasattr(rf, "__all__"), "research.factors must define __all__"
+        assert "validate_factors" in rf.__all__

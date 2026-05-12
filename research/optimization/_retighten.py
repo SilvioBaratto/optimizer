@@ -18,6 +18,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "_TOP_N",
+    "_TOP4_THRESHOLD",
+    "_SHRINK_FACTOR",
+    "_TRADING_DAYS_PER_YEAR",
+    "_top4_weight",
+    "_retighten_error_message",
+    "_solve_with_retighten",
+    "_annualized_sharpe",
+    "_split_into_subperiods",
+]
+
 # Cycle-3 §7.3 Top-4 retighten constants
 _TOP_N = 4
 _TOP4_THRESHOLD = 0.30
@@ -85,11 +97,11 @@ def _solve_with_retighten(
 
 
 def _annualized_sharpe(returns: np.ndarray) -> float:
-    """Annualized Sharpe of a daily-return slice; 0 when std == 0."""
+    """Annualized Sharpe of a daily-return slice; 0 when std is effectively 0."""
     if returns.size == 0:
         return 0.0
     std = float(np.std(returns, ddof=1)) if returns.size > 1 else 0.0
-    if std == 0.0:
+    if std < 1e-10:
         return 0.0
     return float(np.mean(returns) / std * np.sqrt(_TRADING_DAYS_PER_YEAR))
 

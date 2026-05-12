@@ -178,23 +178,25 @@ def _make_builder(
 ) -> Callable[[MeanRiskConfig], MeanRisk]:
     """Return a builder closure that materialises a ``MeanRisk`` per config.
 
-    Captures the immutable side-inputs (sector mapping, country mapping,
-    previous weights, robust toggle) so the retighten loop can rebuild
-    the estimator from a shrunken config without re-threading them.
+    Snapshots all mutable side-inputs at closure creation time so that
+    subsequent caller mutations are invisible to the retighten loop.
     """
+    _prev_w = previous_weights.copy() if previous_weights is not None else None
+    _sector_mapping = dict(sector_mapping)
+    _country_map = dict(country_map) if country_map is not None else None
 
     def builder(config: MeanRiskConfig) -> MeanRisk:
         opt = _select_optimizer(
             config,
             robust=robust,
             uncertainty_level=uncertainty_level,
-            sector_mapping=sector_mapping,
+            sector_mapping=_sector_mapping,
             min_sector_weights=_SECTOR_FLOORS,
-            previous_weights=previous_weights,
+            previous_weights=_prev_w,
         )
-        if country_map:
+        if _country_map:
             _, region_rows = build_region_linear_constraints(
-                country_map, _REGION_MAP, max_region_weight=_MAX_REGION_WEIGHT
+                _country_map, _REGION_MAP, max_region_weight=_MAX_REGION_WEIGHT
             )
             existing = list(opt.linear_constraints or [])
             opt.linear_constraints = existing + region_rows

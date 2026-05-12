@@ -202,3 +202,135 @@ class TestRegionBindingDetection:
         a, b, labels = _build_region_matrix(_COUNTRY_MAP, _TICKERS)
         binding = compute_binding_constraints(a, b, weights, labels=labels)
         assert any("Europe" in row for row in binding)
+
+
+# ---------------------------------------------------------------------------
+# Mutation isolation — _make_builder defensive copy (issue #670)
+# ---------------------------------------------------------------------------
+
+
+class TestMakeBuilderMutationIsolation:
+    """_make_builder must snapshot mutable inputs at closure creation time.
+
+    The retighten loop calls builder(config) *after* the caller may have
+    modified the original dicts/arrays.  All three mutable parameters
+    (previous_weights, sector_mapping, country_map) must be copied
+    defensively so later mutations are invisible to the closure.
+    """
+
+    def _base_config(self) -> _make_opt_config:  # type: ignore[name-defined]
+        from research.optimization._config import _make_opt_config
+
+        return _make_opt_config(n_survivors=5, target_count=5, cost_bps=10.0)
+
+    # -- previous_weights isolation -------------------------------------------
+
+    def test_when_previous_weights_mutated_after_builder_creation_then_optimizer_uses_original(  # noqa: E501
+        self,
+    ) -> None:
+        """Mutating previous_weights array after builder creation must not bleed in."""
+        original = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
+        prev = original.copy()
+
+        builder = _make_builder(
+            sector_mapping=dict.fromkeys(_TICKERS, "Tech"),
+            country_map=None,
+            previous_weights=prev,
+        )
+
+        # Mutate *after* closure creation
+        prev[:] = 99.0
+
+        opt = builder(self._base_config())
+
+        # The optimizer must carry the original weights, not the mutated ones
+        assert opt.previous_weights is not None
+        np.testing.assert_array_equal(opt.previous_weights, original)
+
+    def test_when_previous_weights_none_then_builder_still_works(self) -> None:
+        builder = _make_builder(
+            sector_mapping=dict.fromkeys(_TICKERS, "Tech"),
+            country_map=None,
+            previous_weights=None,
+        )
+        opt = builder(self._base_config())
+        assert opt.previous_weights is None
+
+    # -- sector_mapping isolation ---------------------------------------------
+
+    def test_when_sector_mapping_mutated_after_builder_creation_then_optimizer_uses_original(  # noqa: E501
+        self,
+    ) -> None:
+        """Mutating sector_mapping dict after builder creation must not bleed in."""
+        sector_mapping = {"AAPL": "Tech", "MSFT": "Tech"}
+
+        builder = _make_builder(
+            sector_mapping=sector_mapping,
+            country_map=None,
+            previous_weights=None,
+        )
+
+        # Mutate *after* closure creation — add a new ticker with a new sector
+        sector_mapping["JPM"] = "Financials"
+
+        opt = builder(self._base_config())
+
+        # The groups/constraints must reflect the original two-ticker mapping
+        # not the mutated three-ticker one: "Financials" must not appear
+        constraints = opt.linear_constraints or []
+        assert not any("Financials" in c for c in constraints), (
+            "sector_mapping mutation leaked into builder: 'Financials' found "
+            f"in constraints {constraints!r}"
+        )
+
+    # -- country_map isolation ------------------------------------------------
+
+    def test_when_country_map_mutated_after_builder_creation_then_optimizer_uses_original(  # noqa: E501
+        self,
+    ) -> None:
+        """Mutating country_map dict after builder creation must not bleed in."""
+        country_map = {
+            "AAPL": "United States",
+            "MSFT": "United States",
+        }
+
+        builder = _make_builder(
+            sector_mapping=dict.fromkeys(["AAPL", "MSFT"], "Tech"),
+            country_map=country_map,
+            previous_weights=None,
+        )
+
+        # Mutate *after* closure creation — inject a European ticker
+        country_map["SAP"] = "Germany"
+
+        opt = builder(self._base_config())
+
+        # Only "Americas" should appear; "Europe" must be absent because SAP was
+        # added after builder creation.
+        region_constraints = [
+            row for row in (opt.linear_constraints or []) if "<=" in row
+        ]
+        regions_in_constraints = {row.split(" <= ")[0] for row in region_constraints}
+        assert "Europe" not in regions_in_constraints, (
+            "country_map mutation leaked into builder: 'Europe' found "
+            f"in constraints {region_constraints!r}"
+        )
+
+    def test_when_country_map_none_mutated_to_dict_then_builder_sees_none(
+        self,
+    ) -> None:
+        """None country_map at creation time means no region rows, period."""
+        country_map: dict[str, str] | None = None
+
+        builder = _make_builder(
+            sector_mapping=dict.fromkeys(_TICKERS, "Tech"),
+            country_map=country_map,
+            previous_weights=None,
+        )
+
+        # Can't mutate None in-place; this tests that the closure captured None
+        opt = builder(self._base_config())
+        region_rows = [row for row in (opt.linear_constraints or []) if "<=" in row]
+        assert all(
+            row.split(" <= ")[0] not in set(_REGION_MAP.values()) for row in region_rows
+        )
