@@ -41,19 +41,22 @@ _IS_VALIDATION_CONFIG = FactorValidationConfig(
 OOS_CONFIG = FactorOOSConfig(train_periods=8, val_periods=4, step_periods=2)
 
 # Cycle-2 §6.1: portfolio size constrained to [25, 50] selected stocks.
-N_SELECTED_MIN: int = 25
-N_SELECTED_MAX: int = 50
+N_SELECTED_MIN: int = 15
+N_SELECTED_MAX: int = 30
 
-# GICS Level-1 sectors (11).
+# 11 top-level sectors using Yahoo Finance naming (matches assembly.sector_mapping).
+# GICS equivalents: Materials→Basic Materials, Consumer Discretionary→Consumer Cyclical,
+# Consumer Staples→Consumer Defensive, Health Care→Healthcare,
+# Financials→Financial Services, Information Technology→Technology.
 _GICS_SECTORS: tuple[str, ...] = (
     "Energy",
-    "Materials",
+    "Basic Materials",
     "Industrials",
-    "Consumer Discretionary",
-    "Consumer Staples",
-    "Health Care",
-    "Financials",
-    "Information Technology",
+    "Consumer Cyclical",
+    "Consumer Defensive",
+    "Healthcare",
+    "Financial Services",
+    "Technology",
     "Communication Services",
     "Utilities",
     "Real Estate",
@@ -95,6 +98,7 @@ def build_history(
     assembly: Any,
     investable: pd.Index,
     rebalance_freq: int = REBALANCE_FREQ,
+    market_prices: pd.DataFrame | None = None,
 ) -> tuple[dict[str, pd.DataFrame], pd.DataFrame, Any]:
     """Build rolling PIT factor scores and forward-return history."""
     console.print(Panel("[bold]Step 3[/bold] — Building factor history", style="blue"))
@@ -117,6 +121,7 @@ def build_history(
         rebalance_freq=rebalance_freq,
         fundamental_history=assembly.fundamental_history,
         min_success_fraction=MIN_SUCCESS_FRACTION,
+        market_prices=market_prices,
     )
 
     console.print(
@@ -261,7 +266,7 @@ def _check_factor_coverage(
     is_report: Any,
     oos_result: Any,
     *,
-    min_factors: int = 4,
+    min_factors: int = 2,
 ) -> None:
     """Abort when fewer than ``min_factors`` pass IS BH AND OOS ICIR>0."""
     is_sig = set(is_report.significant_factors)

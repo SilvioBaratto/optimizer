@@ -75,32 +75,36 @@ _REGION_MAP: dict[str, str] = {
     "South Africa": "Middle East & Africa",
 }
 
-_SECTOR_FLOORS: dict[str, float] = {"Healthcare": 0.08, "Technology": 0.10}
+_SECTOR_FLOORS: dict[str, float] = {}
 
 _MAX_REGION_WEIGHT = 0.60
 _SOLVER_PARAMS: dict[str, Any] = {
     "max_iter": 200_000,
-    "eps_abs": 1e-8,
-    "eps_rel": 1e-8,
+    "tol_gap_abs": 1e-8,
+    "tol_gap_rel": 1e-8,
 }
 
 
 def _resolve_min_weights(n_survivors: int, target_count: int) -> float:
-    """Walk-forward feasibility fallback for thin universes.
+    """Compute a feasible min_weights for the selected portfolio.
 
-    When survivors are below the target, the spec ``min_weights=0.02``
-    becomes infeasible.  Fall back to ``1/(2N)`` and emit a warning.
+    ``min_weights * target_count`` must be well below the budget=1.0 so the
+    optimizer has headroom.  The hard cap is ``0.5 / target_count`` (each
+    stock can be at most 2× its minimum allocation within a 1.0 budget).
+    When survivors fall below target, the fallback is ``1 / (2*N)``.
     """
-    if n_survivors >= target_count:
-        return 0.02
-    fallback = 1.0 / (2 * n_survivors) if n_survivors > 0 else 0.02
-    logger.warning(
-        "Feasibility fallback: %d survivors < target %d; min_weights=%.4f (=1/(2*N))",
-        n_survivors,
-        target_count,
-        fallback,
-    )
-    return fallback
+    if n_survivors < target_count:
+        fallback = 1.0 / (2 * n_survivors) if n_survivors > 0 else 0.02
+        logger.warning(
+            "Feasibility fallback: %d survivors < target %d; min_weights=%.4f (=1/(2*N))",
+            n_survivors,
+            target_count,
+            fallback,
+        )
+        return fallback
+    # Ensure sum(min_weights over selected stocks) <= 0.5 so the optimizer
+    # retains meaningful degrees of freedom (50 stocks × 0.01 = 0.50 << 1.0).
+    return min(0.02, 0.5 / target_count)
 
 
 def _make_opt_config(
@@ -110,7 +114,7 @@ def _make_opt_config(
 ) -> MeanRiskConfig:
     """Build the Cycle-3 §7.1 hard-constrained ``MeanRiskConfig``."""
     return MeanRiskConfig(
-        objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
+        objective=ObjectiveFunctionType.MINIMIZE_RISK,
         risk_measure=RiskMeasureType.VARIANCE,
         min_weights=_resolve_min_weights(n_survivors, target_count),
         max_weights=0.10,

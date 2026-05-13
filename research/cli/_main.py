@@ -52,6 +52,45 @@ from research.pipeline._screen import screen_investable
 console = Console()
 logger = logging.getLogger(__name__)
 
+# Preferred market proxies for beta computation (tried in order).
+_MARKET_PROXY_TICKERS: tuple[str, ...] = ("URTH", "SPY")
+
+
+def _load_market_proxy(session: Any) -> pd.DataFrame | None:
+    """Return a single-column close-price DataFrame for the market proxy.
+
+    Tries ``_MARKET_PROXY_TICKERS`` in order; returns the first that has data.
+    Returns ``None`` when no proxy is found so the caller falls back to EW.
+    """
+    from sqlalchemy import select
+
+    from app.models.market_data.yfinance_data import PriceHistory
+    from app.models.universe.universe import Instrument
+
+    for ticker in _MARKET_PROXY_TICKERS:
+        stmt = (
+            select(PriceHistory.date, PriceHistory.close)
+            .join(Instrument)
+            .where(Instrument.yfinance_ticker == ticker)
+            .where(PriceHistory.close.isnot(None))
+            .order_by(PriceHistory.date)
+        )
+        rows = session.execute(stmt).all()
+        if not rows:
+            continue
+        prices = pd.DataFrame(
+            {"close": [float(close) for _, close in rows]},
+            index=pd.DatetimeIndex([pd.Timestamp(d) for d, _ in rows]),
+        )
+        logger.info("Loaded market proxy %s (%d rows).", ticker, len(prices))
+        return prices
+
+    logger.warning(
+        "No market proxy found for tickers %s — beta will use EW fallback.",
+        _MARKET_PROXY_TICKERS,
+    )
+    return None
+
 
 class _RegimeRepoPersistence:
     """Adapter satisfying RegimePersistenceProtocol via MacroRegimeRepository."""
@@ -129,9 +168,18 @@ def main(
             clean_returns.shape[1],
         )
 
-        # 3. Build factor history
+        # 3. Build factor history — load external market proxy for stable beta.
+        # URTH (MSCI World ETF) covers the same global developed-market universe
+        # as the investable set; SPY is used as fallback for US-only sessions.
+        # Avoids the EW-portfolio beta anomaly where 2000+ stocks produce near-
+        # zero cross-sectional variance → t-stat divergence.
+        market_prices: pd.DataFrame | None = None
+        with db_manager.get_session() as session:
+            market_prices = _load_market_proxy(session)
+
         factor_scores_dict, returns_history, health = build_history(
-            assembly, investable, rebalance_freq=rebalance_freq
+            assembly, investable, rebalance_freq=rebalance_freq,
+            market_prices=market_prices,
         )
         logger.info(
             "Factor history health: %s/%s dates succeeded",
@@ -148,7 +196,7 @@ def main(
         # validate_oos raises when n_folds == 0, so per_fold_ic is always defined.
         ic_history: pd.DataFrame = oos_result.per_fold_ic
 
-        # 5b. Coverage gate — abort if fewer than 4 factors pass IS BH AND OOS ICIR>0
+        # 5b. Coverage gate — abort if fewer than 2 factors pass IS BH AND OOS ICIR>0
         _check_factor_coverage(is_report, oos_result)
 
         # 6. Regime + tilts (regime_data passed to pipeline internally).

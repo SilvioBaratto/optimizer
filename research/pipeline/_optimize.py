@@ -20,11 +20,12 @@ from optimizer.factors._config import (
     SelectionMethod,
 )
 from optimizer.pipeline import run_full_pipeline_with_selection
+from optimizer.pre_selection import PreSelectionConfig
 from optimizer.validation import WalkForwardConfig
 from research.data._container import DataAssembly
 from research.optimization._config import _make_builder, _make_opt_config
 from research.optimization._rebalance import _hockey_stick_warn
-from research.optimization._retighten import _TOP_N, _solve_with_retighten
+
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -86,8 +87,11 @@ def optimize_portfolio(
 
     sklearn.set_config(enable_metadata_routing=True)
 
-    # Fix #238 + Issue #531: IC-weighted scoring with Cycle-2 EWM half-life=4
-    scoring_config = CompositeScoringConfig.for_ic_weighted(ic_decay_halflife=4)
+    # ICIR-weighted scoring: uses individual factor ICIR ratios as weights,
+    # preserving sign — factors with negative ICIR contribute inversely.
+    # Preferred over IC-weighted when factor groups trend negative (fallback to
+    # equal_weight degrades selection because negative-IC factors invert alpha).
+    scoring_config = CompositeScoringConfig.for_icir_weighted()
 
     investable_cols = [t for t in investable if t in assembly.prices.columns]
     investable_prices: pd.DataFrame = assembly.prices.loc[:, investable_cols]
@@ -110,16 +114,6 @@ def optimize_portfolio(
     optimizer_instance = builder(opt_config)
 
     retighten_trace: list[dict[str, Any]] = []
-    if len(investable_cols) > _TOP_N:
-        from skfolio.preprocessing import prices_to_returns
-
-        full_returns = prices_to_returns(investable_prices)
-        optimizer_instance, retighten_trace = _solve_with_retighten(
-            optimizer_instance,
-            full_returns,
-            config=opt_config,
-            builder=builder,
-        )
 
     # Issue #529: enable regime tilts.  Orchestrator owns classification +
     # tilt application (single source of truth); main()'s `classify_and_tilt`
@@ -144,9 +138,14 @@ def optimize_portfolio(
             method=SelectionMethod.FIXED_COUNT,
             buffer_fraction=0.05,
             sector_balance=True,
-            max_per_sector=8,
+            max_per_sector=4,
         ),
         regime_config=regime_config,  # Issue #529: enable regime tilts
+        # Disable DropCorrelated within the CV pipeline — factor selection
+        # already produced a curated universe; correlation-dropping at each
+        # fold shrinks it further and creates sector concentration that makes
+        # the sector-cap constraint infeasible.
+        pre_selection_config=PreSelectionConfig(correlation_threshold=1.0),
         cv_config=WalkForwardConfig(  # Cycle-3 §8: 3-year train, quarterly test
             train_size=252 * 3,
             test_size=63,

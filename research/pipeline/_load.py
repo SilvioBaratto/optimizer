@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 REBALANCE_FREQ: int = 63
-N_SELECTED: int = 50
+N_SELECTED: int = 20
 MIN_SUCCESS_FRACTION: float = 0.5
 
 # Cycle-3 §11: hybrid rebalance review-date persistence

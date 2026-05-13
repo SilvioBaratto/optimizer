@@ -269,8 +269,10 @@ def _compute_beta(
         tail = tail.loc[mkt.index]
 
     market_var = cast(float, mkt.var())
-    if market_var == 0:
-        return pd.Series(0.0, index=tail.columns)
+    if market_var < 1e-12:
+        # Near-zero market variance (over-diversified proxy) produces
+        # numerically unstable betas — return NaN rather than huge values.
+        return pd.Series(np.nan, index=tail.columns)
 
     beta_values = {
         str(col): float(tail[col].cov(mkt) / market_var) for col in tail.columns

@@ -168,6 +168,7 @@ def build_factor_scores_history(
     rebalance_freq: int = 63,
     fundamental_history: pd.DataFrame | None = None,
     min_success_fraction: float = 0.5,
+    market_prices: pd.DataFrame | None = None,
 ) -> tuple[dict[str, pd.DataFrame], pd.DataFrame, FactorBuildHealth]:
     """Build a time-series of factor scores over rolling rebalancing periods.
 
@@ -200,6 +201,13 @@ def build_factor_scores_history(
     min_success_fraction : float
         Minimum fraction of rebalancing dates that must succeed before
         :class:`~optimizer.exceptions.FactorCoverageError` is raised.
+    market_prices : pd.DataFrame or None
+        Single-column (or any-column) price DataFrame for an external market
+        proxy (e.g. URTH, SPY), indexed by date.  When provided, the PIT
+        market-return series is derived from its first column instead of the
+        equal-weighted mean of ``investable_prices``.  Prevents the
+        over-diversification anomaly where a 2000+ stock EW portfolio produces
+        near-zero cross-sectional beta variance → t-stat divergence.
 
     Returns
     -------
@@ -233,6 +241,19 @@ def build_factor_scores_history(
 
     # Pre-compute returns once
     all_returns = prices_to_returns(investable_prices)
+
+    # Pre-compute market proxy returns (first column of market_prices when provided)
+    market_proxy_returns: pd.Series | None = None
+    if market_prices is not None and not market_prices.empty:
+        _proxy: pd.Series = market_prices.iloc[:, 0].pct_change().dropna()
+        if not _proxy.empty:
+            market_proxy_returns = _proxy
+            logger.info(
+                "Using external market proxy (%d rows, %s–%s) for beta computation.",
+                len(_proxy),
+                _proxy.index[0].date(),
+                _proxy.index[-1].date(),
+            )
 
     lag_config = factor_config.publication_lag
 
@@ -269,6 +290,18 @@ def build_factor_scores_history(
         price_history = investable_prices.loc[investable_prices.index <= dt]
         volume_history = investable_volumes.loc[investable_volumes.index <= dt]
 
+        # Market-return series up to dt for beta computation.
+        # When an external proxy (e.g. URTH) is available it takes precedence;
+        # otherwise fall back to the EW mean of investable_prices (which
+        # produces near-zero cross-sectional variance at 2000+ stocks and
+        # causes beta t-stats to diverge toward ±∞).
+        if market_proxy_returns is not None:
+            pit_market_returns = market_proxy_returns.loc[
+                market_proxy_returns.index <= dt
+            ]
+        else:
+            pit_market_returns = all_returns.loc[all_returns.index <= dt].mean(axis=1)
+
         # Point-in-time fundamentals
         if fundamental_history is not None:
             pit_fundamentals = _slice_fundamentals_at(
@@ -292,6 +325,7 @@ def build_factor_scores_history(
                     assembly.insider_data if not assembly.insider_data.empty else None
                 ),
                 config=factor_config,
+                market_returns=pit_market_returns,
             )
 
             if raw_factors.empty:
