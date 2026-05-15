@@ -111,8 +111,13 @@ def assemble_regime_data(
         if len(sent) > 0:
             parts.append(sent.rename("sentiment").to_frame())
 
-    # Macro baseline columns (gdp_growth, yield_spread)
-    macro_cols = [c for c in ("gdp_growth", "yield_spread") if c in macro_data.columns]
+    # Macro baseline columns (gdp_growth, yield_spread) — skip any column
+    # already populated from FRED or TE to prevent duplicate-column join errors.
+    already_covered = set(fred_cols.keys()) | set(te_cols.keys())
+    macro_cols = [
+        c for c in ("gdp_growth", "yield_spread")
+        if c in macro_data.columns and c not in already_covered
+    ]
     if macro_cols:
         parts.append(macro_data[macro_cols].dropna(how="all"))
 

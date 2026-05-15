@@ -415,6 +415,8 @@ FRED_SERIES_IDS: list[str] = [
     "DGS10",
     # Risk-free rate proxy (daily, annualized %)
     "DGS3MO",
+    # US Real GDP growth (quarterly, % change SAAR) — required for regime classification
+    "A191RL1Q225SBEA",
 ]
 
 

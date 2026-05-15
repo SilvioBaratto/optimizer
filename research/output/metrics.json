@@ -1,0 +1,21 @@
+{
+  "rf_assumption": "FRED DGS3MO daily forward-fill \u00f7 252",
+  "net_of_cost": {
+    "ann_return": 0.2627100720835549,
+    "ann_vol": 0.16336389763519035,
+    "sharpe": 1.6067599395750458,
+    "sortino": 2.3623596498507995,
+    "info_ratio": 0.5548769486054188,
+    "downside_vol": 0.11111210149304285,
+    "max_drawdown": -0.15666169224881543
+  },
+  "after_tax": {
+    "ann_return": 0.2591170143893653,
+    "ann_vol": 0.1632748425010814,
+    "sharpe": 1.5856340204966162,
+    "sortino": 2.3301208361609898,
+    "info_ratio": 0.5357469712357399,
+    "downside_vol": 0.11110768015443113,
+    "max_drawdown": -0.1566616922488151
+  }
+}

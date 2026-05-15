@@ -1,0 +1,139 @@
+{
+  "rules": [
+    {
+      "rule": "No single region > 60%",
+      "pass": true,
+      "measured": "35.5%",
+      "target": "\u2264 60%"
+    },
+    {
+      "rule": "No single sector > 15%",
+      "pass": true,
+      "measured": "15.0% (Industrials)",
+      "target": "\u2264 15%"
+    },
+    {
+      "rule": "HHI < 0.12",
+      "pass": true,
+      "measured": "0.0558",
+      "target": "< 0.12"
+    },
+    {
+      "rule": "Top-4 holdings < 30%",
+      "pass": true,
+      "measured": "25.8%",
+      "target": "< 30%"
+    },
+    {
+      "rule": "Health Care exposure \u2265 8%",
+      "pass": true,
+      "measured": "12.9%",
+      "target": "\u2265 8%"
+    },
+    {
+      "rule": "Information Technology exposure \u2265 10%",
+      "pass": true,
+      "measured": "15.0%",
+      "target": "\u2265 10%"
+    },
+    {
+      "rule": "At least 8/11 sectors present",
+      "pass": true,
+      "measured": "8/11 (Consumer Defensive, Utilities, Real Estate)",
+      "target": "\u2265 8/11"
+    },
+    {
+      "rule": "Single-stock cap \u2264 10%",
+      "pass": true,
+      "measured": "6.5%",
+      "target": "\u2264 10%"
+    },
+    {
+      "rule": "Min position \u2265 2%",
+      "pass": true,
+      "measured": "3.6%",
+      "target": "\u2265 2%"
+    },
+    {
+      "rule": "Max drawdown > -22%",
+      "pass": true,
+      "measured": "-15.7%",
+      "target": "> -22%"
+    },
+    {
+      "rule": "Vol \u2264 benchmark vol",
+      "pass": true,
+      "measured": "16.3% vs 16.5%",
+      "target": "\u2264 benchmark"
+    },
+    {
+      "rule": "Sharpe \u2208 (1.0, 2.0)",
+      "pass": true,
+      "measured": "1.586",
+      "target": "\u2208 (1.0, 2.0)"
+    },
+    {
+      "rule": "Sortino > 1.5",
+      "pass": true,
+      "measured": "2.330",
+      "target": "> 1.5"
+    },
+    {
+      "rule": "Info Ratio > 0.5",
+      "pass": true,
+      "measured": "0.536",
+      "target": "> 0.5"
+    },
+    {
+      "rule": "Downside vol < 75% x total vol",
+      "pass": true,
+      "measured": "11.1% vs 75% x 16.3% = 12.2%",
+      "target": "< 75% total"
+    },
+    {
+      "rule": "Total cost \u2264 100 bps",
+      "pass": true,
+      "measured": "23.1 bps",
+      "target": "\u2264 100 bps"
+    },
+    {
+      "rule": "OOS span \u2265 1.5 years",
+      "pass": true,
+      "measured": "1.95 yrs",
+      "target": "\u2265 1.5 yrs"
+    }
+  ],
+  "summary": {
+    "passed": 17,
+    "total": 17
+  },
+  "breakdown": {
+    "gross": {
+      "ann_return": 0.2630327923512281,
+      "ann_vol": 0.16334729146968754,
+      "sharpe": 1.6088986078126821,
+      "sortino": 2.36553300764033,
+      "info_ratio": 0.5548929475028492,
+      "downside_vol": 0.1110994468441274,
+      "max_drawdown": -0.15666110798454658
+    },
+    "net_of_cost": {
+      "ann_return": 0.2627100720835549,
+      "ann_vol": 0.16336389763519035,
+      "sharpe": 1.6067599395750458,
+      "sortino": 2.3623596498507995,
+      "info_ratio": 0.5548769486054188,
+      "downside_vol": 0.11111210149304285,
+      "max_drawdown": -0.15666169224881543
+    },
+    "after_tax": {
+      "ann_return": 0.2591170143893653,
+      "ann_vol": 0.1632748425010814,
+      "sharpe": 1.5856340204966162,
+      "sortino": 2.3301208361609898,
+      "info_ratio": 0.5357469712357399,
+      "downside_vol": 0.11110768015443113,
+      "max_drawdown": -0.1566616922488151
+    }
+  }
+}

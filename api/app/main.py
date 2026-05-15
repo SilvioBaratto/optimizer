@@ -101,21 +101,27 @@ async def lifespan(app: FastAPI):
         else:
             logger.debug("Skipping orphan reconciliation — already ran in this process")
 
-        # Bootstrap reference-index benchmarks — seed any ticker whose price
-        # history is missing or stale. Synchronous so the dashboard never
-        # 422s on a fresh DB. Failures are non-fatal.
-        try:
-            from app.services._shared import bootstrap_benchmarks
-            from app.services.market_data.yfinance import get_yfinance_client
+        # Bootstrap reference-index benchmarks in a daemon thread so the
+        # lifespan completes immediately and the health endpoint stays
+        # responsive. yfinance retries on ETF fundamentals can take several
+        # minutes; blocking here caused healthcheck failures on container start.
+        import threading
 
-            bootstrap_benchmarks(
-                database_manager.get_session,
-                get_yfinance_client(),
-                tickers=settings.benchmark_tickers,
-                stale_days=settings.scheduler_benchmark_stale_days,
-            )
-        except Exception as e:
-            logger.warning(f"Benchmark bootstrap failed (continuing): {e}")
+        def _run_bootstrap() -> None:
+            try:
+                from app.services._shared import bootstrap_benchmarks
+                from app.services.market_data.yfinance import get_yfinance_client
+
+                bootstrap_benchmarks(
+                    database_manager.get_session,
+                    get_yfinance_client(),
+                    tickers=settings.benchmark_tickers,
+                    stale_days=settings.scheduler_benchmark_stale_days,
+                )
+            except Exception as e:
+                logger.warning("Benchmark bootstrap failed (continuing): %s", e)
+
+        threading.Thread(target=_run_bootstrap, daemon=True, name="benchmark-bootstrap").start()
 
         # Start APScheduler (replaces supercronic + MacroNewsSummaryScheduler)
         scheduler = create_scheduler()
