@@ -501,11 +501,27 @@ class TestHardConstrainedMeanRiskSpec:
     def test_when_called_then_sector_floor_constraints_empty(self) -> None:
         captured = _capture_optimizer()
         constraints = captured["optimizer"].linear_constraints or []
-        sector_floor_constraints = [c for c in constraints if " >= " in c and any(
-            sec in c for sec in ("Energy", "Materials", "Industrial", "Cyclical",
-                                "Defensive", "Healthcare", "Financial", "Technology",
-                                "Communication", "Utilities", "Real")
-        )]
+        sector_floor_constraints = [
+            c
+            for c in constraints
+            if " >= " in c
+            and any(
+                sec in c
+                for sec in (
+                    "Energy",
+                    "Materials",
+                    "Industrial",
+                    "Cyclical",
+                    "Defensive",
+                    "Healthcare",
+                    "Financial",
+                    "Technology",
+                    "Communication",
+                    "Utilities",
+                    "Real",
+                )
+            )
+        ]
         assert len(sector_floor_constraints) == 0
 
     def test_when_country_map_supplied_then_region_caps_in_constraints(self) -> None:
@@ -1117,9 +1133,7 @@ class TestValidateChecklistRules:
     def test_when_sector_exceeds_15pct_then_sector_rule_fails(self) -> None:
         kwargs = _good_inputs()
         # Push all weight into one sector
-        kwargs["sector_mapping"] = dict.fromkeys(
-            kwargs["sector_mapping"], "Technology"
-        )
+        kwargs["sector_mapping"] = dict.fromkeys(kwargs["sector_mapping"], "Technology")
         rules = ssp._validate_checklist(**kwargs)
         sector_rule = next(
             r for r in rules if "sector" in r["rule"].lower() and "15" in r["target"]
@@ -1191,13 +1205,11 @@ class TestValidateChecklistRules:
                 reverse_map[source] = target
 
         kwargs["sector_mapping"] = {
-            t: reverse_map.get(v, v)
-            for t, v in kwargs["sector_mapping"].items()
+            t: reverse_map.get(v, v) for t, v in kwargs["sector_mapping"].items()
         }
         rules = ssp._validate_checklist(**kwargs)
         rule = next(
-            r for r in rules
-            if "8" in r["target"] and "sector" in r["rule"].lower()
+            r for r in rules if "8" in r["target"] and "sector" in r["rule"].lower()
         )
         assert rule["pass"] is False
 

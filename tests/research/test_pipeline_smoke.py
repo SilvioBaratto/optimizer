@@ -173,6 +173,8 @@ def _patch_pipeline(
     output_dir: Path,
 ) -> None:
     """Stub every heavy step so main() runs in <1s."""
+    from contextlib import contextmanager
+
     history_health = SimpleNamespace(succeeded_dates=1, total_dates=1)
     regime_stub = SimpleNamespace(value="expansion")
     last_review = pd.Timestamp("2024-01-15")
@@ -181,7 +183,15 @@ def _patch_pipeline(
         index=assembly.prices.index,
         columns=_TICKERS,
     )
-    _stub_db_mgr = SimpleNamespace(initialize=lambda: None)
+
+    @contextmanager
+    def _stub_get_session():
+        yield None
+
+    _stub_db_mgr = SimpleNamespace(
+        initialize=lambda: None,
+        get_session=_stub_get_session,
+    )
     monkeypatch.setattr("app.database.DatabaseManager", lambda: _stub_db_mgr)
     monkeypatch.setattr(
         _cli_main,
@@ -236,6 +246,11 @@ def _patch_pipeline(
         _cli_main,
         "report_performance",
         _stub_report_performance(output_dir),
+    )
+    monkeypatch.setattr(
+        _cli_main,
+        "_load_market_proxy",
+        lambda _s: None,
     )
 
 

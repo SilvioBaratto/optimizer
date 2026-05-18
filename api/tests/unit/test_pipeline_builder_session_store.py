@@ -226,7 +226,7 @@ class TestImportBoundaries:
             "import app.services.pipeline_builder.session_store; "
             "print(json.dumps([m for m in sys.modules if m.startswith('research')]))"
         )
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             [sys.executable, "-c", script],
             capture_output=True,
             text=True,

@@ -44,6 +44,10 @@ COPY --from=builder /venv /venv
 # Application code with generated baml_client already in place
 COPY --from=builder /build/api/ ./api/
 
+# ``app/services/pipeline_builder/steps.py`` resolves ``parents[4]`` to
+# ``/app`` and requires ``research/__init__.py`` to be present there.
+COPY research/ ./research/
+
 COPY api/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh \
     && chown -R appuser:appuser /app /entrypoint.sh

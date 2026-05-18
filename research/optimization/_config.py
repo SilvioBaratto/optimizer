@@ -96,7 +96,8 @@ def _resolve_min_weights(n_survivors: int, target_count: int) -> float:
     if n_survivors < target_count:
         fallback = 1.0 / (2 * n_survivors) if n_survivors > 0 else 0.02
         logger.warning(
-            "Feasibility fallback: %d survivors < target %d; min_weights=%.4f (=1/(2*N))",
+            "Feasibility fallback: %d survivors < target %d; "
+            "min_weights=%.4f (=1/(2*N))",
             n_survivors,
             target_count,
             fallback,

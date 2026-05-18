@@ -129,17 +129,28 @@ class TestMainRebalanceWiring:
     def test_when_main_runs_then_result_has_rebalance_decision_tuple(
         self,
     ) -> None:
+        from contextlib import contextmanager
         from types import SimpleNamespace
 
         assembly_stub, result_stub = self._setup_main_mocks(
             prev_weights=np.array([0.5, 0.5])
         )
 
+        @contextmanager
+        def _stub_get_session():
+            yield None
+
+        _stub_db_mgr = SimpleNamespace(
+            initialize=lambda: None,
+            get_session=_stub_get_session,
+        )
+
         with (
+            patch("app.database.DatabaseManager", return_value=_stub_db_mgr),
             patch.object(
                 _cli_main,
                 "load_data",
-                return_value=(assembly_stub, {"AAA": "United States"}, None),
+                return_value=(assembly_stub, {"AAA": "United States"}, _stub_db_mgr),
             ),
             patch.object(
                 _cli_main, "screen_investable", return_value=pd.Index(["AAA", "BBB"])
@@ -177,6 +188,7 @@ class TestMainRebalanceWiring:
                 "_decide_rebalance",
                 return_value=(True, "threshold_met"),
             ) as mock_decide,
+            patch.object(_cli_main, "_load_market_proxy", return_value=None),
         ):
             main(n_selected=25)
 

@@ -62,10 +62,9 @@ def _load_market_proxy(session: Any) -> pd.DataFrame | None:
     Tries ``_MARKET_PROXY_TICKERS`` in order; returns the first that has data.
     Returns ``None`` when no proxy is found so the caller falls back to EW.
     """
-    from sqlalchemy import select
-
     from app.models.market_data.yfinance_data import PriceHistory
     from app.models.universe.universe import Instrument
+    from sqlalchemy import select
 
     for ticker in _MARKET_PROXY_TICKERS:
         stmt = (

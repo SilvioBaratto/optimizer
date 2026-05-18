@@ -249,7 +249,7 @@ def build_factor_scores_history(
         if not _proxy.empty:
             market_proxy_returns = _proxy
             logger.info(
-                "Using external market proxy (%d rows, %s–%s) for beta computation.",
+                "Using external market proxy (%d rows, %s-%s) for beta computation.",
                 len(_proxy),
                 _proxy.index[0].date(),
                 _proxy.index[-1].date(),

@@ -579,6 +579,24 @@ def setup_exception_handlers(app: FastAPI) -> None:
             request_id=getattr(request.state, "request_id", None),
         )
 
+    from optimizer.exceptions import FactorCoverageError
+
+    @app.exception_handler(FactorCoverageError)
+    async def factor_coverage_handler(
+        request: Request, exc: FactorCoverageError
+    ) -> JSONResponse:
+        """Map ``optimizer.exceptions.FactorCoverageError`` → HTTP 422."""
+        logger.warning(
+            f"Factor coverage error: {exc}",
+            extra={"path": request.url.path, "method": request.method},
+        )
+        return create_error_response(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            message=str(exc),
+            error_code="FACTOR_COVERAGE_ERROR",
+            request_id=getattr(request.state, "request_id", None),
+        )
+
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
         request: Request, exc: RequestValidationError

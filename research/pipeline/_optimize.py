@@ -26,7 +26,6 @@ from research.data._container import DataAssembly
 from research.optimization._config import _make_builder, _make_opt_config
 from research.optimization._rebalance import _hockey_stick_warn
 
-
 console = Console()
 logger = logging.getLogger(__name__)
 

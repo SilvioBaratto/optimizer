@@ -317,7 +317,8 @@ def _validate_checklist(
             target="≥ 8%",
         )
     )
-    # Rule 6 — Information Technology ≥ 10% (Yahoo: "Technology"; GICS: "Information Technology")
+    # Rule 6 - Information Technology >= 10%
+    # Yahoo: "Technology"; GICS: "Information Technology"
     tech_w = _sector_lookup(sector_w, "Technology", "Information Technology")
     rules.append(
         _rule(
@@ -327,17 +328,18 @@ def _validate_checklist(
             target="≥ 10%",
         )
     )
-    # Rule 7 — at least 8 of 11 sectors present (20-stock portfolio with 2 factor-alpha signals)
-    _MIN_SECTORS = 8
+    # Rule 7 - at least 8 of 11 sectors present
+    # (20-stock portfolio with 2 factor-alpha signals)
+    min_sectors = 8
     present = {s for s in sector_w if sector_w.get(s, 0.0) > 0.0}
     missing = [s for s in _GICS_SECTORS if s not in present]
     n_present = 11 - len(missing)
     rules.append(
         _rule(
-            f"At least {_MIN_SECTORS}/11 sectors present",
-            ok=n_present >= _MIN_SECTORS,
+            f"At least {min_sectors}/11 sectors present",
+            ok=n_present >= min_sectors,
             measured=(f"{n_present}/11 ({', '.join(missing) or 'none'})"),
-            target=f"≥ {_MIN_SECTORS}/11",
+            target=f"≥ {min_sectors}/11",
         )
     )
     # Rule 8 — Single-stock cap ≤ 10%
@@ -477,7 +479,7 @@ def _validate_checklist(
                 target="≤ 100 bps",
             )
         )
-    # Rule 17 — OOS span ≥ 1.5 years (5-yr data history → ~2-yr OOS with 3-yr train window)
+    # Rule 17 - OOS span >= 1.5 years (5-yr history, ~2-yr OOS, 3-yr train)
     if net_returns is None or net_returns.empty:
         rules.append(
             _rule(
