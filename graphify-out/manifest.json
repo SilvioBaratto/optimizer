@@ -35,13 +35,13 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/research/pipeline/_optimize.py": {
-    "mtime": 1778689547.4085362,
-    "ast_hash": "0a9c11e4efe961d0094f2a2a8f73fe74",
+    "mtime": 1779105473.9154162,
+    "ast_hash": "c0378cd19332f495c22a77e9cabc2313",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/research/pipeline/_checklist.py": {
-    "mtime": 1778687043.446628,
-    "ast_hash": "725ec3fd4daec0f9e1e341e5fd76761a",
+    "mtime": 1779105514.2084153,
+    "ast_hash": "244e68fc5471179c4610730b1fccf05e",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/research/pipeline/__init__.py": {
@@ -110,8 +110,8 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/research/optimization/_config.py": {
-    "mtime": 1778686667.3264756,
-    "ast_hash": "e4c6a0a988deebe525c8214f357ce283",
+    "mtime": 1779105482.764853,
+    "ast_hash": "8914b4a60208438d9e064d52489a2b73",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/research/output/metrics.json": {
@@ -135,13 +135,13 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/research/factors/_history.py": {
-    "mtime": 1778682569.2262938,
-    "ast_hash": "f7c20f3dfedf41f66752ffba5c707261",
+    "mtime": 1779105478.934824,
+    "ast_hash": "2adf5b6eacb2934d64f65dfa285dfe19",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/research/cli/_main.py": {
-    "mtime": 1778682814.651817,
-    "ast_hash": "0308d1d9f11f64c9035ec5514c173b28",
+    "mtime": 1779105473.915472,
+    "ast_hash": "1e2d2c3492bf4e6aebb70b0fbc3ec76f",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/research/cli/__init__.py": {
@@ -1955,18 +1955,18 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/state.json": {
-    "mtime": 1779103239.4944062,
-    "ast_hash": "b3890b04d972c86bb1354549e69ae900",
+    "mtime": 1779105903.4938335,
+    "ast_hash": "ac82fa8d59ea50c14eed9cdc866e8aac",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/phase6_5_spec.json": {
-    "mtime": 1779103205.8990455,
-    "ast_hash": "0b9dc595bf85be816e2a49c553b51898",
+    "mtime": 1779105871.634449,
+    "ast_hash": "b5822f2015e84b3daed338746923ffaf",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/checklists/ede94509791f999f9b3ba0c546c2a2e68cfbc53d33e0a708e2f2c96654eaa33a.json": {
-    "mtime": 1779103227.999304,
-    "ast_hash": "8ad8b0d52dd6316e521c80bd555ddb28",
+    "mtime": 1779105894.328557,
+    "ast_hash": "785a8fad5583f49d191a28ec644b0819",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/theory/__init__.py": {
@@ -2515,8 +2515,8 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/tests/research/test_rebalance_wiring.py": {
-    "mtime": 1778579431.7600238,
-    "ast_hash": "d80af38d799cdb2e9398aba92f64e118",
+    "mtime": 1779105473.9149117,
+    "ast_hash": "1c57784881d1ed645d3cecb72e1c6370",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/tests/research/test_pipeline_parity.py": {
@@ -2560,8 +2560,8 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/tests/research/test_pipeline_smoke.py": {
-    "mtime": 1779102232.6735222,
-    "ast_hash": "beb2188aa3d8b62e5a72c981e9959fc4",
+    "mtime": 1779105382.0928395,
+    "ast_hash": "a82550a9b0255013a00bce34fd01e6d3",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/tests/research/test_optimization_init.py": {
@@ -2590,8 +2590,8 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/tests/research/test_stock_selection_pipeline.py": {
-    "mtime": 1779102811.2803605,
-    "ast_hash": "523e4166fdf625a87e17c1c9e575876b",
+    "mtime": 1779105070.9955945,
+    "ast_hash": "c43770869ab0ecab5d8c706838e02e24",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/tests/research/test_cycle2_boundary_gate.py": {
@@ -3655,8 +3655,8 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/app/exceptions.py": {
-    "mtime": 1777387292.10212,
-    "ast_hash": "7acb8b0cce226fecfbf631399067b48c",
+    "mtime": 1779104247.1677043,
+    "ast_hash": "d182abec6b2399907462d9dedb52880c",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/app/main.py": {
@@ -4044,6 +4044,16 @@
     "ast_hash": "be214b984342af4eef6356d66f4e8e67",
     "semantic_hash": ""
   },
+  "/Volumes/External SSD/optimizer/api/app/schemas/pipeline_builder/__init__.py": {
+    "mtime": 1779104116.5360196,
+    "ast_hash": "7a4d47d0950dc5f90e8164c90d506d98",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/api/app/schemas/pipeline_builder/pipeline_builder.py": {
+    "mtime": 1779105124.2389958,
+    "ast_hash": "fe09630028d1b8515b93b9da672e484d",
+    "semantic_hash": ""
+  },
   "/Volumes/External SSD/optimizer/api/app/schemas/macro/macro_regime.py": {
     "mtime": 1778444011.0423589,
     "ast_hash": "9561d82501e1e7e97e41b58f42e3beba",
@@ -4264,6 +4274,21 @@
     "ast_hash": "d1b76371e806dd64ea1d44be55ea40c0",
     "semantic_hash": ""
   },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/pipeline_builder/steps.py": {
+    "mtime": 1779105118.6758661,
+    "ast_hash": "7560fa9612ec0a016ae4c1ed65afb605",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/pipeline_builder/sessions.py": {
+    "mtime": 1779104408.837004,
+    "ast_hash": "d72ca814a9bc765d56e8b690afb4a189",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/api/app/api/v1/pipeline_builder/__init__.py": {
+    "mtime": 1779104601.7867286,
+    "ast_hash": "b8600a6f7f379020580ebb0286c29a49",
+    "semantic_hash": ""
+  },
   "/Volumes/External SSD/optimizer/api/app/api/v1/macro/macro_regime.py": {
     "mtime": 1778445187.906122,
     "ast_hash": "2f62ec41fc73442adfc5181f07178485",
@@ -4335,8 +4360,8 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/app/api/v1/_shared/router.py": {
-    "mtime": 1778444011.0346556,
-    "ast_hash": "1c93ca1e6754f5d312642c90cd27889c",
+    "mtime": 1779104780.074021,
+    "ast_hash": "6cb4098849f147037b972e26410c3a83",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/app/api/v1/jobs/__init__.py": {
@@ -5065,13 +5090,18 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_pipeline_builder_session_store.py": {
-    "mtime": 1779017664.4028976,
-    "ast_hash": "ba2fff4e6b7c8949e36633fbafc2aaeb",
+    "mtime": 1779105530.6817734,
+    "ast_hash": "474677be8ba23a14b2a14ce9532056ee",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_yfinance_cycle5_search_expansion.py": {
     "mtime": 1778440131.0380545,
     "ast_hash": "dfdab4599a9c46105931128996c0c7be",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/api/tests/unit/test_pipeline_builder_integration.py": {
+    "mtime": 1779105118.6759412,
+    "ast_hash": "cda490c9c2c968a2611bcb6e43647f1b",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_screener_client.py": {
@@ -5162,6 +5192,11 @@
   "/Volumes/External SSD/optimizer/api/tests/unit/test_execution_models.py": {
     "mtime": 1778445187.9014044,
     "ast_hash": "98a12e454582bf063493ddb4caa8017a",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/api/tests/unit/test_pipeline_builder_router_registration.py": {
+    "mtime": 1779104794.3697968,
+    "ast_hash": "d093c870bac8943ae8cb47143d97f620",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_pipeline_builder_crud.py": {
@@ -5359,6 +5394,11 @@
     "ast_hash": "324188af7471f0d1aaacb08402f43860",
     "semantic_hash": ""
   },
+  "/Volumes/External SSD/optimizer/api/tests/unit/test_exception_handlers.py": {
+    "mtime": 1779104233.068606,
+    "ast_hash": "1183c75979c70d008e295c689f30914b",
+    "semantic_hash": ""
+  },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_validate_walk_forward.py": {
     "mtime": 1778443256.9013302,
     "ast_hash": "1380c32666f43aad700fed57a5e4865c",
@@ -5387,6 +5427,11 @@
   "/Volumes/External SSD/optimizer/api/tests/unit/test_backtest_routes.py": {
     "mtime": 1778445187.9001613,
     "ast_hash": "fdd87cc5b97bfdd14f83b659df4481fc",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/api/tests/unit/test_pipeline_builder_sessions.py": {
+    "mtime": 1779105118.6760004,
+    "ast_hash": "e1c7960242b1a8346de0ea38a2f5eb5b",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_shared_file_migration.py": {
@@ -5559,6 +5604,11 @@
     "ast_hash": "7b2d618c851cee60c433d7fb96b3d2ec",
     "semantic_hash": ""
   },
+  "/Volumes/External SSD/optimizer/api/tests/unit/test_pipeline_builder_steps.py": {
+    "mtime": 1779105118.6758742,
+    "ast_hash": "51af556cb93a2142563c754f18827a79",
+    "semantic_hash": ""
+  },
   "/Volumes/External SSD/optimizer/api/tests/unit/test_attribution_service.py": {
     "mtime": 1778445187.924948,
     "ast_hash": "14ca8b567bd8c1ec9fae46bd577bb3f1",
@@ -5592,6 +5642,16 @@
   "/Volumes/External SSD/optimizer/api/tests/unit/test_risk_rebalancing_models.py": {
     "mtime": 1778445187.9189398,
     "ast_hash": "c374a3ded50751a5b0a030ae244d0d97",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/api/tests/unit/schemas/test_pipeline_builder_schemas.py": {
+    "mtime": 1779105118.6758127,
+    "ast_hash": "43f44e3b772408a86b29d8ad9568032e",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/api/tests/unit/schemas/__init__.py": {
+    "mtime": 1779104058.5437863,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/tests/unit/pipeline_builder/test_step_report.py": {
@@ -6130,8 +6190,8 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/research/output/last_review_date.txt": {
-    "mtime": 1778689642.4370036,
-    "ast_hash": "a6e81858a86a80b58d74660a739108af",
+    "mtime": 1779105584.8556125,
+    "ast_hash": "75f30b8e70f8dfd82271443203c3dc06",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/frontend/README.md": {
@@ -6465,17 +6525,17 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/memories/cycle-summary.md": {
-    "mtime": 1779099531.5293932,
+    "mtime": 1779103784.5636382,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/memories/project-plan.md": {
-    "mtime": 1779099531.5300794,
-    "ast_hash": "5f82435df9fcb3256b8329b044b091f9",
+    "mtime": 1779103784.5646262,
+    "ast_hash": "b0fc0fc4ad16f30e68c0d391edb1d072",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/memories/current-issue.md": {
-    "mtime": 1779103205.8959448,
+    "mtime": 1779105871.6282797,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": ""
   },

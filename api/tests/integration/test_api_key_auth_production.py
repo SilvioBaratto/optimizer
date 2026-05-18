@@ -32,6 +32,7 @@ import hashlib
 import secrets
 from collections.abc import Generator
 from contextlib import contextmanager
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -85,12 +86,16 @@ def auth_session(auth_engine) -> Generator[Session, None, None]:
 @pytest.fixture
 def production_app(
     auth_session: Session,
+    auth_engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[FastAPI, None, None]:
     """Build a fresh FastAPI app under ``ENVIRONMENT=production``.
 
     The middleware reads ``database_manager.get_session`` at construction
     time, so the patch MUST precede ``create_application()``.
+    
+    Also patches ``initialize()`` and ``create_all_tables()`` so lifespan
+    doesn't try to connect to real PostgreSQL.
     """
     monkeypatch.setattr(settings, "environment", "production")
     monkeypatch.setattr(settings, "rate_limit_requests", 10_000)  # never trip in tests
@@ -101,7 +106,17 @@ def production_app(
 
     from app import database as db_module
 
+    # Create a mock initialize that sets the flags but doesn't try to connect
+    def _mock_initialize():
+        db_module.database_manager._is_initialized = True
+        db_module.database_manager._engine = MagicMock()
+        db_module.database_manager._session_factory = _session_cm
+
     monkeypatch.setattr(db_module.database_manager, "get_session", _session_cm)
+    monkeypatch.setattr(db_module.database_manager, "initialize", _mock_initialize)
+    monkeypatch.setattr(db_module.database_manager, "create_all_tables", lambda: None)
+    monkeypatch.setattr(db_module.database_manager, "health_check", lambda: True)
+    monkeypatch.setattr(db_module.database_manager, "close", lambda: None)
 
     app = create_application()
     app.dependency_overrides[get_db] = lambda: auth_session

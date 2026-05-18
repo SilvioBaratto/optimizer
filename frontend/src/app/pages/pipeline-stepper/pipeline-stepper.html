@@ -1,0 +1,104 @@
+<section class="p-4 sm:p-6 space-y-4">
+  <header class="flex items-center justify-between">
+    <div>
+      <h1 class="text-lg font-semibold text-text">Portfolio Builder</h1>
+      <p class="text-data-sm text-text-secondary">
+        Run the 13-step research pipeline end-to-end.
+      </p>
+    </div>
+    @if (phase() === 'running') {
+      <button
+        type="button"
+        (click)="onAbort()"
+        class="px-3 py-1.5 text-data-xs font-medium rounded-md border border-border text-text-secondary hover:bg-surface-inset transition-colors"
+      >
+        Abort & reset
+      </button>
+    }
+  </header>
+
+  @if (sessionError(); as err) {
+    <div
+      role="alert"
+      class="px-4 py-2 rounded-md border border-loss/40 bg-loss/10 text-data-sm text-loss"
+    >
+      {{ err }}
+    </div>
+  }
+
+  @if (abortGateError(); as reason) {
+    <div
+      role="alert"
+      class="flex items-start gap-3 px-4 py-3 rounded-md border border-warning/40 bg-warning/10 text-data-sm text-warning"
+    >
+      <span class="font-semibold">Pipeline halted at Coverage Gate.</span>
+      <span class="text-text">{{ reason }}</span>
+    </div>
+  }
+
+  @if (phase() === 'config') {
+    <div class="max-w-xl">
+      <app-run-config-panel (configSubmit)="onConfigSubmit($event)" />
+    </div>
+  } @else {
+    <div class="grid grid-cols-1 lg:grid-cols-[18rem_1fr] gap-4">
+      <aside class="space-y-1.5">
+        <div class="px-1 pb-1 text-data-xs text-text-tertiary">
+          {{ completedCount() }} / {{ steps.length }} completed
+        </div>
+        @for (step of steps; track step.id) {
+          @let status = stepStatuses().get(step.id) ?? null;
+          <button
+            type="button"
+            [class]="rowClass(step.id)"
+            [disabled]="!isClickable(status)"
+            (click)="selectStep(step.id)"
+          >
+            <span class="flex items-center gap-2.5">
+              <span [class]="'inline-block w-2.5 h-2.5 rounded-full ' + statusDotClass(status)"></span>
+              <span class="text-data-sm text-text">{{ step.label }} — {{ step.id }}</span>
+              @if (step.id === activeStepId()) {
+                <span class="ml-auto text-data-xs text-accent">Active</span>
+              }
+            </span>
+          </button>
+        }
+      </aside>
+
+      <main class="rounded-lg border border-border bg-surface-raised p-6 space-y-3">
+        @if (activeStep(); as step) {
+          <div class="text-text-tertiary text-data-sm">
+            Step panel for {{ step.label }} — {{ step.id }} (Cycle 5)
+          </div>
+
+          @if (activeStepStatus() === 'ready') {
+            <button
+              type="button"
+              (click)="runActiveStep()"
+              class="px-3 py-1.5 text-data-sm font-medium rounded-md bg-accent text-white hover:bg-accent/90 transition-colors"
+            >
+              Run step
+            </button>
+          }
+
+          @if (activeStepStatus() === 'running') {
+            <div class="text-data-sm text-text-secondary">
+              Running…
+              @if (pollProgress()?.progress; as p) {
+                <span class="ml-1">{{ p['current'] }} / {{ p['total'] }}</span>
+              }
+            </div>
+          }
+
+          @if (activeStepStatus() === 'completed') {
+            <div class="text-data-sm text-gain">Completed.</div>
+          }
+
+          @if (activeStepStatus() === 'error' && lastError(); as err) {
+            <div class="text-data-sm text-loss">{{ err }}</div>
+          }
+        }
+      </main>
+    </div>
+  }
+</section>

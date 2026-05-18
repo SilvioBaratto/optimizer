@@ -6,7 +6,7 @@ This module provides shared fixtures for testing the FastAPI application.
 """
 
 from collections.abc import Generator
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -79,13 +79,33 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
         finally:
             pass
 
-    app.dependency_overrides[get_db] = override_get_db
+    # Patch database_manager so lifespan doesn't try to connect to PostgreSQL
+    from contextlib import contextmanager
 
-    test_client = TestClient(app)
-    try:
-        yield test_client
-    finally:
-        app.dependency_overrides.clear()
+    from app import database as db_module
+
+    @contextmanager
+    def _test_session_cm():
+        yield db_session
+
+    # Create a mock initialize that sets the flags but doesn't try to connect
+    def _mock_initialize():
+        db_module.database_manager._is_initialized = True
+        db_module.database_manager._engine = MagicMock()
+        # Ensure session factory is set
+        db_module.database_manager._session_factory = lambda: db_session
+
+    with patch.object(db_module.database_manager, "get_session", _test_session_cm):
+        with patch.object(db_module.database_manager, "initialize", side_effect=_mock_initialize):
+            with patch.object(db_module.database_manager, "create_all_tables"):
+                with patch.object(db_module.database_manager, "health_check", return_value=True):
+                    with patch.object(db_module.database_manager, "close"):
+                        app.dependency_overrides[get_db] = override_get_db
+                        test_client = TestClient(app)
+                        try:
+                            yield test_client
+                        finally:
+                            app.dependency_overrides.clear()
 
 
 @pytest.fixture
