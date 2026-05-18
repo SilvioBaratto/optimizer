@@ -46,6 +46,7 @@ EXPECTED_FIELDS: tuple[str, ...] = (
     "report_result",
     "current_step",
     "step_status",
+    "step_results",
 )
 
 
@@ -71,6 +72,7 @@ def _build_session():
         report_result=None,
         current_step="load",
         step_status={"load": "pending"},
+        step_results={},
     )
 
 
@@ -153,12 +155,12 @@ class TestPipelineSessionDataclass:
             "slots=True breaks dataclasses.replace with mutable dict fields"
         )
 
-    def test_when_inspecting_dataclass_then_eighteen_fields_in_exact_order(self):
+    def test_when_inspecting_dataclass_then_nineteen_fields_in_exact_order(self):
         from app.services.pipeline_builder.session_store import _PipelineSession
 
         names = tuple(f.name for f in fields(_PipelineSession))
         assert names == EXPECTED_FIELDS
-        assert len(names) == 18
+        assert len(names) == 19
 
     def test_when_constructed_then_instance_holds_supplied_values(self):
         session = _build_session()

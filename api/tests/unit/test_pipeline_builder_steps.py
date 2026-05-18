@@ -66,6 +66,7 @@ def _session(sid: str, **step_status_overrides: str) -> _PipelineSession:
         report_result=None,
         current_step="idle",
         step_status=base_status,
+        step_results={},
     )
 
 

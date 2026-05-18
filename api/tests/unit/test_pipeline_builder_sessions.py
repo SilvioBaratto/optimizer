@@ -56,6 +56,7 @@ def _make_session(
         report_result=report_result,
         current_step="idle",
         step_status=step_status,
+        step_results={},
     )
 
 

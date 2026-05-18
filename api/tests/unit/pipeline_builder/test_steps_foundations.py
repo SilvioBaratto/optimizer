@@ -162,6 +162,7 @@ def _make_session(**overrides):
         "report_result": None,
         "current_step": "idle",
         "step_status": {},
+        "step_results": {},
     }
     base.update(overrides)
     return session_store._PipelineSession(**base)

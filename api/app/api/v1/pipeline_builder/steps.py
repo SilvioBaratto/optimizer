@@ -121,7 +121,11 @@ def get_step(session_id: str, step_id: str) -> StepPollResponse:
     if entry == "pending":
         return StepPollResponse(status="not_started", progress={})
     if entry == "completed":
-        return StepPollResponse(status="completed", progress={})
+        return StepPollResponse(
+            status="completed",
+            progress={},
+            result=session.step_results.get(step_id),
+        )
 
     job = get_job_service(session_id).get_job(entry)
     if job is None:
@@ -193,7 +197,7 @@ def _run_step(
         return
 
     svc.update_job(job_id, status="completed", result=result, finished_at=_now_iso())
-    _mark_step_completed(session_id, step_id)
+    _mark_step_completed(session_id, step_id, result)
 
 
 # ---------------------------------------------------------------------------
@@ -261,13 +265,20 @@ def _mark_step_running(session_id: str, step_id: str, job_id: str) -> None:
     update_session(session_id, step_status=new_status, current_step=step_id)
 
 
-def _mark_step_completed(session_id: str, step_id: str) -> None:
+def _mark_step_completed(
+    session_id: str, step_id: str, result: dict[str, Any] | None = None
+) -> None:
     session = get_session(session_id)
     if session is None:
         return
     new_status = dict(session.step_status)
     new_status[step_id] = "completed"
-    update_session(session_id, step_status=new_status)
+    new_results = dict(session.step_results)
+    if result is not None:
+        new_results[step_id] = result
+    update_session(
+        session_id, step_status=new_status, step_results=new_results
+    )
 
 
 def _poll_response_from_job(job: dict[str, Any]) -> StepPollResponse:

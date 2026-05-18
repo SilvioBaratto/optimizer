@@ -102,6 +102,7 @@ class _PipelineSession:
     report_result: Any
     current_step: str
     step_status: dict[str, str]
+    step_results: dict[str, Any]
 
 
 _sessions: dict[str, _PipelineSession] = {}
@@ -139,6 +140,7 @@ def create_session(run_config: dict[str, Any]) -> str:
         report_result=None,
         current_step="idle",
         step_status=dict.fromkeys(STEP_IDS, "pending"),
+        step_results={},
     )
     with _sessions_lock:
         if len(_sessions) >= MAX_CONCURRENT_SESSIONS:
