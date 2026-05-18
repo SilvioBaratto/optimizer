@@ -172,19 +172,46 @@ class YFinanceDataService:
                         thresholds.min_history_tolerance,
                     )
                     if not sufficient:
-                        logger.info(
-                            "Skipping price storage for %s: got %d rows, "
-                            "expected ~%d (min %d) for %s on %s",
-                            yfinance_ticker,
-                            len(history),
-                            expected,
-                            minimum,
-                            period,
-                            exchange_name,
-                        )
-                        counts["prices"] = 0
-                        skipped.append("prices:insufficient_history")
-                        history = None
+                        # The insufficient-history guard exists to stop a
+                        # truncated/glitchy re-fetch from clobbering an
+                        # established price series. But for an instrument with
+                        # NO stored prices yet, a short history is simply a
+                        # young listing's complete, legitimate history (recent
+                        # IPOs/SPACs). Discarding it permanently excluded ~102
+                        # instruments from price_history with no error logged.
+                        # Only discard when prior price data exists.
+                        if staleness is not None:
+                            price_max_date = staleness.get("price_max_date")
+                        else:
+                            price_max_date = self.repo.get_staleness_info(
+                                instrument_id
+                            ).get("price_max_date")
+                        has_existing_prices = price_max_date is not None
+                        if has_existing_prices:
+                            logger.info(
+                                "Skipping price storage for %s: got %d rows, "
+                                "expected ~%d (min %d) for %s on %s "
+                                "(protecting existing series)",
+                                yfinance_ticker,
+                                len(history),
+                                expected,
+                                minimum,
+                                period,
+                                exchange_name,
+                            )
+                            counts["prices"] = 0
+                            skipped.append("prices:insufficient_history")
+                            history = None
+                        else:
+                            logger.info(
+                                "Storing short history for %s: %d rows "
+                                "(below expected ~%d for %s) — young listing "
+                                "with no prior price data",
+                                yfinance_ticker,
+                                len(history),
+                                expected,
+                                period,
+                            )
 
             if history is not None and not history.empty:
                 counts["prices"] = self.repo.upsert_price_history(

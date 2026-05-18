@@ -355,13 +355,13 @@ class TestSectorCoverageWarning:
     def test_when_all_11_sectors_present_no_missing_returned(self) -> None:
         sectors = [
             "Energy",
-            "Materials",
+            "Basic Materials",
             "Industrials",
-            "Consumer Discretionary",
-            "Consumer Staples",
-            "Health Care",
-            "Financials",
-            "Information Technology",
+            "Consumer Cyclical",
+            "Consumer Defensive",
+            "Healthcare",
+            "Financial Services",
+            "Technology",
             "Communication Services",
             "Utilities",
             "Real Estate",
@@ -373,10 +373,10 @@ class TestSectorCoverageWarning:
 
     def test_when_some_sectors_absent_returns_missing_list(self) -> None:
         weights = pd.Series([0.5, 0.5], index=["AAA", "BBB"])
-        sector_mapping = {"AAA": "Energy", "BBB": "Financials"}
+        sector_mapping = {"AAA": "Energy", "BBB": "Financial Services"}
         missing = ssp._missing_gics_sectors(weights, sector_mapping)
         assert "Energy" not in missing
-        assert "Financials" not in missing
+        assert "Financial Services" not in missing
         assert len(missing) == 9
 
 
@@ -646,7 +646,7 @@ class TestRetightenTraceWiring:
         tickers = [f"T{i:02d}" for i in range(n_tickers)]
         prices = pd.DataFrame(100.0, index=idx, columns=tickers)
         volumes = pd.DataFrame(1_000_000.0, index=idx, columns=tickers)
-        sectors = ["Healthcare", "Technology", "Financials", "Energy"]
+        sectors = ["Healthcare", "Technology", "Financial Services", "Energy"]
         sector_mapping = {t: sectors[i % len(sectors)] for i, t in enumerate(tickers)}
         return SimpleNamespace(
             prices=prices,
@@ -1028,9 +1028,9 @@ def _good_inputs() -> dict[str, Any]:
     all_weights = list(zip(tickers, weights, strict=True))
     # All 11 GICS Level-1 sectors covered; max sector = 12% (3 tickers × 4%).
     sectors = (
-        ["Information Technology"] * 3  # 12%
-        + ["Health Care"] * 3  # 12%
-        + ["Financials"] * 3  # 12%
+        ["Technology"] * 3  # 12%
+        + ["Healthcare"] * 3  # 12%
+        + ["Financial Services"] * 3  # 12%
         + ["Industrials"] * 2  # 8%
         + ["Consumer Discretionary"] * 2  # 8%
         + ["Communication Services"] * 2  # 8%
@@ -1038,7 +1038,7 @@ def _good_inputs() -> dict[str, Any]:
         + ["Energy"] * 2  # 8%
         + ["Utilities"] * 2  # 8%
         + ["Real Estate"] * 2  # 8%
-        + ["Materials"] * 2  # 8%
+        + ["Basic Materials"] * 2  # 8%
     )
     assert len(sectors) == 25
     sector_mapping = dict(zip(tickers, sectors, strict=True))
@@ -1129,7 +1129,7 @@ class TestValidateChecklistRules:
         kwargs = _good_inputs()
         # Push all weight into one sector
         kwargs["sector_mapping"] = dict.fromkeys(
-            kwargs["sector_mapping"], "Information Technology"
+            kwargs["sector_mapping"], "Technology"
         )
         rules = ssp._validate_checklist(**kwargs)
         sector_rule = next(
@@ -1142,8 +1142,8 @@ class TestValidateChecklistRules:
         # 2 stocks at 50% each → HHI = 0.5
         kwargs["all_weights"] = [("T00", 0.5), ("T01", 0.5)]
         kwargs["sector_mapping"] = {
-            "T00": "Information Technology",
-            "T01": "Health Care",
+            "T00": "Technology",
+            "T01": "Healthcare",
         }
         kwargs["country_map"] = {"T00": "United States", "T01": "United Kingdom"}
         kwargs["currency_map"] = {"T00": "USD", "T01": "GBP"}
@@ -1165,9 +1165,9 @@ class TestValidateChecklistRules:
 
     def test_when_health_below_8pct_then_health_rule_fails(self) -> None:
         kwargs = _good_inputs()
-        # Remove all Health Care
+        # Remove all Healthcare
         kwargs["sector_mapping"] = {
-            t: ("Information Technology" if v in ("Health Care", "Healthcare") else v)
+            t: ("Technology" if v in ("Healthcare", "Healthcare") else v)
             for t, v in kwargs["sector_mapping"].items()
         }
         rules = ssp._validate_checklist(**kwargs)
@@ -1177,17 +1177,17 @@ class TestValidateChecklistRules:
     def test_when_tech_below_10pct_then_tech_rule_fails(self) -> None:
         kwargs = _good_inputs()
         kwargs["sector_mapping"] = {
-            t: ("Health Care" if v == "Information Technology" else v)
+            t: ("Healthcare" if v == "Technology" else v)
             for t, v in kwargs["sector_mapping"].items()
         }
         rules = ssp._validate_checklist(**kwargs)
-        rule = next(r for r in rules if "Information Technology" in r["rule"])
+        rule = next(r for r in rules if "Technology" in r["rule"])
         assert rule["pass"] is False
 
     def test_when_one_gics_sector_missing_then_coverage_rule_fails(self) -> None:
         kwargs = _good_inputs()
         kwargs["sector_mapping"] = {
-            t: ("Industrials" if v == "Materials" else v)
+            t: ("Industrials" if v == "Basic Materials" else v)
             for t, v in kwargs["sector_mapping"].items()
         }
         rules = ssp._validate_checklist(**kwargs)

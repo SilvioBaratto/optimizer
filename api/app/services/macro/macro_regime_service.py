@@ -428,13 +428,23 @@ def run_bulk_macro_fetch(
             "counts": total_counts,
             "error_count": len(all_errors),
         }
+        # Per-country fetch errors (e.g. Trading Economics circuit-breaker
+        # trips) are accumulated but were previously swallowed — the job still
+        # reported "completed", so a 16-day data outage stayed invisible.
+        # Surface any error as a failed terminal status so the jobs API and
+        # the failure webhook report it.
+        had_errors = len(all_errors) > 0
         on_progress(
-            status="completed",
+            status="failed" if had_errors else "completed",
             finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
             errors=all_errors,
             result=result_dict,
         )
-        logger.info("Bulk macro fetch completed: %d countries", total)
+        logger.info(
+            "Bulk macro fetch finished: %d countries, %d error(s)",
+            total,
+            len(all_errors),
+        )
 
     return result_dict
 

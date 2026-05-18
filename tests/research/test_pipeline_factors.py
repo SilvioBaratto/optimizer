@@ -39,7 +39,7 @@ class TestMissingGicsSectors:
             index=["AAPL", "XOM"],
         )
         sector_mapping = {
-            "AAPL": "Information Technology",
+            "AAPL": "Technology",
             "XOM": "Energy",
         }
         result = _missing_gics_sectors(weights, sector_mapping)
@@ -49,10 +49,10 @@ class TestMissingGicsSectors:
         from research.pipeline._factors import _missing_gics_sectors
 
         weights = pd.Series([1.0], index=["AAPL"])
-        sector_mapping = {"AAPL": "Information Technology"}
+        sector_mapping = {"AAPL": "Technology"}
         result = _missing_gics_sectors(weights, sector_mapping)
         assert "Energy" in result
-        assert "Health Care" in result
+        assert "Healthcare" in result
 
 
 class TestGicsSectors:
@@ -65,9 +65,9 @@ class TestGicsSectors:
         from research.pipeline._factors import _GICS_SECTORS
 
         assert "Energy" in _GICS_SECTORS
-        assert "Information Technology" in _GICS_SECTORS
-        assert "Health Care" in _GICS_SECTORS
-        assert "Financials" in _GICS_SECTORS
+        assert "Technology" in _GICS_SECTORS
+        assert "Healthcare" in _GICS_SECTORS
+        assert "Financial Services" in _GICS_SECTORS
 
 
 class TestCheckFactorCoverage:

@@ -48,6 +48,11 @@ class Instrument(BaseModel):
         Index("ix_instrument_exchange_id", "exchange_id"),
         Index("ix_instrument_isin", "isin"),
         Index("ix_instrument_yfinance_ticker", "yfinance_ticker"),
+        # Pinned to match migration d4e5f6a7b8c9 (singular "ix_instrument_*"
+        # family). A bare index=True on the column makes SQLAlchemy expect
+        # "ix_instruments_delisted_at", causing autogenerate to emit a
+        # needless drop+recreate.
+        Index("ix_instrument_delisted_at", "delisted_at"),
     )
 
     ticker: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
@@ -60,7 +65,7 @@ class Instrument(BaseModel):
 
     # Survivorship-bias correction: populated when an instrument drops out of
     # the active Trading 212 universe.
-    delisted_at: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    delisted_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     delisting_return: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     exchange_id: Mapped[uuid.UUID] = mapped_column(

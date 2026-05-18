@@ -473,6 +473,34 @@ def _get_last_refresh_time(session) -> datetime:
     return row
 
 
+def run_orphan_reaper() -> None:
+    """Reap background jobs whose worker died without a terminal status.
+
+    Orphan reconciliation otherwise runs only at process startup
+    (``app.main.lifespan``), so a job that hangs while the process stays
+    alive (dead daemon thread, wedged network socket) is never reaped and
+    blocks future runs of its type via ``JobAlreadyRunningError``. This
+    periodic tick closes that gap without requiring a restart.
+    """
+    try:
+        from app.repositories.jobs.background_job_repository import (
+            BackgroundJobRepository,
+        )
+
+        with database_manager.get_session() as session:
+            n = BackgroundJobRepository(session).reconcile_orphans(
+                "orphaned — heartbeat stale, reaped by periodic reaper",
+                heartbeat_timeout_seconds=(
+                    settings.scheduler_orphan_heartbeat_timeout_seconds
+                ),
+            )
+            session.commit()
+        if n:
+            logger.warning("orphan_reaper: reaped %d stale job(s)", n)
+    except Exception:
+        logger.exception("orphan_reaper: tick failed (non-fatal)")
+
+
 # ---------------------------------------------------------------------------
 # Schedule registry
 # ---------------------------------------------------------------------------
@@ -542,6 +570,15 @@ def _build_schedule_registry() -> list[ScheduleDefinition]:
             func=run_news_refresh,
             trigger=IntervalTrigger(
                 minutes=settings.scheduler_news_refresh_interval_minutes,
+            ),
+            misfire_grace_time=grace // 4,
+        ),
+        ScheduleDefinition(
+            job_id="orphan_reaper",
+            name="Periodic orphan job reaper",
+            func=run_orphan_reaper,
+            trigger=IntervalTrigger(
+                seconds=settings.scheduler_orphan_heartbeat_timeout_seconds,
             ),
             misfire_grace_time=grace // 4,
         ),

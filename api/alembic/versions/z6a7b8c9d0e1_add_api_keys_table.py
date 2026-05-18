@@ -39,9 +39,7 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    op.create_index("ix_api_keys_key_hash", "api_keys", ["key_hash"])
 
 
 def downgrade() -> None:
-    op.drop_index("ix_api_keys_key_hash", table_name="api_keys")
     op.drop_table("api_keys")

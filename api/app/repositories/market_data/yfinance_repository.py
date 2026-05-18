@@ -573,6 +573,13 @@ class YFinanceRepository(RepositoryBase):
         for _, row_data in insiders_df.iterrows():
             name = _safe_str(row_data.get("Insider"), 500)
             tx_type = _safe_str(row_data.get("Transaction"), 200)
+            if not tx_type:
+                # yfinance 1.3.0 stopped populating the "Transaction" column
+                # (now always ""); the human-readable action moved to "Text"
+                # (e.g. "Sale at price 290.00 per share."). Without this
+                # fallback every row was skipped and insider_transactions
+                # silently stayed empty with no error logged.
+                tx_type = _safe_str(row_data.get("Text"), 200)
             if not name or not tx_type:
                 continue
             rows.append(
@@ -589,9 +596,26 @@ class YFinanceRepository(RepositoryBase):
                 }
             )
 
+        # Collapse rows that collide on the uq_insider_tx_row constraint
+        # (instrument_id, insider_name, start_date, transaction_type). yfinance
+        # returns several real transactions sharing all four (e.g. same grant,
+        # same day, different share counts); a single INSERT ... ON CONFLICT
+        # cannot touch the same conflict key twice ("ON CONFLICT DO UPDATE
+        # command cannot affect row a second time"). Keep the last occurrence,
+        # matching the DB upsert's last-write-wins semantics.
+        deduped: dict[tuple[Any, ...], dict[str, Any]] = {}
+        for r in rows:
+            key = (
+                r["instrument_id"],
+                r["insider_name"],
+                r["start_date"],
+                r["transaction_type"],
+            )
+            deduped[key] = r
+
         return self._upsert(
             InsiderTransaction,
-            rows,
+            list(deduped.values()),
             constraint_name="uq_insider_tx_row",
         )
 

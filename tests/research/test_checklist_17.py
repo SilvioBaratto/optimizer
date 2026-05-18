@@ -32,16 +32,16 @@ import research.pipeline as ssp
 _TICKERS = [f"T{i:02d}" for i in range(25)]
 _W = 1.0 / 25  # uniform 4%
 
-# 11 GICS Level-1 sectors, 25 tickers distributed (max 3 per sector → 12%).
+# 11 sectors (Yahoo Finance naming), 25 tickers distributed (max 3 per sector → 12%).
 _SECTOR_DIST: list[tuple[str, int]] = [
     ("Energy", 2),
-    ("Materials", 2),
+    ("Basic Materials", 2),
     ("Industrials", 3),
-    ("Consumer Discretionary", 3),
-    ("Consumer Staples", 2),
-    ("Health Care", 2),
-    ("Financials", 3),
-    ("Information Technology", 3),
+    ("Consumer Cyclical", 3),
+    ("Consumer Defensive", 2),
+    ("Healthcare", 2),
+    ("Financial Services", 3),
+    ("Technology", 3),
     ("Communication Services", 2),
     ("Utilities", 2),
     ("Real Estate", 1),
@@ -159,7 +159,7 @@ def _perturbation_max_region() -> dict[str, Any]:
 
 def _perturbation_max_sector() -> dict[str, Any]:
     # All 25 tickers Tech → max sector = 100%.
-    return {"sector_mapping": dict.fromkeys(_TICKERS, "Information Technology")}
+    return {"sector_mapping": dict.fromkeys(_TICKERS, "Technology")}
 
 
 def _perturbation_hhi() -> dict[str, Any]:
@@ -178,27 +178,28 @@ def _perturbation_top4() -> dict[str, Any]:
 
 def _perturbation_health_care() -> dict[str, Any]:
     sectors = _baseline_sector_mapping()
-    # Reassign Health Care tickers to Financials.
+    # Reassign Healthcare tickers to Financial Services.
     for t, s in list(sectors.items()):
-        if s == "Health Care":
-            sectors[t] = "Financials"
+        if s == "Healthcare":
+            sectors[t] = "Financial Services"
     return {"sector_mapping": sectors}
 
 
 def _perturbation_information_technology() -> dict[str, Any]:
     sectors = _baseline_sector_mapping()
     for t, s in list(sectors.items()):
-        if s == "Information Technology":
-            sectors[t] = "Financials"
+        if s == "Technology":
+            sectors[t] = "Financial Services"
     return {"sector_mapping": sectors}
 
 
 def _perturbation_missing_gics() -> dict[str, Any]:
     sectors = _baseline_sector_mapping()
-    # Drop Real Estate.
+    # Drop 4 sectors to reduce from 11 to 7 (< min 8).
+    dropped = {"Real Estate", "Utilities", "Consumer Defensive", "Basic Materials"}
     for t, s in list(sectors.items()):
-        if s == "Real Estate":
-            sectors[t] = "Financials"
+        if s in dropped:
+            sectors[t] = "Financial Services"
     return {"sector_mapping": sectors}
 
 
@@ -233,7 +234,7 @@ _PERTURBATIONS: list[tuple[int, str, dict[str, Any]]] = [
         "Information Technology exposure ≥ 10%",
         _perturbation_information_technology(),
     ),
-    (6, "All 11 GICS sectors present", _perturbation_missing_gics()),
+    (6, "At least 8/11 sectors present", _perturbation_missing_gics()),
     (7, "Single-stock cap ≤ 10%", _perturbation_max_weight()),
     (8, "Min position ≥ 2%", _perturbation_min_weight()),
     (9, "Max drawdown > -22%", _perturb_metric(_AT, **{"Max Drawdown": -0.30})),
@@ -249,7 +250,7 @@ _PERTURBATIONS: list[tuple[int, str, dict[str, Any]]] = [
     (15, "Total cost ≤ 100 bps", {"cost_bps_actual": 150.0}),
     (
         16,
-        "OOS span ≥ 8 years",
+        "OOS span ≥ 1.5 years",
         {
             "net_returns": pd.Series(
                 0.0,
@@ -289,7 +290,7 @@ _EXPECTED_ORDER = [
     "Top-4 holdings < 30%",
     "Health Care exposure ≥ 8%",
     "Information Technology exposure ≥ 10%",
-    "All 11 GICS sectors present",
+    "At least 8/11 sectors present",
     "Single-stock cap ≤ 10%",
     "Min position ≥ 2%",
     "Max drawdown > -22%",
@@ -299,7 +300,7 @@ _EXPECTED_ORDER = [
     "Info Ratio > 0.5",
     "Downside vol < 75% x total vol",
     "Total cost ≤ 100 bps",
-    "OOS span ≥ 8 years",
+    "OOS span ≥ 1.5 years",
 ]
 
 

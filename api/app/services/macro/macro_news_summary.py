@@ -327,6 +327,14 @@ def generate_country_summaries(
         allowed = frozenset(countries)
         country_articles = {k: v for k, v in country_articles.items() if k in allowed}
 
+    # Release the read transaction's pooled connection before the LLM loop.
+    # Articles are now fully materialised in memory; without this commit the
+    # SELECT transaction stays open and pins one of the (small) pool's
+    # connections through every per-country LLM call — minutes of wall time —
+    # which exhausted the pool under the 07:00 scheduler burst
+    # ("QueuePool limit of size 5 overflow 5 reached, connection timed out").
+    session.commit()
+
     today = datetime.now(timezone.utc).date()
 
     # Summarize per country — issue #589: emit a progress checkpoint before
@@ -340,6 +348,11 @@ def generate_country_summaries(
         result = _summarize_country(repo, country, arts, today, force_refresh)
         if result is not None:
             results.append(result)
+        # Commit (and release the connection) after each country so the
+        # per-country write does not hold a pooled connection across the
+        # NEXT country's LLM call. Keeps connection checkout brief and
+        # bounds pool pressure to one connection at a time for this job.
+        session.commit()
 
     logger.info(
         "Generated %d country summaries from %d articles",

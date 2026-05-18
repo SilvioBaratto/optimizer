@@ -50,6 +50,7 @@ services:
       OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
     ports:
       - "8005:8000"
+      - "65110:8000"
     depends_on:
       db:
         condition: service_healthy

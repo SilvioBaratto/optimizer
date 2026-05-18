@@ -41,8 +41,8 @@ _IS_VALIDATION_CONFIG = FactorValidationConfig(
 OOS_CONFIG = FactorOOSConfig(train_periods=8, val_periods=4, step_periods=2)
 
 # Cycle-2 §6.1: portfolio size constrained to [25, 50] selected stocks.
-N_SELECTED_MIN: int = 15
-N_SELECTED_MAX: int = 30
+N_SELECTED_MIN: int = 25
+N_SELECTED_MAX: int = 50
 
 # 11 top-level sectors using Yahoo Finance naming (matches assembly.sector_mapping).
 # GICS equivalents: Materials→Basic Materials, Consumer Discretionary→Consumer Cyclical,

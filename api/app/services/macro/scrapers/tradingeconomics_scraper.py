@@ -241,7 +241,14 @@ class TradingEconomicsIndicatorsScraper:
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
-                "Accept-Encoding": "gzip, deflate, br",
+                # Do NOT advertise "br" — the brotli decoder is not installed
+                # (neither in the container nor the dev env). Trading Economics
+                # began serving Content-Encoding: br ~2026-05-01; requests then
+                # could not decompress the body, every parse matched 0 rows and
+                # raised ParseStructureError, which latched the circuit breaker
+                # and silently froze the table for 16 days. gzip/deflate are
+                # decoded by requests natively.
+                "Accept-Encoding": "gzip, deflate",
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
             }

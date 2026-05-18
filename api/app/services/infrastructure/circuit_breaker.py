@@ -39,12 +39,24 @@ class CircuitBreaker:
                     should_wait = True
                     wait_time = self._until - now
                 else:
+                    # Cooldown elapsed: half-open. Clear the breaker AND decay
+                    # the attempt counter so a stuck breaker self-heals even
+                    # when no success has been recorded. ``reset`` is the only
+                    # other decrementer and it is unreachable while ``check``
+                    # raises before the fetch runs — without this decay the
+                    # breaker latches open permanently for the life of the
+                    # process.
                     self._active = False
+                    self._attempt = max(0, self._attempt - 1)
 
-            if self._attempt >= self.max_attempts:
+            # Safety abort only while actively backing off within the cooldown
+            # window — never a permanent latch. Once the window passes the
+            # branch above re-closes the breaker and the next call proceeds.
+            if self._active and self._attempt >= self.max_attempts:
                 raise RuntimeError(
-                    f"{self.service_name} rate limit persists after {self._attempt} attempts. "
-                    "Total wait time exceeded safety limit. Aborting to prevent infinite loop."
+                    f"{self.service_name} rate limit persists after "
+                    f"{self._attempt} attempts. Backing off until cooldown "
+                    "elapses, then retrying."
                 )
 
         # Sleep outside the lock so other threads can check status
