@@ -186,7 +186,7 @@ def _patch_pipeline(
     monkeypatch.setattr(
         _cli_main,
         "load_data",
-        lambda *_, **__: (assembly, {"T00": "US"}, None),
+        lambda *_, **__: (assembly, {"T00": "US"}, _stub_db_mgr),
     )
     monkeypatch.setattr(
         _cli_main,

@@ -331,21 +331,21 @@ class TestValidateChecklist:
         )
 
         # 16-stock portfolio satisfying all 17 rules:
-        # top-4 < 30%, single ≤ 10%, min ≥ 2%, IT ≥ 10%,
-        # Health Care ≥ 8%, all 11 sectors present, region ≤ 60%.
+        # top-4 < 30%, single ≤ 10%, min ≥ 2%, Technology ≥ 10%,
+        # Healthcare ≥ 8%, all 11 sectors present, region ≤ 60%.
         tickers = [f"T{i}" for i in range(16)]
         sectors = {
-            "T0": "Health Care",
-            "T1": "Health Care",
-            "T2": "Information Technology",
-            "T3": "Information Technology",
-            "T4": "Financials",
-            "T5": "Financials",
+            "T0": "Healthcare",
+            "T1": "Healthcare",
+            "T2": "Technology",
+            "T3": "Technology",
+            "T4": "Financial Services",
+            "T5": "Financial Services",
             "T6": "Energy",
-            "T7": "Materials",
+            "T7": "Basic Materials",
             "T8": "Industrials",
-            "T9": "Consumer Discretionary",
-            "T10": "Consumer Staples",
+            "T9": "Consumer Cyclical",
+            "T10": "Consumer Defensive",
             "T11": "Communication Services",
             "T12": "Communication Services",
             "T13": "Utilities",

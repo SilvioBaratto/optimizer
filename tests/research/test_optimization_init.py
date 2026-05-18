@@ -232,7 +232,7 @@ def test_sector_floors_is_dict() -> None:
     from research.optimization import _SECTOR_FLOORS
 
     assert isinstance(_SECTOR_FLOORS, dict)
-    assert len(_SECTOR_FLOORS) > 0
+    assert len(_SECTOR_FLOORS) == 0
 
 
 def test_max_region_weight_is_float() -> None:

@@ -307,15 +307,15 @@ class TestSpecCompliantSelectionAndScoring:
             )
         return captured
 
-    def test_when_optimize_portfolio_called_scoring_config_uses_ic_decay_halflife_4(
+    def test_when_optimize_portfolio_called_scoring_config_uses_icir_weighted(
         self,
     ) -> None:
         from optimizer.factors import CompositeMethod
 
         captured = self._capture_kwargs(n_selected=30)
         cfg = captured["scoring_config"]
-        assert cfg.method == CompositeMethod.IC_WEIGHTED
-        assert cfg.ic_decay_halflife == 4
+        assert cfg.method == CompositeMethod.ICIR_WEIGHTED
+        assert cfg.ic_decay_halflife == 0
 
     def test_when_optimize_portfolio_called_selection_config_matches_spec(
         self,
@@ -328,7 +328,7 @@ class TestSpecCompliantSelectionAndScoring:
         assert sel.method == SelectionMethod.FIXED_COUNT
         assert sel.buffer_fraction == pytest.approx(0.05)
         assert sel.sector_balance is True
-        assert sel.max_per_sector == 8
+        assert sel.max_per_sector == 4
 
 
 class TestNSelectedRangeValidation:
@@ -453,12 +453,12 @@ class TestRegionMapModuleConstant:
 class TestHardConstrainedMeanRiskSpec:
     """§7.1 spec wiring of optimize_portfolio."""
 
-    def test_when_called_then_objective_is_maximize_ratio(self) -> None:
+    def test_when_called_then_objective_is_minimize_risk(self) -> None:
         from skfolio.optimization.convex._base import ObjectiveFunction
 
         captured = _capture_optimizer()
         opt = captured["optimizer"]
-        assert opt.objective_function == ObjectiveFunction.MAXIMIZE_RATIO
+        assert opt.objective_function == ObjectiveFunction.MINIMIZE_RISK
 
     def test_when_called_then_max_weights_010(self) -> None:
         captured = _capture_optimizer()
@@ -495,14 +495,18 @@ class TestHardConstrainedMeanRiskSpec:
         captured = _capture_optimizer()
         params = captured["optimizer"].solver_params
         assert params["max_iter"] == 200_000
-        assert params["eps_abs"] == pytest.approx(1e-8)
-        assert params["eps_rel"] == pytest.approx(1e-8)
+        assert params["tol_gap_abs"] == pytest.approx(1e-8)
+        assert params["tol_gap_rel"] == pytest.approx(1e-8)
 
-    def test_when_called_then_min_sector_weights_floors_present(self) -> None:
+    def test_when_called_then_sector_floor_constraints_empty(self) -> None:
         captured = _capture_optimizer()
         constraints = captured["optimizer"].linear_constraints or []
-        assert any("Healthcare >= 0.08" in c for c in constraints)
-        assert any("Technology >= 0.1" in c for c in constraints)
+        sector_floor_constraints = [c for c in constraints if " >= " in c and any(
+            sec in c for sec in ("Energy", "Materials", "Industrial", "Cyclical",
+                                "Defensive", "Healthcare", "Financial", "Technology",
+                                "Communication", "Utilities", "Real")
+        )]
+        assert len(sector_floor_constraints) == 0
 
     def test_when_country_map_supplied_then_region_caps_in_constraints(self) -> None:
         captured = _capture_optimizer(
@@ -663,12 +667,10 @@ class TestRetightenTraceWiring:
             fx_rates=pd.DataFrame(),
         )
 
-    def test_when_universe_above_top4_then_retighten_runs_and_trace_attached(
+    def test_when_universe_above_top4_then_retighten_disabled_trace_empty(
         self,
     ) -> None:
         from types import SimpleNamespace
-
-        fake_trace = [{"attempt": 1, "top4": 0.25, "max_weights": 0.10}]
 
         def fake_pipeline(**kwargs: Any) -> Any:
             return SimpleNamespace(
@@ -677,16 +679,10 @@ class TestRetightenTraceWiring:
                 weights=pd.Series([0.125] * 8, index=[f"T{i:02d}" for i in range(8)]),
             )
 
-        with (
-            patch.object(
-                _opt_module,
-                "run_full_pipeline_with_selection",
-                side_effect=fake_pipeline,
-            ),
-            patch(
-                "research.pipeline._optimize._solve_with_retighten",
-                return_value=("STUB_OPT", fake_trace),
-            ) as mock_retighten,
+        with patch.object(
+            _opt_module,
+            "run_full_pipeline_with_selection",
+            side_effect=fake_pipeline,
         ):
             assembly = self._wide_assembly(n_tickers=8)
             result = ssp.optimize_portfolio(
@@ -696,10 +692,9 @@ class TestRetightenTraceWiring:
                 n_selected=8,
             )
 
-        assert mock_retighten.called
-        assert result.retighten_trace == fake_trace
+        assert result.retighten_trace == []
 
-    def test_when_universe_at_or_below_top4_then_retighten_skipped(self) -> None:
+    def test_when_universe_at_or_below_top4_then_retighten_disabled(self) -> None:
         from types import SimpleNamespace
 
         def fake_pipeline(**kwargs: Any) -> Any:
@@ -709,15 +704,10 @@ class TestRetightenTraceWiring:
                 weights=pd.Series([0.5, 0.5], index=["T00", "T01"]),
             )
 
-        with (
-            patch.object(
-                _opt_module,
-                "run_full_pipeline_with_selection",
-                side_effect=fake_pipeline,
-            ),
-            patch(
-                "research.pipeline._optimize._solve_with_retighten"
-            ) as mock_retighten,
+        with patch.object(
+            _opt_module,
+            "run_full_pipeline_with_selection",
+            side_effect=fake_pipeline,
         ):
             assembly = self._wide_assembly(n_tickers=2)
             result = ssp.optimize_portfolio(
@@ -727,7 +717,6 @@ class TestRetightenTraceWiring:
                 n_selected=2,
             )
 
-        assert not mock_retighten.called
         assert result.retighten_trace == []
 
 
@@ -1032,9 +1021,9 @@ def _good_inputs() -> dict[str, Any]:
         + ["Healthcare"] * 3  # 12%
         + ["Financial Services"] * 3  # 12%
         + ["Industrials"] * 2  # 8%
-        + ["Consumer Discretionary"] * 2  # 8%
+        + ["Consumer Cyclical"] * 2  # 8%
         + ["Communication Services"] * 2  # 8%
-        + ["Consumer Staples"] * 2  # 8%
+        + ["Consumer Defensive"] * 2  # 8%
         + ["Energy"] * 2  # 8%
         + ["Utilities"] * 2  # 8%
         + ["Real Estate"] * 2  # 8%
@@ -1184,14 +1173,32 @@ class TestValidateChecklistRules:
         rule = next(r for r in rules if "Technology" in r["rule"])
         assert rule["pass"] is False
 
-    def test_when_one_gics_sector_missing_then_coverage_rule_fails(self) -> None:
+    def test_when_fewer_than_eight_sectors_then_coverage_rule_fails(self) -> None:
         kwargs = _good_inputs()
+        # Collapse to only 7 distinct sectors by mapping multiple to "Technology"
+        collapsed_sectors = {
+            "Technology": ["Technology", "Healthcare"],
+            "Financial Services": ["Financial Services", "Industrials"],
+            "Communication Services": ["Communication Services", "Consumer Cyclical"],
+            "Energy": ["Energy", "Utilities"],
+            "Real Estate": ["Real Estate"],
+            "Consumer Defensive": ["Consumer Defensive"],
+            "Basic Materials": ["Basic Materials"],
+        }
+        reverse_map = {}
+        for target, sources in collapsed_sectors.items():
+            for source in sources:
+                reverse_map[source] = target
+
         kwargs["sector_mapping"] = {
-            t: ("Industrials" if v == "Basic Materials" else v)
+            t: reverse_map.get(v, v)
             for t, v in kwargs["sector_mapping"].items()
         }
         rules = ssp._validate_checklist(**kwargs)
-        rule = next(r for r in rules if "11" in r["target"] or "GICS" in r["rule"])
+        rule = next(
+            r for r in rules
+            if "8" in r["target"] and "sector" in r["rule"].lower()
+        )
         assert rule["pass"] is False
 
     def test_when_max_weight_above_10pct_then_single_stock_rule_fails(self) -> None:

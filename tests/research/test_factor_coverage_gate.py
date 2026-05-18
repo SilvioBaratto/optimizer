@@ -38,7 +38,7 @@ class TestCheckFactorCoverage:
         is_report = _report(["a", "b", "c"])
         oos_result = _oos({"a": 1.0, "b": 1.0, "c": 1.0, "d": 1.0})
         with pytest.raises(FactorCoverageError, match="Factor coverage gate failed"):
-            ssp._check_factor_coverage(is_report, oos_result)
+            ssp._check_factor_coverage(is_report, oos_result, min_factors=4)
 
     def test_when_failing_message_lists_passing_and_partial_legs(self) -> None:
         # IS={a,b,c,d}, OOS+={a,e,f} → pass={a}, is_only={b,c,d}, oos_only={e,f}
