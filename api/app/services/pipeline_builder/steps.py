@@ -1135,6 +1135,17 @@ def step_report(
     is_result = session.is_result
     oos_result = session.oos_result
     regime_result = session.regime_result or {}
+
+    # The research report renderer expects ``result.rebalance_decision``
+    # as a ``tuple[bool, str]`` (the CLI attaches it via ``_decide_rebalance``
+    # before rendering — research/cli/_main.py). The API path keeps the
+    # decision in ``session.rebalance_result``; mirror the CLI by attaching
+    # the same tuple onto the PortfolioResult.
+    rebalance_result = session.rebalance_result or {}
+    result.rebalance_decision = (
+        bool(rebalance_result.get("decision", False)),
+        str(rebalance_result.get("reason", "")),
+    )
     country_map: dict[str, str] = dict(session.run_config.get("country_map", {}) or {})
     cost_bps = float(session.run_config.get("cost_bps", 10.0))
     tax_rate = float(session.run_config.get("tax_rate", 0.26))
