@@ -1,0 +1,65 @@
+@if (stepStatus() === StepStatus.Ready) {
+  <button
+    type="button"
+    data-testid="run-step"
+    (click)="onRun()"
+    class="px-3 py-1.5 text-data-sm font-medium rounded-md bg-accent text-white hover:bg-accent/90 transition-colors"
+  >
+    Run Step
+  </button>
+}
+
+@if (stepStatus() === StepStatus.Running) {
+  <div
+    data-testid="spinner"
+    role="status"
+    aria-label="Persisting snapshot"
+    class="inline-flex items-center gap-2 text-data-sm text-text-secondary"
+  >
+    <span
+      class="inline-block w-4 h-4 rounded-full border-2 border-accent border-t-transparent animate-spin"
+    ></span>
+    Persisting research snapshot…
+  </div>
+}
+
+@if (stepStatus() === StepStatus.Completed && persistResult(); as r) {
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="flex flex-col">
+      <span class="text-data-xs text-text-secondary uppercase tracking-wide">
+        Persisted
+      </span>
+      <span
+        data-testid="persisted-badge"
+        class="mt-1 inline-flex self-start items-center px-2 py-0.5 rounded-full text-data-xs font-medium border"
+        [class]="r.persisted ? 'bg-gain/10 text-gain border-gain/40' : 'bg-surface-inset text-text-tertiary border-border'"
+      >
+        {{ r.persisted ? 'yes' : 'no' }}
+      </span>
+    </div>
+    <app-stat-card label="Reason" [value]="r.reason" />
+    <app-stat-card label="Pass count" [value]="r.pass_count" />
+    <div class="flex flex-col">
+      <span class="text-data-xs text-text-secondary uppercase tracking-wide">
+        Checklist
+      </span>
+      <span
+        data-testid="checklist-badge"
+        class="mt-1 inline-flex self-start items-center px-2 py-0.5 rounded-full text-data-xs font-medium border"
+        [class]="r.checklist_passed ? 'bg-gain/10 text-gain border-gain/40' : 'bg-loss/10 text-loss border-loss/40'"
+      >
+        {{ r.checklist_passed ? 'PASS' : 'FAIL' }}
+      </span>
+    </div>
+  </div>
+}
+
+@if (lastError(); as err) {
+  <div
+    data-testid="error-block"
+    role="alert"
+    class="mt-3 px-4 py-2 rounded-md border border-loss/40 bg-loss/10 text-data-sm text-loss"
+  >
+    {{ err }}
+  </div>
+}

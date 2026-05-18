@@ -1,0 +1,88 @@
+@if (stepStatus() === StepStatus.Ready) {
+  <button
+    type="button"
+    data-testid="run-step"
+    (click)="onRun()"
+    class="px-3 py-1.5 text-data-sm font-medium rounded-md bg-accent text-white hover:bg-accent/90 transition-colors"
+  >
+    Run Step
+  </button>
+}
+
+@if (stepStatus() === StepStatus.Running) {
+  <div
+    data-testid="spinner"
+    role="status"
+    aria-label="Deciding rebalance"
+    class="inline-flex items-center gap-2 text-data-sm text-text-secondary"
+  >
+    <span
+      class="inline-block w-4 h-4 rounded-full border-2 border-accent border-t-transparent animate-spin"
+    ></span>
+    Evaluating rebalance decision…
+  </div>
+}
+
+@if (stepStatus() === StepStatus.Completed && rebalanceResult(); as r) {
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="flex flex-col">
+      <span class="text-data-xs text-text-secondary uppercase tracking-wide">
+        Decision
+      </span>
+      <span
+        data-testid="decision-badge"
+        class="mt-1 inline-flex self-start items-center px-2 py-0.5 rounded-full text-data-xs font-medium border"
+        [class]="r.decision ? 'bg-gain/10 text-gain border-gain/40' : 'bg-surface-inset text-text-tertiary border-border'"
+      >
+        {{ r.decision ? 'Rebalance' : 'Hold' }}
+      </span>
+    </div>
+    <app-stat-card label="Reason" [value]="r.reason" />
+    <app-stat-card label="Weights" [value]="r.n_weights" />
+    <app-stat-card label="Current date" [value]="r.current_date" />
+  </div>
+
+  <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <app-stat-card label="Last review date" [value]="r.last_review_date" />
+    <div class="flex flex-col">
+      <span class="text-data-xs text-text-secondary uppercase tracking-wide">
+        Weight count
+      </span>
+      <span
+        data-testid="weight-count-badge"
+        class="mt-1 inline-flex self-start items-center px-2 py-0.5 rounded-full text-data-xs font-medium border"
+        [class]="r.weight_count_warning ? 'bg-warning/10 text-warning border-warning/40' : 'bg-gain/10 text-gain border-gain/40'"
+      >
+        {{ r.weight_count_warning ? 'outside [15, 30]' : 'ok' }}
+      </span>
+    </div>
+  </div>
+
+  @if (r.missing_sectors.length > 0) {
+    <div class="mt-3">
+      <h4 class="text-data-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">
+        Missing GICS sectors
+      </h4>
+      <ul class="flex flex-wrap gap-1.5">
+        @for (sector of r.missing_sectors; track sector) {
+          <li
+            data-testid="missing-sector-badge"
+            class="inline-flex items-center px-2 py-0.5 rounded-full text-data-xs font-mono bg-warning/10 text-warning border border-warning/40"
+          >
+            {{ sector }}
+          </li>
+        }
+      </ul>
+    </div>
+  }
+}
+
+@if (lastError(); as err) {
+  <div
+    data-testid="error-block"
+    role="alert"
+    class="mt-3 px-4 py-2 rounded-md border border-loss/40 bg-loss/10 text-data-sm text-loss"
+  >
+    {{ err }}
+  </div>
+}
