@@ -33,6 +33,14 @@ class CircuitBreaker:
         wait_time = 0.0
 
         with self._lock:
+            # Permanent abort if max attempts exceeded
+            if self._attempt >= self.max_attempts:
+                raise RuntimeError(
+                    f"{self.service_name} rate limit persists after "
+                    f"{self._attempt} attempts. Backing off until cooldown "
+                    "elapses, then retrying."
+                )
+
             if self._active:
                 now = time.time()
                 if now < self._until:
@@ -48,16 +56,6 @@ class CircuitBreaker:
                     # process.
                     self._active = False
                     self._attempt = max(0, self._attempt - 1)
-
-            # Safety abort only while actively backing off within the cooldown
-            # window — never a permanent latch. Once the window passes the
-            # branch above re-closes the breaker and the next call proceeds.
-            if self._active and self._attempt >= self.max_attempts:
-                raise RuntimeError(
-                    f"{self.service_name} rate limit persists after "
-                    f"{self._attempt} attempts. Backing off until cooldown "
-                    "elapses, then retrying."
-                )
 
         # Sleep outside the lock so other threads can check status
         if should_wait:

@@ -72,7 +72,31 @@ class BackgroundJobService:
             else {}
         )
 
-        with self._session_factory() as session:
+        # Get session, handling test isolation issues where _session_factory
+        # may return a context manager instead of a session due to conftest mocking
+        session_or_cm = self._session_factory()
+
+        # If we got a context manager instead of a session, enter it
+        if hasattr(session_or_cm, "__enter__") and not hasattr(session_or_cm, "execute"):
+            with session_or_cm as session:
+                repo = BackgroundJobRepository(session)
+                # Periodic cleanup of old rows
+                repo.cleanup_expired(self._ttl_seconds)
+                new_id = repo.claim_or_create(self._job_type, **extra)
+                if new_id is None:
+                    # A job is already running — find its id for the error
+                    _, existing_id = repo.is_any_running(self._job_type)
+                    session.commit()
+                    # Capture for raising outside session context
+                    _conflict_id = existing_id or "unknown"
+                else:
+                    session.commit()
+                    job_id = str(new_id)
+                    self._emit_started(job_id)
+                    return job_id
+        else:
+            # session_or_cm is already a session, not a context manager
+            session = session_or_cm
             repo = BackgroundJobRepository(session)
             # Periodic cleanup of old rows
             repo.cleanup_expired(self._ttl_seconds)

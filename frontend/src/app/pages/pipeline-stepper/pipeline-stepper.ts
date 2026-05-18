@@ -28,12 +28,40 @@ import {
 import { PipelineBuilderApiService } from '../../services/pipeline-builder-api.service';
 import { JOB_POLL_TICK } from '../../shared/job-progress-tracker/job-progress-tracker';
 import { RunConfigPanelComponent } from './run-config-panel';
+import { StepBuildHistoryPanelComponent } from './step-build-history-panel';
+import { StepCleanReturnsPanelComponent } from './step-clean-returns-panel';
+import { StepCostPanelComponent } from './step-cost-panel';
+import { StepCoverageGatePanelComponent } from './step-coverage-gate-panel';
+import { StepLoadPanelComponent } from './step-load-panel';
+import { StepOptimizePanelComponent } from './step-optimize-panel';
+import { StepPersistPanelComponent } from './step-persist-panel';
+import { StepRebalanceDecisionPanelComponent } from './step-rebalance-decision-panel';
+import { StepRegimePanelComponent } from './step-regime-panel';
+import { StepReportPanelComponent } from './step-report-panel';
+import { StepScreenPanelComponent } from './step-screen-panel';
+import { StepValidateIsPanelComponent } from './step-validate-is-panel';
+import { StepValidateOosPanelComponent } from './step-validate-oos-panel';
 
 type WizardPhase = 'config' | 'running';
 
 @Component({
   selector: 'app-pipeline-stepper',
-  imports: [RunConfigPanelComponent],
+  imports: [
+    RunConfigPanelComponent,
+    StepLoadPanelComponent,
+    StepScreenPanelComponent,
+    StepCleanReturnsPanelComponent,
+    StepBuildHistoryPanelComponent,
+    StepValidateIsPanelComponent,
+    StepValidateOosPanelComponent,
+    StepCoverageGatePanelComponent,
+    StepRegimePanelComponent,
+    StepOptimizePanelComponent,
+    StepRebalanceDecisionPanelComponent,
+    StepCostPanelComponent,
+    StepReportPanelComponent,
+    StepPersistPanelComponent,
+  ],
   templateUrl: './pipeline-stepper.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -48,6 +76,7 @@ export class PipelineStepperComponent {
   lastError = signal<string | null>(null);
   abortGateError = signal<string | null>(null);
   pollProgress = signal<StepPollResponse | null>(null);
+  stepResults = signal<Map<PipelineStepId, StepPollResponse>>(new Map());
 
   activeStep = computed(() =>
     this.steps.find((s) => s.id === this.activeStepId()) ?? null,
@@ -56,6 +85,7 @@ export class PipelineStepperComponent {
     const id = this.activeStepId();
     return id ? (this.stepStatuses().get(id) ?? StepStatus.Pending) : StepStatus.Pending;
   });
+  activeStepResult = computed(() => this.pollProgress()?.result ?? null);
   completedCount = computed(
     () => [...this.stepStatuses().values()].filter((s) => s === StepStatus.Completed).length,
   );
@@ -94,9 +124,13 @@ export class PipelineStepperComponent {
 
   selectStep(stepId: PipelineStepId): void {
     const status = this.stepStatuses().get(stepId);
-    if (status === StepStatus.Ready || status === StepStatus.Completed) {
-      this.activeStepId.set(stepId);
-    }
+    if (status !== StepStatus.Ready && status !== StepStatus.Completed) return;
+    this.activeStepId.set(stepId);
+    this.pollProgress.set(this.stepResults().get(stepId) ?? null);
+  }
+
+  onPanelRunStep(params: Record<string, unknown>): void {
+    this.runActiveStep(params);
   }
 
   runActiveStep(params: Record<string, unknown> = {}): void {
@@ -158,6 +192,7 @@ export class PipelineStepperComponent {
 
   private applyPoll(stepId: PipelineStepId, r: StepPollResponse): void {
     this.pollProgress.set(r);
+    this.stepResults.update((m) => new Map(m).set(stepId, r));
     this.updateStatus(stepId, mapPollStatus(r.status));
     if (r.status === 'completed') this.advance(stepId);
     if (r.status === 'failed') this.handleFailure(stepId, r);
@@ -206,6 +241,7 @@ export class PipelineStepperComponent {
     this.lastError.set(null);
     this.abortGateError.set(null);
     this.pollProgress.set(null);
+    this.stepResults.set(new Map());
     this.phase.set('config');
   }
 

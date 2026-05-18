@@ -66,36 +66,117 @@
       </aside>
 
       <main class="rounded-lg border border-border bg-surface-raised p-6 space-y-3">
-        @if (activeStep(); as step) {
-          <div class="text-text-tertiary text-data-sm">
-            Step panel for {{ step.label }} — {{ step.id }} (Cycle 5)
-          </div>
-
-          @if (activeStepStatus() === 'ready') {
-            <button
-              type="button"
-              (click)="runActiveStep()"
-              class="px-3 py-1.5 text-data-sm font-medium rounded-md bg-accent text-white hover:bg-accent/90 transition-colors"
-            >
-              Run step
-            </button>
+        @switch (activeStepId()) {
+          @case ('load') {
+            <app-step-load-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              (runStep)="onPanelRunStep($event)"
+            />
           }
-
-          @if (activeStepStatus() === 'running') {
-            <div class="text-data-sm text-text-secondary">
-              Running…
-              @if (pollProgress()?.progress; as p) {
-                <span class="ml-1">{{ p['current'] }} / {{ p['total'] }}</span>
-              }
+          @case ('screen') {
+            <app-step-screen-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @case ('clean_returns') {
+            <app-step-clean-returns-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @case ('build_history') {
+            <app-step-build-history-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @case ('validate_is') {
+            <app-step-validate-is-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @case ('validate_oos') {
+            <app-step-validate-oos-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @case ('coverage_gate') {
+            <app-step-coverage-gate-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              [abortGateError]="abortGateError()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @case ('regime') {
+            <app-step-regime-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @case ('optimize') {
+            <app-step-optimize-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @case ('rebalance_decision') {
+            <app-step-rebalance-decision-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @case ('cost') {
+            <app-step-cost-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @case ('report') {
+            <app-step-report-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @case ('persist') {
+            <app-step-persist-panel
+              [stepStatus]="activeStepStatus()"
+              [result]="activeStepResult()"
+              [lastError]="lastError()"
+              [sessionId]="sessionId()"
+              (runStep)="onPanelRunStep($event)"
+            />
+          }
+          @default {
+            <div class="text-data-sm text-text-tertiary">
+              Select a step from the sidebar to begin.
             </div>
-          }
-
-          @if (activeStepStatus() === 'completed') {
-            <div class="text-data-sm text-gain">Completed.</div>
-          }
-
-          @if (activeStepStatus() === 'error' && lastError(); as err) {
-            <div class="text-data-sm text-loss">{{ err }}</div>
           }
         }
       </main>

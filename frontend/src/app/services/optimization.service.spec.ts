@@ -193,7 +193,7 @@ describe('OptimizationService', () => {
       let result: AdaptFactorWeightsResponse | undefined;
       svc
         .adaptFactorWeights({
-          macro_indicators: { gdp: 1.5 },
+          macro_indicators: 'gdp 1.5',
           factor_groups: ['value', 'momentum'],
         })
         .subscribe((r) => (result = r));

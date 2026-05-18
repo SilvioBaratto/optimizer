@@ -114,6 +114,8 @@ def start_backtest(
         )
         db.commit()
 
+        run_id = str(pending_run.id)
+
         try:
             job_id = _job_service.create_job()
         except JobAlreadyRunningError as exc:
@@ -124,14 +126,14 @@ def start_backtest(
 
         _job_service.start_background(
             target=_run_backtest_bg,
-            args=(job_id, str(pending_run.id), request),
+            args=(job_id, run_id, request),
         )
 
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
             content={
                 "jobId": job_id,
-                "runId": str(pending_run.id),
+                "runId": run_id,
                 "status": "pending",
                 "message": f"Backtest started. Poll GET /backtest/{job_id} for progress.",
             },

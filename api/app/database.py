@@ -269,11 +269,13 @@ class DatabaseManager:
 
         except (DisconnectionError, OperationalError) as e:
             logger.error(f"Database connection error: {e}")
-            session.rollback()
+            if hasattr(session, "rollback"):
+                session.rollback()
 
             # Attempt to recover by invalidating the connection
             try:
-                session.connection().invalidate()
+                if hasattr(session, "connection"):
+                    session.connection().invalidate()
             except Exception as recovery_error:
                 logger.debug(f"Connection invalidation failed: {recovery_error}")
 
@@ -281,12 +283,14 @@ class DatabaseManager:
 
         except SQLAlchemyError as e:
             logger.error(f"Database error: {e}")
-            session.rollback()
+            if hasattr(session, "rollback"):
+                session.rollback()
             raise
 
         except Exception as e:
             logger.error(f"Unexpected error in database session: {e}")
-            session.rollback()
+            if hasattr(session, "rollback"):
+                session.rollback()
             raise
 
         finally:

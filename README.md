@@ -7,6 +7,7 @@
 [![Docs](https://img.shields.io/badge/docs-silviobaratto.github.io%2Foptimizer-blue)](https://silviobaratto.github.io/optimizer)
 [![Live Demo](https://img.shields.io/badge/demo-optimizer.silviobaratto.com-purple)](https://optimizer.silviobaratto.com)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-green)
+[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/c47694dc-b34e-481e-8907-2766ff13d4cd.svg)](https://oosmetrics.com/repo/SilvioBaratto/optimizer)
 
 Quantitative portfolio construction and optimization platform built on [skfolio](https://skfolio.org/) and scikit-learn. Every component follows the **frozen-config + factory** pattern and composes in standard sklearn pipelines.
 

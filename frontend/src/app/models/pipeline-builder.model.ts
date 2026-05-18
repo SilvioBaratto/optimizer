@@ -91,3 +91,158 @@ export const PIPELINE_STEPS: readonly PipelineStep[] = [
   { id: 'report', label: '7c', index: 11 },
   { id: 'persist', label: 'Final', index: 12 },
 ] as const;
+
+// Step-result payload shapes mirroring the dict returns in
+// api/app/services/pipeline_builder/steps.py (no wire-side Pydantic
+// schema enforces them). Panels narrow StepPollResponse.result at the
+// consumption point — `result() as LoadStepResult` etc.
+
+export interface LoadStepResult {
+  n_tickers: number;
+  n_trading_days: number;
+  assembly_hash: string;
+  base_currency: BaseCurrency;
+  price_start: string;
+  price_end: string;
+}
+
+export interface ScreenStepResult {
+  n_investable: number;
+  preset: string;
+  band_warning: boolean;
+  band_low: number;
+  band_high: number;
+}
+
+export interface CleanReturnsStepResult {
+  n_days: number;
+  n_tickers: number;
+  return_start: string;
+  return_end: string;
+  preprocessing_steps: string[];
+}
+
+export interface BuildHistoryStepResult {
+  succeeded_dates: number;
+  total_dates: number;
+  failed_dates: number;
+  n_factors: number;
+  rebalance_freq: number;
+  market_proxy_loaded: boolean;
+}
+
+export interface IcResultItem {
+  factor_name: string;
+  mean_ic: number | null;
+  ic_std: number | null;
+  t_stat: number | null;
+  p_value: number | null;
+  significant: boolean;
+}
+
+export interface ValidateIsStepResult {
+  ic_results: IcResultItem[];
+  n_significant: number;
+  significant_factors: string[];
+  high_vif_factors: string[];
+  config: Record<string, number>;
+}
+
+export interface OosResultItem {
+  factor_name: string;
+  oos_mean_ic: number;
+  oos_icir: number | null;
+}
+
+export interface ValidateOosStepResult {
+  n_folds: number;
+  oos_results: OosResultItem[];
+  config: Record<string, number>;
+}
+
+export interface CoverageGateStepResult {
+  passing_factors: string[];
+  is_only_factors: string[];
+  oos_only_factors: string[];
+  n_passing: number;
+  min_factors: number;
+}
+
+export interface RegimeStepResult {
+  regime: string;
+  tilts: Record<string, number>;
+  persisted: boolean;
+  note: string;
+}
+
+export interface WeightItem {
+  ticker: string;
+  weight: number;
+}
+
+export interface OptimizeStepResult {
+  weights: WeightItem[];
+  n_selected: number;
+  is_sharpe: number | null;
+  net_sharpe: number | null;
+  hockey_stick_warning: boolean;
+  sector_breakdown: Record<string, number>;
+  country_breakdown: Record<string, number>;
+}
+
+export interface RebalanceDecisionStepResult {
+  decision: boolean;
+  reason: string;
+  n_weights: number;
+  weight_count_warning: boolean;
+  missing_sectors: string[];
+  current_date: string;
+  last_review_date: string;
+}
+
+export interface CostCountryItem {
+  country: string;
+  stamp: number;
+  spread: number;
+  fx: number;
+  total: number;
+}
+
+export interface CostStepResult {
+  cost_bps_actual: number;
+  cost_bps_assumed: number;
+  exceeds_assumed: boolean;
+  per_country: CostCountryItem[];
+}
+
+export interface ChecklistRule {
+  rule: string;
+  pass: boolean;
+  measured: string | number | null;
+  target: string;
+}
+
+export interface ReportArtifactPaths {
+  report_md: string;
+  weights_csv: string;
+  metrics_json: string;
+  checklist_json: string;
+}
+
+export interface ReportStepResult {
+  pass_count: number;
+  checklist_total: number;
+  checklist_passed: boolean;
+  checklist_rules: ChecklistRule[];
+  metrics: Record<string, Record<string, number>>;
+  artifact_paths: ReportArtifactPaths;
+  chart_paths: string[];
+  output_dir: string;
+}
+
+export interface PersistStepResult {
+  persisted: boolean;
+  reason: string;
+  pass_count: number;
+  checklist_passed: boolean;
+}
