@@ -2,7 +2,9 @@
 
 from app.schemas.pipeline_builder.pipeline_builder import (
     BaseCurrencyEnum,
+    BuildHistoryStepRequest,
     CostStepRequest,
+    CoverageGateStepRequest,
     CreateSessionResponse,
     EmptyStepRequest,
     LoadStepRequest,
@@ -17,7 +19,9 @@ from app.schemas.pipeline_builder.pipeline_builder import (
 
 __all__ = [
     "BaseCurrencyEnum",
+    "BuildHistoryStepRequest",
     "CostStepRequest",
+    "CoverageGateStepRequest",
     "CreateSessionResponse",
     "EmptyStepRequest",
     "LoadStepRequest",

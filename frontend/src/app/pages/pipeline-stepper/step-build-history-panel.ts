@@ -19,10 +19,9 @@ import {
 } from '../../models/pipeline-builder.model';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 
-// Emits `market_proxy` per Cycle 5 spec. Backend currently reads
-// `market_proxy_ticker` (api/app/services/pipeline_builder/steps.py:486);
-// param-key alignment is deferred to a backend schema cycle. Unknown
-// params are ignored, so this is forward-safe.
+// Emits `market_proxy_ticker` — matches BuildHistoryStepRequest and the
+// `params["market_proxy_ticker"]` key read by step_build_history
+// (api/app/services/pipeline_builder/steps.py:486).
 
 @Component({
   selector: 'app-step-build-history-panel',
@@ -39,7 +38,7 @@ export class StepBuildHistoryPanelComponent {
   readonly StepStatus = StepStatus;
 
   form = new FormGroup({
-    market_proxy: new FormControl<string>('URTH', {
+    market_proxy_ticker: new FormControl<string>('URTH', {
       nonNullable: true,
       validators: [Validators.required],
     }),
@@ -51,6 +50,8 @@ export class StepBuildHistoryPanelComponent {
 
   onSubmit(): void {
     if (!this.form.valid) return;
-    this.runStep.emit({ market_proxy: this.form.controls.market_proxy.value });
+    this.runStep.emit({
+      market_proxy_ticker: this.form.controls.market_proxy_ticker.value,
+    });
   }
 }

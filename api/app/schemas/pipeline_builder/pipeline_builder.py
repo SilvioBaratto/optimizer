@@ -106,6 +106,18 @@ class ScreenStepRequest(_StrictRequest):
     preset: ScreenPresetEnum = ScreenPresetEnum.DEVELOPED_MARKETS
 
 
+class BuildHistoryStepRequest(_StrictRequest):
+    """Body for ``step_build_history``."""
+
+    market_proxy_ticker: str = "URTH"
+
+
+class CoverageGateStepRequest(_StrictRequest):
+    """Body for ``step_coverage_gate``."""
+
+    min_factors: int = Field(2, ge=1)
+
+
 class RegimeStepRequest(_StrictRequest):
     """Body for ``step_regime``."""
 

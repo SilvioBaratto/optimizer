@@ -57,7 +57,7 @@ describe('StepBuildHistoryPanelComponent', () => {
       fix.componentRef.setInput('stepStatus', StepStatus.Ready);
       await fix.whenStable();
 
-      expect(fix.componentInstance.form.controls.market_proxy.value).toBe('URTH');
+      expect(fix.componentInstance.form.controls.market_proxy_ticker.value).toBe('URTH');
       expect(fix.componentInstance.form.valid).toBe(true);
     });
 
@@ -66,7 +66,7 @@ describe('StepBuildHistoryPanelComponent', () => {
       fix.componentRef.setInput('stepStatus', StepStatus.Ready);
       await fix.whenStable();
 
-      fix.componentInstance.form.controls.market_proxy.setValue('');
+      fix.componentInstance.form.controls.market_proxy_ticker.setValue('');
       expect(fix.componentInstance.form.valid).toBe(false);
     });
   });
@@ -80,13 +80,13 @@ describe('StepBuildHistoryPanelComponent', () => {
       const emitted: Record<string, unknown>[] = [];
       fix.componentInstance.runStep.subscribe((p) => emitted.push(p));
 
-      fix.componentInstance.form.controls.market_proxy.setValue('SPY');
+      fix.componentInstance.form.controls.market_proxy_ticker.setValue('SPY');
       const btn = host(fix).querySelector<HTMLButtonElement>(
         'button[data-testid="run-step"]',
       );
       btn!.click();
 
-      expect(emitted).toEqual([{ market_proxy: 'SPY' }]);
+      expect(emitted).toEqual([{ market_proxy_ticker: 'SPY' }]);
     });
 
     it('when form invalid, submit does NOT emit', async () => {
@@ -97,7 +97,7 @@ describe('StepBuildHistoryPanelComponent', () => {
       const emitted: unknown[] = [];
       fix.componentInstance.runStep.subscribe((p) => emitted.push(p));
 
-      fix.componentInstance.form.controls.market_proxy.setValue('');
+      fix.componentInstance.form.controls.market_proxy_ticker.setValue('');
       fix.componentInstance.onSubmit();
 
       expect(emitted).toEqual([]);

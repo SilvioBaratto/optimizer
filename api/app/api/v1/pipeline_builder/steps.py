@@ -19,7 +19,9 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ValidationError
 
 from app.schemas.pipeline_builder import (
+    BuildHistoryStepRequest,
     CostStepRequest,
+    CoverageGateStepRequest,
     EmptyStepRequest,
     LoadStepRequest,
     RebalanceDecisionStepRequest,
@@ -62,10 +64,10 @@ _STEP_HANDLER_MAP: dict[str, tuple[type[BaseModel], Callable[..., dict]]] = {
     "load": (LoadStepRequest, step_load),
     "screen": (ScreenStepRequest, step_screen),
     "clean_returns": (EmptyStepRequest, step_clean_returns),
-    "build_history": (EmptyStepRequest, step_build_history),
+    "build_history": (BuildHistoryStepRequest, step_build_history),
     "validate_is": (EmptyStepRequest, step_validate_is),
     "validate_oos": (EmptyStepRequest, step_validate_oos),
-    "coverage_gate": (EmptyStepRequest, step_coverage_gate),
+    "coverage_gate": (CoverageGateStepRequest, step_coverage_gate),
     "regime": (RegimeStepRequest, step_regime),
     "optimize": (EmptyStepRequest, step_optimize),
     "rebalance_decision": (RebalanceDecisionStepRequest, step_rebalance_decision),
