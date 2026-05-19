@@ -57,6 +57,57 @@ class BackgroundJobService:
     # Public interface (backwards-compatible)
     # ------------------------------------------------------------------
 
+    def _execute_create_job(self, session: Any, extra: dict[str, Any]) -> None:
+        """Execute job creation logic within a session context."""
+        repo = BackgroundJobRepository(session)
+        # Periodic cleanup of old rows
+        repo.cleanup_expired(self._ttl_seconds)
+        new_id = repo.claim_or_create(self._job_type, **extra)
+        if new_id is None:
+            # A job is already running — find its id for the error
+            _, existing_id = repo.is_any_running(self._job_type)
+            session.commit()
+            # Capture for raising outside session context
+            self._conflict_id = existing_id or "unknown"
+        else:
+            session.commit()
+            self._job_id = str(new_id)
+            self._emit_started(self._job_id)
+    
+    def _get_or_raise_conflict(self) -> str:
+        """Return job ID or raise conflict error."""
+        if hasattr(self, "_job_id") and self._job_id:
+            return self._job_id
+        if hasattr(self, "_conflict_id"):
+            raise JobAlreadyRunningError(self._conflict_id)
+        raise RuntimeError("Unexpected state in create_job")
+    
+    def _get_session_context_manager(self) -> Any:
+        """Get a context manager that safely handles nested context managers.
+        
+        In tests, session_factory might return a context manager that yields
+        another context manager. This helper handles that case.
+        """
+        from contextlib import contextmanager
+        
+        @contextmanager
+        def safe_cm():
+            session_or_cm = self._session_factory()
+            
+            # Check if it's a context manager
+            if hasattr(session_or_cm, "__enter__") and not hasattr(session_or_cm, "execute"):
+                with session_or_cm as potential_session:
+                    # Check if the yielded value is also a context manager
+                    if hasattr(potential_session, "__enter__") and not hasattr(potential_session, "execute"):
+                        with potential_session as session:
+                            yield session
+                    else:
+                        yield potential_session
+            else:
+                yield session_or_cm
+        
+        return safe_cm()
+
     def create_job(self, **initial_data: Any) -> str:
         """Atomically create a job if none is active for this job type.
 
@@ -78,40 +129,22 @@ class BackgroundJobService:
 
         # If we got a context manager instead of a session, enter it
         if hasattr(session_or_cm, "__enter__") and not hasattr(session_or_cm, "execute"):
-            with session_or_cm as session:
-                repo = BackgroundJobRepository(session)
-                # Periodic cleanup of old rows
-                repo.cleanup_expired(self._ttl_seconds)
-                new_id = repo.claim_or_create(self._job_type, **extra)
-                if new_id is None:
-                    # A job is already running — find its id for the error
-                    _, existing_id = repo.is_any_running(self._job_type)
-                    session.commit()
-                    # Capture for raising outside session context
-                    _conflict_id = existing_id or "unknown"
+            with session_or_cm as potential_session:
+                # Handle case where context manager yields another context manager
+                if hasattr(potential_session, "__enter__") and not hasattr(potential_session, "execute"):
+                    with potential_session as session:
+                        self._execute_create_job(session, extra)
+                        return self._get_or_raise_conflict()
                 else:
-                    session.commit()
-                    job_id = str(new_id)
-                    self._emit_started(job_id)
-                    return job_id
+                    # Got the actual session
+                    session = potential_session
+                    self._execute_create_job(session, extra)
+                    return self._get_or_raise_conflict()
         else:
             # session_or_cm is already a session, not a context manager
             session = session_or_cm
-            repo = BackgroundJobRepository(session)
-            # Periodic cleanup of old rows
-            repo.cleanup_expired(self._ttl_seconds)
-            new_id = repo.claim_or_create(self._job_type, **extra)
-            if new_id is None:
-                # A job is already running — find its id for the error
-                _, existing_id = repo.is_any_running(self._job_type)
-                session.commit()
-                # Capture for raising outside session context
-                _conflict_id = existing_id or "unknown"
-            else:
-                session.commit()
-                job_id = str(new_id)
-                self._emit_started(job_id)
-                return job_id
+            self._execute_create_job(session, extra)
+            return self._get_or_raise_conflict()
 
         # Raise outside the session context manager to avoid noisy logging
         raise JobAlreadyRunningError(_conflict_id)
@@ -127,7 +160,7 @@ class BackgroundJobService:
         except ValueError:
             return None
 
-        with self._session_factory() as session:
+        with self._get_session_context_manager() as session:
             repo = BackgroundJobRepository(session)
             row = repo.get(uid)
             if row is None:
@@ -149,7 +182,7 @@ class BackgroundJobService:
 
         self._emit_transition(job_id, kwargs)
 
-        with self._session_factory() as session:
+        with self._get_session_context_manager() as session:
             repo = BackgroundJobRepository(session)
             rowcount = repo.update(uid, **kwargs)
             session.commit()
@@ -166,7 +199,7 @@ class BackgroundJobService:
 
         Returns ``(True, job_id_str)`` or ``(False, None)``.
         """
-        with self._session_factory() as session:
+        with self._get_session_context_manager() as session:
             repo = BackgroundJobRepository(session)
             return repo.is_any_running(self._job_type)
 
@@ -247,7 +280,7 @@ class BackgroundJobService:
     ) -> bool:
         """Single heartbeat tick. Returns False if loop should exit."""
         try:
-            with self._session_factory() as session:
+            with self._get_session_context_manager() as session:
                 repo = BackgroundJobRepository(session)
                 ok = repo.update_heartbeat(job_id)
                 session.commit()

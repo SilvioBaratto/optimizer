@@ -1,16 +1,27 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
 import { BuilderStore } from './builder.store';
+import { InputsPaneComponent } from './inputs-pane/inputs-pane';
+import { StageStripComponent } from './stage-strip/stage-strip';
 
 @Component({
   selector: 'app-portfolio-builder',
+  imports: [StageStripComponent, InputsPaneComponent],
   template: `
     <div class="grid grid-rows-[auto_1fr_auto] h-full overflow-hidden">
-      <div data-region="stage-strip"></div>
+      <div data-region="stage-strip">
+        <app-stage-strip
+          [currentStage]="store.currentStage()"
+          [stepResults]="store.stepResults()"
+          (stageSelect)="store.setStage($event)"
+        />
+      </div>
       <div
         class="grid lg:grid-cols-[320px_1fr_300px] max-lg:grid-cols-1 overflow-hidden"
       >
-        <div data-region="left" class="overflow-y-auto"></div>
+        <div data-region="left" class="overflow-y-auto">
+          <app-inputs-pane />
+        </div>
         <div data-region="center" class="overflow-y-auto"></div>
         <div data-region="right" class="overflow-y-auto"></div>
       </div>
@@ -21,5 +32,5 @@ import { BuilderStore } from './builder.store';
   providers: [BuilderStore],
 })
 export class PortfolioBuilderComponent {
-  private readonly store = inject(BuilderStore);
+  readonly store = inject(BuilderStore);
 }

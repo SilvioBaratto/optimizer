@@ -1,12 +1,27 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
+import { Subject } from 'rxjs';
 
 import { PortfolioBuilderComponent } from './portfolio-builder';
+import { BUILDER_STAGES, type BuilderStage } from './builder-stage';
+import { JOB_POLL_TICK } from '../../shared/job-progress-tracker/job-progress-tracker';
+
+function configure(): void {
+  const tick = new Subject<number>();
+  TestBed.configureTestingModule({
+    providers: [
+      provideZonelessChangeDetection(),
+      provideHttpClient(),
+      provideHttpClientTesting(),
+      { provide: JOB_POLL_TICK, useValue: tick.asObservable() },
+    ],
+  });
+}
 
 function setup(): HTMLElement {
-  TestBed.configureTestingModule({
-    providers: [provideZonelessChangeDetection()],
-  });
+  configure();
   const fixture = TestBed.createComponent(PortfolioBuilderComponent);
   fixture.detectChanges();
   return fixture.nativeElement as HTMLElement;
@@ -14,9 +29,8 @@ function setup(): HTMLElement {
 
 describe('PortfolioBuilderComponent', () => {
   it('when instantiated, component creates without error', () => {
-    const fixture = TestBed.configureTestingModule({
-      providers: [provideZonelessChangeDetection()],
-    }).createComponent(PortfolioBuilderComponent);
+    configure();
+    const fixture = TestBed.createComponent(PortfolioBuilderComponent);
     expect(fixture.componentInstance).toBeTruthy();
   });
 
@@ -41,5 +55,35 @@ describe('PortfolioBuilderComponent', () => {
     const cls = gridEl?.getAttribute('class') ?? '';
     expect(cls).toContain('lg:grid-cols-[320px_1fr_300px]');
     expect(cls).toContain('max-lg:grid-cols-1');
+  });
+
+  it('when rendered, app-stage-strip is mounted inside the stage-strip region', () => {
+    const host = setup();
+    const region = host.querySelector('[data-region="stage-strip"]');
+    expect(region?.querySelector('app-stage-strip')).not.toBeNull();
+  });
+
+  it('when rendered, app-inputs-pane is mounted inside the left region', () => {
+    const host = setup();
+    const region = host.querySelector('[data-region="left"]');
+    expect(region?.querySelector('app-inputs-pane')).not.toBeNull();
+  });
+
+  it('when stage-strip emits stageSelect, store.setStage is invoked and currentStage updates', () => {
+    configure();
+    const fixture = TestBed.createComponent(PortfolioBuilderComponent);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const buttons = Array.from(
+      host.querySelectorAll<HTMLButtonElement>('button[role="tab"]'),
+    );
+    expect(buttons.length).toBe(6);
+
+    const target: BuilderStage = 'review';
+    buttons[BUILDER_STAGES.indexOf(target)].click();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.store.currentStage()).toBe(target);
   });
 });

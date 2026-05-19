@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { BuilderStore } from './builder.store';
+import type { BuilderStage } from './builder-stage';
 import {
   type RunLevelConfig,
   StepStatus,
@@ -58,10 +59,33 @@ describe('BuilderStore', () => {
     expect(store.stepParams()).toBe(params);
   });
 
-  it('when setStage is called with "load", currentStage and summary.stage update', () => {
-    store.setStage('load');
-    expect(store.currentStage()).toBe('load');
-    expect(store.summary().stage).toBe('load');
+  it('when setStage is called with "universe", currentStage and summary.stage update', () => {
+    store.setStage('universe');
+    expect(store.currentStage()).toBe('universe');
+    expect(store.summary().stage).toBe('universe');
+  });
+
+  it('when setStage cycles through all 6 BuilderStage ids, each is accepted and exposed', () => {
+    const stages: readonly BuilderStage[] = [
+      'universe',
+      'objective',
+      'constraints',
+      'optimize',
+      'review',
+      'rebalance',
+    ];
+    for (const stage of stages) {
+      store.setStage(stage);
+      expect(store.currentStage()).toBe(stage);
+      expect(store.summary().stage).toBe(stage);
+    }
+  });
+
+  it('when setStage is called with null, currentStage clears back to null', () => {
+    store.setStage('optimize');
+    store.setStage(null);
+    expect(store.currentStage()).toBeNull();
+    expect(store.summary().stage).toBeNull();
   });
 
   it('when setStatus is called with Running, summary.status propagates', () => {
@@ -70,11 +94,51 @@ describe('BuilderStore', () => {
     expect(store.summary().status).toBe(StepStatus.Running);
   });
 
+  it('when freshly constructed, stepResults and stepStatuses are empty maps', () => {
+    expect(store.stepResults().size).toBe(0);
+    expect(store.stepStatuses().size).toBe(0);
+  });
+
+  it('when setStepResult is called, stepResults exposes the entry under the step id', () => {
+    const result = { n_tickers: 42 } as Record<string, unknown>;
+    store.setStepResult('load', result);
+    expect(store.stepResults().get('load')).toBe(result);
+  });
+
+  it('when setStepResult is called twice for different steps, both entries are preserved', () => {
+    const a = { n_tickers: 1 } as Record<string, unknown>;
+    const b = { n_investable: 2 } as Record<string, unknown>;
+    store.setStepResult('load', a);
+    store.setStepResult('screen', b);
+    expect(store.stepResults().get('load')).toBe(a);
+    expect(store.stepResults().get('screen')).toBe(b);
+    expect(store.stepResults().size).toBe(2);
+  });
+
+  it('when setStepResult is called with null, the entry is stored as null', () => {
+    store.setStepResult('load', null);
+    expect(store.stepResults().has('load')).toBe(true);
+    expect(store.stepResults().get('load')).toBeNull();
+  });
+
+  it('when setStepStatus is called, stepStatuses exposes the entry under the step id', () => {
+    store.setStepStatus('optimize', StepStatus.Running);
+    expect(store.stepStatuses().get('optimize')).toBe(StepStatus.Running);
+  });
+
+  it('when setStepStatus mutates the same step twice, the latest value wins', () => {
+    store.setStepStatus('load', StepStatus.Running);
+    store.setStepStatus('load', StepStatus.Completed);
+    expect(store.stepStatuses().get('load')).toBe(StepStatus.Completed);
+  });
+
   it('when reset is called after mutations, all signals return to initial', () => {
     store.setConfig(defaultConfig());
     store.setStepParams(structuredClone(STEP_PARAM_DEFAULTS));
     store.setStage('optimize');
     store.setStatus(StepStatus.Completed);
+    store.setStepResult('load', { n_tickers: 1 } as Record<string, unknown>);
+    store.setStepStatus('load', StepStatus.Completed);
 
     store.reset();
 
@@ -82,6 +146,8 @@ describe('BuilderStore', () => {
     expect(store.stepParams()).toBeNull();
     expect(store.currentStage()).toBeNull();
     expect(store.status()).toBe(StepStatus.Pending);
+    expect(store.stepResults().size).toBe(0);
+    expect(store.stepStatuses().size).toBe(0);
     expect(store.summary()).toEqual({
       stage: null,
       status: StepStatus.Pending,

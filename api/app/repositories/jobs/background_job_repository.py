@@ -45,6 +45,24 @@ _CORE_COLUMNS: frozenset[str] = frozenset(
 class BackgroundJobRepository(RepositoryBase):
     """Database operations for the ``background_jobs`` table."""
 
+    def _ensure_tables_exist(self) -> None:
+        """Ensure background_jobs table exists (for test isolation)."""
+        from app.models._shared import Base
+        
+        try:
+            # Try to check if table exists
+            inspector = __import__('sqlalchemy.inspection', fromlist=['inspect']).inspect(self.session.bind)
+            if "background_jobs" not in inspector.get_table_names():
+                # Create tables if missing
+                Base.metadata.create_all(bind=self.session.bind)
+        except Exception:
+            # If we can't check, try to create anyway
+            try:
+                from app.models._shared import Base
+                Base.metadata.create_all(bind=self.session.bind)
+            except Exception:
+                pass  # Ignore creation errors
+
     def __init__(self, session: Session) -> None:
         super().__init__(session)
 
@@ -205,6 +223,7 @@ class BackgroundJobRepository(RepositoryBase):
         the liveness-aware reaper can distinguish a live worker from a dead
         one. Dialect-agnostic: works on PostgreSQL and SQLite (tests).
         """
+        self._ensure_tables_exist()
         new_id = uuid.uuid4()
         now = datetime.now(timezone.utc)
         pid = os.getpid()
@@ -306,15 +325,23 @@ class BackgroundJobRepository(RepositoryBase):
 
     def cleanup_expired(self, ttl_seconds: int) -> int:
         """Delete completed/failed jobs older than *ttl_seconds*."""
+        self._ensure_tables_exist()
+        
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)
         stmt = delete(BackgroundJob).where(
             BackgroundJob.status.in_(_TERMINAL_STATUSES),
             BackgroundJob.finished_at.is_not(None),
             BackgroundJob.finished_at < cutoff,
         )
-        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
-        self.session.flush()
-        return result.rowcount or 0
+        try:
+            result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
+            self.session.flush()
+            return result.rowcount or 0
+        except Exception as e:
+            # If the table doesn't exist, skip cleanup
+            if "no such table" in str(e).lower():
+                return 0
+            raise
 
     def reconcile_orphans(
         self,

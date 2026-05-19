@@ -1,0 +1,111 @@
+<div class="flex flex-col divide-y divide-border">
+  @for (sectionId of sections; track sectionId) {
+    <app-step-section
+      [title]="labels[sectionId]"
+      [status]="sectionAggStatus(sectionId)"
+      [summary]="sectionAggSummary(sectionId)"
+      [expanded]="isExpanded(sectionId)"
+      [showContinue]="showContinueForSection(sectionId)"
+      [showRetry]="showRetryForSection(sectionId)"
+      (toggle)="toggleSection(sectionId)"
+      (continueStep)="onContinue(activeStepId()!)"
+      (retry)="onRetry(activeStepId()!)"
+    >
+      @if (isExpanded(sectionId)) {
+        @switch (sectionId) {
+          @case ('universe') {
+            <app-run-config-panel (configSubmit)="onConfigSubmit($event)" />
+            <app-step-load-panel
+              [stepStatus]="sectionStatus('load')"
+              [result]="sectionResult('load')"
+              [lastError]="errorFor('load')"
+              (runStep)="onPanelRunStep('load', $event)"
+            />
+            <app-step-screen-panel
+              [stepStatus]="sectionStatus('screen')"
+              [result]="sectionResult('screen')"
+              [lastError]="errorFor('screen')"
+              (runStep)="onPanelRunStep('screen', $event)"
+            />
+          }
+          @case ('objective') {
+            <app-step-validate-is-panel
+              [stepStatus]="sectionStatus('validate_is')"
+              [result]="sectionResult('validate_is')"
+              [lastError]="errorFor('validate_is')"
+              (runStep)="onPanelRunStep('validate_is', $event)"
+            />
+            <app-step-validate-oos-panel
+              [stepStatus]="sectionStatus('validate_oos')"
+              [result]="sectionResult('validate_oos')"
+              [lastError]="errorFor('validate_oos')"
+              (runStep)="onPanelRunStep('validate_oos', $event)"
+            />
+            <app-step-coverage-gate-panel
+              [stepStatus]="sectionStatus('coverage_gate')"
+              [result]="sectionResult('coverage_gate')"
+              [lastError]="errorFor('coverage_gate')"
+              [abortGateError]="abortGateError()"
+              (runStep)="onPanelRunStep('coverage_gate', $event)"
+            />
+          }
+          @case ('constraints') {
+            <app-step-regime-panel
+              [stepStatus]="sectionStatus('regime')"
+              [result]="sectionResult('regime')"
+              [lastError]="errorFor('regime')"
+              (runStep)="onPanelRunStep('regime', $event)"
+            />
+            <app-step-rebalance-decision-panel
+              [stepStatus]="sectionStatus('rebalance_decision')"
+              [result]="sectionResult('rebalance_decision')"
+              [lastError]="errorFor('rebalance_decision')"
+              (runStep)="onPanelRunStep('rebalance_decision', $event)"
+            />
+          }
+          @case ('moments') {
+            <app-step-clean-returns-panel
+              [stepStatus]="sectionStatus('clean_returns')"
+              [result]="sectionResult('clean_returns')"
+              [lastError]="errorFor('clean_returns')"
+              (runStep)="onPanelRunStep('clean_returns', $event)"
+            />
+            <app-step-build-history-panel
+              [stepStatus]="sectionStatus('build_history')"
+              [result]="sectionResult('build_history')"
+              [lastError]="errorFor('build_history')"
+              (runStep)="onPanelRunStep('build_history', $event)"
+            />
+          }
+          @case ('horizon') {
+            <app-step-optimize-panel
+              [stepStatus]="sectionStatus('optimize')"
+              [result]="sectionResult('optimize')"
+              [lastError]="errorFor('optimize')"
+              (runStep)="onPanelRunStep('optimize', $event)"
+            />
+            <app-step-cost-panel
+              [stepStatus]="sectionStatus('cost')"
+              [result]="sectionResult('cost')"
+              [lastError]="errorFor('cost')"
+              (runStep)="onPanelRunStep('cost', $event)"
+            />
+            <app-step-report-panel
+              [stepStatus]="sectionStatus('report')"
+              [result]="sectionResult('report')"
+              [lastError]="errorFor('report')"
+              (runStep)="onPanelRunStep('report', $event)"
+            />
+            <app-step-persist-panel
+              [stepStatus]="sectionStatus('persist')"
+              [result]="sectionResult('persist')"
+              [lastError]="errorFor('persist')"
+              [sessionId]="sessionId()"
+              (runStep)="onPanelRunStep('persist', $event)"
+            />
+          }
+        }
+      }
+    </app-step-section>
+  }
+</div>
