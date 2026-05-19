@@ -474,14 +474,34 @@
     "ast_hash": "c4a3491709bc5bdd7a867c01ae27a800",
     "semantic_hash": ""
   },
+  "/Volumes/External SSD/optimizer/frontend/src/app/features/portfolio-builder/canvas-pane/weight-bars/weight-bars.ts": {
+    "mtime": 1779225282.4364393,
+    "ast_hash": "c18fc77047b27828eb14f2e0f97a5008",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/frontend/src/app/features/portfolio-builder/canvas-pane/weight-bars/weight-bars.spec.ts": {
+    "mtime": 1779225272.435754,
+    "ast_hash": "b33023e38c6912c9aa91f14388b6f0b8",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/frontend/src/app/features/portfolio-builder/canvas-pane/allocation-donut/allocation-donut.ts": {
+    "mtime": 1779225150.9980574,
+    "ast_hash": "597a2f98bf9c182441f876eb2d4fd3a1",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/frontend/src/app/features/portfolio-builder/canvas-pane/allocation-donut/allocation-donut.spec.ts": {
+    "mtime": 1779225145.1918156,
+    "ast_hash": "267c5fcffe73c64c989aedfeb2e30ac4",
+    "semantic_hash": ""
+  },
   "/Volumes/External SSD/optimizer/frontend/src/app/features/portfolio-builder/analytics-pane/analytics-pane.ts": {
-    "mtime": 1779213697.670471,
-    "ast_hash": "939306a57e75bf9293fd1a3275c335a8",
+    "mtime": 1779225418.7707934,
+    "ast_hash": "fc9b5d8cfd9303777d59fd1d8b19999e",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/frontend/src/app/features/portfolio-builder/analytics-pane/analytics-pane.spec.ts": {
-    "mtime": 1779213690.84444,
-    "ast_hash": "fa278eaf863c095b4c8bdaa87b4c171d",
+    "mtime": 1779225408.605864,
+    "ast_hash": "03579184a686e5753612f8fb864dca7b",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/frontend/src/app/features/portfolio-builder/stage-strip/stage-strip.spec.ts": {
@@ -629,6 +649,16 @@
     "ast_hash": "b1c192740945e3f16b5825844405b0e4",
     "semantic_hash": ""
   },
+  "/Volumes/External SSD/optimizer/frontend/src/app/shared/charts/ticker-color-map.spec.ts": {
+    "mtime": 1779224940.9697423,
+    "ast_hash": "6178b781caf2772746eb4c44cd870914",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/frontend/src/app/shared/charts/ticker-color-map.ts": {
+    "mtime": 1779224942.8656116,
+    "ast_hash": "bb3ec134bef385bf2aa9637552783583",
+    "semantic_hash": ""
+  },
   "/Volumes/External SSD/optimizer/frontend/src/app/shared/charts/echarts-theme.ts": {
     "mtime": 1774342760.8551774,
     "ast_hash": "8617ff58cdd1d1fd73f1e552779a1cae",
@@ -664,6 +694,11 @@
     "ast_hash": "08cb551c9bbe69dc8dab2521372694a7",
     "semantic_hash": ""
   },
+  "/Volumes/External SSD/optimizer/frontend/src/app/shared/pipes/metric-color.pipe.spec.ts": {
+    "mtime": 1779225026.6184642,
+    "ast_hash": "5a74522dd4a17af5e0456ddf784926ae",
+    "semantic_hash": ""
+  },
   "/Volumes/External SSD/optimizer/frontend/src/app/shared/pipes/format-currency.pipe.ts": {
     "mtime": 1774342760.8583426,
     "ast_hash": "6b30c6ce746cb4675a9ec0c356775304",
@@ -687,6 +722,11 @@
   "/Volumes/External SSD/optimizer/frontend/src/app/shared/pipes/format-percent.pipe.ts": {
     "mtime": 1774342760.858452,
     "ast_hash": "83fc5835ffd47d263f4cebce8d50b720",
+    "semantic_hash": ""
+  },
+  "/Volumes/External SSD/optimizer/frontend/src/app/shared/pipes/metric-color.pipe.ts": {
+    "mtime": 1779225031.5509665,
+    "ast_hash": "f7609098695f38e68b57c6b03b6b8a15",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/frontend/src/app/shared/echarts-factor-exposure/echarts-factor-exposure.ts": {
@@ -2235,18 +2275,18 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/state.json": {
-    "mtime": 1779224241.1512156,
-    "ast_hash": "a104b91a26b9af0bf14b6e13dd3b0b60",
+    "mtime": 1779225892.674358,
+    "ast_hash": "ea2a806168db36e6a55e7ae60ba9295c",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/phase6_5_spec.json": {
-    "mtime": 1779224147.5139344,
-    "ast_hash": "7c362887fdf24bf9e274293c95e4b8ac",
+    "mtime": 1779225829.8135588,
+    "ast_hash": "dc29e4832ee8b8b113fc283f22c45738",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/checklists/ab78a4356f6621a7c13000443df70e817740116ab056c169e39cfb5113f9f54e.json": {
-    "mtime": 1779224232.941586,
-    "ast_hash": "ff3d33d1a970b67479c26f0bb85a2a2a",
+    "mtime": 1779225884.1263888,
+    "ast_hash": "0b4f18056d860121e8980589b70c2812",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/backup/portfolio-builder-phase-1-3-pane-shell/state.json": {
@@ -4130,8 +4170,8 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/app/repositories/jobs/background_job_repository.py": {
-    "mtime": 1779224011.1739476,
-    "ast_hash": "df3c47db3a63dcb36ed040e5a778c904",
+    "mtime": 1779225814.2762964,
+    "ast_hash": "e69499ae43036737f06486ec92712c3e",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/api/app/repositories/jobs/__init__.py": {
@@ -6515,7 +6555,7 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/research/output/last_review_date.txt": {
-    "mtime": 1779224121.0951288,
+    "mtime": 1779225689.9938545,
     "ast_hash": "894632072287329b84e6dfdd03766bcb",
     "semantic_hash": ""
   },
@@ -7000,17 +7040,17 @@
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/memories/cycle-summary.md": {
-    "mtime": 1779221593.5100253,
+    "mtime": 1779224668.887864,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/memories/project-plan.md": {
-    "mtime": 1779221593.5106912,
-    "ast_hash": "516e172ebdf19d62674e3619c3c97f21",
+    "mtime": 1779224668.8887112,
+    "ast_hash": "4d638204bd6a5287dca8bf34ac874ce1",
     "semantic_hash": ""
   },
   "/Volumes/External SSD/optimizer/.code-generator/memories/current-issue.md": {
-    "mtime": 1779222884.6032684,
+    "mtime": 1779225326.4940171,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": ""
   },

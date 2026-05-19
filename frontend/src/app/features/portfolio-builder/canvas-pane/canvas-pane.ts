@@ -1,30 +1,79 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
 
 import type { WeightItem } from '../../../models/pipeline-builder.model';
+import { BuilderStore, type CanvasView } from '../builder.store';
+import { AllocationDonutComponent } from './allocation-donut/allocation-donut';
+import { BacktestSparklineComponent } from './backtest-sparkline/backtest-sparkline';
+import { EfficientFrontierComponent } from './efficient-frontier/efficient-frontier';
+import { WeightBarsComponent } from './weight-bars/weight-bars';
+
+interface ViewOption {
+  readonly id: CanvasView;
+  readonly label: string;
+}
 
 @Component({
   selector: 'app-canvas-pane',
+  imports: [
+    AllocationDonutComponent,
+    BacktestSparklineComponent,
+    EfficientFrontierComponent,
+    WeightBarsComponent,
+  ],
   template: `
     <section
       data-region="canvas-pane"
-      class="flex h-full w-full items-center justify-center p-6"
+      class="flex h-full w-full flex-col gap-3 p-4"
     >
       <div
-        class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border px-8 py-12 text-center"
+        data-region="canvas-view-toggle"
+        class="flex gap-1 rounded-md border border-border p-1"
       >
-        <span class="text-data-sm font-medium text-text-secondary">
-          Allocation &mdash; Phase 2
-        </span>
-        <span class="text-data-xs text-text-tertiary">
-          Charts arrive in Cycle 3.
-        </span>
+        @for (view of views; track view.id) {
+          <button
+            type="button"
+            data-view-btn
+            [attr.data-view-id]="view.id"
+            class="flex-1 rounded px-3 py-1.5 text-data-xs font-medium text-text-secondary"
+            [class.ring-2]="store.currentView() === view.id"
+            [class.ring-accent]="store.currentView() === view.id"
+            (click)="store.setCurrentView(view.id)"
+          >
+            {{ view.label }}
+          </button>
+        }
+      </div>
+      <div data-region="canvas-view-content" class="flex-1">
+        @switch (store.currentView()) {
+          @case ('donut') {
+            <app-allocation-donut />
+          }
+          @case ('bars') {
+            <app-weight-bars />
+          }
+          @case ('frontier') {
+            <app-efficient-frontier />
+          }
+          @case ('backtest') {
+            <app-backtest-sparkline />
+          }
+        }
       </div>
     </section>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CanvasPaneComponent {
+  protected readonly store = inject(BuilderStore);
+
   readonly weights = input<WeightItem[] | undefined>(undefined);
   readonly frontier = input<Record<string, number>[] | undefined>(undefined);
   readonly sessionId = input<string | null | undefined>(undefined);
+
+  readonly views: readonly ViewOption[] = [
+    { id: 'donut', label: 'Donut' },
+    { id: 'bars', label: 'Bars' },
+    { id: 'frontier', label: 'Frontier' },
+    { id: 'backtest', label: 'Backtest' },
+  ] as const;
 }

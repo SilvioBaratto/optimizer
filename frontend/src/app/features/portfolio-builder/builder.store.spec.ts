@@ -386,6 +386,39 @@ describe('BuilderStore', () => {
     });
   });
 
+  describe('currentView signal', () => {
+    it('when freshly constructed, currentView defaults to "donut"', () => {
+      expect(store.currentView()).toBe('donut');
+    });
+
+    it('when setCurrentView is called with "donut", currentView exposes "donut"', () => {
+      store.setCurrentView('bars');
+      store.setCurrentView('donut');
+      expect(store.currentView()).toBe('donut');
+    });
+
+    it('when setCurrentView is called with "bars", currentView exposes "bars"', () => {
+      store.setCurrentView('bars');
+      expect(store.currentView()).toBe('bars');
+    });
+
+    it('when setCurrentView is called with "frontier", currentView exposes "frontier"', () => {
+      store.setCurrentView('frontier');
+      expect(store.currentView()).toBe('frontier');
+    });
+
+    it('when setCurrentView is called with "backtest", currentView exposes "backtest"', () => {
+      store.setCurrentView('backtest');
+      expect(store.currentView()).toBe('backtest');
+    });
+
+    it('when reset is called after setCurrentView, currentView reverts to "donut"', () => {
+      store.setCurrentView('frontier');
+      store.reset();
+      expect(store.currentView()).toBe('donut');
+    });
+  });
+
   describe('export()', () => {
     it('when export() is invoked with no sessionId, it does not throw and no HTTP request is made', () => {
       expect(() => store.export()).not.toThrow();

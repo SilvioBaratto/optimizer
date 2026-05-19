@@ -1,25 +1,87 @@
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
 import { CanvasPaneComponent } from './canvas-pane';
+import { BuilderStore, type CanvasView } from '../builder.store';
 import type { WeightItem } from '../../../models/pipeline-builder.model';
+
+const PALETTE = [
+  '#111111',
+  '#222222',
+  '#333333',
+  '#444444',
+  '#555555',
+  '#666666',
+  '#777777',
+  '#888888',
+];
+
+function setCssVars(): void {
+  PALETTE.forEach((value, index) => {
+    document.documentElement.style.setProperty(
+      `--color-chart-${index + 1}`,
+      value,
+    );
+  });
+}
+
+function clearCssVars(): void {
+  PALETTE.forEach((_, index) => {
+    document.documentElement.style.removeProperty(`--color-chart-${index + 1}`);
+  });
+}
 
 function setup(): {
   fixture: ComponentFixture<CanvasPaneComponent>;
+  store: BuilderStore;
   host: HTMLElement;
 } {
   TestBed.configureTestingModule({
-    providers: [provideZonelessChangeDetection()],
+    providers: [
+      provideZonelessChangeDetection(),
+      provideHttpClient(),
+      provideHttpClientTesting(),
+      BuilderStore,
+    ],
   });
+  const store = TestBed.inject(BuilderStore);
   const fixture = TestBed.createComponent(CanvasPaneComponent);
   fixture.detectChanges();
-  return { fixture, host: fixture.nativeElement as HTMLElement };
+  return { fixture, store, host: fixture.nativeElement as HTMLElement };
+}
+
+function viewButtons(host: HTMLElement): HTMLButtonElement[] {
+  return Array.from(host.querySelectorAll<HTMLButtonElement>('[data-view-btn]'));
 }
 
 describe('CanvasPaneComponent', () => {
-  it('when mounted with default inputs, placeholder text "Allocation — Phase 2" is rendered', () => {
+  beforeAll(() => setCssVars());
+  afterAll(() => clearCssVars());
+
+  it('when mounted, [data-region="canvas-pane"] container is present', () => {
     const { host } = setup();
-    expect(host.textContent).toContain('Allocation — Phase 2');
+    expect(host.querySelector('[data-region="canvas-pane"]')).not.toBeNull();
+  });
+
+  it('when mounted, [data-region="canvas-view-toggle"] segmented control row is present', () => {
+    const { host } = setup();
+    expect(
+      host.querySelector('[data-region="canvas-view-toggle"]'),
+    ).not.toBeNull();
+  });
+
+  it('when mounted, exactly four [data-view-btn] buttons are rendered', () => {
+    const { host } = setup();
+    expect(viewButtons(host).length).toBe(4);
+  });
+
+  it('when mounted, [data-region="canvas-view-content"] content region is present', () => {
+    const { host } = setup();
+    expect(
+      host.querySelector('[data-region="canvas-view-content"]'),
+    ).not.toBeNull();
   });
 
   it('when mounted, no chart element (<canvas> or <echarts>) is in the DOM', () => {
@@ -29,8 +91,78 @@ describe('CanvasPaneComponent', () => {
     expect(host.querySelector('[data-region="echarts"]')).toBeNull();
   });
 
-  it('when weights input is set, the component accepts it without throwing and still renders the placeholder', () => {
-    const { fixture, host } = setup();
+  it('when mounted with default state, app-allocation-donut is rendered (donut is the default view)', () => {
+    const { host } = setup();
+    expect(host.querySelector('app-allocation-donut')).not.toBeNull();
+  });
+
+  it('when mounted, the donut button carries the active ring class while other buttons do not', () => {
+    const { host } = setup();
+    const buttons = viewButtons(host);
+    expect(buttons[0].getAttribute('data-view-id')).toBe('donut');
+    expect(buttons[0].classList.contains('ring-2')).toBe(true);
+    for (let i = 1; i < buttons.length; i++) {
+      expect(buttons[i].classList.contains('ring-2')).toBe(false);
+    }
+  });
+
+  it('when store.setCurrentView is called with each of the four views, the active ring class moves to the matching button', () => {
+    const { fixture, store, host } = setup();
+    const views: readonly CanvasView[] = [
+      'donut',
+      'bars',
+      'frontier',
+      'backtest',
+    ];
+    for (const view of views) {
+      store.setCurrentView(view);
+      fixture.detectChanges();
+      const buttons = viewButtons(host);
+      for (const btn of buttons) {
+        const isActive = btn.getAttribute('data-view-id') === view;
+        expect(btn.classList.contains('ring-2')).toBe(isActive);
+      }
+    }
+  });
+
+  it('when a non-donut button is clicked, store.currentView updates to that view id', () => {
+    const { fixture, store, host } = setup();
+    const buttons = viewButtons(host);
+    const barsBtn = buttons.find(
+      (b) => b.getAttribute('data-view-id') === 'bars',
+    );
+    expect(barsBtn).toBeDefined();
+    barsBtn!.click();
+    fixture.detectChanges();
+    expect(store.currentView()).toBe('bars');
+  });
+
+  it('when current view is "bars", app-weight-bars is mounted in the content region', () => {
+    const { fixture, store, host } = setup();
+    store.setCurrentView('bars');
+    fixture.detectChanges();
+    expect(host.querySelector('app-weight-bars')).not.toBeNull();
+    expect(host.querySelector('app-allocation-donut')).toBeNull();
+  });
+
+  it('when current view is "frontier", app-efficient-frontier is mounted in the content region', () => {
+    const { fixture, store, host } = setup();
+    store.setCurrentView('frontier');
+    fixture.detectChanges();
+    expect(host.querySelector('app-efficient-frontier')).not.toBeNull();
+    expect(host.querySelector('app-allocation-donut')).toBeNull();
+  });
+
+  it('when current view is "backtest", app-backtest-sparkline is mounted in the content region', () => {
+    const { fixture, store, host } = setup();
+    store.setCurrentView('backtest');
+    fixture.detectChanges();
+    expect(host.querySelector('app-backtest-sparkline')).not.toBeNull();
+    expect(host.querySelector('app-allocation-donut')).toBeNull();
+  });
+
+  it('when weights input is set, the component accepts it without throwing', () => {
+    const { fixture } = setup();
     const weights: WeightItem[] = [
       { ticker: 'AAPL', weight: 0.4 },
       { ticker: 'MSFT', weight: 0.6 },
@@ -40,8 +172,6 @@ describe('CanvasPaneComponent', () => {
     ).not.toThrow();
     fixture.detectChanges();
     expect(fixture.componentInstance.weights()).toEqual(weights);
-    expect(host.textContent).toContain('Allocation — Phase 2');
-    expect(host.querySelector('canvas')).toBeNull();
   });
 
   it('when frontier input is set with a list of points, the component accepts it without throwing', () => {
@@ -75,15 +205,10 @@ describe('CanvasPaneComponent', () => {
     expect(fixture.componentInstance.sessionId()).toBeNull();
   });
 
-  it('when freshly constructed, all three inputs default to undefined', () => {
+  it('when freshly constructed, all three legacy inputs default to undefined', () => {
     const { fixture } = setup();
     expect(fixture.componentInstance.weights()).toBeUndefined();
     expect(fixture.componentInstance.frontier()).toBeUndefined();
     expect(fixture.componentInstance.sessionId()).toBeUndefined();
-  });
-
-  it('when mounted, the placeholder element carries an identifying data-region for shell layout assertions', () => {
-    const { host } = setup();
-    expect(host.querySelector('[data-region="canvas-pane"]')).not.toBeNull();
   });
 });

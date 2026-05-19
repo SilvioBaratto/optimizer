@@ -25,6 +25,8 @@ import type {
 import { BuilderResultService } from './builder-result.service';
 import type { BuilderStage } from './builder-stage';
 
+export type CanvasView = 'donut' | 'bars' | 'frontier' | 'backtest';
+
 export interface BuilderSummary {
   readonly stage: BuilderStage | null;
   readonly status: StepStatus;
@@ -54,6 +56,7 @@ export class BuilderStore {
   private readonly _result = signal<BuilderResult | null>(null);
   private readonly _frontier = signal<BuilderFrontier | null>(null);
   private readonly _backtest = signal<BuilderBacktest | null>(null);
+  private readonly _currentView = signal<CanvasView>('donut');
 
   readonly config: Signal<RunLevelConfig | null> = this._config.asReadonly();
   readonly stepParams: Signal<StepParamsConfig | null> =
@@ -73,6 +76,7 @@ export class BuilderStore {
     this._frontier.asReadonly();
   readonly backtest: Signal<BuilderBacktest | null> =
     this._backtest.asReadonly();
+  readonly currentView: Signal<CanvasView> = this._currentView.asReadonly();
 
   readonly summary: Signal<BuilderSummary> = computed(() => ({
     stage: this._currentStage(),
@@ -124,6 +128,10 @@ export class BuilderStore {
     this._backtest.set(value);
   }
 
+  setCurrentView(value: CanvasView): void {
+    this._currentView.set(value);
+  }
+
   triggerResultRun(): void {
     this.injector.get(BuilderResultService).runExplicit();
   }
@@ -153,6 +161,7 @@ export class BuilderStore {
     this._result.set(null);
     this._frontier.set(null);
     this._backtest.set(null);
+    this._currentView.set('donut');
   }
 
   private dispatchAction(stepId: PipelineStepId): void {
