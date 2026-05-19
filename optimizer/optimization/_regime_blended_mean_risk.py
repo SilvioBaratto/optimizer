@@ -175,7 +175,7 @@ class _ExternallyControlledRegimeCovariance(BaseCovariance):
             w_norm = combined / w_sum
 
             mu_k = w_norm @ X_np  # (n_assets,)
-            dev_k = X_np - mu_k   # (n_obs, n_assets)
+            dev_k = X_np - mu_k  # (n_obs, n_assets)
             cov_k = (w_norm[:, None] * dev_k).T @ dev_k  # (n_assets, n_assets)
 
             blended_cov += terminal_probs[k] * cov_k

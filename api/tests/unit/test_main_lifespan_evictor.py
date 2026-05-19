@@ -65,7 +65,9 @@ async def test_when_lifespan_starts_then_ensure_daemon_running_invoked() -> None
 
 
 @pytest.mark.asyncio
-async def test_when_lifespan_starts_then_ensure_daemon_called_before_scheduler_start() -> None:
+async def test_when_lifespan_starts_then_ensure_daemon_called_before_scheduler_start() -> (
+    None
+):
     app = FastAPI()
     call_order: list[str] = []
 
@@ -80,7 +82,9 @@ async def test_when_lifespan_starts_then_ensure_daemon_called_before_scheduler_s
 
 
 @pytest.mark.asyncio
-async def test_when_ensure_daemon_raises_then_startup_continues_and_scheduler_starts() -> None:
+async def test_when_ensure_daemon_raises_then_startup_continues_and_scheduler_starts() -> (
+    None
+):
     app = FastAPI()
     boom = RuntimeError("evictor-boom")
     with _patched_startup(ensure_exc=boom) as m:
@@ -91,7 +95,9 @@ async def test_when_ensure_daemon_raises_then_startup_continues_and_scheduler_st
 
 
 @pytest.mark.asyncio
-async def test_when_ensure_daemon_raises_then_error_logged_with_exc_info(caplog) -> None:
+async def test_when_ensure_daemon_raises_then_error_logged_with_exc_info(
+    caplog,
+) -> None:
     app = FastAPI()
     boom = RuntimeError("evictor-boom-log")
     with caplog.at_level(logging.ERROR, logger=main_module.__name__):
@@ -100,7 +106,8 @@ async def test_when_ensure_daemon_raises_then_error_logged_with_exc_info(caplog)
                 pass
 
     matching = [
-        r for r in caplog.records
+        r
+        for r in caplog.records
         if r.levelno == logging.ERROR and r.exc_info is not None
     ]
     assert matching, "expected an ERROR log with exc_info on daemon-start failure"
@@ -115,6 +122,4 @@ async def test_when_daemon_starts_then_info_log_emitted(caplog) -> None:
                 pass
 
     msgs = [r.getMessage() for r in caplog.records]
-    assert any(
-        m == "Pipeline session-store eviction daemon started" for m in msgs
-    )
+    assert any(m == "Pipeline session-store eviction daemon started" for m in msgs)

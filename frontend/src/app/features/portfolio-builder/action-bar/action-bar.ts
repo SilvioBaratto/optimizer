@@ -6,6 +6,7 @@ import {
 } from '@angular/core';
 
 import { StepStatus } from '../../../models/pipeline-builder.model';
+import type { BuilderResultStatus } from '../builder-result.model';
 import { BuilderStore } from '../builder.store';
 
 @Component({
@@ -63,15 +64,19 @@ export class ActionBarComponent {
   readonly runDisabled = computed(
     () =>
       this.store.sessionId() === null ||
-      this.store.status() === StepStatus.Running,
+      this.store.status() === StepStatus.Running ||
+      this.store.resultStatus() === 'running',
   );
 
   readonly exportDisabled = computed(() => this.store.sessionId() === null);
 
-  readonly statusLabel = computed(() => labelFor(this.store.status()));
+  readonly statusLabel = computed(() =>
+    labelFor(this.store.status(), this.store.resultStatus()),
+  );
 
   onOptimize(): void {
     this.store.optimize();
+    this.store.triggerResultRun();
   }
 
   onRebalance(): void {
@@ -83,9 +88,17 @@ export class ActionBarComponent {
   }
 }
 
-function labelFor(status: StepStatus): string {
-  if (status === StepStatus.Running) return 'Running…';
-  if (status === StepStatus.Error) return 'Error';
-  if (status === StepStatus.Completed) return 'Completed';
+function labelFor(
+  status: StepStatus,
+  resultStatus: BuilderResultStatus,
+): string {
+  if (status === StepStatus.Running || resultStatus === 'running') {
+    return 'Running…';
+  }
+  if (resultStatus === 'stale') return 'Stale';
+  if (status === StepStatus.Error || resultStatus === 'error') return 'Error';
+  if (status === StepStatus.Completed || resultStatus === 'ok') {
+    return 'Completed';
+  }
   return '';
 }

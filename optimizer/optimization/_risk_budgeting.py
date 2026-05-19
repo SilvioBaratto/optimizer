@@ -70,9 +70,7 @@ class RiskBudgetingConfig:
         if self.budgets is not None:
             total = sum(value for _, value in self.budgets)
             if not np.isclose(total, 1.0, atol=_BUDGET_SUM_ATOL):
-                raise ConfigurationError(
-                    f"budgets must sum to 1 (got {total:.6f})"
-                )
+                raise ConfigurationError(f"budgets must sum to 1 (got {total:.6f})")
 
     @classmethod
     def for_equal_risk_contribution(cls) -> RiskBudgetingConfig:

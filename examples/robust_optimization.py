@@ -43,9 +43,7 @@ def main() -> None:
         cfg = RobustMeanRiskConfig(
             mean_risk_config=MeanRiskConfig.for_min_variance(),
             mu_uncertainty_set_config=cfg.mu_uncertainty_set_config,
-            covariance_uncertainty_set_config=(
-                cfg.covariance_uncertainty_set_config
-            ),
+            covariance_uncertainty_set_config=(cfg.covariance_uncertainty_set_config),
         )
         optimizer = build_robust_mean_risk(cfg)
         optimizer.fit(returns)

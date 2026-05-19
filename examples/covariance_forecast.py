@@ -31,9 +31,7 @@ def main() -> None:
     ]
     cfg = CovarianceForecastConfig(train_size=252, test_size=21)
 
-    comparison = run_covariance_forecast_evaluation(
-        estimators, returns, config=cfg
-    )
+    comparison = run_covariance_forecast_evaluation(estimators, returns, config=cfg)
 
     print("Names:", comparison.names)
     print()

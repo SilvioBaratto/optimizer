@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
 import { ActionBarComponent } from './action-bar/action-bar';
 import { AnalyticsPaneComponent } from './analytics-pane/analytics-pane';
+import { BuilderResultService } from './builder-result.service';
 import { BuilderStore } from './builder.store';
 import { CanvasPaneComponent } from './canvas-pane/canvas-pane';
 import { InputsPaneComponent } from './inputs-pane/inputs-pane';
@@ -44,8 +45,13 @@ import { StageStripComponent } from './stage-strip/stage-strip';
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [BuilderStore],
+  providers: [BuilderStore, BuilderResultService],
 })
 export class PortfolioBuilderComponent {
   readonly store = inject(BuilderStore);
+  private readonly resultService = inject(BuilderResultService);
+
+  constructor() {
+    this.resultService.init();
+  }
 }

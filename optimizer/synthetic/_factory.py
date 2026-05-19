@@ -66,6 +66,7 @@ def _resolve_distributions(
         instances.append(mapping[name]())
     return instances
 
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -116,9 +117,7 @@ def build_vine_copula(
 
     kwargs.setdefault(
         "marginal_candidates",
-        _resolve_distributions(
-            config.marginal_candidates, _MARGINAL_MAP, "marginal"
-        ),
+        _resolve_distributions(config.marginal_candidates, _MARGINAL_MAP, "marginal"),
     )
     kwargs.setdefault(
         "copula_candidates",

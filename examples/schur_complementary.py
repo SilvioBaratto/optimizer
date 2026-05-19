@@ -33,9 +33,7 @@ def main() -> None:
     returns = prices_to_returns(prices)
 
     gammas = [0.0, 0.25, 0.5, 0.75, 1.0]
-    table = pd.DataFrame(
-        {f"gamma={g:.2f}": _fit_weights(returns, g) for g in gammas}
-    )
+    table = pd.DataFrame({f"gamma={g:.2f}": _fit_weights(returns, g) for g in gammas})
 
     print("Schur Complementary gamma sweep (HRP=0.0 → MVP=1.0):")
     print(table.round(4).to_string())

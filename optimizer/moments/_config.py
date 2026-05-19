@@ -156,12 +156,8 @@ class MomentEstimationConfig:
     variance_half_life: float = 40.0
     corr_half_life: float | None = None
     regime_half_life: float | None = None
-    regime_target: RegimeAdjustmentTargetType = (
-        RegimeAdjustmentTargetType.PORTFOLIO
-    )
-    regime_method: RegimeAdjustmentMethodType = (
-        RegimeAdjustmentMethodType.FIRST_MOMENT
-    )
+    regime_target: RegimeAdjustmentTargetType = RegimeAdjustmentTargetType.PORTFOLIO
+    regime_method: RegimeAdjustmentMethodType = RegimeAdjustmentMethodType.FIRST_MOMENT
     regime_multiplier_clip: tuple[float, float] = (0.7, 1.6)
     hac_lags: int = 5
     min_observations: int | None = None

@@ -219,9 +219,7 @@ def _eviction_loop(interval_seconds: int = 60) -> None:
                 logger.info("Evicting stale pipeline session %s (age=%.1fs)", sid, age)
                 delete_session(sid)
         except Exception:
-            logger.warning(
-                "pipeline_builder eviction iteration failed", exc_info=True
-            )
+            logger.warning("pipeline_builder eviction iteration failed", exc_info=True)
 
 
 def _ensure_daemon_running() -> None:

@@ -72,9 +72,7 @@ class SchurComplementaryConfig:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.gamma <= 1.0:
-            raise ConfigurationError(
-                f"gamma must be in [0, 1] (got {self.gamma})"
-            )
+            raise ConfigurationError(f"gamma must be in [0, 1] (got {self.gamma})")
 
     @classmethod
     def for_hrp_anchor(cls) -> SchurComplementaryConfig:

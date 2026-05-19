@@ -8,12 +8,46 @@ import { provideZonelessChangeDetection } from '@angular/core';
 
 import { BuilderStore } from './builder.store';
 import type { BuilderStage } from './builder-stage';
+import type {
+  BuilderBacktest,
+  BuilderFrontier,
+  BuilderResult,
+} from './builder-result.model';
 import {
   type RunLevelConfig,
   StepStatus,
 } from '../../models/pipeline-builder.model';
 import { STEP_PARAM_DEFAULTS } from '../../pages/pipeline-stepper/step-params.model';
 import { environment } from '../../../environments/environment';
+
+function sampleResult(): BuilderResult {
+  return {
+    runId: 'run-1',
+    weights: { AAPL: 0.5, MSFT: 0.5 },
+    metrics: { sharpe: 1.2 },
+    riskContributions: { AAPL: 0.5, MSFT: 0.5 },
+    optimizerType: 'mean_risk',
+    createdAt: '2026-05-19T10:00:00Z',
+  };
+}
+
+function sampleFrontier(): BuilderFrontier {
+  return {
+    points: [
+      { risk: 0.1, return: 0.05, sharpe: 0.5 },
+      { risk: 0.2, return: 0.12, sharpe: 0.6 },
+    ],
+  };
+}
+
+function sampleBacktest(): BuilderBacktest {
+  return {
+    runId: 'bt-1',
+    summaryStats: { totalReturn: 0.12, sharpe: 0.9, maxDrawdown: -0.08 },
+    equityCurve: { '2026-01-01': 1.0, '2026-02-01': 1.05 },
+    createdAt: '2026-05-19T10:01:00Z',
+  };
+}
 
 const SESSIONS_URL = `${environment.apiUrl}pipeline-builder/sessions`;
 const STEP_URL = (sid: string, step: string) =>
@@ -277,6 +311,78 @@ describe('BuilderStore', () => {
       const req = http.expectOne(STEP_URL('sid-2', 'rebalance_decision'));
       req.flush('boom', { status: 500, statusText: 'Server Error' });
       expect(store.status()).toBe(StepStatus.Error);
+    });
+  });
+
+  describe('result signals', () => {
+    it('when freshly constructed, resultStatus is "idle" and result/frontier/backtest are null', () => {
+      expect(store.resultStatus()).toBe('idle');
+      expect(store.result()).toBeNull();
+      expect(store.frontier()).toBeNull();
+      expect(store.backtest()).toBeNull();
+    });
+
+    it('when setResultStatus is called, resultStatus exposes the new value', () => {
+      store.setResultStatus('running');
+      expect(store.resultStatus()).toBe('running');
+      store.setResultStatus('ok');
+      expect(store.resultStatus()).toBe('ok');
+      store.setResultStatus('error');
+      expect(store.resultStatus()).toBe('error');
+      store.setResultStatus('stale');
+      expect(store.resultStatus()).toBe('stale');
+      store.setResultStatus('idle');
+      expect(store.resultStatus()).toBe('idle');
+    });
+
+    it('when setResult is called, result exposes the same object', () => {
+      const r = sampleResult();
+      store.setResult(r);
+      expect(store.result()).toBe(r);
+    });
+
+    it('when setResult is called with null after being set, result returns to null', () => {
+      store.setResult(sampleResult());
+      store.setResult(null);
+      expect(store.result()).toBeNull();
+    });
+
+    it('when setFrontier is called, frontier exposes the same object', () => {
+      const f = sampleFrontier();
+      store.setFrontier(f);
+      expect(store.frontier()).toBe(f);
+    });
+
+    it('when setFrontier is called with null after being set, frontier returns to null', () => {
+      store.setFrontier(sampleFrontier());
+      store.setFrontier(null);
+      expect(store.frontier()).toBeNull();
+    });
+
+    it('when setBacktest is called, backtest exposes the same object', () => {
+      const b = sampleBacktest();
+      store.setBacktest(b);
+      expect(store.backtest()).toBe(b);
+    });
+
+    it('when setBacktest is called with null after being set, backtest returns to null', () => {
+      store.setBacktest(sampleBacktest());
+      store.setBacktest(null);
+      expect(store.backtest()).toBeNull();
+    });
+
+    it('when reset is called after mutating result signals, all four return to initial values', () => {
+      store.setResultStatus('ok');
+      store.setResult(sampleResult());
+      store.setFrontier(sampleFrontier());
+      store.setBacktest(sampleBacktest());
+
+      store.reset();
+
+      expect(store.resultStatus()).toBe('idle');
+      expect(store.result()).toBeNull();
+      expect(store.frontier()).toBeNull();
+      expect(store.backtest()).toBeNull();
     });
   });
 

@@ -121,7 +121,9 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning("Benchmark bootstrap failed (continuing): %s", e)
 
-        threading.Thread(target=_run_bootstrap, daemon=True, name="benchmark-bootstrap").start()
+        threading.Thread(
+            target=_run_bootstrap, daemon=True, name="benchmark-bootstrap"
+        ).start()
 
         # Pipeline-session-store eviction daemon (issue #693). Started here so a
         # process that only serves GET polls — never POST /sessions — still

@@ -96,9 +96,13 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
         db_module.database_manager._session_factory = lambda: db_session
 
     with patch.object(db_module.database_manager, "get_session", _test_session_cm):
-        with patch.object(db_module.database_manager, "initialize", side_effect=_mock_initialize):
+        with patch.object(
+            db_module.database_manager, "initialize", side_effect=_mock_initialize
+        ):
             with patch.object(db_module.database_manager, "create_all_tables"):
-                with patch.object(db_module.database_manager, "health_check", return_value=True):
+                with patch.object(
+                    db_module.database_manager, "health_check", return_value=True
+                ):
                     with patch.object(db_module.database_manager, "close"):
                         app.dependency_overrides[get_db] = override_get_db
                         test_client = TestClient(app)

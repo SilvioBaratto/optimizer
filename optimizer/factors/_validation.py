@@ -307,7 +307,7 @@ def _compute_ic_series_cs_regression(
         return pd.Series(dtype=float, name=factor_name)
 
     x_panel = np.stack(rows_x, axis=0)[:, :, None]  # (T, N, 1)
-    y_panel = np.stack(rows_y, axis=0)              # (T, N)
+    y_panel = np.stack(rows_y, axis=0)  # (T, N)
     estimator = build_cs_linear_regression(cfg)
     estimator.fit(x_panel, y_panel)
     slopes = np.asarray(estimator.coef_)[:, 0]

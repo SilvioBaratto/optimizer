@@ -4,6 +4,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { ActionBarComponent } from './action-bar';
+import { BuilderResultService } from '../builder-result.service';
 import { BuilderStore } from '../builder.store';
 import { StepStatus } from '../../../models/pipeline-builder.model';
 
@@ -18,6 +19,7 @@ function setup(): {
       provideHttpClient(),
       provideHttpClientTesting(),
       BuilderStore,
+      BuilderResultService,
     ],
   });
   const store = TestBed.inject(BuilderStore);
@@ -154,5 +156,38 @@ describe('ActionBarComponent', () => {
     fixture.detectChanges();
     const region = host.querySelector('[aria-live="polite"]');
     expect(region?.textContent ?? '').toContain('Error');
+  });
+
+  it('when Optimize is clicked with sessionId set, both store.optimize() and store.triggerResultRun() fire exactly once', () => {
+    const { fixture, host, store } = setup();
+    const optSpy = spyOn(store, 'optimize');
+    const triggerSpy = spyOn(store, 'triggerResultRun');
+    store.setSessionId('s1');
+    fixture.detectChanges();
+
+    btn(host, 'optimize').click();
+
+    expect(optSpy).toHaveBeenCalledTimes(1);
+    expect(triggerSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('when resultStatus is "running", Optimize and Rebalance are disabled while Export stays enabled', () => {
+    const { fixture, host, store } = setup();
+    store.setSessionId('s1');
+    store.setResultStatus('running');
+    fixture.detectChanges();
+
+    expect(btn(host, 'optimize').disabled).toBe(true);
+    expect(btn(host, 'rebalance').disabled).toBe(true);
+    expect(btn(host, 'export').disabled).toBe(false);
+  });
+
+  it('when resultStatus is "stale", the aria-live status region announces "Stale"', () => {
+    const { fixture, host, store } = setup();
+    store.setSessionId('s1');
+    store.setResultStatus('stale');
+    fixture.detectChanges();
+    const region = host.querySelector('[aria-live="polite"]');
+    expect(region?.textContent ?? '').toContain('Stale');
   });
 });

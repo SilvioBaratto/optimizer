@@ -11,7 +11,6 @@ Covers:
 from __future__ import annotations
 
 import threading
-import time
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -25,7 +24,6 @@ from app.services.market_data.yfinance_data_service import (
     YFinanceDataService,
     call_with_timeout,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers shared across tests
@@ -308,9 +306,7 @@ class TestIncrementalShortCircuit:
 
         staleness = _fully_fresh_staleness()
         # Make profile stale (2 days ago, threshold is 24h)
-        staleness["profile_updated_at"] = datetime.now(timezone.utc) - timedelta(
-            days=2
-        )
+        staleness["profile_updated_at"] = datetime.now(timezone.utc) - timedelta(days=2)
 
         repo = _make_repo(staleness=staleness)
         yf_client = _make_yf_client_silent()
@@ -492,9 +488,7 @@ class TestParallelProgressReporting:
                 request, MagicMock(), on_progress=_progress, workers=3
             )
 
-        current_values = sorted(
-            c["current"] for c in progress_calls if "current" in c
-        )
+        current_values = sorted(c["current"] for c in progress_calls if "current" in c)
         assert current_values == list(range(1, 7))
         assert result["tickers_processed"] == 6
         assert result["error_count"] == 0

@@ -27,10 +27,7 @@ def main() -> None:
     returns = prices_to_returns(prices).tail(500)
 
     table = pd.DataFrame(
-        {
-            f"eps={eps:.2f}": _fit_weights(returns, eps)
-            for eps in (0.01, 0.05, 0.10)
-        }
+        {f"eps={eps:.2f}": _fit_weights(returns, eps) for eps in (0.01, 0.05, 0.10)}
     )
 
     print("DR-CVaR weights at three epsilon levels:")

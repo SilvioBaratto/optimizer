@@ -93,7 +93,7 @@ def production_app(
 
     The middleware reads ``database_manager.get_session`` at construction
     time, so the patch MUST precede ``create_application()``.
-    
+
     Also patches ``initialize()`` and ``create_all_tables()`` so lifespan
     doesn't try to connect to real PostgreSQL.
     """

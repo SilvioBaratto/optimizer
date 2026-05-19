@@ -200,8 +200,7 @@ class TestEvictionLoop:
             _drive_loop_n_times(monkeypatch, iterations=2)
 
         assert any(
-            rec.levelno == logging.WARNING and rec.exc_info
-            for rec in caplog.records
+            rec.levelno == logging.WARNING and rec.exc_info for rec in caplog.records
         )
 
     def test_when_session_evicted_then_info_log_with_session_id(

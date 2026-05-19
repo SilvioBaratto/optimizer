@@ -57,9 +57,7 @@ class RobustMeanRiskConfig:
         )
 
     @classmethod
-    def for_moderate(
-        cls, *, uncertainty_level: float = 0.95
-    ) -> RobustMeanRiskConfig:
+    def for_moderate(cls, *, uncertainty_level: float = 0.95) -> RobustMeanRiskConfig:
         """Moderate confidence preset (default 95%).
 
         Parameters
@@ -130,9 +128,7 @@ def build_robust_mean_risk(
     if config.covariance_uncertainty_set_config is not None:
         kwargs.setdefault(
             "covariance_uncertainty_set_estimator",
-            build_covariance_uncertainty_set(
-                config.covariance_uncertainty_set_config
-            ),
+            build_covariance_uncertainty_set(config.covariance_uncertainty_set_config),
         )
 
     return build_mean_risk(

@@ -73,7 +73,7 @@ class BackgroundJobService:
             session.commit()
             self._job_id = str(new_id)
             self._emit_started(self._job_id)
-    
+
     def _get_or_raise_conflict(self) -> str:
         """Return job ID or raise conflict error."""
         if hasattr(self, "_job_id") and self._job_id:
@@ -81,31 +81,35 @@ class BackgroundJobService:
         if hasattr(self, "_conflict_id"):
             raise JobAlreadyRunningError(self._conflict_id)
         raise RuntimeError("Unexpected state in create_job")
-    
+
     def _get_session_context_manager(self) -> Any:
         """Get a context manager that safely handles nested context managers.
-        
+
         In tests, session_factory might return a context manager that yields
         another context manager. This helper handles that case.
         """
         from contextlib import contextmanager
-        
+
         @contextmanager
         def safe_cm():
             session_or_cm = self._session_factory()
-            
+
             # Check if it's a context manager
-            if hasattr(session_or_cm, "__enter__") and not hasattr(session_or_cm, "execute"):
+            if hasattr(session_or_cm, "__enter__") and not hasattr(
+                session_or_cm, "execute"
+            ):
                 with session_or_cm as potential_session:
                     # Check if the yielded value is also a context manager
-                    if hasattr(potential_session, "__enter__") and not hasattr(potential_session, "execute"):
+                    if hasattr(potential_session, "__enter__") and not hasattr(
+                        potential_session, "execute"
+                    ):
                         with potential_session as session:
                             yield session
                     else:
                         yield potential_session
             else:
                 yield session_or_cm
-        
+
         return safe_cm()
 
     def create_job(self, **initial_data: Any) -> str:
@@ -128,10 +132,14 @@ class BackgroundJobService:
         session_or_cm = self._session_factory()
 
         # If we got a context manager instead of a session, enter it
-        if hasattr(session_or_cm, "__enter__") and not hasattr(session_or_cm, "execute"):
+        if hasattr(session_or_cm, "__enter__") and not hasattr(
+            session_or_cm, "execute"
+        ):
             with session_or_cm as potential_session:
                 # Handle case where context manager yields another context manager
-                if hasattr(potential_session, "__enter__") and not hasattr(potential_session, "execute"):
+                if hasattr(potential_session, "__enter__") and not hasattr(
+                    potential_session, "execute"
+                ):
                     with potential_session as session:
                         self._execute_create_job(session, extra)
                         return self._get_or_raise_conflict()
@@ -145,9 +153,6 @@ class BackgroundJobService:
             session = session_or_cm
             self._execute_create_job(session, extra)
             return self._get_or_raise_conflict()
-
-        # Raise outside the session context manager to avoid noisy logging
-        raise JobAlreadyRunningError(_conflict_id)
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         """Return a dict representation of the job, or ``None``.

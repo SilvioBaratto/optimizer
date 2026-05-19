@@ -56,12 +56,12 @@ def call_with_timeout(fn: "Any", timeout: float) -> "Any":
         future: Future[Any] = _pool.submit(fn)
         try:
             return future.result(timeout=timeout)
-        except TimeoutError:
+        except TimeoutError as err:
             # The worker thread is a daemon — it will be abandoned but won't
             # block process shutdown.
             raise TimeoutError(
                 f"yfinance call did not complete within {timeout:.0f}s"
-            )
+            ) from err
 
 
 @dataclass
@@ -433,7 +433,9 @@ class YFinanceDataService:
         # Open-EAV reuse of financial_statements: no migration, no new model.
         try:
             val_df = self._timed(
-                lambda: self.yf_client.metadata.fetch_valuation_measures(yfinance_ticker)
+                lambda: self.yf_client.metadata.fetch_valuation_measures(
+                    yfinance_ticker
+                )
             )
             if val_df is not None and not val_df.empty:
                 counts["valuation_measures"] = self.repo.upsert_financial_statements(

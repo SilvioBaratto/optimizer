@@ -1,11 +1,14 @@
 """Repository for persistent background job operations."""
 
+import logging
 import os
 import socket
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import (
     delete,
@@ -48,10 +51,12 @@ class BackgroundJobRepository(RepositoryBase):
     def _ensure_tables_exist(self) -> None:
         """Ensure background_jobs table exists (for test isolation)."""
         from app.models._shared import Base
-        
+
         try:
             # Try to check if table exists
-            inspector = __import__('sqlalchemy.inspection', fromlist=['inspect']).inspect(self.session.bind)
+            inspector = __import__(
+                "sqlalchemy.inspection", fromlist=["inspect"]
+            ).inspect(self.session.bind)
             if "background_jobs" not in inspector.get_table_names():
                 # Create tables if missing
                 Base.metadata.create_all(bind=self.session.bind)
@@ -59,9 +64,10 @@ class BackgroundJobRepository(RepositoryBase):
             # If we can't check, try to create anyway
             try:
                 from app.models._shared import Base
+
                 Base.metadata.create_all(bind=self.session.bind)
-            except Exception:
-                pass  # Ignore creation errors
+            except Exception as e:
+                logger.debug("Could not ensure background_jobs table exists: %s", e)
 
     def __init__(self, session: Session) -> None:
         super().__init__(session)
@@ -326,7 +332,7 @@ class BackgroundJobRepository(RepositoryBase):
     def cleanup_expired(self, ttl_seconds: int) -> int:
         """Delete completed/failed jobs older than *ttl_seconds*."""
         self._ensure_tables_exist()
-        
+
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)
         stmt = delete(BackgroundJob).where(
             BackgroundJob.status.in_(_TERMINAL_STATUSES),

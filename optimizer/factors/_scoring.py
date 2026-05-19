@@ -183,9 +183,7 @@ def compute_equal_weight_composite(
     return _renormalized_weighted_composite(group_scores, weights)
 
 
-def _summarize_ic_history(
-    ic_history: pd.DataFrame, decay_halflife: int
-) -> pd.Series:
+def _summarize_ic_history(ic_history: pd.DataFrame, decay_halflife: int) -> pd.Series:
     """Reduce IC history to a per-group point estimate.
 
     ``decay_halflife == 0`` returns the simple mean (legacy behaviour).

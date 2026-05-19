@@ -1,6 +1,7 @@
 import {
   DestroyRef,
   Injectable,
+  Injector,
   type Signal,
   computed,
   inject,
@@ -15,6 +16,13 @@ import {
 } from '../../models/pipeline-builder.model';
 import type { StepParamsConfig } from '../../pages/pipeline-stepper/step-params.model';
 import { PipelineBuilderApiService } from '../../services/pipeline-builder-api.service';
+import type {
+  BuilderBacktest,
+  BuilderFrontier,
+  BuilderResult,
+  BuilderResultStatus,
+} from './builder-result.model';
+import { BuilderResultService } from './builder-result.service';
 import type { BuilderStage } from './builder-stage';
 
 export interface BuilderSummary {
@@ -29,6 +37,7 @@ type StepResultEntry = Record<string, unknown> | null;
 export class BuilderStore {
   private readonly api = inject(PipelineBuilderApiService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
 
   private readonly _config = signal<RunLevelConfig | null>(null);
   private readonly _stepParams = signal<StepParamsConfig | null>(null);
@@ -41,6 +50,10 @@ export class BuilderStore {
     new Map(),
   );
   private readonly _sessionId = signal<string | null>(null);
+  private readonly _resultStatus = signal<BuilderResultStatus>('idle');
+  private readonly _result = signal<BuilderResult | null>(null);
+  private readonly _frontier = signal<BuilderFrontier | null>(null);
+  private readonly _backtest = signal<BuilderBacktest | null>(null);
 
   readonly config: Signal<RunLevelConfig | null> = this._config.asReadonly();
   readonly stepParams: Signal<StepParamsConfig | null> =
@@ -53,6 +66,13 @@ export class BuilderStore {
   readonly stepStatuses: Signal<Map<PipelineStepId, StepStatus>> =
     this._stepStatuses.asReadonly();
   readonly sessionId: Signal<string | null> = this._sessionId.asReadonly();
+  readonly resultStatus: Signal<BuilderResultStatus> =
+    this._resultStatus.asReadonly();
+  readonly result: Signal<BuilderResult | null> = this._result.asReadonly();
+  readonly frontier: Signal<BuilderFrontier | null> =
+    this._frontier.asReadonly();
+  readonly backtest: Signal<BuilderBacktest | null> =
+    this._backtest.asReadonly();
 
   readonly summary: Signal<BuilderSummary> = computed(() => ({
     stage: this._currentStage(),
@@ -88,6 +108,26 @@ export class BuilderStore {
     this._sessionId.set(value);
   }
 
+  setResultStatus(value: BuilderResultStatus): void {
+    this._resultStatus.set(value);
+  }
+
+  setResult(value: BuilderResult | null): void {
+    this._result.set(value);
+  }
+
+  setFrontier(value: BuilderFrontier | null): void {
+    this._frontier.set(value);
+  }
+
+  setBacktest(value: BuilderBacktest | null): void {
+    this._backtest.set(value);
+  }
+
+  triggerResultRun(): void {
+    this.injector.get(BuilderResultService).runExplicit();
+  }
+
   optimize(): void {
     this.dispatchAction('optimize');
   }
@@ -109,6 +149,10 @@ export class BuilderStore {
     this._stepResults.set(new Map());
     this._stepStatuses.set(new Map());
     this._sessionId.set(null);
+    this._resultStatus.set('idle');
+    this._result.set(null);
+    this._frontier.set(null);
+    this._backtest.set(null);
   }
 
   private dispatchAction(stepId: PipelineStepId): void {

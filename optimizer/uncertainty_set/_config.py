@@ -50,9 +50,7 @@ def _validate_bootstrap_only_fields(
     if is_bootstrap:
         return
     if n_bootstrap_samples != 1000:
-        raise ConfigurationError(
-            "n_bootstrap_samples is only valid for BOOTSTRAP kind"
-        )
+        raise ConfigurationError("n_bootstrap_samples is only valid for BOOTSTRAP kind")
     if block_size is not None:
         raise ConfigurationError("block_size is only valid for BOOTSTRAP kind")
     if random_state is not None:

@@ -114,8 +114,7 @@ def run_covariance_forecast_evaluation(
     if config is None:
         config = CovarianceForecastConfig()
     evaluations = [
-        _evaluate_offline(name, estimator, X, config)
-        for name, estimator in estimators
+        _evaluate_offline(name, estimator, X, config) for name, estimator in estimators
     ]
     names = [name for name, _ in estimators]
     return CovarianceForecastComparison(evaluations=evaluations, names=names)
@@ -143,9 +142,7 @@ def _validate_partial_fit(
     estimators: Sequence[tuple[str, BaseCovariance]],
 ) -> None:
     """Reject estimators missing ``partial_fit``."""
-    offending = [
-        name for name, est in estimators if not hasattr(est, "partial_fit")
-    ]
+    offending = [name for name, est in estimators if not hasattr(est, "partial_fit")]
     if offending:
         joined = ", ".join(offending)
         raise ConfigurationError(
@@ -181,8 +178,7 @@ def run_online_covariance_forecast_evaluation(
         config = OnlineCovarianceForecastConfig()
     _validate_partial_fit(estimators)
     evaluations = [
-        _evaluate_online(name, estimator, X, config)
-        for name, estimator in estimators
+        _evaluate_online(name, estimator, X, config) for name, estimator in estimators
     ]
     names = [name for name, _ in estimators]
     return CovarianceForecastComparison(evaluations=evaluations, names=names)

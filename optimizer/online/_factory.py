@@ -31,6 +31,7 @@ def _build_scorer(scorer_config: Any) -> Any:
 
     return build_scorer(scorer_config)
 
+
 _PARTIAL_FIT_ERROR = (
     "Online workflows require an estimator implementing `partial_fit`. "
     "Use `EmpiricalPrior(mu_estimator=EWMu(half_life=...), "
@@ -103,7 +104,8 @@ def build_online_grid_search(
         param_grid=param_grid,
         scoring=_build_scorer(config.base.scorer_config),
         warmup_size=config.online.warmup_size,
-        n_jobs=config.online.n_jobs if config.online.n_jobs is not None
+        n_jobs=config.online.n_jobs
+        if config.online.n_jobs is not None
         else config.base.n_jobs,
         verbose=int(config.online.verbose),
     )
@@ -126,7 +128,8 @@ def build_online_randomized_search(
         scoring=_build_scorer(config.base.scorer_config),
         warmup_size=config.online.warmup_size,
         random_state=config.base.random_state,
-        n_jobs=config.online.n_jobs if config.online.n_jobs is not None
+        n_jobs=config.online.n_jobs
+        if config.online.n_jobs is not None
         else config.base.n_jobs,
         verbose=int(config.online.verbose),
     )

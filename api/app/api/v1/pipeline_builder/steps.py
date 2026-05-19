@@ -278,9 +278,7 @@ def _mark_step_completed(
     new_results = dict(session.step_results)
     if result is not None:
         new_results[step_id] = result
-    update_session(
-        session_id, step_status=new_status, step_results=new_results
-    )
+    update_session(session_id, step_status=new_status, step_results=new_results)
 
 
 def _poll_response_from_job(job: dict[str, Any]) -> StepPollResponse:

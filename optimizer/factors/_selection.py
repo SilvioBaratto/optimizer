@@ -229,9 +229,7 @@ def apply_sector_balance(
             _MAX_BALANCE_ITERATIONS,
         )
 
-    result_set = _cap_per_sector(
-        result_set, scores, sector_labels, max_per_sector
-    )
+    result_set = _cap_per_sector(result_set, scores, sector_labels, max_per_sector)
     return pd.Index(sorted(result_set))
 
 
