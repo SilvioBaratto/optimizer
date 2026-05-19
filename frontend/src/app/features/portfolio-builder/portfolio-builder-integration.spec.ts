@@ -132,7 +132,7 @@ describe('PortfolioBuilder integration — free navigation preserves state', () 
     const inputsPane = fixture.debugElement.query(
       (n) => n.name === 'app-inputs-pane',
     ).componentInstance;
-    inputsPane.sessionId.set('sid-int-2');
+    store.setSessionId('sid-int-2');
 
     const stepId: PipelineStepId = 'load';
     inputsPane.onPanelRunStep(stepId, {});

@@ -67,8 +67,8 @@ function extractApiMessage(err: unknown, fallback: string): Error {
   return new Error(fallback);
 }
 
-function mapHttpError(fallback: string) {
-  return (err: unknown) => throwError(() => extractApiMessage(err, fallback));
+function mapHttpError() {
+  return (err: unknown) => throwError(() => err);
 }
 
 /**
@@ -85,12 +85,12 @@ export class AttributionService {
   brinson(body: BrinsonApiRequest): Observable<BrinsonApiResponse> {
     return this.http
       .post<BrinsonApiResponse>(`${this.api}attribution/brinson`, body)
-      .pipe(catchError(mapHttpError('brinson failed')));
+      .pipe(catchError(mapHttpError()));
   }
 
   factor(body: FactorAttributionApiRequest): Observable<FactorAttributionApiResponse> {
     return this.http
       .post<FactorAttributionApiResponse>(`${this.api}attribution/factor`, body)
-      .pipe(catchError(mapHttpError('factor attribution failed')));
+      .pipe(catchError(mapHttpError()));
   }
 }

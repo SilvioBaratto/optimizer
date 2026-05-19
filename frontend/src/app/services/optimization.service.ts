@@ -82,8 +82,8 @@ function extractApiMessage(err: unknown, fallback: string): Error {
   return new Error(fallback);
 }
 
-function mapHttpError(fallback: string) {
-  return (err: unknown) => throwError(() => extractApiMessage(err, fallback));
+function mapHttpError() {
+  return (err: unknown) => throwError(() => err);
 }
 
 @Injectable({ providedIn: 'root' })
@@ -107,7 +107,7 @@ export class OptimizationService {
   calibrateDelta(body: CalibrateDeltaRequest): Observable<CalibrateDeltaResponse> {
     return this.http
       .post<CalibrateDeltaResponse>(`${this.api}llm-moments/calibrate-delta`, body)
-      .pipe(catchError(mapHttpError('calibrate-delta failed')));
+      .pipe(catchError(mapHttpError()));
   }
 
   adaptFactorWeights(
@@ -118,7 +118,7 @@ export class OptimizationService {
         `${this.api}llm-moments/adapt-factor-weights`,
         body,
       )
-      .pipe(catchError(mapHttpError('adapt-factor-weights failed')));
+      .pipe(catchError(mapHttpError()));
   }
 
   selectCovRegime(
@@ -126,25 +126,25 @@ export class OptimizationService {
   ): Observable<SelectCovRegimeResponse> {
     return this.http
       .post<SelectCovRegimeResponse>(`${this.api}llm-moments/select-cov-regime`, body)
-      .pipe(catchError(mapHttpError('select-cov-regime failed')));
+      .pipe(catchError(mapHttpError()));
   }
 
   generateViews(body: GenerateViewsRequest): Observable<GenerateViewsResponse> {
     return this.http
       .post<GenerateViewsResponse>(`${this.api}views/generate`, body)
-      .pipe(catchError(mapHttpError('generate-views failed')));
+      .pipe(catchError(mapHttpError()));
   }
 
   opinionPool(body: OpinionPoolRequest): Observable<OpinionPoolResponse> {
     return this.http
       .post<OpinionPoolResponse>(`${this.api}views/opinion-pool`, body)
-      .pipe(catchError(mapHttpError('opinion-pool failed')));
+      .pipe(catchError(mapHttpError()));
   }
 
   entropyPooling(body: EntropyPoolingRequest): Observable<EntropyPoolingResponse> {
     return this.http
       .post<EntropyPoolingResponse>(`${this.api}views/entropy-pooling`, body)
-      .pipe(catchError(mapHttpError('entropy-pooling failed')));
+      .pipe(catchError(mapHttpError()));
   }
 
   static isAsyncResponse(value: OptimizeResult): value is OptimizeAsyncResponse {

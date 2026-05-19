@@ -69,6 +69,24 @@ describe('PortfolioBuilderComponent', () => {
     expect(region?.querySelector('app-inputs-pane')).not.toBeNull();
   });
 
+  it('when rendered, app-canvas-pane is mounted inside the center region', () => {
+    const host = setup();
+    const region = host.querySelector('[data-region="center"]');
+    expect(region?.querySelector('app-canvas-pane')).not.toBeNull();
+  });
+
+  it('when rendered, app-analytics-pane is mounted inside the right region', () => {
+    const host = setup();
+    const region = host.querySelector('[data-region="right"]');
+    expect(region?.querySelector('app-analytics-pane')).not.toBeNull();
+  });
+
+  it('when rendered, app-action-bar is mounted inside the action-bar region', () => {
+    const host = setup();
+    const region = host.querySelector('[data-region="action-bar"]');
+    expect(region?.querySelector('app-action-bar')).not.toBeNull();
+  });
+
   it('when stage-strip emits stageSelect, store.setStage is invoked and currentStage updates', () => {
     configure();
     const fixture = TestBed.createComponent(PortfolioBuilderComponent);

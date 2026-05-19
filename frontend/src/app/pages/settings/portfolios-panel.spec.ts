@@ -43,6 +43,7 @@ describe('PortfoliosPanelComponent', () => {
     const fx = TestBed.createComponent(PortfoliosPanelComponent);
     fx.detectChanges();
 
+    http.expectOne(`${API}market/indices`).flush({ indices: [] });
     http.expectOne(`${API}portfolio/`).flush({ items: [EXISTING], total: 1 });
 
     expect(fx.componentInstance.portfolios().length).toBe(1);
@@ -52,6 +53,7 @@ describe('PortfoliosPanelComponent', () => {
   it('blocks submit when name is too short', () => {
     const fx = TestBed.createComponent(PortfoliosPanelComponent);
     fx.detectChanges();
+    http.expectOne(`${API}market/indices`).flush({ indices: [] });
     http.expectOne(`${API}portfolio/`).flush({ items: [], total: 0 });
 
     fx.componentInstance.toggleCreate();
@@ -65,6 +67,7 @@ describe('PortfoliosPanelComponent', () => {
   it('POSTs /portfolio/ with trimmed payload and refreshes on success', () => {
     const fx = TestBed.createComponent(PortfoliosPanelComponent);
     fx.detectChanges();
+    http.expectOne(`${API}market/indices`).flush({ indices: [] });
     http.expectOne(`${API}portfolio/`).flush({ items: [], total: 0 });
 
     fx.componentInstance.toggleCreate();
@@ -91,6 +94,7 @@ describe('PortfoliosPanelComponent', () => {
   it('surfaces the error when create fails', () => {
     const fx = TestBed.createComponent(PortfoliosPanelComponent);
     fx.detectChanges();
+    http.expectOne(`${API}market/indices`).flush({ indices: [] });
     http.expectOne(`${API}portfolio/`).flush({ items: [], total: 0 });
 
     fx.componentInstance.toggleCreate();

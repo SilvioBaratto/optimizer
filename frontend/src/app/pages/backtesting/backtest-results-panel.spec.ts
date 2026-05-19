@@ -88,12 +88,12 @@ describe('BacktestResultsPanelComponent', () => {
     const fixture = createFixture();
     fixture.componentRef.setInput(
       'run',
-      makeRun({ summaryStats: { sharpe: 1.2, cagr: null, cvar: -0.03 } }),
+      makeRun({ summaryStats: { annualized_sharpe_ratio: 1.2, cagr: null, cvar: -0.03 } }),
     );
     fixture.detectChanges();
 
     const keys = fixture.componentInstance.summaryCells().map((c) => c.key);
-    expect(keys).toEqual(['sharpe', 'cvar']);
+    expect(keys).toEqual(['Annualized Sharpe', 'CVaR 95%']);
   });
 
   it('sorts equity-curve date keys ascending', () => {

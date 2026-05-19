@@ -80,7 +80,6 @@ export class InputsPaneComponent {
   readonly labels = ACCORDION_LABELS;
   readonly StepStatus = StepStatus;
 
-  readonly sessionId = signal<string | null>(null);
   readonly activeStepId = signal<PipelineStepId | null>(null);
   readonly expandedSectionId = signal<AccordionSectionId | null>(null);
   readonly lastError = signal<string | null>(null);
@@ -94,6 +93,7 @@ export class InputsPaneComponent {
 
   readonly stepStatuses = this.store.stepStatuses;
   readonly stepResults = this.store.stepResults;
+  readonly sessionId = this.store.sessionId;
 
   sectionAggStatus(id: AccordionSectionId): StepStatus {
     return aggregateStatus(stepsForSection(id), this.stepStatuses());
@@ -137,13 +137,19 @@ export class InputsPaneComponent {
   }
 
   onConfigSubmit(payload: PipelineConfigSubmit): void {
+    if (this.store.sessionId() !== null) {
+      // Resubmit: wipe stale per-step state from the previous session
+      // before issuing a new createSession. Caller-controlled per the
+      // store's no-side-effect setSessionId contract.
+      this.store.reset();
+    }
     this.store.setConfig(payload.config);
     this.store.setStepParams(payload.steps);
     this.api
       .createSession(payload.config)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => this.sessionId.set(r.sessionId),
+        next: (r) => this.store.setSessionId(r.sessionId),
         error: (e: HttpErrorResponse) =>
           this.lastError.set(`Session creation failed (HTTP ${e.status})`),
       });

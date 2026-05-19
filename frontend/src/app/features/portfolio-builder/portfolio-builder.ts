@@ -1,12 +1,21 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
+import { ActionBarComponent } from './action-bar/action-bar';
+import { AnalyticsPaneComponent } from './analytics-pane/analytics-pane';
 import { BuilderStore } from './builder.store';
+import { CanvasPaneComponent } from './canvas-pane/canvas-pane';
 import { InputsPaneComponent } from './inputs-pane/inputs-pane';
 import { StageStripComponent } from './stage-strip/stage-strip';
 
 @Component({
   selector: 'app-portfolio-builder',
-  imports: [StageStripComponent, InputsPaneComponent],
+  imports: [
+    StageStripComponent,
+    InputsPaneComponent,
+    CanvasPaneComponent,
+    AnalyticsPaneComponent,
+    ActionBarComponent,
+  ],
   template: `
     <div class="grid grid-rows-[auto_1fr_auto] h-full overflow-hidden">
       <div data-region="stage-strip">
@@ -22,10 +31,16 @@ import { StageStripComponent } from './stage-strip/stage-strip';
         <div data-region="left" class="overflow-y-auto">
           <app-inputs-pane />
         </div>
-        <div data-region="center" class="overflow-y-auto"></div>
-        <div data-region="right" class="overflow-y-auto"></div>
+        <div data-region="center" class="overflow-y-auto">
+          <app-canvas-pane />
+        </div>
+        <div data-region="right" class="overflow-y-auto">
+          <app-analytics-pane />
+        </div>
       </div>
-      <div data-region="action-bar"></div>
+      <div data-region="action-bar">
+        <app-action-bar />
+      </div>
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

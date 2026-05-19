@@ -276,7 +276,7 @@ describe('InputsPaneComponent', () => {
 
   it('when a sessionId is captured and Horizon is expanded, the persist panel receives the value via [sessionId]', () => {
     const { fixture, host, http } = setup();
-    fixture.componentInstance.sessionId.set('sid-99');
+    TestBed.inject(BuilderStore).setSessionId('sid-99');
     expand(fixture, host, 'horizon');
 
     const persist = fixture.debugElement.query(
@@ -289,7 +289,7 @@ describe('InputsPaneComponent', () => {
 
   it('when a panel emits runStep and a session exists, the dispatch wrapper POSTs to the session step URL', () => {
     const { fixture, http } = setup();
-    fixture.componentInstance.sessionId.set('sid-7');
+    TestBed.inject(BuilderStore).setSessionId('sid-7');
     const stepId: PipelineStepId = 'optimize';
 
     fixture.componentInstance.onPanelRunStep(stepId, {});
@@ -315,7 +315,7 @@ describe('InputsPaneComponent', () => {
     expect(req.request.body).toEqual(payload.config);
     req.flush({ sessionId: 'sid-1' });
 
-    expect(fixture.componentInstance.sessionId()).toBe('sid-1');
+    expect(store.sessionId()).toBe('sid-1');
     http.verify();
   });
 });

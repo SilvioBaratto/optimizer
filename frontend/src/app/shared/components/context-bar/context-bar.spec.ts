@@ -1,25 +1,47 @@
 import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+} from '@angular/common/http/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { ContextBarComponent } from './context-bar';
 import { PortfolioContextService } from '../../../services/portfolio-context.service';
 import { ICON_PROVIDER } from '../../../icons';
+import { environment } from '../../../../environments/environment';
 
 describe('ContextBarComponent', () => {
   let ctx: PortfolioContextService;
+  let http: HttpTestingController;
 
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [ContextBarComponent],
-      providers: [provideZonelessChangeDetection(), ICON_PROVIDER],
+      providers: [
+        provideZonelessChangeDetection(),
+        ICON_PROVIDER,
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
     });
     ctx = TestBed.inject(PortfolioContextService);
+    http = TestBed.inject(HttpTestingController);
   });
 
-  function render(): HTMLElement {
+  afterEach(() => http.verify());
+
+  function render(): { element: HTMLElement; fixture: any } {
     const fixture = TestBed.createComponent(ContextBarComponent);
     fixture.detectChanges();
-    return fixture.nativeElement as HTMLElement;
+    http.expectOne(`${environment.apiUrl}market/indices`).flush({
+      indices: [
+        { ticker: 'SPY', name: 'SPDR S&P 500 ETF Trust' },
+        { ticker: 'URTH', name: 'Xtrackers MSCI World UCITS ETF' },
+      ],
+    });
+    fixture.detectChanges();
+    return { element: fixture.nativeElement as HTMLElement, fixture };
   }
 
   function findPresetButton(root: HTMLElement, label: string): HTMLButtonElement {
@@ -34,7 +56,7 @@ describe('ContextBarComponent', () => {
   }
 
   it('clicking the 1Y preset sets the global dateRange preset to 1Y', () => {
-    const root = render();
+    const { element: root } = render();
 
     findPresetButton(root, '1Y').click();
 
@@ -44,6 +66,13 @@ describe('ContextBarComponent', () => {
   it('first visible focusable element inside the bar can receive DOM focus', () => {
     const fixture = TestBed.createComponent(ContextBarComponent);
     document.body.appendChild(fixture.nativeElement);
+    fixture.detectChanges();
+    http.expectOne(`${environment.apiUrl}market/indices`).flush({
+      indices: [
+        { ticker: 'SPY', name: 'SPDR S&P 500 ETF Trust' },
+        { ticker: 'URTH', name: 'Xtrackers MSCI World UCITS ETF' },
+      ],
+    });
     fixture.detectChanges();
     try {
       const root = fixture.nativeElement as HTMLElement;
@@ -64,7 +93,7 @@ describe('ContextBarComponent', () => {
   });
 
   it('buttons use transparent-ring focus styles (focus:ring-1 focus:ring-accent)', () => {
-    const root = render();
+    const { element: root } = render();
     const select = root.querySelector<HTMLSelectElement>('select');
     expect(select).not.toBeNull();
     // The benchmark <select> uses tailwind focus:outline-none focus:ring-1 focus:ring-accent
@@ -74,6 +103,13 @@ describe('ContextBarComponent', () => {
 
   it('Escape closes the date-range custom popover when it is open', async () => {
     const fixture = TestBed.createComponent(ContextBarComponent);
+    fixture.detectChanges();
+    http.expectOne(`${environment.apiUrl}market/indices`).flush({
+      indices: [
+        { ticker: 'SPY', name: 'SPDR S&P 500 ETF Trust' },
+        { ticker: 'URTH', name: 'Xtrackers MSCI World UCITS ETF' },
+      ],
+    });
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
 
@@ -94,12 +130,20 @@ describe('ContextBarComponent', () => {
   it('benchmark select change updates PortfolioContextService.benchmark', () => {
     const fixture = TestBed.createComponent(ContextBarComponent);
     fixture.detectChanges();
+    http.expectOne(`${environment.apiUrl}market/indices`).flush({
+      indices: [
+        { ticker: 'SPY', name: 'SPDR S&P 500 ETF Trust' },
+        { ticker: 'URTH', name: 'Xtrackers MSCI World UCITS ETF' },
+      ],
+    });
+    fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
 
     const select = root.querySelector<HTMLSelectElement>('select');
     expect(select).not.toBeNull();
     select!.value = 'URTH';
     select!.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
 
     expect(ctx.benchmark()).toBe('URTH');
   });
