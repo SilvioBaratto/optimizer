@@ -98,6 +98,7 @@ def _make_result(assembly: DataAssembly) -> SimpleNamespace:
         summary={"sharpe_ratio": 0.0},
         opt_config=None,
         turnover=0.0,
+        classified_regime=None,
     )
 
 

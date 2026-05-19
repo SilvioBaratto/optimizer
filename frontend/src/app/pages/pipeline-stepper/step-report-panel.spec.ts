@@ -21,6 +21,7 @@ const SAMPLE_RESULT: ReportStepResult = {
     weights_csv: '/tmp/pipeline_abc123/weights.csv',
     metrics_json: '/tmp/pipeline_abc123/metrics.json',
     checklist_json: '/tmp/pipeline_abc123/checklist.json',
+    weights_diagnostic: '/tmp/pipeline_abc123/weights_diagnostic.csv',
   },
   chart_paths: ['/tmp/pipeline_abc123/equity_curve.png'],
   output_dir: '/tmp/pipeline_abc123',
@@ -133,7 +134,7 @@ describe('StepReportPanelComponent', () => {
       await fix.whenStable();
 
       const paths = host(fix).querySelectorAll('[data-testid="artifact-path"]');
-      expect(paths.length).toBe(4);
+      expect(paths.length).toBe(5);
       const texts = Array.from(paths).map((el) => el.textContent ?? '');
       expect(texts.some((t) => t.includes('report.md'))).toBe(true);
       expect(texts.some((t) => t.includes('weights.csv'))).toBe(true);

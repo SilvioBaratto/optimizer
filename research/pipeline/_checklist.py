@@ -381,13 +381,15 @@ def _validate_checklist(
         health_floor = max(health_floor, 0.0)
         health_target = f"≥ {health_floor:.0%}"
         health_ok = health_w >= health_floor
+        health_rule_name = "Health Care exposure ≥ regime floor"
     else:
         health_floor = 0.08
         health_target = "≥ 8%"
         health_ok = health_w >= health_floor
+        health_rule_name = "Health Care exposure ≥ 8%"
     rules.append(
         _rule(
-            "Health Care exposure ≥ regime floor",
+            health_rule_name,
             ok=health_ok,
             measured=f"{health_w:.1%}",
             target=health_target,
@@ -402,13 +404,15 @@ def _validate_checklist(
         tech_floor = max(tech_floor, 0.0)
         tech_target = f"≥ {tech_floor:.0%}"
         tech_ok = tech_w >= tech_floor
+        tech_rule_name = "Information Technology exposure ≥ regime floor"
     else:
         tech_floor = 0.10
         tech_target = "≥ 10%"
         tech_ok = tech_w >= tech_floor
+        tech_rule_name = "Information Technology exposure ≥ 10%"
     rules.append(
         _rule(
-            "Information Technology exposure ≥ regime floor",
+            tech_rule_name,
             ok=tech_ok,
             measured=f"{tech_w:.1%}",
             target=tech_target,

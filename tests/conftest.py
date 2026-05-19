@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
+
+# Add api directory to path so tests can import from app
+api_dir = Path(__file__).parent.parent / "api"
+if str(api_dir) not in sys.path:
+    sys.path.insert(0, str(api_dir))
 
 
 @pytest.fixture()

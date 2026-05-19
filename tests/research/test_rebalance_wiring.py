@@ -93,6 +93,7 @@ class TestMainRebalanceWiring:
             weights=weights_series,
             net_returns=None,
             retighten_trace=[],
+            classified_regime=None,
         )
         assembly_stub = SimpleNamespace(
             prices=pd.DataFrame(100.0, index=idx, columns=["AAA", "BBB"]),
