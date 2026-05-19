@@ -18,6 +18,7 @@ class PositionFlag(str, Enum):
     FX_MISSING = "fx_missing"
     STALE_PRICE = "stale_price"
     RECONCILIATION_MISMATCH = "reconciliation_mismatch"
+    TARGET_NOT_ON_BROKER = "target_not_on_broker"
 
 
 class NormalizedPosition(BaseModel):

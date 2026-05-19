@@ -20,8 +20,9 @@ class TestPositionFlagEnum:
         assert PositionFlag.FX_MISSING.value == "fx_missing"
         assert PositionFlag.STALE_PRICE.value == "stale_price"
         assert PositionFlag.RECONCILIATION_MISMATCH.value == "reconciliation_mismatch"
+        assert PositionFlag.TARGET_NOT_ON_BROKER.value == "target_not_on_broker"
 
-    def test_when_listed_then_only_four_members_exist(self):
+    def test_when_listed_then_expected_members_exist(self):
         from app.schemas.portfolio import PositionFlag
 
         assert {m.name for m in PositionFlag} == {
@@ -29,6 +30,7 @@ class TestPositionFlagEnum:
             "FX_MISSING",
             "STALE_PRICE",
             "RECONCILIATION_MISMATCH",
+            "TARGET_NOT_ON_BROKER",
         }
 
 

@@ -8,12 +8,14 @@ import uuid
 from concurrent.futures import CancelledError
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import requests
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import database_manager, get_db
 from app.repositories.portfolio.portfolio_repository import PortfolioRepository
+from app.schemas.portfolio import BaseToggle, DriftResponse
 from app.schemas.portfolio.portfolio import (
     BrokerAccountResponse,
     BrokerPositionResponse,
@@ -32,6 +34,7 @@ from app.services.jobs.background_job import (
     JobAlreadyRunningError,
 )
 from app.services.portfolio.broker_sync_service import sync_portfolio
+from app.services.portfolio.drift_service import compute_drift
 from app.services.universe.trading212.client import Trading212Client
 
 logger = logging.getLogger(__name__)
@@ -363,3 +366,49 @@ def get_account(
             detail="No account snapshot found; run sync first",
         )
     return BrokerAccountResponse.model_validate(account)
+
+
+# ---------------------------------------------------------------------------
+# Drift
+# ---------------------------------------------------------------------------
+
+
+def _load_target_weights(repo: PortfolioRepository, name: str) -> dict[str, float]:
+    portfolio = repo.get_by_name(name)
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Portfolio '{name}' not found",
+        )
+    snap = repo.get_latest_snapshot(portfolio.id)
+    if snap is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No snapshot found; run optimization first",
+        )
+    return snap.weights
+
+
+@router.get("/{name}/drift", response_model=DriftResponse)
+def get_drift(
+    name: str,
+    base: BaseToggle = Query(default=BaseToggle.INVESTED),
+    x_drift_request_id: int = Header(default=0, alias="X-Drift-Request-Id"),
+    db: Session = Depends(get_db),
+    client: Trading212Client = Depends(get_t212_client),
+) -> DriftResponse:
+    """Compute live drift between broker positions and latest target snapshot."""
+    target_weights = _load_target_weights(PortfolioRepository(db), name)
+    try:
+        return compute_drift(
+            client,
+            db,
+            target_weights=target_weights,
+            base=base,
+            request_id=x_drift_request_id,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Trading212 upstream error: {exc}",
+        ) from exc
