@@ -59,13 +59,13 @@ class BackgroundJobRepository(RepositoryBase):
             ).inspect(self.session.bind)
             if "background_jobs" not in inspector.get_table_names():
                 # Create tables if missing
-                Base.metadata.create_all(bind=self.session.bind)
+                Base.metadata.create_all(bind=self.session.bind)  # type: ignore[arg-type]
         except Exception:
             # If we can't check, try to create anyway
             try:
                 from app.models._shared import Base
 
-                Base.metadata.create_all(bind=self.session.bind)
+                Base.metadata.create_all(bind=self.session.bind)  # type: ignore[arg-type]
             except Exception as e:
                 logger.debug("Could not ensure background_jobs table exists: %s", e)
 
@@ -160,7 +160,7 @@ class BackgroundJobRepository(RepositoryBase):
         if new_status not in _TERMINAL_STATUSES:
             clauses.append(BackgroundJob.status.in_(_ACTIVE_STATUSES))
         stmt = update(BackgroundJob).where(*clauses).values(**values)
-        result: CursorResult[Any] = self.session.execute(stmt)
+        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
         return result.rowcount or 0
 
     def _replace_error_entries(
@@ -199,7 +199,7 @@ class BackgroundJobRepository(RepositoryBase):
             )
             .values(last_heartbeat_at=func.now())
         )
-        result: CursorResult[Any] = self.session.execute(stmt)
+        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
         self.session.flush()
         return (result.rowcount or 0) == 1
 
@@ -278,7 +278,7 @@ class BackgroundJobRepository(RepositoryBase):
             source,
         )
 
-        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
+        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]  # type: ignore[assignment]
         self.session.flush()
         if result.rowcount == 1:
             return new_id
@@ -340,7 +340,7 @@ class BackgroundJobRepository(RepositoryBase):
             BackgroundJob.finished_at < cutoff,
         )
         try:
-            result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
+            result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]  # type: ignore[assignment]
             self.session.flush()
             return result.rowcount or 0
         except Exception as e:
@@ -392,7 +392,7 @@ class BackgroundJobRepository(RepositoryBase):
                 finished_at=func.now(),
             )
         )
-        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
+        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]  # type: ignore[assignment]
         self.session.flush()
         return result.rowcount or 0
 
