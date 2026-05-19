@@ -16,6 +16,7 @@ from rich.panel import Panel
 from optimizer.factors._config import (
     CompositeScoringConfig,
     RegimeTiltConfig,
+    SectorRegimeBandsConfig,
     SelectionConfig,
     SelectionMethod,
 )
@@ -23,7 +24,7 @@ from optimizer.pipeline import run_full_pipeline_with_selection
 from optimizer.pre_selection import PreSelectionConfig
 from optimizer.validation import WalkForwardConfig
 from research.data._container import DataAssembly
-from research.optimization._config import _make_builder, _make_opt_config
+from research.optimization._config import _REGION_MAP, _make_builder, _make_opt_config
 from research.optimization._rebalance import _hockey_stick_warn
 
 console = Console()
@@ -76,6 +77,7 @@ def optimize_portfolio(
     robust: bool = False,
     uncertainty_level: float = 0.95,
     seed: int | None = None,
+    sector_bands_config: SectorRegimeBandsConfig | None = None,
 ) -> Any:
     """Run factor-based stock selection + Cycle-3 §7.1 hard-constrained MeanRisk."""
     console.print(Panel("[bold]Step 7[/bold] — Portfolio optimization", style="blue"))
@@ -119,6 +121,16 @@ def optimize_portfolio(
     # is logging-only and does NOT govern the actual optimisation path.
     regime_config = RegimeTiltConfig(enable=True)
 
+    # Derive region_mapping (ticker → region) from country_map + _REGION_MAP so
+    # that _inject_sector_bands can build a combined multi-level groups structure
+    # where both sector band rows and region cap rows resolve at fit time.
+    _region_mapping: dict[str, str] | None = None
+    if country_map is not None:
+        _region_mapping = {
+            ticker: _REGION_MAP.get(country, "Other")
+            for ticker, country in country_map.items()
+        }
+
     result = run_full_pipeline_with_selection(
         prices=investable_prices,
         optimizer=optimizer_instance,
@@ -131,6 +143,7 @@ def optimize_portfolio(
         macro_data=assembly.macro_data,
         regime_data=assembly.regime_data,
         sector_mapping=dict(assembly.sector_mapping),
+        region_mapping=_region_mapping,
         scoring_config=scoring_config,  # Fix #238: explicitly IC-weighted
         selection_config=SelectionConfig(
             target_count=n_selected,
@@ -140,6 +153,7 @@ def optimize_portfolio(
             max_per_sector=4,
         ),
         regime_config=regime_config,  # Issue #529: enable regime tilts
+        sector_bands_config=sector_bands_config,
         # Disable DropCorrelated within the CV pipeline — factor selection
         # already produced a curated universe; correlation-dropping at each
         # fold shrinks it further and creates sector concentration that makes

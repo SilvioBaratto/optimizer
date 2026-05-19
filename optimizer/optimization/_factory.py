@@ -95,6 +95,37 @@ def _build_sector_floor_constraints(
     ]
 
 
+def _build_sector_cap_constraints(
+    sector_bands: dict[str, tuple[float, float]],
+) -> list[str]:
+    """Emit ``"<sector> >= <floor>"`` and ``"<sector> <= <cap>"`` rows.
+
+    Used by :func:`build_mean_risk` when ``sector_bands`` is provided
+    directly (factory-level injection without going through the orchestrator).
+
+    Parameters
+    ----------
+    sector_bands : dict[str, tuple[float, float]]
+        Mapping from sector name to ``(floor, cap)``.  Sectors with
+        ``floor == 0.0`` emit no floor row.
+
+    Returns
+    -------
+    list[str]
+        Constraint rows sorted by sector name then constraint type
+        (floor rows precede cap rows).
+    """
+    rows: list[str] = []
+    for sector in sorted(sector_bands):
+        floor, cap = sector_bands[sector]
+        if floor > 0.0:
+            rows.append(f"{sector} >= {round(floor, 6)}")
+    for sector in sorted(sector_bands):
+        _, cap = sector_bands[sector]
+        rows.append(f"{sector} <= {round(cap, 6)}")
+    return rows
+
+
 def _validate_sector_floors(
     min_sector_weights: dict[str, float],
     sector_mapping: dict[str, str] | None,
@@ -136,6 +167,7 @@ def build_mean_risk(
     factor_exposure_constraints: FactorExposureConstraints | None = None,
     sector_mapping: dict[str, str] | None = None,
     min_sector_weights: dict[str, float] | None = None,
+    sector_bands: dict[str, tuple[float, float]] | None = None,
     **kwargs: Any,
 ) -> MeanRisk:
     """Build a skfolio :class:`MeanRisk` optimiser from *config*.
@@ -168,6 +200,16 @@ def build_mean_risk(
         ``ValueError`` if not supplied, if floors sum to > 1.0, or if
         any floor exceeds ``config.max_sector_weight``.  Empty dict is
         a no-op.  The input dict is not mutated.
+    sector_bands : dict[str, tuple[float, float]] or None
+        Regime-conditional per-sector ``(floor, cap)`` bands from
+        :func:`~optimizer.factors.resolve_sector_bands`.  When provided,
+        both floor rows (``"<sector> >= <floor>"``) and cap rows
+        (``"<sector> <= <cap>"``) are appended to ``linear_constraints``
+        after any ``min_sector_weights`` rows.  Sectors with
+        ``floor == 0.0`` emit no floor row.  This is the low-level
+        factory path; prefer the orchestrator's
+        :func:`~optimizer.pipeline._orchestrator._inject_sector_bands`
+        for full pipeline usage.  ``None`` is a no-op.
     **kwargs
         Additional keyword arguments forwarded to the
         :class:`MeanRisk` constructor (for non-serialisable
@@ -214,6 +256,10 @@ def build_mean_risk(
         )
         kwargs.setdefault("groups", sector_mapping)
         sector_constraints.extend(_build_sector_floor_constraints(min_sector_weights))
+
+    if sector_bands:
+        kwargs.setdefault("groups", sector_mapping)
+        sector_constraints.extend(_build_sector_cap_constraints(sector_bands))
 
     if sector_constraints:
         kwargs.setdefault("linear_constraints", sector_constraints)

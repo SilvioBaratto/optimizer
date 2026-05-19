@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { RunConfigPanelComponent } from './run-config-panel';
-import type { RunLevelConfig } from '../../models/pipeline-builder.model';
+import type { PipelineConfigSubmit } from './step-params.model';
 
 function buildPanel(): RunConfigPanelComponent {
   TestBed.configureTestingModule({
@@ -16,8 +16,8 @@ describe('RunConfigPanelComponent', () => {
     it('when constructed, matches Pydantic defaults', () => {
       const panel = buildPanel();
       const raw = panel.form.getRawValue();
-      expect(raw.rebalance_freq).toBe(63);
-      expect(raw.n_selected).toBe(20);
+      expect(raw.rebalance_freq).toBe(21);
+      expect(raw.n_selected).toBe(25);
       expect(raw.cost_bps).toBe(10);
       expect(raw.tax_rate).toBe(0.26);
       expect(raw.base_currency).toBe('EUR');
@@ -34,27 +34,27 @@ describe('RunConfigPanelComponent', () => {
   });
 
   describe('n_selected range', () => {
-    it('when n_selected = 14, form is invalid', () => {
+    it('when n_selected = 24, form is invalid', () => {
       const panel = buildPanel();
-      panel.form.controls.n_selected.setValue(14);
+      panel.form.controls.n_selected.setValue(24);
       expect(panel.form.controls.n_selected.valid).toBe(false);
     });
 
-    it('when n_selected = 31, form is invalid', () => {
+    it('when n_selected = 51, form is invalid', () => {
       const panel = buildPanel();
-      panel.form.controls.n_selected.setValue(31);
+      panel.form.controls.n_selected.setValue(51);
       expect(panel.form.controls.n_selected.valid).toBe(false);
     });
 
-    it('when n_selected = 15, form is valid', () => {
+    it('when n_selected = 25, form is valid', () => {
       const panel = buildPanel();
-      panel.form.controls.n_selected.setValue(15);
+      panel.form.controls.n_selected.setValue(25);
       expect(panel.form.controls.n_selected.valid).toBe(true);
     });
 
-    it('when n_selected = 30, form is valid', () => {
+    it('when n_selected = 50, form is valid', () => {
       const panel = buildPanel();
-      panel.form.controls.n_selected.setValue(30);
+      panel.form.controls.n_selected.setValue(50);
       expect(panel.form.controls.n_selected.valid).toBe(true);
     });
   });
@@ -91,22 +91,49 @@ describe('RunConfigPanelComponent', () => {
     });
   });
 
+  describe('step-param defaults', () => {
+    it('matches the Pydantic *StepRequest defaults', () => {
+      const raw = buildPanel().form.getRawValue();
+      expect(raw.include_delisted).toBe(true);
+      expect(raw.macro_country).toBe('USA');
+      expect(raw.preset).toBe('developed_markets');
+      expect(raw.market_proxy_ticker).toBe('URTH');
+      expect(raw.min_factors).toBe(2);
+      expect(raw.enable_tilts).toBe(true);
+      expect(raw.persist_regime).toBe(false);
+    });
+  });
+
   describe('onSubmit()', () => {
-    it('when form is valid, configSubmit emits the RunLevelConfig', () => {
+    it('when form is valid, configSubmit emits { config, steps }', () => {
       const panel = buildPanel();
-      let emitted: RunLevelConfig | undefined;
+      let emitted: PipelineConfigSubmit | undefined;
       panel.configSubmit.subscribe((v) => (emitted = v));
 
       panel.onSubmit();
       expect(emitted).toBeDefined();
-      expect(emitted!.n_selected).toBe(20);
-      expect(emitted!.base_currency).toBe('EUR');
+      expect(emitted!.config.n_selected).toBe(25);
+      expect(emitted!.config.base_currency).toBe('EUR');
+      // run-level keys must not leak into config (no step params)
+      expect(
+        (emitted!.config as unknown as Record<string, unknown>)['preset'],
+      ).toBeUndefined();
+      expect(emitted!.steps.screen.preset).toBe('developed_markets');
+      expect(emitted!.steps.load).toEqual({
+        include_delisted: true,
+        macro_country: 'USA',
+      });
+      expect(emitted!.steps.coverage_gate.min_factors).toBe(2);
+      expect(emitted!.steps.regime).toEqual({
+        enable_tilts: true,
+        persist_regime: false,
+      });
     });
 
     it('when form is invalid, configSubmit does not emit', () => {
       const panel = buildPanel();
-      panel.form.controls.n_selected.setValue(14);
-      let emitted: RunLevelConfig | undefined;
+      panel.form.controls.n_selected.setValue(24);
+      let emitted: PipelineConfigSubmit | undefined;
       panel.configSubmit.subscribe((v) => (emitted = v));
 
       panel.onSubmit();

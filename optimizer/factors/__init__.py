@@ -26,6 +26,7 @@ from optimizer.factors._config import (
     PublicationLagConfig,
     RegimeThresholdConfig,
     RegimeTiltConfig,
+    SectorRegimeBandsConfig,
     SelectionConfig,
     SelectionMethod,
     StandardizationConfig,
@@ -84,6 +85,11 @@ from optimizer.factors._scoring import (
     compute_icir_weighted_composite,
     compute_ml_composite,
 )
+from optimizer.factors._sector_bands import (
+    ALL_11_SECTORS,
+    SECTOR_REGIME_BANDS,
+    resolve_sector_bands,
+)
 from optimizer.factors._selection import (
     apply_sector_balance,
     compute_selection_turnover,
@@ -125,11 +131,13 @@ from optimizer.factors._validation import (
 )
 
 __all__ = [
+    "ALL_11_SECTORS",
     "FACTOR_DIRECTION",
     "FACTOR_GROUP_MAPPING",
     "FACTOR_SPREAD_BENCHMARKS",
     "GROUP_WEIGHT_TIER",
     "HEAVY_TAILED_FACTORS",
+    "SECTOR_REGIME_BANDS",
     "CompositeICResult",
     "CompositeMethod",
     "CompositeScoringConfig",
@@ -161,6 +169,7 @@ __all__ = [
     "QuintileSpreadResult",
     "RegimeThresholdConfig",
     "RegimeTiltConfig",
+    "SectorRegimeBandsConfig",
     "SelectionConfig",
     "SelectionMethod",
     "StandardizationConfig",
@@ -211,6 +220,7 @@ __all__ = [
     "orthogonalize_factors",
     "predict_composite_scores",
     "rank_normal_standardize",
+    "resolve_sector_bands",
     "run_factor_oos_validation",
     "run_factor_validation",
     "select_fixed_count",

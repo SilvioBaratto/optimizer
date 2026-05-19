@@ -5,13 +5,14 @@ Extracted from ``stock_selection_pipeline.py`` lines 543–583.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 
 import pandas as pd
 from rich.console import Console
 from rich.panel import Panel
 
-from optimizer.universe._config import InvestabilityScreenConfig
+from optimizer.universe._config import HysteresisConfig, InvestabilityScreenConfig
 from optimizer.universe._factory import screen_universe
 from research.data._container import DataAssembly
 
@@ -44,7 +45,17 @@ def _assert_universe_size(passing: pd.Index) -> None:
 def screen_investable(assembly: DataAssembly) -> pd.Index:
     """Apply investability screens and return the passing ticker index."""
     console.print(Panel("[bold]Step 2[/bold] — Screening universe", style="blue"))
-    config = InvestabilityScreenConfig.for_developed_markets()
+    # Calibrated tightening: $2B preset passed 2286 (out of band [300,1500]),
+    # diluting cross-sectional factor signal -> IS/OOS sign inversion.
+    # $10B mcap / $20M ADDV / 0.40 percentile -> ~778 large-cap names (in-band).
+    config = dataclasses.replace(
+        InvestabilityScreenConfig.for_developed_markets(),
+        market_cap=HysteresisConfig(entry=10_000_000_000, exit_=8_000_000_000),
+        addv_12m=HysteresisConfig(entry=20_000_000, exit_=15_000_000),
+        addv_3m=HysteresisConfig(entry=15_000_000, exit_=10_000_000),
+        mcap_percentile_entry=0.40,
+        mcap_percentile_exit=0.35,
+    )
     passing = screen_universe(
         fundamentals=assembly.fundamentals,
         price_history=assembly.prices,

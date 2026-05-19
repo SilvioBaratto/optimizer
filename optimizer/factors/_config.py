@@ -466,9 +466,7 @@ class CompositeScoringConfig:
 
     def __post_init__(self) -> None:
         if self.ic_decay_halflife < 0:
-            msg = (
-                f"ic_decay_halflife must be >= 0, got {self.ic_decay_halflife}"
-            )
+            msg = f"ic_decay_halflife must be >= 0, got {self.ic_decay_halflife}"
             raise ConfigurationError(msg)
 
     @classmethod
@@ -477,9 +475,7 @@ class CompositeScoringConfig:
         return cls()
 
     @classmethod
-    def for_ic_weighted(
-        cls, ic_decay_halflife: int = 0
-    ) -> CompositeScoringConfig:
+    def for_ic_weighted(cls, ic_decay_halflife: int = 0) -> CompositeScoringConfig:
         """IC-weighted composite scoring (raw IC magnitude).
 
         Parameters
@@ -585,9 +581,7 @@ class SelectionConfig:
 
     def __post_init__(self) -> None:
         if self.max_per_sector < 0:
-            msg = (
-                f"max_per_sector must be >= 0, got {self.max_per_sector}"
-            )
+            msg = f"max_per_sector must be >= 0, got {self.max_per_sector}"
             raise ConfigurationError(msg)
 
     @classmethod
@@ -735,6 +729,94 @@ class RegimeTiltConfig:
             max_tilt_multiplier=1.5,
             min_post_tilt_weight=0.10,
         )
+
+
+@dataclass(frozen=True)
+class SectorRegimeBandsConfig:
+    """Dynamic macro-regime sector weight bands for optimizer constraints.
+
+    Stores the full regime × sector band matrix as a serialisable tuple of
+    ``(regime_value, sector_name, floor, cap)`` entries.  The default bands
+    are loaded from the module-level ``SECTOR_REGIME_BANDS`` matrix via the
+    :meth:`for_default` classmethod.
+
+    Single-regime-per-run semantics: the regime is resolved once from the
+    lagged classified macro regime and injected into the optimizer before
+    ``run_full_pipeline`` is called.  Backtest folds and the final fit
+    therefore share the same regime-conditional bands.  This is a deliberate
+    design choice: it avoids leaking future regime information into
+    walk-forward folds while keeping the implementation simple.
+
+    Parameters
+    ----------
+    enable : bool
+        Whether to apply dynamic sector bands.  When ``False``, the
+        optimizer constraints are left unchanged.
+    bands : tuple[tuple[str, str, float, float], ...]
+        Serialisable flat representation of the band matrix.  Each entry
+        is ``(regime_value, sector_name, floor, cap)`` with
+        ``0.0 <= floor <= cap <= 1.0``.
+
+    Examples
+    --------
+    >>> cfg = SectorRegimeBandsConfig.for_default()
+    >>> bands = resolve_sector_bands(MacroRegime.RECESSION, cfg)
+    >>> bands["Technology"]
+    (0.0, 0.06)
+    """
+
+    enable: bool = True
+    bands: tuple[tuple[str, str, float, float], ...] = ()
+
+    def __post_init__(self) -> None:
+        from optimizer.factors._sector_bands import ALL_11_SECTORS
+
+        valid_regimes = {r.value for r in MacroRegime}
+        regime_floors: dict[str, float] = {}
+
+        for entry in self.bands:
+            if len(entry) != 4:
+                raise ConfigurationError(
+                    f"Each bands entry must be a 4-tuple "
+                    f"(regime, sector, floor, cap); got {entry!r}"
+                )
+            regime_val, sector, floor, cap = entry
+            if regime_val not in valid_regimes:
+                raise ConfigurationError(
+                    f"Invalid regime value {regime_val!r} in bands; "
+                    f"valid values are {sorted(valid_regimes)}"
+                )
+            if sector not in ALL_11_SECTORS:
+                raise ConfigurationError(
+                    f"Invalid sector {sector!r} in bands; "
+                    f"valid sectors are {list(ALL_11_SECTORS)}"
+                )
+            if not (0.0 <= floor <= cap <= 1.0):
+                raise ConfigurationError(
+                    f"Invalid band for ({regime_val!r}, {sector!r}): "
+                    f"require 0.0 <= floor <= cap <= 1.0, "
+                    f"got floor={floor}, cap={cap}"
+                )
+            regime_floors[regime_val] = regime_floors.get(regime_val, 0.0) + floor
+
+        for regime_val, total_floor in regime_floors.items():
+            if total_floor > 1.0 + 1e-9:
+                raise ConfigurationError(
+                    f"Sector floors for regime {regime_val!r} sum to "
+                    f"{total_floor:.4f} > 1.0; bands are infeasible."
+                )
+
+    @classmethod
+    def for_default(cls) -> SectorRegimeBandsConfig:
+        """Load default bands from the module-level ``SECTOR_REGIME_BANDS`` matrix."""
+        from optimizer.factors._sector_bands import _matrix_to_bands_tuple
+
+        return cls(enable=True, bands=_matrix_to_bands_tuple())
+
+    @classmethod
+    def disabled(cls) -> SectorRegimeBandsConfig:
+        """Return a config that leaves optimizer constraints unchanged."""
+        return cls(enable=False, bands=())
 
 
 @dataclass(frozen=True)

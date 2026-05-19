@@ -34,6 +34,8 @@ export interface PipelineStep {
   readonly id: PipelineStepId;
   readonly label: string;
   readonly index: number;
+  readonly name: string;
+  readonly description: string;
 }
 
 export type PipelineStepId =
@@ -77,19 +79,97 @@ export interface StepPollResponse {
 }
 
 export const PIPELINE_STEPS: readonly PipelineStep[] = [
-  { id: 'load', label: '1', index: 0 },
-  { id: 'screen', label: '1b', index: 1 },
-  { id: 'clean_returns', label: '2', index: 2 },
-  { id: 'build_history', label: '2.5', index: 3 },
-  { id: 'validate_is', label: '3', index: 4 },
-  { id: 'validate_oos', label: '4', index: 5 },
-  { id: 'coverage_gate', label: '5', index: 6 },
-  { id: 'regime', label: '5b', index: 7 },
-  { id: 'optimize', label: '6', index: 8 },
-  { id: 'rebalance_decision', label: '7', index: 9 },
-  { id: 'cost', label: '7b', index: 10 },
-  { id: 'report', label: '7c', index: 11 },
-  { id: 'persist', label: 'Final', index: 12 },
+  {
+    id: 'load',
+    label: '1',
+    index: 0,
+    name: 'Load',
+    description: 'Fetch price & macro history from the database',
+  },
+  {
+    id: 'screen',
+    label: '1b',
+    index: 1,
+    name: 'Screen',
+    description: 'Apply the investability universe screen',
+  },
+  {
+    id: 'clean_returns',
+    label: '2',
+    index: 2,
+    name: 'Clean returns',
+    description: 'Validate, winsorize and impute the return series',
+  },
+  {
+    id: 'build_history',
+    label: '2.5',
+    index: 3,
+    name: 'Build history',
+    description: 'Assemble factor scores over the rebalance grid',
+  },
+  {
+    id: 'validate_is',
+    label: '3',
+    index: 4,
+    name: 'Validate in-sample',
+    description: 'Factor IC, t-stats and VIF on the full sample',
+  },
+  {
+    id: 'validate_oos',
+    label: '4',
+    index: 5,
+    name: 'Validate out-of-sample',
+    description: 'Rolling out-of-sample information coefficient by fold',
+  },
+  {
+    id: 'coverage_gate',
+    label: '5',
+    index: 6,
+    name: 'Coverage gate',
+    description: 'Require enough factors passing IS ∩ OOS to continue',
+  },
+  {
+    id: 'regime',
+    label: '5b',
+    index: 7,
+    name: 'Regime',
+    description: 'Classify the macro regime and apply group tilts',
+  },
+  {
+    id: 'optimize',
+    label: '6',
+    index: 8,
+    name: 'Optimize',
+    description: 'Solve portfolio weights for the selected universe',
+  },
+  {
+    id: 'rebalance_decision',
+    label: '7',
+    index: 9,
+    name: 'Rebalance decision',
+    description: 'Decide whether to rebalance at the current date',
+  },
+  {
+    id: 'cost',
+    label: '7b',
+    index: 10,
+    name: 'Cost',
+    description: 'Estimate per-country transaction costs',
+  },
+  {
+    id: 'report',
+    label: '7c',
+    index: 11,
+    name: 'Report',
+    description: 'Run the acceptance checklist and write artifacts',
+  },
+  {
+    id: 'persist',
+    label: 'Final',
+    index: 12,
+    name: 'Persist',
+    description: 'Save final weights and report if checks pass',
+  },
 ] as const;
 
 // Step-result payload shapes mirroring the dict returns in
@@ -227,6 +307,9 @@ export interface ReportArtifactPaths {
   weights_csv: string;
   metrics_json: string;
   checklist_json: string;
+  // Written only on a checklist near-miss; the path is always returned but
+  // the file exists only when the run failed the 17/17 gate.
+  weights_diagnostic: string;
 }
 
 export interface ReportStepResult {

@@ -3,37 +3,37 @@
     {
       "rule": "No single region > 60%",
       "pass": true,
-      "measured": "35.5%",
+      "measured": "40.0%",
       "target": "\u2264 60%"
     },
     {
-      "rule": "No single sector > 15%",
+      "rule": "No sector > regime cap",
       "pass": true,
-      "measured": "15.0% (Industrials)",
-      "target": "\u2264 15%"
+      "measured": "20.0% (Industrials)",
+      "target": "all sectors \u2264 regime cap"
     },
     {
       "rule": "HHI < 0.12",
       "pass": true,
-      "measured": "0.0558",
+      "measured": "0.0501",
       "target": "< 0.12"
     },
     {
       "rule": "Top-4 holdings < 30%",
       "pass": true,
-      "measured": "25.8%",
+      "measured": "21.1%",
       "target": "< 30%"
     },
     {
-      "rule": "Health Care exposure \u2265 8%",
+      "rule": "Health Care exposure \u2265 regime floor",
       "pass": true,
-      "measured": "12.9%",
-      "target": "\u2265 8%"
+      "measured": "6.0%",
+      "target": "\u2265 6%"
     },
     {
-      "rule": "Information Technology exposure \u2265 10%",
+      "rule": "Information Technology exposure \u2265 regime floor",
       "pass": true,
-      "measured": "15.0%",
+      "measured": "14.7%",
       "target": "\u2265 10%"
     },
     {
@@ -45,55 +45,55 @@
     {
       "rule": "Single-stock cap \u2264 10%",
       "pass": true,
-      "measured": "6.5%",
+      "measured": "6.0%",
       "target": "\u2264 10%"
     },
     {
       "rule": "Min position \u2265 2%",
       "pass": true,
-      "measured": "3.6%",
+      "measured": "4.8%",
       "target": "\u2265 2%"
     },
     {
       "rule": "Max drawdown > -22%",
       "pass": true,
-      "measured": "-15.7%",
+      "measured": "-14.4%",
       "target": "> -22%"
     },
     {
       "rule": "Vol \u2264 benchmark vol",
       "pass": true,
-      "measured": "16.3% vs 16.5%",
+      "measured": "14.7% vs 16.8%",
       "target": "\u2264 benchmark"
     },
     {
       "rule": "Sharpe \u2208 (1.0, 2.0)",
       "pass": true,
-      "measured": "1.586",
+      "measured": "1.466",
       "target": "\u2208 (1.0, 2.0)"
     },
     {
       "rule": "Sortino > 1.5",
       "pass": true,
-      "measured": "2.330",
+      "measured": "1.919",
       "target": "> 1.5"
     },
     {
       "rule": "Info Ratio > 0.5",
-      "pass": true,
-      "measured": "0.536",
+      "pass": false,
+      "measured": "0.260",
       "target": "> 0.5"
     },
     {
       "rule": "Downside vol < 75% x total vol",
-      "pass": true,
-      "measured": "11.1% vs 75% x 16.3% = 12.2%",
+      "pass": false,
+      "measured": "11.3% vs 75% x 14.7% = 11.0%",
       "target": "< 75% total"
     },
     {
       "rule": "Total cost \u2264 100 bps",
       "pass": true,
-      "measured": "23.1 bps",
+      "measured": "25.5 bps",
       "target": "\u2264 100 bps"
     },
     {
@@ -104,36 +104,36 @@
     }
   ],
   "summary": {
-    "passed": 17,
+    "passed": 15,
     "total": 17
   },
   "breakdown": {
     "gross": {
-      "ann_return": 0.2630327923512281,
-      "ann_vol": 0.16334729146968754,
-      "sharpe": 1.6088986078126821,
-      "sortino": 2.36553300764033,
-      "info_ratio": 0.5548929475028492,
-      "downside_vol": 0.1110994468441274,
-      "max_drawdown": -0.15666110798454658
+      "ann_return": 0.21767120109692462,
+      "ann_vol": 0.14730485135444132,
+      "sharpe": 1.4762673519229546,
+      "sortino": 1.9319086144695967,
+      "info_ratio": 0.26616012861459615,
+      "downside_vol": 0.11256306999040727,
+      "max_drawdown": -0.1437865601736692
     },
     "net_of_cost": {
-      "ann_return": 0.2627100720835549,
-      "ann_vol": 0.16336389763519035,
-      "sharpe": 1.6067599395750458,
-      "sortino": 2.3623596498507995,
-      "info_ratio": 0.5548769486054188,
-      "downside_vol": 0.11111210149304285,
-      "max_drawdown": -0.15666169224881543
+      "ann_return": 0.21736216842063594,
+      "ann_vol": 0.14731302017486397,
+      "sharpe": 1.474088052746301,
+      "sortino": 1.9294449460505734,
+      "info_ratio": 0.26614099871825425,
+      "downside_vol": 0.11254666027031097,
+      "max_drawdown": -0.14378692676336013
     },
     "after_tax": {
-      "ann_return": 0.2591170143893653,
-      "ann_vol": 0.1632748425010814,
-      "sharpe": 1.5856340204966162,
-      "sortino": 2.3301208361609898,
-      "info_ratio": 0.5357469712357399,
-      "downside_vol": 0.11110768015443113,
-      "max_drawdown": -0.1566616922488151
+      "ann_return": 0.21618232678786753,
+      "ann_vol": 0.1473107894795682,
+      "sharpe": 1.4661025584369745,
+      "sortino": 1.91878226912616,
+      "info_ratio": 0.2595570655299201,
+      "downside_vol": 0.11255729691595912,
+      "max_drawdown": -0.14378692676336013
     }
   }
 }

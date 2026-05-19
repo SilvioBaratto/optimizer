@@ -34,7 +34,10 @@ from optimizer.optimization._regime_blended_mean_risk import (
     RegimeBlendedMeanRiskConfig,
     build_regime_blended_mean_risk,
 )
-from optimizer.optimization._region_constraints import build_region_linear_constraints
+from optimizer.optimization._region_constraints import (
+    build_region_linear_constraints,
+    sanitize_group_token,
+)
 from optimizer.optimization._risk_budgeting import (
     RiskBudgetingConfig,
     build_risk_budgeting,
@@ -85,4 +88,5 @@ __all__ = [
     "build_schur_complementary",
     "build_sector_constraints",
     "build_stacking",
+    "sanitize_group_token",
 ]

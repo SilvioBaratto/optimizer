@@ -2,7 +2,7 @@
 
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -16,6 +16,52 @@ from app.services.market_data.yfinance import YFinanceClient
 from app.utils.currency import to_major_currency
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Timeout watchdog
+# ---------------------------------------------------------------------------
+# yfinance 1.3 does not expose a timeout parameter on the `.info` property
+# or financial-statement attributes (income_stmt, balance_sheet, etc.).
+# Wrapping the blocking call in a daemon thread and joining with a wall-clock
+# deadline is the only approach that enforces a true timeout without using
+# signals (signals may only be set from the main thread, which is illegal
+# inside the thread pool workers used by the parallel fetch path).
+#
+# `call_with_timeout` submits the callable to a fresh one-shot thread pool,
+# waits at most `timeout` seconds for a result, and raises `TimeoutError` on
+# expiry.  The underlying thread is a daemon so it does not prevent process
+# shutdown even if the network call never returns.
+#
+# `fetch_history` already accepts a `timeout` kwarg in yfinance 1.3 (passed
+# directly to `requests`) — for that call we still use the kwarg because it
+# avoids spawning an extra thread, but we additionally wrap it here so that
+# the retry loop in `_facade.py` is also bounded.
+
+
+def call_with_timeout(fn: "Any", timeout: float) -> "Any":
+    """Execute *fn* in a daemon thread; raise ``TimeoutError`` after *timeout* seconds.
+
+    Args:
+        fn: Zero-argument callable to execute.
+        timeout: Maximum wall-clock seconds to wait.
+
+    Returns:
+        The return value of *fn*.
+
+    Raises:
+        TimeoutError: If *fn* does not complete within *timeout* seconds.
+        Exception: Any exception raised by *fn* is re-raised in the caller.
+    """
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="yf-timeout") as _pool:
+        future: Future[Any] = _pool.submit(fn)
+        try:
+            return future.result(timeout=timeout)
+        except TimeoutError:
+            # The worker thread is a daemon — it will be abandoned but won't
+            # block process shutdown.
+            raise TimeoutError(
+                f"yfinance call did not complete within {timeout:.0f}s"
+            )
 
 
 @dataclass
@@ -59,9 +105,23 @@ def _is_fresh(
 class YFinanceDataService:
     """Fetches all yfinance data categories for a ticker and stores via repository."""
 
-    def __init__(self, repo: YFinanceRepository, yf_client: YFinanceClient):
+    def __init__(
+        self,
+        repo: YFinanceRepository,
+        yf_client: YFinanceClient,
+        request_timeout: float | None = None,
+    ) -> None:
         self.repo = repo
         self.yf_client = yf_client
+        # Wall-clock timeout for every yfinance network call.  None disables
+        # the watchdog (used in tests that mock fetch methods synchronously).
+        self._request_timeout = request_timeout
+
+    def _timed(self, fn: "Any") -> "Any":
+        """Execute *fn*, enforcing ``self._request_timeout`` if set."""
+        if self._request_timeout is None:
+            return fn()
+        return call_with_timeout(fn, self._request_timeout)
 
     def fetch_and_store(
         self,
@@ -111,7 +171,77 @@ class YFinanceDataService:
 
         now = datetime.now(timezone.utc)
 
-        ticker = self.yf_client.get_ticker(yfinance_ticker)
+        # ------------------------------------------------------------------
+        # Incremental short-circuit: skip whole ticker if ALL categories fresh
+        # ------------------------------------------------------------------
+        # In incremental mode we know staleness upfront.  If every category
+        # passes its freshness check there is nothing to fetch — avoid
+        # constructing a yf.Ticker at all (which acquires the rate-limiter
+        # even on a cache hit, adding ~100ms×N delay over 2907 tickers).
+        if mode == "incremental" and staleness is not None:
+            all_fresh = (
+                _is_fresh(
+                    staleness.get("profile_updated_at"), thresholds.profile_hours, now
+                )
+                and staleness.get("price_max_date") is not None  # prices have data
+                and _is_fresh(
+                    staleness.get("financials_updated_at"),
+                    thresholds.financials_hours,
+                    now,
+                )
+                and _is_fresh(
+                    staleness.get("dividends_updated_at"),
+                    thresholds.dividends_hours,
+                    now,
+                )
+                and _is_fresh(
+                    staleness.get("splits_updated_at"), thresholds.splits_hours, now
+                )
+                and _is_fresh(
+                    staleness.get("recommendations_updated_at"),
+                    thresholds.recommendations_hours,
+                    now,
+                )
+                and _is_fresh(
+                    staleness.get("price_targets_updated_at"),
+                    thresholds.price_targets_hours,
+                    now,
+                )
+                and _is_fresh(
+                    staleness.get("institutional_holders_updated_at"),
+                    thresholds.institutional_holders_hours,
+                    now,
+                )
+                and _is_fresh(
+                    staleness.get("mutualfund_holders_updated_at"),
+                    thresholds.mutualfund_holders_hours,
+                    now,
+                )
+                and _is_fresh(
+                    staleness.get("insider_transactions_updated_at"),
+                    thresholds.insider_transactions_hours,
+                    now,
+                )
+            )
+            if all_fresh:
+                logger.debug(
+                    "All categories fresh for %s — skipping network fetch",
+                    yfinance_ticker,
+                )
+                skipped.append("all:fresh")
+                return {"counts": counts, "errors": errors, "skipped": skipped}
+
+        # Lazy ticker construction: only materialise the yf.Ticker (and
+        # acquire the rate-limiter) when at least one category will be fetched.
+        # The ticker object is used only by the news fetch (section 11); all
+        # other categories call through the sub-clients which call _get_ticker
+        # internally (and share the same cache).
+        _ticker_holder: list[Any] = []  # mutable cell for lazy init
+
+        def _get_lazy_ticker() -> Any:
+            if not _ticker_holder:
+                _ticker_holder.append(self.yf_client.get_ticker(yfinance_ticker))
+            return _ticker_holder[0]
 
         # 1. Profile (info)
         if (
@@ -124,7 +254,7 @@ class YFinanceDataService:
             skipped.append("profile")
         else:
             try:
-                info = self.yf_client.fetch_info(yfinance_ticker)
+                info = self._timed(lambda: self.yf_client.fetch_info(yfinance_ticker))
                 if info:
                     counts["profile"] = self.repo.upsert_profile(instrument_id, info)
                 else:
@@ -134,6 +264,8 @@ class YFinanceDataService:
                 logger.warning("Failed to fetch profile for %s: %s", yfinance_ticker, e)
 
         # 2. Price history
+        # fetch_history accepts a native `timeout` kwarg (passed to requests),
+        # so we pass it directly without an extra watchdog thread.
         try:
             if (
                 mode == "incremental"
@@ -149,12 +281,16 @@ class YFinanceDataService:
                     start=start_date.isoformat(),
                     end=date.today().isoformat(),
                     min_rows=0,
+                    timeout=self._request_timeout,
                 )
             else:
                 # Full mode or no existing data: use period
                 # auto_adjust=True (default) — split-adjusted Close required by prices_to_returns() downstream
                 history = self.yf_client.fetch_history(
-                    yfinance_ticker, period=period, min_rows=1
+                    yfinance_ticker,
+                    period=period,
+                    min_rows=1,
+                    timeout=self._request_timeout,
                 )
 
             if history is not None and not history.empty:
@@ -265,8 +401,11 @@ class YFinanceDataService:
                     ("cashflow", self.yf_client.financials.fetch_cashflow, True),
                 ]:
                     period_type = "quarterly" if quarterly_flag else "annual"
+                    _fm, _qf = fetch_method, quarterly_flag
                     try:
-                        df = fetch_method(yfinance_ticker, quarterly=quarterly_flag)
+                        df = self._timed(
+                            lambda m=_fm, q=_qf: m(yfinance_ticker, quarterly=q)
+                        )
                         if df is not None and not df.empty:
                             fs_count += self.repo.upsert_financial_statements(
                                 instrument_id,
@@ -293,7 +432,9 @@ class YFinanceDataService:
         # 3a. Valuation measures (Ticker.valuation, 9-metric panel).
         # Open-EAV reuse of financial_statements: no migration, no new model.
         try:
-            val_df = self.yf_client.metadata.fetch_valuation_measures(yfinance_ticker)
+            val_df = self._timed(
+                lambda: self.yf_client.metadata.fetch_valuation_measures(yfinance_ticker)
+            )
             if val_df is not None and not val_df.empty:
                 counts["valuation_measures"] = self.repo.upsert_financial_statements(
                     instrument_id,
@@ -312,7 +453,9 @@ class YFinanceDataService:
         # "0y", "+1y"); coerce columns to datetimes and drop NaT so the
         # repository's _safe_date does not silently drop rows.
         try:
-            eps_trend_df = self.yf_client.analysis.fetch_eps_trend(yfinance_ticker)
+            eps_trend_df = self._timed(
+                lambda: self.yf_client.analysis.fetch_eps_trend(yfinance_ticker)
+            )
             if eps_trend_df is not None and not eps_trend_df.empty:
                 eps_trend_df = eps_trend_df.copy()
                 eps_trend_df.columns = pd.to_datetime(
@@ -335,7 +478,9 @@ class YFinanceDataService:
 
         # 3c. EPS revisions. Same period-label coercion as eps_trend.
         try:
-            eps_rev_df = self.yf_client.analysis.fetch_eps_revisions(yfinance_ticker)
+            eps_rev_df = self._timed(
+                lambda: self.yf_client.analysis.fetch_eps_revisions(yfinance_ticker)
+            )
             if eps_rev_df is not None and not eps_rev_df.empty:
                 eps_rev_df = eps_rev_df.copy()
                 eps_rev_df.columns = pd.to_datetime(eps_rev_df.columns, errors="coerce")
@@ -365,8 +510,10 @@ class YFinanceDataService:
             skipped.append("dividends")
         else:
             try:
-                dividends = self.yf_client.corporate_actions.fetch_dividends(
-                    yfinance_ticker
+                dividends = self._timed(
+                    lambda: self.yf_client.corporate_actions.fetch_dividends(
+                        yfinance_ticker
+                    )
                 )
                 if dividends is not None and not dividends.empty:
                     counts["dividends"] = self.repo.upsert_dividends(
@@ -389,7 +536,11 @@ class YFinanceDataService:
             skipped.append("splits")
         else:
             try:
-                splits = self.yf_client.corporate_actions.fetch_splits(yfinance_ticker)
+                splits = self._timed(
+                    lambda: self.yf_client.corporate_actions.fetch_splits(
+                        yfinance_ticker
+                    )
+                )
                 if splits is not None and not splits.empty:
                     counts["splits"] = self.repo.upsert_splits(instrument_id, splits)
                 else:
@@ -411,8 +562,10 @@ class YFinanceDataService:
             skipped.append("recommendations")
         else:
             try:
-                rec_df = self.yf_client.analysis.fetch_recommendations_summary(
-                    yfinance_ticker
+                rec_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_recommendations_summary(
+                        yfinance_ticker
+                    )
                 )
                 if rec_df is not None and not rec_df.empty:
                     counts["recommendations"] = self.repo.upsert_recommendations(
@@ -437,8 +590,10 @@ class YFinanceDataService:
             skipped.append("price_targets")
         else:
             try:
-                targets = self.yf_client.analysis.fetch_analyst_price_targets(
-                    yfinance_ticker
+                targets = self._timed(
+                    lambda: self.yf_client.analysis.fetch_analyst_price_targets(
+                        yfinance_ticker
+                    )
                 )
                 if targets:
                     counts["price_targets"] = self.repo.upsert_price_targets(
@@ -463,8 +618,10 @@ class YFinanceDataService:
             skipped.append("institutional_holders")
         else:
             try:
-                inst_df = self.yf_client.holders.fetch_institutional_holders(
-                    yfinance_ticker
+                inst_df = self._timed(
+                    lambda: self.yf_client.holders.fetch_institutional_holders(
+                        yfinance_ticker
+                    )
                 )
                 if inst_df is not None and not inst_df.empty:
                     counts["institutional_holders"] = (
@@ -491,7 +648,11 @@ class YFinanceDataService:
             skipped.append("mutualfund_holders")
         else:
             try:
-                mf_df = self.yf_client.holders.fetch_mutualfund_holders(yfinance_ticker)
+                mf_df = self._timed(
+                    lambda: self.yf_client.holders.fetch_mutualfund_holders(
+                        yfinance_ticker
+                    )
+                )
                 if mf_df is not None and not mf_df.empty:
                     counts["mutualfund_holders"] = self.repo.upsert_mutualfund_holders(
                         instrument_id, mf_df
@@ -517,8 +678,10 @@ class YFinanceDataService:
             skipped.append("insider_transactions")
         else:
             try:
-                insiders_df = self.yf_client.holders.fetch_insider_transactions(
-                    yfinance_ticker
+                insiders_df = self._timed(
+                    lambda: self.yf_client.holders.fetch_insider_transactions(
+                        yfinance_ticker
+                    )
                 )
                 if insiders_df is not None and not insiders_df.empty:
                     counts["insider_transactions"] = (
@@ -536,7 +699,7 @@ class YFinanceDataService:
 
         # 11. News (always fetched with full article content scraped)
         try:
-            news_list = ticker.news
+            news_list = self._timed(lambda: _get_lazy_ticker().news)
             if news_list:
                 from app.services.market_data.yfinance.news.scraper import (
                     ArticleScraper,
@@ -608,7 +771,13 @@ def run_bulk_yfinance_fetch(
         total_counts: dict[str, int] = {}
         total_skipped: int = 0
 
-        service = YFinanceDataService(repo, yf_client)
+        from app.config import settings as _settings
+
+        service = YFinanceDataService(
+            repo,
+            yf_client,
+            request_timeout=float(_settings.yfinance_request_timeout_seconds),
+        )
 
         for idx, instrument in enumerate(instruments, 1):
             ticker = instrument.yfinance_ticker
@@ -693,13 +862,14 @@ def _fetch_one_ticker(
     request: Any,
     yf_client: YFinanceClient,
     database_manager: Any,
+    request_timeout: float | None = None,
 ) -> dict[str, Any]:
     """Fetch a single ticker inside an isolated per-thread session."""
     if not spec.yfinance_ticker:
         raise ValueError("missing yfinance_ticker")
     with database_manager.get_session() as session:
         repo = YFinanceRepository(session)
-        service = YFinanceDataService(repo, yf_client)
+        service = YFinanceDataService(repo, yf_client, request_timeout=request_timeout)
         try:
             result = service.fetch_and_store(
                 instrument_id=spec.instrument_id,
@@ -750,7 +920,10 @@ def _run_bulk_yfinance_fetch_parallel(
     counter drives ``on_progress``. Worker exceptions are isolated and
     aggregated into the final ``error_count``.
     """
+    from app.config import settings as _settings
     from app.database import database_manager
+
+    request_timeout = float(_settings.yfinance_request_timeout_seconds)
 
     specs = _load_instrument_specs(database_manager)
     total = len(specs)
@@ -767,7 +940,9 @@ def _run_bulk_yfinance_fetch_parallel(
         spec: _InstrumentSpec,
     ) -> tuple[_InstrumentSpec, dict[str, Any] | Exception]:
         try:
-            return spec, _fetch_one_ticker(spec, request, yf_client, database_manager)
+            return spec, _fetch_one_ticker(
+                spec, request, yf_client, database_manager, request_timeout
+            )
         except Exception as exc:
             return spec, exc
 

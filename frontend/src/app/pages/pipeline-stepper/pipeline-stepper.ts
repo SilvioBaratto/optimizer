@@ -21,13 +21,19 @@ import {
 import {
   PIPELINE_STEPS,
   type PipelineStepId,
-  type RunLevelConfig,
   StepStatus,
   type StepPollResponse,
 } from '../../models/pipeline-builder.model';
+import {
+  type PipelineConfigSubmit,
+  type StepParamsConfig,
+  buildStepParams,
+} from './step-params.model';
+import { stepSummary } from './step-summary';
 import { PipelineBuilderApiService } from '../../services/pipeline-builder-api.service';
 import { JOB_POLL_TICK } from '../../shared/job-progress-tracker/job-progress-tracker';
 import { RunConfigPanelComponent } from './run-config-panel';
+import { StepSectionComponent } from './step-section/step-section';
 import { StepBuildHistoryPanelComponent } from './step-build-history-panel';
 import { StepCleanReturnsPanelComponent } from './step-clean-returns-panel';
 import { StepCostPanelComponent } from './step-cost-panel';
@@ -48,6 +54,7 @@ type WizardPhase = 'config' | 'running';
   selector: 'app-pipeline-stepper',
   imports: [
     RunConfigPanelComponent,
+    StepSectionComponent,
     StepLoadPanelComponent,
     StepScreenPanelComponent,
     StepCleanReturnsPanelComponent,
@@ -70,7 +77,11 @@ export class PipelineStepperComponent {
 
   sessionId = signal<string | null>(null);
   stepStatuses = signal<Map<PipelineStepId, StepStatus>>(new Map());
+  // Pipeline cursor: the step currently dispatched/polling or awaiting Continue.
   activeStepId = signal<PipelineStepId | null>(null);
+  // UI disclosure only — never issues HTTP, never mutates stepStatuses.
+  expandedStepId = signal<PipelineStepId | null>(null);
+  stepParams = signal<StepParamsConfig | null>(null);
   phase = signal<WizardPhase>('config');
   sessionError = signal<string | null>(null);
   lastError = signal<string | null>(null);
@@ -78,22 +89,31 @@ export class PipelineStepperComponent {
   pollProgress = signal<StepPollResponse | null>(null);
   stepResults = signal<Map<PipelineStepId, StepPollResponse>>(new Map());
 
-  activeStep = computed(() =>
-    this.steps.find((s) => s.id === this.activeStepId()) ?? null,
-  );
-  activeStepStatus = computed(() => {
-    const id = this.activeStepId();
-    return id ? (this.stepStatuses().get(id) ?? StepStatus.Pending) : StepStatus.Pending;
-  });
-  activeStepResult = computed(() => this.pollProgress()?.result ?? null);
   completedCount = computed(
-    () => [...this.stepStatuses().values()].filter((s) => s === StepStatus.Completed).length,
+    () =>
+      [...this.stepStatuses().values()].filter(
+        (s) => s === StepStatus.Completed,
+      ).length,
   );
-  nextEnabled = computed(() => {
+
+  // Continue is offered only when the active step is Completed and a next
+  // step exists. advance() has already marked that next step Ready.
+  canContinue = computed(() => {
     const id = this.activeStepId();
     if (!id) return false;
     if (this.stepStatuses().get(id) !== StepStatus.Completed) return false;
     return nextStepId(id) !== null;
+  });
+
+  // Per-section caches keyed by step id (memoised so OnPush template reads
+  // don't recompute per change-detection pass).
+  private readonly summaries = computed(() => {
+    const results = this.stepResults();
+    const m = new Map<PipelineStepId, string>();
+    for (const step of this.steps) {
+      m.set(step.id, stepSummary(step.id, results.get(step.id)?.result ?? null));
+    }
+    return m;
   });
 
   private readonly api = inject(PipelineBuilderApiService);
@@ -105,14 +125,48 @@ export class PipelineStepperComponent {
     this.destroyRef.onDestroy(() => this.disposeSession());
   }
 
-  onConfigSubmit(config: RunLevelConfig): void {
+  sectionStatus(id: PipelineStepId): StepStatus {
+    return this.stepStatuses().get(id) ?? StepStatus.Pending;
+  }
+
+  sectionResult(id: PipelineStepId): Record<string, unknown> | null {
+    return this.stepResults().get(id)?.result ?? null;
+  }
+
+  summaryFor(id: PipelineStepId): string {
+    return this.summaries().get(id) ?? '';
+  }
+
+  // Stale errors must not bleed into other sections.
+  errorFor(id: PipelineStepId): string | null {
+    return id === this.activeStepId() ? this.lastError() : null;
+  }
+
+  isExpanded(id: PipelineStepId): boolean {
+    return this.expandedStepId() === id;
+  }
+
+  showContinueFor(id: PipelineStepId): boolean {
+    return id === this.activeStepId() && this.canContinue();
+  }
+
+  showRetryFor(id: PipelineStepId): boolean {
+    return (
+      id === this.activeStepId() &&
+      this.sectionStatus(id) === StepStatus.Error
+    );
+  }
+
+  onConfigSubmit(payload: PipelineConfigSubmit): void {
     this.sessionError.set(null);
+    this.stepParams.set(payload.steps);
     this.api
-      .createSession(config)
+      .createSession(payload.config)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => this.startSession(r.sessionId),
-        error: (e: HttpErrorResponse) => this.sessionError.set(formatCreateError(e)),
+        error: (e: HttpErrorResponse) =>
+          this.sessionError.set(formatCreateError(e)),
       });
   }
 
@@ -122,38 +176,49 @@ export class PipelineStepperComponent {
     this.resetState();
   }
 
-  selectStep(stepId: PipelineStepId): void {
-    const status = this.stepStatuses().get(stepId);
-    if (status !== StepStatus.Ready && status !== StepStatus.Completed) return;
-    this.activeStepId.set(stepId);
-    this.pollProgress.set(this.stepResults().get(stepId) ?? null);
+  // Chevron click — pure UI, no HTTP, pipeline cursor untouched. A Locked /
+  // Pending step has nothing to show, so it stays collapsed.
+  toggleExpand(id: PipelineStepId): void {
+    const status = this.sectionStatus(id);
+    if (status === StepStatus.Locked || status === StepStatus.Pending) return;
+    this.expandedStepId.update((cur) => (cur === id ? null : id));
   }
 
-  onPanelRunStep(params: Record<string, unknown>): void {
-    this.runActiveStep(params);
+  // User confirms moving on. advance() already unlocked N+1 to Ready.
+  onContinue(): void {
+    const cur = this.activeStepId();
+    if (!cur || this.stepStatuses().get(cur) !== StepStatus.Completed) return;
+    const nid = nextStepId(cur);
+    if (nid === null) return;
+    this.autoDispatch(nid);
   }
 
-  runActiveStep(params: Record<string, unknown> = {}): void {
-    if (this.activeStepStatus() !== StepStatus.Ready) return;
+  onRetry(): void {
+    const cur = this.activeStepId();
+    if (!cur) return;
+    this.lastError.set(null);
+    this.abortGateError.set(null);
+    this.updateStatus(cur, StepStatus.Ready);
+    this.autoDispatch(cur);
+  }
+
+  // Panels emit their own params, but the single upfront form is the source
+  // of truth — re-dispatch the active step from the registry, ignoring the
+  // emitted payload. Used only for an explicit single-step re-run.
+  onPanelRunStep(_params: Record<string, unknown>): void {
+    const cur = this.activeStepId();
+    if (!cur) return;
+    if (this.stepStatuses().get(cur) === StepStatus.Running) return;
+    this.autoDispatch(cur);
+  }
+
+  private autoDispatch(stepId: PipelineStepId): void {
     const sid = this.sessionId();
-    const stepId = this.activeStepId();
-    if (!sid || !stepId) return;
-    this.dispatchStep(sid, stepId, params);
-  }
-
-  statusDotClass(status: StepStatus | undefined | null): string {
-    return STATUS_DOT[status ?? StepStatus.Pending];
-  }
-
-  rowClass(stepId: PipelineStepId): string {
-    const base = 'w-full text-left px-3 py-2 rounded-md border transition-colors';
-    return stepId === this.activeStepId()
-      ? `${base} border-accent bg-accent/5`
-      : `${base} border-border bg-surface-raised hover:border-border-muted`;
-  }
-
-  isClickable(status: StepStatus | undefined | null): boolean {
-    return status === StepStatus.Ready || status === StepStatus.Completed;
+    if (!sid) return;
+    this.lastError.set(null);
+    this.activeStepId.set(stepId);
+    this.expandedStepId.set(stepId);
+    this.dispatchStep(sid, stepId, buildStepParams(this.stepParams(), stepId));
   }
 
   private dispatchStep(
@@ -167,7 +232,8 @@ export class PipelineStepperComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => this.onDispatched(stepId),
-        error: (e: HttpErrorResponse) => this.sessionError.set(formatDispatchError(e)),
+        error: (e: HttpErrorResponse) =>
+          this.sessionError.set(formatDispatchError(e)),
       });
   }
 
@@ -182,7 +248,9 @@ export class PipelineStepperComponent {
     if (!sid) return;
     this.pollingSubscription = this.tick$
       .pipe(
-        switchMap(() => this.api.pollStep(sid, stepId).pipe(catchError(() => of(null)))),
+        switchMap(() =>
+          this.api.pollStep(sid, stepId).pipe(catchError(() => of(null))),
+        ),
         tap((r) => r && this.applyPoll(stepId, r)),
         takeWhile((r) => !r || !isTerminal(r.status), true),
         takeUntilDestroyed(this.destroyRef),
@@ -194,6 +262,8 @@ export class PipelineStepperComponent {
     this.pollProgress.set(r);
     this.stepResults.update((m) => new Map(m).set(stepId, r));
     this.updateStatus(stepId, mapPollStatus(r.status));
+    // No auto-dispatch: completion only unlocks the next step. The user
+    // confirms via Continue.
     if (r.status === 'completed') this.advance(stepId);
     if (r.status === 'failed') this.handleFailure(stepId, r);
     if (isTerminal(r.status)) this.stopPolling();
@@ -229,14 +299,17 @@ export class PipelineStepperComponent {
   private startSession(id: string): void {
     this.sessionId.set(id);
     this.stepStatuses.set(initialStatuses());
-    this.activeStepId.set('load');
     this.phase.set('running');
+    // Auto-run step 1; the user drives the rest with Continue.
+    this.autoDispatch('load');
   }
 
   private resetState(): void {
     this.sessionId.set(null);
     this.stepStatuses.set(new Map());
     this.activeStepId.set(null);
+    this.expandedStepId.set(null);
+    this.stepParams.set(null);
     this.sessionError.set(null);
     this.lastError.set(null);
     this.abortGateError.set(null);
@@ -251,15 +324,6 @@ export class PipelineStepperComponent {
     this.api.deleteSession(id).subscribe({ error: () => undefined });
   }
 }
-
-const STATUS_DOT: Record<StepStatus, string> = {
-  [StepStatus.Pending]: 'bg-text-tertiary',
-  [StepStatus.Locked]: 'bg-text-tertiary opacity-40',
-  [StepStatus.Ready]: 'bg-accent ring-2 ring-accent/30',
-  [StepStatus.Running]: 'bg-accent animate-pulse',
-  [StepStatus.Completed]: 'bg-gain',
-  [StepStatus.Error]: 'bg-loss',
-};
 
 const TERMINAL_POLL: readonly string[] = ['completed', 'failed'];
 

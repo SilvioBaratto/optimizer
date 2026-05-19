@@ -282,12 +282,13 @@ def run_daily_pipeline() -> None:
     # Step 0: reference-index refresh (incremental) — non-blocking on failure
     _refresh_reference_indices("daily_pipeline", mode="incremental")
 
-    # Step 1: yfinance
+    # Step 1: yfinance — use configurable parallel workers (default 4)
+    _yf_workers = max(1, min(settings.yfinance_fetch_workers, 16))
     yf_ok = _run_step(
         "yfinance",
         _yfinance_jobs,
         run_bulk_yfinance_fetch,
-        YFinanceFetchRequest(mode="incremental"),
+        YFinanceFetchRequest(mode="incremental", workers=_yf_workers),
         get_yfinance_client(),
     )
 

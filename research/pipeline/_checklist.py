@@ -229,6 +229,18 @@ def _apply_terminal_gate(
         raise SystemExit(0)
     failed = [r for r in rules if not r.get("pass")]
     _render_failure_table(failed)
+    # Diagnostic-only dump: the blessed weights.csv is gated on 17/17, but a
+    # near-miss portfolio is still worth inspecting. Distinct filename so it
+    # can never be mistaken for the gate-passed artefact.
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sorted_w = weights.sort_values(ascending=False)
+    diag_path = output_dir / "weights_diagnostic.csv"
+    pd.DataFrame(
+        {"ticker": list(sorted_w.index), "weight": sorted_w.to_numpy(dtype=float)}
+    ).to_csv(diag_path, index=False)
+    console.print(
+        f"  [yellow]Diagnostic weights (not gate-passed):[/yellow] {diag_path}"
+    )
     console.print(
         f"  [red]Checklist: {pass_count}/{total} — "
         f"{total - pass_count} rule(s) failed[/red]"
@@ -252,6 +264,7 @@ def _validate_checklist(
     after_tax_returns: pd.Series | None,
     cost_bps_actual: float | None,
     currency_map: dict[str, str],
+    sector_bands: dict[str, tuple[float, float]] | None = None,
 ) -> list[dict[str, Any]]:
     """Evaluate the 17 §10 portfolio checklist rules.
 
@@ -259,6 +272,18 @@ def _validate_checklist(
     deterministic order.  Rules 12-15 evaluate the after-tax series
     (``metrics["Portfolio (after-tax)"]``).  Currency-hedge advisory is
     logged only — not a rule entry.
+
+    When ``sector_bands`` is provided (from the active macro regime), Rules 2,
+    5, and 6 are tightened:
+
+    * **Rule 2** — The per-sector cap check uses ``bands[s][1]`` instead of a
+      static 15% cap.  A sector weight exceeding its regime cap triggers FAIL
+      and the worst violator is reported.
+    * **Rule 5** — Healthcare floor uses ``bands["Healthcare"][0]`` (regime-
+      specific minimum) when the regime prescribes a non-zero floor.
+    * **Rule 6** — Technology floor uses ``bands["Technology"][0]`` similarly.
+
+    When ``sector_bands`` is ``None`` the original static thresholds are used.
     """
     rules: list[dict[str, Any]] = []
     sorted_w = sorted((w for _, w in all_weights), reverse=True)
@@ -281,17 +306,56 @@ def _validate_checklist(
             target="≤ 60%",
         )
     )
-    # Rule 2 — sector ≤ 15%
-    max_sector = max(sector_w.values()) if sector_w else 0.0
-    max_sector_name = max(sector_w, key=lambda k: sector_w[k]) if sector_w else "N/A"
-    rules.append(
-        _rule(
-            "No single sector > 15%",
-            ok=max_sector <= 0.15,
-            measured=f"{max_sector:.1%} ({max_sector_name})",
-            target="≤ 15%",
+    # Rule 2 — sector cap check.
+    # When sector_bands is provided, each sector is checked against its
+    # regime-specific cap; the worst violator (largest excess) is reported.
+    # When sector_bands is None, the static 15% cap is used.
+    if sector_bands is not None and sector_w:
+        worst_sector = ""
+        worst_excess = 0.0
+        for s, w in sector_w.items():
+            cap = sector_bands.get(s, (0.0, 0.15))[1]
+            excess = w - cap
+            if excess > 1e-9 and excess > worst_excess:
+                worst_excess = excess
+                worst_sector = s
+        if worst_sector:
+            worst_w = sector_w[worst_sector]
+            worst_cap = sector_bands.get(worst_sector, (0.0, 0.15))[1]
+            rules.append(
+                _rule(
+                    "No sector > regime cap",
+                    ok=False,
+                    measured=(f"{worst_sector}: {worst_w:.1%} > cap {worst_cap:.1%}"),
+                    target="all sectors ≤ regime cap",
+                )
+            )
+        else:
+            max_sector = max(sector_w.values()) if sector_w else 0.0
+            max_sector_name = (
+                max(sector_w, key=lambda k: sector_w[k]) if sector_w else "N/A"
+            )
+            rules.append(
+                _rule(
+                    "No sector > regime cap",
+                    ok=True,
+                    measured=f"{max_sector:.1%} ({max_sector_name})",
+                    target="all sectors ≤ regime cap",
+                )
+            )
+    else:
+        max_sector = max(sector_w.values()) if sector_w else 0.0
+        max_sector_name = (
+            max(sector_w, key=lambda k: sector_w[k]) if sector_w else "N/A"
         )
-    )
+        rules.append(
+            _rule(
+                "No single sector > 15%",
+                ok=max_sector <= 0.15,
+                measured=f"{max_sector:.1%} ({max_sector_name})",
+                target="≤ 15%",
+            )
+        )
     # Rule 3 — HHI < 0.12
     hhi = sum(w**2 for w in sorted_w)
     rules.append(
@@ -307,25 +371,47 @@ def _validate_checklist(
             target="< 30%",
         )
     )
-    # Rule 5 — Health Care ≥ 8% (Yahoo: "Healthcare"; GICS: "Health Care")
+    # Rule 5 — Health Care exposure (Yahoo: "Healthcare"; GICS: "Health Care")
+    # When sector_bands is provided, use the regime-specific Healthcare floor;
+    # otherwise fall back to the static 8% minimum.
     health_w = _sector_lookup(sector_w, "Healthcare", "Health Care")
+    if sector_bands is not None:
+        health_floor = sector_bands.get("Healthcare", (0.08, 1.0))[0]
+        # Use max of regime floor and static floor for safety
+        health_floor = max(health_floor, 0.0)
+        health_target = f"≥ {health_floor:.0%}"
+        health_ok = health_w >= health_floor
+    else:
+        health_floor = 0.08
+        health_target = "≥ 8%"
+        health_ok = health_w >= health_floor
     rules.append(
         _rule(
-            "Health Care exposure ≥ 8%",
-            ok=health_w >= 0.08,
+            "Health Care exposure ≥ regime floor",
+            ok=health_ok,
             measured=f"{health_w:.1%}",
-            target="≥ 8%",
+            target=health_target,
         )
     )
-    # Rule 6 - Information Technology >= 10%
+    # Rule 6 - Information Technology exposure
     # Yahoo: "Technology"; GICS: "Information Technology"
+    # When sector_bands is provided, use the regime-specific Technology floor.
     tech_w = _sector_lookup(sector_w, "Technology", "Information Technology")
+    if sector_bands is not None:
+        tech_floor = sector_bands.get("Technology", (0.10, 1.0))[0]
+        tech_floor = max(tech_floor, 0.0)
+        tech_target = f"≥ {tech_floor:.0%}"
+        tech_ok = tech_w >= tech_floor
+    else:
+        tech_floor = 0.10
+        tech_target = "≥ 10%"
+        tech_ok = tech_w >= tech_floor
     rules.append(
         _rule(
-            "Information Technology exposure ≥ 10%",
-            ok=tech_w >= 0.10,
+            "Information Technology exposure ≥ regime floor",
+            ok=tech_ok,
             measured=f"{tech_w:.1%}",
-            target="≥ 10%",
+            target=tech_target,
         )
     )
     # Rule 7 - at least 8 of 11 sectors present

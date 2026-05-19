@@ -88,6 +88,8 @@ if str(_repo_root) not in sys.path:
 
 # Import after the shim is installed so research.* is reachable. Bound at
 # module level so tests can patch ``steps.<symbol>`` directly.
+from optimizer.factors._config import SectorRegimeBandsConfig
+from optimizer.factors._sector_bands import resolve_sector_bands
 from optimizer.universe._config import InvestabilityScreenConfig
 from optimizer.universe._factory import screen_universe
 from research.optimization._rebalance import _decide_rebalance
@@ -881,6 +883,11 @@ def step_optimize(
     for phase in _OPTIMIZE_PHASES:
         on_progress(phase=phase)
 
+    # Regime-conditional per-sector bands (mirrors research/cli/_main.py).
+    # Default matrix; the optimizer overrides static max_sector_weight with
+    # per-sector (floor, cap) rows resolved from the classified regime.
+    sector_bands_cfg = SectorRegimeBandsConfig.for_default()
+
     watcher = _HockeyStickWatcher()
     rebalance_logger = logging.getLogger(_HOCKEY_STICK_LOGGER)
     rebalance_logger.addHandler(watcher)
@@ -895,6 +902,7 @@ def step_optimize(
             robust=robust,
             uncertainty_level=uncertainty_level,
             seed=seed,
+            sector_bands_config=sector_bands_cfg,
         )
     finally:
         rebalance_logger.removeHandler(watcher)
@@ -1110,6 +1118,7 @@ def _artifact_paths(output_dir: Path) -> dict[str, str]:
         "weights_csv": str(output_dir / "weights.csv"),
         "metrics_json": str(output_dir / "metrics.json"),
         "checklist_json": str(output_dir / "checklist.json"),
+        "weights_diagnostic": str(output_dir / "weights_diagnostic.csv"),
     }
 
 
@@ -1152,6 +1161,18 @@ def step_report(
 
     output_dir = _make_session_tempdir(session_id)
 
+    # Resolve regime-conditional sector bands so the checklist uses the same
+    # thresholds as the optimizer (mirrors research/cli/_main.py). The default
+    # matrix is deterministic, so rebuild it here rather than threading the
+    # config through the session. ``None`` when the optimizer did not classify
+    # a regime — the checklist then keeps its static thresholds.
+    resolved_bands: dict[str, tuple[float, float]] | None = None
+    classified_regime = getattr(result, "classified_regime", None)
+    if classified_regime is not None:
+        resolved_bands = resolve_sector_bands(
+            classified_regime, SectorRegimeBandsConfig.for_default()
+        )
+
     on_progress(phase="computing_metrics")
     pass_count, checklist_rules, metrics, chart_paths = report_performance(
         result,
@@ -1163,6 +1184,7 @@ def step_report(
         validation_report=is_result,
         oos_per_fold_ic=oos_result.per_fold_ic if oos_result is not None else None,
         output_dir=output_dir,
+        sector_bands=resolved_bands,
     )
 
     on_progress(phase="rendering_report")
@@ -1182,6 +1204,20 @@ def step_report(
     on_progress(phase="done")
 
     checklist_passed = pass_count == _CHECKLIST_TOTAL and bool(checklist_rules)
+
+    # Diagnostic-only weights dump on a near-miss (mirrors research
+    # ``_apply_terminal_gate``). The blessed ``weights.csv`` is gate-passed;
+    # this distinct file is written only when the checklist fails so it can
+    # never be mistaken for the accepted artefact.
+    if not checklist_passed:
+        sorted_w = result.weights.sort_values(ascending=False)
+        pd.DataFrame(
+            {
+                "ticker": list(sorted_w.index),
+                "weight": sorted_w.to_numpy(dtype=float),
+            }
+        ).to_csv(output_dir / "weights_diagnostic.csv", index=False)
+
     payload = {
         "pass_count": int(pass_count),
         "checklist_total": _CHECKLIST_TOTAL,

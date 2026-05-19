@@ -144,6 +144,7 @@ def report_performance(
     validation_report: Any | None = None,
     oos_per_fold_ic: pd.DataFrame | None = None,
     output_dir: Path = Path("research/output"),
+    sector_bands: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[int, list[dict[str, Any]], dict[str, dict[str, float]], list[Path]]:
     """Print portfolio performance, weights, and diversification breakdown.
 
@@ -292,6 +293,7 @@ def report_performance(
         after_tax_returns=after_tax_returns,
         cost_bps_actual=cost_bps_actual,
         currency_map=dict(assembly.currency_map),
+        sector_bands=sector_bands,
     )
     _render_checklist_table(checklist_rules)
 

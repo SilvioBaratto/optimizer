@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from math import sqrt
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -21,14 +21,17 @@ from optimizer.factors._config import (
     FactorGroupType,
     FactorIntegrationConfig,
     GroupWeight,
+    MacroRegime,
     PublicationLagConfig,
     RegimeTiltConfig,
+    SectorRegimeBandsConfig,
     SelectionConfig,
     StandardizationConfig,
 )
 from optimizer.factors._construction import compute_all_factors
 from optimizer.factors._regime import apply_regime_tilts, classify_regime
 from optimizer.factors._scoring import compute_composite_score
+from optimizer.factors._sector_bands import resolve_sector_bands
 from optimizer.factors._selection import select_stocks
 from optimizer.factors._standardization import standardize_all_factors
 from optimizer.fx._config import FxConfig, FxConversionMode
@@ -56,6 +59,9 @@ from optimizer.universe._config import InvestabilityScreenConfig
 from optimizer.universe._factory import screen_universe
 from optimizer.validation._config import WalkForwardConfig
 from optimizer.validation._factory import build_walk_forward, run_cross_val
+
+if TYPE_CHECKING:
+    from skfolio.optimization import MeanRisk
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +212,194 @@ def tune_and_optimize(
         pipeline=best_pipeline,
         summary=summary,
     )
+
+
+# ---------------------------------------------------------------------------
+# Sector-band injection
+# ---------------------------------------------------------------------------
+
+
+def _inject_sector_bands(
+    optimizer: MeanRisk,
+    bands: dict[str, tuple[float, float]],
+    sector_mapping: dict[str, str] | None,
+    region_mapping: dict[str, str] | None = None,
+) -> MeanRisk:
+    """Return a deep-copied optimizer with regime-conditional sector bands applied.
+
+    Rebuilds ``linear_constraints`` by:
+
+    1. Dropping existing ``"<known-sector> <= <float>"`` and
+       ``"<known-sector> >= <float>"`` rows that reference one of the
+       11 GICS sectors in *bands* (region rows such as
+       ``"Americas <= 0.60"`` are preserved).
+    2. Appending ``"<sector> >= <floor>"`` for every sector present in
+       *sector_mapping* whose resolved floor is > 0.
+    3. Appending ``"<sector> <= <cap>"`` for every sector present in
+       *sector_mapping*.
+
+    Builds a combined skfolio ``groups`` structure so that BOTH sector
+    constraints and region constraints resolve simultaneously.  When
+    *region_mapping* is provided, ``groups`` is set to a
+    ``dict[str, list[str]]`` mapping each ticker to
+    ``[sector_label, region_label]`` (a two-level multi-group dict that
+    skfolio's ``input_to_array`` converts to a ``(3, n_assets)`` 2-D
+    array at fit time, where the first row holds asset names, the second
+    holds sector labels, and the third holds region labels).  When
+    *region_mapping* is absent, ``groups`` is set to the flat
+    sector-only ``dict[str, str]``.
+
+    Single-regime-per-run limitation: the bands are resolved once from
+    the lagged classified regime and applied to all folds in the backtest
+    and to the final fit.  This is intentional — it avoids injecting
+    future-regime information into walk-forward folds while keeping the
+    implementation simple.  Document this when surfacing results: the
+    regime used is shown in ``PortfolioResult.classified_regime``.
+
+    Parameters
+    ----------
+    optimizer : MeanRisk
+        A skfolio :class:`MeanRisk` instance (not yet fitted).
+    bands : dict[str, tuple[float, float]]
+        Mapping from sector name to ``(floor, cap)`` for the active regime.
+        Only sectors whose name appears in ``sector_mapping.values()``
+        will generate constraint rows.
+    sector_mapping : dict[str, str] or None
+        Ticker → sector name mapping.  When ``None``, sector constraints
+        are skipped (no group assignments available).
+    region_mapping : dict[str, str] or None
+        Ticker → region label mapping (e.g. ``{"AAPL": "Americas"}``).
+        When provided, the skfolio ``groups`` is built as a multi-level
+        structure ``{ticker: [sector, region]}`` so that region
+        linear-constraint rows (e.g. ``"Americas <= 0.60"``) and sector
+        band rows both resolve at fit time.  When ``None``, only sector
+        labels are present in ``groups`` and any region rows in
+        ``linear_constraints`` will emit a skfolio
+        ``UserWarning: missing from the groups`` at fit time.
+
+    Returns
+    -------
+    MeanRisk
+        A deep-copied optimizer with updated ``groups`` and
+        ``linear_constraints``.
+    """
+    from optimizer.factors._sector_bands import ALL_11_SECTORS
+    from optimizer.optimization._region_constraints import sanitize_group_token
+
+    opt = deepcopy(optimizer)
+
+    if sector_mapping is None:
+        logger.warning(
+            "_inject_sector_bands: sector_mapping is None; "
+            "sector band constraints skipped."
+        )
+        return opt
+
+    # Sectors in the bands dict that are also present in this universe.
+    # ``sector_mapping`` should already be filtered to the selected universe's
+    # tickers by the caller; ``universe_sectors`` therefore reflects only the
+    # sectors that are actually represented among selected assets.
+    universe_sectors: set[str] = set(sector_mapping.values())
+    known_sectors: frozenset[str] = frozenset(ALL_11_SECTORS)
+
+    # 1.  Strip existing sector cap/floor rows for known GICS sectors.
+    #     Preserved (non-sector) rows — typically region cap rows — are also
+    #     passed through ``sanitize_group_token`` on their LHS so that any
+    #     pre-existing hyphenated region label (e.g. "Asia-Pacific <= 0.6")
+    #     is rewritten to its DSL-safe form ("Asia Pacific <= 0.6") before
+    #     the optimizer is fitted.  The sanitizer is idempotent for labels
+    #     that contain no hyphen.
+    existing: list[str] = list(opt.linear_constraints or [])
+    filtered: list[str] = []
+    for row in existing:
+        # Identify rows of the form "<name> <= <float>" or "<name> >= <float>".
+        for op in (" <= ", " >= "):
+            if op in row:
+                lhs = row.split(op, 1)[0].strip()
+                if lhs in known_sectors:
+                    break  # drop this sector row
+                # Not a known sector — keep, but sanitize the LHS token so
+                # hyphenated region labels become DSL-safe (e.g. "Asia-Pacific"
+                # → "Asia Pacific").
+                sanitized_lhs = sanitize_group_token(lhs)
+                if sanitized_lhs != lhs:
+                    rhs = row.split(op, 1)[1]
+                    filtered.append(f"{sanitized_lhs}{op}{rhs}")
+                else:
+                    filtered.append(row)
+                break
+        else:
+            # Row contains no comparison operator — keep as-is.
+            filtered.append(row)
+
+    # 2.  Append per-sector floor rows (only when floor > 0 and sector present).
+    new_rows: list[str] = []
+    for sector in sorted(bands):
+        if sector not in universe_sectors:
+            continue
+        floor, cap = bands[sector]
+        if floor > 0.0:
+            new_rows.append(f"{sector} >= {round(floor, 6)}")
+
+    # 3.  Append per-sector cap rows for all present sectors.
+    for sector in sorted(bands):
+        if sector not in universe_sectors:
+            continue
+        _, cap = bands[sector]
+        new_rows.append(f"{sector} <= {round(cap, 6)}")
+
+    opt.linear_constraints = filtered + new_rows
+
+    # 4.  Build a combined multi-level groups structure so that BOTH sector
+    #     labels (for the new band rows) and region labels (for the preserved
+    #     region cap rows) resolve at fit time.
+    #
+    #     skfolio accepts dict[str, list[str]] as groups: each ticker maps to a
+    #     list of labels at successive levels.  input_to_array prepends the
+    #     asset name as level-0, giving a (3, n_assets) 2-D array:
+    #       row 0: asset names
+    #       row 1: sector labels   → resolves "<sector> <= cap" rows
+    #       row 2: region labels   → resolves "<region> <= 0.60" rows
+    #
+    #     Region labels are sanitized via ``sanitize_group_token`` so that
+    #     hyphenated names (e.g. "Asia-Pacific") are mapped to their DSL-safe
+    #     space-separated forms ("Asia Pacific") — matching the sanitized rows
+    #     that were preserved in step 1.
+    #
+    #     When region_mapping is absent (no region constraints expected), we
+    #     fall back to the flat dict[str, str] for backward compatibility.
+    if region_mapping is not None:
+        opt.groups = {
+            ticker: [
+                sector_mapping[ticker],
+                sanitize_group_token(region_mapping.get(ticker, "Other")),
+            ]
+            for ticker in sector_mapping
+        }
+    else:
+        opt.groups = sector_mapping
+
+    # Advisory: warn when any sector's floor may be infeasible given portfolio size.
+    if hasattr(opt, "min_weights") and opt.min_weights is not None:
+        global_min = float(opt.min_weights)
+        for sector in sorted(bands):
+            if sector not in universe_sectors:
+                continue
+            _, cap = bands[sector]
+            n_in_sector = sum(1 for s in sector_mapping.values() if s == sector)
+            if n_in_sector > 0 and n_in_sector * global_min > cap + 1e-9:
+                logger.warning(
+                    "_inject_sector_bands: sector %r has %d stocks x "
+                    "min_weight=%.4f = %.4f > cap=%.4f; constraint may be "
+                    "infeasible for this sector.",
+                    sector,
+                    n_in_sector,
+                    global_min,
+                    n_in_sector * global_min,
+                    cap,
+                )
+
+    return opt
 
 
 # ---------------------------------------------------------------------------
@@ -597,8 +791,10 @@ def run_full_pipeline_with_selection(
     scoring_config: CompositeScoringConfig | None = None,
     selection_config: SelectionConfig | None = None,
     regime_config: RegimeTiltConfig | None = None,
+    sector_bands_config: SectorRegimeBandsConfig | None = None,
     integration_config: FactorIntegrationConfig | None = None,
     sector_mapping: dict[str, str] | None = None,
+    region_mapping: dict[str, str] | None = None,
     pre_selection_config: PreSelectionConfig | None = None,
     cv_config: WalkForwardConfig | None = None,
     previous_weights: npt.NDArray[np.float64] | None = None,
@@ -665,11 +861,35 @@ def run_full_pipeline_with_selection(
     selection_config : SelectionConfig or None
         Stock selection parameters.
     regime_config : RegimeTiltConfig or None
-        Regime tilt parameters.
+        Regime tilt parameters (factor-group multiplicative tilts —
+        orthogonal to ``sector_bands_config``).
+    sector_bands_config : SectorRegimeBandsConfig or None
+        Dynamic macro-regime sector weight bands.  When provided and
+        ``enable=True``, the classified regime is resolved once from
+        the lagged macro data and the corresponding ``(floor, cap)``
+        constraints are injected into the optimizer via
+        :func:`_inject_sector_bands` **before** the
+        ``run_full_pipeline`` delegate.  Both the backtest folds and
+        the final fit share this single regime (single-regime-per-run
+        limitation: avoids leaking future-regime information into
+        walk-forward folds).  The resolved regime is stored in
+        ``PortfolioResult.classified_regime``.  ``None`` (default)
+        leaves optimizer constraints unchanged.
     integration_config : FactorIntegrationConfig or None
         Factor-to-optimization bridge parameters.
     sector_mapping : dict[str, str] or None
         Ticker -> sector mapping.
+    region_mapping : dict[str, str] or None
+        Ticker → region label mapping (e.g. ``{"AAPL": "Americas"}``).
+        When provided alongside ``sector_bands_config``, the optimizer's
+        ``groups`` is built as a multi-level structure so that both
+        sector band rows (``"Technology <= 0.06"``) and region cap rows
+        (``"Americas <= 0.60"``) resolve simultaneously at fit time.
+        Tickers absent from *region_mapping* fall back to ``"Other"``.
+        ``None`` (default) preserves the pre-existing behaviour: region
+        rows remain in ``linear_constraints`` but may emit a skfolio
+        ``UserWarning: missing from the groups`` at fit time unless the
+        optimizer's ``groups`` already contains region labels.
     pre_selection_config : PreSelectionConfig or None
         Return-data pre-selection configuration.
     cv_config : WalkForwardConfig or None
@@ -704,6 +924,7 @@ def run_full_pipeline_with_selection(
         rebalancing signals.
     """
     selected_prices = prices
+    _classified_regime: MacroRegime | None = None
 
     if fundamentals is not None:
         vol = volume_history if volume_history is not None else pd.DataFrame()
@@ -749,16 +970,29 @@ def run_full_pipeline_with_selection(
             sector_labels=sector_labels,
         )
 
-        # 4. Regime tilts (optional)
+        # 4. Regime tilts (optional) + regime classification for sector bands.
+        #
+        # Regime is classified whenever macro data is available and at least one
+        # of regime_config (factor tilts) or sector_bands_config (weight bands)
+        # is active.  A single lagged-macro classification is reused by both
+        # paths so they remain consistent with each other.
+        needs_regime = macro_data is not None and (
+            (regime_config is not None and regime_config.enable)
+            or (sector_bands_config is not None and sector_bands_config.enable)
+        )
         has_regime = (
             macro_data is not None
             and regime_config is not None
             and regime_config.enable
         )
         group_weights: dict[str, float] | None = None
-        if has_regime:
-            if macro_data is None:  # pragma: no cover — guarded by has_regime
-                msg = "macro_data is required when regime_config is enabled"
+
+        if needs_regime:
+            if macro_data is None:  # pragma: no cover — guarded by needs_regime
+                msg = (
+                    "macro_data is required when regime_config or "
+                    "sector_bands_config is enabled"
+                )
                 raise DataError(msg)
 
             # Apply publication lag to macro data (point-in-time correctness)
@@ -783,23 +1017,28 @@ def run_full_pipeline_with_selection(
                 lagged_regime = regime_data.loc[regime_data.index <= cutoff]
                 if len(lagged_regime) == 0:
                     lagged_regime = regime_data
-                regime = classify_regime(lagged_regime)
+                _classified_regime = classify_regime(lagged_regime)
             else:
-                regime = classify_regime(lagged_macro)
+                _classified_regime = classify_regime(lagged_macro)
 
-            # Build base group weights from config
-            _scoring = scoring_config or CompositeScoringConfig()
-            base_weights: dict[FactorGroupType, float] = {}
-            for group in FactorGroupType:
-                tier = GROUP_WEIGHT_TIER[group]
-                base_weights[group] = (
-                    _scoring.core_weight
-                    if tier == GroupWeight.CORE
-                    else _scoring.supplementary_weight
+            if has_regime:
+                # Build base group weights from config
+                _scoring = scoring_config or CompositeScoringConfig()
+                base_weights: dict[FactorGroupType, float] = {}
+                for group in FactorGroupType:
+                    tier = GROUP_WEIGHT_TIER[group]
+                    base_weights[group] = (
+                        _scoring.core_weight
+                        if tier == GroupWeight.CORE
+                        else _scoring.supplementary_weight
+                    )
+                tilted_weights = apply_regime_tilts(
+                    base_weights, _classified_regime, regime_config
                 )
-
-            tilted_weights = apply_regime_tilts(base_weights, regime, regime_config)
-            group_weights = {k.value: v for k, v in tilted_weights.items()}
+                group_weights = {k.value: v for k, v in tilted_weights.items()}
+        elif has_regime and not needs_regime:  # pragma: no cover — unreachable branch
+            # Legacy path: regime_config.enable=True but macro_data=None.
+            pass
 
         # 5. Composite score
         composite = compute_composite_score(
@@ -883,8 +1122,55 @@ def run_full_pipeline_with_selection(
             t: c for t, c in currency_map.items() if t in selected_cols
         }
 
+    # 7.5  Sector band injection (regime-conditional optimizer constraints).
+    #      Applied before the run_full_pipeline delegate so both the backtest
+    #      folds and the final fit use the same regime-resolved bands.
+    #
+    #      Sector/region mappings are filtered to the SELECTED universe before
+    #      passing to _inject_sector_bands.  This prevents the injection from
+    #      emitting floor/cap rows for sectors (or region caps for regions)
+    #      that have zero assets in the selected universe — which would produce
+    #      skfolio "missing from the groups" warnings and logically infeasible
+    #      floor constraints (floor > 0 on a zero-asset sector).
+    if (
+        sector_bands_config is not None
+        and sector_bands_config.enable
+        and _classified_regime is not None
+        and hasattr(optimizer, "linear_constraints")
+    ):
+        _active_bands = resolve_sector_bands(_classified_regime, sector_bands_config)
+        _selected_cols: frozenset[str] = frozenset(selected_prices.columns)
+        _selected_sector_map: dict[str, str] | None = (
+            {t: s for t, s in sector_mapping.items() if t in _selected_cols}
+            if sector_mapping is not None
+            else None
+        )
+        _selected_region_map: dict[str, str] | None = (
+            {t: r for t, r in region_mapping.items() if t in _selected_cols}
+            if region_mapping is not None
+            else None
+        )
+        optimizer = _inject_sector_bands(
+            optimizer, _active_bands, _selected_sector_map, _selected_region_map
+        )
+        logger.info(
+            "Injected sector bands for regime %s into %s",
+            _classified_regime.value,
+            type(optimizer).__name__,
+        )
+    elif (
+        sector_bands_config is not None
+        and sector_bands_config.enable
+        and _classified_regime is None
+    ):
+        logger.warning(
+            "sector_bands_config.enable=True but no regime was classified "
+            "(macro_data absent or both regime_config and sector_bands_config "
+            "are disabled); sector band constraints skipped."
+        )
+
     # 8. Delegate to existing pipeline
-    return run_full_pipeline(
+    result = run_full_pipeline(
         prices=selected_prices,
         optimizer=optimizer,
         pre_selection_config=pre_selection_config,
@@ -904,6 +1190,10 @@ def run_full_pipeline_with_selection(
         cost_bps=cost_bps,
         n_jobs=n_jobs,
     )
+
+    # 9. Attach classified regime to result.
+    result.classified_regime = _classified_regime
+    return result
 
 
 # ---------------------------------------------------------------------------

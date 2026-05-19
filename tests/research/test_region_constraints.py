@@ -14,6 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from optimizer.optimization import sanitize_group_token
 from research.optimization._config import (
     _MAX_REGION_WEIGHT,
     _REGION_MAP,
@@ -52,7 +53,10 @@ def _build_opt(country_map: dict[str, str] | None):
     return builder(config)
 
 
-_REGIONS = set(_REGION_MAP.values()) | {"Other"}
+# Sanitized region token set used for matching against emitted constraint rows.
+# Hyphens are replaced with spaces to match the DSL-safe tokens that
+# build_region_linear_constraints now emits (e.g. "Asia Pacific" not "Asia-Pacific").
+_REGIONS = {sanitize_group_token(r) for r in _REGION_MAP.values()} | {"Other"}
 
 
 def _region_rows(opt) -> list[str]:
@@ -87,12 +91,16 @@ class TestRegionConstraintsWiring:
             assert "Asia-Pacific" not in row
 
     def test_when_country_map_supplied_then_region_rows_present(self) -> None:
+        """Region rows are emitted with DSL-safe tokens (hyphens → spaces)."""
         opt = _build_opt(country_map=_COUNTRY_MAP)
         rows = _region_rows(opt)
         regions = {row.split(" <= ")[0] for row in rows}
         assert "Americas" in regions
         assert "Europe" in regions
-        assert "Asia-Pacific" in regions
+        # "Asia-Pacific" is sanitized to "Asia Pacific" to avoid the skfolio
+        # DSL parser treating "-" as arithmetic minus.
+        assert "Asia Pacific" in regions
+        assert "Asia-Pacific" not in regions
 
     def test_when_country_map_supplied_then_cap_is_max_region_weight(self) -> None:
         opt = _build_opt(country_map=_COUNTRY_MAP)
@@ -109,12 +117,24 @@ class TestRegionConstraintsWiring:
         regions = {row.split(" <= ")[0] for row in rows}
         assert regions == {"Americas", "Europe"}
 
-    def test_when_country_unknown_to_region_map_then_other_bucket(self) -> None:
+    def test_when_country_unknown_to_region_map_then_other_not_in_constraints(
+        self,
+    ) -> None:
+        """The 'Other' catch-all bucket is excluded from constraint emission.
+
+        Tickers whose country is absent from the region map fall back to
+        ``"Other"`` in the groups dict, but no ``"Other <= cap"`` constraint row
+        is emitted.  Constraining an uncategorised catch-all is semantically
+        meaningless, and skfolio warns when a constrained group label is absent
+        from the fitted universe's groups array.
+        """
         country_map = {"AAPL": "United States", "MYS": "Malaysia"}
         opt = _build_opt(country_map=country_map)
         rows = _region_rows(opt)
         regions = {row.split(" <= ")[0] for row in rows}
-        assert "Other" in regions
+        assert "Other" not in regions
+        # Only the known regions for the input universe are constrained.
+        assert regions == {"Americas"}
 
     def test_when_max_region_weight_default_then_60_percent(self) -> None:
         assert _MAX_REGION_WEIGHT == 0.60

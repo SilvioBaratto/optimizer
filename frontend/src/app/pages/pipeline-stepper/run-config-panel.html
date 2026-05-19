@@ -17,7 +17,7 @@
   <!-- N Selected -->
   <div>
     <label class="block text-data-xs font-medium text-text-secondary mb-1"
-      >Selected assets (15 – 30)</label
+      >Selected assets (25 – 50)</label
     >
     <input
       type="number"
@@ -136,6 +136,96 @@
       class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
     />
   </div>
+
+  <!-- Step parameters -->
+  <fieldset class="space-y-3 pt-3 border-t border-border">
+    <legend class="text-data-xs font-semibold text-text-secondary uppercase tracking-wide">
+      Step parameters
+    </legend>
+
+    <!-- Load -->
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-data-xs font-medium text-text-secondary mb-1"
+          >Macro country</label
+        >
+        <input
+          type="text"
+          formControlName="macro_country"
+          class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
+        />
+      </div>
+      <label class="flex items-center gap-2.5 cursor-pointer self-end pb-2">
+        <input
+          type="checkbox"
+          formControlName="include_delisted"
+          class="w-4 h-4 rounded border-border text-accent"
+        />
+        <span class="text-data-sm text-text">Include delisted</span>
+      </label>
+    </div>
+
+    <!-- Screen preset -->
+    <div>
+      <label class="block text-data-xs font-medium text-text-secondary mb-1"
+        >Screen preset</label
+      >
+      <select
+        formControlName="preset"
+        class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
+      >
+        @for (p of presets; track p) {
+          <option [value]="p">{{ p }}</option>
+        }
+      </select>
+    </div>
+
+    <!-- Build history / Coverage gate -->
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-data-xs font-medium text-text-secondary mb-1"
+          >Market proxy ticker</label
+        >
+        <input
+          type="text"
+          formControlName="market_proxy_ticker"
+          class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
+        />
+      </div>
+      <div>
+        <label class="block text-data-xs font-medium text-text-secondary mb-1"
+          >Min factors (coverage gate)</label
+        >
+        <input
+          type="number"
+          formControlName="min_factors"
+          min="1"
+          step="1"
+          class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
+        />
+      </div>
+    </div>
+
+    <!-- Regime -->
+    <div class="space-y-2">
+      <label class="flex items-center gap-2.5 cursor-pointer">
+        <input
+          type="checkbox"
+          formControlName="enable_tilts"
+          class="w-4 h-4 rounded border-border text-accent"
+        />
+        <span class="text-data-sm text-text">Enable regime tilts</span>
+      </label>
+      <label class="flex items-center gap-2.5 cursor-pointer">
+        <input
+          type="checkbox"
+          formControlName="persist_regime"
+          class="w-4 h-4 rounded border-border text-accent"
+        />
+        <span class="text-data-sm text-text">Persist regime</span>
+      </label>
+    </div>
+  </fieldset>
 
   <!-- Submit -->
   <button

@@ -179,24 +179,57 @@ def _make_builder(
     previous_weights: np.ndarray | None,
     robust: bool = False,
     uncertainty_level: float = 0.95,
+    sector_bands: dict[str, tuple[float, float]] | None = None,
 ) -> Callable[[MeanRiskConfig], MeanRisk]:
     """Return a builder closure that materialises a ``MeanRisk`` per config.
 
     Snapshots all mutable side-inputs at closure creation time so that
     subsequent caller mutations are invisible to the retighten loop.
+
+    Parameters
+    ----------
+    sector_mapping : dict[str, str]
+        Ticker → sector name mapping.
+    country_map : dict[str, str] or None
+        Ticker → country mapping for region constraints.
+    previous_weights : np.ndarray or None
+        Previous portfolio weights for transaction-cost modelling.
+    robust : bool
+        Whether to use robust mean-risk with uncertainty sets.
+    uncertainty_level : float
+        Confidence level for the mu uncertainty ellipsoid (robust only).
+    sector_bands : dict[str, tuple[float, float]] or None
+        Regime-conditional per-sector ``(floor, cap)`` bands from
+        :func:`~optimizer.factors.resolve_sector_bands`.  When provided,
+        ``max_sector_weight`` from the config is overridden by per-sector
+        caps from the bands dict, and both floor and cap rows are wired
+        via ``linear_constraints``.  ``None`` keeps the existing static
+        ``max_sector_weight`` behaviour.
     """
     _prev_w = previous_weights.copy() if previous_weights is not None else None
     _sector_mapping = dict(sector_mapping)
     _country_map = dict(country_map) if country_map is not None else None
+    _sector_bands = dict(sector_bands) if sector_bands is not None else None
 
     def builder(config: MeanRiskConfig) -> MeanRisk:
+        # When sector_bands are provided, disable max_sector_weight from the
+        # config (per-sector caps are handled by the bands rows instead).
+        effective_config = config
+        if _sector_bands is not None:
+            import dataclasses as _dc
+
+            effective_config = _dc.replace(config, max_sector_weight=None)
+
         opt = _select_optimizer(
-            config,
+            effective_config,
             robust=robust,
             uncertainty_level=uncertainty_level,
             sector_mapping=_sector_mapping,
             min_sector_weights=_SECTOR_FLOORS,
             previous_weights=_prev_w,
+            linear_constraints=_build_band_rows(_sector_bands)
+            if _sector_bands
+            else None,
         )
         if _country_map:
             _, region_rows = build_region_linear_constraints(
@@ -207,6 +240,36 @@ def _make_builder(
         return opt
 
     return builder
+
+
+def _build_band_rows(
+    sector_bands: dict[str, tuple[float, float]],
+) -> list[str]:
+    """Build linear constraint rows from per-sector ``(floor, cap)`` bands.
+
+    Emits ``"<sector> >= <floor>"`` rows for sectors with ``floor > 0``
+    followed by ``"<sector> <= <cap>"`` rows for all sectors, both sorted
+    alphabetically.
+
+    Parameters
+    ----------
+    sector_bands : dict[str, tuple[float, float]]
+        Mapping from sector name to ``(floor, cap)``.
+
+    Returns
+    -------
+    list[str]
+        Constraint rows suitable for ``MeanRisk.linear_constraints``.
+    """
+    rows: list[str] = []
+    for sector in sorted(sector_bands):
+        floor, _ = sector_bands[sector]
+        if floor > 0.0:
+            rows.append(f"{sector} >= {round(floor, 6)}")
+    for sector in sorted(sector_bands):
+        _, cap = sector_bands[sector]
+        rows.append(f"{sector} <= {round(cap, 6)}")
+    return rows
 
 
 def build_research_optimizer(

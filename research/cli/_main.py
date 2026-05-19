@@ -17,6 +17,8 @@ from rich.console import Console
 from rich.panel import Panel
 
 from optimizer.exceptions import FactorCoverageError
+from optimizer.factors._config import SectorRegimeBandsConfig
+from optimizer.factors._sector_bands import resolve_sector_bands
 from research.optimization._rebalance import _decide_rebalance
 from research.pipeline._checklist import _apply_terminal_gate
 from research.pipeline._factors import (
@@ -177,7 +179,9 @@ def main(
             market_prices = _load_market_proxy(session)
 
         factor_scores_dict, returns_history, health = build_history(
-            assembly, investable, rebalance_freq=rebalance_freq,
+            assembly,
+            investable,
+            rebalance_freq=rebalance_freq,
             market_prices=market_prices,
         )
         logger.info(
@@ -212,6 +216,9 @@ def main(
         logger.info("Regime: %s, tilts: %s", current_regime.value, tilts)
 
         # 7. Optimize
+        # Construct sector bands config using the default regime matrix.
+        sector_bands_cfg = SectorRegimeBandsConfig.for_default()
+
         result = optimize_portfolio(
             assembly=assembly,
             investable=investable,
@@ -221,6 +228,7 @@ def main(
             country_map=country_map,
             robust=robust,
             seed=seed,
+            sector_bands_config=sector_bands_cfg,
         )
 
         # 7b. Cycle-3 §11 hybrid rebalance decision.
@@ -262,6 +270,14 @@ def main(
         logger.info("Measured cost: %.2f bps (weighted by country)", cost_bps_actual)
 
         # 8. Report
+        # Resolve sector bands from the classified regime so the checklist
+        # uses the same regime-conditional thresholds as the optimizer.
+        _resolved_bands: dict[str, tuple[float, float]] | None = None
+        if result.classified_regime is not None:
+            _resolved_bands = resolve_sector_bands(
+                result.classified_regime, sector_bands_cfg
+            )
+
         pass_count, checklist_rules, metrics, chart_paths = report_performance(
             result,
             assembly,
@@ -272,6 +288,7 @@ def main(
             validation_report=is_report,
             oos_per_fold_ic=oos_result.per_fold_ic,
             output_dir=output_dir,
+            sector_bands=_resolved_bands,
         )
 
         # 8b. Render report.md (always, before the terminal gate so a

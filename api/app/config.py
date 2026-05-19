@@ -157,6 +157,27 @@ class Settings(BaseSettings):
         alias="SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS",
     )
 
+    # yfinance fetch settings
+    yfinance_request_timeout_seconds: int = Field(
+        default=30,
+        alias="YFINANCE_REQUEST_TIMEOUT_SECONDS",
+        description=(
+            "Wall-clock timeout (seconds) applied to each yfinance network call. "
+            "A timed-out call raises TimeoutError and is recorded as a per-ticker "
+            "error; the job continues to the next ticker/category."
+        ),
+    )
+    yfinance_fetch_workers: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        alias="YFINANCE_FETCH_WORKERS",
+        description=(
+            "Number of parallel workers used by the scheduler's daily yfinance "
+            "step. Must be in [1, 16]. Setting 1 uses the serial path."
+        ),
+    )
+
     # Notifications
     notification_webhook_url: str | None = Field(
         default=None,

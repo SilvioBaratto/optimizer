@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 if TYPE_CHECKING:
+    from optimizer.factors._config import MacroRegime
     from optimizer.fx._decomposition import FxReturnDecomposition
 
 
@@ -75,3 +76,4 @@ class PortfolioResult:
     net_sharpe_ratio: float | None = None
     gross_returns: pd.Series | None = None
     weight_history: pd.DataFrame | None = None
+    classified_regime: MacroRegime | None = None
