@@ -5,6 +5,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
 import { AnalyticsPaneComponent } from './analytics-pane';
 import { BuilderStore } from '../builder.store';
+import { BuilderResultService } from '../builder-result.service';
 import type {
   BuilderBacktest,
   BuilderResult,
@@ -40,9 +41,11 @@ function setup(): {
       provideHttpClient(),
       provideHttpClientTesting(),
       BuilderStore,
+      BuilderResultService,
     ],
   });
   const store = TestBed.inject(BuilderStore);
+  store.setResultStatus('ok');
   const fixture = TestBed.createComponent(AnalyticsPaneComponent);
   fixture.detectChanges();
   return { fixture, store, host: fixture.nativeElement as HTMLElement };
@@ -152,5 +155,74 @@ describe('AnalyticsPaneComponent', () => {
     fixture.detectChanges();
     expect(cardByIdValueText(host, 'return')).toBe('--');
     expect(cardByIdValueText(host, 'vol')).toBe('--');
+  });
+
+  describe('live-state overlay', () => {
+    it('when resultStatus is "running", overlay-loading is present inside analytics-pane and no metric cards are in the DOM', () => {
+      const { fixture, store, host } = setup();
+      store.setResultStatus('running');
+      fixture.detectChanges();
+
+      const pane = host.querySelector('[data-region="analytics-pane"]');
+      expect(pane).not.toBeNull();
+      expect(pane!.querySelector('[data-region="overlay-loading"]')).not.toBeNull();
+      expect(host.querySelectorAll('[data-card="metric"]').length).toBe(0);
+    });
+
+    it('when resultStatus is "error", overlay-error is present and clicking [data-action="retry"] calls store.triggerResultRun exactly once', () => {
+      const { fixture, store, host } = setup();
+      const triggerSpy = spyOn(store, 'triggerResultRun');
+
+      store.setResultStatus('error');
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-region="overlay-error"]')).not.toBeNull();
+      const btn = host.querySelector<HTMLButtonElement>('[data-action="retry"]');
+      expect(btn).not.toBeNull();
+      btn!.click();
+
+      expect(triggerSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('when resultStatus is "idle", overlay-idle is present and no metric cards are in the DOM', () => {
+      const { fixture, store, host } = setup();
+      store.setResultStatus('idle');
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-region="overlay-idle"]')).not.toBeNull();
+      expect(host.querySelectorAll('[data-card="metric"]').length).toBe(0);
+    });
+
+    it('when resultStatus is "stale", all six metric cards are present and overlay-stale-badge is present', () => {
+      const { fixture, store, host } = setup();
+      store.setResultStatus('stale');
+      fixture.detectChanges();
+
+      expect(host.querySelectorAll('[data-card="metric"]').length).toBe(6);
+      expect(host.querySelector('[data-region="overlay-stale-badge"]')).not.toBeNull();
+    });
+
+    it('when resultStatus is "ok" with populated result and backtest, all six cards render their formatted values and no overlay region is present', () => {
+      const { fixture, store, host } = setup();
+      store.setResult(
+        makeResult({
+          annualized_return: 0.12,
+          annualized_volatility: 0.18,
+          annualized_sharpe_ratio: 0.85,
+          max_drawdown: -0.32,
+        }),
+      );
+      store.setBacktest(makeBacktest({ turnover: 0.15, cost_bps_actual: 8.5 }));
+      store.setResultStatus('ok');
+      fixture.detectChanges();
+
+      expect(host.querySelectorAll('[data-card="metric"]').length).toBe(6);
+      expect(cardByIdValueText(host, 'return')).toBe('12.00%');
+      expect(cardByIdValueText(host, 'sharpe')).toBe('0.85');
+      expect(host.querySelector('[data-region="overlay-loading"]')).toBeNull();
+      expect(host.querySelector('[data-region="overlay-error"]')).toBeNull();
+      expect(host.querySelector('[data-region="overlay-idle"]')).toBeNull();
+      expect(host.querySelector('[data-region="overlay-stale-badge"]')).toBeNull();
+    });
   });
 });

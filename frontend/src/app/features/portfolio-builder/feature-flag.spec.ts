@@ -31,21 +31,21 @@ const v2Loader = () =>
   import('./portfolio-builder').then((m) => m.PortfolioBuilderComponent);
 
 describe('PORTFOLIO_BUILDER_V2 — route flag contract', () => {
-  it('when read at module-load time, the flag is false (Cycle 3 ships off)', () => {
-    expect(PORTFOLIO_BUILDER_V2).toBe(false);
+  it('when read at module-load time, the flag is true (Cycle 4 ships on)', () => {
+    expect(PORTFOLIO_BUILDER_V2).toBe(true);
   });
 
-  it('when the flag is false, /portfolio-builder loadComponent resolves the legacy PipelineStepperComponent symbol', () => {
+  it('when the flag is true, /portfolio-builder loadComponent resolves the V2 PortfolioBuilderComponent symbol', () => {
     const route = findRoute('portfolio-builder');
     const loader = route.loadComponent;
     expect(loader).toBeDefined();
-    expect(loader!.toString()).toContain('PipelineStepperComponent');
+    expect(loader!.toString()).toContain('PortfolioBuilderComponent');
   });
 
-  it('when the flag is false, /portfolio-builder loadComponent does NOT resolve the V2 PortfolioBuilderComponent symbol', () => {
+  it('when the flag is true, /portfolio-builder loadComponent does NOT resolve the legacy PipelineStepperComponent symbol', () => {
     const route = findRoute('portfolio-builder');
     const loader = route.loadComponent;
-    expect(loader!.toString()).not.toContain('PortfolioBuilderComponent');
+    expect(loader!.toString()).not.toContain('PipelineStepperComponent');
   });
 
   it('regardless of the flag, /portfolio-builder-legacy loadComponent resolves the legacy PipelineStepperComponent symbol', () => {
@@ -75,5 +75,15 @@ describe('PORTFOLIO_BUILDER_V2 — route flag contract', () => {
   it('when /portfolio-builder-legacy route is found, it carries the human-readable legacy title', () => {
     const route = findRoute('portfolio-builder-legacy');
     expect(route.title).toBe('Portfolio Builder (Legacy)');
+  });
+
+  it('when the legacy URL is consulted, its lazy loader still resolves to the PipelineStepperComponent class', async () => {
+    const legacyLoader = () =>
+      import('../../pages/pipeline-stepper/pipeline-stepper').then(
+        (m) => m.PipelineStepperComponent,
+      );
+    const c = await legacyLoader();
+    expect(c).toBeDefined();
+    expect(c.name.startsWith('PipelineStepperComponent')).toBe(true);
   });
 });

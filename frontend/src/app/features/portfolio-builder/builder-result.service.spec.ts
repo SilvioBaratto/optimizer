@@ -382,4 +382,50 @@ describe('BuilderResultService', () => {
     http.expectOne(btRunUrl('bt-4')).flush(btRun('bt-4'));
     expect(store.result()?.runId).toBe('explicit-1');
   });
+
+  describe('stale and explicit retry transitions', () => {
+    it('when resultStatus is "ok" and a config update fires, resultStatus becomes "stale" synchronously before the debounce flushes', () => {
+      service.init();
+      arm();
+      store.setResultStatus('ok');
+
+      store.setConfig({ ...defaultConfig(), seed: 7 });
+      TestBed.tick();
+
+      expect(store.resultStatus()).toBe('stale');
+      http.expectNone(OPT_URL);
+    });
+
+    it('when resultStatus is "error" and store.triggerResultRun is invoked with sessionId and config present, resultStatus becomes "running" and a fresh optimize chain starts', () => {
+      service.init();
+      arm();
+      store.setResultStatus('error');
+
+      store.triggerResultRun();
+
+      expect(store.resultStatus()).toBe('running');
+      const optReq = http.expectOne(OPT_URL);
+      optReq.flush(optRun('retry-1'));
+      http
+        .expectOne(BT_URL)
+        .flush({ jobId: 'job-1', runId: 'bt-retry', status: 'pending', message: '' });
+      tick$.next(0);
+      http.expectOne(btJobUrl('job-1')).flush(btProgress('completed'));
+      http.expectOne(btRunUrl('bt-retry')).flush(btRun('bt-retry'));
+
+      expect(store.resultStatus()).toBe('ok');
+      expect(store.result()?.runId).toBe('retry-1');
+    });
+
+    it('when sessionId is null, calling store.triggerResultRun does not change resultStatus from "idle" and no chain starts', () => {
+      service.init();
+      store.setConfig(defaultConfig());
+      store.setStepResult('load', tickers());
+
+      store.triggerResultRun();
+
+      expect(store.resultStatus()).toBe('idle');
+      http.expectNone(OPT_URL);
+    });
+  });
 });

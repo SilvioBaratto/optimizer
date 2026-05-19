@@ -5,6 +5,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
 import { CanvasPaneComponent } from './canvas-pane';
 import { BuilderStore, type CanvasView } from '../builder.store';
+import { BuilderResultService } from '../builder-result.service';
 import type { WeightItem } from '../../../models/pipeline-builder.model';
 
 const PALETTE = [
@@ -44,12 +45,25 @@ function setup(): {
       provideHttpClient(),
       provideHttpClientTesting(),
       BuilderStore,
+      BuilderResultService,
     ],
   });
   const store = TestBed.inject(BuilderStore);
+  store.setResultStatus('ok');
   const fixture = TestBed.createComponent(CanvasPaneComponent);
   fixture.detectChanges();
   return { fixture, store, host: fixture.nativeElement as HTMLElement };
+}
+
+const CHART_SELECTORS = [
+  'app-allocation-donut',
+  'app-weight-bars',
+  'app-efficient-frontier',
+  'app-backtest-sparkline',
+] as const;
+
+function anyChartInDom(host: HTMLElement): boolean {
+  return CHART_SELECTORS.some((sel) => host.querySelector(sel) !== null);
 }
 
 function viewButtons(host: HTMLElement): HTMLButtonElement[] {
@@ -210,5 +224,62 @@ describe('CanvasPaneComponent', () => {
     expect(fixture.componentInstance.weights()).toBeUndefined();
     expect(fixture.componentInstance.frontier()).toBeUndefined();
     expect(fixture.componentInstance.sessionId()).toBeUndefined();
+  });
+
+  describe('live-state overlay', () => {
+    it('when resultStatus is "running", overlay-loading is present and no chart component is in the DOM', () => {
+      const { fixture, store, host } = setup();
+      store.setResultStatus('running');
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-region="overlay-loading"]')).not.toBeNull();
+      expect(anyChartInDom(host)).toBe(false);
+    });
+
+    it('when resultStatus is "error", overlay-error is present and clicking [data-action="retry"] invokes BuilderResultService.runExplicit exactly once', () => {
+      const { fixture, store, host } = setup();
+      const resultService = TestBed.inject(BuilderResultService);
+      const runSpy = spyOn(resultService, 'runExplicit');
+
+      store.setResultStatus('error');
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-region="overlay-error"]')).not.toBeNull();
+      const btn = host.querySelector<HTMLButtonElement>('[data-action="retry"]');
+      expect(btn).not.toBeNull();
+      btn!.click();
+
+      expect(runSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('when resultStatus is "idle", overlay-idle is present and no chart component is in the DOM', () => {
+      const { fixture, store, host } = setup();
+      store.setResultStatus('idle');
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-region="overlay-idle"]')).not.toBeNull();
+      expect(anyChartInDom(host)).toBe(false);
+    });
+
+    it('when resultStatus is "stale", the active-view chart IS in the DOM and overlay-stale-badge is present', () => {
+      const { fixture, store, host } = setup();
+      store.setResultStatus('stale');
+      fixture.detectChanges();
+
+      expect(host.querySelector('app-allocation-donut')).not.toBeNull();
+      expect(host.querySelector('[data-region="overlay-stale-badge"]')).not.toBeNull();
+    });
+
+    it('when resultStatus is "ok", only the active-view chart is in the DOM and no overlay region is present', () => {
+      const { fixture, store, host } = setup();
+      store.setResultStatus('ok');
+      fixture.detectChanges();
+
+      expect(host.querySelector('app-allocation-donut')).not.toBeNull();
+      expect(host.querySelector('[data-region="overlay-loading"]')).toBeNull();
+      expect(host.querySelector('[data-region="overlay-error"]')).toBeNull();
+      expect(host.querySelector('[data-region="overlay-idle"]')).toBeNull();
+      expect(host.querySelector('[data-region="overlay-stale-badge"]')).toBeNull();
+    });
   });
 });

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core
 
 import type { WeightItem } from '../../../models/pipeline-builder.model';
 import { BuilderStore, type CanvasView } from '../builder.store';
+import { CanvasStateOverlayComponent } from '../canvas-state-overlay/canvas-state-overlay';
 import { AllocationDonutComponent } from './allocation-donut/allocation-donut';
 import { BacktestSparklineComponent } from './backtest-sparkline/backtest-sparkline';
 import { EfficientFrontierComponent } from './efficient-frontier/efficient-frontier';
@@ -17,6 +18,7 @@ interface ViewOption {
   imports: [
     AllocationDonutComponent,
     BacktestSparklineComponent,
+    CanvasStateOverlayComponent,
     EfficientFrontierComponent,
     WeightBarsComponent,
   ],
@@ -43,21 +45,28 @@ interface ViewOption {
           </button>
         }
       </div>
-      <div data-region="canvas-view-content" class="flex-1">
-        @switch (store.currentView()) {
-          @case ('donut') {
-            <app-allocation-donut />
-          }
-          @case ('bars') {
-            <app-weight-bars />
-          }
-          @case ('frontier') {
-            <app-efficient-frontier />
-          }
-          @case ('backtest') {
-            <app-backtest-sparkline />
-          }
-        }
+      <div class="flex-1">
+        <app-canvas-state-overlay
+          [status]="store.resultStatus()"
+          [retryFn]="onRetry"
+        >
+          <div data-region="canvas-view-content" class="h-full">
+            @switch (store.currentView()) {
+              @case ('donut') {
+                <app-allocation-donut />
+              }
+              @case ('bars') {
+                <app-weight-bars />
+              }
+              @case ('frontier') {
+                <app-efficient-frontier />
+              }
+              @case ('backtest') {
+                <app-backtest-sparkline />
+              }
+            }
+          </div>
+        </app-canvas-state-overlay>
       </div>
     </section>
   `,
@@ -76,4 +85,6 @@ export class CanvasPaneComponent {
     { id: 'frontier', label: 'Frontier' },
     { id: 'backtest', label: 'Backtest' },
   ] as const;
+
+  protected readonly onRetry = (): void => this.store.triggerResultRun();
 }

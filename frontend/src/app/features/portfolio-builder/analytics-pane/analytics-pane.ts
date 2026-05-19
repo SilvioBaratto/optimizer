@@ -12,6 +12,7 @@ import {
   safeNum,
 } from '../../../shared/pipes/metric-color.pipe';
 import { BuilderStore } from '../builder.store';
+import { CanvasStateOverlayComponent } from '../canvas-state-overlay/canvas-state-overlay';
 
 export interface MetricCard {
   readonly id: string;
@@ -25,37 +26,41 @@ export interface MetricCard {
 @Component({
   selector: 'app-analytics-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MetricColorPipe],
+  imports: [CanvasStateOverlayComponent, MetricColorPipe],
   template: `
-    <section
-      data-region="analytics-pane"
-      class="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2"
-    >
-      @for (card of cards(); track card.id) {
-        @let metric = card.value | metricColor: card.kind;
-        <div
-          data-card="metric"
-          [attr.data-card-id]="card.id"
-          class="flex flex-col gap-1 rounded-lg border border-border bg-surface-raised p-3"
-        >
-          <span class="text-data-xs text-text-tertiary">{{ card.label }}</span>
-          <span
-            data-cell="value"
-            class="tabular-nums text-right text-data-md"
-            [class]="card.colored ? metric.colorClass : 'text-text-primary'"
-          >
-            {{ metric.text }}
-          </span>
-          <span class="text-right text-data-xs text-text-tertiary">
-            {{ card.unit }}
-          </span>
+    <section data-region="analytics-pane" class="h-full">
+      <app-canvas-state-overlay
+        [status]="store.resultStatus()"
+        [retryFn]="onRetry"
+      >
+        <div class="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
+          @for (card of cards(); track card.id) {
+            @let metric = card.value | metricColor: card.kind;
+            <div
+              data-card="metric"
+              [attr.data-card-id]="card.id"
+              class="flex flex-col gap-1 rounded-lg border border-border bg-surface-raised p-3"
+            >
+              <span class="text-data-xs text-text-tertiary">{{ card.label }}</span>
+              <span
+                data-cell="value"
+                class="tabular-nums text-right text-data-md"
+                [class]="card.colored ? metric.colorClass : 'text-text-primary'"
+              >
+                {{ metric.text }}
+              </span>
+              <span class="text-right text-data-xs text-text-tertiary">
+                {{ card.unit }}
+              </span>
+            </div>
+          }
         </div>
-      }
+      </app-canvas-state-overlay>
     </section>
   `,
 })
 export class AnalyticsPaneComponent {
-  private readonly store = inject(BuilderStore);
+  protected readonly store = inject(BuilderStore);
 
   readonly cards: Signal<MetricCard[]> = computed(() => {
     const metrics = this.store.result()?.metrics;
@@ -69,6 +74,8 @@ export class AnalyticsPaneComponent {
       this.card('cost', 'Rebalancing Cost', stats?.['cost_bps_actual'] ?? stats?.['cost_bps'], 'ratio', false, 'bps'),
     ];
   });
+
+  protected readonly onRetry = (): void => this.store.triggerResultRun();
 
   private card(
     id: string,
