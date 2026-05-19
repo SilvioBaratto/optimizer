@@ -20,6 +20,8 @@ Jobs are persisted in PostgreSQL via ``SQLAlchemyJobStore`` so misfired runs
 from __future__ import annotations
 
 import logging
+import threading
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -215,6 +217,24 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
     logger.info("daily_pipeline: %s started (job %s)", label, job_id)
     job_svc.update_job(job_id, status="running")
 
+    # _run_step executes ``fn`` synchronously in the scheduler thread and
+    # does NOT go through ``start_background``, so no heartbeat companion
+    # exists. ``make_progress``/``update_job`` never stamps
+    # ``last_heartbeat_at`` (only the heartbeat thread does), so without
+    # this any step running longer than the orphan-reaper timeout (300s)
+    # is falsely reaped mid-run — e.g. the multi-minute yfinance fetch.
+    # Run the same heartbeat companion the route path uses for the
+    # duration of ``fn``.
+    cadence = job_svc._heartbeat_cadence
+    hb_stop = threading.Event()
+    heartbeat = threading.Thread(
+        target=job_svc._run_heartbeat,
+        args=(uuid.UUID(job_id), hb_stop, cadence),
+        daemon=True,
+        name=f"hb:sched:{label}:{job_id[:8]}",
+    )
+    heartbeat.start()
+
     on_progress = make_progress(job_id, job_svc)
     try:
         fn(*args, on_progress=on_progress)
@@ -241,6 +261,9 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
         return False
+    finally:
+        hb_stop.set()
+        heartbeat.join(timeout=2 * cadence)
 
 
 def run_daily_pipeline() -> None:
