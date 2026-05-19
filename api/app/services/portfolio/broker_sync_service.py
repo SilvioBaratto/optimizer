@@ -7,8 +7,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models.universe.universe import Instrument
 from app.repositories.portfolio.portfolio_repository import PortfolioRepository
+from app.services._shared._ticker_lookup import lookup_yf_ticker
 from app.services.universe.trading212.client import Trading212Client
 
 logger = logging.getLogger(__name__)
@@ -24,18 +24,6 @@ class BrokerSyncResult:
     dividends_fetched: int = 0
     dividends_inserted: int = 0
     errors: list[str] | None = None
-
-
-def _map_t212_ticker_to_yfinance(
-    ticker: str,
-    session: Session,
-) -> str | None:
-    """Look up the yfinance_ticker for a T212 ticker via the instruments table."""
-    from sqlalchemy import select
-
-    stmt = select(Instrument.yfinance_ticker).where(Instrument.ticker == ticker)
-    result = session.execute(stmt).scalar_one_or_none()
-    return result
 
 
 def sync_portfolio(
@@ -70,7 +58,7 @@ def sync_portfolio(
         for pos in raw_positions:
             ticker = pos.get("ticker", "")
             current_tickers.add(ticker)
-            yf_ticker = _map_t212_ticker_to_yfinance(ticker, session)
+            yf_ticker = lookup_yf_ticker(ticker, session)
 
             position_rows.append(
                 {
