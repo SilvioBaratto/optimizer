@@ -2,8 +2,9 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
 import { ActionBarComponent } from './action-bar/action-bar';
 import { AnalyticsPaneComponent } from './analytics-pane/analytics-pane';
+import { BuilderDriftService } from './builder-drift.service';
 import { BuilderResultService } from './builder-result.service';
-import { BuilderStore } from './builder.store';
+import { BUILDER_DRIFT_SERVICE, BuilderStore } from './builder.store';
 import { CanvasPaneComponent } from './canvas-pane/canvas-pane';
 import { InputsPaneComponent } from './inputs-pane/inputs-pane';
 import { StageStripComponent } from './stage-strip/stage-strip';
@@ -45,13 +46,20 @@ import { StageStripComponent } from './stage-strip/stage-strip';
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [BuilderStore, BuilderResultService],
+  providers: [
+    BuilderStore,
+    BuilderResultService,
+    BuilderDriftService,
+    { provide: BUILDER_DRIFT_SERVICE, useExisting: BuilderDriftService },
+  ],
 })
 export class PortfolioBuilderComponent {
   readonly store = inject(BuilderStore);
   private readonly resultService = inject(BuilderResultService);
+  private readonly driftService = inject(BuilderDriftService);
 
   constructor() {
     this.resultService.init();
+    this.driftService.init();
   }
 }

@@ -6,12 +6,15 @@ import {
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 
-import { BuilderStore } from './builder.store';
+import { BUILDER_DRIFT_SERVICE, BuilderStore, type CanvasView } from './builder.store';
 import type { BuilderStage } from './builder-stage';
 import type {
   BuilderBacktest,
+  BuilderDrift,
+  BuilderDriftDiagnostics,
   BuilderFrontier,
   BuilderResult,
+  BuilderTrades,
 } from './builder-result.model';
 import {
   type RunLevelConfig,
@@ -46,6 +49,58 @@ function sampleBacktest(): BuilderBacktest {
     summaryStats: { totalReturn: 0.12, sharpe: 0.9, maxDrawdown: -0.08 },
     equityCurve: { '2026-01-01': 1.0, '2026-02-01': 1.05 },
     createdAt: '2026-05-19T10:01:00Z',
+  };
+}
+
+function sampleDrift(): BuilderDrift {
+  return {
+    drift: [
+      {
+        ticker: 'AAPL',
+        current_weight: 0.55,
+        target_weight: 0.5,
+        delta_weight: 0.05,
+        eur_value: 5500,
+        flags: [],
+      },
+    ],
+    totals: {
+      deployable_eur: 10000,
+      total_holdings_eur: 10000,
+      total_drift_abs: 0.05,
+      buy_eur: 0,
+      sell_eur: 500,
+    },
+    portfolioName: 'core',
+  };
+}
+
+function sampleTrades(): BuilderTrades {
+  return {
+    trades: [
+      {
+        ticker: 'AAPL',
+        action: 'sell',
+        delta_eur: -500,
+        est_shares: -3,
+        est_cost_eur: 0.5,
+        delta_weight: 0.05,
+      },
+    ],
+  };
+}
+
+function sampleDriftDiagnostics(): BuilderDriftDiagnostics {
+  return {
+    diagnostics: {
+      reconciliation_ok: true,
+      reconciliation_delta_pct: 0.0001,
+      unmapped_count: 0,
+      fx_missing_count: 0,
+      target_not_on_broker_count: 0,
+      base_currency: 'EUR',
+    },
+    requestId: 7,
   };
 }
 
@@ -412,10 +467,178 @@ describe('BuilderStore', () => {
       expect(store.currentView()).toBe('backtest');
     });
 
+    it('when setCurrentView is called with "drift", currentView exposes "drift"', () => {
+      store.setCurrentView('drift');
+      expect(store.currentView()).toBe('drift');
+    });
+
     it('when reset is called after setCurrentView, currentView reverts to "donut"', () => {
       store.setCurrentView('frontier');
       store.reset();
       expect(store.currentView()).toBe('donut');
+    });
+  });
+
+  describe('drift signals', () => {
+    it('when freshly constructed, drift/trades/driftDiagnostics are null', () => {
+      expect(store.drift()).toBeNull();
+      expect(store.trades()).toBeNull();
+      expect(store.driftDiagnostics()).toBeNull();
+    });
+
+    it('when freshly constructed, deployableBase defaults to "invested"', () => {
+      expect(store.deployableBase()).toBe('invested');
+    });
+
+    it('when freshly constructed, driftStatus defaults to "idle"', () => {
+      expect(store.driftStatus()).toBe('idle');
+    });
+
+    it('when freshly constructed, portfolioName defaults to null', () => {
+      expect(store.portfolioName()).toBeNull();
+    });
+
+    it('when setDrift is called, drift exposes the same object', () => {
+      const d = sampleDrift();
+      store.setDrift(d);
+      expect(store.drift()).toBe(d);
+    });
+
+    it('when setDrift is called with null after being set, drift returns to null', () => {
+      store.setDrift(sampleDrift());
+      store.setDrift(null);
+      expect(store.drift()).toBeNull();
+    });
+
+    it('when setTrades is called, trades exposes the same object', () => {
+      const t = sampleTrades();
+      store.setTrades(t);
+      expect(store.trades()).toBe(t);
+    });
+
+    it('when setTrades is called with null after being set, trades returns to null', () => {
+      store.setTrades(sampleTrades());
+      store.setTrades(null);
+      expect(store.trades()).toBeNull();
+    });
+
+    it('when setDriftDiagnostics is called, driftDiagnostics exposes the same object', () => {
+      const d = sampleDriftDiagnostics();
+      store.setDriftDiagnostics(d);
+      expect(store.driftDiagnostics()).toBe(d);
+    });
+
+    it('when setDeployableBase is called with "total", deployableBase exposes "total"', () => {
+      store.setDeployableBase('total');
+      expect(store.deployableBase()).toBe('total');
+    });
+
+    it('when setDeployableBase is called with "invested" after "total", deployableBase reverts to "invested"', () => {
+      store.setDeployableBase('total');
+      store.setDeployableBase('invested');
+      expect(store.deployableBase()).toBe('invested');
+    });
+
+    it('when setDriftStatus is called, driftStatus exposes the new value', () => {
+      store.setDriftStatus('running');
+      expect(store.driftStatus()).toBe('running');
+      store.setDriftStatus('ok');
+      expect(store.driftStatus()).toBe('ok');
+      store.setDriftStatus('error');
+      expect(store.driftStatus()).toBe('error');
+      store.setDriftStatus('stale');
+      expect(store.driftStatus()).toBe('stale');
+      store.setDriftStatus('idle');
+      expect(store.driftStatus()).toBe('idle');
+    });
+
+    it('when setPortfolioName is called, portfolioName exposes the value', () => {
+      store.setPortfolioName('core');
+      expect(store.portfolioName()).toBe('core');
+    });
+
+    it('when setPortfolioName is called with null after being set, portfolioName returns to null', () => {
+      store.setPortfolioName('core');
+      store.setPortfolioName(null);
+      expect(store.portfolioName()).toBeNull();
+    });
+
+    it('when reset is called after mutating drift signals, all return to initial values', () => {
+      store.setDrift(sampleDrift());
+      store.setTrades(sampleTrades());
+      store.setDriftDiagnostics(sampleDriftDiagnostics());
+      store.setDeployableBase('total');
+      store.setDriftStatus('ok');
+      store.setPortfolioName('core');
+
+      store.reset();
+
+      expect(store.drift()).toBeNull();
+      expect(store.trades()).toBeNull();
+      expect(store.driftDiagnostics()).toBeNull();
+      expect(store.deployableBase()).toBe('invested');
+      expect(store.driftStatus()).toBe('idle');
+      expect(store.portfolioName()).toBeNull();
+    });
+  });
+
+  describe('triggerDriftRun()', () => {
+    let runner: { runExplicit: jasmine.Spy };
+
+    beforeEach(() => {
+      runner = { runExplicit: jasmine.createSpy('runExplicit') };
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          provideZonelessChangeDetection(),
+          provideHttpClient(),
+          provideHttpClientTesting(),
+          BuilderStore,
+          { provide: BUILDER_DRIFT_SERVICE, useValue: runner },
+        ],
+      });
+      store = TestBed.inject(BuilderStore);
+      http = TestBed.inject(HttpTestingController);
+    });
+
+    it('when triggerDriftRun is called once, BUILDER_DRIFT_SERVICE.runExplicit is invoked exactly once', () => {
+      store.triggerDriftRun();
+      expect(runner.runExplicit).toHaveBeenCalledTimes(1);
+    });
+
+    it('when triggerDriftRun is called three times, runExplicit is invoked three times', () => {
+      store.triggerDriftRun();
+      store.triggerDriftRun();
+      store.triggerDriftRun();
+      expect(runner.runExplicit).toHaveBeenCalledTimes(3);
+    });
+
+    it('when triggerDriftRun is never called, runExplicit is not invoked', () => {
+      expect(runner.runExplicit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('CanvasView union narrowing', () => {
+    it('when "drift" is assigned to a CanvasView variable, the assignment is type-safe', () => {
+      const view: CanvasView = 'drift';
+      expect(view).toBe('drift');
+    });
+
+    it('when "donut" | "bars" | "frontier" | "backtest" | "drift" are assigned, all members satisfy the union', () => {
+      const all: readonly CanvasView[] = [
+        'donut',
+        'bars',
+        'frontier',
+        'backtest',
+        'drift',
+      ];
+      expect(all.length).toBe(5);
+    });
+
+    it('when an invalid string literal is assigned, the compiler rejects it (ts-expect-error marker)', () => {
+      // @ts-expect-error 'invalid' is not part of the CanvasView union
+      const bad: CanvasView = 'invalid';
+      expect(bad as unknown as string).toBe('invalid');
     });
   });
 

@@ -86,9 +86,9 @@ describe('CanvasPaneComponent', () => {
     ).not.toBeNull();
   });
 
-  it('when mounted, exactly four [data-view-btn] buttons are rendered', () => {
+  it('when mounted, exactly five [data-view-btn] buttons are rendered', () => {
     const { host } = setup();
-    expect(viewButtons(host).length).toBe(4);
+    expect(viewButtons(host).length).toBe(5);
   });
 
   it('when mounted, [data-region="canvas-view-content"] content region is present', () => {
@@ -120,13 +120,14 @@ describe('CanvasPaneComponent', () => {
     }
   });
 
-  it('when store.setCurrentView is called with each of the four views, the active ring class moves to the matching button', () => {
+  it('when store.setCurrentView is called with each of the five views, the active ring class moves to the matching button', () => {
     const { fixture, store, host } = setup();
     const views: readonly CanvasView[] = [
       'donut',
       'bars',
       'frontier',
       'backtest',
+      'drift',
     ];
     for (const view of views) {
       store.setCurrentView(view);
@@ -173,6 +174,52 @@ describe('CanvasPaneComponent', () => {
     fixture.detectChanges();
     expect(host.querySelector('app-backtest-sparkline')).not.toBeNull();
     expect(host.querySelector('app-allocation-donut')).toBeNull();
+  });
+
+  it('when Drift button is clicked, store.currentView transitions to "drift"', () => {
+    const { fixture, store, host } = setup();
+    const buttons = viewButtons(host);
+    const driftBtn = buttons.find(
+      (b) => b.getAttribute('data-view-id') === 'drift',
+    );
+    expect(driftBtn).toBeDefined();
+    driftBtn!.click();
+    fixture.detectChanges();
+    expect(store.currentView()).toBe('drift');
+  });
+
+  it('when current view is "drift", both app-drift-overlay and app-trade-list mount in the content region', () => {
+    const { fixture, store, host } = setup();
+    store.setCurrentView('drift');
+    fixture.detectChanges();
+    expect(host.querySelector('app-drift-overlay')).not.toBeNull();
+    expect(host.querySelector('app-trade-list')).not.toBeNull();
+    expect(host.querySelector('[data-region="drift-split"]')).not.toBeNull();
+  });
+
+  it('when current view is "drift", the four legacy chart components are absent from the DOM', () => {
+    const { fixture, store, host } = setup();
+    store.setCurrentView('drift');
+    fixture.detectChanges();
+    for (const sel of CHART_SELECTORS) {
+      expect(host.querySelector(sel)).toBeNull();
+    }
+  });
+
+  it('when current view is not "drift", neither app-drift-overlay nor app-trade-list is in the DOM', () => {
+    const { fixture, store, host } = setup();
+    const nonDrift: readonly CanvasView[] = [
+      'donut',
+      'bars',
+      'frontier',
+      'backtest',
+    ];
+    for (const view of nonDrift) {
+      store.setCurrentView(view);
+      fixture.detectChanges();
+      expect(host.querySelector('app-drift-overlay')).toBeNull();
+      expect(host.querySelector('app-trade-list')).toBeNull();
+    }
   });
 
   it('when weights input is set, the component accepts it without throwing', () => {

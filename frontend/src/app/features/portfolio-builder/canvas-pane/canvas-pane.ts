@@ -5,7 +5,9 @@ import { BuilderStore, type CanvasView } from '../builder.store';
 import { CanvasStateOverlayComponent } from '../canvas-state-overlay/canvas-state-overlay';
 import { AllocationDonutComponent } from './allocation-donut/allocation-donut';
 import { BacktestSparklineComponent } from './backtest-sparkline/backtest-sparkline';
+import { DriftOverlayComponent } from './drift-overlay/drift-overlay';
 import { EfficientFrontierComponent } from './efficient-frontier/efficient-frontier';
+import { TradeListComponent } from './trade-list/trade-list';
 import { WeightBarsComponent } from './weight-bars/weight-bars';
 
 interface ViewOption {
@@ -19,7 +21,9 @@ interface ViewOption {
     AllocationDonutComponent,
     BacktestSparklineComponent,
     CanvasStateOverlayComponent,
+    DriftOverlayComponent,
     EfficientFrontierComponent,
+    TradeListComponent,
     WeightBarsComponent,
   ],
   template: `
@@ -64,6 +68,19 @@ interface ViewOption {
               @case ('backtest') {
                 <app-backtest-sparkline />
               }
+              @case ('drift') {
+                <div
+                  data-region="drift-split"
+                  class="flex h-full flex-col gap-3"
+                >
+                  <div class="min-h-0 flex-1">
+                    <app-drift-overlay />
+                  </div>
+                  <div class="min-h-0 flex-1">
+                    <app-trade-list />
+                  </div>
+                </div>
+              }
             }
           </div>
         </app-canvas-state-overlay>
@@ -84,6 +101,7 @@ export class CanvasPaneComponent {
     { id: 'bars', label: 'Bars' },
     { id: 'frontier', label: 'Frontier' },
     { id: 'backtest', label: 'Backtest' },
+    { id: 'drift', label: 'Drift' },
   ] as const;
 
   protected readonly onRetry = (): void => this.store.triggerResultRun();

@@ -1,3 +1,9 @@
+import type {
+  BuilderTrade,
+  DriftDiagnostics,
+  DriftRow,
+  DriftTotals,
+} from '../../models/drift.model';
 import type { EfficientFrontierPoint } from '../../models/optimization.model';
 
 export type BuilderResultStatus =
@@ -25,4 +31,21 @@ export interface BuilderBacktest {
   readonly summaryStats: Record<string, number | null>;
   readonly equityCurve: Record<string, number | null>;
   readonly createdAt: string;
+}
+
+export type BuilderDriftStatus = BuilderResultStatus;
+
+export interface BuilderDrift {
+  readonly drift: readonly DriftRow[];
+  readonly totals: DriftTotals;
+  readonly portfolioName: string;
+}
+
+export interface BuilderTrades {
+  readonly trades: readonly BuilderTrade[];
+}
+
+export interface BuilderDriftDiagnostics {
+  readonly diagnostics: DriftDiagnostics;
+  readonly requestId: number;
 }

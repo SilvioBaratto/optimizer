@@ -3,6 +3,7 @@ import { Component, input, computed, ChangeDetectionStrategy } from '@angular/co
 export interface BarData {
   label: string;
   value: number;
+  color?: string;
 }
 
 @Component({

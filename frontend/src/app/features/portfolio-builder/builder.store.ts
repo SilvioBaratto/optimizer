@@ -1,6 +1,7 @@
 import {
   DestroyRef,
   Injectable,
+  InjectionToken,
   Injector,
   type Signal,
   computed,
@@ -9,6 +10,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
+import type { BaseToggle } from '../../models/drift.model';
 import {
   type PipelineStepId,
   type RunLevelConfig,
@@ -18,14 +20,26 @@ import type { StepParamsConfig } from '../../pages/pipeline-stepper/step-params.
 import { PipelineBuilderApiService } from '../../services/pipeline-builder-api.service';
 import type {
   BuilderBacktest,
+  BuilderDrift,
+  BuilderDriftDiagnostics,
+  BuilderDriftStatus,
   BuilderFrontier,
   BuilderResult,
   BuilderResultStatus,
+  BuilderTrades,
 } from './builder-result.model';
 import { BuilderResultService } from './builder-result.service';
 import type { BuilderStage } from './builder-stage';
 
-export type CanvasView = 'donut' | 'bars' | 'frontier' | 'backtest';
+export type CanvasView = 'donut' | 'bars' | 'frontier' | 'backtest' | 'drift';
+
+export interface DriftRunner {
+  runExplicit(): void;
+}
+
+export const BUILDER_DRIFT_SERVICE = new InjectionToken<DriftRunner>(
+  'BUILDER_DRIFT_SERVICE',
+);
 
 export interface BuilderSummary {
   readonly stage: BuilderStage | null;
@@ -57,6 +71,14 @@ export class BuilderStore {
   private readonly _frontier = signal<BuilderFrontier | null>(null);
   private readonly _backtest = signal<BuilderBacktest | null>(null);
   private readonly _currentView = signal<CanvasView>('donut');
+  private readonly _drift = signal<BuilderDrift | null>(null);
+  private readonly _trades = signal<BuilderTrades | null>(null);
+  private readonly _driftDiagnostics = signal<BuilderDriftDiagnostics | null>(
+    null,
+  );
+  private readonly _deployableBase = signal<BaseToggle>('invested');
+  private readonly _driftStatus = signal<BuilderDriftStatus>('idle');
+  private readonly _portfolioName = signal<string | null>(null);
 
   readonly config: Signal<RunLevelConfig | null> = this._config.asReadonly();
   readonly stepParams: Signal<StepParamsConfig | null> =
@@ -77,6 +99,15 @@ export class BuilderStore {
   readonly backtest: Signal<BuilderBacktest | null> =
     this._backtest.asReadonly();
   readonly currentView: Signal<CanvasView> = this._currentView.asReadonly();
+  readonly drift: Signal<BuilderDrift | null> = this._drift.asReadonly();
+  readonly trades: Signal<BuilderTrades | null> = this._trades.asReadonly();
+  readonly driftDiagnostics: Signal<BuilderDriftDiagnostics | null> =
+    this._driftDiagnostics.asReadonly();
+  readonly deployableBase: Signal<BaseToggle> = this._deployableBase.asReadonly();
+  readonly driftStatus: Signal<BuilderDriftStatus> =
+    this._driftStatus.asReadonly();
+  readonly portfolioName: Signal<string | null> =
+    this._portfolioName.asReadonly();
 
   readonly summary: Signal<BuilderSummary> = computed(() => ({
     stage: this._currentStage(),
@@ -132,8 +163,36 @@ export class BuilderStore {
     this._currentView.set(value);
   }
 
+  setDrift(value: BuilderDrift | null): void {
+    this._drift.set(value);
+  }
+
+  setTrades(value: BuilderTrades | null): void {
+    this._trades.set(value);
+  }
+
+  setDriftDiagnostics(value: BuilderDriftDiagnostics | null): void {
+    this._driftDiagnostics.set(value);
+  }
+
+  setDeployableBase(value: BaseToggle): void {
+    this._deployableBase.set(value);
+  }
+
+  setDriftStatus(value: BuilderDriftStatus): void {
+    this._driftStatus.set(value);
+  }
+
+  setPortfolioName(value: string | null): void {
+    this._portfolioName.set(value);
+  }
+
   triggerResultRun(): void {
     this.injector.get(BuilderResultService).runExplicit();
+  }
+
+  triggerDriftRun(): void {
+    this.injector.get(BUILDER_DRIFT_SERVICE).runExplicit();
   }
 
   optimize(): void {
@@ -162,6 +221,12 @@ export class BuilderStore {
     this._frontier.set(null);
     this._backtest.set(null);
     this._currentView.set('donut');
+    this._drift.set(null);
+    this._trades.set(null);
+    this._driftDiagnostics.set(null);
+    this._deployableBase.set('invested');
+    this._driftStatus.set('idle');
+    this._portfolioName.set(null);
   }
 
   private dispatchAction(stepId: PipelineStepId): void {

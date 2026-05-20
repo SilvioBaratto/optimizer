@@ -96,10 +96,10 @@ export class EchartsBarComponent implements OnDestroy, ChartExportable {
       series: [
         {
           type: 'bar',
-          data: values.map(v => ({
-            value: v,
+          data: bars.map((b, i) => ({
+            value: values[i],
             itemStyle: {
-              color: v >= 0 ? gainColor : lossColor,
+              color: b.color ?? (values[i] >= 0 ? gainColor : lossColor),
               borderRadius: [2, 2, 0, 0] as [number, number, number, number],
             },
           })),

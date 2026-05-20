@@ -90,6 +90,8 @@ function chartSelectorFor(view: CanvasView): string {
       return 'app-efficient-frontier';
     case 'backtest':
       return 'app-backtest-sparkline';
+    case 'drift':
+      return 'app-drift-overlay';
   }
 }
 
