@@ -16,6 +16,7 @@ import type {
   BuilderTrade,
   DriftResponse,
   DriftRow,
+  FlagInstance,
   TradeRow,
 } from '../../models/drift.model';
 import type {
@@ -39,12 +40,13 @@ function mergeTrades(
   trades: readonly TradeRow[],
   drift: readonly DriftRow[],
 ): BuilderTrade[] {
-  const deltaByTicker = new Map<string, number>(
-    drift.map((r) => [r.ticker, r.delta_weight]),
+  const rowByTicker = new Map<string, DriftRow>(
+    drift.map((r) => [r.ticker, r]),
   );
   return trades.map((t) => ({
     ...t,
-    delta_weight: deltaByTicker.get(t.ticker) ?? 0,
+    delta_weight: rowByTicker.get(t.ticker)?.delta_weight ?? 0,
+    flags: (rowByTicker.get(t.ticker)?.flags ?? []) as readonly FlagInstance[],
   }));
 }
 

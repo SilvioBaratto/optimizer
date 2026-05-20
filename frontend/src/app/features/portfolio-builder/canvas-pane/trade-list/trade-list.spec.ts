@@ -28,7 +28,7 @@ function sampleDrift(): BuilderDrift {
         target_weight: 0.5,
         delta_weight: 0.1,
         eur_value: 6000,
-        flags: ['stale_price'],
+        flags: [{ code: 'stale_price', reason: 'tick old', reference: 'AAPL' }],
       },
       {
         ticker: 'MSFT',
@@ -44,7 +44,10 @@ function sampleDrift(): BuilderDrift {
         target_weight: 0.1,
         delta_weight: 0,
         eur_value: 1000,
-        flags: ['fx_missing', 'unmapped'],
+        flags: [
+          { code: 'fx_missing', reason: 'no fx', reference: 'CHF' },
+          { code: 'unmapped', reason: 'no mapping', reference: 'GOOG' },
+        ],
       },
     ],
   };
@@ -60,6 +63,10 @@ function sampleTrades(): BuilderTrades {
         delta_weight: 0,
         est_shares: 0,
         est_cost_eur: 0,
+        flags: [
+          { code: 'fx_missing', reason: 'no fx', reference: 'CHF' },
+          { code: 'unmapped', reason: 'no mapping', reference: 'GOOG' },
+        ],
       },
       {
         ticker: 'AAPL',
@@ -68,6 +75,7 @@ function sampleTrades(): BuilderTrades {
         delta_weight: 0.1,
         est_shares: -6,
         est_cost_eur: 1.0,
+        flags: [{ code: 'stale_price', reason: 'tick old', reference: 'AAPL' }],
       },
       {
         ticker: 'MSFT',
@@ -76,6 +84,7 @@ function sampleTrades(): BuilderTrades {
         delta_weight: -0.1,
         est_shares: 4,
         est_cost_eur: 1.5,
+        flags: [],
       },
     ],
   };
@@ -106,7 +115,7 @@ describe('TradeListComponent', () => {
     const { host } = setup();
     expect(host.querySelector('[data-region="trade-empty"]')).not.toBeNull();
     expect(host.querySelector('[data-region="trade-list"]')).toBeNull();
-    expect(host.querySelector('app-data-table')).toBeNull();
+    expect(host.querySelector('[data-region="trade-table"]')).toBeNull();
   });
 
   it('when trades has zero rows, empty placeholder renders', () => {
@@ -116,14 +125,14 @@ describe('TradeListComponent', () => {
     expect(host.querySelector('[data-region="trade-empty"]')).not.toBeNull();
   });
 
-  it('when trades is populated, trade-list and trade-footer regions render', () => {
+  it('when trades is populated, trade-list, trade-table and trade-footer regions render', () => {
     const { fixture, store, host } = setup();
     store.setTrades(sampleTrades());
     store.setDrift(sampleDrift());
     fixture.detectChanges();
     expect(host.querySelector('[data-region="trade-list"]')).not.toBeNull();
+    expect(host.querySelector('[data-region="trade-table"]')).not.toBeNull();
     expect(host.querySelector('[data-region="trade-footer"]')).not.toBeNull();
-    expect(host.querySelector('app-data-table')).not.toBeNull();
   });
 
   it('when trades is populated, rows are sorted by |delta_eur| descending', () => {
@@ -135,36 +144,94 @@ describe('TradeListComponent', () => {
     expect(tickers).toEqual(['MSFT', 'AAPL', 'GOOG']);
   });
 
-  it('when trades is populated, action column uses badge map with BUY/SELL/HOLD entries', () => {
-    const { fixture, store } = setup();
+  it('when action is BUY/SELL/HOLD, the action badge label matches', () => {
+    const { fixture, store, host } = setup();
     store.setTrades(sampleTrades());
     store.setDrift(sampleDrift());
     fixture.detectChanges();
-    const actionCol = (
-      fixture.componentInstance as unknown as {
-        columns: ReadonlyArray<{ key: string; badgeMap?: Record<string, { value: string; colorClass: string }> }>;
-      }
-    ).columns.find((c) => c.key === 'action');
-    expect(actionCol).toBeDefined();
-    expect(actionCol!.badgeMap?.['buy'].value).toBe('BUY');
-    expect(actionCol!.badgeMap?.['sell'].value).toBe('SELL');
-    expect(actionCol!.badgeMap?.['hold'].value).toBe('HOLD');
-    expect(actionCol!.badgeMap?.['buy'].colorClass).toContain('text-gain');
-    expect(actionCol!.badgeMap?.['sell'].colorClass).toContain('text-loss');
-    expect(actionCol!.badgeMap?.['hold'].colorClass).toContain('text-text-secondary');
+    const badgeText = (ticker: string): string => {
+      const row = host.querySelector(`[data-row-ticker="${ticker}"]`);
+      return row!
+        .querySelector('[data-cell="action-badge"]')!
+        .textContent!.trim();
+    };
+    expect(badgeText('AAPL')).toBe('SELL');
+    expect(badgeText('MSFT')).toBe('BUY');
+    expect(badgeText('GOOG')).toBe('HOLD');
   });
 
-  it('when trades and drift are populated, flags column carries raw enum names joined from DriftRow.flags', () => {
-    const { fixture, store } = setup();
+  it('when a row has flags, the flags cell renders one app-diagnostic-badge per flag', () => {
+    const { fixture, store, host } = setup();
     store.setTrades(sampleTrades());
     store.setDrift(sampleDrift());
     fixture.detectChanges();
-    const byTicker = new Map(
-      fixture.componentInstance.rows().map((r) => [r.ticker, r.flags] as const),
+
+    const aaplBadges = host.querySelectorAll(
+      '[data-row-ticker="AAPL"] [data-cell="flag-badges"] app-diagnostic-badge',
     );
-    expect(byTicker.get('AAPL')).toBe('stale_price');
-    expect(byTicker.get('MSFT')).toBe('');
-    expect(byTicker.get('GOOG')).toBe('fx_missing, unmapped');
+    expect(aaplBadges.length).toBe(1);
+
+    const googBadges = host.querySelectorAll(
+      '[data-row-ticker="GOOG"] [data-cell="flag-badges"] app-diagnostic-badge',
+    );
+    expect(googBadges.length).toBe(2);
+  });
+
+  it('when a row has no flags, the flags cell renders zero badges', () => {
+    const { fixture, store, host } = setup();
+    store.setTrades(sampleTrades());
+    store.setDrift(sampleDrift());
+    fixture.detectChanges();
+    const msftBadges = host.querySelectorAll(
+      '[data-row-ticker="MSFT"] [data-cell="flag-badges"] app-diagnostic-badge',
+    );
+    expect(msftBadges.length).toBe(0);
+  });
+
+  it('when row flags include UNMAPPED, the row carries opacity-50 disabled-look class', () => {
+    const { fixture, store, host } = setup();
+    store.setTrades(sampleTrades());
+    store.setDrift(sampleDrift());
+    fixture.detectChanges();
+    const goog = host.querySelector('[data-row-ticker="GOOG"]')!;
+    expect(goog.getAttribute('data-row-greyed')).toBe('true');
+    expect(goog.className).toContain('opacity-50');
+  });
+
+  it('when row flags include TARGET_NOT_ON_BROKER, the row carries opacity-50', () => {
+    const { fixture, store } = setup();
+    store.setTrades({
+      trades: [
+        {
+          ticker: 'GHOST',
+          action: 'buy',
+          delta_eur: 100,
+          delta_weight: 0.01,
+          est_shares: 1,
+          est_cost_eur: 100,
+          flags: [
+            { code: 'target_not_on_broker', reason: 'not on broker', reference: 'GHOST' },
+          ],
+        },
+      ],
+    });
+    store.setDrift(sampleDrift());
+    fixture.detectChanges();
+    const row = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-row-ticker="GHOST"]',
+    )!;
+    expect(row.getAttribute('data-row-greyed')).toBe('true');
+    expect(row.className).toContain('opacity-50');
+  });
+
+  it('when row flags only contain STALE_PRICE, the row is NOT greyed', () => {
+    const { fixture, store, host } = setup();
+    store.setTrades(sampleTrades());
+    store.setDrift(sampleDrift());
+    fixture.detectChanges();
+    const aapl = host.querySelector('[data-row-ticker="AAPL"]')!;
+    expect(aapl.getAttribute('data-row-greyed')).toBe('false');
+    expect(aapl.className).not.toContain('opacity-50');
   });
 
   it('when drift totals are present, footer exposes turnover %, est. cost, residual cash', () => {
@@ -201,16 +268,5 @@ describe('TradeListComponent', () => {
     expect(turnover.textContent).toContain('25.00%');
     expect(cost.textContent).toContain('1,000');
     expect(residual.textContent).toContain('9,400');
-  });
-
-  it('when data-table is rendered, CSV export button is visible (showExport=true)', () => {
-    const { fixture, store, host } = setup();
-    store.setTrades(sampleTrades());
-    store.setDrift(sampleDrift());
-    fixture.detectChanges();
-    const exportBtn = Array.from(host.querySelectorAll('button')).find((b) =>
-      (b.textContent ?? '').toLowerCase().includes('export'),
-    );
-    expect(exportBtn).toBeDefined();
   });
 });

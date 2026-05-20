@@ -8,8 +8,33 @@ import { BuilderStore } from '../builder.store';
 import { BuilderResultService } from '../builder-result.service';
 import type {
   BuilderBacktest,
+  BuilderDriftDiagnostics,
   BuilderResult,
 } from '../builder-result.model';
+import type { DriftDiagnostics } from '../../../models/drift.model';
+
+function makeBuilderDiagnostics(
+  overrides: Partial<DriftDiagnostics> = {},
+): BuilderDriftDiagnostics {
+  return {
+    requestId: 1,
+    diagnostics: {
+      reconciliation_ok: true,
+      reconciliation_delta_pct: 0,
+      unmapped_count: 0,
+      fx_missing_count: 0,
+      target_not_on_broker_count: 0,
+      base_currency: 'EUR',
+      sum_eur: 0,
+      invested_eur: 0,
+      delta_eur: 0,
+      tolerance_pct: 0.015,
+      stale_price_count: 0,
+      entries: [],
+      ...overrides,
+    },
+  };
+}
 
 function makeResult(metrics: Record<string, unknown>): BuilderResult {
   return {
@@ -155,6 +180,47 @@ describe('AnalyticsPaneComponent', () => {
     fixture.detectChanges();
     expect(cardByIdValueText(host, 'return')).toBe('--');
     expect(cardByIdValueText(host, 'vol')).toBe('--');
+  });
+
+  describe('diagnostics strip', () => {
+    it('when driftDiagnostics is null, strip is not rendered', () => {
+      const { host } = setup();
+      expect(host.querySelector('app-diagnostics-strip')).toBeNull();
+      expect(host.querySelector('[data-region="analytics-footer"]')).toBeNull();
+    });
+
+    it('when driftDiagnostics is all-clear (zero counts, reconciliation_ok), strip is not rendered', () => {
+      const { fixture, store, host } = setup();
+      store.setDriftDiagnostics(makeBuilderDiagnostics());
+      fixture.detectChanges();
+      expect(host.querySelector('app-diagnostics-strip')).toBeNull();
+    });
+
+    it('when driftDiagnostics has a non-zero count, strip is rendered in analytics-footer', () => {
+      const { fixture, store, host } = setup();
+      store.setDriftDiagnostics(
+        makeBuilderDiagnostics({ unmapped_count: 2 }),
+      );
+      fixture.detectChanges();
+      expect(host.querySelector('[data-region="analytics-footer"]')).not.toBeNull();
+      expect(host.querySelector('app-diagnostics-strip')).not.toBeNull();
+    });
+
+    it('when reconciliation_ok is false, strip is rendered even with zero counts', () => {
+      const { fixture, store, host } = setup();
+      store.setDriftDiagnostics(
+        makeBuilderDiagnostics({
+          reconciliation_ok: false,
+          reconciliation_delta_pct: 0.03,
+          sum_eur: 9700,
+          invested_eur: 10000,
+          delta_eur: 300,
+        }),
+      );
+      fixture.detectChanges();
+      expect(host.querySelector('app-diagnostics-strip')).not.toBeNull();
+      expect(host.querySelector('[data-region="diagnostics-reconciliation"]')).not.toBeNull();
+    });
   });
 
   describe('live-state overlay', () => {

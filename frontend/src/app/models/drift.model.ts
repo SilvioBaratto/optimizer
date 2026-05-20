@@ -9,6 +9,19 @@ export type PositionFlag =
   | 'reconciliation_mismatch'
   | 'target_not_on_broker';
 
+export interface FlagInstance {
+  readonly code: PositionFlag;
+  readonly reason: string;
+  readonly reference: string | null;
+}
+
+export interface DiagnosticEntry {
+  readonly code: PositionFlag;
+  readonly reason: string;
+  readonly reference: string | null;
+  readonly ticker: string | null;
+}
+
 export interface NormalizedPosition {
   readonly ticker: string;
   readonly t212_ticker: string;
@@ -18,7 +31,7 @@ export interface NormalizedPosition {
   readonly eur_value: number;
   readonly eur_weight: number;
   readonly ppl_eur: number | null;
-  readonly flags: readonly PositionFlag[];
+  readonly flags: readonly FlagInstance[];
 }
 
 export interface TargetWeight {
@@ -32,7 +45,7 @@ export interface DriftRow {
   readonly target_weight: number;
   readonly delta_weight: number;
   readonly eur_value: number;
-  readonly flags: readonly PositionFlag[];
+  readonly flags: readonly FlagInstance[];
 }
 
 export interface TradeRow {
@@ -58,6 +71,12 @@ export interface DriftDiagnostics {
   readonly fx_missing_count: number;
   readonly target_not_on_broker_count: number;
   readonly base_currency: string;
+  readonly sum_eur: number;
+  readonly invested_eur: number;
+  readonly delta_eur: number;
+  readonly tolerance_pct: number;
+  readonly stale_price_count: number;
+  readonly entries: readonly DiagnosticEntry[];
 }
 
 export interface DriftResponse {
@@ -72,4 +91,14 @@ export interface DriftResponse {
 
 export interface BuilderTrade extends TradeRow {
   readonly delta_weight: number;
+  readonly flags: readonly FlagInstance[];
+}
+
+const GREYED_FLAG_CODES: ReadonlySet<PositionFlag> = new Set<PositionFlag>([
+  'unmapped',
+  'target_not_on_broker',
+]);
+
+export function isGreyedByFlags(flags: readonly FlagInstance[]): boolean {
+  return flags.some((f) => GREYED_FLAG_CODES.has(f.code));
 }

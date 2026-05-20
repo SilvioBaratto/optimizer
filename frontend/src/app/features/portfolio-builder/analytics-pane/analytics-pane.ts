@@ -6,6 +6,7 @@ import {
   inject,
 } from '@angular/core';
 
+import type { DriftDiagnostics } from '../../../models/drift.model';
 import {
   MetricColorPipe,
   type MetricKind,
@@ -13,6 +14,7 @@ import {
 } from '../../../shared/pipes/metric-color.pipe';
 import { BuilderStore } from '../builder.store';
 import { CanvasStateOverlayComponent } from '../canvas-state-overlay/canvas-state-overlay';
+import { DiagnosticsStripComponent } from './diagnostics-strip/diagnostics-strip.component';
 
 export interface MetricCard {
   readonly id: string;
@@ -23,10 +25,24 @@ export interface MetricCard {
   readonly unit: string;
 }
 
+function hasAnySignal(d: DriftDiagnostics): boolean {
+  return (
+    d.unmapped_count > 0 ||
+    d.fx_missing_count > 0 ||
+    d.stale_price_count > 0 ||
+    d.target_not_on_broker_count > 0 ||
+    d.reconciliation_ok === false
+  );
+}
+
 @Component({
   selector: 'app-analytics-pane',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CanvasStateOverlayComponent, MetricColorPipe],
+  imports: [
+    CanvasStateOverlayComponent,
+    DiagnosticsStripComponent,
+    MetricColorPipe,
+  ],
   template: `
     <section data-region="analytics-pane" class="h-full">
       <app-canvas-state-overlay
@@ -56,6 +72,12 @@ export interface MetricCard {
           }
         </div>
       </app-canvas-state-overlay>
+      @let strip = stripDiagnostics();
+      @if (strip !== null) {
+        <footer data-region="analytics-footer" class="px-4 pb-4">
+          <app-diagnostics-strip [diagnostics]="strip" />
+        </footer>
+      }
     </section>
   `,
 })
@@ -73,6 +95,12 @@ export class AnalyticsPaneComponent {
       this.card('turnover', 'Turnover', stats?.['turnover'] ?? stats?.['mean_turnover'], 'percent', false, 'rebal avg'),
       this.card('cost', 'Rebalancing Cost', stats?.['cost_bps_actual'] ?? stats?.['cost_bps'], 'ratio', false, 'bps'),
     ];
+  });
+
+  readonly stripDiagnostics: Signal<DriftDiagnostics | null> = computed(() => {
+    const d = this.store.driftDiagnostics()?.diagnostics;
+    if (!d) return null;
+    return hasAnySignal(d) ? d : null;
   });
 
   protected readonly onRetry = (): void => this.store.triggerResultRun();

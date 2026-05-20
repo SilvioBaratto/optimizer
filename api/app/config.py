@@ -178,6 +178,16 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Portfolio drift — stale-price freshness threshold (issue #794, used by #795)
+    stale_price_threshold_hours: int = Field(
+        default=48,
+        alias="STALE_PRICE_THRESHOLD_HOURS",
+        description=(
+            "Age (hours) past which a position's last-tick timestamp is "
+            "considered stale and triggers a STALE_PRICE diagnostic flag."
+        ),
+    )
+
     # Notifications
     notification_webhook_url: str | None = Field(
         default=None,

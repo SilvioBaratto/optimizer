@@ -9,7 +9,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.portfolio.normalized_position import NormalizedPosition, PositionFlag
+from app.schemas.portfolio.diagnostic_entry import DiagnosticEntry
+from app.schemas.portfolio.normalized_position import FlagList, NormalizedPosition
 
 
 class BaseToggle(str, Enum):
@@ -63,7 +64,7 @@ class DriftRow(BaseModel):
     target_weight: float
     delta_weight: float
     eur_value: float
-    flags: list[PositionFlag] = Field(default_factory=list)
+    flags: FlagList = Field(default_factory=list)
 
     @field_validator("current_weight")
     @classmethod
@@ -106,7 +107,7 @@ class DriftTotals(BaseModel):
 
 
 class DriftDiagnostics(BaseModel):
-    """Aggregate diagnostic flag counts + reconciliation status."""
+    """Aggregate diagnostic flag counts + reconciliation status + entries."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -116,6 +117,12 @@ class DriftDiagnostics(BaseModel):
     fx_missing_count: int
     target_not_on_broker_count: int
     base_currency: str
+    sum_eur: float = 0.0
+    invested_eur: float = 0.0
+    delta_eur: float = 0.0
+    tolerance_pct: float = 0.0
+    stale_price_count: int = 0
+    entries: list[DiagnosticEntry] = Field(default_factory=list)
 
 
 class DriftResponse(BaseModel):

@@ -1,16 +1,16 @@
 # Graph Report - optimizer  (2026-05-20)
 
 ## Corpus Check
-- 1443 files · ~2,655,608 words
+- 1450 files · ~2,660,783 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 23965 nodes · 48305 edges · 1706 communities (1075 shown, 631 thin omitted)
-- Extraction: 82% EXTRACTED · 18% INFERRED · 0% AMBIGUOUS · INFERRED: 8849 edges (avg confidence: 0.7)
+- 24085 nodes · 48623 edges · 1677 communities (1057 shown, 620 thin omitted)
+- Extraction: 82% EXTRACTED · 18% INFERRED · 0% AMBIGUOUS · INFERRED: 8962 edges (avg confidence: 0.7)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `64c06b53`
+- Built from commit: `db4e55f3`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1280,14 +1280,11 @@
 - [[_COMMUNITY_Community 1332|Community 1332]]
 - [[_COMMUNITY_Community 1333|Community 1333]]
 - [[_COMMUNITY_Community 1334|Community 1334]]
-- [[_COMMUNITY_Community 1335|Community 1335]]
 - [[_COMMUNITY_Community 1340|Community 1340]]
 - [[_COMMUNITY_Community 1341|Community 1341]]
-- [[_COMMUNITY_Community 1342|Community 1342]]
 - [[_COMMUNITY_Community 1343|Community 1343]]
 - [[_COMMUNITY_Community 1345|Community 1345]]
 - [[_COMMUNITY_Community 1346|Community 1346]]
-- [[_COMMUNITY_Community 1347|Community 1347]]
 - [[_COMMUNITY_Community 1349|Community 1349]]
 - [[_COMMUNITY_Community 1350|Community 1350]]
 - [[_COMMUNITY_Community 1351|Community 1351]]
@@ -1300,17 +1297,13 @@
 - [[_COMMUNITY_Community 1358|Community 1358]]
 - [[_COMMUNITY_Community 1359|Community 1359]]
 - [[_COMMUNITY_Community 1360|Community 1360]]
-- [[_COMMUNITY_Community 1361|Community 1361]]
 - [[_COMMUNITY_Community 1362|Community 1362]]
 - [[_COMMUNITY_Community 1363|Community 1363]]
-- [[_COMMUNITY_Community 1364|Community 1364]]
 - [[_COMMUNITY_Community 1365|Community 1365]]
 - [[_COMMUNITY_Community 1366|Community 1366]]
 - [[_COMMUNITY_Community 1367|Community 1367]]
 - [[_COMMUNITY_Community 1368|Community 1368]]
 - [[_COMMUNITY_Community 1369|Community 1369]]
-- [[_COMMUNITY_Community 1370|Community 1370]]
-- [[_COMMUNITY_Community 1371|Community 1371]]
 - [[_COMMUNITY_Community 1373|Community 1373]]
 - [[_COMMUNITY_Community 1374|Community 1374]]
 - [[_COMMUNITY_Community 1379|Community 1379]]
@@ -1319,7 +1312,6 @@
 - [[_COMMUNITY_Community 1382|Community 1382]]
 - [[_COMMUNITY_Community 1383|Community 1383]]
 - [[_COMMUNITY_Community 1384|Community 1384]]
-- [[_COMMUNITY_Community 1387|Community 1387]]
 - [[_COMMUNITY_Community 1389|Community 1389]]
 - [[_COMMUNITY_Community 1390|Community 1390]]
 - [[_COMMUNITY_Community 1392|Community 1392]]
@@ -1333,7 +1325,6 @@
 - [[_COMMUNITY_Community 1401|Community 1401]]
 - [[_COMMUNITY_Community 1402|Community 1402]]
 - [[_COMMUNITY_Community 1403|Community 1403]]
-- [[_COMMUNITY_Community 1404|Community 1404]]
 - [[_COMMUNITY_Community 1405|Community 1405]]
 - [[_COMMUNITY_Community 1406|Community 1406]]
 - [[_COMMUNITY_Community 1408|Community 1408]]
@@ -1372,7 +1363,6 @@
 - [[_COMMUNITY_Community 1445|Community 1445]]
 - [[_COMMUNITY_Community 1446|Community 1446]]
 - [[_COMMUNITY_Community 1447|Community 1447]]
-- [[_COMMUNITY_Community 1450|Community 1450]]
 - [[_COMMUNITY_Community 1452|Community 1452]]
 - [[_COMMUNITY_Community 1453|Community 1453]]
 - [[_COMMUNITY_Community 1454|Community 1454]]
@@ -1387,7 +1377,6 @@
 - [[_COMMUNITY_Community 1466|Community 1466]]
 - [[_COMMUNITY_Community 1467|Community 1467]]
 - [[_COMMUNITY_Community 1475|Community 1475]]
-- [[_COMMUNITY_Community 1478|Community 1478]]
 - [[_COMMUNITY_Community 1479|Community 1479]]
 - [[_COMMUNITY_Community 1480|Community 1480]]
 - [[_COMMUNITY_Community 1481|Community 1481]]
@@ -1417,7 +1406,6 @@
 - [[_COMMUNITY_Community 1520|Community 1520]]
 - [[_COMMUNITY_Community 1525|Community 1525]]
 - [[_COMMUNITY_Community 1529|Community 1529]]
-- [[_COMMUNITY_Community 1530|Community 1530]]
 - [[_COMMUNITY_Community 1537|Community 1537]]
 - [[_COMMUNITY_Community 1538|Community 1538]]
 - [[_COMMUNITY_Community 1553|Community 1553]]
@@ -1461,7 +1449,6 @@
 - [[_COMMUNITY_Community 1652|Community 1652]]
 - [[_COMMUNITY_Community 1653|Community 1653]]
 - [[_COMMUNITY_Community 1654|Community 1654]]
-- [[_COMMUNITY_Community 1655|Community 1655]]
 - [[_COMMUNITY_Community 1656|Community 1656]]
 - [[_COMMUNITY_Community 1657|Community 1657]]
 - [[_COMMUNITY_Community 1658|Community 1658]]
@@ -1475,26 +1462,10 @@
 - [[_COMMUNITY_Community 1666|Community 1666]]
 - [[_COMMUNITY_Community 1667|Community 1667]]
 - [[_COMMUNITY_Community 1668|Community 1668]]
-- [[_COMMUNITY_Community 1670|Community 1670]]
 - [[_COMMUNITY_Community 1671|Community 1671]]
-- [[_COMMUNITY_Community 1672|Community 1672]]
-- [[_COMMUNITY_Community 1673|Community 1673]]
 - [[_COMMUNITY_Community 1674|Community 1674]]
-- [[_COMMUNITY_Community 1675|Community 1675]]
-- [[_COMMUNITY_Community 1676|Community 1676]]
-- [[_COMMUNITY_Community 1678|Community 1678]]
-- [[_COMMUNITY_Community 1681|Community 1681]]
-- [[_COMMUNITY_Community 1687|Community 1687]]
-- [[_COMMUNITY_Community 1688|Community 1688]]
 - [[_COMMUNITY_Community 1689|Community 1689]]
 - [[_COMMUNITY_Community 1690|Community 1690]]
-- [[_COMMUNITY_Community 1691|Community 1691]]
-- [[_COMMUNITY_Community 1692|Community 1692]]
-- [[_COMMUNITY_Community 1693|Community 1693]]
-- [[_COMMUNITY_Community 1694|Community 1694]]
-- [[_COMMUNITY_Community 1695|Community 1695]]
-- [[_COMMUNITY_Community 1696|Community 1696]]
-- [[_COMMUNITY_Community 1697|Community 1697]]
 - [[_COMMUNITY_Community 1701|Community 1701]]
 - [[_COMMUNITY_Community 1704|Community 1704]]
 
@@ -1599,23 +1570,23 @@
 - **optimize() DB-to-weights orchestration** — strategies_optimize, strategies_build_optimizer, strategies_get_db_manager [EXTRACTED 1.00]
 - **After-tax return reconstruction** — returns_compute_after_tax, returns_txn_cost, returns_tax_drag [EXTRACTED 1.00]
 
-## Communities (1706 total, 631 thin omitted)
+## Communities (1677 total, 620 thin omitted)
 
 ### Community 0 - "API Views & Scenarios"
 Cohesion: 0.04
-Nodes (51): ExpertPersona, CamelCaseModel, MacroCalibrationResponse, Calibrated Black-Litterman parameters from LLM macro regime classification., StressScenarioItem, StressScenarioRequest, StressScenarioResponse, Tests for schema extraction issue #352.  Verifies that all inline schemas have b (+43 more)
+Nodes (49): ExpertPersona, MacroCalibrationResponse, Calibrated Black-Litterman parameters from LLM macro regime classification., StressScenarioRequest, Tests for schema extraction issue #352.  Verifies that all inline schemas have b, MacroCalibrationResponse must live in api/app/schemas/macro_regime., api/app/schemas/views.py must exist and contain the expected schemas., api/app/schemas/stress_scenarios.py must exist with expected schemas. (+41 more)
 
 ### Community 1 - "Optimizer Validation & Reporting"
 Cohesion: 0.03
-Nodes (104): SentimentLabel, LinkageMethodType, Configuration for hierarchical clustering selection.  The :class:`HierarchicalCl, Linkage method for agglomerative hierarchical clustering., DistanceEstimatorType, Distance estimator selection., Enum, CompositeMethod (+96 more)
+Nodes (83): SentimentLabel, LinkageMethodType, Configuration for hierarchical clustering selection.  The :class:`HierarchicalCl, Linkage method for agglomerative hierarchical clustering., Enum, CompositeMethod, GroupWeight, ICFallbackStrategy (+75 more)
 
 ### Community 2 - "Macro Regime API & Tests"
-Cohesion: 0.19
-Nodes (5): _make_bond_yield_obs(), _make_mock_repo(), Return a MagicMock repo with sensible empty defaults., TestGetBondYieldObservations, TestGetDistinctCountries
+Cohesion: 0.09
+Nodes (17): _make_bond_yield_obs(), _make_econ_obs(), _make_macro_news(), _make_mock_repo(), _make_te_obs(), _patch_repo(), Unit tests for macro regime data read endpoints.  All tests mock MacroRegimeRepo, Return a MagicMock repo with sensible empty defaults. (+9 more)
 
 ### Community 3 - "Async Job Endpoints"
 Cohesion: 0.13
-Nodes (89): AsyncJobCreateResponse, AsyncJobProgress, BacktestRunResponse, Response schema for a single backtest run row., FactorScoreResponse, FactorValidationReportResponse, Response schema for a single factor score row., Response schema for a factor validation report row. (+81 more)
+Nodes (90): AsyncJobCreateResponse, AsyncJobProgress, BacktestRunResponse, Response schema for a single backtest run row., FactorScoreResponse, FactorValidationReportResponse, Response schema for a single factor score row., Response schema for a factor validation report row. (+82 more)
 
 ### Community 4 - "News Sentiment Pipeline"
 Cohesion: 0.05
@@ -1631,7 +1602,7 @@ Nodes (36): OAS(), MomentEstimationConfig, build_cov_estimator(), build_mu_estim
 
 ### Community 7 - "Service Import Boundary Tests"
 Cohesion: 0.04
-Nodes (52): FactorDataError, Raised when required factor data is missing from the database., Integration tests: flat service files resolve from domain folders (issue #612)., TestAttributionServices, TestBacktestServices, TestDashboardServices, TestFactorsServices, TestJobsServices (+44 more)
+Nodes (53): FactorDataError, Raised when required factor data is missing from the database., Integration tests: flat service files resolve from domain folders (issue #612)., TestAttributionServices, TestBacktestServices, TestDashboardServices, TestFactorsServices, TestJobsServices (+45 more)
 
 ### Community 8 - "LLM Moments & Business Cycle"
 Cohesion: 0.08
@@ -1646,8 +1617,8 @@ Cohesion: 0.06
 Nodes (20): _make_concentration_result(), _make_correlation_result(), _make_factor_exposure_result(), _make_liquidity_result(), _make_portfolio(), _make_snapshot(), _make_var_result(), Unit tests for risk analytics endpoints (issues #368, #369).  Covers:   - GET /a (+12 more)
 
 ### Community 11 - "Optimization & Tuning Schemas"
-Cohesion: 0.1
-Nodes (13): OptimizationRunListResponse, OptimizeRequest, Pydantic schemas for optimization run endpoints.  Covers optimization_runs ORM m, Request body for POST /optimize., Paginated list of optimization run responses., Tests for api/app/schemas/optimization.py — optimization run schemas.  Covers (T, OptimizationRunResponse serialises ORM rows to camelCase JSON., OptimizationRunListResponse wraps paginated results. (+5 more)
+Cohesion: 0.05
+Nodes (43): _build_backtest_args(), _build_optimize_args(), _build_tune_args(), _build_validate_args(), _enable_webhook(), _new_run_id(), _patch_inner_to_raise(), _patch_inner_to_succeed() (+35 more)
 
 ### Community 12 - "Factor & Macro Models"
 Cohesion: 0.08
@@ -1659,19 +1630,19 @@ Nodes (21): BEARISH(), BULLISH(), DENOISE(), DETONE(), EARLY_EXPANSION(), EMPIRI
 
 ### Community 14 - "Optimizer Config Surface"
 Cohesion: 0.03
-Nodes (52): main(), StackingOptimization blending min-variance MeanRisk and ERC RiskBudgeting.  Comb, for_shrunk_denoised(), for_concentrated_sharpe(), for_max_sharpe_diversified(), for_max_sharpe_sector_constrained(), for_max_utility(), for_min_cvar() (+44 more)
+Nodes (53): for_max_sharpe_sector_constrained(), for_min_cvar(), MeanRiskConfig, MeanRiskConfig, ObjectiveFunctionType, Immutable configuration for :class:`skfolio.optimization.MeanRisk`.      Seriali, RiskMeasureType, _ExternallyControlledRegimeCovariance (+45 more)
 
 ### Community 15 - "Portfolio Routes & Jobs"
-Cohesion: 0.06
-Nodes (16): _make_account(), _make_portfolio(), _make_position(), _make_snapshot(), Unit tests for portfolio CRUD and broker sync endpoints.  All repositories and t, get_t212_client raises 503 when API key is absent., TestCreatePortfolio, TestCreateSnapshot (+8 more)
+Cohesion: 0.02
+Nodes (36): JobAlreadyRunningError, Raised when a job of the same type is already pending or running., POST /api/v1/backtest always launches a background job, returns 202., TestPostBacktest, _pending_job(), Unit tests for POST /api/v1/factors/compute and GET /api/v1/factors/compute/{job, GET /api/v1/factors/compute/{job_id} polls progress., POST /api/v1/factors/compute launches a background job, returns 202. (+28 more)
 
 ### Community 16 - "Resilience Infrastructure Clients"
-Cohesion: 0.05
-Nodes (57): AnalysisClient, BaseClient, LRUCache shim, CalendarsClient, CircuitBreaker, CircuitBreaker shim, CorporateActionsClient, ParseStructureError (+49 more)
+Cohesion: 0.09
+Nodes (40): AnalysisClient, BaseClient, LRUCache shim, CalendarsClient, CircuitBreaker shim, CorporateActionsClient, ParseStructureError, get_yfinance_client (+32 more)
 
 ### Community 17 - "Rebalancing & Risk Schemas"
 Cohesion: 0.06
-Nodes (25): Pydantic schemas for rebalancing policy and decide/preview endpoints.  Covers re, Rebalancing scheduling configuration for a portfolio.      Unique constraint on, RebalancingPolicy, Persist a new rebalancing policy.          Args:             data: Dict of colum, FastAPI router for risk limits CRUD endpoints (issue #370).  Routes are resource, Portfolio risk constraint with breach detection.      Unique constraint on (port, Persist a new risk limit.          Args:             data: Dict of column name →, RiskLimit (+17 more)
+Nodes (26): Pydantic schemas for rebalancing policy and decide/preview endpoints.  Covers re, Rebalancing scheduling configuration for a portfolio.      Unique constraint on, RebalancingPolicy, Persist a new rebalancing policy.          Args:             data: Dict of colum, Portfolio risk constraint with breach detection.      Unique constraint on (port, Persist a new risk limit.          Args:             data: Dict of column name →, RiskLimit, Tests for RiskLimit and RebalancingPolicy SQLAlchemy models.  Covers: - Table cr (+18 more)
 
 ### Community 18 - "Cluster 18"
 Cohesion: 0.06
@@ -1679,7 +1650,7 @@ Nodes (44): _build_factor_scores_dict(), _build_multiindex_factor_df(), _build_m
 
 ### Community 19 - "Cluster 19"
 Cohesion: 0.08
-Nodes (21): _clamp_scenario(), design_stress_scenarios(), _ensure_market_drawdown(), generate_stress_scenarios(), LLM-driven stress scenario design for forward-looking tail risk events.  Archite, Generate forward-looking stress scenarios via LLM.      Calls the BAML ``DesignS, Convert a StressScenario to sample_args for build_synthetic_data().      The ret, Use an LLM to design plausible forward-looking tail risk scenarios.      Each sc (+13 more)
+Nodes (19): _clamp_scenario(), _ensure_market_drawdown(), generate_stress_scenarios(), LLM-driven stress scenario design for forward-looking tail risk events.  Archite, Generate forward-looking stress scenarios via LLM.      Calls the BAML ``DesignS, Convert a StressScenario to sample_args for build_synthetic_data().      The ret, Return a copy of *scenario* with all fields clamped to valid ranges., Verify at least one scenario has a broad market drawdown (>10% on average). (+11 more)
 
 ### Community 20 - "Cluster 20"
 Cohesion: 0.05
@@ -1698,16 +1669,16 @@ Cohesion: 0.05
 Nodes (41): _assert_at_least_two_assets(), _assert_sufficient_data(), _build_asset_exposures(), _build_concentration_assets(), _build_liquidity_asset(), _cluster_and_reorder(), _compute_concentration_summary(), _compute_corr_matrix() (+33 more)
 
 ### Community 24 - "Cluster 24"
-Cohesion: 0.09
-Nodes (10): for_equilibrium(), for_factor_model(), for_group_views(), for_idzorek(), for_mean_views(), Configuration for view integration frameworks., Tests for view integration configs and enums., tau=0 raises ValueError (issue #68). (+2 more)
+Cohesion: 0.04
+Nodes (27): Fig43EquilibriumReturns, Fig43EquilibriumReturns — market-implied equilibrium returns by sector., Horizontal bar chart of equilibrium returns with market-cap weights.      Comput, Fig45PickMatrix, Fig45PickMatrix — heatmap of the pick matrix P for 3 canonical view types., Annotated heatmap of the pick matrix P.      Three views on a 10-asset universe:, Fig48ConfidenceSensitivity, Fig48ConfidenceSensitivity — posterior return vs view confidence sweep. (+19 more)
 
 ### Community 25 - "Cluster 25"
-Cohesion: 0.05
-Nodes (21): _make_factor_scores(), _make_price_df(), Unit tests for RiskAnalyticsService (issues #368, #369).  Covers:   - compute_va, When every weight ticker is absent from price_history, the 400 path must still f, If only one ticker has DB prices, correlation must raise the existing 'at least, Short-lookback edge case: 30-day lookback should succeed when history is abundan, Historical VaR / CVaR with known synthetic data., Parametric (normal) VaR / CVaR. (+13 more)
+Cohesion: 0.07
+Nodes (13): _make_factor_scores(), Unit tests for RiskAnalyticsService (issues #368, #369).  Covers:   - compute_va, Historical VaR / CVaR with known synthetic data., Parametric (normal) VaR / CVaR., Clustered correlation matrix tests., Portfolio-weighted factor exposure tests., Weighted exposure = sum(weight_i * score_i) for each factor., Regression for #424: absence of factor scores is an empty state, not 404. (+5 more)
 
 ### Community 26 - "Cluster 26"
-Cohesion: 0.06
-Nodes (24): ExecutionRepository, Repository for optimization and backtest execution run persistence., Update the status of an existing optimization run.          Args:             ru, Return a single BacktestRun by its primary-key UUID, or None., Return backtest runs with optional filtering.          Args:             portfol, Repository for :class:`OptimizationRun` and :class:`BacktestRun` persistence., Return the most recently created backtest run for *portfolio_id*.          Args:, Persist a new backtest run.          Args:             data: Dict of column name (+16 more)
+Cohesion: 0.07
+Nodes (22): ExecutionRepository, Repository for optimization and backtest execution run persistence., Update the status of an existing optimization run.          Args:             ru, Return a single BacktestRun by its primary-key UUID, or None., Return backtest runs with optional filtering.          Args:             portfol, Repository for :class:`OptimizationRun` and :class:`BacktestRun` persistence., Return the most recently created backtest run for *portfolio_id*.          Args:, Update the status of an existing backtest run.          Args:             run_id (+14 more)
 
 ### Community 27 - "Cluster 27"
 Cohesion: 0.18
@@ -1738,24 +1709,24 @@ Cohesion: 0.08
 Nodes (20): _seed_snapshot(), PortfolioSnapshot, Point-in-time snapshot of portfolio weights from optimizer or rebalance., SnapshotWeight, _make_policy(), _make_portfolio(), _make_snapshot(), Unit tests for POST /api/v1/rebalance/decide and GET /api/v1/rebalance/preview. (+12 more)
 
 ### Community 34 - "Cluster 34"
-Cohesion: 0.04
-Nodes (47): FactorType, FactorValidationConfig, Individual factor identifiers., Configuration for factor validation and statistical testing.      Parameters, Configuration for factor validation and statistical testing.      Parameters, 5 observations pass default (min=3) but fail min_observations=6., TestBenjaminiHochberg, TestComputeICStats (+39 more)
+Cohesion: 0.05
+Nodes (42): FactorType, FactorValidationConfig, Individual factor identifiers., Configuration for factor validation and statistical testing.      Parameters, Configuration for factor validation and statistical testing.      Parameters, 5 observations pass default (min=3) but fail min_observations=6., TestBenjaminiHochberg, TestComputeICStats (+34 more)
 
 ### Community 35 - "Cluster 35"
 Cohesion: 0.09
 Nodes (3): BamlAsyncClient, BamlHttpRequestClient, BamlHttpStreamRequestClient
 
 ### Community 36 - "Cluster 36"
-Cohesion: 0.05
-Nodes (16): PipelineSessionCapacityError, Raised when ``create_session`` would exceed ``MAX_CONCURRENT_SESSIONS``., _build_session(), Tests for the ``pipeline_builder`` package skeleton (issue #689)., TestCapacityError, TestConstants, TestImportBoundaries, TestModulePrivatePlaceholders (+8 more)
+Cohesion: 0.07
+Nodes (12): PipelineSessionCapacityError, Raised when ``create_session`` would exceed ``MAX_CONCURRENT_SESSIONS``., _build_session(), Tests for the ``pipeline_builder`` package skeleton (issue #689)., TestCapacityError, TestConstants, TestImportBoundaries, TestModulePrivatePlaceholders (+4 more)
 
 ### Community 37 - "Cluster 37"
 Cohesion: 0.06
 Nodes (45): BamlAsyncClient, baml_client.globals, baml_client.inlinedbaml, baml_client (generated BAML client 'b'), baml_client.parser, baml_client.runtime, BamlSyncClient, baml_client.type_builder (TypeBuilder) (+37 more)
 
 ### Community 38 - "Cluster 38"
-Cohesion: 0.08
-Nodes (13): computeDrawdownSeries(), map, toConcentrationMetrics(), toFactorExposures(), toLiquidityMetrics(), toStressScenarios(), toVarResults(), buildRouteSection() (+5 more)
+Cohesion: 0.04
+Nodes (18): computeDrawdownSeries(), MacroIntelligenceComponent, classifyStatus(), computeQuintiles(), deriveSelectRows(), map, toConcentrationMetrics(), toFactorExposures() (+10 more)
 
 ### Community 39 - "Cluster 39"
 Cohesion: 0.12
@@ -1766,8 +1737,8 @@ Cohesion: 0.07
 Nodes (22): FactorValidationReport, Validation report from ``run_factor_validation()``.      Also covers ``run_facto, FactorRepository, Repository for factor research persistence operations., Return all factor scores recorded on *score_date*.          Args:             sc, Upsert a batch of factor scores using the unique constraint.          Delegates, Return validation reports filtered by optional criteria.          Args:, Repository for FactorScore and FactorValidationReport persistence.      Follows (+14 more)
 
 ### Community 41 - "Cluster 41"
-Cohesion: 0.02
-Nodes (78): _add_legend_patches(), Fig39HMMRegimes — three-panel HMM regime detection figure., Fill axis background with regime colour spans., Add coloured patch legend for regime shading., _shade_regimes(), Fig52EPViewTypes, Fig52EPViewTypes — multi-panel distributions for different EP view types., Multi-panel (2x3) density plots showing EP effect per view type.      Each panel (+70 more)
+Cohesion: 0.03
+Nodes (56): Fig15ISvsOOSIC, Fig15ISvsOOSIC — In-sample vs out-of-sample IC stability across CV folds., Synthetic IS vs OOS IC for illustration., Multi-panel chart comparing IS and OOS IC across rolling CV folds.      Paramete, Fig52EPViewTypes, Fig52EPViewTypes — multi-panel distributions for different EP view types., Multi-panel (2x3) density plots showing EP effect per view type.      Each panel, _tilt_cvar() (+48 more)
 
 ### Community 42 - "Cluster 42"
 Cohesion: 0.04
@@ -1783,15 +1754,15 @@ Nodes (15): BackgroundJobRepository, Database operations for the ``background_jo
 
 ### Community 45 - "Cluster 45"
 Cohesion: 0.08
-Nodes (27): create_limit(), delete_limit(), list_limits(), Update ``current_value`` and ``is_breached`` for an existing risk limit., Delete a risk limit by ID. Returns 404 if the limit does not exist., Lookup portfolio by name; raise 404 if not found., Re-evaluate is_breached from stored current_value for each limit.      upper → b, Return all risk limits for a portfolio.      When ``refresh=true``, re-evaluates (+19 more)
+Nodes (28): create_limit(), delete_limit(), list_limits(), FastAPI router for risk limits CRUD endpoints (issue #370).  Routes are resource, Update ``current_value`` and ``is_breached`` for an existing risk limit., Delete a risk limit by ID. Returns 404 if the limit does not exist., Lookup portfolio by name; raise 404 if not found., Re-evaluate is_breached from stored current_value for each limit.      upper → b (+20 more)
 
 ### Community 46 - "Cluster 46"
 Cohesion: 0.07
 Nodes (24): get_rebalance_preview(), post_rebalance_decide(), FastAPI router for rebalancing decide and preview endpoints.  Routes:   POST /ap, Compute whether to rebalance given weights and a policy.      Fully stateless —, Produce a trade list from the latest snapshot and active policy.      Returns 40, Response body for POST /api/v1/rebalance/decide., A single trade recommendation in the preview response., Response body for GET /api/v1/rebalance/preview/{portfolio_name}.      Empty-sta (+16 more)
 
 ### Community 47 - "Cluster 47"
-Cohesion: 0.17
-Nodes (5): Fig92RebalancingFrequency — rebalancing frequency tradeoff bar chart., Fig93TradeTriggers — calendar vs threshold trade trigger time series., Fig94GrossVsNet — gross vs net cumulative returns., Full pipeline: prices to validated weights with rebalancing.  Uses the skfolio S, optimizer.rebalancing (should_rebalance, compute_turnover, etc.)
+Cohesion: 0.03
+Nodes (36): Fig84WalkForward, Fig84WalkForward — walk-forward Gantt chart with rolling vs expanding., Timeline showing 5 walk-forward steps: rolling and expanding variants.      Pure, Fig85RollingVsExpanding, Fig85RollingVsExpanding — rolling vs expanding Sharpe comparison., Dual-panel: OOS portfolio Sharpe per walk-forward step under     rolling vs expa, Fig86CPCVFoldMatrix, Fig86CPCVFoldMatrix — CPCV fold assignment matrix for C(6,2)=15 combinations. (+28 more)
 
 ### Community 48 - "Cluster 48"
 Cohesion: 0.02
@@ -1802,32 +1773,32 @@ Cohesion: 0.12
 Nodes (15): _make_account(), _make_portfolio(), _make_prices(), _make_snapshot(), _make_snapshot_with_sectors(), Unit tests for dashboard route endpoints.  Mocks PortfolioRepository and Dashboa, Issue #460: benchmark ticker absent from instruments table., Issue #460: benchmark exists in instruments but has no price rows. (+7 more)
 
 ### Community 50 - "Cluster 50"
-Cohesion: 0.07
-Nodes (36): create_snapshot upsert on (portfolio_id, date, type), dashboard activity route, Portfolio model, portfolio repositories package init, portfolio ORM models, BrokerAccountSnapshot, PortfolioRepository, Portfolio Router (+28 more)
+Cohesion: 0.06
+Nodes (38): create_snapshot upsert on (portfolio_id, date, type), dashboard activity route, Migration y5z6a7b8c9d0 (six new tables), Portfolio model, portfolio repositories package init, portfolio ORM models, BrokerAccountSnapshot, app.api.v1.portfolio.portfolio (+30 more)
 
 ### Community 51 - "Cluster 51"
 Cohesion: 0.05
 Nodes (27): MacroRegimeRepository, Repository for macro regime data access with PostgreSQL upsert support., Query IlSole forecast time-series observations., Bulk upsert Trading Economics indicator rows for a country.          Args:, Bulk upsert TE observation rows for a country on a given date.          Args:, Query TE time-series observations with optional filters., Sync repository for macro regime data. Uses PostgreSQL ON CONFLICT upsert., Bulk upsert bond yield observation rows for a country on a given date. (+19 more)
 
 ### Community 52 - "Cluster 52"
-Cohesion: 0.04
-Nodes (71): AssetFactorData, AssetView, CountryNewsSummary, CovRegimeSelection, DeltaCalibration, FactorWeightAdaptation, MacroRegimeCalibration, NewsArticle (+63 more)
+Cohesion: 0.05
+Nodes (62): AssetFactorData, AssetView, CountryNewsSummary, CovRegimeSelection, DeltaCalibration, FactorWeightAdaptation, MacroRegimeCalibration, NewsArticle (+54 more)
 
 ### Community 53 - "Cluster 53"
 Cohesion: 0.09
 Nodes (29): PublicationLagConfig, Differentiated publication lags by data source type.      Each source has an ind, _build_score_rows(), _load_fundamentals(), _load_prices(), Factor computation service — DB fetch, compute, and persist factor scores.  Resp, Fetch financial statement data and apply PIT alignment.      Args:         sessi, Fetch price history and pivot to a dates x tickers matrix.      Args:         se (+21 more)
 
 ### Community 54 - "Cluster 54"
-Cohesion: 0.15
-Nodes (9): CountryNewsFetcher, _is_article_recent(), _parse_article_date(), Country-level news aggregation with deduplication and recency filtering.  Extrac, Fetches, deduplicates, and enriches financial news per country.      Parameters, NewsClient, MacroNewsFetcher, Fetches macro-themed news from yfinance tickers and search queries.      Paramet (+1 more)
+Cohesion: 0.08
+Nodes (20): Fetch macro-themed news from yfinance and store in DB.          Returns:, CountryNewsFetcher, _is_article_recent(), _parse_article_date(), Country-level news aggregation with deduplication and recency filtering.  Extrac, Fetches, deduplicates, and enriches financial news per country.      Parameters, NewsClient, News fetching and article scraping. (+12 more)
 
 ### Community 55 - "Cluster 55"
 Cohesion: 0.04
-Nodes (54): _build_schedule_registry(), create_scheduler(), _get_last_refresh_time(), Return union of ``settings.benchmark_tickers`` + active portfolio benchmarks., Run ``seed_reference_indices`` as a tracked background job.      Args:         l, Run ``seed_reference_indices`` as a tracked background job.      Args:         l, Run a single pipeline step synchronously.      The service function ``fn`` must, Run a single pipeline step synchronously.      The service function ``fn`` must (+46 more)
+Nodes (60): _build_schedule_registry(), create_scheduler(), Return union of ``settings.benchmark_tickers`` + active portfolio benchmarks., Run ``seed_reference_indices`` as a tracked background job.      Args:         l, Run ``seed_reference_indices`` as a tracked background job.      Args:         l, Run a single pipeline step synchronously.      The service function ``fn`` must, Run a single pipeline step synchronously.      The service function ``fn`` must, Sequential pipeline: ref-indices → yfinance → macro → news → summarize → calibra (+52 more)
 
 ### Community 56 - "Cluster 56"
 Cohesion: 0.03
-Nodes (75): ActivityFeedResponse, ActivityItem, AllocationChild, AllocationNode, AllocationResponse, AssetClassReturnRow, AssetClassReturnsResponse, DriftEntry (+67 more)
+Nodes (98): BrinsonSectorRow, Attribution effects for a single sector., CamelCaseModel, ActivityFeedResponse, ActivityItem, AllocationChild, AllocationNode, AllocationResponse (+90 more)
 
 ### Community 57 - "Cluster 57"
 Cohesion: 0.07
@@ -1839,31 +1810,31 @@ Nodes (14): _make_limit(), _make_portfolio(), Unit tests for risk limits CRUD en
 
 ### Community 59 - "Cluster 59"
 Cohesion: 0.1
-Nodes (23): Portfolio, Top-level portfolio entity., activate_rebalance_policy(), create_rebalance_policy(), list_rebalance_policies(), FastAPI router for rebalancing policy CRUD and activate endpoints.  Routes:   GE, Activate a rebalancing policy, deactivating all others for the portfolio.      R, Return all rebalancing policies for the named portfolio.      Returns 404 when t (+15 more)
+Nodes (21): activate_rebalance_policy(), create_rebalance_policy(), list_rebalance_policies(), FastAPI router for rebalancing policy CRUD and activate endpoints.  Routes:   GE, Activate a rebalancing policy, deactivating all others for the portfolio.      R, Return all rebalancing policies for the named portfolio.      Returns 404 when t, Create a new rebalancing policy.      Returns 404 when the portfolio does not ex, _resolve_portfolio_or_404() (+13 more)
 
 ### Community 60 - "Cluster 60"
 Cohesion: 0.06
 Nodes (35): _bond_row(), _bond_soup(), _country_list_soup(), _country_row(), _fake_response(), _indicators_row(), _indicators_soup(), _make_scraper() (+27 more)
 
 ### Community 61 - "Cluster 61"
-Cohesion: 0.1
-Nodes (19): _make_asset_view(), _make_factor_data(), _make_generated_views(), _make_view_output(), Unit tests for LLM-driven Black-Litterman view generation., 200 bps with direction +1 → Q = +0.02., Each view string must contain '==' — required by skfolio BlackLitterman., LLM may hallucinate a ticker not in the universe — must be dropped. (+11 more)
+Cohesion: 0.09
+Nodes (23): AssetView, _make_asset_view(), _make_factor_data(), _make_generated_views(), _make_view_output(), Unit tests for LLM-driven Black-Litterman view generation., 200 bps with direction +1 → Q = +0.02., Each view string must contain '==' — required by skfolio BlackLitterman. (+15 more)
 
 ### Community 62 - "Cluster 62"
 Cohesion: 0.08
 Nodes (34): Migration: remove JSONB raw_json/related_tickers columns, Migration: add server defaults to timestamp columns, Migration: rebuild macro tables to match ORM, Migration: expand reference-index seed to 10 benchmarks, Migration: normalize and optimize models, Migration: add regime_classification to macro_calibrations, Migration: align exchanges table with ORM, Migration: add worker liveness columns to background_jobs (+26 more)
 
 ### Community 63 - "Cluster 63"
-Cohesion: 0.05
-Nodes (45): BacktestJobResponse, BacktestProgressResponse, BacktestRequest, BacktestRunListResponse, Returned when a backtest background job is created (POST /backtest)., Progress info polled via GET /backtest/{job_id}., Request body for POST /backtest., Paginated list of backtest run responses. (+37 more)
+Cohesion: 0.09
+Nodes (15): BacktestJobResponse, BacktestProgressResponse, BacktestRequest, BacktestRunListResponse, Returned when a backtest background job is created (POST /backtest)., Progress info polled via GET /backtest/{job_id}., Request body for POST /backtest., Paginated list of backtest run responses. (+7 more)
 
 ### Community 64 - "Cluster 64"
 Cohesion: 0.13
 Nodes (7): _completed_job(), _pending_job(), Unit tests for POST /api/v1/reports/generate and related endpoints.  TDD: tests, POST /api/v1/reports/generate validates the request body., GET /api/v1/reports/jobs/{job_id} polls job progress., TestGetReportJobStatus, TestPostGenerateValidation
 
 ### Community 65 - "Cluster 65"
-Cohesion: 0.11
-Nodes (22): _make_client(), Unit tests for Trading212Client — all HTTP calls mocked via requests., test_calls_correct_endpoint(), test_cursor_included_when_provided(), test_cursor_omitted_when_none(), test_cursor_passed_to_second_page(), test_custom_limit_forwarded(), test_default_limit_is_50() (+14 more)
+Cohesion: 0.1
+Nodes (27): _make_client(), _mock_429_error(), _mock_http_error(), _mock_response(), _raise(), Unit tests for Trading212Client — all HTTP calls mocked via requests., Helper: make side_effect raise an exception from a mock_get call., test_calls_correct_endpoint() (+19 more)
 
 ### Community 66 - "Cluster 66"
 Cohesion: 0.09
@@ -1887,47 +1858,47 @@ Nodes (38): (a) Where the stateful DataAssembly lives between step calls, Additi
 
 ### Community 71 - "Cluster 71"
 Cohesion: 0.05
-Nodes (45): PipelineStepId, ScreenStepResult, joinStepSummaries(), ResultMap, sectionSummary(), results, stageSummary(), ACCORDION_LABELS (+37 more)
+Nodes (44): PipelineStepId, joinStepSummaries(), ResultMap, sectionSummary(), results, stageSummary(), ACCORDION_LABELS, ACCORDION_SECTIONS (+36 more)
 
 ### Community 72 - "Cluster 72"
 Cohesion: 0.1
 Nodes (13): Request body for POST /risk/{portfolio_name}/limits., Request body for PUT /risk/{portfolio_name}/limits/{limit_id}., List of risk limit responses with breach summary., RiskLimitCreate, RiskLimitListResponse, RiskLimitUpdate, Tests for api/app/schemas/risk.py — risk limit schemas.  Covers (TDD Red → Green, RiskLimitListResponse wraps items with breach count. (+5 more)
 
 ### Community 73 - "Cluster 73"
-Cohesion: 0.09
-Nodes (21): _extract_close(), FxRateProvider, Spot-FX provider with per-day cache and infrastructure-grade resilience., _reject_pence(), _mk_df(), _mk_empty_df(), _mk_nan_df(), Tests for FxRateProvider (issue #775). (+13 more)
+Cohesion: 0.08
+Nodes (25): _default_breaker(), _default_cache(), _default_limiter(), _extract_close(), FxRateProvider, Per-day spot FX rate provider (issue #775).  Returns `float | None` for (from_cc, Spot-FX provider with per-day cache and infrastructure-grade resilience., _reject_pence() (+17 more)
 
 ### Community 74 - "Cluster 74"
 Cohesion: 0.08
-Nodes (34): ConcentrationAsset, ConcentrationResponse, ConcentrationSummary, CorrelationResponse, FactorExposureResponse, get_concentration(), get_correlation(), get_factor_exposure() (+26 more)
+Nodes (17): Wraps ``yf.Search`` and ``yf.Lookup``., Run a Yahoo search and return ``quotes``/``news`` plus opt-in extras.          `, SearchClient, analysis(), calendars(), corporate_actions(), financials(), funds() (+9 more)
 
 ### Community 75 - "Cluster 75"
 Cohesion: 0.06
-Nodes (26): BrokerAccountSnapshot, Snapshot of brokerage account cash/value state.      Deduplicated per (portfolio, Sector mapping entry for a portfolio snapshot., EAV entry for snapshot summary data., EAV entry for snapshot optimizer configuration., PortfolioRepository, Repository for portfolio state persistence operations., Insert or update a daily account snapshot for the given portfolio.          Dedu (+18 more)
+Nodes (24): BrokerAccountSnapshot, Snapshot of brokerage account cash/value state.      Deduplicated per (portfolio, Sector mapping entry for a portfolio snapshot., EAV entry for snapshot optimizer configuration., PortfolioRepository, Repository for portfolio state persistence operations., Insert or update a daily account snapshot for the given portfolio.          Dedu, Repository for portfolio CRUD, snapshots, positions, events, and regime states. (+16 more)
 
 ### Community 77 - "Cluster 77"
-Cohesion: 0.06
-Nodes (32): fetch_single_ticker(), get_dividends(), get_fetch_status(), get_financials(), get_insider_transactions(), get_institutional_holders(), get_mutualfund_holders(), get_news() (+24 more)
+Cohesion: 0.04
+Nodes (48): Thin wrapper managing job lifecycle around the service function., Thin wrapper managing job lifecycle around the service function., _run_bulk_fetch(), _run_macro_news_fetch(), fetch_single_ticker(), get_dividends(), get_fetch_status(), get_financials() (+40 more)
 
 ### Community 78 - "Cluster 78"
 Cohesion: 0.05
-Nodes (16): EventCollectorInternal, News fetching and article scraping., ArticleResult, Protocol, All abstract interfaces (ISP)., ArticleScraperProtocol, AsyncStreamingClientProtocol, CacheProtocol (+8 more)
+Nodes (16): EventCollectorInternal, ArticleResult, Protocol, All abstract interfaces (ISP)., ArticleScraperProtocol, AsyncStreamingClientProtocol, CacheProtocol, CalendarsClientProtocol (+8 more)
 
 ### Community 79 - "Cluster 79"
-Cohesion: 0.09
-Nodes (17): _annualized_return(), _build_country_map(), _daily_rf(), _downside_vol(), Pure metric computation functions extracted from stock_selection_pipeline.py.  Z, Build ticker → country mapping from ticker_profiles., Compound annualized return from daily returns., Forward-filled daily risk-free rate aligned to ``returns`` index. (+9 more)
+Cohesion: 0.14
+Nodes (11): _annualized_return(), _build_country_map(), Pure metric computation functions extracted from stock_selection_pipeline.py.  Z, Build ticker → country mapping from ticker_profiles., Compound annualized return from daily returns., Annualized Sharpe ratio with time-varying risk-free rate.      Fix issue #246: p, Annualised Sortino: excess return / downside vol (Cycle 4 §9.3)., _sharpe() (+3 more)
 
 ### Community 80 - "Cluster 80"
-Cohesion: 0.06
-Nodes (24): CalendarsClient, Sub-client for market calendars: earnings, IPO, splits, economic events., Wraps ``yf.Calendars`` for market-wide calendar data., Module-level API clients (no BaseClient)., Sub-client for market status and summary via ``yf.Market``., _collect_extras(), Sub-client for search and lookup via ``yf.Search`` and ``yf.Lookup``., Return enabled-extras keyed by attribute, ``None`` when absent. (+16 more)
+Cohesion: 0.09
+Nodes (16): AsyncStreamingClient, Sub-client for WebSocket streaming via ``yf.WebSocket`` / ``yf.AsyncWebSocket``., Synchronous WebSocket wrapper around ``yf.WebSocket``., Async WebSocket wrapper around ``yf.AsyncWebSocket``., StreamingClient, Cycle 4 streaming lock + handler-first contract.  Validates: 1. ``StreamingClien, test_when_20_tasks_subscribe_async_then_yf_async_websocket_constructed_once(), test_when_20_threads_subscribe_then_yf_websocket_constructed_once() (+8 more)
 
 ### Community 81 - "Cluster 81"
 Cohesion: 0.03
 Nodes (532): Communities (1574 total, 615 thin omitted), Communities (1593 total, 611 thin omitted), Communities (1599 total, 620 thin omitted), Communities (1604 total, 617 thin omitted), Communities (1612 total, 626 thin omitted), Communities (1620 total, 626 thin omitted), Communities (1626 total, 616 thin omitted), Communities (1631 total, 633 thin omitted) (+524 more)
 
 ### Community 82 - "Cluster 82"
-Cohesion: 0.12
-Nodes (21): fetch_close_prices(), Shared price-fetching helper (issue #382).  Single Responsibility: fetch close p, Fetch close prices for each ticker from price_history table.      Args:, _make_repo(), _make_row(), _patch_repo(), _patch_repo_attribution(), Unit tests for _price_fetcher.fetch_close_prices (issue #382).  TDD: Red phase — (+13 more)
+Cohesion: 0.14
+Nodes (18): fetch_close_prices(), Shared price-fetching helper (issue #382).  Single Responsibility: fetch close p, Fetch close prices for each ticker from price_history table.      Args:, _make_repo(), _make_row(), _patch_repo(), _patch_repo_attribution(), Unit tests for _price_fetcher.fetch_close_prices (issue #382).  TDD: Red phase — (+10 more)
 
 ### Community 83 - "Cluster 83"
 Cohesion: 0.07
@@ -1935,11 +1906,11 @@ Nodes (30): BacktestRunListResponse, BacktestRunResponse, AllocationResponse, Eq
 
 ### Community 84 - "Cluster 84"
 Cohesion: 0.06
-Nodes (14): In-memory cache mapping (symbol, exchange) → yfinance ticker.      One instance, TickerMappingCache, Integration tests: service sub-packages resolve from domain folders (issue #611), scrapers sub-package must resolve from macro domain., yfinance sub-package must resolve from market_data domain., services/__init__.py re-exports must resolve from new locations., trading212 sub-package must resolve from universe domain., TestScrapersDomainImport (+6 more)
+Nodes (13): In-memory cache mapping (symbol, exchange) → yfinance ticker.      One instance, TickerMappingCache, Integration tests: service sub-packages resolve from domain folders (issue #611), scrapers sub-package must resolve from macro domain., yfinance sub-package must resolve from market_data domain., services/__init__.py re-exports must resolve from new locations., trading212 sub-package must resolve from universe domain., TestScrapersDomainImport (+5 more)
 
 ### Community 85 - "Cluster 85"
 Cohesion: 0.08
-Nodes (43): BuildHistoryStepRequest, CostStepRequest, CoverageGateStepRequest, CreateSessionResponse, EmptyStepRequest, LoadStepRequest, Body for ``step_screen``., Body for ``step_build_history``. (+35 more)
+Nodes (48): BaseCurrencyEnum, BuildHistoryStepRequest, CostStepRequest, CoverageGateStepRequest, CreateSessionResponse, EmptyStepRequest, LoadStepRequest, Pydantic v2 schemas for the ``/pipeline-builder`` HTTP domain (issue #711).  Con (+40 more)
 
 ### Community 86 - "Cluster 86"
 Cohesion: 0.1
@@ -1951,11 +1922,11 @@ Nodes (43): T212 → NormalizedPosition mapper (issue #776).  Per-position pure 
 
 ### Community 88 - "Cluster 88"
 Cohesion: 0.14
-Nodes (16): _build_frontier(), extract_results(), Build result dict from fitted Portfolio., Extract weights, metrics, risk contributions, and efficient frontier., Convert list of Portfolio objects to {return, risk, weights} dicts., _to_result(), _make_mock_pipeline(), _make_mock_portfolio() (+8 more)
+Nodes (17): _build_frontier(), extract_results(), Optimization service: maps OptimizeRequest config to optimizer library calls.  S, Build result dict from fitted Portfolio., Extract weights, metrics, risk contributions, and efficient frontier., Convert list of Portfolio objects to {return, risk, weights} dicts., _to_result(), _make_mock_pipeline() (+9 more)
 
 ### Community 89 - "Cluster 89"
-Cohesion: 0.09
-Nodes (17): EntropyPoolingConfig, Immutable configuration for the Entropy Pooling prior.      All parameters map 1, build_entropy_pooling(), _merge_mean_views(), Factory functions for building skfolio view integration priors., Merge equality and inequality mean views into a single list.      skfolio's Entr, Build a skfolio Entropy Pooling prior from *config*.      Parameters     -------, mean_inequality_views field stores inequality views (issue #69). (+9 more)
+Cohesion: 0.07
+Nodes (23): MomentEstimationConfig, Immutable configuration for moment estimation and prior construction.      All p, EntropyPoolingConfig, Immutable configuration for the Entropy Pooling prior.      All parameters map 1, build_entropy_pooling(), _EmpiricalOmegaBlackLitterman, _merge_mean_views(), Factory functions for building skfolio view integration priors. (+15 more)
 
 ### Community 90 - "Cluster 90"
 Cohesion: 0.07
@@ -1966,16 +1937,16 @@ Cohesion: 0.08
 Nodes (28): UniverseBuilder.build, UniverseBuilder._mark_delisted_instruments, UniverseBuilder._process_single_instrument, UniverseBuilder, InstitutionalFieldSpec, LiquidityTier, UniverseBuilderConfig, DataCoverageFilter (+20 more)
 
 ### Community 92 - "Cluster 92"
-Cohesion: 0.1
-Nodes (15): Sector-average NaN imputation transformer., Return feature names (pass-through)., Fill NaN values using sector cross-sectional averages.      For each timestep (r, Build the internal sector → columns index., Fill NaN with leave-one-out sector averages., SectorImputer, _validate_input(), Regression-based NaN imputation from correlated neighbor assets. (+7 more)
+Cohesion: 0.07
+Nodes (26): BaseEstimator, Sector-average NaN imputation transformer., Return feature names (pass-through)., Fill NaN values using sector cross-sectional averages.      For each timestep (r, Build the internal sector → columns index., Fill NaN with leave-one-out sector averages., SectorImputer, _validate_input() (+18 more)
 
 ### Community 93 - "Cluster 93"
-Cohesion: 0.29
-Nodes (7): Architecture, code:python (@dataclass(frozen=True)), code:python (from optimizer.moments import DMMConfig, fit_dmm, blend_mome), Deep Markov Model (Optional), DMMConfig, DMMResult, Fitting and Blending
+Cohesion: 0.07
+Nodes (22): DriftResponse, EquityCurveResponse, KpiItem, Single KPI card for the dashboard strip., Response for GET /portfolio/{name}/equity-curve., Response for GET /portfolio/{name}/drift., Tests for api/app/schemas/base.py — CamelCaseModel extraction (issue #345)., Acceptance criterion: CamelCaseModel is defined in api/app/schemas/base. (+14 more)
 
 ### Community 94 - "Cluster 94"
-Cohesion: 0.05
-Nodes (28): CoverageGateStepResult, PersistStepResult, btn, card, chip, el, emitted, errEl (+20 more)
+Cohesion: 0.17
+Nodes (9): btn, card, chip, el, emitted, errEl, fix, RESULT_CLEAN (+1 more)
 
 ### Community 95 - "Cluster 95"
 Cohesion: 0.07
@@ -1987,7 +1958,7 @@ Nodes (11): compute_asset_class_returns(), Compute sector return = weighted aver
 
 ### Community 97 - "Cluster 97"
 Cohesion: 0.06
-Nodes (35): _compute_accruals(), _compute_amihud_illiquidity(), _compute_asset_growth(), _compute_book_to_price(), _compute_cash_flow_yield(), _compute_dividend_yield(), _compute_earnings_yield(), _compute_ebitda_to_ev() (+27 more)
+Nodes (33): _compute_accruals(), _compute_amihud_illiquidity(), _compute_asset_growth(), _compute_book_to_price(), _compute_cash_flow_yield(), _compute_dividend_yield(), _compute_earnings_yield(), _compute_ebitda_to_ev() (+25 more)
 
 ### Community 98 - "Cluster 98"
 Cohesion: 0.08
@@ -1999,15 +1970,15 @@ Nodes (14): FactorScore, SQLAlchemy ORM models for factor research persistence.,
 
 ### Community 100 - "Cluster 100"
 Cohesion: 0.04
-Nodes (54): _aggregate_outcome(), call_with_timeout(), _fetch_one_ticker(), _InstrumentSpec, _is_fresh(), _load_instrument_specs(), Service layer orchestrating yfinance data fetching and storage., Execute *fn*, enforcing ``self._request_timeout`` if set. (+46 more)
+Nodes (53): _aggregate_outcome(), call_with_timeout(), _fetch_one_ticker(), _InstrumentSpec, _is_fresh(), _load_instrument_specs(), Service layer orchestrating yfinance data fetching and storage., Execute *fn*, enforcing ``self._request_timeout`` if set. (+45 more)
 
 ### Community 101 - "Cluster 101"
-Cohesion: 0.06
-Nodes (12): Re-export from shared infrastructure — keeps yfinance import paths stable., CircuitBreaker, Re-export from shared infrastructure — keeps yfinance import paths stable., Shared resilience primitives for all external service clients., RateLimiter, Re-export from shared infrastructure — keeps yfinance import paths stable., Generic retry helper with exponential backoff.  Provides resilience primitives f, _default_breaker() (+4 more)
+Cohesion: 0.07
+Nodes (8): Re-export from shared infrastructure — keeps yfinance import paths stable., CircuitBreaker, Re-export from shared infrastructure — keeps yfinance import paths stable., Shared resilience primitives for all external service clients., RateLimiter, Re-export from shared infrastructure — keeps yfinance import paths stable., Generic retry helper with exponential backoff.  Provides resilience primitives f, TestCircuitBreaker
 
 ### Community 102 - "Cluster 102"
-Cohesion: 0.08
-Nodes (10): BuildProgress, BuildResult, Mark instruments that were active but absent from the latest T212 response., UniverseBuilder, FilterPipeline, Universe Building Protocols - Interface definitions for universe construction., TickerCache, TickerMapper (+2 more)
+Cohesion: 0.13
+Nodes (7): BuildProgress, BuildResult, Mark instruments that were active but absent from the latest T212 response., UniverseBuilder, FilterPipeline, TickerMapper, Trading212ApiClient
 
 ### Community 103 - "Cluster 103"
 Cohesion: 0.09
@@ -2030,8 +2001,8 @@ Cohesion: 0.11
 Nodes (22): _build_search(), _extract_tune_results(), Tuning service: maps TuneRequest to optimizer library search calls.  Stateless f, Build estimator, run grid/randomized search, return TuneResult., Dispatch to grid or randomized search factory based on search_type., Convert numpy array or list to plain list., Extract best_params, best_score, top_n candidates, and cv summary., run_tune() (+14 more)
 
 ### Community 108 - "Cluster 108"
-Cohesion: 0.08
-Nodes (12): BaseRepository, CamelCaseModel, _coerce_uuid(), _get_table(), Shared base schemas for API response models., Base model that serializes field names to camelCase.      All response models re, Extract the SQLAlchemy Table from a mapped class., Coerce uuid.UUID to str for Pydantic v2 from_attributes mode. (+4 more)
+Cohesion: 0.11
+Nodes (7): BaseRepository, _get_table(), Extract the SQLAlchemy Table from a mapped class., Minimal base for all repositories. Provides session and shared upsert., Insert rows with ON CONFLICT DO UPDATE. Returns count of rows processed., Generic repository with synchronous CRUD operations.      Type Parameters:, RepositoryBase
 
 ### Community 109 - "Cluster 109"
 Cohesion: 0.07
@@ -2046,48 +2017,44 @@ Cohesion: 0.08
 Nodes (7): Tests for _shared_ file migration (issue #608)., Ensure the app factory can be imported without error., Acceptance criterion: All 16 files moved to _shared_ via git mv., Each _shared/__init__.py must re-export contained modules., TestAppBootsAfterReorganization, TestFilesMovedToShared, TestSharedInitPyReexports
 
 ### Community 112 - "Cluster 112"
-Cohesion: 0.04
-Nodes (23): FactorIntegrationConfig, for_black_litterman(), for_linear_mapping(), GroupICAggregationConfig, Configuration for factor construction, scoring, and selection., Configuration for group-level IC aggregation.      Controls how per-factor ICs a, Configuration for bridging factor scores to optimization.      Parameters     --, Configuration for group-level IC aggregation.      Controls how per-factor ICs a (+15 more)
+Cohesion: 0.05
+Nodes (9): FactorIntegrationConfig, GroupICAggregationConfig, Configuration for factor construction, scoring, and selection., Configuration for group-level IC aggregation.      Controls how per-factor ICs a, Configuration for bridging factor scores to optimization.      Parameters     --, Configuration for group-level IC aggregation.      Controls how per-factor ICs a, Configuration for bridging factor scores to optimization.      Parameters     --, build_factor_bl_views (+1 more)
 
 ### Community 113 - "Cluster 113"
-Cohesion: 0.09
-Nodes (13): mock_job_service(), _patch_step_handler(), End-to-end integration tests for the pipeline_builder HTTP layer (issue #716)., Return a MagicMock service; patched into the steps router., Create one session via the API and return its id., Replace ``_STEP_HANDLER_MAP[step_id]`` with a mocked handler entry., Belt-and-braces — unit/conftest.py also resets between tests., reset_session_store() (+5 more)
+Cohesion: 0.08
+Nodes (15): mock_job_service(), _patch_step_handler(), End-to-end integration tests for the pipeline_builder HTTP layer (issue #716)., Validates issue #712 wiring — global handler maps to 422., Return a MagicMock service; patched into the steps router., Create one session via the API and return its id., Replace ``_STEP_HANDLER_MAP[step_id]`` with a mocked handler entry., Belt-and-braces — unit/conftest.py also resets between tests. (+7 more)
 
 ### Community 114 - "Cluster 114"
 Cohesion: 0.04
 Nodes (47): assemble_analyst_data(), Build analyst recommendation DataFrame for factor construction.      Returns, assemble_bond_observations(), assemble_fred_series(), assemble_macro_data(), assemble_macro_timeseries(), assemble_te_observations(), Macro-economic data assembly — GDP, yields, bonds, FRED series.  Extracted from (+39 more)
 
 ### Community 115 - "Cluster 115"
-Cohesion: 0.13
-Nodes (15): _check_fred_freshness(), _check_price_staleness(), _coerce_date(), _DbManagerLike, _iter_check_results(), Database pre-flight health checks for the research pipeline (issue #519).  The o, Verify ``MAX(price_history.date)`` is within the freshness window., Verify every required FRED series has a recent observation. (+7 more)
+Cohesion: 0.05
+Nodes (50): _check_country_coverage(), _check_fred_freshness(), _check_fx_coverage(), _check_price_coverage(), _check_price_staleness(), _check_universe_coverage(), _coerce_date(), _DbManagerLike (+42 more)
 
 ### Community 116 - "Cluster 116"
-Cohesion: 0.09
-Nodes (15): Result of regime-conditional subperiod Sharpe analysis.      Attributes     ----, Serialize performance attribution across regimes.          Returns a dict suitab, Run regime-conditional subperiod Sharpe analysis.      Parameters     ----------, RegimeValidationResult, run_regime_validation(), With very high min_regime_obs, all per-regime metrics should be NaN., Sanity check: expansion regime should have higher Sharpe than recession., All data in one regime should give 100% concentration. (+7 more)
+Cohesion: 0.04
+Nodes (40): Classification thresholds for the composite macro regime scorer.      All eight, Classification thresholds for the composite macro regime scorer.      All eight, RegimeThresholdConfig, TestRegimeThresholdConfig, empty, _build_regime_series(), _compute_period_metrics(), for_research() (+32 more)
 
 ### Community 117 - "Cluster 117"
-Cohesion: 0.08
-Nodes (16): FxPriceConverter, Return feature names (pass-through)., Convert local-currency prices to base-currency prices.      Multiplies each tick, fx_rates(), Tests for FxPriceConverter., Tests for FxPriceConverter.transform()., Tests for sklearn API compliance., Tests for fill_limit exhaustion NaN warning. (+8 more)
+Cohesion: 0.06
+Nodes (24): FxPriceConverter, FX price conversion transformer., Return feature names (pass-through)., Convert local-currency prices to base-currency prices.      Multiplies each tick, Validate FX rate coverage and align rates to the price index.          Parameter, _validate_input(), build_fx_converter(), Factory function for building FX converter from config. (+16 more)
 
 ### Community 118 - "Cluster 118"
-Cohesion: 0.11
-Nodes (21): brinson_attribution(), BrinsonRequest, BrinsonResponse, BrinsonSectorRow, _check_non_empty(), _check_weights_sum_to_one(), factor_attribution(), FactorAttributionRequest (+13 more)
-
-### Community 119 - "Cluster 119"
-Cohesion: 0.05
-Nodes (6): EchartsBarComponent, EchartsScatterComponent, trim(), MacroIntelligenceComponent, CorrelationPanelComponent, VarPanelComponent
+Cohesion: 0.12
+Nodes (19): brinson_attribution(), BrinsonRequest, BrinsonResponse, _check_non_empty(), _check_weights_sum_to_one(), factor_attribution(), FactorAttributionRequest, FactorAttributionResponse (+11 more)
 
 ### Community 120 - "Cluster 120"
-Cohesion: 0.05
-Nodes (39): create_portfolio(), create_snapshot(), get_account(), get_drift(), get_latest_snapshot(), get_portfolio(), get_portfolio_repository(), get_positions() (+31 more)
+Cohesion: 0.06
+Nodes (36): create_portfolio(), create_snapshot(), get_account(), get_drift(), get_latest_snapshot(), get_portfolio(), get_portfolio_repository(), get_positions() (+28 more)
 
 ### Community 121 - "Cluster 121"
-Cohesion: 0.16
-Nodes (6): _make_policy(), _make_portfolio(), Unit tests for rebalancing policy CRUD and activate endpoints.  TDD Red → Green, TestActivatePolicy, TestCreatePolicy, TestListPolicies
+Cohesion: 0.15
+Nodes (8): Portfolio, Top-level portfolio entity., _make_policy(), _make_portfolio(), Unit tests for rebalancing policy CRUD and activate endpoints.  TDD Red → Green, TestActivatePolicy, TestCreatePolicy, TestListPolicies
 
 ### Community 122 - "Cluster 122"
-Cohesion: 0.09
-Nodes (31): _fetch_price_rows, _find_instrument ticker/yfinance_ticker resolver, _factor_helpers shared factor service helpers, attribution_service _fetch_ticker_returns, factor_analysis_service selection + tilts, factor_compute_service DB compute persist, factor_scoring_service validation + composite, factor_service backward-compat re-export shim (+23 more)
+Cohesion: 0.1
+Nodes (29): BrinsonDecomposition value object, compute_brinson_attribution, compute_brinson_attribution, compute_factor_attribution, run_brinson_attribution DB wrapper, attribution_service, attribution_service _fetch_ticker_returns, market_data package (+21 more)
 
 ### Community 123 - "Cluster 123"
 Cohesion: 0.17
@@ -2099,11 +2066,11 @@ Nodes (26): for_default(), Dynamic macro-regime sector weight bands for optimize
 
 ### Community 125 - "Cluster 125"
 Cohesion: 0.09
-Nodes (23): Pydantic schemas for reference-index seeding endpoints., Request body for the reference-index seed endpoint., Per-ticker coverage diagnostic for the status endpoint., Response for ``GET /reference-indices/status``.      Surfaces which configured b, Response for ``GET /reference-indices/configured``.      Returns the union of ``, ReferenceIndexConfiguredResponse, ReferenceIndexSeedRequest, ReferenceIndexStatusItem (+15 more)
+Nodes (22): Pydantic schemas for reference-index seeding endpoints., Request body for the reference-index seed endpoint., Per-ticker coverage diagnostic for the status endpoint., Response for ``GET /reference-indices/status``.      Surfaces which configured b, Response for ``GET /reference-indices/configured``.      Returns the union of ``, ReferenceIndexConfiguredResponse, ReferenceIndexSeedRequest, ReferenceIndexStatusItem (+14 more)
 
 ### Community 126 - "Cluster 126"
-Cohesion: 0.04
-Nodes (65): baml_client.stream_types, baml_client.types (BAML pydantic types/enums), all_succeeded(), AssetFactorData, AssetView, BusinessCyclePhase, Check, Checked (+57 more)
+Cohesion: 0.06
+Nodes (39): all_succeeded(), BusinessCyclePhase, Check, Checked, CountryNewsSummary, CovEstimatorChoice, CovRegimeSelection, DeltaCalibration (+31 more)
 
 ### Community 127 - "Cluster 127"
 Cohesion: 0.11
@@ -2114,8 +2081,8 @@ Cohesion: 0.12
 Nodes (17): _annualized_return(), compute_performance_metrics(), get_market_snapshot(), Pure computation for dashboard performance metrics.  All functions are stateless, Compute all 7 KPIs with sparklines and change deltas.      Args:         weights, Compute market snapshot from pre-fetched data.      Args:         fred_data: {se, Trailing cumulative return index (last SPARKLINE_POINTS values)., _sharpe_ratio() (+9 more)
 
 ### Community 129 - "Cluster 129"
-Cohesion: 0.09
-Nodes (16): build_factor_integration(), Build factor-to-optimizer integration objects.      Depending on ``config.use_bl, BlackLittermanConfig, Immutable configuration for the Black-Litterman prior.      All parameters map 1, build_black_litterman(), Build a skfolio Black-Litterman prior from *config*.      Parameters     -------, Tests for view integration factory functions., Integration tests using real skfolio fit/predict. (+8 more)
+Cohesion: 0.04
+Nodes (39): for_black_litterman(), for_linear_mapping(), build_factor_bl_views(), build_factor_integration(), estimate_factor_premia(), FactorExposureConstraints, NetAlphaResult, Bridge factor scores to portfolio optimization inputs. (+31 more)
 
 ### Community 130 - "Cluster 130"
 Cohesion: 0.14
@@ -2126,12 +2093,12 @@ Cohesion: 0.13
 Nodes (23): HierarchicalClusteringConfig, build_hierarchical_clustering, cluster package, DistanceConfig, build_distance, distance package, factors config, factors construction (+15 more)
 
 ### Community 132 - "Cluster 132"
-Cohesion: 0.06
-Nodes (31): _country_weights(), _eval_metric_threshold(), _project_rule_for_json(), Step 7b — Checklist validation and terminal gate.  Extracted from ``stock_select, Persist final portfolio weights to ``weights.csv`` sorted desc., Print the measured-vs-target table for failing checklist rules only., Render a Rich Table summary of checklist rules to stdout., Evaluate the 17 §10 portfolio checklist rules.      Returns a list of ``{"rule", (+23 more)
+Cohesion: 0.07
+Nodes (25): _country_weights(), _eval_metric_threshold(), Step 7b — Checklist validation and terminal gate.  Extracted from ``stock_select, Persist final portfolio weights to ``weights.csv`` sorted desc., Print the measured-vs-target table for failing checklist rules only., Evaluate the 17 §10 portfolio checklist rules.      Returns a list of ``{"rule",, Evaluate the 17 §10 portfolio checklist rules.      Returns a list of ``{"rule",, Build a single checklist rule result dict. (+17 more)
 
 ### Community 133 - "Cluster 133"
-Cohesion: 0.13
-Nodes (21): _build_run_data(), _execute_and_persist(), _fail_run(), get_optimize_run(), _handle_async(), _handle_sync(), post_optimize(), FastAPI router for portfolio optimization endpoints.  Supports synchronous execu (+13 more)
+Cohesion: 0.11
+Nodes (23): build_pipeline(), Fetch prices, convert to returns, assemble sklearn Pipeline.      Args:, _build_run_data(), _execute_and_persist(), _fail_run(), get_optimize_run(), _handle_async(), _handle_sync() (+15 more)
 
 ### Community 134 - "Cluster 134"
 Cohesion: 0.1
@@ -2139,19 +2106,19 @@ Nodes (21): Return current UTC time., utc_now(), baml_test(), create_item(), del
 
 ### Community 135 - "Cluster 135"
 Cohesion: 0.03
-Nodes (34): BaseClient, AnalysisClient, Sub-client for analyst recommendations, estimates, and sustainability., Wraps ``yf.Ticker`` analyst/research attributes., CorporateActionsClient, Sub-client for dividends, splits, actions, capital gains, and shares., Wraps ``yf.Ticker`` corporate-action attributes., FinancialsClient (+26 more)
+Nodes (30): BaseClient, AnalysisClient, Sub-client for analyst recommendations, estimates, and sustainability., Wraps ``yf.Ticker`` analyst/research attributes., CorporateActionsClient, Sub-client for dividends, splits, actions, capital gains, and shares., Wraps ``yf.Ticker`` corporate-action attributes., FinancialsClient (+22 more)
 
 ### Community 136 - "Cluster 136"
-Cohesion: 0.18
-Nodes (10): _make_dividend(), When add_event_idempotent returns None (conflict), dividends_inserted stays 0., First dividend inserts, second is a duplicate., More than 20 dividends in history — only the first 20 are processed., Dividends with no reference field pass external_id=None (no dedup)., Dividends with no amount key are silently skipped (malformed payload)., A zero amount is a valid event (e.g. stock dividend pending settlement)., Dividends with no paidOn field produce description=None. (+2 more)
+Cohesion: 0.05
+Nodes (37): BrokerSyncResult, _map_t212_ticker_to_yfinance(), Service for syncing broker state from Trading 212 into the portfolio tables., Look up the yfinance_ticker for a T212 ticker via the instruments table., Sync positions and account state from Trading 212 into DB.      Args:         cl, Sync positions and account state from Trading 212 into DB.      Args:         cl, sync_portfolio(), Tests for app.services._shared._ticker_lookup.lookup_yf_ticker (issue #773). (+29 more)
 
 ### Community 137 - "Cluster 137"
 Cohesion: 0.16
 Nodes (10): _make_apscheduler_job(), _make_bg_job(), _make_scheduler(), Tests for GET /api/v1/scheduler/status endpoint (issue #375).  Tests written FIR, Endpoint returns safe defaults when scheduler is None or not running., last_run_time and last_status are null when no background_jobs rows exist., Endpoint returns job statuses when scheduler is active., TestSchedulerStatusMissingHistory (+2 more)
 
 ### Community 138 - "Cluster 138"
-Cohesion: 0.12
-Nodes (9): OptimizationRun, Persisted result of a single call to ``POST /api/v1/optimize``.      ``portfolio, Tests for OptimizationRun and BacktestRun SQLAlchemy models.  Covers: - Table cr, OptimizationRun exposes portfolio and job relationship attributes., Verify that expected indexes are defined on the optimization_runs table., OptimizationRun rows can be inserted with required and optional fields., TestOptimizationRunIndexes, TestOptimizationRunInsertion (+1 more)
+Cohesion: 0.14
+Nodes (8): OptimizationRun, SQLAlchemy ORM models for execution result persistence.  Stores per-run records, Persisted result of a single call to ``POST /api/v1/optimize``.      ``portfolio, Persist a new optimization run.          Args:             data: Dict of column, OptimizationRun exposes portfolio and job relationship attributes., OptimizationRun rows can be inserted with required and optional fields., TestOptimizationRunInsertion, TestOptimizationRunRelationships
 
 ### Community 139 - "Cluster 139"
 Cohesion: 0.01
@@ -2159,7 +2126,7 @@ Nodes (326): Communities (1539 total, 775 thin omitted), Community 0 - "Communit
 
 ### Community 140 - "Cluster 140"
 Cohesion: 0.08
-Nodes (22): LRUCache, FundsClient, Wraps ``yf.Ticker.funds_data`` attributes., Return cached ``quote_type`` (uppercased) for *symbol*, or ``None``., Return ``funds_data`` for *symbol*, short-circuiting non-fund tickers., _build_client(), Tests for issue #603: FundsClient._get_funds_data quote_type allowlist guard.  E, Mimics yfinance's FastInfo proxy with optional ``quote_type``. (+14 more)
+Nodes (23): LRUCache, FundsClient, Wraps ``yf.Ticker.funds_data`` attributes., Return cached ``quote_type`` (uppercased) for *symbol*, or ``None``., Return ``funds_data`` for *symbol*, short-circuiting non-fund tickers., client(), _build_client(), Tests for issue #603: FundsClient._get_funds_data quote_type allowlist guard.  E (+15 more)
 
 ### Community 141 - "Cluster 141"
 Cohesion: 0.1
@@ -2178,12 +2145,12 @@ Cohesion: 0.14
 Nodes (19): _assert_cancellable(), cancel_job(), _fetch_job(), get_job(), _get_repo(), _job_to_summary(), JobListResponse, JobSummary (+11 more)
 
 ### Community 145 - "Cluster 145"
-Cohesion: 0.02
-Nodes (72): values(), BlackLitterman, _compute_sharpe_scores(), Fig09BufferTurnover, Fig09BufferTurnover — Buffer zone impact on selection turnover., Compute annualised Sharpe ratio as a composite-score proxy.      Parameters, Bar chart showing how buffer-zone size reduces selection turnover.      Simulate, Fig11SectorBalance (+64 more)
+Cohesion: 0.05
+Nodes (38): BlackLitterman, Fig46BLPosterior, Fig46BLPosterior — grouped bar chart showing BL posterior at high/low confidence, Grouped bar chart: equilibrium vs BL posterior at high/low confidence.      Show, _build_factor_scores(), main(), Cross-sectional factor-score preprocessing pipeline.  Pipes raw factor signals t, Use 21-day rolling Sharpe as a momentum-style raw factor. (+30 more)
 
 ### Community 146 - "Cluster 146"
-Cohesion: 0.25
-Nodes (5): Fig17ArithmeticVsLog, Fig17ArithmeticVsLog — dual-panel arithmetic vs log return comparison., Dual-panel: arithmetic vs log returns for 3 real assets + divergence.      Stock, prices_to_log_returns(), Compute logarithmic returns from adjusted close prices.      Parameters     ----
+Cohesion: 0.03
+Nodes (42): Fig10NetAlpha, Fig10NetAlpha — Net alpha sensitivity to transaction costs., Net alpha vs transaction cost for different cost-per-unit-turnover levels., Fig17ArithmeticVsLog, Fig17ArithmeticVsLog — dual-panel arithmetic vs log return comparison., Dual-panel: arithmetic vs log returns for 3 real assets + divergence.      Stock, Fig56AnnotatedRiskMeasures, Fig56AnnotatedRiskMeasures — annotated return distribution with all risk measure (+34 more)
 
 ### Community 147 - "Cluster 147"
 Cohesion: 0.29
@@ -2194,24 +2161,24 @@ Cohesion: 0.11
 Nodes (11): compute_composite_score(), Compute composite score from standardized factors.      Parameters     ---------, Compute composite score from standardized factors.      Parameters     ---------, Tests for min_coverage_groups config field (issue #242)., With min_coverage_groups=0, no tickers are filtered out., Ticker with fewer groups than threshold gets NaN., Ticker with exactly min_coverage_groups is included., Tests for return_coverage config field (issue #242). (+3 more)
 
 ### Community 149 - "Cluster 149"
-Cohesion: 0.1
-Nodes (22): _aggregate_by_group(), _ensure_output_dir(), generate_backtest_plots(), plot_country_allocation(), plot_cumulative_returns(), plot_drawdowns(), plot_factor_ic(), plot_rolling_sharpe() (+14 more)
+Cohesion: 0.14
+Nodes (17): _ensure_output_dir(), generate_backtest_plots(), plot_cumulative_returns(), plot_drawdowns(), plot_factor_ic(), plot_rolling_sharpe(), plot_sector_weights_over_time(), Backtest visualisation for the stock selection pipeline.  Generates up to six PN (+9 more)
 
 ### Community 150 - "Cluster 150"
 Cohesion: 0.12
 Nodes (10): _mock_service_calls(), Unit tests for POST /api/v1/optimize and GET /api/v1/optimize/{run_id}.  Covers:, When tickers > threshold, job is created and 202 returned., Unknown optimizer_type raises ValueError → 422., Context manager patching: build_pipeline, extract_results., When tickers ≤ threshold, optimization runs synchronously and returns 200., Optimization run is written to the database., TestPostOptimizeAsync (+2 more)
 
 ### Community 151 - "Cluster 151"
-Cohesion: 0.06
-Nodes (26): create_session(), delete_session(), get_job_service(), get_session(), _PipelineSession, In-process session store for the ``/portfolio-builder`` wizard.  Holds frozen ``, Insert a new session and return its hex id., Insert a new session and return its hex id. (+18 more)
+Cohesion: 0.08
+Nodes (15): create_session(), get_job_service(), Insert a new session and return its hex id., Insert a new session and return its hex id., Return the cached job service for ``session_id``, creating it on first call., Return the cached job service for ``session_id``, creating it on first call., Tests proving the autouse conftest reset for ``pipeline_builder`` (issue #694)., TestConftestResetsBetweenTests (+7 more)
 
 ### Community 152 - "Cluster 152"
-Cohesion: 0.06
-Nodes (25): _full_jitter(), is_transient_network_error(), Detect transient network errors: HTTP rate limits and TCP resets., Full-jitter exponential backoff (AWS/Google SOTA recommendation).      Returns a, Execute *action* up to *max_retries* times with exponential-jitter backoff., retry_with_backoff(), Wraps ``yf.Search`` and ``yf.Lookup``., Run a Yahoo search and return ``quotes``/``news`` plus opt-in extras.          ` (+17 more)
+Cohesion: 0.1
+Nodes (19): _full_jitter(), is_transient_network_error(), Detect transient network errors: HTTP rate limits and TCP resets., Full-jitter exponential backoff (AWS/Google SOTA recommendation).      Returns a, Execute *action* up to *max_retries* times with exponential-jitter backoff., retry_with_backoff(), Tests for shared resilience infrastructure (circuit breaker, retry, rate limiter, test_calls_on_rate_limit() (+11 more)
 
 ### Community 153 - "Cluster 153"
-Cohesion: 0.1
-Nodes (20): Repository for yfinance data access with PostgreSQL upsert support., Upsert a ticker profile from yf.Ticker.info dict., Upsert daily OHLCV rows from a yfinance history DataFrame., Upsert financial statement rows (EAV format).          yfinance returns DataFram, Upsert dividend data from yfinance Series (index=date, value=amount)., Convert pandas/numpy types to Python natives, NaN/NaT to None., Upsert stock split data from yfinance Series (index=date, value=ratio)., Upsert analyst recommendations from recommendations_summary DataFrame. (+12 more)
+Cohesion: 0.05
+Nodes (33): _fetch_price_rows(), PriceRow, Fetch raw price rows from yfinance_repository for the given tickers/dates., Lightweight container for a single price observation., Repository for yfinance data access with PostgreSQL upsert support., Sync repository for yfinance data. Uses PostgreSQL ON CONFLICT upsert., Upsert a ticker profile from yf.Ticker.info dict., Upsert daily OHLCV rows from a yfinance history DataFrame. (+25 more)
 
 ### Community 154 - "Cluster 154"
 Cohesion: 0.35
@@ -2227,83 +2194,83 @@ Nodes (12): generate_scenarios(), Fit a SyntheticData estimator and return (scen
 
 ### Community 157 - "Cluster 157"
 Cohesion: 0.09
-Nodes (29): compute_rebalancing_cost(), compute_turnover(), Rebalancing decision logic., Determine whether to rebalance under a hybrid calendar+threshold policy.      Re, Compute one-way turnover between current and target weights.      Parameters, Compute the total transaction cost of rebalancing.      Parameters     ---------, Determine whether any asset breaches the drift threshold.      Parameters     --, should_rebalance() (+21 more)
+Nodes (32): End-to-end: prices → validated weights + backtest + rebalancing.      This is th, End-to-end: prices → validated weights + backtest + rebalancing.      This is th, run_full_pipeline(), compute_rebalancing_cost(), compute_turnover(), Rebalancing decision logic., Determine whether to rebalance under a hybrid calendar+threshold policy.      Re, Compute one-way turnover between current and target weights.      Parameters (+24 more)
 
 ### Community 158 - "Cluster 158"
 Cohesion: 0.15
 Nodes (10): badges, btn, card, el, emitted, errEl, fix, keys (+2 more)
 
 ### Community 159 - "Cluster 159"
-Cohesion: 0.16
-Nodes (15): app.main lifespan, lifespan(), FastAPI lifespan context manager for startup and shutdown events., BackgroundJobRepository, jobs SSE stream endpoint, jobs cancel route, app.api.v1.jobs.scheduler, Liveness reaper heartbeat/orphan settings (issue #590) (+7 more)
+Cohesion: 0.12
+Nodes (21): close_db(), Close database connections and cleanup resources.      This function is called d, Close database connections and cleanup resources.      This function is called d, app.main lifespan, lifespan(), FastAPI lifespan context manager for startup and shutdown events., BackgroundJobRepository, BackgroundJobService (+13 more)
 
 ### Community 160 - "Cluster 160"
 Cohesion: 0.11
 Nodes (20): dict_table renderer, error/success/warning/info panels, _aggregate_by_group weight grouping, plot_country_allocation, plot_cumulative_returns, plot_drawdowns underwater chart, plot_factor_ic IS vs OOS bars, generate_backtest_plots orchestrator (+12 more)
 
 ### Community 161 - "Cluster 161"
-Cohesion: 0.04
-Nodes (46): close_db(), database_transaction(), DatabaseManager, execute_raw_sql(), get_db(), get_db_status(), get_session(), init_db() (+38 more)
+Cohesion: 0.05
+Nodes (43): database_transaction(), DatabaseManager, execute_raw_sql(), get_db(), get_db_status(), get_session(), init_db(), Synchronous database management for FastAPI with local PostgreSQL.  This module (+35 more)
 
 ### Community 162 - "Cluster 162"
 Cohesion: 0.05
-Nodes (47): AuthenticationError, AuthorizationError, AuthServiceUnavailableError, BaseAPIException, CacheError, ConflictError, create_error_response(), DatabaseConnectionError (+39 more)
+Nodes (45): AuthenticationError, AuthorizationError, AuthServiceUnavailableError, BaseAPIException, CacheError, ConflictError, create_error_response(), DatabaseConnectionError (+37 more)
 
 ### Community 163 - "Cluster 163"
 Cohesion: 0.04
 Nodes (42): _aggregate_by_sector(), AttributionError, BrinsonDecomposition, _check_sector_coverage(), compute_brinson_attribution(), compute_factor_attribution(), _compute_factor_return(), FactorAttributionResult (+34 more)
 
 ### Community 164 - "Cluster 164"
-Cohesion: 0.14
-Nodes (7): OpinionPoolingConfig, Immutable configuration for the Opinion Pooling prior.      The ``estimators`` a, build_opinion_pooling(), Build a skfolio Opinion Pooling prior from *config*.      Parameters     -------, Sum > 1.0 raises ValueError (issue #70)., TestOpinionPoolingConfig, TestBuildOpinionPooling
+Cohesion: 0.11
+Nodes (9): OpinionPoolingConfig, Immutable configuration for the Opinion Pooling prior.      The ``estimators`` a, build_opinion_pooling(), Build a skfolio Opinion Pooling prior from *config*.      Parameters     -------, Tests for view integration configs and enums., Sum > 1.0 raises ValueError (issue #70)., TestOpinionPoolingConfig, TestViewUncertaintyMethod (+1 more)
 
 ### Community 165 - "Cluster 165"
-Cohesion: 0.03
-Nodes (67): query_fundamentals(), query_sector_labels(), query_volume_history(), Shared database query helpers for Chapter 00 figure generators., Query sector labels from the database.      Parameters     ----------     db_url, Query daily volume history from the database.      Parameters     ----------, Query fundamental data needed for ``compute_all_factors()``.      Returns a Data, Fig02CrossFactorCorrelation (+59 more)
+Cohesion: 0.04
+Nodes (49): query_fundamentals(), query_sector_labels(), query_volume_history(), Shared database query helpers for Chapter 00 figure generators., Query sector labels from the database.      Parameters     ----------     db_url, Query daily volume history from the database.      Parameters     ----------, Query fundamental data needed for ``compute_all_factors()``.      Returns a Data, Fig02CrossFactorCorrelation (+41 more)
 
 ### Community 166 - "Cluster 166"
 Cohesion: 0.03
-Nodes (51): build_portfolio_pipeline(), Pipeline composition: pre-selection + optimiser → sklearn Pipeline., Compose a full sklearn Pipeline: pre-selection → optimiser.      The resulting p, backtest(), Run walk-forward backtest on a portfolio pipeline.      Parameters     ---------, Run walk-forward backtest on a portfolio pipeline.      Parameters     ---------, Tests for pipeline builder., Synthetic return DataFrame with 15 assets and 300 observations. (+43 more)
+Nodes (39): prices_df(), Tests for pipeline orchestrator functions., Rebalancing config paths through run_full_pipeline (issue #76)., End-to-end run_full_pipeline_with_selection tests (issue #77)., Synthetic price DataFrame built from returns., Guard against empty or degenerate stock selection (issue #268)., Run run_full_pipeline_with_selection with all upstream mocks., Tests for RandomizedSearchConfig in tune_and_optimize (issue #97). (+31 more)
 
 ### Community 167 - "Cluster 167"
-Cohesion: 0.09
-Nodes (20): CountrySummaryResult, generate_country_summaries(), Macro news summary service with country mapping and LLM summarization.  Workflow, Result of a single country's news summarization., Validate and normalize LLM output into a dict for persistence., Summarize news for a single country. Returns None if skipped., Generate daily news summaries for mapped countries.      Args:         session:, Summarize a single country with error isolation.      Returns "updated", "skippe (+12 more)
+Cohesion: 0.15
+Nodes (9): generate_country_summaries(), Validate and normalize LLM output into a dict for persistence., Generate daily news summaries for mapped countries.      Args:         session:, _validate_llm_output(), _make_llm_output(), Unit tests for macro news summary service., TestGenerateCountrySummaries, TestSummarizeCountry (+1 more)
 
 ### Community 168 - "Cluster 168"
 Cohesion: 0.11
 Nodes (9): Tests for repositories/ domain file migration (issue #610)., All repo files moved to correct domain sub-folders via git mv., Each domain __init__.py re-exports contained repository classes., repositories/__init__.py uses new sub-package paths, no old flat imports., Critical imports and app factory work after migration., TestAppBootsAfterReorganization, TestDomainInitPyReExports, TestFilesMovedToDomainDirs (+1 more)
 
 ### Community 169 - "Cluster 169"
-Cohesion: 0.08
-Nodes (34): make_progress closure factory, baml_client b LLM functions, date_parsing.parse_reference_date utility, EconomicIndicator model, YFinanceClient, compute_regime_tilt, PORTFOLIO_COUNTRIES constant, IlSoleScraper (+26 more)
+Cohesion: 0.07
+Nodes (35): baml_client b LLM functions, date_parsing.parse_reference_date utility, EconomicIndicator model, YFinanceClient, compute_regime_tilt, PORTFOLIO_COUNTRIES constant, IlSoleScraper, CircuitBreaker / RateLimiter / retry_with_backoff (+27 more)
 
 ### Community 170 - "Cluster 170"
 Cohesion: 0.11
 Nodes (12): _cvar_95(), _max_drawdown(), _total_return(), daily_returns(), prices_df(), Unit tests for dashboard_service — pure computation, no DB., 252 days of synthetic daily returns (mean ~0.05%, std ~1%)., Price DataFrame with 3 tickers + benchmark, 300 trading days. (+4 more)
 
 ### Community 171 - "Cluster 171"
-Cohesion: 0.05
-Nodes (29): auth_engine(), auth_session(), _make_key(), production_app(), Integration tests for ApiKeyAuthMiddleware activation in production (issue #429), Seed an ``ApiKey`` row and return the plaintext token., Seed an ``ApiKey`` row and return the plaintext token., Middleware is live: protected routes require a valid X-API-Key. (+21 more)
+Cohesion: 0.06
+Nodes (26): auth_engine(), auth_session(), _make_key(), Integration tests for ApiKeyAuthMiddleware activation in production (issue #429), Seed an ``ApiKey`` row and return the plaintext token., Seed an ``ApiKey`` row and return the plaintext token., Middleware is live: protected routes require a valid X-API-Key., Middleware is live: protected routes require a valid X-API-Key. (+18 more)
 
 ### Community 172 - "Cluster 172"
-Cohesion: 0.03
-Nodes (61): PortfolioResult, Configuration and result types for the portfolio pipeline., Container for the output of a full portfolio optimisation run.      Attributes, Container for the output of a full portfolio optimisation run.      Attributes, _compute_net_sharpe(), _extract_summary(), _extract_weight_changes(), _extract_weights() (+53 more)
+Cohesion: 0.09
+Nodes (18): _inject_sector_bands(), Return a deep-copied optimizer with regime-conditional sector bands applied., Region constraint rows (non-sector) must survive the rebuild., Old sector cap rows must be replaced by the new band rows., Without region_mapping, groups is the flat sector dict., The original optimizer must not be mutated., When sector_mapping is None, constraints are unchanged (only warn)., _inject_sector_bands must only emit rows for groups present in the universe. (+10 more)
 
 ### Community 173 - "Cluster 173"
 Cohesion: 0.13
-Nodes (22): ApiKey model, auth models __init__, BackgroundJobError model, BackgroundJob model, Base DeclarativeBase, BaseModel abstract model, TimestampMixin, UUIDPrimaryKeyMixin (+14 more)
+Nodes (23): ApiKey model, auth models __init__, BackgroundJobError model, BackgroundJob model, Base DeclarativeBase, BaseModel abstract model, TimestampMixin, UUIDPrimaryKeyMixin (+15 more)
 
 ### Community 174 - "Cluster 174"
-Cohesion: 0.12
-Nodes (19): POST /api/v1/attribution/brinson route, MacroRegimeRepository.upsert_regime_classification, GET /api/v1/rebalance/preview route, POST /api/v1/universe/screen route, test_attribution_brinson, test_macro_regime_repository, test_rebalance_preview_route, test_universe_screen_route (+11 more)
+Cohesion: 0.08
+Nodes (28): POST /api/v1/attribution/brinson route, POST /api/v1/backtest route, app.services.backtest.backtest_service, MacroRegimeRepository.upsert_regime_classification, POST /api/v1/optimize route, GET /api/v1/rebalance/preview route, POST /api/v1/universe/screen route, smoke_prices.sql CI fixture (+20 more)
 
 ### Community 175 - "Cluster 175"
-Cohesion: 0.03
-Nodes (69): series, _compute_monthly_snapshots(), Fig07RollingIC, _momentum_score(), Fig07RollingIC — Rolling 12-month information coefficient time series., Synthetic IC series for illustration., Resample prices to month-end and compute returns for IC calculation.      Return, 12-1 month momentum at a monthly snapshot. (+61 more)
+Cohesion: 0.04
+Nodes (53): series, for_heavy_tailed(), for_per_factor(), _compute_volatility(), Annualized return volatility (natural units, always non-negative).      Lower vo, neutralize_sector(), rank_normal_standardize(), Cross-sectional factor standardization. (+45 more)
 
 ### Community 176 - "Cluster 176"
-Cohesion: 0.1
-Nodes (21): MacroRegime, Macro-economic regime classification., Configuration for macro regime factor tilts.      Per-regime multiplicative tilt, Configuration for macro regime factor tilts.      Per-regime multiplicative tilt, RegimeTiltConfig, optimize_portfolio(), Run factor-based stock selection + Cycle-3 §7.1 hard-constrained MeanRisk., Run factor-based stock selection + Cycle-3 §7.1 hard-constrained MeanRisk. (+13 more)
+Cohesion: 0.08
+Nodes (26): Fig12RegimeTiltHeatmap, Fig12RegimeTiltHeatmap — Regime-conditional factor weight multipliers., 4x9 heatmap of regime tilt multipliers by regime and factor group.      Pure con, FactorGroupType, MacroRegime, Macro-economic regime classification., Factor group taxonomy., Configuration for macro regime factor tilts.      Per-regime multiplicative tilt (+18 more)
 
 ### Community 177 - "Cluster 177"
 Cohesion: 0.1
@@ -2319,11 +2286,11 @@ Nodes (6): Unit tests for pipeline_builder steps router (issue #714)., _session(
 
 ### Community 180 - "Cluster 180"
 Cohesion: 0.04
-Nodes (71): Convert prices from local currencies to the base currency.          Parameters, arrayToHash(), balanced(), braceExpand(), childrenIgnored(), cleanUpNextTick(), collectNonEnumProps(), _deepEqual() (+63 more)
+Nodes (69): Convert prices from local currencies to the base currency.          Parameters, arrayToHash(), balanced(), braceExpand(), childrenIgnored(), cleanUpNextTick(), collectNonEnumProps(), _deepEqual() (+61 more)
 
 ### Community 181 - "Cluster 181"
-Cohesion: 0.03
-Nodes (54): ActionBarComponent, b, { fixture, host }, { fixture, host, store }, { host }, optSpy, region, spy (+46 more)
+Cohesion: 0.02
+Nodes (85): ActionBarComponent, b, { fixture, host }, { fixture, host, store }, { host }, optSpy, region, spy (+77 more)
 
 ### Community 182 - "Cluster 182"
 Cohesion: 0.26
@@ -2334,8 +2301,8 @@ Cohesion: 0.05
 Nodes (28): apply_lognormal_correction(), Log-normal moment scaling for multi-period investment horizons., Validate inputs and apply the log-normal moment correction.      A higher-level, Scale daily log-return moments to a multi-period horizon.      **Expected return, scale_moments_to_horizon(), daily_cov(), daily_mu(), Tests for log-normal moment scaling.  Covers apply_lognormal_correction and scal (+20 more)
 
 ### Community 184 - "Cluster 184"
-Cohesion: 0.11
-Nodes (10): FinancialsClientProtocol, _build_repo(), _build_yf_client(), Regression tests for issue #591: dead `fetch_earnings` path removal.  Asserts th, Stub financials sub-client whose ``fetch_earnings`` would raise the     deprecat, Return a MagicMock yf client whose only real attribute is ``financials``., _run_fetch_and_store(), _StubFinancials (+2 more)
+Cohesion: 0.14
+Nodes (9): _build_repo(), _build_yf_client(), Regression tests for issue #591: dead `fetch_earnings` path removal.  Asserts th, Stub financials sub-client whose ``fetch_earnings`` would raise the     deprecat, Return a MagicMock yf client whose only real attribute is ``financials``., _run_fetch_and_store(), _StubFinancials, test_when_fetch_and_store_runs_then_no_ticker_earnings_deprecation_warning() (+1 more)
 
 ### Community 185 - "Cluster 185"
 Cohesion: 0.26
@@ -2347,19 +2314,19 @@ Nodes (16): _Assembly, _fetch(), _make_weights(), Tests for ``step_rebalance_dec
 
 ### Community 187 - "Cluster 187"
 Cohesion: 0.16
-Nodes (7): BacktestRun, SQLAlchemy ORM models for execution result persistence.  Stores per-run records, Persisted result of a single call to ``POST /api/v1/backtest``.      ``portfolio, BacktestRun rows can be inserted with required and optional fields., BacktestRun exposes portfolio and job relationship attributes., TestBacktestRunInsertion, TestBacktestRunRelationships
+Nodes (7): BacktestRun, Persisted result of a single call to ``POST /api/v1/backtest``.      ``portfolio, Persist a new backtest run.          Args:             data: Dict of column name, BacktestRun rows can be inserted with required and optional fields., BacktestRun exposes portfolio and job relationship attributes., TestBacktestRunInsertion, TestBacktestRunRelationships
 
 ### Community 188 - "Cluster 188"
 Cohesion: 0.07
-Nodes (53): _(), an(), Ao(), ar(), Bi(), cr(), da(), di() (+45 more)
+Nodes (52): _(), Ao(), Bi(), c(), Cn(), di(), dt(), Eo() (+44 more)
 
 ### Community 189 - "Cluster 189"
-Cohesion: 0.07
-Nodes (18): DashboardRepository, Repository for dashboard data queries., Return ``{ticker: (price_row_count, latest_price_date)}``.          Tickers with, Return (yield_value, day_change) for US 10Y bond.          Returns None if no ro, Return the reference_date for US 10Y bond yield., Read-only repository for dashboard-specific data access., Return True if an Instrument row with the given yfinance_ticker exists., Fetch close prices for multiple tickers as a pivoted DataFrame.          Returns (+10 more)
+Cohesion: 0.06
+Nodes (20): get_asset_class_returns(), Return sector-level returns over standard periods for the heatmap chart.      Gr, DashboardRepository, Repository for dashboard data queries., Return ``{ticker: (price_row_count, latest_price_date)}``.          Tickers with, Return (yield_value, day_change) for US 10Y bond.          Returns None if no ro, Return the reference_date for US 10Y bond yield., Read-only repository for dashboard-specific data access. (+12 more)
 
 ### Community 190 - "Cluster 190"
-Cohesion: 0.03
-Nodes (48): BaseCovariance, HierarchicalClusteringConfig, Immutable configuration for hierarchical clustering construction.      Parameter, build_hierarchical_clustering(), Factory for skfolio hierarchical clustering., Build a skfolio :class:`HierarchicalClustering` from *config*.      Parameters, Tests for hierarchical clustering factory., returns() (+40 more)
+Cohesion: 0.07
+Nodes (21): BaseCovariance, _build_regime_probabilities(), main(), Regime-blended Mean-Risk with externally-supplied regime probabilities.  Builds, Two-regime soft labels driven by 21-day cross-section volatility., build_regime_blended_mean_risk(), _ExternallyControlledRegimeCovariance, Regime-blended MeanRisk configuration and factory.  Composes :class:`_Externally (+13 more)
 
 ### Community 191 - "Cluster 191"
 Cohesion: 0.18
@@ -2374,8 +2341,8 @@ Cohesion: 0.18
 Nodes (5): Unit tests for GET /api/v1/market/snapshot.  Mocks DashboardRepository at the ro, Issue #461: benchmark ticker absent from instruments table., Issue #461: instrument exists but has insufficient price data., Configure mock with valid default data., TestGetMarketSnapshot
 
 ### Community 194 - "Cluster 194"
-Cohesion: 0.09
-Nodes (14): build_preselection_pipeline(), Factory function for assembling the pre-selection sklearn Pipeline., Build an sklearn Pipeline for data cleaning and asset pre-selection.      The pi, Tests for build_preselection_pipeline factory and PreSelectionConfig., Pipeline should drop one of two perfectly correlated assets., Synthetic return DataFrame with 50 assets and 200 observations., Tests for outlier_method wiring in build_preselection_pipeline (issue #63)., Tests for pipeline step ordering invariants (issue #83). (+6 more)
+Cohesion: 0.06
+Nodes (22): PreSelectionConfig, Immutable configuration for the pre-selection pipeline.      All parameters map, build_preselection_pipeline(), Factory function for assembling the pre-selection sklearn Pipeline., Build an sklearn Pipeline for data cleaning and asset pre-selection.      The pi, Tests for build_preselection_pipeline factory and PreSelectionConfig., Pipeline should drop one of two perfectly correlated assets., Tests for PreSelectionConfig.__post_init__ validation (issue #64). (+14 more)
 
 ### Community 195 - "Cluster 195"
 Cohesion: 0.09
@@ -2398,8 +2365,8 @@ Cohesion: 0.07
 Nodes (27): _exec_result(), _make_session(), Tests for pure and DB-dependent functions in cli/data_assembly.py.  Covers:   -, Cross-listed tickers: lower currency rank wins, info log emitted., Two listings with same currency rank: one row kept, info log emitted., Single listing per ticker: no warning emitted., No instruments in DB → early return., Return a mock whose .all() yields *rows*. (+19 more)
 
 ### Community 200 - "Cluster 200"
-Cohesion: 0.09
-Nodes (16): apply_investability_screens(), Apply all investability screens to produce a universe.      Parameters     -----, Acceptance criteria from issue #22., 12 NYSE stocks; one stock at 250M is ~8th percentile., Stock above 200M floor but below 10th exchange percentile is excluded., Stock at 150M (below 200M absolute floor) is excluded regardless., Without exchange column the percentile screen is skipped., Exchange with < 10 stocks: percentile threshold = 0, all pass. (+8 more)
+Cohesion: 0.1
+Nodes (15): apply_investability_screens(), Apply all investability screens to produce a universe.      Parameters     -----, Acceptance criteria from issue #22., 12 NYSE stocks; one stock at 250M is ~8th percentile., Stock above 200M floor but below 10th exchange percentile is excluded., Stock at 150M (below 200M absolute floor) is excluded regardless., Without exchange column the percentile screen is skipped., Exchange with < 10 stocks: percentile threshold = 0, all pass. (+7 more)
 
 ### Community 201 - "Cluster 201"
 Cohesion: 0.08
@@ -2415,31 +2382,31 @@ Nodes (33): main(), Covariance forecast evaluation: rank estimators independent 
 
 ### Community 204 - "Cluster 204"
 Cohesion: 0.05
-Nodes (30): BaseCurrency, FxConfig, FxConversionMode, Configuration for multi-currency FX conversion., How FX conversion is applied in the pipeline., Supported base currencies., Immutable configuration for multi-currency FX conversion.      Parameters     --, fx_rates() (+22 more)
+Nodes (32): BaseCurrency, FxConfig, FxConversionMode, FxDataSource, Configuration for multi-currency FX conversion., How FX conversion is applied in the pipeline., Supported base currencies., Source for FX rate data. (+24 more)
 
 ### Community 205 - "Cluster 205"
-Cohesion: 0.1
-Nodes (14): BacktestSparklineComponent, BacktestStats, buildLineSeries(), buildMarkArea(), computeDrawdownRegion(), DrawdownRegion, { fixture }, { fixture, store } (+6 more)
+Cohesion: 0.06
+Nodes (18): Fig19ScalingComparison, Fig19ScalingComparison — naive linear scaling vs log-normal correction., Line chart: naive linear scaling vs log-normal correction using real moments., Fig23DataQuality, Fig23DataQuality — 3-panel data quality dashboard., 3-panel data quality dashboard using the full real universe., Fig24CorrelationDistribution, Fig24CorrelationDistribution — before/after DropCorrelated histograms. (+10 more)
 
 ### Community 206 - "Cluster 206"
-Cohesion: 0.14
-Nodes (15): _aggregate_totals(), _build_row(), _build_target_list(), _build_trade(), _classify_action(), compute_drift(), _join_holdings_and_target(), _price_eur() (+7 more)
+Cohesion: 0.07
+Nodes (5): DataTableComponent, FormatBpsPipe, FormatReturnPipe, FormatService, COLUMNS
 
 ### Community 207 - "Cluster 207"
 Cohesion: 0.08
-Nodes (20): _make_asset_factor_data(), _make_empty_view_output(), _make_pool_result(), _make_view_output(), Unit tests for Multi-LLM Opinion Pooling service and endpoint., LLM view on unknown ticker should be filtered out., TestBuildLLMOpinionPool, TestComputeICWeights (+12 more)
+Nodes (24): AssetFactorData, ViewOutput, _make_asset_factor_data(), _make_empty_view_output(), _make_pool_result(), _make_view_output(), Unit tests for Multi-LLM Opinion Pooling service and endpoint., LLM view on unknown ticker should be filtered out. (+16 more)
 
 ### Community 208 - "Cluster 208"
-Cohesion: 0.09
-Nodes (20): Thin wrapper managing job lifecycle around the service function., Thin wrapper managing job lifecycle around the service function., Thin wrapper managing job lifecycle around the service function., Thin wrapper managing job lifecycle around the service function., _run_bulk_fetch(), _run_fred_fetch(), _run_macro_news_fetch(), _run_news_summarize() (+12 more)
+Cohesion: 0.1
+Nodes (11): CovarianceUncertaintySetConfig, MuUncertaintySetConfig, Configuration for skfolio uncertainty-set estimators.  Two parallel Configs (mu,, Immutable configuration for a covariance uncertainty-set estimator.      Paramet, Immutable configuration for a covariance uncertainty-set estimator.      Paramet, Reject bootstrap-only fields when kind is EMPIRICAL.      Parameters     -------, Immutable configuration for a mu uncertainty-set estimator.      Parameters, Immutable configuration for a mu uncertainty-set estimator.      Parameters (+3 more)
 
 ### Community 209 - "Cluster 209"
 Cohesion: 0.07
-Nodes (14): inspect(), TestBackgroundJobLivenessColumns, Verify that expected indexes are defined on the backtest_runs table., Base.metadata.create_all() must succeed for both tables., TestBacktestRunIndexes, TestTableCreation, After upgrade(), all six new tables must exist., TestUpgradeCreatesAllSixTables (+6 more)
+Nodes (15): inspect(), TestBackgroundJobLivenessColumns, Tests for OptimizationRun and BacktestRun SQLAlchemy models.  Covers: - Table cr, Verify that expected indexes are defined on the optimization_runs table., Verify that expected indexes are defined on the backtest_runs table., Base.metadata.create_all() must succeed for both tables., TestBacktestRunIndexes, TestOptimizationRunIndexes (+7 more)
 
 ### Community 210 - "Cluster 210"
-Cohesion: 0.12
-Nodes (10): TestComputeVIF, Near-singular R² above floating-point tolerance must return inf., R² ≈ 0.99 is diagnostically meaningful — VIF must remain finite., Exact collinearity must yield inf, never NaN., TestComputeVIF, compute_vif(), Compute variance inflation factors for multicollinearity.      Parameters     --, Factor validation utilities. (+2 more)
+Cohesion: 0.04
+Nodes (38): TestComputeVIF, Near-singular R² above floating-point tolerance must return inf., R² ≈ 0.99 is diagnostically meaningful — VIF must remain finite., Exact collinearity must yield inf, never NaN., TestComputeVIF, compute_vif(), Compute variance inflation factors for multicollinearity.      Parameters     --, Factor validation utilities. (+30 more)
 
 ### Community 211 - "Cluster 211"
 Cohesion: 0.15
@@ -2451,23 +2418,23 @@ Nodes (32): _fully_fresh_staleness(), _make_repo(), _make_yf_client_silent(), Te
 
 ### Community 214 - "Cluster 214"
 Cohesion: 0.1
-Nodes (11): _compute_period_metrics(), for_research(), _identify_subperiods(), Regime-conditional subperiod Sharpe validation.  Splits out-of-sample portfolio, Compute annualized return, volatility, Sharpe, and max drawdown., Find contiguous blocks of the same regime.      Returns list of ``(start_date, e, Immutable configuration for regime-conditional Sharpe analysis.      Parameters, Convert to float, returning ``None`` for NaN. (+3 more)
+Nodes (25): make_cancellable_progress cancel-aware closure, make_progress closure factory, BackgroundJobService, ExecutionRepository, run_and_persist, _run_backtest_bg, start_backtest, sync_portfolio service (+17 more)
 
 ### Community 215 - "Cluster 215"
 Cohesion: 0.39
 Nodes (14): _Assembly, _checklist_rules(), _fetch(), _is_report(), _metrics(), _oos_result(), _optimize_result(), Tests for ``step_report`` (issue #709 — Step 13). (+6 more)
 
 ### Community 216 - "Cluster 216"
-Cohesion: 0.11
-Nodes (5): aggregateStatus(), InputsPaneComponent, isTerminal(), mapPollStatus(), nextStepId()
+Cohesion: 0.06
+Nodes (19): aggregateStatus(), InputsPaneComponent, isTerminal(), mapPollStatus(), nextStepId(), ACCEPTED, expand(), { fixture, host, http } (+11 more)
 
 ### Community 217 - "Cluster 217"
-Cohesion: 0.1
-Nodes (18): FilterParams, get_current_user(), get_optional_user(), get_rate_limiter(), get_user_id(), RateLimiter, Global dependencies for the application, Check rate limit for the request (+10 more)
+Cohesion: 0.09
+Nodes (20): FilterParams, get_current_user(), get_optional_user(), get_rate_limiter(), get_user_id(), RateLimiter, Global dependencies for the application, Check rate limit for the request (+12 more)
 
 ### Community 218 - "Cluster 218"
 Cohesion: 0.13
-Nodes (25): _assign_weights(), _attach_flag(), _count_flag(), _empty_result(), _fetch_account_context(), normalize_live_positions(), T212 portfolio normalizer orchestrator (issue #777).  Composes `Trading212Client, Fetch, normalize, weight, and reconcile T212 live positions. (+17 more)
+Nodes (26): _assign_weights(), _attach_flag(), _count_flag(), _empty_result(), _fetch_account_context(), _map_all_positions(), normalize_live_positions(), T212 portfolio normalizer orchestrator (issue #777).  Composes `Trading212Client (+18 more)
 
 ### Community 219 - "Cluster 219"
 Cohesion: 0.12
@@ -2475,19 +2442,19 @@ Nodes (14): _count(), metrics_app(), Tests for MetricsMiddleware — TDD Red pha
 
 ### Community 220 - "Cluster 220"
 Cohesion: 0.06
-Nodes (26): main(), Robust mean-risk with ellipsoidal mu uncertainty.  Compares standard ``MeanRisk`, build_robust_mean_risk(), for_bootstrap_covariance(), RobustMeanRisk configuration and factory.  Both ``mu_uncertainty_set_config=None, Build a robust ``MeanRisk`` optimiser from *config*.      When both uncertainty, Build a robust ``MeanRisk`` optimiser from *config*.      When both uncertainty, Immutable configuration for the robust ``MeanRisk`` family.      Parameters (+18 more)
+Nodes (24): main(), Robust mean-risk with ellipsoidal mu uncertainty.  Compares standard ``MeanRisk`, build_robust_mean_risk(), for_bootstrap_covariance(), RobustMeanRisk configuration and factory.  Both ``mu_uncertainty_set_config=None, Build a robust ``MeanRisk`` optimiser from *config*.      When both uncertainty, Build a robust ``MeanRisk`` optimiser from *config*.      When both uncertainty, Immutable configuration for the robust ``MeanRisk`` family.      Parameters (+16 more)
 
 ### Community 221 - "Cluster 221"
 Cohesion: 0.17
 Nodes (8): MacroCalibration, Cached LLM macro regime calibration per country.      One row per country, stori, Return the cached calibration for a country, or None., Persist the rule-based MacroRegime classifier output for a country.          Iss, Tests for MacroRegimeRepository.upsert_regime_classification (issue #530)., Persist rule-based MacroRegime classifier output to macro_calibrations., _row(), TestUpsertRegimeClassification
 
 ### Community 222 - "Cluster 222"
-Cohesion: 0.27
-Nodes (12): _build_client(), _patch_yf_screen(), Tests for issue #606: ScreenerClient.screen_etfs_predefined convenience method., test_when_default_size_used_then_count_is_25(), test_when_invalid_name_then_value_error_lists_canonical_names(), test_when_invalid_name_then_yf_screen_not_called(), test_when_name_case_differs_then_value_error_raised(), test_when_offset_passed_then_forwarded_to_yf_screen() (+4 more)
+Cohesion: 0.13
+Nodes (17): _build_screen_kwargs(), Sub-client for screening via ``yf.screen``, ``EquityQuery``, ``FundQuery``., Wraps ``yf.screen()`` and predefined screener queries., ScreenerClient, _build_client(), _patch_yf_screen(), Tests for issue #606: ScreenerClient.screen_etfs_predefined convenience method., test_when_default_size_used_then_count_is_25() (+9 more)
 
 ### Community 223 - "Cluster 223"
-Cohesion: 0.1
-Nodes (6): _pending_job(), Unit tests for POST /api/v1/factors/compute and GET /api/v1/factors/compute/{job, GET /api/v1/factors/compute/{job_id} polls progress., POST /api/v1/factors/compute launches a background job, returns 202., TestGetFactorComputeJob, TestPostFactorCompute
+Cohesion: 0.11
+Nodes (10): build_portfolio_pipeline(), Pipeline composition: pre-selection + optimiser → sklearn Pipeline., Compose a full sklearn Pipeline: pre-selection → optimiser.      The resulting p, Tests for pipeline builder., Synthetic return DataFrame with 15 assets and 300 observations., returns_df(), TestBuildPortfolioPipeline, pipeline() (+2 more)
 
 ### Community 224 - "Cluster 224"
 Cohesion: 0.17
@@ -2502,8 +2469,8 @@ Cohesion: 0.13
 Nodes (5): Catalog membership tests for FRED_SERIES sub-dicts.  Guards against drift betwee, TestFredSeriesUnion, TestGdpSeriesDict, TestRateSeriesIncludesShortAndLongTreasuries, TestRecessionSeriesIncludesUSRECDM
 
 ### Community 227 - "Cluster 227"
-Cohesion: 0.06
-Nodes (20): DatabaseAdminRepository, _missing_table_row(), Repository for database administration operations.  Encapsulates health checks,, Truncate a single table (with CASCADE).          Raises ValueError for unknown t, Truncate multiple tables. Returns ``(cleared, errors)``., Placeholder row for a table that is allowlisted but absent from the DB., Sync repository for database introspection and truncation., Run ``SELECT 1`` and return ``(healthy, latency_ms)``. (+12 more)
+Cohesion: 0.04
+Nodes (40): text, boost, DatabaseAdminRepository, _missing_table_row(), Repository for database administration operations.  Encapsulates health checks,, Truncate a single table (with CASCADE).          Raises ValueError for unknown t, Truncate multiple tables. Returns ``(cleared, errors)``., Placeholder row for a table that is allowlisted but absent from the DB. (+32 more)
 
 ### Community 228 - "Cluster 228"
 Cohesion: 0.14
@@ -2514,8 +2481,8 @@ Cohesion: 0.22
 Nodes (5): _make_event(), _make_portfolio(), Unit tests for the portfolio activity feed endpoint.  Mocks PortfolioRepository, All response keys should be camelCase (items/total are single-word)., TestGetActivity
 
 ### Community 230 - "Cluster 230"
-Cohesion: 0.13
-Nodes (28): B(), Br(), ci(), cs(), en(), Go(), hi(), k() (+20 more)
+Cohesion: 0.15
+Nodes (25): B(), Br(), ci(), cs(), en(), Go(), hi(), k() (+17 more)
 
 ### Community 231 - "Cluster 231"
 Cohesion: 0.05
@@ -2530,12 +2497,12 @@ Cohesion: 0.17
 Nodes (13): cleanup_backtest_runs(), _patch_worker_session(), _payload(), _poll_until_done(), Integration tests for POST /api/v1/backtest (issue #422).  Exercises the full ro, Regression for #422: the TypeError on ``Index`` must be gone., Delete BacktestRun rows after each test so the shared in-memory DB stays clean., Build a price panel with a plain ``Index[object]`` of ``datetime.date``.      Th (+5 more)
 
 ### Community 234 - "Cluster 234"
-Cohesion: 0.1
-Nodes (9): compute_factor(), Compute a single factor.      Parameters     ----------     factor_type : Factor, Regression for issue #289: value factors must NOT be 100× deflated.      After a, Pre-fix (GBX market_cap) produces 100× deflated ratio., Pre-fix earnings_yield is 100× too small., The normalised:deflated ratio must be exactly 100 for value factors., EBITDA/EV is also 100× deflated when EV is in GBX., TestIndividualFactors (+1 more)
+Cohesion: 0.2
+Nodes (3): compute_factor(), Compute a single factor.      Parameters     ----------     factor_type : Factor, TestIndividualFactors
 
 ### Community 235 - "Cluster 235"
-Cohesion: 0.1
-Nodes (21): DataAssembly, Frozen value object holding all data-assembly outputs.      All fields are set a, Return a flat summary dict of key assembly metrics., _assert_assembly_size(), load_data(), _materialise_clean_returns(), Step 1 — Data loading from the database.  Extracted from ``stock_selection_pipel, Assemble all data from the database.      Args:         db_manager: Initialised (+13 more)
+Cohesion: 0.08
+Nodes (29): _load_market_proxy(), main(), Entry point for ``python -m research.cli``., Run the full stock selection pipeline., Run the full stock selection pipeline., Run the full stock selection pipeline., Return a single-column close-price DataFrame for the market proxy.      Tries ``, Return a single-column close-price DataFrame for the market proxy.      Tries `` (+21 more)
 
 ### Community 236 - "Cluster 236"
 Cohesion: 0.1
@@ -2546,12 +2513,12 @@ Cohesion: 0.1
 Nodes (23): _build_estimator(), main(), Online learning example: rolling Sharpe via incremental ``partial_fit``.  Compar, Mean-risk with EW prior — partial-fit-capable., OnlinePredictConfig, OnlinePredictConfig, Immutable configuration for ``online_predict`` / ``online_score``.      Online e, Forward to :func:`skfolio.model_selection.online_predict`.      The returned :cl (+15 more)
 
 ### Community 238 - "Cluster 238"
-Cohesion: 0.08
-Nodes (22): _create_exchanges_and_instruments_tables(), _load_migration(), Tests for migration x4y5z6a7b8c9: seed_reference_indices.  Covers: - Migration m, Migration module must declare correct revision identifiers., upgrade() must emit SQL with the NYSE existence guard., Call upgrade() with a mock op and return the SQL string passed to execute()., The WHERE EXISTS guard must prevent insertion when NYSE is missing., Fresh DB without NYSE: INSERT is a no-op due to WHERE EXISTS guard. (+14 more)
+Cohesion: 0.12
+Nodes (10): _load_migration(), Tests for migration x4y5z6a7b8c9: seed_reference_indices.  Covers: - Migration m, Migration module must declare correct revision identifiers., upgrade() must emit SQL with the NYSE existence guard., Call upgrade() with a mock op and return the SQL string passed to execute()., downgrade() must emit SQL that targets the SPY row precisely., Load the migration module from its file path., TestDowngradeSQLContent (+2 more)
 
 ### Community 239 - "Cluster 239"
-Cohesion: 0.09
-Nodes (11): for_daily_annual(), PreSelectionConfig, Configuration for the pre-selection pipeline., Immutable configuration for the pre-selection pipeline.      All parameters map, Tests for PreSelectionConfig.__post_init__ validation (issue #64)., Behavioral tests exercising specific pipeline steps with crafted data., An all-NaN column gets imputed by cross-sectional mean and         passes Select, NaN column gets imputed, constant column dropped by         DropZeroVariance, th (+3 more)
+Cohesion: 0.2
+Nodes (3): for_daily_annual(), Configuration for the pre-selection pipeline., TestPreSelectionConfig
 
 ### Community 240 - "Cluster 240"
 Cohesion: 0.2
@@ -2562,16 +2529,16 @@ Cohesion: 0.05
 Nodes (42): EchartsHeatmapComponent, build, extract-i18n, serve, test, builder, configurations, defaultConfiguration (+34 more)
 
 ### Community 243 - "Cluster 243"
-Cohesion: 0.06
-Nodes (24): classify_regime(), classify_regime_composite(), get_regime_tilts(), Macro regime classification and factor group tilts.  This module provides the **, Classify the current macro-economic regime.      Uses a simple heuristic based o, Get multiplicative tilts for a given regime.      Parameters     ----------, Classify macro regime using the multi-indicator composite score.      Uses ISM P, Tests for macro regime classification and tilts. (+16 more)
+Cohesion: 0.14
+Nodes (10): classify_regime(), Classify the current macro-economic regime.      Uses a simple heuristic based o, Verify composite path dispatch with merged indicators (#237)., All three composite indicators signal expansion., All three composite indicators signal recession., Composite path uses sentiment when available., Single composite column triggers composite dispatch., GDP-only data still uses the original heuristic. (+2 more)
 
 ### Community 244 - "Cluster 244"
 Cohesion: 0.11
 Nodes (10): DataCoverageFilter, for_regime(), InstitutionalFieldSpec, LiquidityTier, Universe Builder Configuration - Externalized thresholds for universe building., Liquidity requirements for a market cap segment., Specification for an institutional data category., Configuration for universe building from Trading212 API.      All thresholds and (+2 more)
 
 ### Community 245 - "Cluster 245"
-Cohesion: 0.08
-Nodes (7): LiquidityFilter, MarketCapFilter, FilterPipelineImpl, PriceFilter, InstrumentFilter, Execute universe build in a background thread with its own DB session., _run_build()
+Cohesion: 0.09
+Nodes (6): HistoricalDataFilter, LiquidityFilter, FilterPipelineImpl, PriceFilter, Execute universe build in a background thread with its own DB session., _run_build()
 
 ### Community 246 - "Cluster 246"
 Cohesion: 0.11
@@ -2579,7 +2546,7 @@ Nodes (23): OnlineGridSearchConfig, Lazy default factories avoid tuning->scoring
 
 ### Community 247 - "Cluster 247"
 Cohesion: 0.09
-Nodes (17): for_robustness_check(), MultipleRandomizedCVConfig, Configuration for :class:`skfolio.model_selection.MultipleRandomizedCV`.      Du, build_multiple_randomized_cv(), compute_optimal_folds(), Factory functions for building skfolio cross-validators., Compute optimal fold counts for CPCV.      Wraps :func:`skfolio.model_selection., Build a :class:`MultipleRandomizedCV` cross-validator from *config*.      Parame (+9 more)
+Nodes (16): PortfolioResult, Configuration and result types for the portfolio pipeline., Container for the output of a full portfolio optimisation run.      Attributes, Container for the output of a full portfolio optimisation run.      Attributes, Integration tests for regime-conditional sector band injection.  These tests use, Combined groups must let both sector and region constraints resolve.      skfoli, No skfolio 'missing from the groups' warning with combined groups., Combined groups dict must contain a known sector label. (+8 more)
 
 ### Community 248 - "Cluster 248"
 Cohesion: 0.08
@@ -2594,31 +2561,27 @@ Cohesion: 0.31
 Nodes (6): _make_portfolio(), _make_position(), _make_prices(), _make_snapshot(), Unit tests for the drift analysis route endpoint.  Mocks PortfolioRepository and, TestGetDrift
 
 ### Community 252 - "Cluster 252"
-Cohesion: 0.07
-Nodes (21): _cap_per_sector(), compute_selection_turnover(), Stock selection from composite scores., Evict lowest-scoring excess members from any over-quota sector., Select top N stocks by composite score with buffer.      Parameters     --------, Compute selection turnover as fraction of universe changed.      Parameters, Compute selection turnover as fraction of universe changed.      Parameters, Select stocks from scored universe.      Parameters     ----------     scores : (+13 more)
+Cohesion: 0.05
+Nodes (36): apply_sector_balance(), _cap_per_sector(), compute_selection_turnover(), Stock selection from composite scores., Evict lowest-scoring excess members from any over-quota sector., Adjust selection for sector-proportional representation.      Iterates the balan, Select top N stocks by composite score with buffer.      Parameters     --------, Compute selection turnover as fraction of universe changed.      Parameters (+28 more)
 
 ### Community 253 - "Cluster 253"
-Cohesion: 0.13
-Nodes (11): _make_cpcv_folds(), Generate combinatorial purged cross-validation folds.      Divides *dates* into, Number of folds matches C(n_folds, n_test_folds)., When cpcv_config is given, rolling config is ignored., Purging excludes dates adjacent to test boundaries from train., Train and test dates must never overlap., TestCPCVPath, TestFactorOOSConfig (+3 more)
-
-### Community 254 - "Cluster 254"
-Cohesion: 0.15
-Nodes (5): _is_non_empty_df(), Sub-client for sector and industry data via ``yf.Sector`` and ``yf.Industry``., Strict guard for DataFrame-returning yfinance properties., Wraps ``yf.Sector`` and ``yf.Industry``., SectorIndustryClient
+Cohesion: 0.16
+Nodes (10): _make_cpcv_folds(), Generate combinatorial purged cross-validation folds.      Divides *dates* into, Number of folds matches C(n_folds, n_test_folds)., When cpcv_config is given, rolling config is ignored., Purging excludes dates adjacent to test boundaries from train., Train and test dates must never overlap., TestCPCVPath, CPCVConfig (+2 more)
 
 ### Community 255 - "Cluster 255"
-Cohesion: 0.22
-Nodes (14): build_entropy_pooling (optimizer), CamelCaseModel base, EntropyPoolingRequest schema, run_entropy_pooling service, app.schemas.views.llm_moments, app.schemas.macro.macro_regime, app.services.optimization.optimization_service, skfolio MeanRisk (+6 more)
+Cohesion: 0.24
+Nodes (13): build_entropy_pooling (optimizer), CamelCaseModel base, EntropyPoolingRequest schema, run_entropy_pooling service, app.schemas.views.llm_moments, app.services.optimization.optimization_service, skfolio MeanRisk, app.schemas.scenarios.stress_scenarios (+5 more)
 
 ### Community 256 - "Cluster 256"
-Cohesion: 0.13
-Nodes (17): create_application(), FastAPI application factory for FastAPI Template, Create and configure the FastAPI application, Create and configure the FastAPI application, Create and configure the FastAPI application, Conditionally mount the Prometheus /metrics endpoint., Setup health check and monitoring endpoints, Conditionally mount the Prometheus /metrics endpoint. (+9 more)
+Cohesion: 0.11
+Nodes (20): create_application(), FastAPI application factory for FastAPI Template, Create and configure the FastAPI application, Create and configure the FastAPI application, Create and configure the FastAPI application, Conditionally mount the Prometheus /metrics endpoint., Setup health check and monitoring endpoints, Conditionally mount the Prometheus /metrics endpoint. (+12 more)
 
 ### Community 257 - "Cluster 257"
-Cohesion: 0.09
-Nodes (20): sync_portfolio service, BackgroundJobService, _run_sync worker, trigger_sync endpoint, make_cancellable_progress, notify_failure(), Webhook notification service for pipeline failure alerts.  Supports any service, POST a failure notification to a Discord/Slack-compatible webhook.      Args: (+12 more)
+Cohesion: 0.2
+Nodes (6): notify_failure(), Webhook notification service for pipeline failure alerts.  Supports any service, POST a failure notification to a Discord/Slack-compatible webhook.      Args:, test_notifications, Unit tests for the webhook notification service., TestNotifyFailure
 
 ### Community 258 - "Cluster 258"
-Cohesion: 0.08
+Cohesion: 0.07
 Nodes (17): ApiKey, ApiKey SQLAlchemy model with HMAC-signed key storage., Stores hashed API keys for request authentication., db(), _make_key(), _make_test_app(), _pinned_factory(), Tests for ApiKeyAuthMiddleware and ApiKey model.  Covers: - ApiKey model: table (+9 more)
 
 ### Community 259 - "Cluster 259"
@@ -2626,24 +2589,24 @@ Cohesion: 0.15
 Nodes (14): DashboardRepository, Exchange model, Instrument model, AnalystPriceTarget model, AnalystRecommendation model, Dividend model, FinancialStatement model (EAV), InsiderTransaction model (+6 more)
 
 ### Community 260 - "Cluster 260"
-Cohesion: 0.08
-Nodes (19): Exception, Verify VIF exception narrowing in validate_factors., validate_factors returns a FactorValidationReport on success., Verify validate_factors is exported from the research.factors package., validate_factors must be importable directly from research.factors., validate_factors must appear in research.factors.__all__., Verify FactorCoverageError is part of the exception hierarchy., TestFactorCoverageError (+11 more)
+Cohesion: 0.09
+Nodes (17): Exception, Verify VIF exception narrowing in validate_factors., validate_factors returns a FactorValidationReport on success., Verify validate_factors is exported from the research.factors package., validate_factors must be importable directly from research.factors., validate_factors must appear in research.factors.__all__., TestValidateFactorsVIFExceptionHandling, TestValidatorPackageSurface (+9 more)
 
 ### Community 262 - "Cluster 262"
-Cohesion: 0.05
-Nodes (41): _load_market_proxy(), main(), Entry point for ``python -m research.cli``., Run the full stock selection pipeline., Run the full stock selection pipeline., Run the full stock selection pipeline., Return a single-column close-price DataFrame for the market proxy.      Tries ``, Return a single-column close-price DataFrame for the market proxy.      Tries `` (+33 more)
+Cohesion: 0.08
+Nodes (19): _check_factor_coverage(), _missing_gics_sectors(), Steps 3-5 — Factor history, IS validation, OOS validation, coverage gate.  Extra, Run in-sample factor validation (IC, VIF, quintile spreads)., Run rolling walk-forward OOS factor validation.      Fix issue #239: parameters, Abort when fewer than ``min_factors`` pass IS BH AND OOS ICIR>0., Reject ``n_selected`` outside the Cycle-2 §6.1 [25, 50] band., Return GICS Level-1 sectors absent from the selected weights. (+11 more)
 
 ### Community 263 - "Cluster 263"
-Cohesion: 0.06
-Nodes (28): build_walk_forward(), Run cross-validated prediction with a temporal cross-validator.      Thin wrappe, Build a skfolio :class:`WalkForward` cross-validator from *config*.      Paramet, run_cross_val(), TestBuildWalkForward, TestRunCrossVal, benchmark_returns(), implied_vol_factors() (+20 more)
+Cohesion: 0.03
+Nodes (61): backtest(), Run walk-forward backtest on a portfolio pipeline.      Parameters     ---------, Run walk-forward backtest on a portfolio pipeline.      Parameters     ---------, TestBacktest, for_monthly_rolling(), for_quarterly_expanding(), for_quarterly_rolling(), for_robustness_check() (+53 more)
 
 ### Community 264 - "Cluster 264"
 Cohesion: 0.3
 Nodes (5): data_summary(), Return a human-readable plain-text summary of assembled data., _make_assembly(), Tests for research/strategies/_inspect.py — issue #669.  Covers data_summary(Dat, TestDataSummary
 
 ### Community 265 - "Cluster 265"
-Cohesion: 0.24
-Nodes (13): _adjusted_nvda_fixture(), client(), _history_fixture(), _install_ticker(), Cycle 3 regression: kwarg forwarding + NVDA split-day continuity (hermetic).  Lo, Synthetic ``Ticker.history`` payload that passes the ``min_rows=10`` guard., _raw_nvda_fixture(), test_when_caller_overrides_auto_adjust_false_then_override_reaches_ticker() (+5 more)
+Cohesion: 0.27
+Nodes (12): _adjusted_nvda_fixture(), _history_fixture(), _install_ticker(), Cycle 3 regression: kwarg forwarding + NVDA split-day continuity (hermetic).  Lo, Synthetic ``Ticker.history`` payload that passes the ``min_rows=10`` guard., _raw_nvda_fixture(), test_when_caller_overrides_auto_adjust_false_then_override_reaches_ticker(), test_when_calling_bulk_download_with_defaults_then_auto_adjust_is_true() (+4 more)
 
 ### Community 266 - "Cluster 266"
 Cohesion: 0.04
@@ -2658,8 +2621,8 @@ Cohesion: 0.04
 Nodes (45): activity_event_metadata, activity_events, analyst_price_targets, analyst_recommendations, background_job_errors, background_jobs, bond_yield_observations, bond_yields (+37 more)
 
 ### Community 269 - "Cluster 269"
-Cohesion: 0.21
-Nodes (14): baml_client MacroRegimeCalibration, optimizer BlackLittermanConfig, FRED_SERIES, app.api.v1.macro.macro_calibration, app.services.macro.macro_calibration, MacroTheme, MacroNewsSummary model, MacroRegimeRepository (+6 more)
+Cohesion: 0.19
+Nodes (15): baml_client MacroRegimeCalibration, optimizer BlackLittermanConfig, FRED_SERIES, app.api.v1.macro.macro_calibration, app.services.macro.macro_calibration, MacroTheme, MacroNewsSummary model, MacroRegimeRepository (+7 more)
 
 ### Community 270 - "Cluster 270"
 Cohesion: 0.33
@@ -2690,8 +2653,8 @@ Cohesion: 0.27
 Nodes (3): compute_allocation(), Group ticker weights by sector for a sunburst chart.      Args:         weights:, TestComputeAllocation
 
 ### Community 277 - "Cluster 277"
-Cohesion: 0.07
-Nodes (8): POST /api/v1/backtest always launches a background job, returns 202., TestPostBacktest, _pending_job(), Unit tests for POST /api/v1/validate/walk-forward and GET /api/v1/validate/walk-, GET /api/v1/validate/walk-forward/{job_id} polls job progress., POST /api/v1/validate/walk-forward starts a background job., TestGetValidateWalkForward, TestPostValidateWalkForward
+Cohesion: 0.12
+Nodes (11): compute_net_alpha(), Compute factor net alpha after deducting turnover-based transaction costs., composite_scores(), factor_scores(), ic_series(), Tests for factor integration with optimization., gross_alpha = mean(IC) * sqrt(annualisation)., avg_turnover equals mean of compute_turnover() on consecutive rows. (+3 more)
 
 ### Community 278 - "Cluster 278"
 Cohesion: 0.17
@@ -2706,8 +2669,8 @@ Cohesion: 0.19
 Nodes (13): StressScenarioItem.synthetic_data_args (build_synthetic_data sample_args), ScenarioRequest / ScenarioInlineResponse / ScenarioStoredResponse, BAML DesignStressScenarios, _clamp_scenario, _ensure_market_drawdown rationale, generate_stress_scenarios, scenario_to_synthetic_data_args, optimizer.synthetic.build_synthetic_data (+5 more)
 
 ### Community 281 - "Cluster 281"
-Cohesion: 0.05
-Nodes (22): BUILDER_RESULT_DEBOUNCE_MS, optReq, runSpy, setSpy, ApiErrorBody, ApiErrorLike, AttributionService, extractApiMessage() (+14 more)
+Cohesion: 0.07
+Nodes (20): CreateSessionResponse, StepRunResponse, ApiErrorBody, ApiErrorLike, extractApiMessage(), formatValidationErrors(), mapHttpError(), OptimizationService (+12 more)
 
 ### Community 282 - "Cluster 282"
 Cohesion: 0.37
@@ -2715,7 +2678,7 @@ Nodes (14): _Assembly, _fetch(), _health(), Tests for ``step_build_history`` (is
 
 ### Community 283 - "Cluster 283"
 Cohesion: 0.02
-Nodes (104): Adapter satisfying RegimePersistenceProtocol via MacroRegimeRepository., Adapter satisfying RegimePersistenceProtocol via MacroRegimeRepository., Adapter satisfying RegimePersistenceProtocol via MacroRegimeRepository., _RegimeRepoPersistence, _fetch_price_rows(), PriceRow, Fetch raw price rows from yfinance_repository for the given tickers/dates., Lightweight container for a single price observation. (+96 more)
+Nodes (99): Adapter satisfying RegimePersistenceProtocol via MacroRegimeRepository., Adapter satisfying RegimePersistenceProtocol via MacroRegimeRepository., Adapter satisfying RegimePersistenceProtocol via MacroRegimeRepository., _RegimeRepoPersistence, Seed instruments + ticker_profiles + price_history for ENGI.PA / ORA.PA / AAPL., seeded_trading212_like(), _make_factor_score(), Integration tests for risk analytics endpoints (issues #423, #424).  Exercises t (+91 more)
 
 ### Community 284 - "Cluster 284"
 Cohesion: 0.05
@@ -2730,16 +2693,16 @@ Cohesion: 0.21
 Nodes (9): generate_scenario(), get_scenario(), FastAPI router for synthetic scenario generation (issue #366).  POST /synthetic/, Retrieve a large scenario result by its ``download_id``.      Returns HTTP 404 i, Returned when n_samples <= _LARGE_THRESHOLD., Returned when n_samples > _LARGE_THRESHOLD; caller fetches via download_id., Generate synthetic return scenarios from a fitted vine copula model.      - **Sm, ScenarioInlineResponse (+1 more)
 
 ### Community 288 - "Cluster 288"
-Cohesion: 0.14
-Nodes (10): Classification thresholds for the composite macro regime scorer.      All eight, Classification thresholds for the composite macro regime scorer.      All eight, RegimeThresholdConfig, TestRegimeThresholdConfig, Verify classify_regime respects injected thresholds (#241)., PMI=53 is expansion at default (52) but neutral at threshold 54., HY OAS=380 is neutral at default (350) but risk-on at 400., TestRegimeThresholdConfigIntegration (+2 more)
+Cohesion: 0.33
+Nodes (4): Verify classify_regime respects injected thresholds (#241)., PMI=53 is expansion at default (52) but neutral at threshold 54., HY OAS=380 is neutral at default (350) but risk-on at 400., TestRegimeThresholdConfigIntegration
 
 ### Community 289 - "Cluster 289"
 Cohesion: 0.09
 Nodes (29): get_step(), _mark_step_completed(), _mark_step_running(), _now_iso(), _parse_body(), _poll_response_from_job(), post_step(), Foundational primitives for ``pipeline_builder`` step handlers (issue #696).  Th (+21 more)
 
 ### Community 290 - "Cluster 290"
-Cohesion: 0.06
-Nodes (40): make_cancellable_progress cancel-aware closure, Ad-hoc backtest portfolio_id=None fallback contract, JobAlreadyRunningError, 202-accept background-job + poll pattern, BackgroundJobService, ExecutionRepository, run_and_persist, _run_backtest_bg (+32 more)
+Cohesion: 0.1
+Nodes (23): Ad-hoc backtest portfolio_id=None fallback contract, JobAlreadyRunningError, 202-accept background-job + poll pattern, BacktestRun model, ExecutionRepository, optimize API routes, OptimizationRun model, extract_results service (+15 more)
 
 ### Community 291 - "Cluster 291"
 Cohesion: 0.24
@@ -2750,8 +2713,8 @@ Cohesion: 0.22
 Nodes (7): Integration tests for GET /api/v1/rebalance/preview/{name} (issue #425).  Exerci, Regression for #425: this previously returned 404 for ``trading212``., Seed three portfolios covering every empty-state path defined by #425., _seed_policy(), _seed_portfolio(), seeded_preview_portfolios(), test_preview_portfolio_without_active_policy_returns_200_empty()
 
 ### Community 293 - "Cluster 293"
-Cohesion: 0.22
-Nodes (9): Run all DB pre-flight checks; raise on any failure.      Warning-severity check, run_db_preflight(), Seed two major-currency instruments and three minor-unit listings., _seed_country(), _seed_healthy(), _seed_mixed_currencies(), _seed_price_history(), TestCheckFxCoverageMixedCurrencies (+1 more)
+Cohesion: 0.18
+Nodes (11): Cycle-3 §7.3 Top-4 retighten loop.      Fit the optimiser; if ``sum(sorted(weigh, _solve_with_retighten(), _builder_from_sequence(), _config(), _FakeMeanRisk, Cycle-3 §7.3 Top-4 retighten loop tests (issue #537)., Stand-in for ``skfolio.MeanRisk`` used by the retighten loop., Builder that yields a fresh ``_FakeMeanRisk`` per call. (+3 more)
 
 ### Community 294 - "Cluster 294"
 Cohesion: 0.17
@@ -2774,12 +2737,12 @@ Cohesion: 0.05
 Nodes (29): All tickers share the base currency → no FX needed., GBP→USD: mock yf.download returns flat Close column → 'GBP' in result., TestAssembleFxRates, assemble_fx_rates(), Fetch FX rates from yfinance for all foreign currencies in the map.      Paramet, align_fx_rates(), build_fx_pair_ticker(), compute_cross_rate() (+21 more)
 
 ### Community 299 - "Cluster 299"
-Cohesion: 0.2
-Nodes (5): TypeBuilder, ViewOutput(), ViewOutputAst, ViewOutputProperties, ViewOutputViewer
+Cohesion: 0.11
+Nodes (9): StressScenario(), StressScenarioAst, StressScenarioProperties, StressScenarioViewer, TypeBuilder, ViewOutput(), ViewOutputAst, ViewOutputProperties (+1 more)
 
 ### Community 300 - "Cluster 300"
-Cohesion: 0.07
-Nodes (29): Black-Litterman with Factor Views, Buffer Zones and Hysteresis, Composite Scoring, Cross-Sectional Standardization, Data Limitations, Detection Lag and Out-of-Sample Efficacy, Equal-Weight Baseline, Factor Construction Methodology (+21 more)
+Cohesion: 0.04
+Nodes (45): Analyst Sentiment and Revisions, Black-Litterman with Factor Views, Buffer Zones and Hysteresis, Composite Scoring, Cross-Factor Correlation Structure, Cross-Sectional Standardization, Data Limitations, Detection Lag and Out-of-Sample Efficacy (+37 more)
 
 ### Community 301 - "Cluster 301"
 Cohesion: 0.05
@@ -2798,12 +2761,12 @@ Cohesion: 0.09
 Nodes (9): _make_assembly(), Tests for research/data/_container.py — DataAssembly frozen value object., TestComputeAssemblyHash, TestDataAssemblyDefaults, TestDataAssemblyEquality, TestDataAssemblyFrozen, TestDataAssemblyProperties, TestDataAssemblySummary (+1 more)
 
 ### Community 305 - "Cluster 305"
-Cohesion: 0.08
-Nodes (19): _ensure_daemon_running(), _evict_stale(), _eviction_loop(), Return ids whose age is ``>= ttl_seconds``. Pure, takes no lock., Return ids whose age is ``>= ttl_seconds``. Pure, takes no lock., Sweep stale sessions every ``interval_seconds``. Runs forever., Sweep stale sessions every ``interval_seconds``. Runs forever., Spawn the eviction daemon on first call. Subsequent calls no-op. (+11 more)
+Cohesion: 0.11
+Nodes (14): _evict_stale(), _eviction_loop(), Return ids whose age is ``>= ttl_seconds``. Pure, takes no lock., Return ids whose age is ``>= ttl_seconds``. Pure, takes no lock., Sweep stale sessions every ``interval_seconds``. Runs forever., Sweep stale sessions every ``interval_seconds``. Runs forever., _drive_loop_n_times(), _drive_loop_once() (+6 more)
 
 ### Community 306 - "Cluster 306"
-Cohesion: 0.05
-Nodes (44): _render_checklist_table, _validate_checklist (17 rules), write_checklist_json, write_metrics_json, _check_country_coverage, _check_fred_freshness, _check_price_coverage, _check_price_staleness (+36 more)
+Cohesion: 0.2
+Nodes (11): _render_checklist_table, write_checklist_json, write_metrics_json, _annualized_return, _fetch_benchmark_returns (yfinance SPY), _information_ratio, _project_metrics, _sharpe (issue #246 rf fix) (+3 more)
 
 ### Community 307 - "Cluster 307"
 Cohesion: 0.38
@@ -2822,40 +2785,40 @@ Cohesion: 0.41
 Nodes (14): _Assembly, _fetch(), _passing(), Tests for ``step_screen`` (issue #699 — Step 3 of the wizard)., Minimal stub exposing fields used by ``step_screen``., _seed(), test_when_assembly_missing_then_value_error_raised(), test_when_band_breached_above_then_band_warning_true_no_exception() (+6 more)
 
 ### Community 311 - "Cluster 311"
-Cohesion: 0.23
-Nodes (9): _aggregate_diagnostics(), _compute_trades(), Derive non-HOLD trade rows sorted by descending |delta_eur|., _pos(), Unit tests for drift_service trade math + totals + diagnostics (issue #781)., _row(), TestAggregateDiagnostics, TestAggregateTotals (+1 more)
+Cohesion: 0.1
+Nodes (22): _aggregate_diagnostics(), _aggregate_totals(), _build_row(), _build_target_list(), _build_trade(), _classify_action(), compute_drift(), _compute_trades() (+14 more)
 
 ### Community 312 - "Cluster 312"
 Cohesion: 0.11
 Nodes (8): PdfBuilder, Return a dict mapping section ID → section data for all requested sections., Renders section data into a PDF document using reportlab.      Produces text and, Render section_data into PDF bytes., Dispatch rendering to section-specific method., Generate a PDF report and save it to disk.          Returns:             report_, PdfBuilder renders section data into PDF bytes., TestPdfBuilder
 
 ### Community 313 - "Cluster 313"
-Cohesion: 0.16
-Nodes (9): CreateSessionResponse, StepRunResponse, encode(), PipelineBuilderApiService, body, payload, req, url (+1 more)
+Cohesion: 0.11
+Nodes (11): CalendarsClient, Sub-client for market calendars: earnings, IPO, splits, economic events., Wraps ``yf.Calendars`` for market-wide calendar data., Module-level API clients (no BaseClient)., Sub-client for market status and summary via ``yf.Market``., _collect_extras(), Sub-client for search and lookup via ``yf.Search`` and ``yf.Lookup``., Return enabled-extras keyed by attribute, ``None`` when absent. (+3 more)
 
 ### Community 314 - "Cluster 314"
-Cohesion: 0.18
-Nodes (11): portfolio-analytics dashboard route, get_market_snapshot, skip missing-ticker weights rationale (#423), PortfolioRepository, risk_analytics route, RiskAnalyticsService, test_dashboard_routes, test_equity_curve_routes (+3 more)
+Cohesion: 0.13
+Nodes (16): BrokerSyncResult, BrokerSyncResult, sync_portfolio, portfolio-analytics dashboard route, get_market_snapshot, skip missing-ticker weights rationale (#423), portfolio services __init__, PortfolioRepository (+8 more)
 
 ### Community 315 - "Cluster 315"
-Cohesion: 0.08
-Nodes (16): Unit tests for POST /api/v1/views/entropy-pooling endpoint.  Covers:   - mean_vi, Service returns ValueError when tickers not found → 422., Solver convergence failure → 500., Direct unit tests for the service function., Correlation views must use (ASSET1, ASSET2) == value format., Request validation before any service calls., Correlation views must be parseable as tuple format., TestCorrelationViewFormat (+8 more)
+Cohesion: 0.1
+Nodes (12): Unit tests for POST /api/v1/views/entropy-pooling endpoint.  Covers:   - mean_vi, Service returns ValueError when tickers not found → 422., Solver convergence failure → 500., Correlation views must use (ASSET1, ASSET2) == value format., Request validation before any service calls., Correlation views must be parseable as tuple format., TestCorrelationViewFormat, TestEntropyPoolingNoPriceData (+4 more)
 
 ### Community 316 - "Cluster 316"
-Cohesion: 0.12
-Nodes (14): Rolling block or CPCV out-of-sample validation of factor IC and spreads.      Pa, run_factor_oos_validation(), _make_panel(), panel_48(), panel_60(), Tests for rolling block out-of-sample factor validation., mean_oos_ic is the mean of per-fold IC values., Corrupting training-window scores must not change OOS IC. (+6 more)
+Cohesion: 0.16
+Nodes (9): FactorOOSConfig, Rolling block out-of-sample validation for factor predictive power., Rolling block or CPCV out-of-sample validation of factor IC and spreads.      Pa, Configuration for rolling block OOS validation.      Parameters     ----------, run_factor_oos_validation(), mean_oos_ic is the mean of per-fold IC values., Corrupting training-window scores must not change OOS IC., Non-overlapping val windows when step == val_periods. (+1 more)
 
 ### Community 317 - "Cluster 317"
 Cohesion: 0.08
 Nodes (17): Stamp ``last_heartbeat_at = NOW()`` iff row is still running.          Returns `, Stamp ``last_heartbeat_at = NOW()`` iff row is still running.          Returns `, Stamp ``last_heartbeat_at = NOW()`` iff row is still running.          Returns `, Check if any job of *job_type* is pending or running., Check if any job of *job_type* is pending or running., Mark genuinely dead pending/running rows as failed.          Spec 12.3.3 — a row, Mark genuinely dead pending/running rows as failed.          Spec 12.3.3 — a row, Mark genuinely dead pending/running rows as failed.          Spec 12.3.3 — a row (+9 more)
 
 ### Community 318 - "Cluster 318"
-Cohesion: 0.21
-Nodes (9): DeclarativeBase, Base, BaseModel, Base class for all SQLAlchemy models, Mixin to add created_at and updated_at timestamps, Mixin to add UUID primary key, Abstract base model combining common patterns.      Provides:     - UUID primary, TimestampMixin (+1 more)
+Cohesion: 0.13
+Nodes (14): DeclarativeBase, Base, BaseModel, CamelCaseModel, _coerce_uuid(), Shared base schemas for API response models., Base model that serializes field names to camelCase.      All response models re, Base class for all SQLAlchemy models (+6 more)
 
 ### Community 319 - "Cluster 319"
-Cohesion: 0.13
-Nodes (12): VarianceEstimatorType, build_variance_estimator(), Build a skfolio variance estimator from *config*.      Parameters     ----------, Variance estimators expose 1-D variance_ not 2-D covariance_; not interchangeable in priors needing full matrix, Tests for variance estimator dispatch and presets., returns(), test_when_dispatched_then_correct_class(), test_when_fitted_then_variance_attribute_is_one_dim() (+4 more)
+Cohesion: 0.15
+Nodes (21): ar(), cr(), Do(), dr(), ha(), Ir(), lr(), lt() (+13 more)
 
 ### Community 320 - "Cluster 320"
 Cohesion: 0.27
@@ -2866,24 +2829,24 @@ Cohesion: 0.18
 Nodes (7): Upsert an IlSole forecast observation row for a country on a given date., Bulk upsert bond yield rows for a country.          Args:             country: C, Upsert a single economic indicator (forecast) row for a country.          Args:, today(), parse_reference_date(), Multi-format date parsing utilities., Parse a reference date string into a :class:`date` object.      Supported format
 
 ### Community 322 - "Cluster 322"
-Cohesion: 0.24
-Nodes (12): optimization services __init__, intentional private exports for test-patching, _build_optimizer, build_pipeline service, _solve_with_retighten, _top4_weight, test_tuning_service, TuneRequest (+4 more)
+Cohesion: 0.2
+Nodes (14): optimization services __init__, intentional private exports for test-patching, _build_optimizer, build_pipeline service, _solve_with_retighten, _top4_weight, test_tuning_service, Tuning Router (+6 more)
 
 ### Community 323 - "Cluster 323"
 Cohesion: 0.11
 Nodes (13): CompositeScoringConfig, Configuration for composite score construction.      Parameters     ----------, compute_equal_weight_composite(), Equal-weight composite with core/supplementary tiering.      Parameters     ----, Tests for renormalized weighted average over available groups (issue #242)., Ticker missing a group gets composite from available groups only., Ticker with all NaN group scores gets NaN composite., With all available scores = 1.0, composite = 1.0 regardless of coverage. (+5 more)
 
 ### Community 324 - "Cluster 324"
-Cohesion: 0.09
-Nodes (22): compute_group_scores(), compute_icir_weighted_composite(), Average factor scores within each group.      Parameters     ----------     stan, ICIR-weighted composite score.      Weights each group by ``max(ICIR, 0) = max(m, ICIR-weighted composite score.      Weights each group by ``max(ICIR, 0) = max(m, Acceptance criteria from issue #24., ICIR_WEIGHTED weights are non-negative and normalised to 1., A group with ICIR = 0 is excluded from the composite. (+14 more)
+Cohesion: 0.13
+Nodes (10): Acceptance criteria from issue #24., ICIR_WEIGHTED weights are non-negative and normalised to 1., A group with ICIR = 0 is excluded from the composite., Stable factor (low mean IC, low std) outweighs volatile factor., Falls back to equal weight when all groups have ICIR = 0., Tests for group_weights parameter in ICIR_WEIGHTED (issue #81)., compute_icir_weighted_composite with group_weights differs from without., compute_composite_score with ICIR_WEIGHTED forwards group_weights. (+2 more)
 
 ### Community 326 - "Cluster 326"
 Cohesion: 0.33
 Nodes (3): for_scenario_generation(), for_stress_test(), Configuration for synthetic data generation and vine copula models.
 
 ### Community 327 - "Cluster 327"
-Cohesion: 0.12
-Nodes (7): PaginationParams, Advanced pagination parameters with cursor support for better performance      F, Encode cursor value for pagination, Decode cursor value from pagination, ExportReportModalComponent, generateNotificationId(), NotificationService
+Cohesion: 0.08
+Nodes (12): App, collectSortedDates(), extractMessage(), GlobalErrorHandler, isHttpError(), notifyIfNeeded(), LoggingMiddleware, Request logging middleware (+4 more)
 
 ### Community 328 - "Cluster 328"
 Cohesion: 0.06
@@ -2906,12 +2869,12 @@ Cohesion: 0.22
 Nodes (10): LLM moments router, select_cov_regime_endpoint, generate_opinion_pool endpoint, _parse_personas helper, _resolve_ic_histories helper, opinion pooling router, entropy_pooling endpoint, generate_bl_views endpoint (+2 more)
 
 ### Community 333 - "Cluster 333"
-Cohesion: 0.21
-Nodes (10): buildReturnDistribution(), daysBetween(), detectDrawdownEvents(), mapEquityCurve(), mapMonthlyReturns(), mapRollingMetrics(), mapRunResponseToResult(), mapSummaryToMetrics() (+2 more)
+Cohesion: 0.11
+Nodes (16): Atomically replace ``session_id`` with the patched dataclass., Atomically replace ``session_id`` with the patched dataclass., update_session(), _coverage_membership(), Enforce the wizard's authoritative [15, 30] band for n_selected., Enforce the wizard's authoritative [15, 30] band for n_selected., Step 1 — load and assemble all DB data for the wizard.      Validates ``run_conf, Step 1 — load and assemble all DB data for the wizard.      Validates ``run_conf (+8 more)
 
 ### Community 334 - "Cluster 334"
-Cohesion: 0.1
-Nodes (20): _build_endpoint_histogram(), _classify_http_exception(), observe_endpoint_latency(), Prometheus metric definitions for background job and request instrumentation.  A, Record a single request-handler latency observation.      Raises ``KeyError`` fo, Map an HTTPException's status code to its endpoint-histogram label., Time a request-handler body and record the observation on exit.      The status, Construct a request-handler latency histogram for one endpoint. (+12 more)
+Cohesion: 0.2
+Nodes (11): _build_endpoint_histogram(), _classify_http_exception(), observe_endpoint_latency(), Prometheus metric definitions for background job and request instrumentation.  A, Record a single request-handler latency observation.      Raises ``KeyError`` fo, Map an HTTPException's status code to its endpoint-histogram label., Time a request-handler body and record the observation on exit.      The status, Construct a request-handler latency histogram for one endpoint. (+3 more)
 
 ### Community 335 - "Cluster 335"
 Cohesion: 0.22
@@ -2919,19 +2882,19 @@ Nodes (4): NewsArticle(), NewsArticleAst, NewsArticleProperties, NewsArticleView
 
 ### Community 336 - "Cluster 336"
 Cohesion: 0.12
-Nodes (14): build_universe(), clear_cache(), get_build_status(), get_cache_stats(), get_stats(), get_trading212_client(), list_instruments(), FastAPI router for Trading212 universe endpoints. (+6 more)
+Nodes (15): build_universe(), clear_cache(), get_build_status(), get_cache_stats(), get_stats(), get_ticker_cache(), get_trading212_client(), list_instruments() (+7 more)
 
 ### Community 337 - "Cluster 337"
 Cohesion: 0.13
 Nodes (9): MacroNewsSummary, Daily country-level news summary aggregated from MacroNews articles.      One ro, _make_summary_row(), Unit tests for macro news summary API endpoints (issue #214)., Build a MacroNewsSummary ORM instance for testing., TestGetAllNewsSummaries, TestGetCountryNewsSummary, TestGetNewsSummarizeStatus (+1 more)
 
 ### Community 338 - "Cluster 338"
-Cohesion: 0.39
-Nodes (3): _clamp_sentiment_score(), Clamp sentiment score to [-1.0, 1.0]., TestClampSentimentScore
+Cohesion: 0.1
+Nodes (16): _clamp_sentiment_score(), CountrySummaryResult, Macro news summary service with country mapping and LLM summarization.  Workflow, Result of a single country's news summarization., Clamp sentiment score to [-1.0, 1.0]., Summarize news for a single country. Returns None if skipped., Execute news summarization in the service layer.      Args:         request: ``M, Execute news summarization in the service layer.      Args:         request: ``M (+8 more)
 
 ### Community 339 - "Cluster 339"
-Cohesion: 0.22
-Nodes (4): StressScenario(), StressScenarioAst, StressScenarioProperties, StressScenarioViewer
+Cohesion: 0.11
+Nodes (8): Budget Constraint, Constraints, Custom Linear Constraints, Group and Sector Constraints, Position Limits, Regularization, Transaction Costs and Fees, WeightPanelComponent
 
 ### Community 340 - "Cluster 340"
 Cohesion: 0.22
@@ -2942,8 +2905,8 @@ Cohesion: 0.12
 Nodes (15): 1. Result service + store wiring, 2. Allocation donut + weight bars, 3. Efficient frontier with "you are here", 4. Backtest sparkline, 5. Canvas view toggle, 6. Right analytics pane, 7. Live-state UX, Constraints (+7 more)
 
 ### Community 342 - "Cluster 342"
-Cohesion: 0.19
-Nodes (8): buildAxisIndex(), buildLineSeries(), buildYAxis(), collectDistinctFormatters(), collectSortedDates(), EchartsRollingMetricsComponent, formatValueFor(), readPalette()
+Cohesion: 0.2
+Nodes (7): buildAxisIndex(), buildLineSeries(), buildYAxis(), collectDistinctFormatters(), EchartsRollingMetricsComponent, formatValueFor(), readPalette()
 
 ### Community 343 - "Cluster 343"
 Cohesion: 0.22
@@ -2962,40 +2925,40 @@ Cohesion: 0.22
 Nodes (4): DeltaCalibration(), DeltaCalibrationAst, DeltaCalibrationProperties, DeltaCalibrationViewer
 
 ### Community 347 - "Cluster 347"
-Cohesion: 0.18
-Nodes (10): OutlierTreater, DataValidator, Data validation transformer for return DataFrames., Replace infinities and extreme values with NaN.      Operates on a return DataFr, Store metadata.  This transformer is stateless., Replace ``inf`` / ``-inf`` and extreme returns with ``NaN``., Return feature names (pass-through)., _validate_input() (+2 more)
+Cohesion: 0.15
+Nodes (17): CircuitBreaker, MacroRegimeService.fetch_fred_series, Per-series on_progress callback contract (#569), app.services.macro.scrapers.fred_scraper, FundsClient, FundsClientProtocol, LRUCache, MacroRegimeService (+9 more)
 
 ### Community 348 - "Cluster 348"
-Cohesion: 0.16
-Nodes (9): build_equal_weighted(), EqualWeightedConfig, Build a skfolio :class:`EqualWeighted` from *config*., Immutable configuration for :class:`EqualWeighted`.      The optimizer has no tu, Tests for naive benchmark optimizer factories., returns(), TestBuildEqualWeighted, TestEqualWeightedConfig (+1 more)
+Cohesion: 0.06
+Nodes (25): build_equal_weighted(), build_inverse_volatility(), build_random(), EqualWeightedConfig, InverseVolatilityConfig, RandomConfig, Naive benchmark optimizer configurations and factories.  EqualWeighted, InverseV, Build a skfolio :class:`EqualWeighted` from *config*. (+17 more)
 
 ### Community 349 - "Cluster 349"
 Cohesion: 0.08
-Nodes (16): for_custom(), _build_ir_scorer(), build_scorer(), Factory functions for building scoring functions., Build a scoring callable compatible with sklearn cross-validation.      Paramete, Build an annualised Information Ratio scorer from benchmark returns.      IR = a, Tests for scoring factory functions., All RatioMeasureType members except IR build without benchmark_returns. (+8 more)
+Nodes (17): for_custom(), for_sortino(), _build_ir_scorer(), build_scorer(), Factory functions for building scoring functions., Build a scoring callable compatible with sklearn cross-validation.      Paramete, Build an annualised Information Ratio scorer from benchmark returns.      IR = a, Tests for scoring factory functions. (+9 more)
 
 ### Community 350 - "Cluster 350"
-Cohesion: 0.05
-Nodes (27): Benchmark Tracking, Budget Constraint, Conditional Stress Testing, Constraints, Covariance Uncertainty Sets, Custom Linear Constraints, Distributionally Robust CVaR, Ensemble Optimization (+19 more)
+Cohesion: 0.1
+Nodes (19): Benchmark Tracking, Conditional Stress Testing, Covariance Uncertainty Sets, Distributionally Robust CVaR, Ensemble Optimization, Equal Weighted, Inverse Volatility, Maximize Ratio (+11 more)
 
 ### Community 351 - "Cluster 351"
-Cohesion: 0.12
-Nodes (8): for_calmar(), for_cvar_ratio(), for_sharpe(), for_sharpe_with_rf(), for_sortino(), Configuration for performance scoring functions., Tests for scoring configs., TestScorerConfig
+Cohesion: 0.14
+Nodes (7): for_calmar(), for_cvar_ratio(), for_sharpe(), for_sharpe_with_rf(), Configuration for performance scoring functions., Tests for scoring configs., TestScorerConfig
 
 ### Community 352 - "Cluster 352"
 Cohesion: 0.05
 Nodes (38): 1. `validate` -- DataValidator, 2. `outliers` -- OutlierTreater, 3. `impute` -- SectorImputer, 4. `select_complete` -- SelectComplete, 5. `drop_zero_variance` -- DropZeroVariance, 6. `drop_correlated` -- DropCorrelated, 7. `select_k` -- SelectKExtremes (optional), 8. `select_pareto` -- SelectNonDominated (optional) (+30 more)
 
 ### Community 354 - "Cluster 354"
-Cohesion: 0.03
-Nodes (63): _enable_webhook(), Integration tests: webhook fires on background-job failure across routers.  Cove, No webhook is dispatched when a job completes successfully., When ``NOTIFICATION_WEBHOOK_URL`` is unset, failure does not post., Route webhook dispatch to the test URL and silence Prometheus calls., Swap each service's ``_session_factory`` for a DB-less stub., Each of the four router services posts to the webhook on ``failed``., stub_session_factories() (+55 more)
+Cohesion: 0.04
+Nodes (52): BackgroundJobService, _extract_job_id(), _jsonb_safe(), Atomically create a job if none is active for this job type.          Returns th, Update an existing job.  No-op if the job does not exist.          Logs WARNING, Atomically create a job if none is active for this job type.          Returns th, Return a dict representation of the job, or ``None``.          The returned dict, Update an existing job.  No-op if the job does not exist.          Logs WARNING (+44 more)
 
 ### Community 355 - "Cluster 355"
 Cohesion: 0.5
 Nodes (3): Factory functions for building synthetic data and vine copula estimators., Resolve a tuple of distribution names to fresh estimator instances., _resolve_distributions()
 
 ### Community 356 - "Cluster 356"
-Cohesion: 0.04
-Nodes (34): compute_net_alpha(), Compute factor net alpha after deducting turnover-based transaction costs., gross_alpha = mean(IC) * sqrt(annualisation)., avg_turnover equals mean of compute_turnover() on consecutive rows., Constant weights → zero turnover → net_alpha = gross_alpha., Very high cost_bps drives net_alpha below gross_alpha., TestComputeNetAlpha, Field stays None if bt has no weights_per_observation attribute. (+26 more)
+Cohesion: 0.05
+Nodes (25): _compute_net_sharpe(), Annualised Sharpe ratio from a daily net-return Series., Annualised Sharpe ratio from a daily net-return Series., Field stays None if bt has no weights_per_observation attribute., Regression tests for issue #309: resilient bt.returns_df accessor.      Verifies, Build a minimal backtest-like namespace.          Uses ``types.SimpleNamespace``, Without returns_df, gross returns are reconstructed from public members., Absent returns_df must trigger a logger.warning, not silent degradation. (+17 more)
 
 ### Community 357 - "Cluster 357"
 Cohesion: 0.44
@@ -3006,24 +2969,24 @@ Cohesion: 0.33
 Nodes (3): _make_etf_instrument(), Unit tests for GET /api/v1/market/indices.  Mocks DashboardRepository at the rou, TestGetMarketIndices
 
 ### Community 359 - "Cluster 359"
-Cohesion: 0.2
-Nodes (8): compute_binding_constraints(), Return labels for constraint rows where ``A @ w - b >= -tol``.      The slack ``, _build_region_matrix(), Build (A, b, labels) for region-cap rows on the given ticker order., Build (A, b, labels) for region-cap rows on the given ticker order., test_when_weights_under_cap_then_no_binding(), TestRegionBindingDetection, TestComputeBindingConstraints
+Cohesion: 0.11
+Nodes (14): byTicker, donutBtn, { fixture, host }, { fixture, host, driftRunner }, { fixture, store }, { fixture, store, host }, { host }, invested (+6 more)
 
 ### Community 360 - "Cluster 360"
 Cohesion: 0.08
 Nodes (16): _fit_weights(), main(), SchurComplementary gamma sweep: HRP anchor → MVP anchor.  Fits ``SchurComplement, build_schur_complementary(), SchurComplementary configuration and factory.  No matrix inversion — robust to s, Build a skfolio :class:`SchurComplementary` optimiser from *config*.      Parame, Immutable configuration for :class:`SchurComplementary`.      Parameters     ---, Build a skfolio :class:`SchurComplementary` optimiser from *config*.      Parame (+8 more)
 
 ### Community 361 - "Cluster 361"
-Cohesion: 0.08
-Nodes (23): Persist Cycle 4 §9.3 metrics block to ``metrics.json`` (Cycle 5 input)., Persist Cycle 4 §10 checklist results to ``checklist.json``., write_checklist_json(), write_metrics_json(), _fetch_benchmark_returns(), _project_metrics(), Convert display-key metrics dict to JSON-safe schema dict., Download daily benchmark returns from yfinance. (+15 more)
+Cohesion: 0.12
+Nodes (17): Render a Rich Table summary of checklist rules to stdout., _render_checklist_table(), _fetch_benchmark_returns(), Download daily benchmark returns from yfinance., _build_binding_constraints(), _print_diversification(), Step 8 — Performance reporting and research report rendering.  Extracted from ``, Print portfolio performance, weights, and diversification breakdown.      Fix is (+9 more)
 
 ### Community 362 - "Cluster 362"
 Cohesion: 0.36
 Nodes (12): _Assembly, _fetch(), _make_prices(), Tests for ``step_slice`` (issue #698 — Step 2 of the wizard)., Insert a real session and overwrite its assembly field., _seed_session(), test_when_both_dates_none_then_no_op_payload_returned(), test_when_both_dates_set_then_assembly_replaced_and_payload_reports_slice() (+4 more)
 
 ### Community 363 - "Cluster 363"
-Cohesion: 0.03
-Nodes (97): DataTableComponent, TERMINAL_POLL, BaseCurrency, BuildHistoryStepResult, ChecklistRule, CleanReturnsStepResult, CostCountryItem, CostStepResult (+89 more)
+Cohesion: 0.02
+Nodes (129): TERMINAL_POLL, BaseCurrency, BuildHistoryStepResult, ChecklistRule, CleanReturnsStepResult, CostCountryItem, CostStepResult, CoverageGateStepResult (+121 more)
 
 ### Community 364 - "Cluster 364"
 Cohesion: 0.36
@@ -3034,12 +2997,12 @@ Cohesion: 0.09
 Nodes (12): build_risk_budgeting(), RiskBudgeting configuration and factory.  Wraps :class:`skfolio.optimization.Ris, Build a skfolio :class:`RiskBudgeting` optimiser from *config*.      Parameters, Build a skfolio :class:`RiskBudgeting` optimiser from *config*.      Parameters, Immutable configuration for :class:`skfolio.optimization.RiskBudgeting`.      Se, RiskBudgetingConfig, Tests for the RiskBudgeting factory and configuration., returns() (+4 more)
 
 ### Community 366 - "Cluster 366"
-Cohesion: 0.18
-Nodes (32): ai(), de(), ds(), Ei(), fi(), g(), ge(), Gi() (+24 more)
+Cohesion: 0.15
+Nodes (39): ai(), an(), ba(), de(), ds(), er(), es(), fi() (+31 more)
 
 ### Community 367 - "Cluster 367"
-Cohesion: 0.06
-Nodes (27): daily_dates(), gross(), prices(), Tests for research/_returns.py — Cycle 4 §9.2 after-tax returns., portfolio_value <= 0 → skip tax (no division by zero)., 20 business days for a backtest series., Default tax rate is 0.26 (Italy capital-gains)., Issue #555 — gap coverage on top of TestComputeAfterTaxReturns.      Closes cove (+19 more)
+Cohesion: 0.08
+Nodes (20): portfolio_value <= 0 → skip tax (no division by zero)., Default tax rate is 0.26 (Italy capital-gains)., Issue #555 — gap coverage on top of TestComputeAfterTaxReturns.      Closes cove, Constant weight_history across rebalances → no sells → no tax., Three rebalances with strictly falling prices → no tax anywhere., Two rebalances: first leg = gain (taxed), second leg = loss (not taxed)., ``tax_rate=0`` removes the tax leg entirely; cost_bps=0 → identity., Empty gross series + non-empty weight_history → empty output. (+12 more)
 
 ### Community 368 - "Cluster 368"
 Cohesion: 0.06
@@ -3050,36 +3013,36 @@ Cohesion: 0.05
 Nodes (38): Architecture, code:bash (pip install portopt), code:bash (pip install -e ".[dev]"), code:bash (# Start PostgreSQL), code:bash (git clone https://github.com/SilvioBaratto/optimizer.git), code:python (from optimizer.optimization import MeanRiskConfig, build_mea), code:block4 (prices -> returns -> [preprocess -> pre-select -> optimize] ), code:python (MeanRiskConfig.for_max_sharpe()           # maximize Sharpe ) (+30 more)
 
 ### Community 371 - "Cluster 371"
-Cohesion: 0.02
-Nodes (112): Atomically replace ``session_id`` with the patched dataclass., Atomically replace ``session_id`` with the patched dataclass., update_session(), _artifact_paths(), _breakdown(), _build_regime_persistence(), _coverage_membership(), _high_vif_factors() (+104 more)
+Cohesion: 0.04
+Nodes (73): _artifact_paths(), _breakdown(), _build_regime_persistence(), _high_vif_factors(), _HockeyStickWatcher, _ic_records(), _make_session_tempdir(), _merge_country_costs() (+65 more)
 
 ### Community 372 - "Cluster 372"
-Cohesion: 0.09
-Nodes (14): backtest._run_backtest_bg wrapper, optimize._run_optimize_bg wrapper, BackgroundJobService, app.services._shared.notifications (httpx.post), tune._run_tune_bg wrapper, validate._run_walk_forward_bg wrapper, Services Package ================  This package contains business logic services, Shared Services.  Cross-cutting service helpers and utilities. (+6 more)
+Cohesion: 0.05
+Nodes (30): backtest._run_backtest_bg wrapper, optimize._run_optimize_bg wrapper, BackgroundJobService, app.services._shared.notifications (httpx.post), tune._run_tune_bg wrapper, validate._run_walk_forward_bg wrapper, _enable_webhook(), Integration tests: webhook fires on background-job failure across routers.  Cove (+22 more)
 
 ### Community 373 - "Cluster 373"
-Cohesion: 0.19
-Nodes (11): _build_screen_kwargs(), Sub-client for screening via ``yf.screen``, ``EquityQuery``, ``FundQuery``., Wraps ``yf.screen()`` and predefined screener queries., ScreenerClient, _build_client(), _patch_yf_screen(), Tests for issue #592: branch ScreenerClient.screen on query type.  yfinance 1.3., test_when_query_is_equity_query_instance_then_yf_screen_receives_size_kwarg() (+3 more)
+Cohesion: 0.54
+Nodes (7): _build_client(), _patch_yf_screen(), Tests for issue #592: branch ScreenerClient.screen on query type.  yfinance 1.3., test_when_query_is_equity_query_instance_then_yf_screen_receives_size_kwarg(), test_when_query_is_etf_query_instance_then_yf_screen_receives_size_kwarg(), test_when_query_is_fund_query_instance_then_yf_screen_receives_size_kwarg(), test_when_query_is_predefined_string_then_yf_screen_receives_count_kwarg()
 
 ### Community 374 - "Cluster 374"
 Cohesion: 0.05
 Nodes (38): 10. SSR Notes, 11. Gotchas Checklist, 12. Minimal Project Layout, 13. Reference Links, 1. Why Raw ECharts (No Wrapper), 2. Installation, 3. Tree-Shaking with Dynamic Imports, 4. Global Theme via `APP_INITIALIZER` (+30 more)
 
 ### Community 375 - "Cluster 375"
-Cohesion: 0.08
-Nodes (11): for_broad_universe(), for_developed_markets(), for_large_cap(), for_small_cap(), HysteresisConfig, Entry/exit thresholds with hysteresis to reduce turnover.      Setting exit belo, Tests for universe screening configuration., TestExchangeRegion (+3 more)
+Cohesion: 0.04
+Nodes (38): DistanceConfig, DistanceEstimatorType, Configuration for distance estimator selection.  The :class:`DistanceConfig` is, Distance estimator selection., Immutable configuration for distance estimator construction.      Parameters, Configuration for stock selection from scored universe.      Parameters     ----, Configuration for stock selection from scored universe.      Parameters     ----, SelectionConfig (+30 more)
 
 ### Community 376 - "Cluster 376"
-Cohesion: 0.1
-Nodes (13): main(), HRP with mutual-information distance and Ward clustering.  Hierarchical Risk Par, build_hrp(), for_distance(), HRPConfig, HierarchicalRiskParity configuration and factory.  No matrix inversion — robust, Immutable configuration for :class:`HierarchicalRiskParity`.      Parameters, Build a skfolio :class:`HierarchicalRiskParity` optimiser from *config*.      Pa (+5 more)
+Cohesion: 0.09
+Nodes (14): main(), HRP with mutual-information distance and Ward clustering.  Hierarchical Risk Par, build_hrp(), for_distance(), HRPConfig, HierarchicalRiskParity configuration and factory.  No matrix inversion — robust, Immutable configuration for :class:`HierarchicalRiskParity`.      Parameters, Build a skfolio :class:`HierarchicalRiskParity` optimiser from *config*.      Pa (+6 more)
 
 ### Community 377 - "Cluster 377"
 Cohesion: 0.06
 Nodes (34): Code Examples, code:block1 (|-------- train --------|-- test --|), code:python (factor_scores_history, returns_history, build_health = build), code:python (from optimizer.validation import WalkForwardConfig), code:python (from optimizer.validation import CPCVConfig), code:python (from optimizer.validation import MultipleRandomizedCVConfig), code:python (from optimizer.validation import WalkForwardConfig, run_cros), code:python (from optimizer.validation import compute_optimal_folds) (+26 more)
 
 ### Community 378 - "Cluster 378"
-Cohesion: 0.08
-Nodes (18): apply_regime_tilts(), Apply regime-conditional multiplicative tilts to group weights.      Parameters, Cycle-2 spec: RECESSION dampens VALUE (multiplier < 1.0)., Cycle-2 spec: EXPANSION boosts VALUE (multiplier > 1.0)., Tests for capped tilt multipliers and weight floor (issue #279)., A raw tilt of 10x is clamped to max_tilt_multiplier., Tilts within the cap are applied without modification., A suppressed group is raised to min_post_tilt_weight * total. (+10 more)
+Cohesion: 0.13
+Nodes (10): Tests for capped tilt multipliers and weight floor (issue #279)., A raw tilt of 10x is clamped to max_tilt_multiplier., Tilts within the cap are applied without modification., A suppressed group is raised to min_post_tilt_weight * total., With min_post_tilt_weight=0.0, zero tilt drives weight to 0., max_tilt_multiplier below 1.0 is rejected., Negative min_post_tilt_weight is rejected., min_post_tilt_weight >= 1.0 is rejected. (+2 more)
 
 ### Community 379 - "Cluster 379"
 Cohesion: 0.07
@@ -3090,8 +3053,8 @@ Cohesion: 0.08
 Nodes (15): Tests for ``research/reporting/`` module boundaries — issue #677.  Covers five a, The template directory resolved by _report.py must exist on disk., The file ``report.md.j2`` must exist inside the resolved template dir., Every name in research.reporting.__all__ must be importable., ``import research.reporting`` in a subprocess must exit 0., Importing research.reporting._display must not write to stdout., Importing research.reporting._display must not write to stderr., The module-level ``console`` name must NOT exist on _display after lazy-init fix (+7 more)
 
 ### Community 381 - "Cluster 381"
-Cohesion: 0.38
-Nodes (10): _Assembly, _fetch(), _Group, Tests for ``step_regime`` (issue #705 — Step 9 of the wizard)., _Regime, _seed(), test_when_assembly_missing_then_value_error_raised(), test_when_classify_runs_no_persist_then_payload_and_session_populated() (+2 more)
+Cohesion: 0.13
+Nodes (9): delete_session(), Remove the session and any cached job service. Idempotent., Remove the session and any cached job service. Idempotent., Tests for ``pipeline_builder`` CRUD functions (issue #690)., Empty the module-level registries before and after each test., _reset_registries(), TestDeleteSession, TestGetSession (+1 more)
 
 ### Community 382 - "Cluster 382"
 Cohesion: 0.29
@@ -3102,16 +3065,16 @@ Cohesion: 0.08
 Nodes (23): _apply_mcap_percentile_screen(), compute_listing_age(), compute_trading_frequency(), count_financial_statements(), Investability screening logic., Compute listing age in trading days for each ticker.      Parameters     -------, Count financial statements per ticker.      Parameters     ----------     statem, Apply exchange-percentile market-cap screen with hysteresis.      Parameters (+15 more)
 
 ### Community 384 - "Cluster 384"
-Cohesion: 0.25
-Nodes (4): App, LoggingMiddleware, Request logging middleware, Middleware to log all requests and responses for monitoring and debugging
+Cohesion: 0.15
+Nodes (12): _compute_monthly_snapshots(), Fig07RollingIC, _momentum_score(), Fig07RollingIC — Rolling 12-month information coefficient time series., Synthetic IC series for illustration., Resample prices to month-end and compute returns for IC calculation.      Return, 12-1 month momentum at a monthly snapshot., Trailing 12-month volatility (annualized) as a score. (+4 more)
 
 ### Community 385 - "Cluster 385"
 Cohesion: 0.19
 Nodes (13): download_artifact(), _file_response(), post_session(), Sessions router for ``/api/v1/pipeline-builder/sessions`` (issue #713).  Three e, Look up the absolute artefact path; 404 if missing on disk., Build the ``FileResponse`` with media-type + ``Content-Disposition``., Create a new pipeline-builder session., Stream a final artefact file. Requires ``step_persist`` completed. (+5 more)
 
 ### Community 386 - "Cluster 386"
-Cohesion: 0.22
-Nodes (9): _make_order(), _make_repo_mock(), _make_t212_client(), Unit tests for sync_portfolio() — broker order deduplication (issue #310)., Orders with no id field pass external_id=None (non-broker fallback)., Two orders: first inserts (returns event), second is duplicate (returns None)., When add_event_idempotent returns None (conflict), orders_inserted stays 0., _run_sync() (+1 more)
+Cohesion: 0.16
+Nodes (8): compute_icir_weighted_composite(), ICIR-weighted composite score.      Weights each group by ``max(ICIR, 0) = max(m, ICIR-weighted composite score.      Weights each group by ``max(ICIR, 0) = max(m, n_negative in warning reflects genuinely-negative ICs, not post-clamp zeros., n_negative in ICIR warning reflects genuinely-negative ICIR, not zeros., Tests for ICFallbackStrategy on IC/ICIR-weighted fallback (issue #277)., Per-group IC series where every group has negative mean IC., TestICFallbackStrategy
 
 ### Community 387 - "Cluster 387"
 Cohesion: 0.1
@@ -3150,8 +3113,8 @@ Cohesion: 0.14
 Nodes (9): _compute_beta(), Market beta (natural units).      Lower beta is favorable for LOW_RISK factor sc, Regression for issue #294: beta uses mixed-currency market proxy.      When ``pr, compute_factor passes market_returns through to _compute_beta., A non-equal-weight proxy produces different betas., Passing the equal-weight mean explicitly matches the default., Adding uncorrelated 'GBX noise' stocks shifts beta estimates.          Construct, Raw beta from _compute_beta must not be negated by compute_factor. (+1 more)
 
 ### Community 396 - "Cluster 396"
-Cohesion: 0.11
-Nodes (17): _assert_universe_size(), Step 2 — Investability screening.  Extracted from ``stock_selection_pipeline.py`, Enforce universe-size floor and warn on out-of-band counts (issue #520)., Enforce universe-size floor and warn on out-of-band counts (issue #520)., Apply investability screens and return the passing ticker index., Apply investability screens and return the passing ticker index., screen_investable(), _make_passing() (+9 more)
+Cohesion: 0.09
+Nodes (23): Dispatch to the matching screening routine for ``preset``.      The default ``de, Dispatch to the matching screening routine for ``preset``.      The default ``de, Step 3 — screen the investable universe per preset.      Enforces the floor of 2, Step 3 — screen the investable universe per preset.      Enforces the floor of 2, _screen_for_preset(), step_screen(), _assert_universe_size(), Step 2 — Investability screening.  Extracted from ``stock_selection_pipeline.py` (+15 more)
 
 ### Community 397 - "Cluster 397"
 Cohesion: 0.14
@@ -3166,8 +3129,8 @@ Cohesion: 0.18
 Nodes (10): decompose_fx_returns(), FxReturnDecomposition, FX return decomposition utilities., Decomposition of portfolio returns into stock and FX components.      The total, Decompose total returns into local, FX, and cross components.      Parameters, Tests for FX return decomposition., Tests for decompose_fx_returns()., Build local prices, base prices, FX rates, and currency map. (+2 more)
 
 ### Community 400 - "Cluster 400"
-Cohesion: 0.22
-Nodes (8): _check_price_coverage(), Verify enough distinct instruments have a price within the recent window.      G, get_session(), _mock_session_returning(), MagicMock session whose ``execute(...).scalar()`` returns *scalar_value*., _seed_price_history_for_tickers(), TestCheckPriceCoverageMocked, TestPriceCoverage
+Cohesion: 0.15
+Nodes (11): _ensure_daemon_running(), get_session(), _PipelineSession, In-process session store for the ``/portfolio-builder`` wizard.  Holds frozen ``, Return the session snapshot, or ``None`` if not present., Return the session snapshot, or ``None`` if not present., Spawn the eviction daemon on first call. Subsequent calls no-op., Spawn the eviction daemon on first call. Subsequent calls no-op. (+3 more)
 
 ### Community 401 - "Cluster 401"
 Cohesion: 0.5
@@ -3186,8 +3149,8 @@ Cohesion: 0.39
 Nodes (11): _fetch(), _ICResult, Tests for ``step_validate_is`` (issue #702 — Step 6 of the wizard)., Mirror of ``optimizer.factors._validation.ICResult`` fields., _report(), _seed(), test_when_factor_scores_dict_missing_then_value_error_raised(), test_when_no_factor_above_vif_5_then_high_vif_factors_empty() (+3 more)
 
 ### Community 405 - "Cluster 405"
-Cohesion: 0.2
-Nodes (9): _create_schema(), db_manager(), engine(), _FakeDbManager, Tests for research/_preflight.py — DB pre-flight health checks (issue #519)., Minimal stand-in exposing the same `get_session()` context-manager API., Build the minimal schema the pre-flight queries depend on., Verify load_data() raises before assemble_all when DB is unhealthy. (+1 more)
+Cohesion: 0.15
+Nodes (4): _make_session(), Unit tests for pipeline_builder sessions router (issue #713)., TestArtifactDownload, TestDeleteSession
 
 ### Community 406 - "Cluster 406"
 Cohesion: 0.15
@@ -3198,12 +3161,12 @@ Cohesion: 0.06
 Nodes (34): Absolute vs Relative Thresholds, Calendar Rebalancing, Code Examples, code:python (from optimizer.rebalancing import CalendarRebalancingConfig,), code:python (from optimizer.rebalancing import compute_turnover), code:python (from optimizer.rebalancing import compute_rebalancing_cost), code:python (from optimizer.optimization import MeanRiskConfig, build_mea), code:python (from optimizer.rebalancing import HybridRebalancingConfig) (+26 more)
 
 ### Community 409 - "Cluster 409"
-Cohesion: 0.16
-Nodes (7): compute_factor_pca(), FactorPCAResult, Multicollinearity diagnostics for factor score matrices., Principal component analysis result for a factor score matrix.      Attributes, Compute PCA on a cross-sectional factor score matrix.      Rows with any NaN are, A single latent factor → 1 PC explains most variance., TestComputeFactorPCA
+Cohesion: 0.05
+Nodes (28): BrinsonPanelComponent, cumSum(), check_survivorship_bias(), compute_factor_pca(), FactorPCAResult, flag_redundant_factors(), Multicollinearity diagnostics for factor score matrices., Return factor names whose VIF exceeds *vif_threshold*.      A VIF above the thre (+20 more)
 
 ### Community 410 - "Cluster 410"
-Cohesion: 0.15
-Nodes (20): c(), Cn(), f(), Fn(), gn(), ji(), ln(), Me() (+12 more)
+Cohesion: 0.14
+Nodes (8): apply_regime_tilts(), Apply regime-conditional multiplicative tilts to group weights.      Parameters, Cycle-2 spec: RECESSION dampens VALUE (multiplier < 1.0)., Cycle-2 spec: EXPANSION boosts VALUE (multiplier > 1.0)., Extreme tilts: multiplier capped and floor applied., Total weight preserved even when bounds are active., Strict bounds cap expansion momentum at 1.5x max., TestApplyRegimeTilts
 
 ### Community 411 - "Cluster 411"
 Cohesion: 0.33
@@ -3219,15 +3182,15 @@ Nodes (14): prompt_hashes, prompt-cycle-specializer.md, prompt-optimize-requirem
 
 ### Community 414 - "Cluster 414"
 Cohesion: 0.09
-Nodes (21): _build_history_panel(), _build_snapshot(), _import_slicer(), Tests for point-in-time fundamental history slicing (issue #245)., Data older than lag_days should be available., Quarterly lag (45 days) should pick up more recent data than annual., Should return empty when all data is too recent., Verify the PIT cross-section slicer. (+13 more)
+Nodes (21): _build_history_panel(), _build_pit_test_data(), _build_snapshot(), _import_slicer(), Tests for point-in-time fundamental history slicing (issue #245)., Verify the PIT cross-section slicer., Values at early date should differ from late date., Build a synthetic fundamental history panel.      Returns a MultiIndex (period_d (+13 more)
 
 ### Community 415 - "Cluster 415"
 Cohesion: 0.06
 Nodes (32): 1. Table Catalog, 2. Relationship Map, 3. Base Model Pattern, 4. Design Patterns, 5. Connection & Configuration, 6. Migration Conventions, 7. Common Query Patterns, 8. How to Add a New Table (+24 more)
 
 ### Community 416 - "Cluster 416"
-Cohesion: 0.09
-Nodes (16): for_gbt_weighted(), for_ridge_weighted(), compute_ml_composite(), ML composite score using ridge regression or gradient-boosted trees.      Trains, ML composite score using ridge regression or gradient-boosted trees.      Trains, current_scores(), Tests for ML-based composite scoring (ridge and GBT)., 100-ticker training factor matrix. (+8 more)
+Cohesion: 0.14
+Nodes (9): for_gbt_weighted(), for_ridge_weighted(), compute_ml_composite(), ML composite score using ridge regression or gradient-boosted trees.      Trains, ML composite score using ridge regression or gradient-boosted trees.      Trains, RIDGE_WEIGHTED and GBT_WEIGHTED are valid CompositeMethod values., Training and prediction tickers are disjoint — no data leakage., TestComputeCompositeScoreDispatch (+1 more)
 
 ### Community 417 - "Cluster 417"
 Cohesion: 0.47
@@ -3258,8 +3221,8 @@ Cohesion: 0.12
 Nodes (15): _make_histories(), Tests for empirical omega calibration from forecast error track record., Higher forecast noise → larger diagonal Ω., NaN rows in either DataFrame are dropped; result uses clean subset., Boundary: exactly 5 observations should not raise., Synthetic (view_history, return_history) pair with controllable error., omega must be a diagonal matrix., Diagonal variance matrix is always positive semi-definite. (+7 more)
 
 ### Community 425 - "Cluster 425"
-Cohesion: 0.01
-Nodes (192): ABC, Fig10NetAlpha, Fig10NetAlpha — Net alpha sensitivity to transaction costs., Net alpha vs transaction cost for different cost-per-unit-turnover levels., Fig19ScalingComparison, Fig19ScalingComparison — naive linear scaling vs log-normal correction., Line chart: naive linear scaling vs log-normal correction using real moments., Fig21OutlierGroups (+184 more)
+Cohesion: 0.03
+Nodes (38): ABC, Fig72EfficientFrontier, Fig72EfficientFrontier — efficient frontier with key optimization objectives., Efficient frontier with min-var, max-Sharpe, max-utility + CML.      Uses real D, Fig74Regularization, Fig74Regularization — L1 vs L2 weight paths as regularization varies., Three-panel bar chart: no reg, L1 reg, L2 reg weight profiles.      Shows how L1, Fig75ConstrainedFrontier (+30 more)
 
 ### Community 426 - "Cluster 426"
 Cohesion: 0.44
@@ -3271,7 +3234,7 @@ Nodes (25): Gate tests for research/optimization/__init__.py API contract.  Conv
 
 ### Community 428 - "Cluster 428"
 Cohesion: 0.06
-Nodes (5): BacktestingComponent, getPortfolioTheme(), readCssVar(), registerPortfolioTheme(), EchartsWaterfallComponent
+Nodes (11): BacktestingComponent, buildReturnDistribution(), daysBetween(), detectDrawdownEvents(), mapEquityCurve(), mapMonthlyReturns(), mapRollingMetrics(), mapRunResponseToResult() (+3 more)
 
 ### Community 429 - "Cluster 429"
 Cohesion: 0.4
@@ -3326,36 +3289,36 @@ Cohesion: 0.6
 Nodes (5): Rolling 252-Day Sharpe Ratio Chart, Rolling 252-Day Sharpe Ratio (risk-adjusted return), Backtest Window Mar 2025 - Feb 2026, Sharpe = 1.0 Reference Threshold, Upward Trend: -0.5 trough (Apr 2025) rising to ~2.5 (Feb 2026)
 
 ### Community 444 - "Cluster 444"
-Cohesion: 0.4
-Nodes (3): parseWeights(), weightsSumTolerant(), WhatifPanelComponent
+Cohesion: 0.13
+Nodes (14): _get_last_refresh_time(), Incremental 30-minute news re-summarization.      Stateless: derives "last run", Incremental 30-minute news re-summarization.      Stateless: derives "last run", Return the most recent ``macro_news_summaries.updated_at``, or fallback., Return the most recent ``macro_news_summaries.updated_at``, or fallback., Return the most recent ``macro_news_summaries.updated_at``, or fallback., run_news_refresh(), _is_morning_pipeline_complete() (+6 more)
 
 ### Community 445 - "Cluster 445"
-Cohesion: 0.1
-Nodes (9): compute_quintile_spread(), Compute quintile portfolio returns and spread for a single factor.      At each, Tests for quintile spread return analysis., Dates with fewer valid assets than n_quantiles produce NaN rows., TestAnnualisation, TestEdgeCases, TestQuintileShape, TestReturnType (+1 more)
+Cohesion: 0.07
+Nodes (15): compute_quintile_spread(), Compute quintile portfolio returns and spread for a single factor.      At each, Tests for quintile spread return analysis., Each asset appears in exactly one quintile per date., No empty quintiles when n_assets >= n_quantiles., When factor scores strongly predict returns, Q5 > Q1 on average., Mean return should increase monotonically Q1 → Qn for perfect predictor., Dates with fewer valid assets than n_quantiles produce NaN rows. (+7 more)
 
 ### Community 446 - "Cluster 446"
 Cohesion: 0.09
 Nodes (10): _build_environment(), _build_factor_ic_rows(), Jinja-based ``report.md`` renderer for the research pipeline (Cycle 5 §12).  Con, Merge IS results with OOS column means into one row dict per factor., Render the research-run report.md to ``output_dir / 'report.md'``., render_report(), checklist_rows(), Tests for ``research/_report.py`` — issue #549 (Jinja report renderer). (+2 more)
 
 ### Community 448 - "Cluster 448"
-Cohesion: 0.12
-Nodes (12): generate_opinion_pool(), _get_view_repo(), _parse_personas(), Multi-LLM Opinion Pooling service.  Architecture:   1. Run N LLM expert prompts, Fetch per-asset factor data from the DB, run each LLM expert persona,     comput, _resolve_ic_histories(), Repository for view generation database queries., Sync repository for instrument, price, and profile lookups. (+4 more)
+Cohesion: 0.1
+Nodes (22): baml_client.stream_types, baml_client.types (BAML pydantic types/enums), All-upward price series → RSI approaches 100., TestMomentumRSI, generate_opinion_pool(), _get_view_repo(), _parse_personas(), Multi-LLM Opinion Pooling service.  Architecture:   1. Run N LLM expert prompts (+14 more)
 
 ### Community 449 - "Cluster 449"
-Cohesion: 0.26
-Nodes (6): build_inverse_volatility(), InverseVolatilityConfig, Build a skfolio :class:`InverseVolatility` from *config*.      When ``config.ew_, Immutable configuration for :class:`InverseVolatility`.      Parameters     ----, TestBuildInverseVolatility, TestInverseVolatilityConfig
+Cohesion: 0.15
+Nodes (16): _extract_summary(), _extract_weight_changes(), _extract_weights(), optimize(), End-to-end portfolio orchestration functions., Fit pipeline on full data and return final weights.      Parameters     --------, Fit pipeline on full data and return final weights.      Parameters     --------, Extract asset weights as a named Series from a skfolio Portfolio. (+8 more)
 
 ### Community 450 - "Cluster 450"
 Cohesion: 0.11
 Nodes (11): build_nco(), NCOConfig, NestedClustersOptimization configuration and factory.  No matrix inversion — rob, Immutable configuration for :class:`NestedClustersOptimization`.      Inner and, Build a skfolio :class:`NestedClustersOptimization` from *config*.      Paramete, Tests for NestedClustersOptimization factory and configuration., returns(), TestBuildNCO (+3 more)
 
 ### Community 451 - "Cluster 451"
-Cohesion: 0.05
-Nodes (23): CovarianceUncertaintySetConfig, MuUncertaintySetConfig, Configuration for skfolio uncertainty-set estimators.  Two parallel Configs (mu,, Immutable configuration for a covariance uncertainty-set estimator.      Paramet, Immutable configuration for a covariance uncertainty-set estimator.      Paramet, Reject bootstrap-only fields when kind is EMPIRICAL.      Parameters     -------, Immutable configuration for a mu uncertainty-set estimator.      Parameters, Immutable configuration for a mu uncertainty-set estimator.      Parameters (+15 more)
+Cohesion: 0.09
+Nodes (12): build_covariance_uncertainty_set(), build_mu_uncertainty_set(), Factories for skfolio uncertainty-set estimators., Build a skfolio mu uncertainty-set estimator from *config*., Build a skfolio covariance uncertainty-set estimator from *config*., Tests for uncertainty-set factory functions., returns(), TestBuildCovarianceUncertaintySet (+4 more)
 
 ### Community 452 - "Cluster 452"
-Cohesion: 0.05
-Nodes (42): FactorBuildHealth, Diagnostic report from build_factor_scores_history().      Parameters     ------, Diagnostic report from build_factor_scores_history().      Parameters     ------, build_factor_scores_history(), Factor scores history building utilities.  This module orchestrates point-in-tim, Build a time-series of factor scores over rolling rebalancing periods.      Para, Return a point-in-time cross-section of fundamentals indexed by ticker.      Par, _slice_fundamentals_at() (+34 more)
+Cohesion: 0.14
+Nodes (17): build_factor_scores_history(), Factor scores history building utilities.  This module orchestrates point-in-tim, Build a time-series of factor scores over rolling rebalancing periods.      Para, Return a point-in-time cross-section of fundamentals indexed by ticker.      Par, _slice_fundamentals_at(), _make_prices_volumes(), _MockAssembly, Tests for factor coverage error handling (issue #249). (+9 more)
 
 ### Community 453 - "Cluster 453"
 Cohesion: 0.4
@@ -3370,8 +3333,8 @@ Cohesion: 0.12
 Nodes (14): _pivot_input(), _pivot_rows_with_drop_ratio(), Tests for deterministic cross-listed ticker deduplication in data_assembly.py., Build a pivot input with `n_unique` unique tickers + `n_duplicates`     extra ro, TestPivotWithDedup, TestPivotWithDedupGuard, _pivot_with_dedup(), Pivot *df* after deterministically deduplicating (index, columns) pairs.      Wh (+6 more)
 
 ### Community 456 - "Cluster 456"
-Cohesion: 0.07
-Nodes (12): build_distance(), Factory for skfolio distance estimators., Build a skfolio distance estimator from *config*.      Parameters     ----------, Tests for distance estimator factory functions., returns(), test_when_dispatched_then_correct_class_returned(), test_when_fitted_then_distance_matrix_is_square(), TestBuildDistance (+4 more)
+Cohesion: 0.04
+Nodes (25): HierarchicalClusteringConfig, Immutable configuration for hierarchical clustering construction.      Parameter, build_hierarchical_clustering(), Factory for skfolio hierarchical clustering., Build a skfolio :class:`HierarchicalClustering` from *config*.      Parameters, Tests for hierarchical clustering factory., returns(), test_when_dispatched_then_linkage_method_forwarded() (+17 more)
 
 ### Community 457 - "Cluster 457"
 Cohesion: 0.12
@@ -3382,8 +3345,8 @@ Cohesion: 0.28
 Nodes (30): _(), a(), b(), c(), d(), E(), er(), f() (+22 more)
 
 ### Community 461 - "Cluster 461"
-Cohesion: 0.22
-Nodes (6): build_random(), RandomConfig, Build a skfolio :class:`Random` from *config*.      Note: ``n_portfolios`` and `, Immutable configuration for :class:`Random`.      Note: ``skfolio.optimization.R, TestBuildRandom, TestRandomConfig
+Cohesion: 0.15
+Nodes (9): Persist Cycle 4 §9.3 metrics block to ``metrics.json`` (Cycle 5 input)., write_metrics_json(), _project_metrics(), Cast numpy scalars to float; replace NaN with None for strict JSON., Convert display-key metrics dict to JSON-safe schema dict., _to_json_safe(), TestWriteMetricsJson, TestProjectMetrics (+1 more)
 
 ### Community 464 - "Cluster 464"
 Cohesion: 0.17
@@ -3406,24 +3369,24 @@ Cohesion: 0.16
 Nodes (3): PortfoliosPanelComponent, EXISTING, fx
 
 ### Community 486 - "Cluster 486"
-Cohesion: 0.14
-Nodes (25): aa(), ba(), be(), bn(), ca(), dn(), H(), I() (+17 more)
+Cohesion: 0.11
+Nodes (30): aa(), be(), bn(), ca(), da(), dn(), Ei(), H() (+22 more)
 
 ### Community 490 - "Cluster 490"
 Cohesion: 0.11
 Nodes (11): build_herc(), HERCConfig, HierarchicalEqualRiskContribution configuration and factory.  No matrix inversio, Immutable configuration for :class:`HierarchicalEqualRiskContribution`.      Par, Build a skfolio :class:`HierarchicalEqualRiskContribution` from *config*.      P, Tests for HierarchicalEqualRiskContribution factory and configuration., returns(), TestBuildHERC (+3 more)
 
 ### Community 493 - "Cluster 493"
-Cohesion: 0.09
-Nodes (10): EchartsLineComponent, EchartsStackedAreaComponent, _build_histogram(), MetricsMiddleware, HTTP request latency middleware for Prometheus instrumentation.  Single Responsi, Return the histogram to use, creating a registry-scoped one for tests., Starlette-compatible ASGI middleware that records HTTP request durations.      P, Return the FastAPI route template or ``<unmatched>`` for 404s.      Uses ``scope (+2 more)
+Cohesion: 0.04
+Nodes (26): values(), EchartsLineComponent, EchartsStackedAreaComponent, EchartsWaterfallComponent, _build_histogram(), MetricsMiddleware, HTTP request latency middleware for Prometheus instrumentation.  Single Responsi, Return the histogram to use, creating a registry-scoped one for tests. (+18 more)
 
 ### Community 495 - "Cluster 495"
 Cohesion: 0.07
 Nodes (29): ann_return, ann_vol, downside_vol, info_ratio, max_drawdown, sharpe, sortino, breakdown (+21 more)
 
 ### Community 496 - "Cluster 496"
-Cohesion: 0.07
-Nodes (16): clean_df(), df_with_nan(), _make_correlated_df(), Tests for RegressionImputer transformer., For a single NaN cell, regression prediction should be plausible.          We co, Regression imputation should preserve covariance structure better         than s, When coefs_ is None, fallback SectorImputer is used., When all K neighbors are NaN at the same row, use fallback. (+8 more)
+Cohesion: 0.09
+Nodes (14): clean_df(), df_with_nan(), _make_correlated_df(), Tests for RegressionImputer transformer., For a single NaN cell, regression prediction should be plausible.          We co, When coefs_ is None, fallback SectorImputer is used., When all K neighbors are NaN at the same row, use fallback., Return a DataFrame of correlated returns with no NaN. (+6 more)
 
 ### Community 497 - "Cluster 497"
 Cohesion: 0.5
@@ -3490,8 +3453,8 @@ Cohesion: 0.67
 Nodes (4): Backtest Period 2024-03 to 2026-02, Max Drawdown ~-15.7% in April 2025, Drawdown Recovery to Near-Zero by Late 2025, Underwater Chart: Portfolio Drawdown Time Series
 
 ### Community 516 - "Cluster 516"
-Cohesion: 0.21
-Nodes (10): _build_job_status(), _get_repo(), get_scheduler_status(), Unified APScheduler service replacing supercronic + MacroNewsSummaryScheduler., Status of a single APScheduler job enriched with last-run data., Top-level response for GET /scheduler/status., Map a single APScheduler Job + DB row into a SchedulerJobStatus., Return the running state and per-job statuses of the APScheduler instance. (+2 more)
+Cohesion: 0.17
+Nodes (5): daysBeforeIso(), ExposureConstraintsPanelComponent, todayIso(), uniqueFactorValidator(), result
 
 ### Community 527 - "Cluster 527"
 Cohesion: 0.67
@@ -3503,7 +3466,7 @@ Nodes (3): MacroNews model, MacroNewsSummary model, MacroNewsTheme model
 
 ### Community 529 - "Cluster 529"
 Cohesion: 0.05
-Nodes (20): AnalyticsPaneComponent, MetricCard, btn, classList, { fixture }, { fixture, host }, { fixture, store, host }, { host } (+12 more)
+Nodes (31): AnalyticsPaneComponent, MetricCard, btn, classList, { fixture }, { fixture, host }, { fixture, store, host }, { host } (+23 more)
 
 ### Community 530 - "Cluster 530"
 Cohesion: 0.67
@@ -3559,43 +3522,43 @@ Nodes (27): Basic universe screening, Code Examples, code:block1 (Entry threshol
 
 ### Community 575 - "Cluster 575"
 Cohesion: 0.07
-Nodes (7): FactorResearchComponent, arm(), defaultConfig(), tickers(), BacktestService, FactorsService, post
+Nodes (8): FactorResearchComponent, arm(), defaultConfig(), tickers(), BacktestService, FactorsService, ReportsService, post
 
 ### Community 576 - "Cluster 576"
 Cohesion: 0.1
 Nodes (9): ConfigPanelComponent, Named optimizer strategies., Strategy, Tests for research/strategies/_runner.py — issue #668.  Covers Strategy enum, _b, _runner.py must not import cross-layer research modules at module level., test_when_value_looked_up_then_correct_member_name_returned(), TestBuildOptimizer, TestRunnerModuleConstraints (+1 more)
 
 ### Community 578 - "Cluster 578"
-Cohesion: 0.07
-Nodes (8): job_steps(), Structural tests for the GitHub Actions smoke workflow.  Covers three artifacts:, TestFixtureSqlContent, TestFixtureSqlExists, TestSmokeScriptContent, TestSmokeScriptExists, TestSmokeWorkflowFileExists, TestSmokeWorkflowTriggers
+Cohesion: 0.08
+Nodes (6): Structural tests for the GitHub Actions smoke workflow.  Covers three artifacts:, TestFixtureSqlContent, TestFixtureSqlExists, TestSmokeScriptContent, TestSmokeScriptExists, TestSmokeWorkflowFileExists
 
 ### Community 579 - "Cluster 579"
 Cohesion: 0.12
 Nodes (14): next(), _good_inputs(), Build a passing scenario for every rule (boundary-relaxed)., Build a passing scenario for every rule (boundary-relaxed)., Build a passing scenario for every rule (boundary-relaxed)., Per-rule pass/fail boundary tests., Per-rule pass/fail boundary tests., Per-rule pass/fail boundary tests. (+6 more)
 
 ### Community 580 - "Cluster 580"
-Cohesion: 0.07
-Nodes (7): Tests for moment estimation factory functions., Existing presets must survive the new field additions., TestBuildCovEstimator, TestBuildCovEstimatorNested, TestBuildMuEstimator, TestBuildPrior, TestPresetRegression
+Cohesion: 0.05
+Nodes (9): Tests for moment estimation factory functions., Existing presets must survive the new field additions., Integration tests using real skfolio fit/predict., TestBuildCovEstimator, TestBuildCovEstimatorNested, TestBuildMuEstimator, TestBuildPrior, TestIntegration (+1 more)
 
 ### Community 581 - "Cluster 581"
 Cohesion: 0.15
 Nodes (17): _MockDbManager, _patch_sub_assemblers(), _prices_df(), Integration tests for research/data/_orchestrator.py — assemble_all., when prices have 2 tickers, result.n_tickers == 2., when include_delisted=False, volumes assembler receives False., when macro_country='GBR', assemble_macro_data receives 'GBR'., when loaders provide data, DataAssembly fields have expected types. (+9 more)
 
 ### Community 582 - "Cluster 582"
-Cohesion: 0.12
-Nodes (14): fit_ridge_composite(), predict_composite_scores(), ML-based composite scoring: ridge regression and gradient-boosted trees., Apply a fitted ridge or GBT model to produce normalised composite scores.      T, Fit a ridge regression model mapping factor scores to forward returns.      Para, NaN rows in training data are dropped; model still fits., Only the common index rows are used for training., Acceptance criterion: normalised output has zero mean and unit variance. (+6 more)
+Cohesion: 0.06
+Nodes (27): fit_gbt_composite(), fit_ridge_composite(), predict_composite_scores(), ML-based composite scoring: ridge regression and gradient-boosted trees., Apply a fitted ridge or GBT model to produce normalised composite scores.      T, Fit a ridge regression model mapping factor scores to forward returns.      Para, Fit a gradient-boosted tree model mapping factor scores to forward returns., current_scores() (+19 more)
 
 ### Community 585 - "Cluster 585"
-Cohesion: 0.12
-Nodes (7): Cast numpy scalars to float; replace NaN with None for strict JSON., _to_json_safe(), Tests for research.pipeline._metrics — pure metric computation functions., TestAnnualizedReturn, TestMetricsKeyMap, TestToJsonSafe, TestTopNDisplay
+Cohesion: 0.1
+Nodes (10): _daily_rf(), _downside_vol(), Forward-filled daily risk-free rate aligned to ``returns`` index., Annualised std of below-rf returns (Cycle 4 §9.3)., Tests for research.pipeline._metrics — pure metric computation functions., TestAnnualizedReturn, TestDailyRf, TestDownsideVol (+2 more)
 
 ### Community 591 - "Cluster 591"
-Cohesion: 0.18
-Nodes (8): BaseEstimator, OutlierTreater, Three-group outlier treatment transformer., Three-group outlier methodology on per-column z-scores.      During ``fit``, com, Compute per-column mean and std from training data., Apply three-group treatment based on z-scores., Return feature names (pass-through)., _validate_input()
+Cohesion: 0.2
+Nodes (7): OutlierTreater, Three-group outlier treatment transformer., Three-group outlier methodology on per-column z-scores.      During ``fit``, com, Compute per-column mean and std from training data., Apply three-group treatment based on z-scores., Return feature names (pass-through)., _validate_input()
 
 ### Community 596 - "Cluster 596"
-Cohesion: 0.26
-Nodes (4): _make_econ_obs(), _patch_repo(), Patch MacroRegimeRepository so every instantiation returns mock_repo., TestGetEconomicIndicatorObservations
+Cohesion: 0.16
+Nodes (9): _make_panel(), panel_48(), panel_60(), Tests for rolling block out-of-sample factor validation., Zero folds triggers a logger.warning., Fewer than 3 folds triggers a logger.warning., Build synthetic (date, ticker) MultiIndex panel fixtures., TestFactorOOSConfig (+1 more)
 
 ### Community 968 - "Community 968"
 Cohesion: 0.08
@@ -3614,8 +3577,8 @@ Cohesion: 0.17
 Nodes (7): Report generation service.  SOLID design:   - ReportDataAggregator: single respo, Query latest completed optimization run weights via ExecutionRepository., Query latest completed backtest summary_stats via ExecutionRepository., Parse an optional UUID string. ``None`` passes through (issue #463)., Return latest portfolio weights., Return performance metrics from the latest backtest run., _to_uuid()
 
 ### Community 972 - "Community 972"
-Cohesion: 0.06
-Nodes (29): Cycle-3 §7.3 Top-4 retighten loop and sub-period Sharpe helpers., Split *returns* into ``n_subperiods`` equal contiguous slices., Sum of the top-4 weights (or all if fewer assets)., Cycle-3 §7.3 Top-4 retighten loop.      Fit the optimiser; if ``sum(sorted(weigh, _retighten_error_message(), _solve_with_retighten(), _split_into_subperiods(), _top4_weight() (+21 more)
+Cohesion: 0.16
+Nodes (9): _builder_from_sequence(), _config(), _FakeMeanRisk, Cycle-3 §7.3 Top-4 retighten loop contract tests (issue #553).  Exhausts the con, Stand-in for ``skfolio.MeanRisk`` driven by a fixed weight vector., Builder that pops a fresh weight vector per call; tracks max_weights., TestRetightenConvergence, TestRetightenDivergence (+1 more)
 
 ### Community 973 - "Community 973"
 Cohesion: 0.08
@@ -3626,24 +3589,24 @@ Cohesion: 0.06
 Nodes (11): ContextBarComponent, candidates, customToggle, { element: root }, firstVisible, fixture, root, select (+3 more)
 
 ### Community 975 - "Community 975"
-Cohesion: 0.27
-Nodes (10): BackgroundJobService, JobAlreadyRunningError, backtest route, BacktestRun model, factors compute route, test_background_job_service_heartbeat, test_backtest_routes, test_factor_compute_routes (+2 more)
+Cohesion: 0.28
+Nodes (9): BackgroundJobService, JobAlreadyRunningError, backtest route, factors compute route, test_background_job_service_heartbeat, test_backtest_routes, test_factor_compute_routes, test_validate_walk_forward (+1 more)
 
 ### Community 976 - "Community 976"
-Cohesion: 0.14
-Nodes (9): Tests for app.services._shared._ticker_lookup.lookup_yf_ticker (issue #773)., The lookup must query Instrument.yfinance_ticker WHERE Instrument.ticker = t212_, The local _map_t212_ticker_to_yfinance must be fully removed., TestBrokerSyncUsesSharedLookup, TestLookupYfTicker, lookup_yf_ticker(), Shared T212 → yfinance ticker DB lookup (issue #773).  Extracted from broker_syn, Look up the yfinance_ticker for a T212 ticker via the instruments table. (+1 more)
+Cohesion: 0.13
+Nodes (7): Unit tests for the /database router.  Mocks ``DatabaseAdminRepository`` at the r, Issue #436: freezes the {healthy, latency_ms, database_url} shape         that t, The masked URL must never expose a password (issue #436 guard)., Issue #435 contract: every row must carry the four columns the         Settings, Regression: the legacy ``table_name`` key was renamed to ``name``         to mat, TestGetDatabaseHealth, TestGetDatabaseTables
 
 ### Community 977 - "Community 977"
-Cohesion: 0.36
-Nodes (8): _build_client(), Unit tests for ``MetadataClient.fetch_valuation_measures``.  Covers the yfinance, Construct a ``MetadataClient`` whose cached ticker exposes *valuation*., Return a 9-metric valuation panel including the asserted superset., test_when_metadata_client_constructed_then_protocol_is_satisfied(), test_when_valuation_panel_empty_then_none_is_returned(), test_when_valuation_panel_present_then_dataframe_is_returned(), _valuation_fixture()
+Cohesion: 0.16
+Nodes (6): get_regime_tilts(), Get multiplicative tilts for a given regime.      Parameters     ----------, Tests for macro regime classification and tilts., Tests for MacroRegime.UNKNOWN introduced in issue #250., TestGetRegimeTilts, TestUnknownRegime
 
 ### Community 978 - "Community 978"
 Cohesion: 0.08
 Nodes (11): normal_returns(), Tests for OutlierTreater transformer., A value at exactly |z| == winsorize_threshold should be clipped (Group 2)., Values in the normal range (|z| < winsorize_threshold) stay unchanged., Fitted statistics must not change when transforming unseen data., DataFrame with known mean/std for predictable z-scores., Values with |z| > 10 should become NaN., Values with 3 <= |z| <= 10 should be clipped. (+3 more)
 
 ### Community 979 - "Community 979"
-Cohesion: 0.14
-Nodes (9): _collect_imports(), Cycle-3 §672 — verify and harden _rebalance.py boundary (issue #672).  Covers ga, _retighten must not back-import from _rebalance., Every symbol declared in __all__ must resolve at runtime., Return every top-level module referenced in ``import`` / ``from … import``., Only permitted modules may be imported by _rebalance.py., TestImportBoundary, TestInitAllExportable (+1 more)
+Cohesion: 0.1
+Nodes (11): _collect_imports(), Cycle-3 §672 — verify and harden _rebalance.py boundary (issue #672).  Covers ga, _retighten must not back-import from _rebalance., Every symbol declared in __all__ must resolve at runtime., Return every top-level module referenced in ``import`` / ``from … import``., Threshold constants are hard-coded tunable knobs; values must be exact., Only permitted modules may be imported by _rebalance.py., TestImportBoundary (+3 more)
 
 ### Community 980 - "Community 980"
 Cohesion: 0.08
@@ -3670,32 +3633,32 @@ Cohesion: 0.08
 Nodes (23): Basic scenario generation, Building and Using Synthetic Data, Building just the vine copula, Code Examples, code:python (from optimizer.synthetic import VineCopulaConfig), code:python (from optimizer.synthetic import SyntheticDataConfig), code:python (from optimizer.synthetic import SyntheticDataConfig, build_s), code:python (config = SyntheticDataConfig.for_stress_test(n_samples=10_00) (+15 more)
 
 ### Community 986 - "Community 986"
-Cohesion: 0.13
-Nodes (6): build_factor_mimicking_portfolios(), Build long-short factor-mimicking portfolio return time series.      For each da, TestBetaNeutral, TestOutputShape, TestQuantileValidation, TestWeightingModes
+Cohesion: 0.04
+Nodes (30): build_factor_mimicking_portfolios(), compute_cross_factor_correlation(), _compute_leg_beta(), _long_short_return_at(), QuintileSpreadResult, Long-short factor-mimicking portfolio construction and quintile analysis., Compute OLS beta of leg returns against market returns.      Parameters     ----, Build long-short factor-mimicking portfolio return time series.      For each da (+22 more)
 
 ### Community 987 - "Community 987"
 Cohesion: 0.14
 Nodes (10): CanvasStateOverlayComponent, RetryFn, btn, dimWrapper, { fixture, el }, HostComponent, overlay, projected (+2 more)
 
 ### Community 988 - "Community 988"
-Cohesion: 0.16
-Nodes (10): Cycle-3 §7.4 selector: dispatch to plain or robust ``MeanRisk``.      When ``rob, Cycle-3 §7.4 selector: dispatch to plain or robust ``MeanRisk``.      When ``rob, _select_optimizer(), _hard_config(), Cycle-3 §7.4 robust-path `_select_optimizer` tests (issue #540)., `optimize_portfolio` accepts `robust` and `uncertainty_level` parameters., returns(), TestOptimizePortfolioRobustSignature (+2 more)
+Cohesion: 0.14
+Nodes (12): Cycle-3 §7.4 selector: dispatch to plain or robust ``MeanRisk``.      When ``rob, Cycle-3 §7.4 selector: dispatch to plain or robust ``MeanRisk``.      When ``rob, _select_optimizer(), _hard_config(), Cycle-3 §7.4 robust-path `_select_optimizer` tests (issue #540)., Robust path with uncertainty configs None recovers plain MeanRisk., `optimize_portfolio` accepts `robust` and `uncertainty_level` parameters., returns() (+4 more)
 
 ### Community 989 - "Community 989"
-Cohesion: 0.25
-Nodes (8): 1. `blend_moments_by_regime()` vs. `HMMBlendedCovariance`, 2. Filtered vs. Smoothed Probabilities for Backtests, 3. Log-Return vs. Simple-Return Inputs for Scaling, 4. DMM Produces Diagonal Covariance, 5. The Fitted Prior Attribute, 6. Factor Model Views, code:python (prior = build_prior(config)), Common Gotchas
+Cohesion: 0.04
+Nodes (45): 1. `blend_moments_by_regime()` vs. `HMMBlendedCovariance`, 2. Filtered vs. Smoothed Probabilities for Backtests, 3. Log-Return vs. Simple-Return Inputs for Scaling, 4. DMM Produces Diagonal Covariance, 5. The Fitted Prior Attribute, 6. Factor Model Views, `apply_lognormal_correction`, Architecture (+37 more)
 
 ### Community 990 - "Community 990"
 Cohesion: 0.08
 Nodes (9): Tests for SectorImputer transformer., Fitted sector_groups_ must not change when transforming unseen data., Imputed value should be the other asset's value, not the average         includi, When an entire sector is NaN for a row, use global mean., DataFrame with known NaN positions for sector imputation tests., AAPL is NaN at row 1; MSFT=0.04, GOOG=0.02 → sector avg = 0.03., JPM is NaN at row 0; GS=0.02 → sector avg = 0.02., sector_df() (+1 more)
 
 ### Community 991 - "Community 991"
-Cohesion: 0.2
-Nodes (9): _make_assembly(), _patch_load_data(), Integration smoke tests for load_data() Cycle 1 wiring (issue #522)., Verify Cycle 1 §3 hand-off: prices_to_returns + preprocessing pipeline., Build a synthetic DataAssembly large enough to pass §0/§1/§2 gates., _StubMgr, TestAssertAssemblySize, TestLoadDataIntegration (+1 more)
+Cohesion: 0.16
+Nodes (11): _make_assembly(), _patch_load_data(), Integration smoke tests for load_data() Cycle 1 wiring (issue #522)., Verify Cycle 1 §3 hand-off: prices_to_returns + preprocessing pipeline., Build a synthetic DataAssembly large enough to pass §0/§1/§2 gates., _StubMgr, TestAssertAssemblySize, TestLoadDataIntegration (+3 more)
 
 ### Community 992 - "Community 992"
-Cohesion: 0.1
-Nodes (18): _failing_rule(), _good_metrics(), _passing_rule(), _passing_rules(), Tests for research/stock_selection_pipeline.py wiring., Issue #546: write_checklist_json structure + content., Issue #546: write_checklist_json structure + content., Issue #546: write_checklist_json structure + content. (+10 more)
+Cohesion: 0.16
+Nodes (12): _failing_rule(), _good_metrics(), _passing_rule(), _passing_rules(), Issue #546: write_checklist_json structure + content., Issue #546: write_checklist_json structure + content., Issue #546: write_checklist_json structure + content., Issue #546: terminal-gate exit-code contract. (+4 more)
 
 ### Community 993 - "Community 993"
 Cohesion: 0.1
@@ -3710,48 +3673,44 @@ Cohesion: 0.15
 Nodes (10): build_grid_search_cv(), build_randomized_search_cv(), Factory functions for building hyperparameter search estimators., Build a :class:`GridSearchCV` with temporal cross-validation.      Parameters, Build a :class:`RandomizedSearchCV` with temporal cross-validation.      Paramet, Tests for tuning factory functions., Synthetic return DataFrame with 10 assets and 400 observations., returns_df() (+2 more)
 
 ### Community 997 - "Community 997"
-Cohesion: 0.19
-Nodes (14): _make_assembly(), _make_oos_result(), _make_result(), _make_validation_report(), _patch_persist_factory(), _patch_pipeline(), End-to-end smoke test for ``research.stock_selection_pipeline.main`` (issue #551, Drop-in replacement: write artefacts + return 17/17 PASS contract. (+6 more)
+Cohesion: 0.17
+Nodes (16): EAV entry for snapshot summary data., SnapshotSummaryEntry, _make_assembly(), _make_oos_result(), _make_result(), _make_validation_report(), _patch_persist_factory(), _patch_pipeline() (+8 more)
 
 ### Community 998 - "Community 998"
 Cohesion: 0.16
 Nodes (7): _make_synthetic_assembly(), Tests for REGION_MAP, FRED_SERIES_IDS additions, and assembly_hash (issue #518)., TestAssemblyHashField, TestComputeAssemblyHash, TestFredSeriesIds, _compute_assembly_hash(), Return a deterministic 16-char SHA-256 prefix identifying the assembly.      Par
 
 ### Community 999 - "Community 999"
-Cohesion: 0.17
-Nodes (11): _cv_fold_metrics(), _drawdowns(), Drawdown series + summary with NaN-safe ``max_drawdown``., Compound returns at *freq* ('ME' = month-end, 'YE' = year-end)., Per-fold summary stats; None when no walk-forward backtest was run., Aggregate summary from result.summary + in-sample portfolio., _resample_returns(), _summary_stats() (+3 more)
+Cohesion: 0.08
+Nodes (26): _cv_fold_metrics(), _drawdowns(), _equity_curve(), Backtest service: wraps run_full_pipeline / run_full_pipeline_with_selection.  S, Return a 1-D returns Series from portfolio.returns_df., Convert cumulative_returns_df to ``{date_str: float | None}``., Drawdown series + summary with NaN-safe ``max_drawdown``., Compound returns at *freq* ('ME' = month-end, 'YE' = year-end). (+18 more)
 
 ### Community 1000 - "Community 1000"
-Cohesion: 0.14
-Nodes (14): align_to_pit(), Filter time-series data to records published before ``as_of_date``.      A recor, _make_annual_data(), Build a minimal time-series fundamentals DataFrame., Acceptance criteria: correct lag applied per source type., Annual Dec 31 data is NOT available before March 31 (90 days)., Annual Dec 31 data IS available on March 31 (exactly 90 days)., Analyst revision on Monday is NOT available before Friday (5 days). (+6 more)
+Cohesion: 0.09
+Nodes (20): align_to_pit(), Filter time-series data to records published before ``as_of_date``.      A recor, _make_annual_data(), Build a minimal time-series fundamentals DataFrame., Acceptance criteria: correct lag applied per source type., Annual Dec 31 data is NOT available before March 31 (90 days)., Annual Dec 31 data IS available on March 31 (exactly 90 days)., Analyst revision on Monday is NOT available before Friday (5 days). (+12 more)
 
 ### Community 1001 - "Community 1001"
-Cohesion: 0.11
-Nodes (17): Property-based tests for the optimizer library using Hypothesis.  Each test enco, compute_drifted_weights produces non-negative weights.      When all input weigh, One-way turnover is in [0, 1] for normalized long-only portfolios.      The one-, Total rebalancing cost is non-negative with non-negative cost rates.      The co, Sample covariance matrices computed by np.cov are positive semi-definite.      A, Return a strategy producing a normalized long-only weight vector of length n., Rank transform scores / N stays in the unit interval [0, 1].      Given any fini, Return strategy for single-period returns > -1 (no total loss). (+9 more)
+Cohesion: 0.13
+Nodes (6): Regression for issue #289: value factors must NOT be 100× deflated.      After a, Pre-fix (GBX market_cap) produces 100× deflated ratio., Pre-fix earnings_yield is 100× too small., The normalised:deflated ratio must be exactly 100 for value factors., EBITDA/EV is also 100× deflated when EV is in GBX., TestValueFactorCurrencyCorrectness
 
 ### Community 1002 - "Community 1002"
 Cohesion: 0.16
 Nodes (16): app.api.v1.dashboard.dashboard, dashboard / portfolio-analytics routes, DashboardRepository, _actual_weights_from_positions, _actual_weights_from_prices, compute_allocation, compute_asset_class_returns, compute_drift (+8 more)
 
-### Community 1003 - "Community 1003"
-Cohesion: 0.18
-Nodes (7): for_small_sample(), for_statistical_testing(), build_cpcv(), Build a skfolio :class:`CombinatorialPurgedCV` cross-validator from *config*., CPCV integration through run_cross_val (issue #75)., TestBuildCPCV, TestRunCrossValCPCV
-
 ### Community 1004 - "Community 1004"
-Cohesion: 0.18
-Nodes (9): frontier, buildAxis(), buildCalSeries(), buildFrontierSeries(), buildScatterSeries(), EchartsEfficientFrontierComponent, pickTangencyPoint(), readFrontierPalette() (+1 more)
+Cohesion: 0.08
+Nodes (21): frontier, buildAxis(), buildCalSeries(), buildFrontierSeries(), buildScatterSeries(), EchartsEfficientFrontierComponent, pickTangencyPoint(), readFrontierPalette() (+13 more)
 
 ### Community 1005 - "Community 1005"
 Cohesion: 0.12
 Nodes (6): PipelineStatusComponent, buildListJobsParams(), JobsService, metaFor(), syntheticMeta(), titleCase()
 
 ### Community 1006 - "Community 1006"
-Cohesion: 0.04
-Nodes (23): STEP_PARAM_DEFAULTS, ACCEPTED, { fixture, http }, { fixture, http, tick }, mountedConfigPanel, payload, pollReq, req (+15 more)
+Cohesion: 0.03
+Nodes (31): STEP_PARAM_DEFAULTS, ACCEPTED, { fixture, http }, { fixture, http, tick }, mountedConfigPanel, payload, pollReq, req (+23 more)
 
 ### Community 1007 - "Community 1007"
-Cohesion: 0.19
-Nodes (10): FactorOOSConfig, FactorOOSResult, Rolling block out-of-sample validation for factor predictive power., Configuration for rolling block OOS validation.      Parameters     ----------, Results from rolling block OOS factor validation.      Attributes     ----------, oos_result(), _oos(), Tests for the Cycle-2 §4.4 factor coverage gate (issue #528). (+2 more)
+Cohesion: 0.44
+Nodes (4): _oos(), Tests for the Cycle-2 §4.4 factor coverage gate (issue #528)., _report(), TestCheckFactorCoverage
 
 ### Community 1008 - "Community 1008"
 Cohesion: 0.11
@@ -3814,16 +3773,16 @@ Cohesion: 0.11
 Nodes (11): ModalContainerComponent, config, fields, lang, pipeline, separator, docs, tags (+3 more)
 
 ### Community 1025 - "Community 1025"
-Cohesion: 0.2
-Nodes (6): build_stacking(), Immutable configuration for :class:`StackingOptimization`.      Base estimators, Build a skfolio :class:`StackingOptimization` from *config*.      Parameters, StackingConfig, TestBuildStacking, TestStackingConfig
+Cohesion: 0.09
+Nodes (14): main(), StackingOptimization blending min-variance MeanRisk and ERC RiskBudgeting.  Comb, build_stacking(), StackingOptimization configuration and factory.  Base estimators are passed as a, Immutable configuration for :class:`StackingOptimization`.      Base estimators, Build a skfolio :class:`StackingOptimization` from *config*.      Parameters, StackingConfig, base_estimators() (+6 more)
 
 ### Community 1026 - "Community 1026"
 Cohesion: 0.15
 Nodes (7): ActivityEvent, ActivityEventDetail, BrokerPosition, Real brokerage position synced from Trading 212., Cross-cutting activity log for portfolio events., EAV entry for activity event metadata., Insert an activity event only if external_id is not already present.          Wh
 
 ### Community 1027 - "Community 1027"
-Cohesion: 0.09
-Nodes (21): _apply_terminal_gate(), Cycle 4 §10 terminal gate: 17/17 → exit 0 + weights.csv; else exit 1., TestApplyTerminalGate, _all_pass_rules(), _baseline_exit_code(), _baseline_has_artifacts(), _compare_json_values(), _one_fail_rules() (+13 more)
+Cohesion: 0.14
+Nodes (13): _baseline_exit_code(), _baseline_has_artifacts(), _compare_json_values(), pipeline_run(), End-to-end pipeline parity test vs pre-migration baseline (issue #688).  Termina, Return True if baseline has been captured (.exit_code sentinel present)., Run the pipeline with parity parameters; return exit code., Bit-exact (within tolerance) parity between current HEAD and baseline. (+5 more)
 
 ### Community 1028 - "Community 1028"
 Cohesion: 0.24
@@ -3834,8 +3793,8 @@ Cohesion: 0.2
 Nodes (7): HysteresisRequest, FastAPI router for universe investability screening (issue #361).  Endpoint:   P, Response from the universe screening endpoint., Entry/exit threshold pair for a single screen., Apply investability screens to all active instruments in the database.      Retu, screen_universe(), UniverseScreenResponse
 
 ### Community 1030 - "Community 1030"
-Cohesion: 0.31
-Nodes (3): _make_te_obs(), Unit tests for macro regime data read endpoints.  All tests mock MacroRegimeRepo, TestGetTeObservations
+Cohesion: 0.24
+Nodes (8): _apply_terminal_gate(), Cycle 4 §10 terminal gate: 17/17 → exit 0 + weights.csv; else exit 1., TestApplyTerminalGate, _all_pass_rules(), _one_fail_rules(), Verify _apply_terminal_gate emits a failure table and raises SystemExit(1)., _stub_weights(), TestTerminalGateOutputOnFailure
 
 ### Community 1031 - "Community 1031"
 Cohesion: 0.13
@@ -3854,8 +3813,8 @@ Cohesion: 0.22
 Nodes (7): `_validate_checklist` consumes the module-level `_REGION_MAP`., `_validate_checklist` consumes the module-level `_REGION_MAP`., `optimize_portfolio` must wire WalkForwardConfig(train=756, test=63)., `_validate_checklist` consumes the module-level `_REGION_MAP`., `optimize_portfolio` must wire WalkForwardConfig(train=756, test=63)., TestValidateChecklistReusesRegionMap, TestWalkForwardConfigSpec
 
 ### Community 1035 - "Community 1035"
-Cohesion: 0.13
-Nodes (5): cast_ts(), Tests for rebalancing logic., TestComputeDriftedWeights, TestComputeRebalancingCost, TestComputeTurnover
+Cohesion: 0.18
+Nodes (4): cast_ts(), Tests for rebalancing logic., TestComputeDriftedWeights, TestComputeTurnover
 
 ### Community 1036 - "Community 1036"
 Cohesion: 0.11
@@ -3868,10 +3827,6 @@ Nodes (11): _make_prices(), Tests for survivorship-bias fix in run_full_pipeline
 ### Community 1038 - "Community 1038"
 Cohesion: 0.11
 Nodes (11): Gate tests for research/factors/__init__.py public API contract.  Issue #676: Au, research/factors/__init__.py must not import from research.data., Importing research.factors must not raise ImportError or circular-import., _slice_fundamentals_at is intentionally re-exported for test consumers., _slice_fundamentals_at is intentionally re-exported in __all__., __all__ must contain exactly the three named re-exports — no phantom entries., test_all_contains_slice_fundamentals_at(), test_all_matches_declared_exports_exactly() (+3 more)
-
-### Community 1039 - "Community 1039"
-Cohesion: 0.14
-Nodes (9): _classify_themes(), MacroTheme, _make_news_id(), Macro-themed news fetching from yfinance ticker feeds and search queries.  Aggre, # NOTE: yfinance ``yf.Search`` uses strict entity/phrase matching, not, # NOTE: the only eurozone query that yfinance search actually returns, Return deduplicated themes from seed list + keyword matches., Deterministic ID from title + link. (+1 more)
 
 ### Community 1040 - "Community 1040"
 Cohesion: 0.12
@@ -3914,8 +3869,8 @@ Cohesion: 0.19
 Nodes (14): a(), c(), d(), e(), f(), l(), m(), n() (+6 more)
 
 ### Community 1050 - "Community 1050"
-Cohesion: 0.09
-Nodes (13): build_region_linear_constraints(), Region-level linear-constraint helper for skfolio :class:`MeanRisk`.  Region is, Build skfolio ``groups`` and ``linear_constraints`` for region caps.      Parame, Return a skfolio DSL-safe group token by replacing hyphens with spaces.      skf, Build skfolio ``groups`` and ``linear_constraints`` for region caps.      Region, sanitize_group_token(), Tests for region linear-constraint helper (issue #533)., Tests for the skfolio DSL token sanitizer. (+5 more)
+Cohesion: 0.16
+Nodes (7): build_region_linear_constraints(), Build skfolio ``groups`` and ``linear_constraints`` for region caps.      Parame, Build skfolio ``groups`` and ``linear_constraints`` for region caps.      Region, Hyphenated region labels are sanitized to DSL-safe space-separated tokens., MeanRisk.fit on a mixed-region universe with hyphenated region labels., Tickers with unknown countries fall back to 'Other' in groups.          The 'Oth, TestBuildRegionLinearConstraints
 
 ### Community 1051 - "Community 1051"
 Cohesion: 0.14
@@ -3926,12 +3881,12 @@ Cohesion: 0.36
 Nodes (7): _patched_startup(), Tests for FastAPI lifespan eviction daemon wiring (issue #693)., test_when_daemon_starts_then_info_log_emitted(), test_when_ensure_daemon_raises_then_error_logged_with_exc_info(), test_when_ensure_daemon_raises_then_startup_continues_and_scheduler_starts(), test_when_lifespan_starts_then_ensure_daemon_called_before_scheduler_start(), test_when_lifespan_starts_then_ensure_daemon_running_invoked()
 
 ### Community 1053 - "Community 1053"
-Cohesion: 0.08
-Nodes (16): Return a date exactly ``bdays`` business days after ``base``., At a calendar review date with breach, rebalancing is triggered., At a calendar review date with no drift breach, no rebalancing., Between review dates, always returns False regardless of drift., Exactly trading_days elapsed is treated as a review date., One business day before the review interval → always False., Overdue review (more than trading_days elapsed) with breach → True., Hybrid with relative threshold behaves consistently. (+8 more)
+Cohesion: 0.12
+Nodes (9): At a calendar review date with no drift breach, no rebalancing., One business day before the review interval → always False., Overdue review (more than trading_days elapsed) with breach → True., Hybrid with relative threshold behaves consistently., current_date == last_review_date (0 elapsed) → False., Saturday before the 21-bday mark → False.          BDay(19) from 2024-01-02 = 20, BDay(21) from last_review is a business day → True with breach., Exactly 63 bdays elapsed for quarterly config → True with breach. (+1 more)
 
 ### Community 1054 - "Community 1054"
-Cohesion: 0.21
-Nodes (6): fit_gbt_composite(), Fit a gradient-boosted tree model mapping factor scores to forward returns., Different random_state values produce different (but valid) predictions, Both random states produce valid, finite output., Default random_state=0 preserves backward compatibility., TestFitGbtComposite
+Cohesion: 0.14
+Nodes (4): InstrumentFilter, Universe Building Protocols - Interface definitions for universe construction., TickerCache, UniverseRepository
 
 ### Community 1055 - "Community 1055"
 Cohesion: 0.21
@@ -3950,12 +3905,12 @@ Cohesion: 0.12
 Nodes (15): Available Ratio Measures, Building Scorers, Code Examples, code:python (from optimizer.scoring import ScorerConfig), code:python (from optimizer.scoring import ScorerConfig, build_scorer), code:python (from optimizer.scoring import ScorerConfig), code:python (from optimizer.scoring import ScorerConfig, build_scorer), Gotchas and Tips (+7 more)
 
 ### Community 1059 - "Community 1059"
-Cohesion: 0.11
-Nodes (14): ACCEPTED, expand(), { fixture, host, http }, { fixture, http }, { host, http }, panels, payload, persist (+6 more)
+Cohesion: 0.19
+Nodes (10): _dmm_config_univariate(), Fig42DMMvsHMM, Fig42DMMvsHMM — qualitative comparison of DMM vs HMM regime detection.  Optional, Save an informational PNG when torch/pyro-ppl are not installed., Return a DMMConfig sized for univariate financial return series.      The defaul, Fill axis background with discrete regime colour spans., Shade axis background with a continuous colour gradient.      Each day gets a ve, Qualitative DMM vs HMM regime detection on a single asset.      Panel A:  Asset (+2 more)
 
 ### Community 1060 - "Community 1060"
-Cohesion: 0.11
-Nodes (13): compute_ic_weighted_composite(), IC-weighted composite score.      Uses trailing information coefficient history, IC-weighted composite score.      Uses trailing information coefficient history, No warning when at least one group has positive IC., n_negative in warning reflects genuinely-negative ICs, not post-clamp zeros., n_negative in ICIR warning reflects genuinely-negative ICIR, not zeros., Tests for IC_WEIGHTED clamping negative IC to zero (issue #55)., A group with negative mean IC should get zero weight. (+5 more)
+Cohesion: 0.12
+Nodes (13): compute_group_scores(), compute_ic_weighted_composite(), Average factor scores within each group.      Parameters     ----------     stan, IC-weighted composite score.      Uses trailing information coefficient history, IC-weighted composite score.      Uses trailing information coefficient history, No warning when at least one group has positive IC., Tests for IC_WEIGHTED clamping negative IC to zero (issue #55)., A group with negative mean IC should get zero weight. (+5 more)
 
 ### Community 1062 - "Community 1062"
 Cohesion: 0.12
@@ -3964,6 +3919,10 @@ Nodes (15): DAY 18 MARZO, DAY 19 FEBBRAIO, DAY 26 FEBBRAIO, DAY 28 MARZO, DAY 5 
 ### Community 1063 - "Community 1063"
 Cohesion: 0.12
 Nodes (4): Tests for DataValidator transformer., Small return DataFrame with edge cases., returns_df(), TestDataValidator
+
+### Community 1064 - "Community 1064"
+Cohesion: 0.15
+Nodes (4): Fitted coefs_ and neighbors_ must not change when transforming., financialsParams(), priceParams(), YfinanceService
 
 ### Community 1065 - "Community 1065"
 Cohesion: 0.12
@@ -3982,20 +3941,16 @@ Cohesion: 0.14
 Nodes (13): 1. Problem with the current page, 2. Target architecture: 3-pane construction surface, 3. Workflow: stages, not a one-way wizard, 4. Functionality gaps to close (priority order), 5. Aesthetic principles, 6. Suggested component decomposition, 7. Phased rollout, 8. The differentiator (one-line pitch) (+5 more)
 
 ### Community 1069 - "Community 1069"
-Cohesion: 0.14
-Nodes (5): Tests for long-short factor-mimicking portfolio construction., 2 valid assets with quantile=0.30 → k=1, needs 2 → should succeed., When scores strongly predict returns, mean LS return should be positive., TestMultiFactorConcatenation, TestReturnValues
+Cohesion: 0.17
+Nodes (7): PaginationParams, Advanced pagination parameters with cursor support for better performance      F, Encode cursor value for pagination, Decode cursor value from pagination, classify_regime_composite(), Macro regime classification and factor group tilts.  This module provides the **, Classify macro regime using the multi-indicator composite score.      Uses ISM P
 
 ### Community 1070 - "Community 1070"
-Cohesion: 0.23
-Nodes (6): _mock_429_error(), _mock_http_error(), _mock_response(), _raise(), Helper: make side_effect raise an exception from a mock_get call., TestGetInternal
+Cohesion: 0.21
+Nodes (6): Region-level linear-constraint helper for skfolio :class:`MeanRisk`.  Region is, Return a skfolio DSL-safe group token by replacing hyphens with spaces.      skf, sanitize_group_token(), Tests for region linear-constraint helper (issue #533)., Tests for the skfolio DSL token sanitizer., TestSanitizeGroupToken
 
 ### Community 1071 - "Community 1071"
 Cohesion: 0.29
 Nodes (4): _actual_weights_from_positions(), Compute actual weights from broker positions by market value.      Returns None, Unit tests for drift analysis — pure computation, no DB., TestActualWeightsFromPositions
-
-### Community 1072 - "Community 1072"
-Cohesion: 0.1
-Nodes (8): _is_morning_pipeline_complete(), Return True if at least one MacroNewsSummary row exists for today., Return True if at least one MacroNewsSummary row exists for today., MacroNews, Macro-themed news articles from yfinance ticker feeds and search queries.      O, TestMorningPipelineGuard, TestQueryCountryMap, TestTickerCountryMap
 
 ### Community 1073 - "Community 1073"
 Cohesion: 0.21
@@ -4006,16 +3961,16 @@ Cohesion: 0.13
 Nodes (14): #415b — Centralized a11y fixes (shared layer), #415c — Create Portfolio modal polish, #415d — Per-page remediation: dashboard, portfolio-builder, portfolio-detail, #415e — Per-page remediation: optimization-studio, risk-center, factor-research, backtesting, #415f — Per-page remediation: ai-control-room, attribution, rebalancing, settings, macro-intelligence, instrument-detail, #415g — Regression verification, Baseline already satisfied, code:sh (# One-time install) (+6 more)
 
 ### Community 1075 - "Community 1075"
-Cohesion: 0.16
-Nodes (8): _decide_rebalance(), Cycle-3 §8 concentration check and §11 hybrid rebalance decision., Cycle-3 §11 hybrid rebalance decision.      Returns ``(False, "cold_start")`` wh, _decide_rebalance propagates a (False, reason) pair from     should_rebalance_hy, Ensure (False, 'not_review_date') is propagated unchanged., TestDecideRebalanceFalseBranch, `_decide_rebalance` returns the hybrid (decision, reason) pair., TestDecideRebalance
+Cohesion: 0.1
+Nodes (11): _decide_rebalance(), Cycle-3 §11 hybrid rebalance decision.      Returns ``(False, "cold_start")`` wh, _decide_rebalance propagates a (False, reason) pair from     should_rebalance_hy, Ensure (False, 'not_review_date') is propagated unchanged., TestDecideRebalanceFalseBranch, Cycle-3 §11 hybrid rebalance wiring tests (issue #539)., `_decide_rebalance` returns the hybrid (decision, reason) pair., `main` derives decision and attaches it to the result object. (+3 more)
 
 ### Community 1076 - "Community 1076"
 Cohesion: 0.13
 Nodes (5): Tests for factor configuration enums and dataclasses., TestFactorValidationConfig, TestHeavyTailedFactors, TestSelectionConfigMaxPerSector, TestWinsorizeMethodEnum
 
 ### Community 1078 - "Community 1078"
-Cohesion: 0.22
-Nodes (9): code:python (from optimizer.moments import MomentEstimationConfig, build_), code:python (from optimizer.moments import HMMConfig, fit_hmm), code:python (from optimizer.moments import select_hmm_n_states), Filtered vs. Smoothed Probabilities, Fitting an HMM, Hidden Markov Model Regime Blending, HMMResult, Model Selection: AIC / BIC (+1 more)
+Cohesion: 0.04
+Nodes (38): _add_legend_patches(), Fig39HMMRegimes, Fig39HMMRegimes — three-panel HMM regime detection figure., Fill axis background with regime colour spans., Add coloured patch legend for regime shading., Three-panel HMM regime detection figure.      Panel 1:  Cross-asset mean return, _shade_regimes(), Fig40HMMBlended (+30 more)
 
 ### Community 1079 - "Community 1079"
 Cohesion: 0.2
@@ -4026,8 +3981,8 @@ Cohesion: 0.2
 Nodes (8): Acceptance criteria, Cycle 2 — Allocation & Analytics Components, Following cycles, In scope, Objective, Out of scope, Preceding cycles, Project vision
 
 ### Community 1081 - "Community 1081"
-Cohesion: 0.1
-Nodes (6): RiskService, toLiquidityParams(), toVarParams(), financialsParams(), priceParams(), YfinanceService
+Cohesion: 0.16
+Nodes (3): RiskService, toLiquidityParams(), toVarParams()
 
 ### Community 1082 - "Community 1082"
 Cohesion: 0.28
@@ -4070,12 +4025,12 @@ Cohesion: 0.13
 Nodes (15): Final — Report + terminal gate (`pipeline/_report.py`, `_checklist.py`), Pipeline Steps (must be reproduced in this exact order), Run-level config (collected before Step 1, mirrors the 9 CLI flags), Step 1 — Load (`pipeline/_load.py::load_data`), Step 1b — Date slicing (`_main.py` step 1b), Step 2.5 — Clean returns (`_load.py::_materialise_clean_returns`), Step 2 — Screen (`pipeline/_screen.py::screen_investable` / `optimizer.universe`), Step 3 — Factor history (`pipeline/_factors.py::build_history`) (+7 more)
 
 ### Community 1093 - "Community 1093"
-Cohesion: 0.13
-Nodes (7): HHI, effective-N, and top-N concentration math tests., When n > number of assets, top_n_ratio equals sum of all weights., ADDV-based days-to-liquidate and liquidity cost tests., Partial response: AAPL has data, MSFT does not., Weighted avg days uses only assets with valid ADDV., TestComputeConcentration, TestComputeLiquidity
+Cohesion: 0.08
+Nodes (13): When every weight ticker is absent from price_history, the 400 path must still f, If only one ticker has DB prices, correlation must raise the existing 'at least, Short-lookback edge case: 30-day lookback should succeed when history is abundan, HHI, effective-N, and top-N concentration math tests., When n > number of assets, top_n_ratio equals sum of all weights., ADDV-based days-to-liquidate and liquidity cost tests., Partial response: AAPL has data, MSFT does not., Weighted avg days uses only assets with valid ADDV. (+5 more)
 
 ### Community 1094 - "Community 1094"
-Cohesion: 0.17
-Nodes (10): _build_broker_universe(), Resolve T212 instruments to yfinance tickers (filters unmapped)., TestBuildBrokerUniverse, TestComputeDrift, TestComputeDriftEndToEnd, Seed `Instrument` rows for mapped fixture tickers., seed_instruments(), NormalizationResult (+2 more)
+Cohesion: 0.11
+Nodes (15): _build_broker_universe(), _join_holdings_and_target(), Resolve T212 instruments to yfinance tickers (filters unmapped)., Full-outer-join holdings against target weights by yfinance ticker., _pos(), Unit tests for drift_service join + broker-universe flagging (issue #780)., TestBuildBrokerUniverse, TestComputeDrift (+7 more)
 
 ### Community 1095 - "Community 1095"
 Cohesion: 0.2
@@ -4086,16 +4041,16 @@ Cohesion: 0.14
 Nodes (13): Additional Resources, Building, Code scaffolding, code:bash (ng serve), code:bash (ng generate component component-name), code:bash (ng generate --help), code:bash (ng build), code:bash (ng test) (+5 more)
 
 ### Community 1097 - "Community 1097"
-Cohesion: 0.18
-Nodes (10): BrokerSyncResult, _map_t212_ticker_to_yfinance(), Service for syncing broker state from Trading 212 into the portfolio tables., Look up the yfinance_ticker for a T212 ticker via the instruments table., Sync positions and account state from Trading 212 into DB.      Args:         cl, Sync positions and account state from Trading 212 into DB.      Args:         cl, sync_portfolio(), _make_t212_client_with_dividends() (+2 more)
+Cohesion: 0.17
+Nodes (9): btn, el, emitted, errEl, fix, isOnly, oosOnly, passing (+1 more)
 
 ### Community 1099 - "Community 1099"
 Cohesion: 0.14
 Nodes (14): 4. Stock Selection, Buffer-Zone Hysteresis, code:python (from optimizer.factors import SelectionConfig), code:python (from optimizer.factors import select_fixed_count), code:python (from optimizer.factors import select_quantile), code:python (from optimizer.factors import apply_sector_balance), code:python (from optimizer.factors import select_stocks, SelectionConfig), code:python (from optimizer.factors import compute_selection_turnover) (+6 more)
 
 ### Community 1100 - "Community 1100"
-Cohesion: 0.08
-Nodes (27): _build_band_rows(), build_research_optimizer(), _make_builder(), _make_opt_config(), Configuration for portfolio optimization models., Build the Cycle-3 §7.1 hard-constrained ``MeanRiskConfig``., Build the Cycle-3 §7.1 hard-constrained ``MeanRiskConfig``., Minimum-variance portfolio. (+19 more)
+Cohesion: 0.05
+Nodes (42): _build_band_rows(), build_research_optimizer(), _make_builder(), _make_opt_config(), Configuration for portfolio optimization models., Build the Cycle-3 §7.1 hard-constrained ``MeanRiskConfig``., Build the Cycle-3 §7.1 hard-constrained ``MeanRiskConfig``., Minimum-variance portfolio. (+34 more)
 
 ### Community 1101 - "Community 1101"
 Cohesion: 0.21
@@ -4114,8 +4069,8 @@ Cohesion: 0.14
 Nodes (13): cSpell.enabled, editor.formatOnSave, [html], editor.defaultFormatter, python.analysis.typeCheckingMode, python.defaultInterpreterPath, python.envFile, python.terminal.executeInFileDir (+5 more)
 
 ### Community 1105 - "Community 1105"
-Cohesion: 0.19
-Nodes (8): _build_configs(), Fig01HysteresisTurnover, _query_fundamentals_and_volume(), Fig01HysteresisTurnover — Hysteresis reduces universe turnover line chart., Line chart comparing monthly universe turnover under three hysteresis regimes., Build three screening configs: no hysteresis, moderate, wide (default).      Ret, Generate a synthetic illustration when DB data is unavailable., Query fundamentals snapshot and volume history from the database.      Parameter
+Cohesion: 0.08
+Nodes (15): _build_configs(), Fig01HysteresisTurnover, _query_fundamentals_and_volume(), Fig01HysteresisTurnover — Hysteresis reduces universe turnover line chart., Line chart comparing monthly universe turnover under three hysteresis regimes., Build three screening configs: no hysteresis, moderate, wide (default).      Ret, Generate a synthetic illustration when DB data is unavailable., Query fundamentals snapshot and volume history from the database.      Parameter (+7 more)
 
 ### Community 1106 - "Community 1106"
 Cohesion: 0.32
@@ -4130,8 +4085,8 @@ Cohesion: 0.21
 Nodes (7): _(), i(), l(), n(), s(), t(), u()
 
 ### Community 1110 - "Community 1110"
-Cohesion: 0.15
-Nodes (10): RebalanceDecisionStepResult, badge, badges, el, emitted, errEl, fix, RESULT_WITH_WARNINGS (+2 more)
+Cohesion: 0.17
+Nodes (9): badge, badges, el, emitted, errEl, fix, RESULT_WITH_WARNINGS, SAMPLE_RESULT (+1 more)
 
 ### Community 1111 - "Community 1111"
 Cohesion: 0.29
@@ -4142,12 +4097,12 @@ Cohesion: 0.15
 Nodes (12): Approved alternatives, code:sh (export MAX_POLL_SECONDS=43200   # 12 h ceiling), Cross-process restart behavior, Harness limitation, Liveness reaper, Orphan signals, Pre-#585–#588 rule (obsolete), Prohibited pattern (+4 more)
 
 ### Community 1113 - "Community 1113"
-Cohesion: 0.22
-Nodes (9): build_history (Step 3), _check_factor_coverage (Step 5b gate), optimizer.factors __init__, validate_is (Step 4), validate_oos (Step 5), build_factor_scores_history, fundamental_history=None look-ahead bias warning, _slice_fundamentals_at (+1 more)
+Cohesion: 0.2
+Nodes (10): build_history (Step 3), _check_factor_coverage (Step 5b gate), optimizer.factors __init__, validate_is (Step 4), validate_oos (Step 5), build_factor_scores_history, fundamental_history=None look-ahead bias warning, _slice_fundamentals_at (+2 more)
 
 ### Community 1114 - "Community 1114"
-Cohesion: 0.28
-Nodes (8): _empty_oos_result(), Issue #527: validate_oos must raise when n_folds == 0., Issue #526: validate_is must wire spec-compliant FactorValidationConfig., _stub_factor_scores(), _stub_returns(), _StubVifReport, TestValidateIsConfig, TestValidateOosHardFail
+Cohesion: 0.13
+Nodes (14): _empty_oos_result(), Tests for research/stock_selection_pipeline.py wiring., Issue #527: validate_oos must raise when n_folds == 0., Issue #530: classify_and_tilt persists rule-based regime to DB., Issue #531: warn when fewer than 11 GICS sectors represented., Issue #526: validate_is must wire spec-compliant FactorValidationConfig., _stub_factor_scores(), _stub_returns() (+6 more)
 
 ### Community 1115 - "Community 1115"
 Cohesion: 0.31
@@ -4158,8 +4113,8 @@ Cohesion: 0.17
 Nodes (11): Complete History Selection, Correlation Filtering, Data Preparation and Universe Construction, Expiring Asset Filtering, Extreme Performance Selection, Outlier Treatment and Data Cleaning, Pareto-Optimal Selection, Pre-Selection Pipeline (+3 more)
 
 ### Community 1117 - "Community 1117"
-Cohesion: 0.03
-Nodes (42): AllocationDonutComponent, first, { fixture, store }, { fixture, store, host }, { host }, PALETTE, second, segs (+34 more)
+Cohesion: 0.02
+Nodes (55): AllocationDonutComponent, first, { fixture, store }, { fixture, store, host }, { host }, PALETTE, second, segs (+47 more)
 
 ### Community 1118 - "Community 1118"
 Cohesion: 0.15
@@ -4170,8 +4125,8 @@ Cohesion: 0.2
 Nodes (8): Acceptance criteria, Cycle 4 — Angular Stepper Navigation & Run-Level Configuration, Following cycles, In scope, Objective, Out of scope, Preceding cycles, Project vision
 
 ### Community 1120 - "Community 1120"
-Cohesion: 0.29
-Nodes (7): Anchoring to a Base Prior, code:python (from skfolio.prior import EntropyPooling), code:python (cfg = OpinionPoolingConfig(is_linear_pooling=False)), code:python (cfg = OpinionPoolingConfig(opinion_probabilities=(0.01, 0.01), Combining Expert Forecasts, Examples, Logarithmic Pooling
+Cohesion: 0.17
+Nodes (11): 3. Opinion Pooling, Anchoring to a Base Prior, code:python (from skfolio.prior import EntropyPooling), code:python (cfg = OpinionPoolingConfig(is_linear_pooling=False)), code:python (cfg = OpinionPoolingConfig(opinion_probabilities=(0.01, 0.01), Combining Expert Forecasts, Configuration, Examples (+3 more)
 
 ### Community 1121 - "Community 1121"
 Cohesion: 0.33
@@ -4198,8 +4153,8 @@ Cohesion: 0.17
 Nodes (11): code:bash (python -m research.cli [OPTIONS]), code:bash (# Default run — full history, EUR base, no DB write), Examples, Exit codes, Notes, Options, Outputs, Pipeline steps (+3 more)
 
 ### Community 1127 - "Community 1127"
-Cohesion: 0.16
-Nodes (9): flag_redundant_factors(), Return factor names whose VIF exceeds *vif_threshold*.      A VIF above the thre, collinear_scores(), orthogonal_scores(), Tests for VIF and PCA multicollinearity diagnostics., Factors with no shared variance should have low VIF and not be flagged., Independent (orthogonal) factor scores — all VIFs ≈ 1., One factor is nearly a linear combination of the others → high VIF. (+1 more)
+Cohesion: 0.21
+Nodes (6): Return a date exactly ``bdays`` business days after ``base``., At a calendar review date with breach, rebalancing is triggered., Exactly trading_days elapsed is treated as a review date., Each branch surfaces a structured reason literal., _review_date(), TestShouldRebalanceHybridReason
 
 ### Community 1128 - "Community 1128"
 Cohesion: 0.2
@@ -4218,20 +4173,20 @@ Cohesion: 0.18
 Nodes (9): 8. Equal Weighted (EqualWeightedConfig), Architecture, code:python (from optimizer.optimization import MeanRiskConfig, build_mea), code:python (from optimizer.optimization import EqualWeightedConfig, buil), Gotchas and Tips, Model Overview, Optimization, Solver Notes (+1 more)
 
 ### Community 1132 - "Community 1132"
-Cohesion: 0.31
-Nodes (3): compute_cross_factor_correlation(), Compute the Pearson correlation matrix across factor-mimicking portfolios., TestComputeCrossFactorCorrelation
+Cohesion: 0.22
+Nodes (7): Direct unit tests for the service function., TestRunEntropyPoolingService, fetch_prices_df(), Entropy Pooling service: wraps build_entropy_pooling() from the optimizer librar, Fit an Entropy Pooling prior on *returns* and return posterior moments.      Arg, Fetch close prices, accepting ISO date strings (delegates to fetch_close_prices), run_entropy_pooling()
 
 ### Community 1133 - "Community 1133"
 Cohesion: 0.18
 Nodes (3): With 5 assets and n_neighbors=10, each asset gets at most 4 nbrs., min_train_periods > training rows → regression skipped., TestFit
 
 ### Community 1135 - "Community 1135"
-Cohesion: 0.11
-Nodes (10): fundamentals(), price_history(), Tests for factor construction., Synthetic fundamentals for 10 tickers., 300 days of synthetic prices for 10 tickers., Regression for issue #290: asset_growth must be currency-invariant.      asset_g, ASSET_GROWTH factor is raw fundamentals['asset_growth'] (no sign flip)., Direct proof: (k*a1 - k*a0) / abs(k*a0) == (a1-a0) / abs(a0). (+2 more)
+Cohesion: 0.18
+Nodes (5): fundamentals(), price_history(), Tests for factor construction., Synthetic fundamentals for 10 tickers., 300 days of synthetic prices for 10 tickers.
 
 ### Community 1136 - "Community 1136"
-Cohesion: 0.2
-Nodes (10): Analyst Sentiment and Revisions, Cross-Factor Correlation Structure, Dividend Yield and Payout, Factor Taxonomy and Empirical Evidence, Investment Conservatism, Liquidity, Low Risk, Momentum (+2 more)
+Cohesion: 0.25
+Nodes (7): ApiErrorBody, ApiErrorLike, AttributionService, extractApiMessage(), formatValidationErrors(), mapHttpError(), readBodyMessage()
 
 ### Community 1137 - "Community 1137"
 Cohesion: 0.25
@@ -4254,16 +4209,16 @@ Cohesion: 0.2
 Nodes (9): archived_at, completed_cycles, git_branch, git_commit, mode, provider_model, requirements_hash, slug (+1 more)
 
 ### Community 1143 - "Community 1143"
-Cohesion: 0.18
-Nodes (11): cache_read, cache_write, cache_write_1h, cache_write_5m, clear_events, compaction_events, input, num_turns (+3 more)
+Cohesion: 0.1
+Nodes (21): cache_read, cache_write, cache_write_1h, cache_write_5m, clear_events, compaction_events, input, num_turns (+13 more)
 
 ### Community 1144 - "Community 1144"
-Cohesion: 0.2
-Nodes (6): BrinsonPanelComponent, cumSum(), local_prices(), 3 tickers: GBP, EUR (base), USD., Tests for universe screening factory., TestScreenUniverse
+Cohesion: 0.25
+Nodes (5): Cycle-3 §7.3 Top-4 retighten loop and sub-period Sharpe helpers., Sum of the top-4 weights (or all if fewer assets)., _retighten_error_message(), _top4_weight(), TestTop4Weight
 
 ### Community 1145 - "Community 1145"
-Cohesion: 0.19
-Nodes (10): _build_non_trading_masks(), _build_ticker_exchange_map(), _pivot(), PriceLoader, _query_raw(), Price data loader — single responsibility: DB access and price loading., Forward-fill only on non-trading-day gaps per exchange.          Parameters, Load adjusted close prices from a PostgreSQL database.      Responsibilities (+2 more)
+Cohesion: 0.13
+Nodes (15): _build_non_trading_masks(), _build_ticker_exchange_map(), _pivot(), PriceLoader, _query_raw(), Price data loader — single responsibility: DB access and price loading., Forward-fill only on non-trading-day gaps per exchange.          Parameters, Load adjusted close prices from a PostgreSQL database.      Responsibilities (+7 more)
 
 ### Community 1146 - "Community 1146"
 Cohesion: 0.2
@@ -4278,8 +4233,8 @@ Cohesion: 0.23
 Nodes (7): _make_folds(), Generate (train, val) date-index pairs for rolling block CV.      Fold count = `, floor((60 - 24) / 12) = 3., n_folds = floor((total - train) / step)., Within each fold, train and val windows share no dates., Val window starts right after training ends., TestMakeFolds
 
 ### Community 1149 - "Community 1149"
-Cohesion: 0.19
-Nodes (7): _build_opt(), Research-side wiring tests for ``build_region_linear_constraints`` (issue #552)., The 'Other' catch-all bucket is excluded from constraint emission.          Tick, Region rows are emitted with DSL-safe tokens (hyphens → spaces)., _region_rows(), TestBuildResearchOptimizer, TestRegionConstraintsWiring
+Cohesion: 0.18
+Nodes (11): Return whether persistence is requested (param override OR run_config)., Step 14 (terminal) — persist research snapshot, gated on 17/17 PASS.      Calls, Return whether persistence is requested (param override OR run_config)., Step 14 (terminal) — persist research snapshot, gated on 17/17 PASS.      Calls, Return whether persistence is requested (param override OR run_config)., Step 14 (terminal) — persist research snapshot, gated on 17/17 PASS.      Calls, _resolve_persist_flag(), step_persist() (+3 more)
 
 ### Community 1150 - "Community 1150"
 Cohesion: 0.2
@@ -4334,8 +4289,8 @@ Cohesion: 0.2
 Nodes (10): code:python (# CORRECT: views reference factor names), Config Tuples vs. skfolio Lists, Empirical Track Record Requires History or Pre-Computed Omega, Estimators Are Not Stored in OpinionPoolingConfig, Factor Model Views Must Reference Factor Names, Gotchas and Common Pitfalls, Mean Equality and Inequality Views Are Merged, Opinion Probabilities Must Sum to At Most 1.0 (+2 more)
 
 ### Community 1166 - "Community 1166"
-Cohesion: 0.25
-Nodes (6): Convert a date-indexed pandas Series to ``{date_str: float | None}``.      NaN/I, _series_to_dict(), _series_to_dict replaces NaN/Inf/-Inf with None (issue #462).      PostgreSQL re, numpy.nan propagated through arithmetic must also be sanitised., Strict JSON (allow_nan=False) must succeed for mixed input., TestSeriesToDictSanitisesNonFiniteValues
+Cohesion: 0.2
+Nodes (9): get_walk_forward_status(), FastAPI router for walk-forward validation endpoints.  Endpoints:   POST /valida, Start a walk-forward validation background job.      Returns 202 + job_id immedi, Poll the status and progress of a walk-forward validation job., Execute walk-forward validation in a daemon thread with its own DB session., _run_walk_forward_bg(), start_walk_forward(), Progress polled via GET /validate/walk-forward/{job_id}. (+1 more)
 
 ### Community 1167 - "Community 1167"
 Cohesion: 0.18
@@ -4346,12 +4301,12 @@ Cohesion: 0.36
 Nodes (3): Return a mapping of strategy value → human-readable description., strategies(), TestStrategies
 
 ### Community 1169 - "Community 1169"
-Cohesion: 0.2
-Nodes (5): base_estimators(), Tests for the StackingOptimization factory., returns(), TestIntegration, TestPresets
+Cohesion: 0.29
+Nodes (9): _check_current_weight(), _check_delta_weight(), _check_target_weight(), _check_weight(), DriftResponse, Drift API Pydantic v2 contracts — Cycle 2 (issue #779).  Schemas consumed by the, Top-level Drift API response envelope., _validate_signed_unit_interval() (+1 more)
 
 ### Community 1170 - "Community 1170"
-Cohesion: 0.2
-Nodes (10): cache_read, cache_write, cache_write_1h, cache_write_5m, clear_events, compaction_events, input, num_turns (+2 more)
+Cohesion: 0.22
+Nodes (10): build_research_optimizer, _make_builder, _make_opt_config, _resolve_min_weights, _select_optimizer, optimize_portfolio (Step 7), _hockey_stick_warn, _persist_research_snapshot (+2 more)
 
 ### Community 1171 - "Community 1171"
 Cohesion: 0.25
@@ -4370,8 +4325,8 @@ Cohesion: 0.22
 Nodes (8): Acceptance criteria, Cycle 3 — Orchestration: Pipeline + CLI + Import Hardening, Following cycles, In scope, Objective, Out of scope, Preceding cycles, Project vision
 
 ### Community 1176 - "Community 1176"
-Cohesion: 0.17
-Nodes (9): badge, el, emitted, errEl, fix, paths, RESULT_FAILED, SAMPLE_RESULT (+1 more)
+Cohesion: 0.29
+Nodes (5): FactorBuildHealth, Diagnostic report from build_factor_scores_history().      Parameters     ------, Diagnostic report from build_factor_scores_history().      Parameters     ------, Unit tests for the FactorBuildHealth diagnostic dataclass., TestFactorBuildHealth
 
 ### Community 1177 - "Community 1177"
 Cohesion: 0.22
@@ -4394,28 +4349,28 @@ Cohesion: 0.39
 Nodes (3): _information_ratio(), Annualised IR = mean(active) / std(active) × √252 (Cycle 4 §9.3)., TestInformationRatio
 
 ### Community 1182 - "Community 1182"
-Cohesion: 0.18
-Nodes (8): btn, chip, el, emitted, errEl, fix, RESULT_OK, RESULT_OUT_OF_BAND
+Cohesion: 0.4
+Nodes (3): Split *returns* into ``n_subperiods`` equal contiguous slices., _split_into_subperiods(), TestSplitIntoSubperiods
 
 ### Community 1184 - "Community 1184"
-Cohesion: 0.22
-Nodes (5): Short leg must contain at most ceil(n_assets * quantile) assets., Long and short legs must be disjoint., Long leg assets must have strictly higher scores than short leg assets., Long leg must contain at most ceil(n_assets * quantile) assets., TestLegSizing
+Cohesion: 0.29
+Nodes (5): _aggregate_by_group(), plot_country_allocation(), Stacked area chart of country allocation over rebalancing dates., Sum positive weights by group label per row, sorted by mean weight desc., TestPlotCountryAllocation
 
 ### Community 1185 - "Community 1185"
-Cohesion: 0.13
-Nodes (8): Tests for composite scoring., Standardized factor scores for 20 tickers., standardized_factors(), TestComputeGroupScores, TestComputeIcir, TestICWeightedComposite, compute_icir(), Compute the IC Information Ratio (mean IC / std IC).      ICIR penalises factors
+Cohesion: 0.36
+Nodes (3): TestComputeIcir, compute_icir(), Compute the IC Information Ratio (mean IC / std IC).      ICIR penalises factors
 
 ### Community 1187 - "Community 1187"
-Cohesion: 0.18
-Nodes (8): btn, card, el, emitted, errEl, fix, keys, SAMPLE_RESULT
+Cohesion: 0.25
+Nodes (5): Fig11SectorBalance, _query_sector_and_mcap(), Fig11SectorBalance — Sector balance constraints grouped bar chart., Query sector labels and market cap from the database.      Returns     -------, Grouped bar chart showing sector distribution under three selection modes.
 
 ### Community 1188 - "Community 1188"
 Cohesion: 0.22
-Nodes (9): get_tune_job(), post_tune(), FastAPI router for hyperparameter tuning endpoints.  POST /api/v1/tune  — launch, Raise 422 for unknown optimizer_type strings., Thin wrapper managing job lifecycle around the tuning service., Launch a background hyperparameter search job., Poll progress for a background tune job., _run_tune_bg() (+1 more)
+Nodes (5): Tests for ICIR_WEIGHTED clamping negative ICIR to zero (issue #253)., A group with negative ICIR should get zero weight., When all groups have negative ICIR, falls back to equal weight., Negative ICIR and zero ICIR both produce zero contribution., TestICIRWeightedNegativeICIR
 
 ### Community 1189 - "Community 1189"
-Cohesion: 0.2
-Nodes (9): _equity_curve(), Backtest service: wraps run_full_pipeline / run_full_pipeline_with_selection.  S, Return a 1-D returns Series from portfolio.returns_df., Convert cumulative_returns_df to ``{date_str: float | None}``., Rolling Sharpe and annualised volatility over _ROLLING_WINDOW periods., Per-period turnover from weight_history; empty when unavailable., _returns_series(), _rolling_metrics() (+1 more)
+Cohesion: 0.22
+Nodes (9): _load_market_proxy_from_db(), Return a single-column close-price ``DataFrame`` for the market proxy.      Trie, Return a single-column close-price ``DataFrame`` for the market proxy.      Trie, Return the market-proxy ticker tuple, honouring per-call override., Return the market-proxy ticker tuple, honouring per-call override., Step 5 — build rolling factor scores + forward-return history.      Loads the ma, Step 5 — build rolling factor scores + forward-return history.      Loads the ma, _resolve_proxy_tickers() (+1 more)
 
 ### Community 1190 - "Community 1190"
 Cohesion: 0.22
@@ -4450,8 +4405,8 @@ Cohesion: 0.09
 Nodes (22): 1. 3-pane shell component, 1. <first feature>, 1. Result service + store wiring, 1. T212 → standard-ticker resolver (backend), 2. Allocation donut + weight bars, 2. EUR normalization layer (backend), 2. Signal store, 3. Drift endpoint (+14 more)
 
 ### Community 1198 - "Community 1198"
-Cohesion: 0.2
-Nodes (10): MeanRiskConfig, ObjectiveFunctionType, RiskMeasureType, _ExternallyControlledRegimeCovariance, build_regime_blended_mean_risk, RegimeBlendedMeanRiskConfig, Factor returns passed as y at fit; HMM regime probabilities supplied externally, library does not fit HMMs, build_robust_mean_risk (+2 more)
+Cohesion: 0.22
+Nodes (9): Return ``prev_weights`` honouring ``force_cold_start`` override., Return ``prev_weights`` honouring ``force_cold_start`` override., Return the supplied override or read from disk fallback., Return the supplied override or read from disk fallback., Step 11 — hybrid rebalance decision + diagnostic warnings.      Cold start: ``pa, Step 11 — hybrid rebalance decision + diagnostic warnings.      Cold start: ``pa, _resolve_last_review_date(), _resolve_prev_weights() (+1 more)
 
 ### Community 1199 - "Community 1199"
 Cohesion: 0.22
@@ -4460,6 +4415,10 @@ Nodes (8): Cost Awareness, Diversification, Factor Model, Portfolio Construction
 ### Community 1200 - "Community 1200"
 Cohesion: 0.22
 Nodes (8): Acceptance criteria, Cycle 1 — T212 Normalization Service Foundation, Following cycles, In scope, Objective, Out of scope, Preceding cycles, Project vision
+
+### Community 1201 - "Community 1201"
+Cohesion: 0.25
+Nodes (6): _project_rule_for_json(), Persist Cycle 4 §10 checklist results to ``checklist.json``., Convert checklist rule dict to JSON-safe form (NaN floats → null)., write_checklist_json(), TestProjectRuleForJson, TestWriteChecklistJson
 
 ### Community 1202 - "Community 1202"
 Cohesion: 0.44
@@ -4470,12 +4429,12 @@ Cohesion: 0.28
 Nodes (4): Structural tests for scheduler shell payloads (issue #574).  Verifies that ``sch, TestShellHarness, TestYfinancePayload, _yfinance_payload()
 
 ### Community 1204 - "Community 1204"
-Cohesion: 0.22
-Nodes (4): Cycle-3 §11 hybrid rebalance wiring tests (issue #539)., `main` derives decision and attaches it to the result object., Patch every dependency of main() that needs a real DB / network., TestMainRebalanceWiring
+Cohesion: 0.29
+Nodes (5): _compute_sharpe_scores(), Fig09BufferTurnover, Fig09BufferTurnover — Buffer zone impact on selection turnover., Compute annualised Sharpe ratio as a composite-score proxy.      Parameters, Bar chart showing how buffer-zone size reduces selection turnover.      Simulate
 
 ### Community 1206 - "Community 1206"
-Cohesion: 0.14
-Nodes (13): benchmark_returns(), prices_df(), Pytest Configuration and Shared Fixtures =======================================, Synthetic returns: 20 assets, 200 obs, seed 42., Synthetic returns: 20 assets, 200 obs, seed 42., Synthetic prices derived from returns_df., Sector mapping for returns_df tickers., Synthetic prices derived from returns_df. (+5 more)
+Cohesion: 0.15
+Nodes (12): benchmark_returns(), prices_df(), Synthetic returns: 20 assets, 200 obs, seed 42., Synthetic returns: 20 assets, 200 obs, seed 42., Synthetic prices derived from returns_df., Sector mapping for returns_df tickers., Synthetic prices derived from returns_df., Equal-weight benchmark from returns_df. (+4 more)
 
 ### Community 1207 - "Community 1207"
 Cohesion: 0.22
@@ -4494,8 +4453,8 @@ Cohesion: 0.22
 Nodes (4): CovEstimatorChoice(), CovEstimatorChoiceAst, CovEstimatorChoiceValues, CovEstimatorChoiceViewer
 
 ### Community 1211 - "Community 1211"
-Cohesion: 0.11
-Nodes (13): _apply_filters(), _partition_kwargs(), Repository for persistent background job operations., Return paginated job rows, most recent first., Count jobs matching the given filters., Return the most-recently-finished job of *job_type*, or ``None``., Return paginated job rows, most recent first., Return paginated job rows, most recent first. (+5 more)
+Cohesion: 0.13
+Nodes (11): _apply_filters(), _partition_kwargs(), Repository for persistent background job operations., Return paginated job rows, most recent first., Count jobs matching the given filters., Return the most-recently-finished job of *job_type*, or ``None``., Return paginated job rows, most recent first., Return paginated job rows, most recent first. (+3 more)
 
 ### Community 1213 - "Community 1213"
 Cohesion: 0.25
@@ -4522,16 +4481,16 @@ Cohesion: 0.31
 Nodes (5): _actual_weights_from_prices(), Compute drifted weights from price changes since snapshot date., compute_drifted_weights(), Compute portfolio weights after one period of returns.      Parameters     -----, TestActualWeightsFromPrices
 
 ### Community 1220 - "Community 1220"
-Cohesion: 0.03
-Nodes (11): PeriodSelectorComponent, AssetScreenerPanelComponent, computePairwiseCorrelation(), FactorAnalysisPanelComponent, InstrumentDetailFlyoutComponent, JobProgressTrackerComponent, AlertBannerComponent, IpsPanelComponent (+3 more)
+Cohesion: 0.05
+Nodes (10): PeriodSelectorComponent, AssetScreenerPanelComponent, computePairwiseCorrelation(), FactorAnalysisPanelComponent, InstrumentDetailFlyoutComponent, JobProgressTrackerComponent, AlertBannerComponent, IpsPanelComponent (+2 more)
 
 ### Community 1221 - "Community 1221"
-Cohesion: 0.22
-Nodes (6): btn, el, emitted, errEl, fix, SAMPLE_RESULT
+Cohesion: 0.25
+Nodes (5): Regression for issue #290: asset_growth must be currency-invariant.      asset_g, ASSET_GROWTH factor is raw fundamentals['asset_growth'] (no sign flip)., Direct proof: (k*a1 - k*a0) / abs(k*a0) == (a1-a0) / abs(a0)., asset_growth computed from scaled total_assets is identical., TestAssetGrowthCurrencyInvariance
 
 ### Community 1222 - "Community 1222"
-Cohesion: 0.38
-Nodes (4): Raise ValueError with a descriptive message when price data is unusable.      Ar, validate_prices(), validate_prices raises ValueError with descriptive message on bad data., TestValidatePrices
+Cohesion: 0.25
+Nodes (5): Tests for multi-indicator regime with unemployment (issue #79)., Rising unemployment + positive GDP → SLOWDOWN., Declining unemployment → original GDP-based classification., No unemployment_rate column → original behavior., TestUnemploymentRegimeOverride
 
 ### Community 1223 - "Community 1223"
 Cohesion: 0.22
@@ -4567,7 +4526,7 @@ Nodes (8): Acceptance criteria, Cycle 3 — Frontend Canvas Drift View + Trade L
 
 ### Community 1234 - "Community 1234"
 Cohesion: 0.25
-Nodes (9): er(), es(), fs(), ne(), po(), wi(), xs(), ys() (+1 more)
+Nodes (5): Hyphenated region labels must be sanitized to DSL-safe space-separated tokens., Combined groups dict must store 'Asia Pacific', not 'Asia-Pacific'., Pre-existing 'Asia-Pacific <= 0.6' rows are rewritten to 'Asia Pacific'., MeanRisk.fit with hyphenated region in region_mapping emits no warning., TestHyphenatedRegionSanitization
 
 ### Community 1235 - "Community 1235"
 Cohesion: 0.22
@@ -4595,19 +4554,19 @@ Nodes (6): Angular Best Practices, Components, Services, State Management, Templ
 
 ### Community 1241 - "Community 1241"
 Cohesion: 0.25
-Nodes (7): code:python (import pandas as pd), Complete Example, Covariance Estimators, Expected Return Estimators, Module Layout, Moment Estimation, Shrinkage methods
+Nodes (7): daily_dates(), gross(), prices(), Tests for research/_returns.py — Cycle 4 §9.2 after-tax returns., 20 business days for a backtest series., Constant 0% gross return, so portfolio_value stays at 1.0., Linearly rising prices for assets A and B.
 
 ### Community 1242 - "Community 1242"
-Cohesion: 0.09
-Nodes (23): Query portfolio summary via PortfolioRepository., Return placeholder — risk_analytics_runs has no ORM model yet., Collects per-section data from repositories.      Each method returns a plain di, Return portfolio-level summary data., Return risk analytics (VaR, CVaR, volatility)., ReportDataAggregator, _make_backtest_run(), _make_optimization_run() (+15 more)
+Cohesion: 0.1
+Nodes (21): Query portfolio summary via PortfolioRepository., Collects per-section data from repositories.      Each method returns a plain di, Return portfolio-level summary data., ReportDataAggregator, _make_backtest_run(), _make_optimization_run(), _make_portfolio(), _make_repos() (+13 more)
 
 ### Community 1243 - "Community 1243"
 Cohesion: 0.2
 Nodes (8): Acceptance criteria, Cycle 2 — InputsPane & StageStrip, Following cycles, In scope, Objective, Out of scope, Preceding cycles, Project vision
 
 ### Community 1244 - "Community 1244"
-Cohesion: 0.22
-Nodes (8): empty, expansion_macro_data(), Tests for regime-conditional subperiod Sharpe validation., 60 days of macro data that classifies as EXPANSION., 180 days: 60 expansion + 60 recession + 60 expansion., Returns aligned to three_regime_macro_data.      Expansion blocks have positive, synthetic_oos_returns(), three_regime_macro_data()
+Cohesion: 0.33
+Nodes (7): _fetch_price_rows, _find_instrument ticker/yfinance_ticker resolver, _factor_helpers shared factor service helpers, factor_analysis_service selection + tilts, factor_compute_service DB compute persist, factor_scoring_service validation + composite, factor_service backward-compat re-export shim
 
 ### Community 1245 - "Community 1245"
 Cohesion: 0.2
@@ -4630,24 +4589,32 @@ Cohesion: 0.22
 Nodes (4): AssetFactorData(), AssetFactorDataAst, AssetFactorDataProperties, AssetFactorDataViewer
 
 ### Community 1250 - "Community 1250"
-Cohesion: 0.32
-Nodes (4): _build_service_with_fake_scraper(), TDD coverage for per-series on_progress in fetch_fred_series.  Asserts the servi, TestFetchFredSeriesAcceptsOnProgress, TestFetchFredSeriesEmitsPerSeriesProgress
+Cohesion: 0.43
+Nodes (7): _validate_checklist (17 rules), _REGION_MAP country→region, Research Run Report, _build_binding_constraints, _render_research_report, compute_binding_constraints, render_report (Jinja report.md)
 
 ### Community 1251 - "Community 1251"
 Cohesion: 0.29
-Nodes (7): build_cov_estimator, build_mu_estimator, build_prior, code:python (from optimizer.moments import MomentEstimationConfig, build_), code:python (from optimizer.moments import MomentEstimationConfig, build_), code:python (from optimizer.moments import MomentEstimationConfig, build_), Factory Functions
+Nodes (7): neutralize_sector, rank_normal_standardize, standardize_all_factors, standardize_factor, winsorize_cross_section, winsorize_cross_section_mad, z_score_standardize
 
 ### Community 1252 - "Community 1252"
-Cohesion: 0.29
-Nodes (7): code:python (import pandas as pd), Covariance: Exact Method, Covariance: Linear Method, Expected Return (Both Methods), Log-Normal Multi-Period Scaling, The Scaling Problem, Usage
+Cohesion: 0.33
+Nodes (3): BlockEvent, InternalEventBindings, VarEvent
 
 ### Community 1253 - "Community 1253"
-Cohesion: 0.29
-Nodes (3): Naive benchmark optimizer configurations and factories.  EqualWeighted, InverseV, Compose the inner prior for :class:`InverseVolatility`., _resolve_inverse_volatility_prior()
+Cohesion: 0.33
+Nodes (6): _check_country_coverage, _check_fred_freshness, _check_price_coverage, _check_price_staleness, _check_universe_coverage, _iter_check_results
+
+### Community 1254 - "Community 1254"
+Cohesion: 0.03
+Nodes (18): getPortfolioTheme(), readCssVar(), registerPortfolioTheme(), data, EchartsCalendarHeatmapComponent, EchartsCandlestickComponent, EchartsDrawdownComponent, EchartsFactorExposureComponent (+10 more)
 
 ### Community 1255 - "Community 1255"
 Cohesion: 0.4
 Nodes (4): No prints inside `_validate_checklist` (caller owns rendering)., No prints inside `_validate_checklist` (caller owns rendering)., No prints inside `_validate_checklist` (caller owns rendering)., TestValidateChecklistNoSideEffects
+
+### Community 1257 - "Community 1257"
+Cohesion: 0.33
+Nodes (6): preflight blocks silent empty-frame fallbacks (Bug #237), run_db_preflight orchestrator, load_data (Step 1), _build_country_map, research.pipeline package init, research.preflight package init
 
 ### Community 1262 - "Community 1262"
 Cohesion: 0.29
@@ -4685,6 +4652,10 @@ Nodes (9): `optimize_portfolio` must enable metadata routing once at entry., `op
 Cohesion: 0.18
 Nodes (7): Issue #544: _information_ratio helper., Constant active return → std = 0 → IR = 0.0 per AC., Issue #544: _information_ratio helper., Issue #544: _information_ratio helper., Constant active return → std = 0 → IR = 0.0 per AC., Constant active return → std = 0 → IR = 0.0 per AC., TestInformationRatioHelper
 
+### Community 1275 - "Community 1275"
+Cohesion: 0.33
+Nodes (4): pad(), timestamp(), downgrade(), remove users table  Revision ID: bdd615f586f8 Revises: ff232ce0534f Create Date:
+
 ### Community 1277 - "Community 1277"
 Cohesion: 0.22
 Nodes (4): BusinessCyclePhase(), BusinessCyclePhaseAst, BusinessCyclePhaseValues, BusinessCyclePhaseViewer
@@ -4698,32 +4669,28 @@ Cohesion: 0.33
 Nodes (5): code:bash (MPLBACKEND=Agg PYTHONHASHSEED=0 python tests/research/baseli), Cycle 0 Baseline, Exit code, Generating the baseline, Regenerating after intentional changes
 
 ### Community 1282 - "Community 1282"
+Cohesion: 0.1
+Nodes (14): BackgroundJob, BackgroundJobError, PostgreSQL-backed background job service.  Provides thread-safe job lifecycle ma, Persistent background job record.      Replaces the in-memory dict in ``Backgrou, Individual error message for a background job., Atomically create a job only if none is already active.          Stamps ``worker, Atomically create a job only if none is already active.          Stamps ``worker, Atomically create a job only if none is already active.          Stamps ``worker (+6 more)
+
+### Community 1287 - "Community 1287"
 Cohesion: 0.11
-Nodes (12): BackgroundJob, BackgroundJobError, PostgreSQL-backed background job service.  Provides thread-safe job lifecycle ma, Persistent background job record.      Replaces the in-memory dict in ``Backgrou, Individual error message for a background job., Atomically create a job only if none is already active.          Stamps ``worker, Atomically create a job only if none is already active.          Stamps ``worker, Atomically create a job only if none is already active.          Stamps ``worker (+4 more)
+Nodes (9): Tests for composite scoring., Standardized factor scores for 20 tickers., Tests for coverage-weighted mean in group scoring (issue #62)., Ticker missing 1 of 2 factors has group score equal to the present factor., With full coverage, coverage-weighted mean equals simple mean., standardized_factors(), TestCoverageWeightedMean, TestICDecayHalflife (+1 more)
 
 ### Community 1288 - "Community 1288"
 Cohesion: 0.22
 Nodes (4): FactorWeightAdaptation(), FactorWeightAdaptationAst, FactorWeightAdaptationProperties, FactorWeightAdaptationViewer
-
-### Community 1289 - "Community 1289"
-Cohesion: 0.44
-Nodes (4): _check_fx_coverage(), Warn (not fail) when active instruments use non-major currency codes.      Surfa, _seed_instrument_with_currency(), TestCheckFxCoverage
-
-### Community 1290 - "Community 1290"
-Cohesion: 0.4
-Nodes (3): classifyStatus(), computeQuintiles(), deriveSelectRows()
 
 ### Community 1291 - "Community 1291"
 Cohesion: 0.22
 Nodes (4): MacroRegimeCalibration(), MacroRegimeCalibrationAst, MacroRegimeCalibrationProperties, MacroRegimeCalibrationViewer
 
 ### Community 1292 - "Community 1292"
-Cohesion: 0.33
-Nodes (7): BrinsonDecomposition value object, compute_brinson_attribution, compute_brinson_attribution, compute_factor_attribution, run_brinson_attribution DB wrapper, attribution_service, test_attribution_service
+Cohesion: 0.4
+Nodes (4): Round-trip equivalence tests for ``partial_fit`` on EW estimators.  For exponent, ``partial_fit(X[:k]).partial_fit(X[k:])`` ≈ ``fit(X)`` within atol=1e-8., returns(), test_when_two_partial_fits_then_matches_full_fit()
 
 ### Community 1293 - "Community 1293"
-Cohesion: 0.33
-Nodes (4): Tests for coverage-weighted mean in group scoring (issue #62)., Ticker missing 1 of 2 factors has group score equal to the present factor., With full coverage, coverage-weighted mean equals simple mean., TestCoverageWeightedMean
+Cohesion: 0.4
+Nodes (4): run_full_pipeline_with_selection, Convenience factory for universe screening., Screen a stock universe for investability.      Convenience wrapper around :func, screen_universe()
 
 ### Community 1294 - "Community 1294"
 Cohesion: 0.33
@@ -4732,10 +4699,6 @@ Nodes (6): 2. Risk Budgeting (RiskBudgetingConfig), code:python (from optimizer.
 ### Community 1295 - "Community 1295"
 Cohesion: 0.33
 Nodes (6): 5. Hierarchical Equal Risk Contribution -- HERC (HERCConfig), code:python (from optimizer.optimization import HERCConfig), code:python (from optimizer.optimization import HERCConfig, build_herc), Configuration Fields, Presets, Usage
-
-### Community 1297 - "Community 1297"
-Cohesion: 0.36
-Nodes (6): apiHttpInterceptor(), extractMessage(), isInternalRequest(), normalize(), notifyIfNeeded(), withApiKey()
 
 ### Community 1298 - "Community 1298"
 Cohesion: 0.25
@@ -4751,7 +4714,7 @@ Nodes (4): Issue #544: write_metrics_json writer., Issue #544: write_metrics_jso
 
 ### Community 1302 - "Community 1302"
 Cohesion: 0.5
-Nodes (3): run_and_persist must coerce plain-Index prices before calling the pipeline., run_and_persist normalises the index before handing off to the pipeline., TestRunAndPersistCoercesPrices
+Nodes (4): research.persistence package init, _diff_from_default, _flatten_metrics, persist_research_run
 
 ### Community 1303 - "Community 1303"
 Cohesion: 0.33
@@ -4766,8 +4729,8 @@ Cohesion: 0.33
 Nodes (6): **A.1 Sharpe Ratio**, **A.2 Sortino Ratio**, **A.3 Information Ratio**, **A.4 Herfindahl-Hirschman Index (HHI)**, **A.5 Annualized Volatility**, **Appendix — Formulas and Definitions**
 
 ### Community 1308 - "Community 1308"
-Cohesion: 0.2
-Nodes (7): 3. Opinion Pooling, Choosing a Framework, Configuration, Factory Function, Module Overview, Pooling Methods, View Integration
+Cohesion: 0.4
+Nodes (3): Choosing a Framework, Module Overview, View Integration
 
 ### Community 1315 - "Community 1315"
 Cohesion: 0.18
@@ -4781,10 +4744,6 @@ Nodes (5): code:python (from optimizer.factors import run_factor_oos_validation,
 Cohesion: 0.22
 Nodes (4): SentimentLabel(), SentimentLabelAst, SentimentLabelValues, SentimentLabelViewer
 
-### Community 1320 - "Community 1320"
-Cohesion: 0.33
-Nodes (6): code:python (@dataclass(frozen=True)), code:python (from optimizer.moments import MomentEstimationConfig), Fields, MomentEstimationConfig, Presets, Usage
-
 ### Community 1321 - "Community 1321"
 Cohesion: 0.4
 Nodes (5): ClusteringConfig, code:python (from optimizer.optimization import DistanceConfig, DistanceT), code:python (from optimizer.optimization import ClusteringConfig, Linkage), DistanceConfig, Sub-Configs
@@ -4796,10 +4755,6 @@ Nodes (4): e(), n(), r(), t()
 ### Community 1325 - "Community 1325"
 Cohesion: 0.25
 Nodes (4): Query Trading Economics indicators with optional country filter., Query bond yields with optional country filter., Get all three data types for a single country.          Returns:             Dic, Query economic indicators with optional country filter.
-
-### Community 1327 - "Community 1327"
-Cohesion: 0.39
-Nodes (3): Read `invested` or `total` from `get_account_cash()` per `BaseToggle`., _resolve_deployable_eur(), TestResolveDeployableEur
 
 ### Community 1330 - "Community 1330"
 Cohesion: 0.36
@@ -4813,10 +4768,6 @@ Nodes (5): **5.1 Stress Test Methodology**, **5.2 Stress Scenario Results**, **5
 Cohesion: 0.2
 Nodes (9): archived_at, completed_cycles, git_branch, git_commit, mode, provider_model, requirements_hash, slug (+1 more)
 
-### Community 1335 - "Community 1335"
-Cohesion: 0.4
-Nodes (3): `apply_lognormal_correction`, Function Signatures, `scale_moments_to_horizon`
-
 ### Community 1340 - "Community 1340"
 Cohesion: 0.4
 Nodes (5): repo, full, host, name, owner
@@ -4825,17 +4776,9 @@ Nodes (5): repo, full, host, name, owner
 Cohesion: 0.17
 Nodes (11): _apply_coverage_gating(), _handle_zero_weight_fallback(), Composite scoring from standardized factor scores., Reduce IC history to a per-group point estimate.      ``decay_halflife == 0`` re, Reduce IC history to a per-group point estimate.      ``decay_halflife == 0`` re, Weighted average over available (non-NaN) groups per ticker.      For each ticke, Apply minimum-coverage threshold and optional coverage_ratio output., Apply minimum-coverage threshold and optional coverage_ratio output. (+3 more)
 
-### Community 1342 - "Community 1342"
-Cohesion: 0.22
-Nodes (3): _make_macro_news(), Route passes theme='policy' literally -- no substring expansion., TestGetMacroNews
-
 ### Community 1343 - "Community 1343"
 Cohesion: 0.5
 Nodes (3): Chapter runner — iterates generators and reports progress., Execute every generator in order and print a summary.      Parameters     ------, run_chapter()
-
-### Community 1347 - "Community 1347"
-Cohesion: 0.5
-Nodes (4): Blending Moments by Regime, code:python (from optimizer.moments import fit_hmm, blend_moments_by_regi), Full blend: `HMMBlendedCovariance`, Simple blend: `blend_moments_by_regime()`
 
 ### Community 1350 - "Community 1350"
 Cohesion: 0.2
@@ -4844,6 +4787,10 @@ Nodes (10): cache_read, cache_write, cache_write_1h, cache_write_5m, clear_event
 ### Community 1351 - "Community 1351"
 Cohesion: 0.5
 Nodes (3): Checklist, Related Issues, Summary
+
+### Community 1352 - "Community 1352"
+Cohesion: 0.18
+Nodes (5): FactorOOSResult, Results from rolling block OOS factor validation.      Attributes     ----------, oos_result(), Tests for ``research/_backtest_plots.py`` — issue #548.  Covers two new charts w, validation_report()
 
 ### Community 1353 - "Community 1353"
 Cohesion: 0.5
@@ -4866,8 +4813,8 @@ Cohesion: 0.5
 Nodes (4): 9. Inverse Volatility (InverseVolatilityConfig), code:python (from optimizer.optimization import InverseVolatilityConfig, ), Configuration Fields, Usage
 
 ### Community 1358 - "Community 1358"
-Cohesion: 0.08
-Nodes (14): HoldingsAttributionPanelComponent, daysBeforeIso(), ExposureConstraintsPanelComponent, todayIso(), uniqueFactorValidator(), daysBeforeIso(), ScorePanelComponent, todayIso() (+6 more)
+Cohesion: 0.13
+Nodes (10): HoldingsAttributionPanelComponent, ViewMode, daysBeforeIso(), ScorePanelComponent, todayIso(), daysBeforeIso(), SelectPanelComponent, todayIso() (+2 more)
 
 ### Community 1359 - "Community 1359"
 Cohesion: 0.22
@@ -4901,10 +4848,6 @@ Nodes (4): **8.1 Priority Actions**, **8.2 Methodological Documentation**, **8.3
 Cohesion: 0.33
 Nodes (4): check_regime_disagreement(), Check whether two regime classifications disagree.      When two regime systems, Tests for regime disagreement detection (issue #240)., TestCheckRegimeDisagreement
 
-### Community 1370 - "Community 1370"
-Cohesion: 0.33
-Nodes (7): POST /api/v1/backtest route, app.services.backtest.backtest_service, POST /api/v1/optimize route, smoke_prices.sql CI fixture, test_backtest_route, test_backtest_service (unit), test_optimize_endpoint
-
 ### Community 1374 - "Community 1374"
 Cohesion: 0.22
 Nodes (9): phase8, attempt, ci_run_id, ci_status, finished_at, repair_attempts, started_at, status (+1 more)
@@ -4921,10 +4864,6 @@ Nodes (3): Unit-test conftest: reset ``pipeline_builder`` module state per test.
 Cohesion: 0.33
 Nodes (4): No warnings and correct shape when all indicators are fresh., Fresh indicators (within fill_limit) produce no UserWarning., All-empty inputs return an empty DataFrame without error., TestNoRegressionForFreshData
 
-### Community 1450 - "Community 1450"
-Cohesion: 0.25
-Nodes (7): _compute_leg_beta(), _long_short_return_at(), QuintileSpreadResult, Long-short factor-mimicking portfolio construction and quintile analysis., Compute OLS beta of leg returns against market returns.      Parameters     ----, Quintile spread analysis result for a single factor.      Attributes     -------, Compute a single period's long-short factor-mimicking return.      Parameters
-
 ### Community 1484 - "Community 1484"
 Cohesion: 0.18
 Nodes (11): Build Sequence (Checklist), code:python (_run_bulk_fetch pattern:), code:python (import sys), Critical Implementation Details, Dependency Direction, Existing Backend Files to Modify, Existing Frontend Files to Modify, Implementation Blueprint (+3 more)
@@ -4938,8 +4877,8 @@ Cohesion: 0.33
 Nodes (10): 17-Rule Checklist (from `portfolio_checklist.md`), Additional Notes, Features, Import Rules, Key Decisions, Non-functional Requirements, Optimizer API Split — LLM/BAML vs Optimization/Data, Portfolio Builder — Interactive Research Pipeline (+2 more)
 
 ### Community 1538 - "Community 1538"
-Cohesion: 0.28
-Nodes (6): build_optimizer(), Fetch prices, run pipeline, persist result into BacktestRun row.      Args:, Map pipeline_config dict to a skfolio optimizer instance.      Extracts ``optimi, run_and_persist(), build_optimizer maps pipeline_config to an optimizer instance., TestBuildOptimizer
+Cohesion: 0.16
+Nodes (10): build_optimizer(), Fetch prices, run pipeline, persist result into BacktestRun row.      Args:, Raise ValueError with a descriptive message when price data is unusable.      Ar, Map pipeline_config dict to a skfolio optimizer instance.      Extracts ``optimi, run_and_persist(), validate_prices(), validate_prices raises ValueError with descriptive message on bad data., build_optimizer maps pipeline_config to an optimizer instance. (+2 more)
 
 ### Community 1658 - "Community 1658"
 Cohesion: 0.33
@@ -4950,83 +4889,43 @@ Cohesion: 0.33
 Nodes (6): (a) Where the stateful DataAssembly lives between step calls, (b) Single vs multi concurrent builder sessions, (c) Step 7 granularity, code:python (_api_path = Path(__file__).parent.parent.parent / "api"), Confirmed: API orchestrates, `research/` is the implementation, Open Design Questions — Resolved
 
 ### Community 1665 - "Community 1665"
-Cohesion: 0.17
-Nodes (13): extract_backtest_metrics(), Extract all BacktestRun columns from a PortfolioResult.      Uses ``result.backt, _make_mock_portfolio(), _make_mock_portfolio_with_nans(), _make_mock_result(), _make_mock_result_with_nans(), Unit tests for app/services/backtest_service.py.  Covers:   - validate_prices ra, extract_backtest_metrics returns all keys required by BacktestRun model. (+5 more)
-
-### Community 1671 - "Community 1671"
-Cohesion: 0.14
-Nodes (4): BlockEvent, InternalEventBindings, VarEvent, YFinanceClientProtocol
-
-### Community 1672 - "Community 1672"
-Cohesion: 0.4
-Nodes (6): BrokerSyncResult, BrokerSyncResult, sync_portfolio, portfolio services __init__, PortfolioRepository, test_broker_sync_service
-
-### Community 1673 - "Community 1673"
-Cohesion: 0.33
-Nodes (6): Factor-Mimicking Portfolios, Information Coefficient Analysis, Multiple Testing Correction, Out-of-Sample Protocols, Quantile Spread Returns, Validation Protocol
+Cohesion: 0.13
+Nodes (16): extract_backtest_metrics(), Extract all BacktestRun columns from a PortfolioResult.      Uses ``result.backt, _make_mock_portfolio(), _make_mock_portfolio_with_nans(), _make_mock_result(), _make_mock_result_with_nans(), Unit tests for app/services/backtest_service.py.  Covers:   - validate_prices ra, run_and_persist must coerce plain-Index prices before calling the pipeline. (+8 more)
 
 ### Community 1674 - "Community 1674"
 Cohesion: 0.4
 Nodes (5): repo, full, host, name, owner
-
-### Community 1676 - "Community 1676"
-Cohesion: 0.33
-Nodes (3): Fig12RegimeTiltHeatmap, Fig12RegimeTiltHeatmap — Regime-conditional factor weight multipliers., 4x9 heatmap of regime tilt multipliers by regime and factor group.      Pure con
-
-### Community 1678 - "Community 1678"
-Cohesion: 0.53
-Nodes (3): extractMessage(), GlobalErrorHandler, isHttpError()
-
-### Community 1687 - "Community 1687"
-Cohesion: 0.24
-Nodes (7): _check_country_coverage(), _check_universe_coverage(), Verify ``instruments`` table holds at least the required floor., Verify country profile coverage of active instruments ≥ floor., _seed_instruments(), TestCountryCoverage, TestUniverseCoverage
 
 ### Community 1689 - "Community 1689"
 Cohesion: 0.47
 Nodes (3): Verify _plots.py only references optimizer.* / research.* under TYPE_CHECKING., Return module names imported at runtime (excluding TYPE_CHECKING blocks)., TestPlotsZeroRuntimeOptimizerImports
 
 ### Community 1690 - "Community 1690"
-Cohesion: 0.4
-Nodes (3): _plot_heatmap(), Fig36Detoning — side-by-side heatmaps of full vs detoned correlation matrix., Render a correlation-matrix heatmap on the given axes.      Parameters     -----
-
-### Community 1692 - "Community 1692"
-Cohesion: 0.4
-Nodes (3): _marchenko_pastur_pdf(), Fig34MarchenkoPastur — empirical eigenvalue histogram with MP PDF overlay., Marchenko-Pastur probability density function.      Parameters     ----------
-
-### Community 1693 - "Community 1693"
-Cohesion: 0.5
-Nodes (3): build_fx_converter(), Factory function for building FX converter from config., Build a ready-to-use :class:`FxPriceConverter` from config.      Parameters
-
-### Community 1694 - "Community 1694"
-Cohesion: 0.4
-Nodes (3): Each asset appears in exactly one quintile per date., No empty quintiles when n_assets >= n_quantiles., TestNoOverlap
-
-### Community 1695 - "Community 1695"
-Cohesion: 0.4
-Nodes (3): When factor scores strongly predict returns, Q5 > Q1 on average., Mean return should increase monotonically Q1 → Qn for perfect predictor., TestQuintileOrdering
+Cohesion: 0.04
+Nodes (35): Fig28SampleMeanInstability, Fig28SampleMeanInstability — error bars of sample mean across window lengths., Grouped error-bar chart of sample mean instability across rolling windows., Fig30ShrinkageScatter, Fig30ShrinkageScatter — raw sample means vs James-Stein shrunk means., Scatter of raw EmpiricalMu (x-axis) vs James-Stein ShrunkMu (y-axis).      Draws, Fig32EquilibriumVsHistorical, Fig32EquilibriumVsHistorical — historical sample means vs equilibrium implied re (+27 more)
 
 ## Ambiguous Edges - Review These
 - `test_risk_analytics_routes` → `POST /api/v1/optimize route`  [AMBIGUOUS]
   api/tests/integration/test_risk_analytics_routes.py · relation: references
 
 ## Knowledge Gaps
-- **7028 isolated node(s):** `Assemble optimizer-ready DataFrames from database ORM rows.  This module is the`, `Research module — factor history, optimization, strategies, and reporting.`, `Pure metric computation functions extracted from stock_selection_pipeline.py.  Z`, `Compound annualized return from daily returns.`, `Forward-filled daily risk-free rate aligned to ``returns`` index.` (+7023 more)
+- **7074 isolated node(s):** `Assemble optimizer-ready DataFrames from database ORM rows.  This module is the`, `Research module — factor history, optimization, strategies, and reporting.`, `Pure metric computation functions extracted from stock_selection_pipeline.py.  Z`, `Compound annualized return from daily returns.`, `Forward-filled daily risk-free rate aligned to ``returns`` index.` (+7069 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **631 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **620 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **What is the exact relationship between `test_risk_analytics_routes` and `POST /api/v1/optimize route`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
-- **Why does `range()` connect `Cluster 41` to `Macro Regime API & Tests`, `Community 1027`, `Community 1030`, `Risk Analytics API Tests`, `Community 1037`, `Cluster 19`, `Cluster 21`, `Cluster 31`, `Cluster 34`, `Community 1064`, `Cluster 44`, `Community 1069`, `Cluster 51`, `Community 1086`, `Community 1089`, `Cluster 579`, `Cluster 582`, `Cluster 80`, `Community 1105`, `Cluster 82`, `Cluster 596`, `Community 1114`, `Cluster 95`, `Community 1123`, `Community 1135`, `Cluster 114`, `Community 1148`, `Cluster 126`, `Cluster 128`, `Community 1665`, `Cluster 132`, `Cluster 136`, `Community 1676`, `Cluster 145`, `Community 1687`, `Cluster 152`, `Cluster 151`, `Community 1690`, `Community 1694`, `Community 1695`, `Community 1184`, `Community 1185`, `Cluster 165`, `Cluster 166`, `Cluster 167`, `Cluster 175`, `Community 1201`, `Cluster 180`, `Community 1206`, `Cluster 186`, `Cluster 190`, `Cluster 192`, `Cluster 194`, `Cluster 199`, `Cluster 200`, `Cluster 203`, `Cluster 207`, `Cluster 210`, `Cluster 212`, `Cluster 214`, `Cluster 215`, `Cluster 219`, `Cluster 233`, `Cluster 235`, `Cluster 237`, `Cluster 247`, `Community 1276`, `Cluster 252`, `Cluster 253`, `Community 1287`, `Cluster 264`, `Community 1289`, `Cluster 265`, `Cluster 275`, `Cluster 283`, `Cluster 293`, `Cluster 308`, `Cluster 310`, `Cluster 319`, `Cluster 356`, `Cluster 362`, `Cluster 372`, `Cluster 383`, `Cluster 386`, `Cluster 391`, `Cluster 392`, `Cluster 395`, `Cluster 396`, `Cluster 400`, `Cluster 402`, `Cluster 403`, `Cluster 409`, `Cluster 412`, `Cluster 414`, `Cluster 416`, `Cluster 425`, `Cluster 445`, `Cluster 446`, `Cluster 451`, `Cluster 452`, `Cluster 455`, `Cluster 456`, `Cluster 457`, `Community 972`, `Cluster 464`, `Community 991`, `Community 992`, `Community 996`, `Community 997`, `Community 1007`?**
-  _High betweenness centrality (0.174) - this node is a cross-community bridge._
-- **Why does `ConfigurationError` connect `Cluster 190` to `Optimizer Validation & Reporting`, `Community 1025`, `Cluster 129`, `Cluster 260`, `Cluster 389`, `Community 1287`, `Community 1031`, `Community 1293`, `Community 1169`, `Cluster 402`, `Cluster 148`, `Community 1694`, `Community 1695`, `Cluster 288`, `Community 1184`, `Cluster 34`, `Community 1185`, `Community 1060`, `Cluster 165`, `Community 1054`, `Cluster 416`, `Cluster 164`, `Community 1450`, `Cluster 172`, `Community 1069`, `Cluster 175`, `Cluster 176`, `Cluster 53`, `Cluster 183`, `Cluster 445`, `Community 1086`, `Cluster 319`, `Community 1341`, `Cluster 451`, `Cluster 323`, `Cluster 452`, `Cluster 324`, `Cluster 582`, `Cluster 456`, `Cluster 457`, `Community 1226`, `Cluster 203`, `Cluster 204`, `Cluster 89`, `Community 986`, `Cluster 92`, `Cluster 349`, `Community 1118`, `Cluster 355`, `Cluster 356`, `Cluster 360`, `Community 1132`, `Cluster 365`, `Community 1133`, `Cluster 112`, `Cluster 496`, `Cluster 246`, `Cluster 375`, `Community 1019`, `Cluster 124`?**
-  _High betweenness centrality (0.078) - this node is a cross-community bridge._
-- **Why does `prices_to_returns()` connect `Cluster 145` to `API Views & Scenarios`, `Cluster 129`, `Cluster 388`, `Cluster 397`, `Community 1037`, `Optimizer Config Surface`, `Community 1169`, `Community 1050`, `Cluster 28`, `Cluster 156`, `Cluster 164`, `Cluster 165`, `Cluster 425`, `Cluster 172`, `Cluster 190`, `Cluster 450`, `Cluster 194`, `Cluster 452`, `Cluster 456`, `Cluster 203`, `Cluster 89`, `Cluster 220`, `Community 988`, `Cluster 348`, `Cluster 98`, `Cluster 360`, `Cluster 361`, `Cluster 490`, `Cluster 235`, `Cluster 365`, `Cluster 237`, `Community 1008`, `Cluster 240`, `Cluster 376`?**
-  _High betweenness centrality (0.040) - this node is a cross-community bridge._
+- **Why does `range()` connect `Cluster 41` to `Macro Regime API & Tests`, `Community 1030`, `Risk Analytics API Tests`, `Community 1037`, `Cluster 19`, `Cluster 21`, `Cluster 24`, `Cluster 31`, `Cluster 34`, `Community 1059`, `Community 1060`, `Cluster 44`, `Cluster 47`, `Cluster 51`, `Community 1078`, `Community 1086`, `Community 1089`, `Cluster 579`, `Cluster 582`, `Cluster 80`, `Community 1105`, `Cluster 82`, `Community 1114`, `Cluster 95`, `Community 1123`, `Community 1135`, `Cluster 114`, `Cluster 115`, `Cluster 116`, `Community 1144`, `Community 1148`, `Cluster 128`, `Community 1665`, `Cluster 132`, `Cluster 136`, `Cluster 145`, `Cluster 146`, `Cluster 151`, `Community 1176`, `Cluster 152`, `Community 1690`, `Community 1182`, `Cluster 165`, `Cluster 166`, `Cluster 167`, `Cluster 175`, `Cluster 176`, `Cluster 180`, `Community 1204`, `Community 1206`, `Cluster 186`, `Cluster 190`, `Cluster 192`, `Cluster 194`, `Cluster 199`, `Cluster 200`, `Cluster 203`, `Cluster 205`, `Cluster 207`, `Cluster 210`, `Cluster 212`, `Cluster 215`, `Cluster 219`, `Cluster 223`, `Cluster 233`, `Cluster 235`, `Cluster 237`, `Cluster 245`, `Cluster 252`, `Cluster 253`, `Community 1276`, `Community 1287`, `Cluster 264`, `Cluster 263`, `Cluster 265`, `Community 1292`, `Cluster 275`, `Cluster 277`, `Cluster 283`, `Cluster 293`, `Cluster 308`, `Cluster 310`, `Cluster 349`, `Cluster 362`, `Cluster 375`, `Cluster 383`, `Cluster 384`, `Cluster 391`, `Cluster 392`, `Cluster 395`, `Cluster 396`, `Cluster 402`, `Cluster 403`, `Cluster 409`, `Cluster 412`, `Cluster 414`, `Cluster 425`, `Cluster 445`, `Cluster 446`, `Cluster 448`, `Cluster 451`, `Cluster 452`, `Cluster 455`, `Cluster 456`, `Cluster 457`, `Community 972`, `Cluster 464`, `Community 986`, `Community 991`, `Community 992`, `Community 996`, `Community 997`, `Community 1007`?**
+  _High betweenness centrality (0.184) - this node is a cross-community bridge._
+- **Why does `ConfigurationError` connect `Cluster 375` to `Optimizer Validation & Reporting`, `Community 1025`, `Cluster 129`, `Cluster 260`, `Cluster 389`, `Cluster 386`, `Community 1287`, `Community 1031`, `Cluster 402`, `Cluster 148`, `Cluster 277`, `Community 1176`, `Cluster 157`, `Cluster 416`, `Community 1185`, `Cluster 34`, `Community 1060`, `Cluster 165`, `Community 1188`, `Cluster 164`, `Cluster 175`, `Cluster 176`, `Cluster 53`, `Cluster 183`, `Cluster 445`, `Cluster 190`, `Community 1086`, `Community 1341`, `Cluster 323`, `Cluster 451`, `Cluster 324`, `Cluster 582`, `Cluster 456`, `Cluster 457`, `Community 1226`, `Cluster 203`, `Cluster 204`, `Cluster 208`, `Cluster 89`, `Community 986`, `Cluster 92`, `Cluster 349`, `Community 1118`, `Cluster 355`, `Cluster 360`, `Cluster 365`, `Community 1133`, `Cluster 112`, `Cluster 496`, `Cluster 116`, `Cluster 246`, `Community 1019`, `Cluster 124`?**
+  _High betweenness centrality (0.084) - this node is a cross-community bridge._
+- **Why does `all` connect `Cluster 210` to `Cluster 128`, `Macro Regime API & Tests`, `Cluster 261`, `Community 1031`, `Risk Analytics API Tests`, `Cluster 398`, `Cluster 270`, `Cluster 143`, `Cluster 402`, `Cluster 275`, `Cluster 19`, `Cluster 151`, `Cluster 409`, `Cluster 25`, `Cluster 283`, `Community 1182`, `Cluster 31`, `Cluster 32`, `Cluster 293`, `Cluster 424`, `Cluster 45`, `Cluster 175`, `Cluster 304`, `Cluster 51`, `Cluster 181`, `Cluster 183`, `Cluster 56`, `Cluster 59`, `Cluster 445`, `Cluster 61`, `Cluster 192`, `Cluster 66`, `Cluster 453`, `Cluster 582`, `Cluster 457`, `Community 1100`, `Cluster 207`, `Cluster 215`, `Community 986`, `Cluster 219`, `Cluster 218`, `Cluster 223`, `Community 1132`, `Cluster 116`, `Community 1019`, `Cluster 252`, `Cluster 126`, `Cluster 383`?**
+  _High betweenness centrality (0.050) - this node is a cross-community bridge._
 - **What connects `Assemble optimizer-ready DataFrames from database ORM rows.  This module is the`, `Research module — factor history, optimization, strategies, and reporting.`, `Pure metric computation functions extracted from stock_selection_pipeline.py.  Z` to the rest of the system?**
-  _7028 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _7074 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `API Views & Scenarios` be split into smaller, more focused modules?**
   _Cohesion score 0.04 - nodes in this community are weakly interconnected._
 - **Should `Optimizer Validation & Reporting` be split into smaller, more focused modules?**

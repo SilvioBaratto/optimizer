@@ -70,6 +70,12 @@ function sampleDriftResponse(requestId = 1): DriftResponse {
       fx_missing_count: 0,
       target_not_on_broker_count: 0,
       base_currency: 'EUR',
+      sum_eur: 10000,
+      invested_eur: 10000,
+      delta_eur: 0,
+      tolerance_pct: 0.015,
+      stale_price_count: 0,
+      entries: [],
     },
     request_id: requestId,
   };
@@ -198,6 +204,71 @@ describe('BuilderDriftService', () => {
     const msft = trades.find((t) => t.ticker === 'MSFT')!;
     expect(aapl.delta_weight).toBe(0.05);
     expect(msft.delta_weight).toBe(-0.05);
+  });
+
+  it('when DriftRow.flags are populated, BuilderTrade carries the matching flags', () => {
+    service.init();
+    arm();
+    service.runExplicit();
+    const req = http.expectOne((r) => r.url === DRIFT_URL);
+    const payload = sampleDriftResponse();
+    const flagged: DriftResponse = {
+      ...payload,
+      drift: [
+        {
+          ...payload.drift[0],
+          flags: [
+            { code: 'stale_price', reason: 'tick old', reference: 'AAPL' },
+          ],
+        },
+        payload.drift[1],
+      ],
+    };
+    req.flush(flagged);
+
+    const trades = store.trades()!.trades;
+    const aapl = trades.find((t) => t.ticker === 'AAPL')!;
+    const msft = trades.find((t) => t.ticker === 'MSFT')!;
+    expect(aapl.flags.length).toBe(1);
+    expect(aapl.flags[0].code).toBe('stale_price');
+    expect(msft.flags).toEqual([]);
+  });
+
+  it('when DriftDiagnostics carries the new aggregate fields, store propagates them', () => {
+    service.init();
+    arm();
+    service.runExplicit();
+    const req = http.expectOne((r) => r.url === DRIFT_URL);
+    const payload = sampleDriftResponse();
+    const extended: DriftResponse = {
+      ...payload,
+      diagnostics: {
+        ...payload.diagnostics,
+        sum_eur: 9950,
+        invested_eur: 10000,
+        delta_eur: 50,
+        tolerance_pct: 0.015,
+        stale_price_count: 2,
+        entries: [
+          {
+            code: 'stale_price',
+            reason: 'tick old',
+            reference: 'AAPL',
+            ticker: 'AAPL',
+          },
+        ],
+      },
+    };
+    req.flush(extended);
+
+    const diag = store.driftDiagnostics()!.diagnostics;
+    expect(diag.sum_eur).toBe(9950);
+    expect(diag.invested_eur).toBe(10000);
+    expect(diag.delta_eur).toBe(50);
+    expect(diag.tolerance_pct).toBe(0.015);
+    expect(diag.stale_price_count).toBe(2);
+    expect(diag.entries.length).toBe(1);
+    expect(diag.entries[0].ticker).toBe('AAPL');
   });
 
   it('when GET fails with 500, driftStatus transitions to "error"', () => {

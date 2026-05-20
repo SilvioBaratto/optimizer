@@ -148,6 +148,21 @@
   --color-severity-info-bg: #dbeafe;
 
   /* ------------------------------------------------------------------ */
+  /* Diagnostic flag palette (Cycle 4)                                   */
+  /* ------------------------------------------------------------------ */
+
+  --color-flag-unmapped: #6b21a8; /* purple — symbol mapping gap   */
+  --color-flag-unmapped-bg: #f3e8ff;
+  --color-flag-fx-missing: #0e7490; /* teal — FX coverage gap        */
+  --color-flag-fx-missing-bg: #cffafe;
+  --color-flag-stale: #b45309; /* amber — price freshness       */
+  --color-flag-stale-bg: #fef3c7;
+  --color-flag-target-gap: #4338ca; /* indigo — broker universe gap  */
+  --color-flag-target-gap-bg: #e0e7ff;
+  --color-flag-reconciliation: #b91c1c; /* red — reserved, critical  */
+  --color-flag-reconciliation-bg: #fee2e2;
+
+  /* ------------------------------------------------------------------ */
   /* Dense spacing tokens for tables                                    */
   /* ------------------------------------------------------------------ */
 

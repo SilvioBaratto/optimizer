@@ -75,6 +75,8 @@ class TestNormalizationResultShape:
             "base_currency",
             "unmapped_count",
             "fx_missing_count",
+            "stale_price_count",
+            "dropped_raw_tickers",
         }
 
         result = NormalizationResult(
@@ -84,6 +86,8 @@ class TestNormalizationResultShape:
             base_currency="EUR",
             unmapped_count=0,
             fx_missing_count=0,
+            stale_price_count=0,
+            dropped_raw_tickers=[],
         )
         with pytest.raises(FrozenInstanceError):
             result.reconciliation_ok = False  # type: ignore[misc]
@@ -224,6 +228,59 @@ class TestReconciliationMismatch:
             PositionFlag.RECONCILIATION_MISMATCH in p.flags for p in result.positions
         )
 
+    def test_when_reconciliation_flag_emitted_then_reference_is_signed_pct(
+        self,
+    ) -> None:
+        from app.services.portfolio.t212_position_normalizer import (
+            normalize_live_positions,
+        )
+
+        # total = 1000, invested = 500 → signed_delta = +1.0 → "+100.0%"
+        positions = [
+            _raw_pos("AAPL_US_EQ", quantity=1.0, current_price=1000.0, currency="EUR"),
+        ]
+        client = _client_mock(invested=500.0, positions=positions)
+        session = MagicMock()
+
+        with _patch_lookup({"AAPL_US_EQ": "AAPL"}):
+            result = normalize_live_positions(
+                client,
+                session,
+                as_of_date=date(2026, 5, 19),
+                fx_provider=_fx_mock(),
+            )
+
+        flags = result.positions[0].flags
+        recon = next(f for f in flags if f.code is PositionFlag.RECONCILIATION_MISMATCH)
+        assert recon.reference == "+100.0%"
+
+    def test_when_invested_above_total_then_reference_is_negative(self) -> None:
+        from app.services.portfolio.t212_position_normalizer import (
+            normalize_live_positions,
+        )
+
+        # total = 500, invested = 1000 → signed_delta = -0.5 → "-50.0%"
+        positions = [
+            _raw_pos("AAPL_US_EQ", quantity=1.0, current_price=500.0, currency="EUR"),
+        ]
+        client = _client_mock(invested=1000.0, positions=positions)
+        session = MagicMock()
+
+        with _patch_lookup({"AAPL_US_EQ": "AAPL"}):
+            result = normalize_live_positions(
+                client,
+                session,
+                as_of_date=date(2026, 5, 19),
+                fx_provider=_fx_mock(),
+            )
+
+        recon = next(
+            f
+            for f in result.positions[0].flags
+            if f.code is PositionFlag.RECONCILIATION_MISMATCH
+        )
+        assert recon.reference == "-50.0%"
+
     def test_when_delta_at_one_pct_then_ok(self) -> None:
         from app.services.portfolio.t212_position_normalizer import (
             normalize_live_positions,
@@ -327,6 +384,38 @@ class TestUnmappedAndFxMissingCounters:
             )
 
         assert result.unmapped_count == 1
+
+    def test_when_stale_price_then_count_reflected(self) -> None:
+        from app.services.portfolio.t212_position_normalizer import (
+            normalize_live_positions,
+        )
+
+        positions = [
+            _raw_pos(
+                "AAPL_US_EQ",
+                quantity=1.0,
+                current_price=0.0,  # null/zero guard fires STALE_PRICE
+                currency="EUR",
+            ),
+            _raw_pos(
+                "MSFT_US_EQ",
+                quantity=1.0,
+                current_price=100.0,
+                currency="EUR",
+            ),
+        ]
+        client = _client_mock(invested=0.0, positions=positions)
+        session = MagicMock()
+
+        with _patch_lookup({"AAPL_US_EQ": "AAPL", "MSFT_US_EQ": "MSFT"}):
+            result = normalize_live_positions(
+                client,
+                session,
+                as_of_date=date(2026, 5, 19),
+                fx_provider=_fx_mock(),
+            )
+
+        assert result.stale_price_count == 1
 
     def test_when_fx_missing_then_count_reflected(self) -> None:
         from app.services.portfolio.t212_position_normalizer import (

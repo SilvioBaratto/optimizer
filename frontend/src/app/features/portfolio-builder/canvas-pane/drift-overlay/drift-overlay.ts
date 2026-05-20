@@ -7,9 +7,15 @@ import {
   signal,
 } from '@angular/core';
 
-import type { BaseToggle, DriftRow } from '../../../../models/drift.model';
+import {
+  isGreyedByFlags,
+  type BaseToggle,
+  type DriftRow,
+  type FlagInstance,
+} from '../../../../models/drift.model';
 import type { BarData } from '../../../../shared/bar-chart/bar-chart';
 import { tickerColorMap } from '../../../../shared/charts/ticker-color-map';
+import { DiagnosticBadgeComponent } from '../../../../shared/diagnostic-badge/diagnostic-badge.component';
 import { EchartsBarComponent } from '../../../../shared/echarts-bar/echarts-bar';
 import {
   EchartsDonutComponent,
@@ -25,6 +31,8 @@ export interface DriftBarRow {
   readonly current: number;
   readonly delta: number;
   readonly color: string;
+  readonly flags: readonly FlagInstance[];
+  readonly greyed: boolean;
 }
 
 const BASES: readonly BaseToggle[] = ['invested', 'total'] as const;
@@ -46,7 +54,7 @@ function buildPalette(rows: readonly DriftRow[]): Record<string, string> {
 @Component({
   selector: 'app-drift-overlay',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [EchartsBarComponent, EchartsDonutComponent],
+  imports: [DiagnosticBadgeComponent, EchartsBarComponent, EchartsDonutComponent],
   template: `
     <section
       data-region="drift-overlay"
@@ -131,6 +139,36 @@ function buildPalette(rows: readonly DriftRow[]): Record<string, string> {
           </div>
         }
       </div>
+      @if (flaggedRows().length > 0) {
+        <div
+          data-region="drift-flag-list"
+          class="flex flex-col gap-1 rounded-md border border-border bg-surface-raised p-2"
+        >
+          @for (row of flaggedRows(); track row.ticker) {
+            <div
+              data-region="drift-flag-row"
+              [attr.data-row-ticker]="row.ticker"
+              [attr.data-row-greyed]="row.greyed"
+              [class]="rowClass(row)"
+            >
+              <span
+                data-cell="row-ticker"
+                class="min-w-[64px] font-medium text-text"
+              >
+                {{ row.ticker }}
+              </span>
+              <div
+                data-region="row-badges"
+                class="flex flex-wrap items-center gap-1"
+              >
+                @for (flag of row.flags; track flag.code) {
+                  <app-diagnostic-badge [flag]="flag" />
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
     </section>
   `,
 })
@@ -142,20 +180,17 @@ export class DriftOverlayComponent {
 
   readonly viewMode = this._viewMode.asReadonly();
 
-  readonly barSeries: Signal<DriftBarRow[]> = computed(() => {
-    const drift = this.store.drift();
-    if (!drift) return [];
-    const palette = buildPalette(drift.drift);
-    return sortByAbsDeltaDesc(drift.drift).map((r) => ({
-      ticker: r.ticker,
-      target: r.target_weight,
-      current: r.current_weight,
-      delta: r.delta_weight,
-      color: palette[r.ticker],
-    }));
-  });
+  readonly flagsByTicker: Signal<ReadonlyMap<string, FlagInstance[]>> = computed(
+    () => this.buildFlagMap(),
+  );
+
+  readonly barSeries: Signal<DriftBarRow[]> = computed(() => this.buildSeries());
 
   readonly rows: Signal<DriftBarRow[]> = this.barSeries;
+
+  readonly flaggedRows: Signal<DriftBarRow[]> = computed(() =>
+    this.barSeries().filter((r) => r.flags.length > 0),
+  );
 
   readonly barData: Signal<BarData[]> = computed(() =>
     this.barSeries().map((r) => ({
@@ -183,5 +218,55 @@ export class DriftOverlayComponent {
 
   onRefresh(): void {
     this.store.triggerDriftRun();
+  }
+
+  protected rowClass(row: DriftBarRow): string {
+    const base = 'flex items-center gap-2 px-1 py-1 text-data-xs';
+    return row.greyed ? `${base} opacity-50` : base;
+  }
+
+  private buildFlagMap(): ReadonlyMap<string, FlagInstance[]> {
+    const map = new Map<string, FlagInstance[]>();
+    const entries = this.store.driftDiagnostics()?.diagnostics.entries ?? [];
+    for (const e of entries) {
+      if (e.ticker === null) continue;
+      const list = map.get(e.ticker) ?? [];
+      list.push({ code: e.code, reason: e.reason, reference: e.reference });
+      map.set(e.ticker, list);
+    }
+    return map;
+  }
+
+  private buildSeries(): DriftBarRow[] {
+    const drift = this.store.drift();
+    if (!drift) return [];
+    const palette = buildPalette(drift.drift);
+    const flagMap = this.flagsByTicker();
+    return sortByAbsDeltaDesc(drift.drift).map((r) => this.toBarRow(r, palette, flagMap));
+  }
+
+  private toBarRow(
+    r: DriftRow,
+    palette: Record<string, string>,
+    flagMap: ReadonlyMap<string, FlagInstance[]>,
+  ): DriftBarRow {
+    const flags = this.combineFlags(r, flagMap);
+    return {
+      ticker: r.ticker,
+      target: r.target_weight,
+      current: r.current_weight,
+      delta: r.delta_weight,
+      color: palette[r.ticker],
+      flags,
+      greyed: isGreyedByFlags(flags),
+    };
+  }
+
+  private combineFlags(
+    r: DriftRow,
+    flagMap: ReadonlyMap<string, FlagInstance[]>,
+  ): readonly FlagInstance[] {
+    const fromEntries = flagMap.get(r.ticker) ?? [];
+    return fromEntries.length > 0 ? fromEntries : r.flags;
   }
 }

@@ -85,6 +85,7 @@ function sampleTrades(): BuilderTrades {
         est_shares: -3,
         est_cost_eur: 0.5,
         delta_weight: 0.05,
+        flags: [],
       },
     ],
   };
@@ -99,6 +100,12 @@ function sampleDriftDiagnostics(): BuilderDriftDiagnostics {
       fx_missing_count: 0,
       target_not_on_broker_count: 0,
       base_currency: 'EUR',
+      sum_eur: 10000,
+      invested_eur: 10000,
+      delta_eur: 0,
+      tolerance_pct: 0.015,
+      stale_price_count: 0,
+      entries: [],
     },
     requestId: 7,
   };

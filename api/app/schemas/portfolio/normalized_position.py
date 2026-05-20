@@ -1,12 +1,17 @@
-"""NormalizedPosition + PositionFlag — Cycle 1 T212 normalization output (issue #772).
+"""NormalizedPosition + PositionFlag + FlagInstance.
 
 Transient (non-persisted) Pydantic v2 contract consumed by every downstream
-component in the T212 live-position normalization pipeline.
+component in the T212 live-position normalization pipeline. Cycle 4 (#792)
+adds `FlagInstance` and retypes `NormalizedPosition.flags` to carry per-flag
+human reason copy.
 """
 
-from enum import Enum
+from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from enum import Enum
+from typing import Annotated
+
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 _PENCE_CURRENCIES = frozenset({"GBX", "GBp"})
 
@@ -19,6 +24,45 @@ class PositionFlag(str, Enum):
     STALE_PRICE = "stale_price"
     RECONCILIATION_MISMATCH = "reconciliation_mismatch"
     TARGET_NOT_ON_BROKER = "target_not_on_broker"
+
+
+class FlagInstance(BaseModel):
+    """A `PositionFlag` code with human reason copy + optional reference."""
+
+    model_config = ConfigDict(frozen=True)
+
+    code: PositionFlag
+    reason: str = ""
+    reference: str | None = None
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, FlagInstance):
+            return (
+                self.code is other.code
+                and self.reason == other.reason
+                and self.reference == other.reference
+            )
+        if isinstance(other, PositionFlag):
+            return self.code is other
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash((self.code, self.reason, self.reference))
+
+
+def _coerce_flag(value: object) -> object:
+    if isinstance(value, PositionFlag):
+        return FlagInstance(code=value)
+    return value
+
+
+def _coerce_flag_list(value: object) -> object:
+    if isinstance(value, list):
+        return [_coerce_flag(item) for item in value]
+    return value
+
+
+FlagList = Annotated[list[FlagInstance], BeforeValidator(_coerce_flag_list)]
 
 
 class NormalizedPosition(BaseModel):
@@ -34,7 +78,7 @@ class NormalizedPosition(BaseModel):
     eur_value: float
     eur_weight: float
     ppl_eur: float | None = None
-    flags: list[PositionFlag] = Field(default_factory=list)
+    flags: FlagList = Field(default_factory=list)
 
     @field_validator("currency")
     @classmethod

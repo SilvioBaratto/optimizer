@@ -5,7 +5,10 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
 import { DriftOverlayComponent } from './drift-overlay';
 import { BuilderStore } from '../../builder.store';
-import type { BuilderDrift } from '../../builder-result.model';
+import type {
+  BuilderDrift,
+  BuilderDriftDiagnostics,
+} from '../../builder-result.model';
 import { BUILDER_DRIFT_SERVICE } from '../../builder.store';
 
 const PALETTE = [
@@ -97,6 +100,43 @@ function setup(): {
     store,
     host: fixture.nativeElement as HTMLElement,
     driftRunner,
+  };
+}
+
+function diagnosticsFor(
+  entries: ReadonlyArray<{
+    code:
+      | 'unmapped'
+      | 'fx_missing'
+      | 'stale_price'
+      | 'reconciliation_mismatch'
+      | 'target_not_on_broker';
+    reason?: string;
+    reference?: string | null;
+    ticker?: string | null;
+  }>,
+): BuilderDriftDiagnostics {
+  return {
+    requestId: 1,
+    diagnostics: {
+      reconciliation_ok: true,
+      reconciliation_delta_pct: 0,
+      unmapped_count: 0,
+      fx_missing_count: 0,
+      target_not_on_broker_count: 0,
+      base_currency: 'EUR',
+      sum_eur: 10000,
+      invested_eur: 10000,
+      delta_eur: 0,
+      tolerance_pct: 0.015,
+      stale_price_count: 0,
+      entries: entries.map((e) => ({
+        code: e.code,
+        reason: e.reason ?? '',
+        reference: e.reference ?? null,
+        ticker: e.ticker ?? null,
+      })),
+    },
   };
 }
 
@@ -213,6 +253,112 @@ describe('DriftOverlayComponent', () => {
     const aapl = segs.find((s) => s.label === 'AAPL')!;
     expect(aapl.value).toBe(0.6);
     expect(aapl.color).toBe(PALETTE[0]);
+  });
+
+  it('when DriftDiagnostics.entries carries a flag for a ticker, drift-flag-row renders the badge', () => {
+    const { fixture, store, host } = setup();
+    store.setDrift(sampleDrift());
+    store.setDriftDiagnostics(
+      diagnosticsFor([
+        { code: 'stale_price', reason: 'tick old', reference: 'AAPL', ticker: 'AAPL' },
+      ]),
+    );
+    fixture.detectChanges();
+
+    const row = host.querySelector('[data-region="drift-flag-row"][data-row-ticker="AAPL"]');
+    expect(row).not.toBeNull();
+    expect(row!.querySelector('app-diagnostic-badge')).not.toBeNull();
+  });
+
+  it('when ticker has UNMAPPED flag, the flag row is greyed (opacity-50)', () => {
+    const { fixture, store, host } = setup();
+    store.setDrift(sampleDrift());
+    store.setDriftDiagnostics(
+      diagnosticsFor([
+        { code: 'unmapped', reason: 'no mapping', reference: 'AAPL', ticker: 'AAPL' },
+      ]),
+    );
+    fixture.detectChanges();
+
+    const row = host.querySelector('[data-region="drift-flag-row"][data-row-ticker="AAPL"]');
+    expect(row).not.toBeNull();
+    expect(row!.getAttribute('data-row-greyed')).toBe('true');
+    expect(row!.className).toContain('opacity-50');
+  });
+
+  it('when ticker has TARGET_NOT_ON_BROKER flag, the flag row is greyed', () => {
+    const { fixture, store, host } = setup();
+    store.setDrift(sampleDrift());
+    store.setDriftDiagnostics(
+      diagnosticsFor([
+        {
+          code: 'target_not_on_broker',
+          reason: 'not on broker',
+          reference: 'MSFT',
+          ticker: 'MSFT',
+        },
+      ]),
+    );
+    fixture.detectChanges();
+
+    const row = host.querySelector('[data-region="drift-flag-row"][data-row-ticker="MSFT"]');
+    expect(row).not.toBeNull();
+    expect(row!.getAttribute('data-row-greyed')).toBe('true');
+    expect(row!.className).toContain('opacity-50');
+  });
+
+  it('when ticker has STALE_PRICE flag only, the flag row is NOT greyed', () => {
+    const { fixture, store, host } = setup();
+    store.setDrift(sampleDrift());
+    store.setDriftDiagnostics(
+      diagnosticsFor([
+        { code: 'stale_price', reason: 'tick old', reference: 'AAPL', ticker: 'AAPL' },
+      ]),
+    );
+    fixture.detectChanges();
+
+    const row = host.querySelector('[data-region="drift-flag-row"][data-row-ticker="AAPL"]');
+    expect(row).not.toBeNull();
+    expect(row!.getAttribute('data-row-greyed')).toBe('false');
+    expect(row!.className).not.toContain('opacity-50');
+  });
+
+  it('when no DriftRow carries flags, drift-flag-list region is not rendered', () => {
+    const { fixture, store, host } = setup();
+    store.setDrift(sampleDrift());
+    fixture.detectChanges();
+    expect(host.querySelector('[data-region="drift-flag-list"]')).toBeNull();
+  });
+
+  it('when ticker has multiple flags, all badges render for that row', () => {
+    const { fixture, store, host } = setup();
+    store.setDrift(sampleDrift());
+    store.setDriftDiagnostics(
+      diagnosticsFor([
+        { code: 'stale_price', ticker: 'AAPL' },
+        { code: 'fx_missing', ticker: 'AAPL' },
+      ]),
+    );
+    fixture.detectChanges();
+
+    const badges = host.querySelectorAll(
+      '[data-row-ticker="AAPL"] app-diagnostic-badge',
+    );
+    expect(badges.length).toBe(2);
+  });
+
+  it('when ticker has UNMAPPED in donut view, flag row still renders', () => {
+    const { fixture, store, host } = setup();
+    store.setDrift(sampleDrift());
+    store.setDriftDiagnostics(
+      diagnosticsFor([{ code: 'unmapped', ticker: 'AAPL' }]),
+    );
+    fixture.componentInstance.setViewMode('donut');
+    fixture.detectChanges();
+    expect(host.querySelector('app-echarts-donut')).not.toBeNull();
+    expect(
+      host.querySelector('[data-region="drift-flag-row"][data-row-ticker="AAPL"]'),
+    ).not.toBeNull();
   });
 
   it('when refresh button is clicked, store.triggerDriftRun fires and BUILDER_DRIFT_SERVICE.runExplicit is invoked', () => {

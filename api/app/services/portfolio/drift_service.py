@@ -12,10 +12,12 @@ from sqlalchemy.orm import Session
 
 from app.schemas.portfolio import (
     BaseToggle,
+    DiagnosticEntry,
     DriftDiagnostics,
     DriftResponse,
     DriftRow,
     DriftTotals,
+    FlagInstance,
     NormalizedPosition,
     PositionFlag,
     TargetWeight,
@@ -23,7 +25,9 @@ from app.schemas.portfolio import (
     TradeRow,
 )
 from app.services._shared._ticker_lookup import lookup_yf_ticker
+from app.services.portfolio.flag_reasons import make_flag_instance
 from app.services.portfolio.t212_position_normalizer.normalizer_service import (
+    RECONCILIATION_TOLERANCE,
     NormalizationResult,
     normalize_live_positions,
 )
@@ -46,6 +50,7 @@ def compute_drift(
     universe = _build_broker_universe(client, session)
     drift = _join_holdings_and_target(norm.positions, target_weights, universe)
     deployable = _resolve_deployable_eur(client, base)
+    invested_eur = _resolve_invested_eur(client)
     positions_by_ticker = {p.ticker: p for p in norm.positions}
     trades = _compute_trades(drift, deployable, positions_by_ticker, commission_rate)
     return DriftResponse(
@@ -54,9 +59,15 @@ def compute_drift(
         drift=drift,
         trades=trades,
         totals=_aggregate_totals(norm.positions, drift, deployable),
-        diagnostics=_aggregate_diagnostics(norm, drift),
+        diagnostics=_aggregate_diagnostics(norm, drift, invested_eur),
         request_id=request_id,
     )
+
+
+def _resolve_invested_eur(client: Trading212Client) -> float:
+    """Read `invested` cash (independent of `BaseToggle`) for diagnostics."""
+    cash = client.get_account_cash() or {}
+    return float(cash.get("invested", 0.0))
 
 
 def _build_broker_universe(
@@ -109,11 +120,15 @@ def _row_flags(
     position: NormalizedPosition | None,
     target_weight: float,
     broker_universe: frozenset[str],
-) -> list[PositionFlag]:
+) -> list[FlagInstance]:
     if position is not None:
         return list(position.flags)
     if target_weight > 0.0 and ticker not in broker_universe:
-        return [PositionFlag.TARGET_NOT_ON_BROKER]
+        return [
+            make_flag_instance(
+                PositionFlag.TARGET_NOT_ON_BROKER, reference=ticker
+            )
+        ]
     return []
 
 
@@ -212,10 +227,17 @@ def _aggregate_totals(
 
 
 def _aggregate_diagnostics(
-    norm: NormalizationResult, drift_rows: list[DriftRow]
+    norm: NormalizationResult,
+    drift_rows: list[DriftRow],
+    invested_eur: float = 0.0,
 ) -> DriftDiagnostics:
     target_not_on_broker = sum(
         1 for row in drift_rows if PositionFlag.TARGET_NOT_ON_BROKER in row.flags
+    )
+    sum_eur = sum(p.eur_value for p in norm.positions)
+    delta_eur = abs(sum_eur - invested_eur)
+    entries = _build_entries(
+        norm, drift_rows, sum_eur=sum_eur, invested_eur=invested_eur, delta_eur=delta_eur
     )
     return DriftDiagnostics(
         reconciliation_ok=norm.reconciliation_ok,
@@ -224,4 +246,70 @@ def _aggregate_diagnostics(
         fx_missing_count=norm.fx_missing_count,
         target_not_on_broker_count=target_not_on_broker,
         base_currency=norm.base_currency,
+        sum_eur=sum_eur,
+        invested_eur=invested_eur,
+        delta_eur=delta_eur,
+        tolerance_pct=RECONCILIATION_TOLERANCE,
+        stale_price_count=norm.stale_price_count,
+        entries=entries,
+    )
+
+
+def _build_entries(
+    norm: NormalizationResult,
+    drift_rows: list[DriftRow],
+    *,
+    sum_eur: float,
+    invested_eur: float,
+    delta_eur: float,
+) -> list[DiagnosticEntry]:
+    entries: list[DiagnosticEntry] = []
+    entries.extend(_collect_row_entries(drift_rows))
+    entries.extend(_unmapped_dropped_entries(norm.dropped_raw_tickers))
+    if not norm.reconciliation_ok:
+        entries.append(_reconciliation_entry(sum_eur, invested_eur, delta_eur))
+    return entries
+
+
+def _collect_row_entries(drift_rows: list[DriftRow]) -> list[DiagnosticEntry]:
+    return [
+        DiagnosticEntry(
+            code=flag.code,
+            reason=flag.reason,
+            reference=flag.reference,
+            ticker=row.ticker,
+        )
+        for row in drift_rows
+        for flag in row.flags
+    ]
+
+
+def _unmapped_dropped_entries(dropped: list[str]) -> list[DiagnosticEntry]:
+    return [_dropped_entry(ticker) for ticker in dropped]
+
+
+def _dropped_entry(ticker: str) -> DiagnosticEntry:
+    flag = make_flag_instance(PositionFlag.UNMAPPED, reference=ticker)
+    return DiagnosticEntry(
+        code=flag.code,
+        reason=flag.reason,
+        reference=flag.reference,
+        ticker=ticker,
+    )
+
+
+def _reconciliation_entry(
+    sum_eur: float, invested_eur: float, delta_eur: float
+) -> DiagnosticEntry:
+    reference = (
+        f"sum_eur={sum_eur:.2f} invested={invested_eur:.2f} delta={delta_eur:.2f}"
+    )
+    flag = make_flag_instance(
+        PositionFlag.RECONCILIATION_MISMATCH, reference=reference
+    )
+    return DiagnosticEntry(
+        code=flag.code,
+        reason=flag.reason,
+        reference=reference,
+        ticker=None,
     )
