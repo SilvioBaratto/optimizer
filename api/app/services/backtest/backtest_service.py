@@ -271,6 +271,9 @@ def _cv_fold_metrics(result: PortfolioResult) -> list[dict[str, Any]] | None:
             summary = fold_portfolio.summary(formatted=False)
             folds.append({str(k): safe_float(v) for k, v in summary.items()})
     except Exception:
+        # A fold whose summary() fails leaves the per-fold metrics
+        # incomplete; surface as null cv_fold_metrics ("no folds") rather
+        # than a 5xx — the backtest itself already succeeded.
         return None
     return folds or None
 

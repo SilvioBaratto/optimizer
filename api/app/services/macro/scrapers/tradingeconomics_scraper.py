@@ -588,6 +588,9 @@ class TradingEconomicsIndicatorsScraper:
                         }
 
                     except (ValueError, IndexError, AttributeError):
+                        # Skip rows that don't match the expected cell format;
+                        # a structural shortfall is caught later by the
+                        # _MIN_INDICATORS ParseStructureError check.
                         continue
 
         if len(yields) < _MIN_BOND_YIELDS:
@@ -743,6 +746,9 @@ class TradingEconomicsIndicatorsScraper:
                         }
 
                     except (ValueError, IndexError, AttributeError):
+                        # Skip rows that don't match the expected cell format;
+                        # a structural shortfall is caught later by the
+                        # _MIN_INDICATORS ParseStructureError check.
                         continue
 
         if len(production) < _MIN_INDUSTRIAL_PRODUCTION_ROWS:
@@ -806,6 +812,9 @@ class TradingEconomicsIndicatorsScraper:
                         }
 
                     except (ValueError, IndexError, AttributeError):
+                        # Skip rows that don't match the expected cell format;
+                        # a structural shortfall is caught later by the
+                        # _MIN_INDICATORS ParseStructureError check.
                         continue
 
         if len(capacity) < _MIN_CAPACITY_UTILIZATION_ROWS:

@@ -70,16 +70,6 @@ EXPECTED_LAYERS = {
     "schemas": _SCHEMAS_DIRS,
 }
 
-# Directories whose name collides with an existing .py module file.
-# Adding __init__.py would shadow the .py file and break imports until
-# Cycle 2 moves the files into their domain homes.
-_DIRS_WITH_DEFERRED_INIT = {
-    (layer, domain)
-    for layer, domains in EXPECTED_LAYERS.items()
-    for domain in domains
-    if (API_APP / layer / f"{domain}.py").is_file()
-}
-
 
 # ── Helper ─────────────────────────────────────────────────────────────
 
@@ -114,8 +104,9 @@ class TestInitPyInEveryFolder:
         list(_all_expected_paths()),
     )
     def test_init_py_exists(self, layer, domain, path):
-        if (layer, domain) in _DIRS_WITH_DEFERRED_INIT:
-            pytest.skip("__init__.py deferred to Cycle 2 (shadows existing .py)")
+        # Cycle 2 moved every colliding ``<domain>.py`` into its domain folder,
+        # so no directory defers its __init__.py any more — assert for all.
+        _ = layer, domain  # parametrize fixture labels
         init = path / "__init__.py"
         assert init.is_file(), f"Missing __init__.py in {path}"
 
@@ -125,9 +116,10 @@ class TestInitPyInEveryFolder:
     )
     def test_init_py_has_docstring(self, layer, domain, path):
         _ = layer, domain  # parametrize fixture labels
+        # Existence is enforced by test_init_py_exists; assert here too so a
+        # missing file fails loudly instead of silently skipping the docstring.
         init = path / "__init__.py"
-        if not init.is_file():
-            pytest.skip("__init__.py missing")
+        assert init.is_file(), f"Missing __init__.py in {path}"
         tree = ast.parse(init.read_text())
         doc = ast.get_docstring(tree)
         assert doc is not None, f"__init__.py in {path} has no docstring"

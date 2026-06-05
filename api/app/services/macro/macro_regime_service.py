@@ -1,4 +1,12 @@
-"""Service layer orchestrating macro regime data fetching and storage."""
+"""Service layer orchestrating macro regime data fetching and storage.
+
+Bulk-ingestion error policy (issue #850): macro data is aggregated per country
+across multiple scrapers (IlSole, Trading Economics, FRED). Each per-country /
+per-source ``except`` logs and accumulates the failure into an ``errors`` /
+``all_errors`` list, then continues — one failing source or country must not
+abort the whole macro refresh. Those lists are returned to the caller, so every
+drop is surfaced, not silent.
+"""
 
 import datetime
 import logging

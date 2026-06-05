@@ -8,6 +8,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 
 import { PipelineStatusComponent } from './pipeline-status';
 import { environment } from '../../../../environments/environment';
+import { ICON_PROVIDER } from '../../../icons';
 
 const JOBS_URL = `${environment.apiUrl}jobs`;
 
@@ -20,6 +21,7 @@ describe('PipelineStatusComponent — state transitions (issue #440)', () => {
         provideZonelessChangeDetection(),
         provideHttpClient(),
         provideHttpClientTesting(),
+        ICON_PROVIDER,
       ],
     });
     http = TestBed.inject(HttpTestingController);
@@ -84,6 +86,34 @@ describe('PipelineStatusComponent — state transitions (issue #440)', () => {
     expect(fx.componentInstance.isLoading()).toBe(false);
     expect(fx.componentInstance.pollError()).toBeTruthy();
     expect(fx.componentInstance.domainStatuses()).toEqual([]);
+  });
+
+  it('polling survives a transient 5xx: pollError is set, then a later poll recovers (issue #851)', () => {
+    jasmine.clock().install();
+    try {
+      const fx = TestBed.createComponent(PipelineStatusComponent);
+      fx.detectChanges();
+      const ok = { jobs: [], total: 0, limit: 100, offset: 0 };
+
+      // Initial load succeeds.
+      http.expectOne((r) => r.url === JOBS_URL).flush(ok);
+
+      // First poll tick errors with a transient 5xx → catchError keeps it alive.
+      jasmine.clock().tick(30_000);
+      http
+        .expectOne((r) => r.url === JOBS_URL)
+        .error(new ProgressEvent('network'), { status: 503 });
+      expect(fx.componentInstance.pollError()).toBeTruthy();
+
+      // The interval survived: a later tick fires another poll that recovers.
+      jasmine.clock().tick(30_000);
+      http.expectOne((r) => r.url === JOBS_URL).flush(ok);
+      expect(fx.componentInstance.pollError()).toBeNull();
+
+      fx.destroy(); // tear down the periodic timer
+    } finally {
+      jasmine.clock().uninstall();
+    }
   });
 
   it('exposes hasRunning and hasFailures from the loaded jobs', () => {

@@ -33,7 +33,16 @@ describe('ViewPanelComponent', () => {
     comp.runOpinionPool();
     const req = http.expectOne(OPINION_URL);
     expect(req.request.method).toBe('POST');
-    req.flush({ P: [], Q: [], view_confidences: [], persona_weights: {} });
+    req.flush({
+      nExperts: 0,
+      tickers: [],
+      tickersWithData: [],
+      tickersMissingData: [],
+      experts: [],
+      icWeights: [],
+      poolingType: 'linear',
+      totalViews: 0,
+    });
   });
 
   it('when no view text is entered, entropyHasViews is false', () => {

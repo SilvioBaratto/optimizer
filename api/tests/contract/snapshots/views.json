@@ -1,0 +1,290 @@
+{
+  "EntropyPoolingResponse": {
+    "description": "Posterior moments from entropy pooling.",
+    "properties": {
+      "covariance": {
+        "description": "Posterior covariance matrix.",
+        "items": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "title": "Covariance",
+        "type": "array"
+      },
+      "mu": {
+        "description": "Posterior mean vector.",
+        "items": {
+          "type": "number"
+        },
+        "title": "Mu",
+        "type": "array"
+      },
+      "tickers": {
+        "description": "Asset tickers in the same order as mu.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tickers",
+        "type": "array"
+      }
+    },
+    "required": [
+      "mu",
+      "covariance",
+      "tickers"
+    ],
+    "title": "EntropyPoolingResponse",
+    "type": "object"
+  },
+  "GenerateViewsResponse": {
+    "$defs": {
+      "AssetViewResponse": {
+        "properties": {
+          "asset": {
+            "title": "Asset",
+            "type": "string"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "integer"
+          },
+          "magnitudeBps": {
+            "title": "Magnitudebps",
+            "type": "number"
+          },
+          "reasoning": {
+            "title": "Reasoning",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset",
+          "direction",
+          "magnitudeBps",
+          "confidence",
+          "reasoning"
+        ],
+        "title": "AssetViewResponse",
+        "type": "object"
+      }
+    },
+    "description": "BL-ready view components.\n\nAll arrays are serialised as nested lists for JSON transport.",
+    "properties": {
+      "idzorekAlphas": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "description": "Asset ticker \u2192 Idzorek alpha_k. All values in (0, 1).",
+        "title": "Idzorekalphas",
+        "type": "object"
+      },
+      "nAssets": {
+        "description": "Number of assets in the universe.",
+        "title": "Nassets",
+        "type": "integer"
+      },
+      "nViews": {
+        "description": "Number of views generated.",
+        "title": "Nviews",
+        "type": "integer"
+      },
+      "p": {
+        "description": "Pick matrix, shape (n_views, n_assets). Row i is the i-th view.",
+        "items": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "title": "P",
+        "type": "array"
+      },
+      "q": {
+        "description": "Expected excess returns vector, shape (n_views,). Decimal units.",
+        "items": {
+          "type": "number"
+        },
+        "title": "Q",
+        "type": "array"
+      },
+      "rationale": {
+        "description": "LLM narrative explaining view generation.",
+        "title": "Rationale",
+        "type": "string"
+      },
+      "tickersMissingData": {
+        "description": "Tickers not found in the DB (excluded from view generation).",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tickersmissingdata",
+        "type": "array"
+      },
+      "tickersWithData": {
+        "description": "Tickers for which factor data was found in the DB.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tickerswithdata",
+        "type": "array"
+      },
+      "viewConfidences": {
+        "description": "Idzorek alpha_k per view, in (0, 1). Same order as view_strings.",
+        "items": {
+          "type": "number"
+        },
+        "title": "Viewconfidences",
+        "type": "array"
+      },
+      "viewStrings": {
+        "description": "skfolio-compatible view expressions (e.g. 'AAPL == 0.02').",
+        "items": {
+          "type": "string"
+        },
+        "title": "Viewstrings",
+        "type": "array"
+      },
+      "views": {
+        "description": "Structured per-asset views.",
+        "items": {
+          "$ref": "#/$defs/AssetViewResponse"
+        },
+        "title": "Views",
+        "type": "array"
+      }
+    },
+    "required": [
+      "nViews",
+      "nAssets",
+      "viewStrings",
+      "p",
+      "q",
+      "viewConfidences",
+      "idzorekAlphas",
+      "views",
+      "rationale",
+      "tickersWithData",
+      "tickersMissingData"
+    ],
+    "title": "GenerateViewsResponse",
+    "type": "object"
+  },
+  "OpinionPoolResponse": {
+    "$defs": {
+      "ExpertViewSummary": {
+        "properties": {
+          "icWeight": {
+            "title": "Icweight",
+            "type": "number"
+          },
+          "idzorekAlphas": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Idzorekalphas",
+            "type": "object"
+          },
+          "nViews": {
+            "title": "Nviews",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "persona": {
+            "title": "Persona",
+            "type": "string"
+          },
+          "viewStrings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Viewstrings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "persona",
+          "name",
+          "nViews",
+          "viewStrings",
+          "idzorekAlphas",
+          "icWeight"
+        ],
+        "title": "ExpertViewSummary",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "experts": {
+        "items": {
+          "$ref": "#/$defs/ExpertViewSummary"
+        },
+        "title": "Experts",
+        "type": "array"
+      },
+      "icWeights": {
+        "description": "IC-calibrated weights per expert, summing to 1.0.",
+        "items": {
+          "type": "number"
+        },
+        "title": "Icweights",
+        "type": "array"
+      },
+      "nExperts": {
+        "title": "Nexperts",
+        "type": "integer"
+      },
+      "poolingType": {
+        "description": "'linear' or 'geometric'.",
+        "title": "Poolingtype",
+        "type": "string"
+      },
+      "tickers": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Tickers",
+        "type": "array"
+      },
+      "tickersMissingData": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Tickersmissingdata",
+        "type": "array"
+      },
+      "tickersWithData": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Tickerswithdata",
+        "type": "array"
+      },
+      "totalViews": {
+        "description": "Total unique views across all experts.",
+        "title": "Totalviews",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "nExperts",
+      "tickers",
+      "tickersWithData",
+      "tickersMissingData",
+      "experts",
+      "icWeights",
+      "poolingType",
+      "totalViews"
+    ],
+    "title": "OpinionPoolResponse",
+    "type": "object"
+  }
+}

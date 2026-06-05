@@ -1,21 +1,13 @@
 """Pydantic schemas for portfolio CRUD and broker sync endpoints."""
 
-import uuid
 from datetime import date, datetime
-from typing import Annotated, Any
+from typing import Any
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-
-def _coerce_uuid(v: Any) -> str:
-    """Coerce uuid.UUID to str for Pydantic v2 from_attributes mode."""
-    if isinstance(v, uuid.UUID):
-        return str(v)
-    return v
-
-
-StrFromUUID = Annotated[str, BeforeValidator(_coerce_uuid)]
-
+# Shared UUID→str coercion (issue #852: de-dup of the local copy that
+# previously shadowed app/schemas/_shared/base.py).
+from app.schemas._shared import StrFromUUID
 
 # ------------------------------------------------------------------
 # Portfolio CRUD

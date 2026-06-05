@@ -47,6 +47,10 @@ class YFinanceTickerMapper:
             return None
 
         except Exception:
+            # Best-effort per-ticker discovery inside a bulk universe build:
+            # _verify_ticker already classifies known yfinance errors, so an
+            # unexpected failure degrades to "no mapping" and the row is
+            # skipped (surfaced via BuildResult.errors), never fatal.
             return None
 
     def _build_ticker_attempts(
@@ -77,6 +81,10 @@ class YFinanceTickerMapper:
                 )
 
             except Exception as e:
+                # Per-ticker verification in a bulk build: the error string is
+                # classified (rate-limit → backoff/retry, not-found → reject) and
+                # the ticker degrades to unverified. No raise — one bad ticker
+                # must not abort the universe build.
                 error_str = str(e).lower()
 
                 if any(
@@ -153,6 +161,9 @@ class YFinanceTickerMapper:
                 }
 
             except Exception as e:
+                # Per-ticker fundamentals fetch in a bulk build: rate-limit
+                # errors back off and retry, other errors retry then degrade to
+                # None (row skipped). No raise — degradation is per-row.
                 error_str = str(e).lower()
 
                 if any(

@@ -238,6 +238,9 @@ class BackgroundJobService:
             try:
                 target(*args, cancel_event=cancel_event)
             except Exception:
+                # Worker runs in a daemon thread: a raise here would die
+                # unobserved, so log with traceback. The job's own error-state
+                # is set by the target; this is the last-resort net.
                 logger.exception("background worker target raised")
             finally:
                 cancel_event.set()
@@ -290,6 +293,9 @@ class BackgroundJobService:
                 ok = repo.update_heartbeat(job_id)
                 session.commit()
         except Exception:
+            # Best-effort liveness tick (see method docstring): a transient DB
+            # hiccup is logged with traceback and the loop continues — it must
+            # not kill an otherwise-healthy worker.
             logger.warning("heartbeat update failed for %s", job_id, exc_info=True)
             return True
         if not ok:

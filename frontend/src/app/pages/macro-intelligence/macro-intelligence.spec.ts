@@ -50,6 +50,21 @@ describe('MacroIntelligenceComponent.parseMacroSummary (issue #439)', () => {
     });
   });
 
+  describe('error handling (issue #851)', () => {
+    it('when every data fetch fails, panels reset to empty and the page is not stuck loading', () => {
+      // The constructor fired loadData(); fail all in-flight requests.
+      for (const req of http.match(() => true)) {
+        req.error(new ProgressEvent('network'), { status: 500 });
+      }
+      expect(component.fredPmi()).toEqual([]);
+      expect(component.newsItems()).toEqual([]);
+      expect(component.countryData()).toEqual([]);
+      expect(component.macroCalibration()).toBeNull();
+      // getNews owns the skeleton — a failed news call must clear isLoading.
+      expect(component.isLoading()).toBe(false);
+    });
+  });
+
   describe('parsing of well-formed and malformed segments', () => {
     it('parses a single label:value segment', () => {
       const rows = component.parseMacroSummary('PMI: 51.2');

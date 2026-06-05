@@ -222,11 +222,16 @@ class FredScraper:
                 try:
                     value = float(raw_value)
                 except ValueError:
+                    # Non-numeric value (FRED uses "." for missing): treat as
+                    # missing → None, per the method docstring.
                     value = None
 
             try:
                 obs_date = date_type.fromisoformat(obs["date"])
             except (KeyError, ValueError):
+                # Malformed/absent date for one observation: log and skip the
+                # row, keeping the rest of the series intact.
+                logger.debug("Skipping FRED observation with bad date: %r", obs)
                 continue
 
             parsed.append({"date": obs_date, "value": value})

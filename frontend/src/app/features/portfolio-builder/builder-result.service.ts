@@ -162,6 +162,8 @@ export class BuilderResultService {
         filter((packet) => packet.seq === this._seq),
         takeUntilDestroyed(this.destroyRef),
       )
+      // subscribe-no-error: _runChain() has its own catchError, so every
+      // emission is a packet (success or error-encoded); the stream never errors.
       .subscribe((packet) => this._applyPacket(packet));
   }
 

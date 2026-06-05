@@ -117,6 +117,8 @@ export class JobProgressTrackerComponent {
         takeWhile((j) => !j || !isTerminal(j.status), true),
         takeUntilDestroyed(this.destroyRef),
       )
+      // subscribe-no-error: the inner poll catchError maps failures to null
+      // (see switchMap above), so this outer stream never errors.
       .subscribe((j) => j && this.emitIfTerminal(j));
   }
 

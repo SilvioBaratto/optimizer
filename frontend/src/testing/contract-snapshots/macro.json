@@ -1,0 +1,54 @@
+{
+  "MacroCalibrationResponse": {
+    "description": "Calibrated Black-Litterman parameters from LLM macro regime classification.",
+    "properties": {
+      "blConfig": {
+        "additionalProperties": true,
+        "description": "Ready-to-use kwargs for BlackLittermanConfig. Pass ``bl_config['tau']`` and ``bl_config['prior_config']['risk_aversion']`` directly to the optimizer config layer.",
+        "title": "Blconfig",
+        "type": "object"
+      },
+      "confidence": {
+        "description": "LLM classification confidence in [0.0, 1.0].",
+        "title": "Confidence",
+        "type": "number"
+      },
+      "delta": {
+        "description": "Risk aversion scalar \u03b4, clamped to [1.0, 10.0].",
+        "title": "Delta",
+        "type": "number"
+      },
+      "macroSummary": {
+        "description": "Macro indicator text fed to the LLM.",
+        "title": "Macrosummary",
+        "type": "string"
+      },
+      "phase": {
+        "description": "Business cycle phase: EARLY_EXPANSION | MID_EXPANSION | LATE_EXPANSION | RECESSION.",
+        "title": "Phase",
+        "type": "string"
+      },
+      "rationale": {
+        "description": "LLM explanation of phase classification.",
+        "title": "Rationale",
+        "type": "string"
+      },
+      "tau": {
+        "description": "Uncertainty scaling \u03c4, clamped to [0.001, 0.1].",
+        "title": "Tau",
+        "type": "number"
+      }
+    },
+    "required": [
+      "phase",
+      "delta",
+      "tau",
+      "confidence",
+      "rationale",
+      "macroSummary",
+      "blConfig"
+    ],
+    "title": "MacroCalibrationResponse",
+    "type": "object"
+  }
+}

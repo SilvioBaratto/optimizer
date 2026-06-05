@@ -257,6 +257,9 @@ class UniverseBuilder:
                         self.progress_callback(progress)
 
                 except Exception as e:
+                    # Per-instrument failure in a bulk build is surfaced (not
+                    # swallowed): appended to self._errors → BuildResult.errors
+                    # and reported via the progress callback below.
                     error_msg = f"{inst.get('shortName', 'unknown')}: {e}"
                     self._errors.append(error_msg)
 
@@ -318,6 +321,8 @@ class UniverseBuilder:
             return instrument_data, "passed", reason
 
         except Exception as e:
+            # Error is returned as the reason tuple, not swallowed: the caller
+            # appends it to self._errors (→ BuildResult.errors) for the row.
             return None, "error", str(e)
 
     def _fetch_filter_data(self, yf_ticker: str) -> dict[str, Any] | None:

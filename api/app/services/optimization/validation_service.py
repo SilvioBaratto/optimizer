@@ -162,12 +162,17 @@ def _extract_portfolio(portfolio: Any) -> dict[str, Any]:
     try:
         weights = {str(k): float(v) for k, v in portfolio.weights_dict.items()}
     except Exception:
+        # skfolio Portfolio objects do not guarantee weights_dict; a missing
+        # attribute degrades to {} and surfaces downstream as null
+        # cv_fold_metrics — an absence, not an error to raise.
         weights = {}
 
     try:
         summary = portfolio.summary(formatted=False)
         measures = {str(k): float(v) for k, v in summary.items()}
     except Exception:
+        # Same contract as weights: a missing summary() degrades to {},
+        # surfaced as null cv_fold_metrics rather than failing the run.
         measures = {}
 
     return {"weights": weights, "measures": measures}

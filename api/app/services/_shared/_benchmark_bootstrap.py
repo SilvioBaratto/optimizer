@@ -93,6 +93,8 @@ def bootstrap_benchmarks(
             repo = DashboardRepository(session)
             coverage = repo.get_benchmark_coverage(tickers)
     except Exception as exc:
+        # Surfaced, not swallowed: logged with traceback and recorded in
+        # summary["errors"] so the caller sees the failure in the result.
         logger.exception("benchmark_bootstrap: coverage query failed")
         summary["errors"] = [f"coverage_query: {exc}"]
         return summary
@@ -126,6 +128,8 @@ def bootstrap_benchmarks(
             len(result.errors),
         )
     except Exception as exc:
+        # Surfaced, not swallowed: logged with traceback and recorded in
+        # summary["errors"]; partial bootstrap progress is still returned.
         logger.exception("benchmark_bootstrap: seed_reference_indices raised")
         summary["errors"] = [f"seed: {exc}"]
 

@@ -3,13 +3,14 @@ import {
   Component,
   DestroyRef,
   computed,
-  effect,
   inject,
   input,
   output,
   signal,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { Observable, of } from 'rxjs';
+import { catchError, startWith, switchMap } from 'rxjs/operators';
 import { LucideAngularModule } from 'lucide-angular';
 
 import { YfinanceService } from '../../services/yfinance.service';
@@ -53,36 +54,42 @@ export class InstrumentDetailFlyoutComponent {
   readonly spark = computed(() => this.buildSpark(this.prices()));
 
   constructor() {
-    effect(() => {
-      const id = this.instrumentId();
-      this.resetState();
-      if (id) this.loadAll(id);
-    });
+    // switchMap on the id stream cancels an in-flight request when the id
+    // changes, so a slow stale response can never overwrite a newer one.
+    // `startWith(empty)` resets each section the instant the id changes;
+    // `catchError` surfaces a failure as the empty state (gated by @if).
+    this.bindSection((id) => this.yfinance.getProfile(id), this.profile.set.bind(this.profile), null);
+    this.bindSection(
+      (id) => this.yfinance.getPrices(id, { limit: DEFAULT_PRICE_LIMIT }),
+      this.prices.set.bind(this.prices),
+      [],
+    );
+    this.bindSection(
+      (id) => this.yfinance.getRecommendations(id),
+      this.recommendations.set.bind(this.recommendations),
+      [],
+    );
   }
 
   onClose(): void {
     this.closed.emit();
   }
 
-  private loadAll(id: string): void {
-    this.yfinance
-      .getProfile(id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((p) => this.profile.set(p));
-    this.yfinance
-      .getPrices(id, { limit: DEFAULT_PRICE_LIMIT })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((ps) => this.prices.set(ps));
-    this.yfinance
-      .getRecommendations(id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((rs) => this.recommendations.set(rs));
-  }
-
-  private resetState(): void {
-    this.profile.set(null);
-    this.prices.set([]);
-    this.recommendations.set([]);
+  private bindSection<T>(
+    fetch: (id: string) => Observable<T>,
+    setter: (value: T) => void,
+    empty: T,
+  ): void {
+    toObservable(this.instrumentId)
+      .pipe(
+        switchMap((id) =>
+          id
+            ? fetch(id).pipe(startWith(empty), catchError(() => of(empty)))
+            : of(empty),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(setter);
   }
 
   private buildSpark(prices: PriceHistory[]): { path: string; min: number; max: number } {

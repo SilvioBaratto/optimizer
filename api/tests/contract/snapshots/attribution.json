@@ -1,0 +1,168 @@
+{
+  "BrinsonResponse": {
+    "$defs": {
+      "BrinsonSectorRow": {
+        "description": "Attribution effects for a single sector.",
+        "properties": {
+          "allocationEffect": {
+            "title": "Allocationeffect",
+            "type": "number"
+          },
+          "benchmarkReturn": {
+            "title": "Benchmarkreturn",
+            "type": "number"
+          },
+          "benchmarkWeight": {
+            "title": "Benchmarkweight",
+            "type": "number"
+          },
+          "interactionEffect": {
+            "title": "Interactioneffect",
+            "type": "number"
+          },
+          "portfolioReturn": {
+            "title": "Portfolioreturn",
+            "type": "number"
+          },
+          "portfolioWeight": {
+            "title": "Portfolioweight",
+            "type": "number"
+          },
+          "sector": {
+            "title": "Sector",
+            "type": "string"
+          },
+          "selectionEffect": {
+            "title": "Selectioneffect",
+            "type": "number"
+          },
+          "totalEffect": {
+            "title": "Totaleffect",
+            "type": "number"
+          }
+        },
+        "required": [
+          "sector",
+          "portfolioWeight",
+          "benchmarkWeight",
+          "portfolioReturn",
+          "benchmarkReturn",
+          "allocationEffect",
+          "selectionEffect",
+          "interactionEffect",
+          "totalEffect"
+        ],
+        "title": "BrinsonSectorRow",
+        "type": "object"
+      }
+    },
+    "description": "Response for POST /attribution/brinson.",
+    "properties": {
+      "benchmarkReturn": {
+        "title": "Benchmarkreturn",
+        "type": "number"
+      },
+      "portfolioReturn": {
+        "title": "Portfolioreturn",
+        "type": "number"
+      },
+      "sectors": {
+        "items": {
+          "$ref": "#/$defs/BrinsonSectorRow"
+        },
+        "title": "Sectors",
+        "type": "array"
+      },
+      "totalActiveReturn": {
+        "title": "Totalactivereturn",
+        "type": "number"
+      },
+      "totalAllocation": {
+        "title": "Totalallocation",
+        "type": "number"
+      },
+      "totalInteraction": {
+        "title": "Totalinteraction",
+        "type": "number"
+      },
+      "totalSelection": {
+        "title": "Totalselection",
+        "type": "number"
+      }
+    },
+    "required": [
+      "sectors",
+      "totalAllocation",
+      "totalSelection",
+      "totalInteraction",
+      "totalActiveReturn",
+      "portfolioReturn",
+      "benchmarkReturn"
+    ],
+    "title": "BrinsonResponse",
+    "type": "object"
+  },
+  "FactorAttributionResponse": {
+    "$defs": {
+      "FactorRow": {
+        "description": "Contribution of a single factor to portfolio return.",
+        "properties": {
+          "contribution": {
+            "title": "Contribution",
+            "type": "number"
+          },
+          "exposure": {
+            "title": "Exposure",
+            "type": "number"
+          },
+          "factorName": {
+            "title": "Factorname",
+            "type": "string"
+          },
+          "factorReturn": {
+            "title": "Factorreturn",
+            "type": "number"
+          }
+        },
+        "required": [
+          "factorName",
+          "exposure",
+          "factorReturn",
+          "contribution"
+        ],
+        "title": "FactorRow",
+        "type": "object"
+      }
+    },
+    "description": "Response for POST /attribution/factor.",
+    "properties": {
+      "explainedReturn": {
+        "title": "Explainedreturn",
+        "type": "number"
+      },
+      "factors": {
+        "items": {
+          "$ref": "#/$defs/FactorRow"
+        },
+        "title": "Factors",
+        "type": "array"
+      },
+      "portfolioReturn": {
+        "title": "Portfolioreturn",
+        "type": "number"
+      },
+      "residual": {
+        "title": "Residual",
+        "type": "number"
+      }
+    },
+    "required": [
+      "factors",
+      "portfolioReturn",
+      "explainedReturn",
+      "residual"
+    ],
+    "title": "FactorAttributionResponse",
+    "type": "object"
+  }
+}

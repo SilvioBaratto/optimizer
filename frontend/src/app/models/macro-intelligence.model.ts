@@ -24,14 +24,18 @@ export interface BlackLittermanBlConfig {
   prior_config: BlackLittermanPriorConfig;
 }
 
+// Wire shape mirrors MacroCalibrationResponse in api/app/schemas/macro/
+// macro_regime.py (CamelCaseModel) — `macroSummary`/`blConfig` are camelCase on
+// the wire, not snake_case. The service maps these into the snake_case domain
+// `MacroCalibrationResponse` below.
 export interface MacroCalibrationApiResponse {
   phase: string;
   delta: number;
   tau: number;
   confidence: number;
   rationale: string;
-  macro_summary: string;
-  bl_config: BlackLittermanBlConfig;
+  macroSummary: string;
+  blConfig: BlackLittermanBlConfig;
 }
 
 export interface EconomicIndicatorApiResponse {

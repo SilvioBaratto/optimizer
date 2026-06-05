@@ -15,6 +15,8 @@ from dateutil import parser as dateutil_parser
 
 from ..protocols import ArticleScraperProtocol, YFinanceClientProtocol
 
+logger = logging.getLogger(__name__)
+
 # Default country → index ticker mapping used for news retrieval.
 DEFAULT_COUNTRY_TICKERS: dict[str, list[str]] = {
     "USA": ["^GSPC", "^DJI"],
@@ -44,6 +46,9 @@ def _parse_article_date(pub_time: Any) -> datetime | None:
         if isinstance(pub_time, datetime):
             return pub_time
     except Exception:
+        # Best-effort per-article date parse: a malformed pub_time is logged
+        # and treated as undated (filtered out downstream), not fatal.
+        logger.debug("Unparseable article pub_time %r; treating as undated", pub_time)
         return None
     return None
 
@@ -126,7 +131,9 @@ class CountryNewsFetcher:
                     if article_dict is not None:
                         all_news.append(article_dict)
             except Exception:
-                logging.getLogger(__name__).debug(
+                # Per-ticker isolation in a multi-ticker country fetch: one
+                # failing feed is logged and skipped, never aborts the country.
+                logger.debug(
                     "Skipping ticker %s due to fetch error", ticker, exc_info=True
                 )
                 continue

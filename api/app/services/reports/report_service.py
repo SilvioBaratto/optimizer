@@ -73,6 +73,8 @@ class ReportDataAggregator:
         try:
             return self._fetch_portfolio_summary(portfolio_id)
         except Exception as exc:
+            # Graceful degradation (see class docstring): a missing upstream
+            # logs at WARNING and returns the placeholder — never fatal.
             logger.warning("portfolio_summary unavailable: %s", exc)
             return dict(_NO_DATA)
 
@@ -81,6 +83,7 @@ class ReportDataAggregator:
         try:
             return self._fetch_weights(portfolio_id)
         except Exception as exc:
+            # Graceful degradation (see class docstring): log + placeholder.
             logger.warning("weights unavailable: %s", exc)
             return dict(_NO_DATA)
 
@@ -89,6 +92,7 @@ class ReportDataAggregator:
         try:
             return self._fetch_performance_metrics(portfolio_id)
         except Exception as exc:
+            # Graceful degradation (see class docstring): log + placeholder.
             logger.warning("performance_metrics unavailable: %s", exc)
             return dict(_NO_DATA)
 
@@ -97,6 +101,7 @@ class ReportDataAggregator:
         try:
             return self._fetch_risk_analytics(portfolio_id)
         except Exception as exc:
+            # Graceful degradation (see class docstring): log + placeholder.
             logger.warning("risk_analytics unavailable: %s", exc)
             return dict(_NO_DATA)
 

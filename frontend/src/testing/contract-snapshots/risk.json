@@ -1,0 +1,383 @@
+{
+  "ConcentrationResponse": {
+    "$defs": {
+      "ConcentrationAsset": {
+        "description": "Per-asset row for the concentration endpoint.",
+        "properties": {
+          "name": {
+            "description": "Asset display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "ticker": {
+            "description": "Asset ticker symbol",
+            "title": "Ticker",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Portfolio weight (0-1)",
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "ticker",
+          "name",
+          "weight"
+        ],
+        "title": "ConcentrationAsset",
+        "type": "object"
+      },
+      "ConcentrationSummary": {
+        "description": "Portfolio-level concentration aggregates.",
+        "properties": {
+          "effectiveN": {
+            "description": "Effective number of positions = 1/HHI",
+            "title": "Effectiven",
+            "type": "number"
+          },
+          "hhi": {
+            "description": "Herfindahl-Hirschman Index = \u03a3(w\u1d62\u00b2)",
+            "title": "Hhi",
+            "type": "number"
+          },
+          "topNRatio": {
+            "description": "Sum of top-N weights by descending weight",
+            "title": "Topnratio",
+            "type": "number"
+          }
+        },
+        "required": [
+          "hhi",
+          "effectiveN",
+          "topNRatio"
+        ],
+        "title": "ConcentrationSummary",
+        "type": "object"
+      }
+    },
+    "description": "Response for GET /portfolio/{name}/risk/concentration.",
+    "properties": {
+      "assets": {
+        "description": "Per-asset breakdown sorted by descending weight",
+        "items": {
+          "$ref": "#/$defs/ConcentrationAsset"
+        },
+        "title": "Assets",
+        "type": "array"
+      },
+      "summary": {
+        "$ref": "#/$defs/ConcentrationSummary",
+        "description": "Portfolio-level concentration aggregates"
+      }
+    },
+    "required": [
+      "assets",
+      "summary"
+    ],
+    "title": "ConcentrationResponse",
+    "type": "object"
+  },
+  "CorrelationResponse": {
+    "description": "Response for GET /portfolio/{name}/risk/correlation.",
+    "properties": {
+      "assets": {
+        "description": "Asset tickers ordered by hierarchical cluster leaf position",
+        "items": {
+          "type": "string"
+        },
+        "title": "Assets",
+        "type": "array"
+      },
+      "clusterLabels": {
+        "description": "Cluster ID per asset (same index as assets list)",
+        "items": {
+          "type": "integer"
+        },
+        "title": "Clusterlabels",
+        "type": "array"
+      },
+      "matrix": {
+        "description": "NxN correlation matrix aligned to assets order",
+        "items": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "title": "Matrix",
+        "type": "array"
+      }
+    },
+    "required": [
+      "assets",
+      "matrix",
+      "clusterLabels"
+    ],
+    "title": "CorrelationResponse",
+    "type": "object"
+  },
+  "LiquidityResponse": {
+    "$defs": {
+      "LiquidityAsset": {
+        "description": "Per-asset row for the liquidity endpoint.",
+        "properties": {
+          "avgDailyVolume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Average daily dollar volume over lookback window; null if no price history",
+            "title": "Avgdailyvolume"
+          },
+          "daysToLiquidate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Estimated days to liquidate: weight / (ADDV \u00d7 participation_rate)",
+            "title": "Daystoliquidate"
+          },
+          "liquidityCost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Linear market impact estimate: days_to_liquidate \u00d7 0.0005",
+            "title": "Liquiditycost"
+          },
+          "name": {
+            "description": "Asset display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "ticker": {
+            "description": "Asset ticker symbol",
+            "title": "Ticker",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Portfolio weight (0-1)",
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "ticker",
+          "name",
+          "weight"
+        ],
+        "title": "LiquidityAsset",
+        "type": "object"
+      },
+      "LiquiditySummary": {
+        "description": "Portfolio-level liquidity aggregate.",
+        "properties": {
+          "weightedAvgDaysToLiquidate": {
+            "description": "Weighted-average days to liquidate across assets with valid ADDV",
+            "title": "Weightedavgdaystoliquidate",
+            "type": "number"
+          }
+        },
+        "required": [
+          "weightedAvgDaysToLiquidate"
+        ],
+        "title": "LiquiditySummary",
+        "type": "object"
+      }
+    },
+    "description": "Response for GET /portfolio/{name}/risk/liquidity.",
+    "properties": {
+      "assets": {
+        "description": "Per-asset liquidity breakdown",
+        "items": {
+          "$ref": "#/$defs/LiquidityAsset"
+        },
+        "title": "Assets",
+        "type": "array"
+      },
+      "summary": {
+        "$ref": "#/$defs/LiquiditySummary",
+        "description": "Portfolio-level liquidity aggregate"
+      }
+    },
+    "required": [
+      "assets",
+      "summary"
+    ],
+    "title": "LiquidityResponse",
+    "type": "object"
+  },
+  "RiskLimitListResponse": {
+    "$defs": {
+      "RiskLimitResponse": {
+        "description": "Response schema for a single risk limit row.",
+        "properties": {
+          "createdAt": {
+            "description": "Row creation timestamp",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "currentValue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Most recent observed metric value",
+            "title": "Currentvalue"
+          },
+          "id": {
+            "description": "Row UUID",
+            "title": "Id",
+            "type": "string"
+          },
+          "isBreached": {
+            "description": "Whether the limit is currently breached",
+            "title": "Isbreached",
+            "type": "boolean"
+          },
+          "lastCheckedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Timestamp of the last breach check",
+            "title": "Lastcheckedat"
+          },
+          "limitType": {
+            "description": "Constraint direction (upper / lower)",
+            "title": "Limittype",
+            "type": "string"
+          },
+          "metric": {
+            "description": "Risk metric identifier",
+            "title": "Metric",
+            "type": "string"
+          },
+          "portfolioId": {
+            "description": "Owning portfolio UUID",
+            "title": "Portfolioid",
+            "type": "string"
+          },
+          "threshold": {
+            "description": "Limit threshold value",
+            "title": "Threshold",
+            "type": "number"
+          },
+          "updatedAt": {
+            "description": "Row last-update timestamp",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "portfolioId",
+          "metric",
+          "limitType",
+          "threshold",
+          "isBreached",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "RiskLimitResponse",
+        "type": "object"
+      }
+    },
+    "description": "List of risk limit responses with breach summary.",
+    "properties": {
+      "breachCount": {
+        "description": "Number of currently breached limits",
+        "minimum": 0,
+        "title": "Breachcount",
+        "type": "integer"
+      },
+      "items": {
+        "description": "Risk limit rows",
+        "items": {
+          "$ref": "#/$defs/RiskLimitResponse"
+        },
+        "title": "Items",
+        "type": "array"
+      }
+    },
+    "required": [
+      "breachCount"
+    ],
+    "title": "RiskLimitListResponse",
+    "type": "object"
+  },
+  "VarResponse": {
+    "description": "Response for GET /portfolio/{name}/risk/var.",
+    "properties": {
+      "cvar": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "description": "CVaR (expected shortfall) keyed by confidence level string",
+        "title": "Cvar",
+        "type": "object"
+      },
+      "lookback": {
+        "description": "Lookback window in trading days",
+        "title": "Lookback",
+        "type": "integer"
+      },
+      "method": {
+        "description": "Computation method: 'historical' or 'parametric'",
+        "title": "Method",
+        "type": "string"
+      },
+      "nObservations": {
+        "description": "Actual number of observations used",
+        "title": "Nobservations",
+        "type": "integer"
+      },
+      "var": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "description": "VaR keyed by confidence level string ('90', '95', '99')",
+        "title": "Var",
+        "type": "object"
+      }
+    },
+    "required": [
+      "var",
+      "cvar",
+      "method",
+      "lookback",
+      "nObservations"
+    ],
+    "title": "VarResponse",
+    "type": "object"
+  }
+}

@@ -57,8 +57,8 @@
       @if (blError(); as err) {
         <p class="text-xs text-loss">{{ err }}</p>
       }
-      @if (blResponse()?.tickers_missing?.length) {
-        <p class="text-xs text-warning">Missing factor data: {{ blResponse()!.tickers_missing.join(', ') }}</p>
+      @if (blResponse()?.tickersMissingData?.length) {
+        <p class="text-xs text-warning">Missing factor data: {{ blResponse()!.tickersMissingData.join(', ') }}</p>
       }
       @if (blViewRows().length > 0) {
         <app-data-table [columns]="viewTableColumns" [rows]="blViewRows()"
@@ -98,7 +98,7 @@
         </div>
       }
       @if (opinionViewRows().length > 0) {
-        <app-data-table [columns]="viewTableColumns" [rows]="opinionViewRows()"
+        <app-data-table [columns]="opinionTableColumns" [rows]="opinionViewRows()"
           [total]="opinionViewRows().length" [dense]="true" />
       }
     </div>
@@ -129,9 +129,8 @@
       @if (entropyError(); as err) {
         <p class="text-xs text-loss">{{ err }}</p>
       }
-      @if (entropyResponse(); as res) {
+      @if (entropyResponse()) {
         <div class="text-xs text-text">
-          <p class="font-medium mb-1">Effective sample size: <span class="font-mono text-accent">{{ res.effective_sample_size }}</span></p>
           <ul class="space-y-0.5">
             @for (entry of entropyMuEntries(); track entry.ticker) {
               <li class="flex justify-between">

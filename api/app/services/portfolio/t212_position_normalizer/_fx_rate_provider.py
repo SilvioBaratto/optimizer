@@ -146,6 +146,9 @@ class FxRateProvider:
                 on_rate_limit=self._breaker.trigger,
             )
         except Exception:
+            # Per-rate isolation: an unexpected FX download failure is logged
+            # with traceback and degraded to None so the caller skips this rate
+            # (one currency pair never aborts the multi-rate fetch).
             logger.exception("FX download crashed for %s", ticker)
             return None
 

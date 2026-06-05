@@ -1,0 +1,624 @@
+{
+  "DriftResponse": {
+    "$defs": {
+      "DiagnosticEntry": {
+        "description": "One entry inside `DriftDiagnostics.entries`.",
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/PositionFlag"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reference"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ticker"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "DiagnosticEntry",
+        "type": "object"
+      },
+      "DriftDiagnostics": {
+        "description": "Aggregate diagnostic flag counts + reconciliation status + entries.",
+        "properties": {
+          "base_currency": {
+            "title": "Base Currency",
+            "type": "string"
+          },
+          "delta_eur": {
+            "default": 0.0,
+            "title": "Delta Eur",
+            "type": "number"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/$defs/DiagnosticEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "fx_missing_count": {
+            "title": "Fx Missing Count",
+            "type": "integer"
+          },
+          "invested_eur": {
+            "default": 0.0,
+            "title": "Invested Eur",
+            "type": "number"
+          },
+          "reconciliation_delta_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciliation Delta Pct"
+          },
+          "reconciliation_ok": {
+            "title": "Reconciliation Ok",
+            "type": "boolean"
+          },
+          "stale_price_count": {
+            "default": 0,
+            "title": "Stale Price Count",
+            "type": "integer"
+          },
+          "sum_eur": {
+            "default": 0.0,
+            "title": "Sum Eur",
+            "type": "number"
+          },
+          "target_not_on_broker_count": {
+            "title": "Target Not On Broker Count",
+            "type": "integer"
+          },
+          "tolerance_pct": {
+            "default": 0.0,
+            "title": "Tolerance Pct",
+            "type": "number"
+          },
+          "unmapped_count": {
+            "title": "Unmapped Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reconciliation_ok",
+          "reconciliation_delta_pct",
+          "unmapped_count",
+          "fx_missing_count",
+          "target_not_on_broker_count",
+          "base_currency"
+        ],
+        "title": "DriftDiagnostics",
+        "type": "object"
+      },
+      "DriftRow": {
+        "description": "Per-ticker drift between current holdings and target.",
+        "properties": {
+          "current_weight": {
+            "title": "Current Weight",
+            "type": "number"
+          },
+          "delta_weight": {
+            "title": "Delta Weight",
+            "type": "number"
+          },
+          "eur_value": {
+            "title": "Eur Value",
+            "type": "number"
+          },
+          "flags": {
+            "items": {
+              "$ref": "#/$defs/FlagInstance"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "target_weight": {
+            "title": "Target Weight",
+            "type": "number"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker",
+          "current_weight",
+          "target_weight",
+          "delta_weight",
+          "eur_value"
+        ],
+        "title": "DriftRow",
+        "type": "object"
+      },
+      "DriftTotals": {
+        "description": "Aggregate totals across all drift rows.",
+        "properties": {
+          "buy_eur": {
+            "title": "Buy Eur",
+            "type": "number"
+          },
+          "deployable_eur": {
+            "title": "Deployable Eur",
+            "type": "number"
+          },
+          "sell_eur": {
+            "title": "Sell Eur",
+            "type": "number"
+          },
+          "total_drift_abs": {
+            "title": "Total Drift Abs",
+            "type": "number"
+          },
+          "total_holdings_eur": {
+            "title": "Total Holdings Eur",
+            "type": "number"
+          }
+        },
+        "required": [
+          "deployable_eur",
+          "total_holdings_eur",
+          "total_drift_abs",
+          "buy_eur",
+          "sell_eur"
+        ],
+        "title": "DriftTotals",
+        "type": "object"
+      },
+      "FlagInstance": {
+        "description": "A `PositionFlag` code with human reason copy + optional reference.",
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/PositionFlag"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reference"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "FlagInstance",
+        "type": "object"
+      },
+      "NormalizedPosition": {
+        "description": "Live T212 position normalized to EUR, keyed by yfinance ticker.",
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "eur_value": {
+            "title": "Eur Value",
+            "type": "number"
+          },
+          "eur_weight": {
+            "title": "Eur Weight",
+            "type": "number"
+          },
+          "flags": {
+            "items": {
+              "$ref": "#/$defs/FlagInstance"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "ppl_eur": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ppl Eur"
+          },
+          "price_native": {
+            "title": "Price Native",
+            "type": "number"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "number"
+          },
+          "t212_ticker": {
+            "title": "T212 Ticker",
+            "type": "string"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker",
+          "t212_ticker",
+          "qty",
+          "price_native",
+          "currency",
+          "eur_value",
+          "eur_weight"
+        ],
+        "title": "NormalizedPosition",
+        "type": "object"
+      },
+      "PositionFlag": {
+        "description": "Diagnostic flags emitted alongside a normalized position.",
+        "enum": [
+          "unmapped",
+          "fx_missing",
+          "stale_price",
+          "reconciliation_mismatch",
+          "target_not_on_broker"
+        ],
+        "title": "PositionFlag",
+        "type": "string"
+      },
+      "TargetWeight": {
+        "description": "A single (ticker, target_weight) pair from the latest snapshot.",
+        "properties": {
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          },
+          "weight": {
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "ticker",
+          "weight"
+        ],
+        "title": "TargetWeight",
+        "type": "object"
+      },
+      "TradeAction": {
+        "description": "Direction of a suggested trade row.",
+        "enum": [
+          "buy",
+          "sell",
+          "hold"
+        ],
+        "title": "TradeAction",
+        "type": "string"
+      },
+      "TradeRow": {
+        "description": "A single suggested trade in EUR notional + estimated shares.",
+        "properties": {
+          "action": {
+            "$ref": "#/$defs/TradeAction"
+          },
+          "delta_eur": {
+            "title": "Delta Eur",
+            "type": "number"
+          },
+          "est_cost_eur": {
+            "title": "Est Cost Eur",
+            "type": "number"
+          },
+          "est_shares": {
+            "title": "Est Shares",
+            "type": "number"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker",
+          "action",
+          "delta_eur",
+          "est_shares",
+          "est_cost_eur"
+        ],
+        "title": "TradeRow",
+        "type": "object"
+      }
+    },
+    "description": "Top-level Drift API response envelope.",
+    "properties": {
+      "diagnostics": {
+        "$ref": "#/$defs/DriftDiagnostics"
+      },
+      "drift": {
+        "items": {
+          "$ref": "#/$defs/DriftRow"
+        },
+        "title": "Drift",
+        "type": "array"
+      },
+      "holdings": {
+        "items": {
+          "$ref": "#/$defs/NormalizedPosition"
+        },
+        "title": "Holdings",
+        "type": "array"
+      },
+      "request_id": {
+        "title": "Request Id",
+        "type": "integer"
+      },
+      "target": {
+        "items": {
+          "$ref": "#/$defs/TargetWeight"
+        },
+        "title": "Target",
+        "type": "array"
+      },
+      "totals": {
+        "$ref": "#/$defs/DriftTotals"
+      },
+      "trades": {
+        "items": {
+          "$ref": "#/$defs/TradeRow"
+        },
+        "title": "Trades",
+        "type": "array"
+      }
+    },
+    "required": [
+      "holdings",
+      "target",
+      "drift",
+      "trades",
+      "totals",
+      "diagnostics",
+      "request_id"
+    ],
+    "title": "DriftResponse",
+    "type": "object"
+  },
+  "PortfolioListResponse": {
+    "$defs": {
+      "PortfolioResponse": {
+        "properties": {
+          "benchmark_ticker": {
+            "title": "Benchmark Ticker",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "currency",
+          "benchmark_ticker",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PortfolioResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "items": {
+        "items": {
+          "$ref": "#/$defs/PortfolioResponse"
+        },
+        "title": "Items",
+        "type": "array"
+      },
+      "total": {
+        "title": "Total",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "items",
+      "total"
+    ],
+    "title": "PortfolioListResponse",
+    "type": "object"
+  },
+  "SnapshotListResponse": {
+    "$defs": {
+      "SnapshotResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "holding_count": {
+            "title": "Holding Count",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "optimizer_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optimizer Config"
+          },
+          "portfolio_id": {
+            "title": "Portfolio Id",
+            "type": "string"
+          },
+          "sector_mapping": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector Mapping"
+          },
+          "snapshot_date": {
+            "format": "date",
+            "title": "Snapshot Date",
+            "type": "string"
+          },
+          "snapshot_type": {
+            "title": "Snapshot Type",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "turnover": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turnover"
+          },
+          "weights": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Weights",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "portfolio_id",
+          "snapshot_date",
+          "snapshot_type",
+          "weights",
+          "sector_mapping",
+          "summary",
+          "optimizer_config",
+          "turnover",
+          "holding_count",
+          "created_at"
+        ],
+        "title": "SnapshotResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "items": {
+        "items": {
+          "$ref": "#/$defs/SnapshotResponse"
+        },
+        "title": "Items",
+        "type": "array"
+      },
+      "total": {
+        "title": "Total",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "items",
+      "total"
+    ],
+    "title": "SnapshotListResponse",
+    "type": "object"
+  }
+}

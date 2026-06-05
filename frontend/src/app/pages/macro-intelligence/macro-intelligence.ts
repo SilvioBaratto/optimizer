@@ -9,10 +9,11 @@ import {
   viewChild,
   effect,
   OnDestroy,
+  WritableSignal,
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { finalize } from 'rxjs';
+import { finalize, Observable, Subscription } from 'rxjs';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
@@ -58,6 +59,10 @@ const PHASE_LABELS: Record<BusinessCyclePhase, string> = {
 export class MacroIntelligenceComponent implements OnDestroy {
   private readonly macroService = inject(MacroIntelligenceService);
   private readonly destroyRef = inject(DestroyRef);
+
+  // Active data subscriptions, torn down before each refetch so repeated
+  // loadData() calls do not stack leaked subscriptions (issue #851).
+  private dataSub: Subscription | null = null;
 
   // ── Loading ──
   readonly isLoading = signal(true);
@@ -284,24 +289,57 @@ export class MacroIntelligenceComponent implements OnDestroy {
     }
     this.hasError.set(false);
 
-    const subs = [
-      this.macroService.getMacroCalibration(forceRefreshCalibration).subscribe({
+    this.dataSub?.unsubscribe();
+    const sub = new Subscription();
+    this.bindCalibration(sub, forceRefreshCalibration);
+    this.bindArrays(sub);
+    this.bindNews(sub);
+    this.dataSub = sub;
+  }
+
+  // Each per-panel call gets an error handler that resets its signal to the
+  // empty state, so a failed fetch shows an empty panel (gated by @if), never
+  // a silently stale value (issue #851).
+  private bindArray<T>(
+    sub: Subscription,
+    obs$: Observable<T[]>,
+    sig: WritableSignal<T[]>,
+  ): void {
+    sub.add(obs$.subscribe({ next: d => sig.set(d), error: () => sig.set([]) }));
+  }
+
+  private bindCalibration(sub: Subscription, force: boolean): void {
+    sub.add(
+      this.macroService.getMacroCalibration(force).subscribe({
         next: d => this.macroCalibration.set(d),
         error: () => this.macroCalibration.set(null),
       }),
-      this.macroService.getFredPmi().subscribe(d => this.fredPmi.set(d)),
-      this.macroService.getFredYieldSpread().subscribe(d => this.fredYieldSpread.set(d)),
-      this.macroService.getFredHyOas().subscribe(d => this.fredHyOas.set(d)),
-      this.macroService.getFredVix().subscribe(d => this.fredVix.set(d)),
-      this.macroService.getFredIgOas().subscribe(d => this.fredIgOas.set(d)),
-      this.macroService.getCountryData().subscribe(d => this.countryData.set(d)),
-      this.macroService.getBondYieldsToday().subscribe(d => this.bondYieldsToday.set(d)),
-      this.macroService.getBondYields1YAgo().subscribe(d => this.bondYields1YAgo.set(d)),
-      this.macroService.getNewsThemes().subscribe(d => this.newsThemes.set(d)),
-      this.macroService.getNews().subscribe(d => { this.newsItems.set(d); this.isLoading.set(false); }),
-      this.macroService.getCompositeHistory().subscribe(d => this.compositeHistory.set(d)),
-      this.macroService.getCountrySummaries().subscribe(d => this.countrySummaries.set(d)),
-    ];
+    );
+  }
+
+  private bindArrays(sub: Subscription): void {
+    this.bindArray(sub, this.macroService.getFredPmi(), this.fredPmi);
+    this.bindArray(sub, this.macroService.getFredYieldSpread(), this.fredYieldSpread);
+    this.bindArray(sub, this.macroService.getFredHyOas(), this.fredHyOas);
+    this.bindArray(sub, this.macroService.getFredVix(), this.fredVix);
+    this.bindArray(sub, this.macroService.getFredIgOas(), this.fredIgOas);
+    this.bindArray(sub, this.macroService.getCountryData(), this.countryData);
+    this.bindArray(sub, this.macroService.getBondYieldsToday(), this.bondYieldsToday);
+    this.bindArray(sub, this.macroService.getBondYields1YAgo(), this.bondYields1YAgo);
+    this.bindArray(sub, this.macroService.getNewsThemes(), this.newsThemes);
+    this.bindArray(sub, this.macroService.getCompositeHistory(), this.compositeHistory);
+    this.bindArray(sub, this.macroService.getCountrySummaries(), this.countrySummaries);
+  }
+
+  private bindNews(sub: Subscription): void {
+    // getNews owns the skeleton: clear isLoading on both success and failure
+    // so a failed news call never leaves the page stuck loading.
+    sub.add(
+      this.macroService.getNews().subscribe({
+        next: d => { this.newsItems.set(d); this.isLoading.set(false); },
+        error: () => { this.newsItems.set([]); this.isLoading.set(false); },
+      }),
+    );
   }
 
   retry(): void {
@@ -587,6 +625,7 @@ export class MacroIntelligenceComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.dataSub?.unsubscribe();
     this.chartRo?.disconnect();
     this.chart?.dispose();
   }

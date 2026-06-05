@@ -131,4 +131,6 @@ export interface RebalancePreviewApiResponse {
   currentWeights: Record<string, number>;
   trades: TradeItemDto[];
   portfolioValue: number | null;
+  // Empty-state reason ('no_active_policy' | 'no_snapshots'), null on happy path.
+  status?: string | null;
 }

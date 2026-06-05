@@ -71,9 +71,9 @@ export class MacroIntelligenceService {
           tau: raw.tau,
           confidence: raw.confidence,
           rationale: raw.rationale,
-          macro_summary: raw.macro_summary,
+          macro_summary: raw.macroSummary,
           timestamp: new Date().toISOString(),
-          bl_config: raw.bl_config,
+          bl_config: raw.blConfig,
         };
       }),
       catchError(() => of(null)),

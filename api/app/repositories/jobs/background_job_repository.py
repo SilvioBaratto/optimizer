@@ -61,7 +61,9 @@ class BackgroundJobRepository(RepositoryBase):
                 # Create tables if missing
                 Base.metadata.create_all(bind=self.session.bind)  # type: ignore[arg-type]
         except Exception:
-            # If we can't check, try to create anyway
+            # Inspector unavailable (e.g. dialect quirk): not fatal — fall back
+            # to create-anyway. The terminal failure of that fallback is logged
+            # at debug below, so the drop here is justified, not silent.
             try:
                 from app.models._shared import Base
 

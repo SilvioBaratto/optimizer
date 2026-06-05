@@ -70,6 +70,8 @@ export class PipelineStatusComponent {
         )),
         takeUntilDestroyed(this.destroyRef),
       )
+      // subscribe-no-error: the inner catchError maps a transient 5xx to null
+      // and sets pollError, so the interval survives and this stream never errors.
       .subscribe(result => {
         if (result) {
           this.domainStatuses.set(result);

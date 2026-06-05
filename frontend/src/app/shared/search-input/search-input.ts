@@ -28,6 +28,8 @@ export class SearchInputComponent implements OnInit {
       debounceTime(300),
       distinctUntilChanged(),
       takeUntilDestroyed(this.destroyRef),
-    ).subscribe(value => this.searchChange.emit(value));
+    )
+      // subscribe-no-error: a form-control valueChanges stream never errors.
+      .subscribe(value => this.searchChange.emit(value));
   }
 }

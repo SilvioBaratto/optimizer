@@ -162,6 +162,22 @@ export interface FactorScoreApiResponse {
   group_contributions: Record<string, number>;
 }
 
+// Persisted factor-score row — wire shape mirrors FactorScoreResponse in
+// api/app/schemas/factors/factors.py (CamelCaseModel). Typed read-response for
+// the contract-parity check; one row of GET /factors/scores.
+export interface FactorScoreDto {
+  id: string;
+  ticker: string;
+  factorType: string;
+  factorGroup: string;
+  scoreDate: string;
+  rawScore: number;
+  standardizedScore: number;
+  compositeScore: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type Quintile = 1 | 2 | 3 | 4 | 5;
 
 export interface ScoreRow {

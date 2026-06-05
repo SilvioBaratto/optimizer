@@ -219,6 +219,9 @@ def _eviction_loop(interval_seconds: int = 60) -> None:
                 logger.info("Evicting stale pipeline session %s (age=%.1fs)", sid, age)
                 delete_session(sid)
         except Exception:
+            # Best-effort background eviction loop: one failed iteration is
+            # logged with traceback and the daemon keeps running — a transient
+            # error must not kill stale-session cleanup permanently.
             logger.warning("pipeline_builder eviction iteration failed", exc_info=True)
 
 

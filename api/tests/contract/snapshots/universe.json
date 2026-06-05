@@ -1,0 +1,195 @@
+{
+  "InstrumentListResponse": {
+    "$defs": {
+      "InstrumentResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Trading currency",
+            "title": "Currency Code"
+          },
+          "exchange_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Exchange name",
+            "title": "Exchange Name"
+          },
+          "id": {
+            "description": "Instrument UUID",
+            "title": "Id",
+            "type": "string"
+          },
+          "instrument_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Instrument type (STOCK, ETF, etc.)",
+            "title": "Instrument Type"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "ISIN code",
+            "title": "Isin"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Full company name",
+            "title": "Name"
+          },
+          "short_name": {
+            "description": "Short ticker name",
+            "title": "Short Name",
+            "type": "string"
+          },
+          "ticker": {
+            "description": "Trading212 ticker",
+            "title": "Ticker",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "yfinance_ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Yahoo Finance ticker",
+            "title": "Yfinance Ticker"
+          }
+        },
+        "required": [
+          "id",
+          "ticker",
+          "short_name",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "InstrumentResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "items": {
+        "items": {
+          "$ref": "#/$defs/InstrumentResponse"
+        },
+        "title": "Items",
+        "type": "array"
+      },
+      "total": {
+        "description": "Total number of instruments",
+        "title": "Total",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "items",
+      "total"
+    ],
+    "title": "InstrumentListResponse",
+    "type": "object"
+  },
+  "UniverseScreenResponse": {
+    "description": "Response from the universe screening endpoint.",
+    "properties": {
+      "diagnostics": {
+        "additionalProperties": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "type": "object"
+        },
+        "title": "Diagnostics",
+        "type": "object"
+      },
+      "passingTickers": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Passingtickers",
+        "type": "array"
+      },
+      "totalScreened": {
+        "title": "Totalscreened",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "passingTickers",
+      "totalScreened",
+      "diagnostics"
+    ],
+    "title": "UniverseScreenResponse",
+    "type": "object"
+  },
+  "UniverseStatsResponse": {
+    "properties": {
+      "exchange_count": {
+        "description": "Number of exchanges",
+        "title": "Exchange Count",
+        "type": "integer"
+      },
+      "instrument_count": {
+        "description": "Number of instruments",
+        "title": "Instrument Count",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "exchange_count",
+      "instrument_count"
+    ],
+    "title": "UniverseStatsResponse",
+    "type": "object"
+  }
+}

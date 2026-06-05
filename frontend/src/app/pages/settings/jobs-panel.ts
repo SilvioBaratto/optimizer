@@ -190,6 +190,8 @@ export class JobsPanelComponent {
     this.applyQueryParams(params);
     this.route.queryParams
       .pipe(takeUntilDestroyed(this.destroyRef))
+      // subscribe-no-error: router queryParams never errors; lifecycle bound
+      // via takeUntilDestroyed.
       .subscribe((qp) => this.applyQueryParams(qp));
   }
 

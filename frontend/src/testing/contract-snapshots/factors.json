@@ -1,0 +1,448 @@
+{
+  "FactorCompositeScoreResponse": {
+    "description": "Response schema for POST /factors/score.",
+    "properties": {
+      "group_contributions": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "description": "Per-group contribution to composite score",
+        "title": "Group Contributions",
+        "type": "object"
+      },
+      "score_date": {
+        "description": "Date scores were computed for",
+        "format": "date",
+        "title": "Score Date",
+        "type": "string"
+      },
+      "scores": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "description": "Per-ticker composite scores",
+        "title": "Scores",
+        "type": "object"
+      }
+    },
+    "required": [
+      "score_date",
+      "scores"
+    ],
+    "title": "FactorCompositeScoreResponse",
+    "type": "object"
+  },
+  "FactorScoreListResponse": {
+    "$defs": {
+      "FactorScoreResponse": {
+        "description": "Response schema for a single factor score row.",
+        "properties": {
+          "compositeScore": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Composite score across factors",
+            "title": "Compositescore"
+          },
+          "createdAt": {
+            "description": "Row creation timestamp",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "factorGroup": {
+            "description": "Factor group the type belongs to",
+            "title": "Factorgroup",
+            "type": "string"
+          },
+          "factorType": {
+            "description": "Factor type (e.g. momentum, quality)",
+            "title": "Factortype",
+            "type": "string"
+          },
+          "id": {
+            "description": "Row UUID",
+            "title": "Id",
+            "type": "string"
+          },
+          "rawScore": {
+            "description": "Raw un-standardized factor score",
+            "title": "Rawscore",
+            "type": "number"
+          },
+          "scoreDate": {
+            "description": "Date the score was computed",
+            "format": "date",
+            "title": "Scoredate",
+            "type": "string"
+          },
+          "standardizedScore": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Z-score normalized factor score",
+            "title": "Standardizedscore"
+          },
+          "ticker": {
+            "description": "Asset ticker symbol",
+            "title": "Ticker",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "Row last-update timestamp",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ticker",
+          "scoreDate",
+          "factorType",
+          "factorGroup",
+          "rawScore",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "FactorScoreResponse",
+        "type": "object"
+      }
+    },
+    "description": "Paginated list of factor score responses.",
+    "properties": {
+      "items": {
+        "description": "Factor score rows",
+        "items": {
+          "$ref": "#/$defs/FactorScoreResponse"
+        },
+        "title": "Items",
+        "type": "array"
+      },
+      "total": {
+        "description": "Total number of rows",
+        "minimum": 0,
+        "title": "Total",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "total"
+    ],
+    "title": "FactorScoreListResponse",
+    "type": "object"
+  },
+  "FactorScoreResponse": {
+    "description": "Response schema for a single factor score row.",
+    "properties": {
+      "compositeScore": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Composite score across factors",
+        "title": "Compositescore"
+      },
+      "createdAt": {
+        "description": "Row creation timestamp",
+        "format": "date-time",
+        "title": "Createdat",
+        "type": "string"
+      },
+      "factorGroup": {
+        "description": "Factor group the type belongs to",
+        "title": "Factorgroup",
+        "type": "string"
+      },
+      "factorType": {
+        "description": "Factor type (e.g. momentum, quality)",
+        "title": "Factortype",
+        "type": "string"
+      },
+      "id": {
+        "description": "Row UUID",
+        "title": "Id",
+        "type": "string"
+      },
+      "rawScore": {
+        "description": "Raw un-standardized factor score",
+        "title": "Rawscore",
+        "type": "number"
+      },
+      "scoreDate": {
+        "description": "Date the score was computed",
+        "format": "date",
+        "title": "Scoredate",
+        "type": "string"
+      },
+      "standardizedScore": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Z-score normalized factor score",
+        "title": "Standardizedscore"
+      },
+      "ticker": {
+        "description": "Asset ticker symbol",
+        "title": "Ticker",
+        "type": "string"
+      },
+      "updatedAt": {
+        "description": "Row last-update timestamp",
+        "format": "date-time",
+        "title": "Updatedat",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "ticker",
+      "scoreDate",
+      "factorType",
+      "factorGroup",
+      "rawScore",
+      "createdAt",
+      "updatedAt"
+    ],
+    "title": "FactorScoreResponse",
+    "type": "object"
+  },
+  "FactorSelectResponse": {
+    "$defs": {
+      "BufferZone": {
+        "description": "Tickers that entered or exited the selection due to the buffer zone.",
+        "properties": {
+          "entered": {
+            "description": "Tickers that newly entered",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entered",
+            "type": "array"
+          },
+          "exited": {
+            "description": "Tickers that were dropped",
+            "items": {
+              "type": "string"
+            },
+            "title": "Exited",
+            "type": "array"
+          }
+        },
+        "title": "BufferZone",
+        "type": "object"
+      }
+    },
+    "description": "Response schema for POST /factors/select.",
+    "properties": {
+      "buffer_zone": {
+        "$ref": "#/$defs/BufferZone",
+        "description": "Tickers entering/exiting via buffer"
+      },
+      "count": {
+        "description": "Number of selected tickers",
+        "minimum": 0,
+        "title": "Count",
+        "type": "integer"
+      },
+      "selected_tickers": {
+        "description": "Selected ticker symbols",
+        "items": {
+          "type": "string"
+        },
+        "title": "Selected Tickers",
+        "type": "array"
+      },
+      "turnover": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Fraction of universe changed vs. previous selection",
+        "title": "Turnover"
+      }
+    },
+    "required": [
+      "selected_tickers",
+      "count",
+      "buffer_zone"
+    ],
+    "title": "FactorSelectResponse",
+    "type": "object"
+  },
+  "FactorValidationReportResponse": {
+    "description": "Response schema for a factor validation report row.",
+    "properties": {
+      "createdAt": {
+        "description": "Row creation timestamp",
+        "format": "date-time",
+        "title": "Createdat",
+        "type": "string"
+      },
+      "details": {
+        "anyOf": [
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Additional validation details",
+        "title": "Details"
+      },
+      "factorType": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Factor type; null for aggregate reports",
+        "title": "Factortype"
+      },
+      "icMean": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Mean information coefficient",
+        "title": "Icmean"
+      },
+      "icStd": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Standard deviation of IC",
+        "title": "Icstd"
+      },
+      "icir": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "IC information ratio",
+        "title": "Icir"
+      },
+      "id": {
+        "description": "Row UUID",
+        "title": "Id",
+        "type": "string"
+      },
+      "pValue": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "p-value for the t-statistic",
+        "title": "Pvalue"
+      },
+      "reportDate": {
+        "description": "Date the report was generated",
+        "format": "date",
+        "title": "Reportdate",
+        "type": "string"
+      },
+      "tStat": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Newey-West t-statistic",
+        "title": "Tstat"
+      },
+      "updatedAt": {
+        "description": "Row last-update timestamp",
+        "format": "date-time",
+        "title": "Updatedat",
+        "type": "string"
+      },
+      "validationType": {
+        "description": "Validation methodology (in_sample / out_of_sample)",
+        "title": "Validationtype",
+        "type": "string"
+      },
+      "vif": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Variance inflation factor",
+        "title": "Vif"
+      }
+    },
+    "required": [
+      "id",
+      "reportDate",
+      "validationType",
+      "createdAt",
+      "updatedAt"
+    ],
+    "title": "FactorValidationReportResponse",
+    "type": "object"
+  }
+}

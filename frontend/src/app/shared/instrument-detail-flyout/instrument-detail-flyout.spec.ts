@@ -142,6 +142,28 @@ describe('InstrumentDetailFlyoutComponent', () => {
     expect(closed).toBe(false);
   });
 
+  it('when the instrument switches mid-flight, the newer response wins and the stale one is cancelled', () => {
+    const fx = createFixture('old');
+
+    // 'old' requests are in flight (not yet flushed).
+    const oldProfile = http.expectOne(`${BASE}/old/profile`);
+    http.expectOne((r) => r.url === `${BASE}/old/prices`);
+    http.expectOne(`${BASE}/old/recommendations`);
+
+    // Switch instrument before 'old' resolves — switchMap must cancel it.
+    fx.componentRef.setInput('instrumentId', 'new');
+    fx.detectChanges();
+    expect(oldProfile.cancelled).toBe(true);
+
+    http
+      .expectOne(`${BASE}/new/profile`)
+      .flush({ id: 'new', instrument_id: 'new', long_name: 'New Co' });
+    http.expectOne((r) => r.url === `${BASE}/new/prices`).flush([]);
+    http.expectOne(`${BASE}/new/recommendations`).flush([]);
+
+    expect(fx.componentInstance.profile()!.long_name).toBe('New Co');
+  });
+
   it('falls back to empty arrays when endpoints return errors', () => {
     const fx = createFixture('abc');
 

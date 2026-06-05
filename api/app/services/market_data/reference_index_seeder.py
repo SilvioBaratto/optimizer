@@ -139,6 +139,9 @@ def seed_reference_indices(
                 session.commit()
 
             except Exception as exc:
+                # Per-ticker seed isolation: a failure is logged, recorded in
+                # all_errors (surfaced to the caller), and rolled back so the
+                # next ticker seeds cleanly — one bad ticker never aborts seed.
                 logger.error("Failed to seed %s: %s", ticker_upper, exc)
                 all_errors.append(f"{ticker_upper}: {exc}")
                 session.rollback()

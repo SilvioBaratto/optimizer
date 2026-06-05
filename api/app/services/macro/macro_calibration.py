@@ -283,6 +283,9 @@ def classify_macro_regime(
                 raw.phase.value,
             )
         except Exception:
+            # Per-country isolation in the bulk calibrate loop: a failure is
+            # logged with traceback and the loop continues so one country
+            # cannot abort the batch (non-fatal).
             logger.exception(
                 "Failed to persist calibration for country=%s (non-fatal)", country
             )

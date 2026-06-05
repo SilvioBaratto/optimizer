@@ -1,4 +1,13 @@
-"""Service layer orchestrating yfinance data fetching and storage."""
+"""Service layer orchestrating yfinance data fetching and storage.
+
+Bulk-ingestion error policy (issue #850): each per-field fetch (profile,
+prices, financials, dividends, holders, news, …) runs under its own
+``except Exception`` that logs at WARNING and appends the failure to the
+per-ticker ``errors`` list before continuing. One bad field never aborts the
+ticker, and one bad ticker never aborts the batch (``all_errors``). Those
+lists are surfaced to the caller in the fetch result, so the drops are
+intentional per-item resilience, not silent swallows.
+"""
 
 import logging
 import threading

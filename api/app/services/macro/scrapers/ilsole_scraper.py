@@ -191,6 +191,12 @@ class IlSoleScraper:
             return data
 
         except Exception:
+            # Whole-page parse failure (site structure changed): log with
+            # traceback and degrade to None so the caller falls back to other
+            # macro sources — one scraper must not abort the macro fetch.
+            logger.warning(
+                "IlSole real-indicators parse failed for %s", country, exc_info=True
+            )
             return None
 
     def get_forecasts(self, country: str = "USA") -> dict | None:
@@ -253,6 +259,12 @@ class IlSoleScraper:
             return data
 
         except Exception:
+            # Whole-page parse failure (site structure changed): log with
+            # traceback and degrade to None; the caller merges whatever macro
+            # sources succeeded rather than aborting.
+            logger.warning(
+                "IlSole forecasts parse failed for %s", country, exc_info=True
+            )
             return None
 
     def get_country_data(self, country: str = "USA") -> dict:

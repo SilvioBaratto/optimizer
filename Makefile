@@ -1,4 +1,4 @@
-.PHONY: lint format typecheck test coverage all clean cycle2-gate
+.PHONY: lint format typecheck test coverage all clean cycle2-gate contract-snapshots
 
 lint:
 	ruff check optimizer/ tests/
@@ -23,6 +23,9 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	rm -rf .mypy_cache .pytest_cache .coverage htmlcov/ coverage.xml dist/
 	find . -type d -name '*.egg-info' -exec rm -rf {} +
+
+contract-snapshots:
+	python api/tests/contract/emit_schemas.py
 
 cycle2-gate:
 	python -c "import research"

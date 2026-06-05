@@ -271,14 +271,19 @@ describe('OptimizationService', () => {
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual({ tickers: ['AAPL', 'MSFT'] });
       req.flush({
-        P: [[1, 0]],
-        Q: [0.05],
-        view_confidences: [0.8],
-        idzorek_alphas: [0.5],
-        tickers: ['AAPL', 'MSFT'],
-        tickers_missing: [],
+        nViews: 1,
+        nAssets: 2,
+        viewStrings: ['AAPL == 0.05'],
+        p: [[1, 0]],
+        q: [0.05],
+        viewConfidences: [0.8],
+        idzorekAlphas: { AAPL: 0.5 },
+        views: [],
+        rationale: 'r',
+        tickersWithData: ['AAPL', 'MSFT'],
+        tickersMissingData: [],
       });
-      expect(result?.Q).toEqual([0.05]);
+      expect(result?.q).toEqual([0.05]);
     });
 
     it('POSTs /views/opinion-pool with personas', () => {
@@ -294,12 +299,16 @@ describe('OptimizationService', () => {
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual({ tickers: ['AAPL'], personas: ['value', 'momentum'] });
       req.flush({
-        P: [[1]],
-        Q: [0.04],
-        view_confidences: [0.7],
-        persona_weights: { value: 0.5, momentum: 0.5 },
+        nExperts: 2,
+        tickers: ['AAPL'],
+        tickersWithData: ['AAPL'],
+        tickersMissingData: [],
+        experts: [],
+        icWeights: [0.5, 0.5],
+        poolingType: 'linear',
+        totalViews: 2,
       });
-      expect(result?.persona_weights).toEqual({ value: 0.5, momentum: 0.5 });
+      expect(result?.icWeights).toEqual([0.5, 0.5]);
     });
 
     it('propagates 422 from /views/opinion-pool', () => {
@@ -341,9 +350,8 @@ describe('OptimizationService', () => {
           [0.04, 0.01],
           [0.01, 0.03],
         ],
-        effective_sample_size: 123,
       });
-      expect(result?.effective_sample_size).toBe(123);
+      expect(result?.mu).toEqual([0.1, 0.05]);
     });
 
     it('propagates 422 from /views/entropy-pooling', () => {

@@ -828,6 +828,8 @@ class _HockeyStickWatcher(logging.Handler):
         try:
             msg = record.getMessage()
         except Exception:  # pragma: no cover — defensive
+            # A logging.Handler.emit must never raise: a malformed log record
+            # is dropped rather than propagating into the logging machinery.
             return
         if "hockey-stick" in msg:
             self.triggered = True

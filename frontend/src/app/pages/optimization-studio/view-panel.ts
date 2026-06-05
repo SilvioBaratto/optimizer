@@ -110,32 +110,36 @@ export class ViewPanelComponent {
     { key: 'confidence', label: 'Confidence', align: 'right' },
   ];
 
+  readonly opinionTableColumns: TableColumn[] = [
+    { key: 'persona', label: 'Persona' },
+    { key: 'nViews', label: 'Views', align: 'right' },
+    { key: 'icWeight', label: 'IC weight', align: 'right' },
+  ];
+
   readonly blViewRows = computed<ViewRow[]>(() => {
     const res = this.blResponse();
     if (!res) return [];
-    return res.P.map((row, i) => ({
+    return res.p.map((row, i) => ({
       index: `${i + 1}`,
-      assetExposure: formatMatrixRow(row, res.tickers),
-      targetReturn: `${(res.Q[i] * 100).toFixed(2)}%`,
-      confidence: `${(res.view_confidences[i] * 100).toFixed(0)}%`,
+      assetExposure: formatMatrixRow(row, res.tickersWithData),
+      targetReturn: `${(res.q[i] * 100).toFixed(2)}%`,
+      confidence: `${(res.viewConfidences[i] * 100).toFixed(0)}%`,
     }));
   });
 
-  readonly opinionViewRows = computed<ViewRow[]>(() => {
+  readonly opinionViewRows = computed<Record<string, unknown>[]>(() => {
     const res = this.opinionResponse();
     if (!res) return [];
-    const tickers = parseTickers(this.tickersRaw());
-    return res.P.map((row, i) => ({
-      index: `${i + 1}`,
-      assetExposure: formatMatrixRow(row, tickers),
-      targetReturn: `${(res.Q[i] * 100).toFixed(2)}%`,
-      confidence: `${(res.view_confidences[i] * 100).toFixed(0)}%`,
+    return res.experts.map((e) => ({
+      persona: e.persona,
+      nViews: `${e.nViews}`,
+      icWeight: `${(e.icWeight * 100).toFixed(0)}%`,
     }));
   });
 
-  readonly personaWeightsEntries = computed(() => {
+  readonly personaWeightsEntries = computed<[string, number][]>(() => {
     const res = this.opinionResponse();
-    return res ? Object.entries(res.persona_weights) : [];
+    return res ? res.experts.map((e) => [e.persona, e.icWeight]) : [];
   });
 
   readonly entropyMuEntries = computed(() => {

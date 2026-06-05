@@ -99,6 +99,8 @@ export class BuilderDriftService implements DriftRunner {
         filter((p) => p.seq === this._seq),
         takeUntilDestroyed(this.destroyRef),
       )
+      // subscribe-no-error: _fetch() has its own catchError, so every emission
+      // is a packet (success or error-encoded); the stream never errors.
       .subscribe((p) => this._applyPacket(p));
   }
 

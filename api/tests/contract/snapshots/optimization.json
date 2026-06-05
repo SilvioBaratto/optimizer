@@ -1,0 +1,350 @@
+{
+  "OptimizationRunListResponse": {
+    "$defs": {
+      "OptimizationRunResponse": {
+        "description": "Response schema for a single optimization run row.",
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "description": "Effective optimizer configuration",
+            "title": "Config",
+            "type": "object"
+          },
+          "createdAt": {
+            "description": "Row creation timestamp",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "durationSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Wall-clock optimization duration in seconds",
+            "title": "Durationseconds"
+          },
+          "efficientFrontier": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Efficient frontier points, null when not computed",
+            "title": "Efficientfrontier"
+          },
+          "errorMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Error details for failed synchronous runs",
+            "title": "Errormessage"
+          },
+          "id": {
+            "description": "Run UUID",
+            "title": "Id",
+            "type": "string"
+          },
+          "jobId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Background job UUID, null for synchronous runs",
+            "title": "Jobid"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "description": "Portfolio metrics (Sharpe, CVaR, \u2026)",
+            "title": "Metrics",
+            "type": "object"
+          },
+          "optimizerType": {
+            "description": "Optimizer identifier used for the run",
+            "title": "Optimizertype",
+            "type": "string"
+          },
+          "portfolioId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Owning portfolio UUID, null for ad-hoc runs",
+            "title": "Portfolioid"
+          },
+          "riskContributions": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Per-asset risk contribution",
+            "title": "Riskcontributions",
+            "type": "object"
+          },
+          "solverLog": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Solver stdout/stderr captured during optimization",
+            "title": "Solverlog"
+          },
+          "status": {
+            "description": "Run status (pending/running/completed/failed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "universeTickers": {
+            "description": "Universe tickers passed to the run",
+            "items": {
+              "type": "string"
+            },
+            "title": "Universetickers",
+            "type": "array"
+          },
+          "updatedAt": {
+            "description": "Row last-update timestamp",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          },
+          "weights": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Optimal portfolio weights",
+            "title": "Weights",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "optimizerType",
+          "universeTickers",
+          "config",
+          "weights",
+          "metrics",
+          "riskContributions",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "OptimizationRunResponse",
+        "type": "object"
+      }
+    },
+    "description": "Paginated list of optimization run responses.",
+    "properties": {
+      "items": {
+        "description": "Optimization run rows",
+        "items": {
+          "$ref": "#/$defs/OptimizationRunResponse"
+        },
+        "title": "Items",
+        "type": "array"
+      },
+      "total": {
+        "description": "Total number of rows",
+        "minimum": 0,
+        "title": "Total",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "total"
+    ],
+    "title": "OptimizationRunListResponse",
+    "type": "object"
+  },
+  "OptimizationRunResponse": {
+    "description": "Response schema for a single optimization run row.",
+    "properties": {
+      "config": {
+        "additionalProperties": true,
+        "description": "Effective optimizer configuration",
+        "title": "Config",
+        "type": "object"
+      },
+      "createdAt": {
+        "description": "Row creation timestamp",
+        "format": "date-time",
+        "title": "Createdat",
+        "type": "string"
+      },
+      "durationSeconds": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Wall-clock optimization duration in seconds",
+        "title": "Durationseconds"
+      },
+      "efficientFrontier": {
+        "anyOf": [
+          {
+            "items": {},
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Efficient frontier points, null when not computed",
+        "title": "Efficientfrontier"
+      },
+      "errorMessage": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Error details for failed synchronous runs",
+        "title": "Errormessage"
+      },
+      "id": {
+        "description": "Run UUID",
+        "title": "Id",
+        "type": "string"
+      },
+      "jobId": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Background job UUID, null for synchronous runs",
+        "title": "Jobid"
+      },
+      "metrics": {
+        "additionalProperties": true,
+        "description": "Portfolio metrics (Sharpe, CVaR, \u2026)",
+        "title": "Metrics",
+        "type": "object"
+      },
+      "optimizerType": {
+        "description": "Optimizer identifier used for the run",
+        "title": "Optimizertype",
+        "type": "string"
+      },
+      "portfolioId": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Owning portfolio UUID, null for ad-hoc runs",
+        "title": "Portfolioid"
+      },
+      "riskContributions": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "description": "Per-asset risk contribution",
+        "title": "Riskcontributions",
+        "type": "object"
+      },
+      "solverLog": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Solver stdout/stderr captured during optimization",
+        "title": "Solverlog"
+      },
+      "status": {
+        "description": "Run status (pending/running/completed/failed)",
+        "title": "Status",
+        "type": "string"
+      },
+      "universeTickers": {
+        "description": "Universe tickers passed to the run",
+        "items": {
+          "type": "string"
+        },
+        "title": "Universetickers",
+        "type": "array"
+      },
+      "updatedAt": {
+        "description": "Row last-update timestamp",
+        "format": "date-time",
+        "title": "Updatedat",
+        "type": "string"
+      },
+      "weights": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "description": "Optimal portfolio weights",
+        "title": "Weights",
+        "type": "object"
+      }
+    },
+    "required": [
+      "id",
+      "status",
+      "optimizerType",
+      "universeTickers",
+      "config",
+      "weights",
+      "metrics",
+      "riskContributions",
+      "createdAt",
+      "updatedAt"
+    ],
+    "title": "OptimizationRunResponse",
+    "type": "object"
+  }
+}

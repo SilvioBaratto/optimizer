@@ -1,0 +1,401 @@
+{
+  "BacktestProgressResponse": {
+    "description": "Progress info polled via GET /backtest/{job_id}.",
+    "properties": {
+      "current": {
+        "default": 0,
+        "description": "Items processed so far",
+        "title": "Current",
+        "type": "integer"
+      },
+      "error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Fatal error message (when failed)",
+        "title": "Error"
+      },
+      "errors": {
+        "description": "Non-fatal error messages",
+        "items": {
+          "type": "string"
+        },
+        "title": "Errors",
+        "type": "array"
+      },
+      "job_id": {
+        "description": "Unique job ID",
+        "title": "Job Id",
+        "type": "string"
+      },
+      "result": {
+        "default": null,
+        "description": "Final result (when completed)",
+        "title": "Result"
+      },
+      "status": {
+        "description": "pending | running | completed | failed",
+        "title": "Status",
+        "type": "string"
+      },
+      "total": {
+        "default": 0,
+        "description": "Total items to process",
+        "title": "Total",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "job_id",
+      "status"
+    ],
+    "title": "BacktestProgressResponse",
+    "type": "object"
+  },
+  "BacktestRunListResponse": {
+    "$defs": {
+      "BacktestRunResponse": {
+        "description": "Response schema for a single backtest run row.",
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "description": "Effective pipeline configuration",
+            "title": "Config",
+            "type": "object"
+          },
+          "createdAt": {
+            "description": "Row creation timestamp",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "cvFoldMetrics": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Per-fold cross-validation metrics, null when no CV",
+            "title": "Cvfoldmetrics"
+          },
+          "drawdowns": {
+            "additionalProperties": true,
+            "description": "Drawdown series and summary stats",
+            "title": "Drawdowns",
+            "type": "object"
+          },
+          "durationSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Wall-clock backtest duration in seconds",
+            "title": "Durationseconds"
+          },
+          "equityCurve": {
+            "additionalProperties": true,
+            "description": "Date-indexed equity curve values",
+            "title": "Equitycurve",
+            "type": "object"
+          },
+          "errorMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Error details for failed synchronous runs",
+            "title": "Errormessage"
+          },
+          "id": {
+            "description": "Run UUID",
+            "title": "Id",
+            "type": "string"
+          },
+          "jobId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Background job UUID, null for synchronous runs",
+            "title": "Jobid"
+          },
+          "monthlyReturns": {
+            "additionalProperties": true,
+            "description": "Month-indexed simple returns",
+            "title": "Monthlyreturns",
+            "type": "object"
+          },
+          "portfolioId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Owning portfolio UUID, null for ad-hoc runs",
+            "title": "Portfolioid"
+          },
+          "rollingMetrics": {
+            "additionalProperties": true,
+            "description": "Rolling risk/return metrics (Sharpe, vol, \u2026)",
+            "title": "Rollingmetrics",
+            "type": "object"
+          },
+          "status": {
+            "description": "Run status (pending/running/completed/failed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "summaryStats": {
+            "additionalProperties": true,
+            "description": "Aggregate backtest summary statistics",
+            "title": "Summarystats",
+            "type": "object"
+          },
+          "turnoverHistory": {
+            "additionalProperties": true,
+            "description": "Date-indexed portfolio turnover",
+            "title": "Turnoverhistory",
+            "type": "object"
+          },
+          "updatedAt": {
+            "description": "Row last-update timestamp",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          },
+          "yearlyReturns": {
+            "additionalProperties": true,
+            "description": "Year-indexed compounded returns",
+            "title": "Yearlyreturns",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "config",
+          "equityCurve",
+          "drawdowns",
+          "monthlyReturns",
+          "yearlyReturns",
+          "rollingMetrics",
+          "turnoverHistory",
+          "summaryStats",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "BacktestRunResponse",
+        "type": "object"
+      }
+    },
+    "description": "Paginated list of backtest run responses.",
+    "properties": {
+      "items": {
+        "description": "Backtest run rows",
+        "items": {
+          "$ref": "#/$defs/BacktestRunResponse"
+        },
+        "title": "Items",
+        "type": "array"
+      },
+      "total": {
+        "description": "Total number of rows",
+        "minimum": 0,
+        "title": "Total",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "total"
+    ],
+    "title": "BacktestRunListResponse",
+    "type": "object"
+  },
+  "BacktestRunResponse": {
+    "description": "Response schema for a single backtest run row.",
+    "properties": {
+      "config": {
+        "additionalProperties": true,
+        "description": "Effective pipeline configuration",
+        "title": "Config",
+        "type": "object"
+      },
+      "createdAt": {
+        "description": "Row creation timestamp",
+        "format": "date-time",
+        "title": "Createdat",
+        "type": "string"
+      },
+      "cvFoldMetrics": {
+        "anyOf": [
+          {
+            "items": {},
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Per-fold cross-validation metrics, null when no CV",
+        "title": "Cvfoldmetrics"
+      },
+      "drawdowns": {
+        "additionalProperties": true,
+        "description": "Drawdown series and summary stats",
+        "title": "Drawdowns",
+        "type": "object"
+      },
+      "durationSeconds": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Wall-clock backtest duration in seconds",
+        "title": "Durationseconds"
+      },
+      "equityCurve": {
+        "additionalProperties": true,
+        "description": "Date-indexed equity curve values",
+        "title": "Equitycurve",
+        "type": "object"
+      },
+      "errorMessage": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Error details for failed synchronous runs",
+        "title": "Errormessage"
+      },
+      "id": {
+        "description": "Run UUID",
+        "title": "Id",
+        "type": "string"
+      },
+      "jobId": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Background job UUID, null for synchronous runs",
+        "title": "Jobid"
+      },
+      "monthlyReturns": {
+        "additionalProperties": true,
+        "description": "Month-indexed simple returns",
+        "title": "Monthlyreturns",
+        "type": "object"
+      },
+      "portfolioId": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Owning portfolio UUID, null for ad-hoc runs",
+        "title": "Portfolioid"
+      },
+      "rollingMetrics": {
+        "additionalProperties": true,
+        "description": "Rolling risk/return metrics (Sharpe, vol, \u2026)",
+        "title": "Rollingmetrics",
+        "type": "object"
+      },
+      "status": {
+        "description": "Run status (pending/running/completed/failed)",
+        "title": "Status",
+        "type": "string"
+      },
+      "summaryStats": {
+        "additionalProperties": true,
+        "description": "Aggregate backtest summary statistics",
+        "title": "Summarystats",
+        "type": "object"
+      },
+      "turnoverHistory": {
+        "additionalProperties": true,
+        "description": "Date-indexed portfolio turnover",
+        "title": "Turnoverhistory",
+        "type": "object"
+      },
+      "updatedAt": {
+        "description": "Row last-update timestamp",
+        "format": "date-time",
+        "title": "Updatedat",
+        "type": "string"
+      },
+      "yearlyReturns": {
+        "additionalProperties": true,
+        "description": "Year-indexed compounded returns",
+        "title": "Yearlyreturns",
+        "type": "object"
+      }
+    },
+    "required": [
+      "id",
+      "status",
+      "config",
+      "equityCurve",
+      "drawdowns",
+      "monthlyReturns",
+      "yearlyReturns",
+      "rollingMetrics",
+      "turnoverHistory",
+      "summaryStats",
+      "createdAt",
+      "updatedAt"
+    ],
+    "title": "BacktestRunResponse",
+    "type": "object"
+  }
+}

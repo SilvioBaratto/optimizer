@@ -15,8 +15,8 @@ function calib(phase: string): Record<string, unknown> {
     tau: 0.05,
     confidence: 0.8,
     rationale: 'r',
-    macro_summary: 's',
-    bl_config: { views: [], tau: 0.05, prior_config: { mu_estimator: 'x', risk_aversion: 1, cov_estimator: 'y' } },
+    macroSummary: 's',
+    blConfig: { views: [], tau: 0.05, prior_config: { mu_estimator: 'x', risk_aversion: 1, cov_estimator: 'y' } },
   };
 }
 

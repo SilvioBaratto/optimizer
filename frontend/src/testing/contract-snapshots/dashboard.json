@@ -1,0 +1,402 @@
+{
+  "AllocationResponse": {
+    "$defs": {
+      "AllocationChild": {
+        "description": "Leaf node in the sunburst allocation tree (single ticker).",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "title": "AllocationChild",
+        "type": "object"
+      },
+      "AllocationNode": {
+        "description": "Sector-level node with ticker children for sunburst chart.",
+        "properties": {
+          "children": {
+            "items": {
+              "$ref": "#/$defs/AllocationChild"
+            },
+            "title": "Children",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "value",
+          "children"
+        ],
+        "title": "AllocationNode",
+        "type": "object"
+      }
+    },
+    "description": "Response for GET /portfolio/{name}/allocation.",
+    "properties": {
+      "nodes": {
+        "items": {
+          "$ref": "#/$defs/AllocationNode"
+        },
+        "title": "Nodes",
+        "type": "array"
+      },
+      "totalPositions": {
+        "title": "Totalpositions",
+        "type": "integer"
+      },
+      "totalSectors": {
+        "title": "Totalsectors",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "nodes",
+      "totalPositions",
+      "totalSectors"
+    ],
+    "title": "AllocationResponse",
+    "type": "object"
+  },
+  "AssetClassReturnsResponse": {
+    "$defs": {
+      "AssetClassReturnRow": {
+        "description": "Single sector row for the asset-class returns heatmap.",
+        "properties": {
+          "1D": {
+            "title": "1D",
+            "type": "number"
+          },
+          "1M": {
+            "title": "1M",
+            "type": "number"
+          },
+          "1W": {
+            "title": "1W",
+            "type": "number"
+          },
+          "YTD": {
+            "title": "Ytd",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "1D",
+          "1W",
+          "1M",
+          "YTD"
+        ],
+        "title": "AssetClassReturnRow",
+        "type": "object"
+      }
+    },
+    "description": "Response for GET /portfolio/{name}/asset-class-returns.",
+    "properties": {
+      "asOf": {
+        "format": "date",
+        "title": "Asof",
+        "type": "string"
+      },
+      "returns": {
+        "items": {
+          "$ref": "#/$defs/AssetClassReturnRow"
+        },
+        "title": "Returns",
+        "type": "array"
+      }
+    },
+    "required": [
+      "returns",
+      "asOf"
+    ],
+    "title": "AssetClassReturnsResponse",
+    "type": "object"
+  },
+  "DriftResponse": {
+    "$defs": {
+      "DriftEntry": {
+        "description": "Single holding in the drift analysis table.",
+        "properties": {
+          "actual": {
+            "title": "Actual",
+            "type": "number"
+          },
+          "breached": {
+            "title": "Breached",
+            "type": "boolean"
+          },
+          "drift": {
+            "title": "Drift",
+            "type": "number"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "target": {
+            "title": "Target",
+            "type": "number"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker",
+          "name",
+          "target",
+          "actual",
+          "drift",
+          "breached"
+        ],
+        "title": "DriftEntry",
+        "type": "object"
+      }
+    },
+    "description": "Response for GET /portfolio/{name}/drift.",
+    "properties": {
+      "breachedCount": {
+        "title": "Breachedcount",
+        "type": "integer"
+      },
+      "entries": {
+        "items": {
+          "$ref": "#/$defs/DriftEntry"
+        },
+        "title": "Entries",
+        "type": "array"
+      },
+      "threshold": {
+        "title": "Threshold",
+        "type": "number"
+      },
+      "totalDrift": {
+        "title": "Totaldrift",
+        "type": "number"
+      }
+    },
+    "required": [
+      "entries",
+      "totalDrift",
+      "breachedCount",
+      "threshold"
+    ],
+    "title": "DriftResponse",
+    "type": "object"
+  },
+  "EquityCurveResponse": {
+    "$defs": {
+      "EquityCurvePoint": {
+        "description": "Single daily point on the equity curve chart.",
+        "properties": {
+          "benchmark": {
+            "title": "Benchmark",
+            "type": "number"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "portfolio": {
+            "title": "Portfolio",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "portfolio",
+          "benchmark"
+        ],
+        "title": "EquityCurvePoint",
+        "type": "object"
+      }
+    },
+    "description": "Response for GET /portfolio/{name}/equity-curve.",
+    "properties": {
+      "benchmarkTotalReturn": {
+        "title": "Benchmarktotalreturn",
+        "type": "number"
+      },
+      "points": {
+        "items": {
+          "$ref": "#/$defs/EquityCurvePoint"
+        },
+        "title": "Points",
+        "type": "array"
+      },
+      "portfolioTotalReturn": {
+        "title": "Portfoliototalreturn",
+        "type": "number"
+      }
+    },
+    "required": [
+      "points",
+      "portfolioTotalReturn",
+      "benchmarkTotalReturn"
+    ],
+    "title": "EquityCurveResponse",
+    "type": "object"
+  },
+  "MarketSnapshotResponse": {
+    "description": "Response for GET /market/snapshot.",
+    "properties": {
+      "asOf": {
+        "format": "date-time",
+        "title": "Asof",
+        "type": "string"
+      },
+      "sp500Return": {
+        "title": "Sp500Return",
+        "type": "number"
+      },
+      "tenYearYield": {
+        "title": "Tenyearyield",
+        "type": "number"
+      },
+      "usdChange": {
+        "title": "Usdchange",
+        "type": "number"
+      },
+      "usdIndex": {
+        "title": "Usdindex",
+        "type": "number"
+      },
+      "vix": {
+        "title": "Vix",
+        "type": "number"
+      },
+      "vixChange": {
+        "title": "Vixchange",
+        "type": "number"
+      },
+      "yieldChange": {
+        "title": "Yieldchange",
+        "type": "number"
+      }
+    },
+    "required": [
+      "vix",
+      "vixChange",
+      "sp500Return",
+      "tenYearYield",
+      "yieldChange",
+      "usdIndex",
+      "usdChange",
+      "asOf"
+    ],
+    "title": "MarketSnapshotResponse",
+    "type": "object"
+  },
+  "PerformanceMetricsResponse": {
+    "$defs": {
+      "KpiItem": {
+        "description": "Single KPI card for the dashboard strip.",
+        "properties": {
+          "change": {
+            "title": "Change",
+            "type": "number"
+          },
+          "changeLabel": {
+            "title": "Changelabel",
+            "type": "string"
+          },
+          "format": {
+            "enum": [
+              "percent",
+              "currency",
+              "ratio",
+              "number"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "sparkline": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Sparkline",
+            "type": "array"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "label",
+          "value",
+          "format",
+          "change",
+          "changeLabel",
+          "sparkline"
+        ],
+        "title": "KpiItem",
+        "type": "object"
+      }
+    },
+    "description": "Response for GET /portfolio/{name}/performance-metrics.",
+    "properties": {
+      "currency": {
+        "default": "EUR",
+        "title": "Currency",
+        "type": "string"
+      },
+      "kpis": {
+        "items": {
+          "$ref": "#/$defs/KpiItem"
+        },
+        "title": "Kpis",
+        "type": "array"
+      },
+      "nav": {
+        "title": "Nav",
+        "type": "number"
+      },
+      "navChangePct": {
+        "title": "Navchangepct",
+        "type": "number"
+      }
+    },
+    "required": [
+      "kpis",
+      "nav",
+      "navChangePct"
+    ],
+    "title": "PerformanceMetricsResponse",
+    "type": "object"
+  }
+}

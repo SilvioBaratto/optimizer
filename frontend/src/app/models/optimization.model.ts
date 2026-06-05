@@ -130,6 +130,11 @@ export interface OptimizationRunResponse {
   updatedAt: string;
 }
 
+export interface OptimizationRunListResponse {
+  items: OptimizationRunResponse[];
+  total: number;
+}
+
 export interface OptimizeAsyncResponse {
   job_id: string;
   run_id: string;
@@ -191,14 +196,29 @@ export interface GenerateViewsRequest {
   tickers: string[];
 }
 
+// Wire shape mirrors api/app/schemas/views/views.py (CamelCaseModel: `P`→`p`,
+// `Q`→`q`). `idzorekAlphas` is a ticker→alpha dict (NOT an array); the backend
+// also returns the per-view `viewConfidences` list separately.
+export interface AssetViewResponse {
+  asset: string;
+  direction: number;
+  magnitudeBps: number;
+  confidence: number;
+  reasoning: string;
+}
+
 export interface GenerateViewsResponse {
-  P: number[][];
-  Q: number[];
-  view_confidences: number[];
-  idzorek_alphas: number[];
-  tickers: string[];
-  tickers_missing: string[];
-  rationale?: string;
+  nViews: number;
+  nAssets: number;
+  viewStrings: string[];
+  p: number[][];
+  q: number[];
+  viewConfidences: number[];
+  idzorekAlphas: Record<string, number>;
+  views: AssetViewResponse[];
+  rationale: string;
+  tickersWithData: string[];
+  tickersMissingData: string[];
 }
 
 export interface EntropyPoolingRequest {
@@ -216,7 +236,6 @@ export interface EntropyPoolingResponse {
   tickers: string[];
   mu: number[];
   covariance: number[][];
-  effective_sample_size: number;
 }
 
 export interface OpinionPoolRequest {
@@ -225,10 +244,25 @@ export interface OpinionPoolRequest {
   ic_histories?: Record<string, number[]>;
 }
 
+// Per-expert summary inside OpinionPoolResponse.experts (wire $def).
+export interface ExpertViewSummary {
+  persona: string;
+  name: string;
+  nViews: number;
+  viewStrings: string[];
+  idzorekAlphas: Record<string, number>;
+  icWeight: number;
+}
+
+// Wire shape mirrors OpinionPoolResponse in api/app/schemas/views/views.py.
+// The endpoint returns IC-weighted expert summaries, NOT a P/Q pick matrix.
 export interface OpinionPoolResponse {
-  P: number[][];
-  Q: number[];
-  view_confidences: number[];
-  persona_weights: Record<string, number>;
-  rationale?: string;
+  nExperts: number;
+  tickers: string[];
+  tickersWithData: string[];
+  tickersMissingData: string[];
+  experts: ExpertViewSummary[];
+  icWeights: number[];
+  poolingType: string;
+  totalViews: number;
 }

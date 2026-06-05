@@ -244,6 +244,9 @@ class YFinanceClient:
             else:
                 benchmark_hist = None
         except Exception:
+            # Benchmark alignment is optional: if it fails the stock history is
+            # still returned with benchmark_hist=None and the caller proceeds
+            # without a benchmark series, rather than failing the whole fetch.
             benchmark_hist = None
 
         return stock_hist, benchmark_hist, stock_info
@@ -383,6 +386,9 @@ class YFinanceClient:
             return prices
 
         except Exception:
+            # Bulk close-price extraction is best-effort: a malformed frame is
+            # logged with traceback and degraded to None so the caller falls
+            # back to per-ticker fetches rather than failing the batch.
             logger.warning(
                 "Failed to extract close prices from bulk data", exc_info=True
             )

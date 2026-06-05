@@ -277,6 +277,9 @@ def _summarize_country(
         )
         logger.info("Persisted news summary for country=%s", country)
     except Exception:
+        # Per-country persistence is isolated: a failure is logged with
+        # traceback and the loop continues so one country cannot block the
+        # rest of the news-summary run (non-fatal).
         logger.exception(
             "Failed to persist news summary for country=%s (non-fatal)",
             country,
@@ -416,6 +419,9 @@ def _summarize_country_safe(
         session.commit()
         return "updated" if results else "skipped"
     except Exception:
+        # Per-country scheduler tick: a failure is logged with traceback and
+        # swallowed so the scheduled job keeps processing other countries
+        # (non-fatal). The failure surfaces in logs/metrics, not as a crash.
         logger.exception(
             "Scheduler: summarization failed for country=%s (non-fatal)",
             country,

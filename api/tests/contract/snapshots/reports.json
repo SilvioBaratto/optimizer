@@ -1,0 +1,29 @@
+{
+  "ReportJobCreateResponse": {
+    "description": "Returned when a report generation job is created.",
+    "properties": {
+      "job_id": {
+        "description": "Background job ID",
+        "title": "Job Id",
+        "type": "string"
+      },
+      "message": {
+        "default": "",
+        "description": "Human-readable status message",
+        "title": "Message",
+        "type": "string"
+      },
+      "status": {
+        "default": "pending",
+        "description": "Initial job status",
+        "title": "Status",
+        "type": "string"
+      }
+    },
+    "required": [
+      "job_id"
+    ],
+    "title": "ReportJobCreateResponse",
+    "type": "object"
+  }
+}

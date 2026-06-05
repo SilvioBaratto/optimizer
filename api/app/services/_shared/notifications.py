@@ -39,4 +39,6 @@ def notify_failure(
     try:
         httpx.post(webhook_url, json=payload, timeout=10)
     except Exception as exc:
+        # Notification is best-effort: a failed webhook is logged but must
+        # never propagate and crash the job reporter that called us.
         logger.warning("Failed to send webhook notification: %s", exc)
