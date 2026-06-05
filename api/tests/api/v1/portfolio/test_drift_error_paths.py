@@ -1,4 +1,14 @@
-"""Route-level unit tests for GET /portfolio/{name}/drift (issue #784)."""
+"""Error-path + contract tests for GET /portfolio/{name}/drift (issue #812).
+
+Ported from the deleted ``tests/unit/test_drift_endpoint.py`` so its coverage
+is not lost in the drift dedup.  The canonical
+``tests/api/v1/portfolio/test_drift_endpoint.py`` exercises the diagnostic
+*categories* (UNMAPPED / FX_MISSING / STALE_PRICE / TARGET_NOT_ON_BROKER /
+RECONCILIATION_MISMATCH) against the real drift flow; this sibling covers the
+status-code mapping (404/503/502), the ``request_id`` echo, and the ``base``
+toggle that the canonical file does not.  Credential non-leak is already
+asserted by the canonical file and is intentionally not duplicated here.
+"""
 
 from __future__ import annotations
 
@@ -65,15 +75,11 @@ def _drift_response(request_id: int = 0) -> DriftResponse:
     )
 
 
-def _mock_t212_client_dep() -> MagicMock:
-    return MagicMock()
-
-
 def _override_t212():
     from app.api.v1.portfolio.portfolio import get_t212_client
     from app.main import app
 
-    app.dependency_overrides[get_t212_client] = _mock_t212_client_dep
+    app.dependency_overrides[get_t212_client] = lambda: MagicMock()
     return get_t212_client
 
 
@@ -84,7 +90,7 @@ def _clear_t212(dep):
 
 
 # ---------------------------------------------------------------------------
-# 200 success
+# 200 success / contract
 # ---------------------------------------------------------------------------
 
 
@@ -239,32 +245,3 @@ class TestDriftErrors:
 
         assert resp.status_code == 502
         assert "upstream down" in resp.text
-
-
-# ---------------------------------------------------------------------------
-# Credential leakage
-# ---------------------------------------------------------------------------
-
-
-def test_when_response_returned_then_t212_api_key_not_in_body(
-    client: TestClient,
-) -> None:
-    dep = _override_t212()
-    secret = "super-secret-t212-key-do-not-leak"  # noqa: S105
-    try:
-        with (
-            patch("app.api.v1.portfolio.portfolio.settings") as mock_settings,
-            patch(_PORTFOLIO_REPO) as MockRepo,
-            patch(_COMPUTE_DRIFT, return_value=_drift_response()),
-        ):
-            mock_settings.trading_212_api_key = secret
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
-            MockRepo.return_value.get_latest_snapshot.return_value = (
-                _make_snapshot()
-            )
-            resp = client.get(f"{BASE_URL}/test/drift")
-    finally:
-        _clear_t212(dep)
-
-    assert resp.status_code == 200
-    assert secret not in resp.text

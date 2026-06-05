@@ -220,3 +220,13 @@ class TestScreenValidation:
         resp = client.post(BASE_URL, json={"preset": "not_a_preset"})
 
         assert resp.status_code == 422
+
+    def test_when_run_universe_screen_raises_value_error_then_422(
+        self, client: TestClient
+    ) -> None:
+        """Issue #827: runtime ValueError from run_universe_screen → 422."""
+        with patch(_SERVICE_PATH, side_effect=ValueError("bad configuration")):
+            resp = client.post(BASE_URL, json={})
+
+        assert resp.status_code == 422
+        assert "bad configuration" in resp.json()["error"]["message"]

@@ -81,6 +81,22 @@ class TestCircuitBreaker:
         # Should not raise — just wait the short backoff period
         cb.check()
 
+    def test_backoff_doubles_per_attempt(self):
+        # wait_seconds = (2**attempt) * 60 * base_wait_minutes / 2
+        # attempt 1 → 120s, attempt 2 → 240s (geometric 2^attempt growth).
+        with patch("app.services.infrastructure.circuit_breaker.time.time") as mt:
+            mt.return_value = 0.0
+            cb = CircuitBreaker(service_name="t", base_wait_minutes=2.0)
+            cb.trigger()  # attempt 1
+            first_wait = cb._until - 0.0
+            mt.return_value = 1000.0  # past _until so the next trigger re-arms
+            cb.trigger()  # attempt 2
+            second_wait = cb._until - 1000.0
+
+        assert first_wait == 120.0
+        assert second_wait == 240.0
+        assert second_wait == 2 * first_wait
+
 
 # ---------------------------------------------------------------------------
 # is_transient_network_error

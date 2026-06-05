@@ -1,7 +1,13 @@
-"""Unit tests for the drift analysis route endpoint.
+"""Route-level tests for the dashboard drift endpoint (issue #812).
 
-Mocks PortfolioRepository and DashboardRepository at the router's import
-path so no real database is touched.
+Migrated from ``tests/unit/test_drift_routes.py`` as the sole coverage of the
+**dashboard** drift route ``GET /api/v1/portfolio-analytics/{name}/drift``
+(defined in ``app.api.v1.dashboard.dashboard``).  This is a DIFFERENT route
+from the portfolio drift endpoint (``/api/v1/portfolio/{name}/drift``) covered
+under ``tests/api/v1/portfolio/``.
+
+Mocks ``PortfolioRepository`` and ``DashboardRepository`` at the router's
+import path so no real database is touched.
 """
 
 from __future__ import annotations

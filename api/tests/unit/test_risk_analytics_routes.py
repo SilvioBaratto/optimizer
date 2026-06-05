@@ -723,3 +723,28 @@ class TestLiquidityEndpoint:
             resp = client.get(f"{_BASE}/liquidity")
 
         assert resp.status_code == 404
+
+
+# ===========================================================================
+# _get_snapshot_weights_or_404 helper — line 82 (issue #827)
+# ===========================================================================
+
+
+class TestSnapshotNotFoundBranch:
+    """Covers risk_analytics.py line 82: ``_get_snapshot_weights_or_404`` raises 404
+    when ``get_latest_snapshot`` returns None.  Exercised via the VaR endpoint
+    because all risk endpoints share this helper.
+    """
+
+    def test_when_snapshot_missing_then_var_returns_404(
+        self, client: TestClient
+    ) -> None:
+        with patch(_PORTFOLIO_REPO) as MockRepo:
+            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_latest_snapshot.return_value = None
+
+            resp = client.get(f"{_BASE}/var")
+
+        assert resp.status_code == 404
+        msg = resp.json()["error"]["message"].lower()
+        assert "snapshot" in msg
