@@ -97,9 +97,22 @@ describe('DatabaseService', () => {
       let result: TableInfo[] | undefined;
       svc.getTables().subscribe((r) => (result = r));
 
-      http.expectOne(`${BASE}/tables`).flush(payload);
+      const req = http.expectOne(`${BASE}/tables`);
+      expect(req.request.method).toBe('GET');
+      req.flush(payload);
 
       expect(result).toEqual(payload);
+    });
+
+    it('when database is unreachable, 503 is propagated', () => {
+      let error: unknown;
+      svc.getTables().subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${BASE}/tables`)
+        .flush({ detail: 'db unavailable' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error).toBeDefined();
     });
   });
 
@@ -113,9 +126,22 @@ describe('DatabaseService', () => {
       let result: DatabaseStatus | undefined;
       svc.getStatus().subscribe((r) => (result = r));
 
-      http.expectOne(`${BASE}/status`).flush(payload);
+      const req = http.expectOne(`${BASE}/status`);
+      expect(req.request.method).toBe('GET');
+      req.flush(payload);
 
       expect(result).toEqual(payload);
+    });
+
+    it('when database is down, 500 is propagated', () => {
+      let error: unknown;
+      svc.getStatus().subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${BASE}/status`)
+        .flush({ detail: 'db down' }, { status: 500, statusText: 'Internal Server Error' });
+
+      expect(error).toBeDefined();
     });
   });
 

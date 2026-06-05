@@ -154,6 +154,16 @@ describe('PipelineBuilderApiService', () => {
       });
       expect(req.request.method).toBe('GET');
     });
+
+    it('when the backend returns 500, the error is propagated to the subscriber', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.pollStep('sid-1', 'optimize').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${BASE}/sessions/sid-1/steps/optimize`)
+        .flush({ detail: 'internal error' }, { status: 500, statusText: 'Internal Server Error' });
+      expect(error?.status).toBe(500);
+    });
   });
 
   describe('deleteSession()', () => {
@@ -172,6 +182,16 @@ describe('PipelineBuilderApiService', () => {
       const req = http.expectOne(`${BASE}/sessions/a%2Fb`);
       req.flush(null, { status: 204, statusText: 'No Content' });
       expect(req.request.method).toBe('DELETE');
+    });
+
+    it('when the backend returns 404, the error is propagated to the subscriber', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.deleteSession('gone').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${BASE}/sessions/gone`)
+        .flush({ detail: 'session not found' }, { status: 404, statusText: 'Not Found' });
+      expect(error?.status).toBe(404);
     });
   });
 

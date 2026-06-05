@@ -119,6 +119,17 @@ describe('BacktestService', () => {
       });
       expect(result?.job_id).toBe('a b/c');
     });
+
+    it('when job is not found, 404 is propagated', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.pollBacktest('missing').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}backtest/missing`)
+        .flush({ detail: 'job not found' }, { status: 404, statusText: 'Not Found' });
+
+      expect(error?.status).toBe(404);
+    });
   });
 
   describe('runWalkForward()', () => {
@@ -185,6 +196,35 @@ describe('BacktestService', () => {
       });
       expect(result?.status).toBe('completed');
       expect(result?.result?.folds?.length).toBe(1);
+    });
+
+    it('URI-encodes the job_id segment', () => {
+      let result: ValidateProgressResponse | undefined;
+      svc.pollWalkForward('v 1/x').subscribe((r) => (result = r));
+
+      http.expectOne(`${API}validate/walk-forward/v%201%2Fx`).flush({
+        job_id: 'v 1/x',
+        status: 'running',
+        current: 2,
+        total: 10,
+        current_fold: 2,
+        total_folds: 10,
+        errors: [],
+        result: null,
+        error: null,
+      });
+      expect(result?.job_id).toBe('v 1/x');
+    });
+
+    it('when job is not found, 404 is propagated', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.pollWalkForward('gone').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}validate/walk-forward/gone`)
+        .flush({ detail: 'job not found' }, { status: 404, statusText: 'Not Found' });
+
+      expect(error?.status).toBe(404);
     });
   });
 
@@ -265,6 +305,17 @@ describe('BacktestService', () => {
         .expectOne(`${API}portfolio-analytics/my%20port/equity-curve`)
         .flush([]);
       expect(result).toEqual([]);
+    });
+
+    it('when portfolio has no equity curve, 404 is propagated', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.getEquityCurve('ghost').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}portfolio-analytics/ghost/equity-curve`)
+        .flush({ detail: 'no equity curve' }, { status: 404, statusText: 'Not Found' });
+
+      expect(error?.status).toBe(404);
     });
   });
 });

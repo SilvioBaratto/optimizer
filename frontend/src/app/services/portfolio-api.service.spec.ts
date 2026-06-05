@@ -60,6 +60,17 @@ describe('PortfolioApiService', () => {
     });
   });
 
+  describe('get()', () => {
+    it('when the backend returns 404, the error message is propagated as an Error', () => {
+      let error: Error | undefined;
+      svc.get('unknown').subscribe({ error: (e: Error) => (error = e) });
+      http
+        .expectOne(`${BASE}/unknown`)
+        .flush({ detail: 'portfolio not found' }, { status: 404, statusText: 'Not Found' });
+      expect(error?.message).toContain('portfolio not found');
+    });
+  });
+
   describe('list() deduplication', () => {
     it('issues exactly one HTTP call when two subscribers attach in the same tick', () => {
       svc.list().subscribe();
@@ -196,6 +207,35 @@ describe('PortfolioApiService', () => {
       expect(req.request.body).toEqual(payload);
       req.flush({} as SnapshotDto);
     });
+
+    it('when snapshot creation returns a SnapshotDto, the response value is delivered to the subscriber', () => {
+      const created: SnapshotDto = {
+        id: 'sn-1',
+        portfolio_id: 'p-1',
+        snapshot_date: '2026-04-17',
+        snapshot_type: 'manual',
+        weights: { AAPL: 0.5, MSFT: 0.5 },
+        sector_mapping: null,
+        summary: null,
+        optimizer_config: null,
+        turnover: null,
+        holding_count: 2,
+        created_at: '2026-04-17T00:00:00Z',
+      };
+      let result: SnapshotDto | undefined;
+      svc.createSnapshot(NAME, { snapshot_date: '2026-04-17', weights: { AAPL: 0.5, MSFT: 0.5 } }).subscribe((r) => (result = r));
+      http.expectOne(`${BASE}/${NAME}/snapshots`).flush(created);
+      expect(result?.id).toBe('sn-1');
+    });
+
+    it('when the backend returns 422, the error message is propagated as an Error', () => {
+      let error: Error | undefined;
+      svc.createSnapshot(NAME, { snapshot_date: 'bad', weights: {} }).subscribe({ error: (e: Error) => (error = e) });
+      http
+        .expectOne(`${BASE}/${NAME}/snapshots`)
+        .flush({ detail: 'invalid date' }, { status: 422, statusText: 'Unprocessable Entity' });
+      expect(error?.message).toContain('invalid date');
+    });
   });
 
   describe('getLatestSnapshot()', () => {
@@ -204,6 +244,36 @@ describe('PortfolioApiService', () => {
       const req = http.expectOne(`${BASE}/${NAME}/snapshots/latest`);
       expect(req.request.method).toBe('GET');
       req.flush({} as SnapshotDto);
+    });
+
+    it('when the snapshot is returned, the response value is delivered to the subscriber', () => {
+      const snap: SnapshotDto = {
+        id: 'sn-2',
+        portfolio_id: 'p-1',
+        snapshot_date: '2026-04-18',
+        snapshot_type: 'optimization',
+        weights: { AAPL: 0.6 },
+        sector_mapping: null,
+        summary: null,
+        optimizer_config: null,
+        turnover: 0.05,
+        holding_count: 1,
+        created_at: '2026-04-18T00:00:00Z',
+      };
+      let result: SnapshotDto | undefined;
+      svc.getLatestSnapshot(NAME).subscribe((r) => (result = r));
+      http.expectOne(`${BASE}/${NAME}/snapshots/latest`).flush(snap);
+      expect(result?.id).toBe('sn-2');
+      expect(result?.snapshot_type).toBe('optimization');
+    });
+
+    it('when the backend returns 404, the error message is propagated as an Error', () => {
+      let error: Error | undefined;
+      svc.getLatestSnapshot(NAME).subscribe({ error: (e: Error) => (error = e) });
+      http
+        .expectOne(`${BASE}/${NAME}/snapshots/latest`)
+        .flush({ detail: 'no snapshot' }, { status: 404, statusText: 'Not Found' });
+      expect(error?.message).toContain('no snapshot');
     });
   });
 
@@ -215,6 +285,15 @@ describe('PortfolioApiService', () => {
       expect(req.request.method).toBe('POST');
       req.flush({ job_id: 'abc', status: 'pending', message: '' });
       expect(result?.job_id).toBe('abc');
+    });
+
+    it('when the broker is unavailable, the error message is propagated as an Error', () => {
+      let error: Error | undefined;
+      svc.syncPortfolio(NAME).subscribe({ error: (e: Error) => (error = e) });
+      http
+        .expectOne(`${BASE}/${NAME}/sync`)
+        .flush({ detail: 'broker offline' }, { status: 503, statusText: 'Service Unavailable' });
+      expect(error?.message).toContain('broker offline');
     });
   });
 
@@ -233,6 +312,22 @@ describe('PortfolioApiService', () => {
       http.expectOne(`${BASE}/${NAME}/sync/abc`).flush(payload);
       expect(result).toEqual(payload);
     });
+
+    it('URI-encodes the job_id in the URL', () => {
+      svc.getSyncProgress(NAME, 'a b/c').subscribe();
+      const req = http.expectOne(`${BASE}/${NAME}/sync/a%20b%2Fc`);
+      expect(req.request.method).toBe('GET');
+      req.flush({ job_id: 'a b/c', status: 'running', current: 1, total: 5, result: null, error: null });
+    });
+
+    it('when the backend returns 404, the error message is propagated as an Error', () => {
+      let error: Error | undefined;
+      svc.getSyncProgress(NAME, 'gone').subscribe({ error: (e: Error) => (error = e) });
+      http
+        .expectOne(`${BASE}/${NAME}/sync/gone`)
+        .flush({ detail: 'job not found' }, { status: 404, statusText: 'Not Found' });
+      expect(error?.message).toContain('job not found');
+    });
   });
 
   describe('getPositions()', () => {
@@ -241,6 +336,36 @@ describe('PortfolioApiService', () => {
       svc.getPositions(NAME).subscribe((r) => (result = r));
       http.expectOne(`${BASE}/${NAME}/positions`).flush([]);
       expect(result).toEqual([]);
+    });
+
+    it('when positions are returned, the full list is delivered to the subscriber', () => {
+      const pos: BrokerPositionDto = {
+        id: 'pos-1',
+        ticker: 'AAPL',
+        yfinance_ticker: 'AAPL',
+        name: 'Apple Inc.',
+        quantity: 10,
+        average_price: 150,
+        current_price: 180,
+        ppl: 300,
+        fx_ppl: null,
+        initial_fill_date: '2025-01-01',
+        synced_at: '2026-04-17T00:00:00Z',
+      };
+      let result: BrokerPositionDto[] | undefined;
+      svc.getPositions(NAME).subscribe((r) => (result = r));
+      http.expectOne(`${BASE}/${NAME}/positions`).flush([pos]);
+      expect(result?.length).toBe(1);
+      expect(result?.[0].ticker).toBe('AAPL');
+    });
+
+    it('when the backend returns 503, the error message is propagated as an Error', () => {
+      let error: Error | undefined;
+      svc.getPositions(NAME).subscribe({ error: (e: Error) => (error = e) });
+      http
+        .expectOne(`${BASE}/${NAME}/positions`)
+        .flush({ detail: 'broker unavailable' }, { status: 503, statusText: 'Service Unavailable' });
+      expect(error?.message).toContain('broker unavailable');
     });
   });
 

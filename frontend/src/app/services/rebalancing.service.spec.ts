@@ -7,12 +7,16 @@ import {
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { RebalancingService } from './rebalancing.service';
+import { SUPPRESS_TOAST_STATUSES } from '../interceptors/api-http.interceptor';
 import { environment } from '../../environments/environment';
 import type {
   RebalanceDecideRequest,
   RebalancingPolicyCreatePayload,
   RebalancingPolicyDto,
+  RebalancingPolicyListApiResponse,
+  RebalancePreviewApiResponse,
 } from '../models/rebalancing.model';
+import type { SnapshotListResponseDto } from '../models/portfolio-api.model';
 
 const API = environment.apiUrl;
 
@@ -87,6 +91,30 @@ describe('RebalancingService', () => {
       req.flush({ items: [policy()], total: 1 });
     });
 
+    it('when listPolicies is called, the returned list is delivered to the subscriber', () => {
+      let result: RebalancingPolicyListApiResponse | undefined;
+      svc.listPolicies('myport').subscribe((r) => (result = r));
+      http.expectOne(`${API}portfolio/myport/rebalance-policy`).flush({ items: [policy()], total: 1 });
+      expect(result?.total).toBe(1);
+      expect(result?.items[0].id).toBe('p1');
+    });
+
+    it('URI-encodes the portfolio name in listPolicies URL', () => {
+      svc.listPolicies('my port').subscribe();
+      const req = http.expectOne(`${API}portfolio/my%20port/rebalance-policy`);
+      expect(req.request.method).toBe('GET');
+      req.flush({ items: [], total: 0 });
+    });
+
+    it('when listPolicies returns a 500, the error is propagated to the subscriber', () => {
+      let err: HttpErrorResponse | undefined;
+      svc.listPolicies('myport').subscribe({ error: (e) => (err = e) });
+      http
+        .expectOne(`${API}portfolio/myport/rebalance-policy`)
+        .flush({ detail: 'db error' }, { status: 500, statusText: 'Internal Server Error' });
+      expect(err?.status).toBe(500);
+    });
+
     it('POSTs /portfolio/{name}/rebalance-policy to create a policy', () => {
       const payload: RebalancingPolicyCreatePayload = {
         name: 'Monthly hybrid',
@@ -100,11 +128,34 @@ describe('RebalancingService', () => {
       req.flush(policy({ policyType: 'hybrid' }));
     });
 
+    it('URI-encodes the portfolio name in createPolicy URL', () => {
+      svc.createPolicy('my port', { name: 'Q', policy_type: 'calendar', config: {} }).subscribe();
+      const req = http.expectOne(`${API}portfolio/my%20port/rebalance-policy`);
+      expect(req.request.method).toBe('POST');
+      req.flush(policy());
+    });
+
     it('POSTs /portfolio/{name}/activate-policy/{id} with empty body', () => {
       svc.activatePolicy('myport', 'p1').subscribe();
       const req = http.expectOne(`${API}portfolio/myport/activate-policy/p1`);
       expect(req.request.method).toBe('POST');
       req.flush(policy({ isActive: true }));
+    });
+
+    it('URI-encodes both portfolio name and policy id in activatePolicy URL', () => {
+      svc.activatePolicy('my port', 'p/1').subscribe();
+      const req = http.expectOne(`${API}portfolio/my%20port/activate-policy/p%2F1`);
+      expect(req.request.method).toBe('POST');
+      req.flush(policy({ isActive: true }));
+    });
+
+    it('when activatePolicy returns 404, the error is propagated to the subscriber', () => {
+      let err: HttpErrorResponse | undefined;
+      svc.activatePolicy('myport', 'gone').subscribe({ error: (e) => (err = e) });
+      http
+        .expectOne(`${API}portfolio/myport/activate-policy/gone`)
+        .flush({ detail: 'policy not found' }, { status: 404, statusText: 'Not Found' });
+      expect(err?.status).toBe(404);
     });
 
     it('propagates 4xx from createPolicy', () => {
@@ -137,6 +188,46 @@ describe('RebalancingService', () => {
         portfolioValue: null,
       });
     });
+
+    it('when getPreview is called, the response value is delivered to the subscriber', () => {
+      const payload: RebalancePreviewApiResponse = {
+        portfolioName: 'myport',
+        policyType: 'threshold',
+        targetWeights: { MSFT: 0.6 },
+        currentWeights: { MSFT: 0.5 },
+        trades: [{ ticker: 'MSFT', weightDelta: 0.1, side: 'buy', shares: null }],
+        portfolioValue: 100000,
+      };
+      let result: RebalancePreviewApiResponse | undefined;
+      svc.getPreview('myport').subscribe((r) => (result = r));
+      http.expectOne(`${API}rebalance/preview/myport`).flush(payload);
+      expect(result?.portfolioValue).toBe(100000);
+      expect(result?.trades.length).toBe(1);
+    });
+
+    it('URI-encodes the portfolio name in getPreview URL', () => {
+      svc.getPreview('my port').subscribe();
+      const req = http.expectOne(`${API}rebalance/preview/my%20port`);
+      expect(req.request.method).toBe('GET');
+      req.flush({ portfolioName: 'my port', policyType: 'calendar', targetWeights: {}, currentWeights: {}, trades: [], portfolioValue: null });
+    });
+
+    it('sets SUPPRESS_TOAST_STATUSES context to include 404 on getPreview requests', () => {
+      svc.getPreview('myport').subscribe();
+      const req = http.expectOne(`${API}rebalance/preview/myport`);
+      const suppressed = req.request.context.get(SUPPRESS_TOAST_STATUSES);
+      expect(suppressed).toContain(404);
+      req.flush({ portfolioName: 'myport', policyType: 'calendar', targetWeights: {}, currentWeights: {}, trades: [], portfolioValue: null });
+    });
+
+    it('when getPreview returns 404, the error is propagated to the subscriber', () => {
+      let err: HttpErrorResponse | undefined;
+      svc.getPreview('myport').subscribe({ error: (e) => (err = e) });
+      http
+        .expectOne(`${API}rebalance/preview/myport`)
+        .flush({ detail: 'no preview' }, { status: 404, statusText: 'Not Found' });
+      expect(err?.status).toBe(404);
+    });
   });
 
   describe('Snapshots feed', () => {
@@ -145,6 +236,29 @@ describe('RebalancingService', () => {
       const req = http.expectOne(`${API}portfolio/myport/snapshots`);
       expect(req.request.method).toBe('GET');
       req.flush({ items: [], total: 0 });
+    });
+
+    it('when snapshots are returned, the response value is delivered to the subscriber', () => {
+      let result: SnapshotListResponseDto | undefined;
+      svc.getSnapshots('myport').subscribe((r) => (result = r));
+      http.expectOne(`${API}portfolio/myport/snapshots`).flush({ items: [], total: 0 });
+      expect(result?.total).toBe(0);
+    });
+
+    it('URI-encodes the portfolio name in getSnapshots URL', () => {
+      svc.getSnapshots('my port').subscribe();
+      const req = http.expectOne(`${API}portfolio/my%20port/snapshots`);
+      expect(req.request.method).toBe('GET');
+      req.flush({ items: [], total: 0 });
+    });
+
+    it('when getSnapshots returns a 500, the error is propagated to the subscriber', () => {
+      let err: HttpErrorResponse | undefined;
+      svc.getSnapshots('myport').subscribe({ error: (e) => (err = e) });
+      http
+        .expectOne(`${API}portfolio/myport/snapshots`)
+        .flush({ detail: 'db error' }, { status: 500, statusText: 'Internal Server Error' });
+      expect(err?.status).toBe(500);
     });
   });
 

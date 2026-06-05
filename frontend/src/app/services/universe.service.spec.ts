@@ -124,11 +124,19 @@ describe('UniverseService', () => {
         .subscribe();
 
       const req = http.expectOne((r) => r.url === `${API}universe/instruments`);
+      expect(req.request.method).toBe('GET');
       expect(req.request.params.get('page')).toBe('2');
       expect(req.request.params.get('page_size')).toBe('25');
       expect(req.request.params.get('search')).toBe('AAPL');
       expect(req.request.params.get('exchange')).toBe('NASDAQ');
       req.flush({ items: [], total: 0, page: 2, page_size: 25 });
+    });
+
+    it('when called with no query fields, sends no query params', () => {
+      svc.getInstruments({}).subscribe();
+      const req = http.expectOne((r) => r.url === `${API}universe/instruments`);
+      expect(req.request.params.keys().length).toBe(0);
+      req.flush({ items: [], total: 0, page: 1, page_size: 15 });
     });
 
     it('falls back to an empty page on error', () => {
@@ -151,6 +159,7 @@ describe('UniverseService', () => {
 
       const req = http.expectOne(`${API}universe/build`);
       expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({});
       req.flush({ job_id: 'abc', build_id: 'abc', status: 'pending', message: '' });
 
       expect(result?.job_id).toBe('abc');
@@ -182,9 +191,37 @@ describe('UniverseService', () => {
       let result: BuildProgress | undefined;
       svc.getBuildProgress('abc').subscribe((p) => (result = p));
 
-      http.expectOne(`${API}universe/build/abc`).flush(payload);
+      const req = http.expectOne(`${API}universe/build/abc`);
+      expect(req.request.method).toBe('GET');
+      req.flush(payload);
 
       expect(result).toEqual(payload);
+    });
+
+    it('when job id is missing, propagates 404', () => {
+      let error: unknown;
+      svc.getBuildProgress('missing').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}universe/build/missing`)
+        .flush({ detail: 'job not found' }, { status: 404, statusText: 'Not Found' });
+
+      expect(error).toBeDefined();
+    });
+
+    it('URI-encodes the build id in the path', () => {
+      let result: BuildProgress | undefined;
+      svc.getBuildProgress('a b').subscribe((p) => (result = p));
+      const req = http.expectOne(`${API}universe/build/a%20b`);
+      expect(req.request.url).toContain('a%20b');
+      req.flush({
+        job_id: 'a b',
+        status: 'pending',
+        current: 0,
+        total: 0,
+        detail: '',
+      });
+      expect(result?.job_id).toBe('a b');
     });
   });
 

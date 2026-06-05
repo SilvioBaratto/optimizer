@@ -7,6 +7,7 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
+    "test:ci": "ng test --watch=false --browsers=ChromeHeadlessNoSandbox --code-coverage | tee coverage-output.txt && node scripts/check-coverage.mjs coverage-output.txt",
     "a11y": "node scripts/a11y.mjs",
     "e2e": "playwright test"
   },

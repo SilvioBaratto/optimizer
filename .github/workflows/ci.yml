@@ -104,4 +104,7 @@ jobs:
       # ChromeHeadlessNoSandbox is a built-in @angular/build:karma launcher
       # (base ChromeHeadless + --no-sandbox/--disable-gpu/--disable-dev-shm-usage),
       # required because the GitHub Actions sandbox blocks Chrome's own sandbox.
-      - run: npx ng test --watch=false --browsers=ChromeHeadlessNoSandbox
+      # pipefail (GitHub bash default) propagates a test failure through `tee`;
+      # the captured istanbul summary then feeds the coverage floor gate.
+      - run: npx ng test --watch=false --browsers=ChromeHeadlessNoSandbox --code-coverage | tee coverage-output.txt
+      - run: node scripts/check-coverage.mjs coverage-output.txt

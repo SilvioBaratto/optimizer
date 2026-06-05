@@ -85,6 +85,13 @@ describe('JobsService', () => {
   });
 
   describe('getDomainStatuses()', () => {
+    it('when called, sends limit=100 query param to /jobs', () => {
+      svc.getDomainStatuses().subscribe();
+      const req = http.expectOne((r) => r.url === JOBS_URL);
+      expect(req.request.params.get('limit')).toBe('100');
+      req.flush({ jobs: [], total: 0, limit: 100, offset: 0 });
+    });
+
     it('returns an empty array when the API reports no jobs (issue #440)', () => {
       // Regression: previously the service would fan out the empty result
       // over every DOMAIN_META entry, producing 15 placeholder cards in the
@@ -192,6 +199,15 @@ describe('JobsService', () => {
 
       expect(result).toEqual(payload);
     });
+
+    it('propagates 404 when polling a non-existent job', () => {
+      let error: import('@angular/common/http').HttpErrorResponse | undefined;
+      svc.getJob('no-such-id').subscribe({ error: (e) => (error = e) });
+      http
+        .expectOne(`${JOBS_URL}/no-such-id`)
+        .flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
+      expect(error?.status).toBe(404);
+    });
   });
 });
 
@@ -262,5 +278,33 @@ describe('JobsService.listJobs()', () => {
     expect(req.request.params.get('limit')).toBe('50');
     expect(req.request.params.get('offset')).toBe('100');
     req.flush(emptyResponse);
+  });
+
+  it('when response is returned, maps jobs array and total', () => {
+    let result: import('../models/jobs.model').JobListResponse | undefined;
+    svc.listJobs({ limit: 25, offset: 0 }).subscribe((r) => (result = r));
+
+    const response: import('../models/jobs.model').JobListResponse = {
+      jobs: [
+        { id: 'j9', domain: 'backtest', status: 'completed', current: 100, total: 100, error: null, errors_count: 0, started_at: '2026-01-01T00:00:00Z', finished_at: '2026-01-01T01:00:00Z', duration_seconds: 3600 },
+      ],
+      total: 1,
+      limit: 25,
+      offset: 0,
+    };
+    http.expectOne((r) => r.url === JOBS_URL).flush(response);
+
+    expect(result?.total).toBe(1);
+    expect(result?.jobs[0].domain).toBe('backtest');
+  });
+
+  it('propagates 500 from /jobs', () => {
+    let error: import('@angular/common/http').HttpErrorResponse | undefined;
+    svc.listJobs({ limit: 25, offset: 0 }).subscribe({ error: (e) => (error = e) });
+
+    http
+      .expectOne((r) => r.url === JOBS_URL)
+      .flush({ detail: 'db error' }, { status: 500, statusText: 'Server Error' });
+    expect(error?.status).toBe(500);
   });
 });

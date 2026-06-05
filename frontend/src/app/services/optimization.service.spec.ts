@@ -131,6 +131,15 @@ describe('OptimizationService', () => {
       http.expectOne(`${API}optimize/a%20b%2Fc`).flush(syncResponse({ id: 'a b/c' }));
       expect(result?.id).toBe('a b/c');
     });
+
+    it('propagates 404 when the run_id does not exist', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.getOptimizationRun('gone').subscribe({ error: (e) => (error = e) });
+      http
+        .expectOne(`${API}optimize/gone`)
+        .flush({ detail: 'run not found' }, { status: 404, statusText: 'Not Found' });
+      expect(error?.status).toBe(404);
+    });
   });
 
   describe('tune()', () => {
@@ -199,12 +208,22 @@ describe('OptimizationService', () => {
         .subscribe((r) => (result = r));
 
       const req = http.expectOne(`${API}llm-moments/adapt-factor-weights`);
+      expect(req.request.body).toEqual({ macro_indicators: 'gdp 1.5', factor_groups: ['value', 'momentum'] });
       req.flush({
         phase: 'expansion',
         weights: { value: 1.1, momentum: 0.9 },
         rationale: 'cycle',
       });
       expect(result?.phase).toBe('expansion');
+    });
+
+    it('propagates 502 from /llm-moments/adapt-factor-weights', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.adaptFactorWeights({ macro_indicators: 'x', factor_groups: ['value'] }).subscribe({ error: (e) => (error = e) });
+      http
+        .expectOne(`${API}llm-moments/adapt-factor-weights`)
+        .flush({ detail: 'llm down' }, { status: 502, statusText: 'Bad Gateway' });
+      expect(error?.status).toBe(502);
     });
 
     it('POSTs /llm-moments/select-cov-regime', () => {
@@ -218,8 +237,18 @@ describe('OptimizationService', () => {
         .subscribe((r) => (result = r));
 
       const req = http.expectOne(`${API}llm-moments/select-cov-regime`);
+      expect(req.request.body).toEqual({ news_headlines: ['sell-off'], avg_sentiment_score: -0.4, realized_vol_30d: 0.22 });
       req.flush({ estimator_type: 'ledoit_wolf', rationale: 'elevated vol' });
       expect(result?.estimator_type).toBe('ledoit_wolf');
+    });
+
+    it('propagates 502 from /llm-moments/select-cov-regime', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.selectCovRegime({ news_headlines: [], avg_sentiment_score: 0, realized_vol_30d: 0.1 }).subscribe({ error: (e) => (error = e) });
+      http
+        .expectOne(`${API}llm-moments/select-cov-regime`)
+        .flush({ detail: 'llm error' }, { status: 502, statusText: 'Bad Gateway' });
+      expect(error?.status).toBe(502);
     });
 
     it('propagates 502 errors from LLM moment endpoints', () => {
@@ -263,6 +292,7 @@ describe('OptimizationService', () => {
 
       const req = http.expectOne(`${API}views/opinion-pool`);
       expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ tickers: ['AAPL'], personas: ['value', 'momentum'] });
       req.flush({
         P: [[1]],
         Q: [0.04],
@@ -270,6 +300,24 @@ describe('OptimizationService', () => {
         persona_weights: { value: 0.5, momentum: 0.5 },
       });
       expect(result?.persona_weights).toEqual({ value: 0.5, momentum: 0.5 });
+    });
+
+    it('propagates 422 from /views/opinion-pool', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.opinionPool({ tickers: ['AAPL'], personas: ['value'] }).subscribe({ error: (e) => (error = e) });
+      http
+        .expectOne(`${API}views/opinion-pool`)
+        .flush({ detail: 'no data' }, { status: 422, statusText: 'Unprocessable' });
+      expect(error?.status).toBe(422);
+    });
+
+    it('propagates 502 from /views/generate', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.generateViews({ tickers: ['AAPL'] }).subscribe({ error: (e) => (error = e) });
+      http
+        .expectOne(`${API}views/generate`)
+        .flush({ detail: 'llm unavailable' }, { status: 502, statusText: 'Bad Gateway' });
+      expect(error?.status).toBe(502);
     });
 
     it('POSTs /views/entropy-pooling with date range + tickers', () => {
