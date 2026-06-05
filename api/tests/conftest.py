@@ -17,6 +17,15 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db
 from app.main import app
 from app.models._shared import Base
+from tests._fixtures import (
+    seed_factors,
+    seed_macro,
+    seed_market_data,
+    seed_portfolio,
+    seed_rebalancing,
+    seed_risk,
+    seed_universe,
+)
 
 # Test database URL - use SQLite for fast tests
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -48,10 +57,10 @@ def db_session(test_engine) -> Generator[Session, None, None]:
     """
     connection = test_engine.connect()
     transaction = connection.begin()
-    TestingSessionLocal = sessionmaker(
+    testing_session_local = sessionmaker(
         autocommit=False, autoflush=False, bind=connection
     )
-    session = TestingSessionLocal()
+    session = testing_session_local()
     session.begin_nested()
 
     @event.listens_for(session, "after_transaction_end")
@@ -123,7 +132,63 @@ def mock_settings():
     return settings
 
 
-# Add more fixtures as needed:
-# - authenticated_client (with JWT token)
-# - sample_user (creates a test user)
-# - sample_data (populates test data)
+# ---------------------------------------------------------------------------
+# Per-domain seed fixtures (issue #805)
+# ---------------------------------------------------------------------------
+# Thin wiring over the ``tests._fixtures`` seed builders (issue #804).  All are
+# function-scoped so each runs inside the per-test SAVEPOINT and is rolled back
+# on teardown.  FK-dependent fixtures depend on ``seeded_portfolio`` so the
+# parent row is flushed before the child builder runs.
+
+
+@pytest.fixture
+def seeded_portfolio(db_session: Session):
+    """Seed a Portfolio + snapshot + position + account."""
+    return seed_portfolio(db_session)
+
+
+@pytest.fixture
+def seeded_universe(db_session: Session):
+    """Seed an Exchange + Instrument."""
+    return seed_universe(db_session)
+
+
+@pytest.fixture
+def seeded_market_data(db_session: Session):
+    """Seed an Exchange + Instrument + TickerProfile."""
+    return seed_market_data(db_session)
+
+
+@pytest.fixture
+def seeded_factors(db_session: Session):
+    """Seed a FactorScore + FactorValidationReport."""
+    return seed_factors(db_session)
+
+
+@pytest.fixture
+def seeded_macro(db_session: Session):
+    """Seed an EconomicIndicator + MacroCalibration + FredObservation."""
+    return seed_macro(db_session)
+
+
+@pytest.fixture
+def seeded_risk(db_session: Session, seeded_portfolio):
+    """Seed a RiskLimit for the seeded portfolio."""
+    return seed_risk(db_session, seeded_portfolio.portfolio)
+
+
+@pytest.fixture
+def seeded_rebalancing(db_session: Session, seeded_portfolio):
+    """Seed a RebalancingPolicy for the seeded portfolio."""
+    return seed_rebalancing(db_session, seeded_portfolio.portfolio)
+
+
+@pytest.fixture
+def job_service_mock():
+    """Expose the BackgroundJobService mock context manager (issue #806).
+
+    Lazy import keeps test collection decoupled from the helper module.
+    """
+    from tests._fixtures.job_service_mock import mock_job_service
+
+    return mock_job_service

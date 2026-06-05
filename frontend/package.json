@@ -7,7 +7,8 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "a11y": "node scripts/a11y.mjs"
+    "a11y": "node scripts/a11y.mjs",
+    "e2e": "playwright test"
   },
   "prettier": {
     "printWidth": 100,
@@ -40,7 +41,9 @@
     "@angular/build": "^21.1.0",
     "@angular/cli": "^21.1.0",
     "@angular/compiler-cli": "^21.1.0",
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^22.0.0",
     "@types/jasmine": "~5.1.0",
     "jasmine-core": "~5.9.0",
     "karma": "~6.4.0",

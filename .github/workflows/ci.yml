@@ -73,3 +73,35 @@ jobs:
         with:
           file: ./coverage.xml
           fail_ci_if_error: false
+
+  api-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      # api/app imports the root optimizer library (`from optimizer...`), so the
+      # editable root install must precede the api requirements.
+      - run: pip install -e .
+      - run: pip install -r api/requirements.txt
+      - run: cd api && pytest tests/ -v --tb=short
+
+  frontend-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6.3.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --legacy-peer-deps
+      # ChromeHeadlessNoSandbox is a built-in @angular/build:karma launcher
+      # (base ChromeHeadless + --no-sandbox/--disable-gpu/--disable-dev-shm-usage),
+      # required because the GitHub Actions sandbox blocks Chrome's own sandbox.
+      - run: npx ng test --watch=false --browsers=ChromeHeadlessNoSandbox

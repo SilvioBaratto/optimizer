@@ -1,0 +1,125 @@
+name: Playwright
+
+# Full-stack e2e gate (issue #811). Boots the docker-compose stack and runs the
+# Playwright harness self-test (issue #809). Kept OUT of ci.yml so the fast
+# Python/Angular unit jobs are not blocked by the multi-minute stack spin-up.
+#
+# Frontend boot is owned by the issue #809 playwright.config `webServer`
+# (reuseExistingServer:false in CI). This workflow therefore boots only db+api
+# and leaves :4300 free, so the webServer can start the frontend itself without
+# erroring on an already-bound port. The webServer waits for :4300 and
+# globalSetup polls :8005/health + seeds the DB.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: docker-compose Playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Create .env for docker-compose
+        # docker-compose.yml has `env_file: - .env`, so the file must exist
+        # before `docker compose up`. LLM keys flow from secrets; Trading 212 /
+        # FRED are blank — the harness stubs those at the network layer.
+        run: |
+          cat <<EOF > .env
+          DATABASE_URL=postgresql://postgres:postgres@db:5432/optimizer_db
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          OLLAMA_API_KEY=${{ secrets.OLLAMA_API_KEY }}
+          OLLAMA_BASE_URL=${{ secrets.OLLAMA_BASE_URL }}
+          TRADING_212_API_KEY=
+          FRED_API_KEY=
+          EOF
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6.3.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Pre-build stack images
+        # Build all images up front (no port binding, no timeout pressure) so the
+        # Playwright webServer can START the frontend container quickly inside its
+        # 120s window instead of BUILDING it under the wire.
+        run: docker compose build db api frontend
+
+      - name: Boot db + api
+        # `--wait` blocks until both are Docker-level healthy. The frontend
+        # service `depends_on: api: service_healthy`, so the webServer's later
+        # `up -d ... frontend` can start it immediately instead of stalling on
+        # the api healthcheck and eating the webServer's 120s window.
+        run: docker compose up -d --wait db api
+
+      - name: Wait for api health (host port 8005)
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl -sf http://localhost:8005/health > /dev/null; then
+              echo "api healthy after ${attempt} attempt(s)"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "api never became healthy"
+          docker compose logs api
+          exit 1
+
+      - name: Apply Alembic migrations (belt-and-suspenders)
+        # The api entrypoint already runs `alembic upgrade head` on start; this
+        # asserts the schema is at head before the e2e run seeds + queries.
+        run: docker compose exec -T api alembic upgrade head
+
+      - name: Seed deterministic price fixture
+        # Idempotent (ON CONFLICT DO NOTHING). globalSetup re-seeds this same
+        # fixture; seeding here too keeps the DB ready independent of harness order.
+        run: |
+          docker compose exec -T db \
+            psql -U postgres -d optimizer_db \
+            < api/tests/fixtures/smoke_prices.sql
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright e2e
+        # webServer boots the frontend (db+api already up → no-op) and waits
+        # :4300; globalSetup polls :8005/health and seeds before the suite runs.
+        working-directory: frontend
+        run: npx playwright test
+
+      - name: Dump api + frontend logs on failure
+        if: failure()
+        run: |
+          docker compose logs api
+          docker compose logs frontend
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          if-no-files-found: warn
+
+      - name: Tear down docker-compose stack
+        # Runs on an ephemeral CI runner with a throwaway volume — `-v` wipes the
+        # CI database only, never any real/persistent data.
+        if: always()
+        run: docker compose down -v --remove-orphans
