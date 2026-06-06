@@ -11,9 +11,9 @@ import { LucideAngularModule } from 'lucide-angular';
 import {
   PortfolioContextService,
   PortfolioMode,
-} from '../../../services/portfolio-context.service';
-import { MarketService } from '../../../services/market.service';
-import type { ReferenceIndexItem } from '../../../models/dashboard-api.model';
+} from '../../../core/services/portfolio-context.service';
+import { MarketService } from '../../../core/services/market.service';
+import type { ReferenceIndexItem } from '../../../core/models/dashboard-api.model';
 import { DateRangePickerComponent } from '../../date-range-picker/date-range-picker';
 
 interface BenchmarkOption {

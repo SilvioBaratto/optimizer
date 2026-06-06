@@ -11,13 +11,13 @@ import { provideAnimations } from '@angular/platform-browser/animations';
 import { firstValueFrom } from 'rxjs';
 
 import { routes } from './app.routes';
-import { apiHttpInterceptor } from './interceptors/api-http.interceptor';
-import { GlobalErrorHandler } from './error-handling/global-error-handler';
+import { apiHttpInterceptor } from './core/interceptors/api-http.interceptor';
+import { GlobalErrorHandler } from './core/error-handling/global-error-handler';
 import { registerPortfolioTheme } from './shared/charts/echarts-theme';
 import { ICON_PROVIDER } from './icons';
 import { LucideIconConfig } from 'lucide-angular';
-import { PortfolioApiService } from './services/portfolio-api.service';
-import { PortfolioContextService } from './services/portfolio-context.service';
+import { PortfolioApiService } from './core/services/portfolio-api.service';
+import { PortfolioContextService } from './core/services/portfolio-context.service';
 
 /**
  * Resolve the initial portfolio selection before the app renders.

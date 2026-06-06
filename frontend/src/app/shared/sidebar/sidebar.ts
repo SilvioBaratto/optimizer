@@ -2,7 +2,7 @@ import { Component, computed, input, output, inject, ChangeDetectionStrategy } f
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 import { NAV_GROUPS, NavGroup } from './nav-data';
-import { BreakpointService } from '../../services/breakpoint.service';
+import { BreakpointService } from '../../core/services/breakpoint.service';
 import { PortfolioPickerComponent } from '../portfolio-picker/portfolio-picker';
 
 @Component({

@@ -1,5 +1,5 @@
 import { Component, input, computed, ChangeDetectionStrategy } from '@angular/core';
-import type { FreshnessLevel } from '../../models/jobs.model';
+import type { FreshnessLevel } from '../../core/models/jobs.model';
 
 @Component({
   selector: 'app-freshness-indicator',

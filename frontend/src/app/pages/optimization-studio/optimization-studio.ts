@@ -24,8 +24,8 @@ import {
   OptimizationService,
   type OptimizeResult,
 } from '../../services/optimization.service';
-import { PortfolioApiService } from '../../services/portfolio-api.service';
-import { PortfolioContextService } from '../../services/portfolio-context.service';
+import { PortfolioApiService } from '../../core/services/portfolio-api.service';
+import { PortfolioContextService } from '../../core/services/portfolio-context.service';
 import type {
   OptimizationRunResponse,
   OptimizeRequest,

@@ -75,7 +75,7 @@ class TestListLimits:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.get_limits_by_portfolio.return_value = [limit]
 
             resp = client.get(LIMITS_URL)
@@ -92,7 +92,7 @@ class TestListLimits:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.get_limits_by_portfolio.return_value = []
 
             resp = client.get(LIMITS_URL)
@@ -103,7 +103,7 @@ class TestListLimits:
 
     def test_returns_404_for_unknown_portfolio(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
-            MockPortRepo.return_value.get_by_name.return_value = None
+            MockPortRepo.return_value.get_by_id_or_name.return_value = None
 
             resp = client.get(f"{BASE}/unknown-portfolio/limits")
 
@@ -118,7 +118,7 @@ class TestListLimits:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.get_limits_by_portfolio.return_value = limits
 
             resp = client.get(LIMITS_URL)
@@ -143,7 +143,7 @@ class TestListLimits:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.get_limits_by_portfolio.return_value = [limit]
             MockRiskRepo.return_value.update_limit_value.return_value = updated_limit
 
@@ -172,7 +172,7 @@ class TestListLimits:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.get_limits_by_portfolio.return_value = [limit]
             MockRiskRepo.return_value.update_limit_value.return_value = updated_limit
 
@@ -191,7 +191,7 @@ class TestListLimits:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.get_limits_by_portfolio.return_value = [limit]
 
             resp = client.get(LIMITS_URL, params={"refresh": "true"})
@@ -214,7 +214,7 @@ class TestCreateLimit:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.create_limit.return_value = created
 
             resp = client.post(
@@ -231,7 +231,7 @@ class TestCreateLimit:
 
     def test_returns_404_for_unknown_portfolio(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
-            MockPortRepo.return_value.get_by_name.return_value = None
+            MockPortRepo.return_value.get_by_id_or_name.return_value = None
 
             resp = client.post(
                 f"{BASE}/ghost/limits",
@@ -247,7 +247,7 @@ class TestCreateLimit:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.create_limit.side_effect = IntegrityError(
                 "UNIQUE constraint", None, None
             )
@@ -261,7 +261,7 @@ class TestCreateLimit:
 
     def test_returns_422_for_invalid_limit_type(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
 
             resp = client.post(
                 LIMITS_URL,
@@ -290,7 +290,7 @@ class TestCreateLimit:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.create_limit.return_value = created
 
             resp = client.post(
@@ -317,7 +317,7 @@ class TestUpdateLimit:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.update_limit_value.return_value = updated
 
             resp = client.put(
@@ -334,7 +334,7 @@ class TestUpdateLimit:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.update_limit_value.side_effect = ValueError(
                 "not found"
             )
@@ -348,7 +348,7 @@ class TestUpdateLimit:
 
     def test_returns_404_for_unknown_portfolio(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
-            MockPortRepo.return_value.get_by_name.return_value = None
+            MockPortRepo.return_value.get_by_id_or_name.return_value = None
 
             resp = client.put(
                 f"{BASE}/ghost/limits/{uuid.uuid4()}",
@@ -372,7 +372,7 @@ class TestDeleteLimit:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.delete_limit.return_value = True
 
             resp = client.delete(f"{LIMITS_URL}/{limit_id}")
@@ -385,7 +385,7 @@ class TestDeleteLimit:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_RISK_REPO) as MockRiskRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockPortRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRiskRepo.return_value.delete_limit.return_value = False
 
             resp = client.delete(f"{LIMITS_URL}/{limit_id}")
@@ -394,7 +394,7 @@ class TestDeleteLimit:
 
     def test_returns_404_for_unknown_portfolio(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
-            MockPortRepo.return_value.get_by_name.return_value = None
+            MockPortRepo.return_value.get_by_id_or_name.return_value = None
 
             resp = client.delete(f"{BASE}/ghost/limits/{uuid.uuid4()}")
 

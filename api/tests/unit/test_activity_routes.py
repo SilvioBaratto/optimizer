@@ -58,7 +58,7 @@ class TestGetActivity:
 
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_events.return_value = events
             repo.count_events.return_value = 45
 
@@ -74,7 +74,7 @@ class TestGetActivity:
 
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_events.return_value = []
             repo.count_events.return_value = 0
 
@@ -87,7 +87,7 @@ class TestGetActivity:
 
     def test_portfolio_not_found(self, client: TestClient):
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
 
             resp = client.get(f"{BASE_URL}/missing/activity")
 
@@ -100,7 +100,7 @@ class TestGetActivity:
 
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_events.return_value = []
             repo.count_events.return_value = 0
 
@@ -118,7 +118,7 @@ class TestGetActivity:
 
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_events.return_value = []
             repo.count_events.return_value = 0
 
@@ -141,7 +141,7 @@ class TestGetActivity:
 
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_events.return_value = events
             repo.count_events.return_value = 1
 
@@ -161,7 +161,7 @@ class TestGetActivity:
 
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_events.return_value = events
             repo.count_events.return_value = 1
 

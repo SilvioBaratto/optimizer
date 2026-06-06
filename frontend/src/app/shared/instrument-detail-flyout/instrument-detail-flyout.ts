@@ -13,12 +13,12 @@ import { Observable, of } from 'rxjs';
 import { catchError, startWith, switchMap } from 'rxjs/operators';
 import { LucideAngularModule } from 'lucide-angular';
 
-import { YfinanceService } from '../../services/yfinance.service';
+import { YfinanceService } from '../../core/services/yfinance.service';
 import type {
   AnalystRecommendation,
   PriceHistory,
   TickerProfile,
-} from '../../models/yfinance.model';
+} from '../../core/models/yfinance.model';
 
 const DEFAULT_PRICE_LIMIT = 90;
 

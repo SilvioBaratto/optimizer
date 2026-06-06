@@ -20,9 +20,9 @@ import { EchartsBarComponent, BarData } from '../../shared/echarts-bar/echarts-b
 import { EchartsDrawdownComponent } from '../../shared/echarts-drawdown/echarts-drawdown';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
 import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 import { BacktestService } from '../../services/backtest.service';
-import { PortfolioContextService } from '../../services/portfolio-context.service';
+import { PortfolioContextService } from '../../core/services/portfolio-context.service';
 import { readCssVar } from '../../shared/charts/echarts-theme';
 import { CHART_EXPORTABLE, type ChartExportable } from '../../shared/charts/chart-export.token';
 import { ModalService } from '../../shared/modal/modal.service';

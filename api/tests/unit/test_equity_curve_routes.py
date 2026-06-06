@@ -65,7 +65,7 @@ class TestGetEquityCurve:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
@@ -89,7 +89,7 @@ class TestGetEquityCurve:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
@@ -112,7 +112,7 @@ class TestGetEquityCurve:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
@@ -127,7 +127,7 @@ class TestGetEquityCurve:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             resp = client.get(f"{BASE_URL}/myport/equity-curve?period=10Y")
@@ -136,7 +136,7 @@ class TestGetEquityCurve:
 
     def test_portfolio_not_found(self, client: TestClient):
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
-            MockPortRepo.return_value.get_by_name.return_value = None
+            MockPortRepo.return_value.get_by_id_or_name.return_value = None
 
             resp = client.get(f"{BASE_URL}/missing/equity-curve")
 
@@ -149,7 +149,7 @@ class TestGetEquityCurve:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = None
 
             resp = client.get(f"{BASE_URL}/test/equity-curve")
@@ -167,7 +167,7 @@ class TestGetEquityCurve:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = (
@@ -192,7 +192,7 @@ class TestGetEquityCurve:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             dash = MockDashRepo.return_value
@@ -217,7 +217,7 @@ class TestGetEquityCurve:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             dash = MockDashRepo.return_value
@@ -241,7 +241,7 @@ class TestGetEquityCurve:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices

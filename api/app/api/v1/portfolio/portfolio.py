@@ -172,7 +172,7 @@ def get_portfolio(
     repo: PortfolioRepository = Depends(get_portfolio_repository),
 ) -> PortfolioResponse:
     """Get a portfolio by name."""
-    portfolio = repo.get_by_name(name)
+    portfolio = repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -198,7 +198,7 @@ def create_snapshot(
 ) -> SnapshotResponse:
     """Create a portfolio snapshot from optimizer result or manual input."""
     repo = PortfolioRepository(db)
-    portfolio = repo.get_by_name(name)
+    portfolio = repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -226,7 +226,7 @@ def list_snapshots(
     repo: PortfolioRepository = Depends(get_portfolio_repository),
 ) -> SnapshotListResponse:
     """List portfolio snapshots ordered by date descending."""
-    portfolio = repo.get_by_name(name)
+    portfolio = repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -244,7 +244,7 @@ def get_latest_snapshot(
     repo: PortfolioRepository = Depends(get_portfolio_repository),
 ) -> SnapshotResponse:
     """Get the most recent snapshot for a portfolio."""
-    portfolio = repo.get_by_name(name)
+    portfolio = repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -277,7 +277,7 @@ def trigger_sync(
 ) -> SyncJobResponse:
     """Start a Trading212 sync job for a portfolio. Returns 202 + job_id."""
     repo = PortfolioRepository(db)
-    portfolio = repo.get_by_name(name)
+    portfolio = repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -335,7 +335,7 @@ def get_positions(
     repo: PortfolioRepository = Depends(get_portfolio_repository),
 ) -> list[BrokerPositionResponse]:
     """List synced broker positions for a portfolio."""
-    portfolio = repo.get_by_name(name)
+    portfolio = repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -352,7 +352,7 @@ def get_account(
     repo: PortfolioRepository = Depends(get_portfolio_repository),
 ) -> BrokerAccountResponse:
     """Get the latest broker account cash snapshot for a portfolio."""
-    portfolio = repo.get_by_name(name)
+    portfolio = repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -374,7 +374,7 @@ def get_account(
 
 
 def _load_target_weights(repo: PortfolioRepository, name: str) -> dict[str, float]:
-    portfolio = repo.get_by_name(name)
+    portfolio = repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

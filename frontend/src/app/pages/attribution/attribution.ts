@@ -16,9 +16,9 @@ import { ExportReportModalComponent } from '../../shared/modal/export-report-mod
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 import { AttributionService } from '../../services/attribution.service';
-import { PortfolioApiService } from '../../services/portfolio-api.service';
+import { PortfolioApiService } from '../../core/services/portfolio-api.service';
 
 import { BrinsonPanelComponent } from './brinson-panel';
 import { SaaTaaPanelComponent } from './saa-taa-panel';
@@ -29,7 +29,7 @@ import type {
   BrinsonApiResponse,
   FactorAttributionApiResponse,
 } from '../../models/attribution.model';
-import type { PortfolioDto } from '../../models/portfolio-api.model';
+import type { PortfolioDto } from '../../core/models/portfolio-api.model';
 
 @Component({
   selector: 'app-attribution',

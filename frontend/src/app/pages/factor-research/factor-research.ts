@@ -14,7 +14,7 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 import { FactorsService } from '../../services/factors.service';
 
 import { TaaPanelComponent } from './taa-panel';

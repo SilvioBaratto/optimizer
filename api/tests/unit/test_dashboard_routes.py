@@ -73,7 +73,7 @@ class TestGetPerformanceMetrics:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_latest_account_snapshot.return_value = account
 
@@ -95,7 +95,7 @@ class TestGetPerformanceMetrics:
 
     def test_portfolio_not_found(self, client: TestClient):
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
-            MockPortRepo.return_value.get_by_name.return_value = None
+            MockPortRepo.return_value.get_by_id_or_name.return_value = None
 
             resp = client.get(f"{BASE_URL}/missing/performance-metrics")
 
@@ -108,7 +108,7 @@ class TestGetPerformanceMetrics:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = None
 
             resp = client.get(f"{BASE_URL}/test/performance-metrics")
@@ -126,7 +126,7 @@ class TestGetPerformanceMetrics:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_latest_account_snapshot.return_value = None
 
@@ -152,7 +152,7 @@ class TestGetPerformanceMetrics:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_latest_account_snapshot.return_value = None
 
@@ -179,7 +179,7 @@ class TestGetPerformanceMetrics:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_latest_account_snapshot.return_value = None
 
@@ -204,7 +204,7 @@ class TestGetPerformanceMetrics:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_latest_account_snapshot.return_value = None
 
@@ -224,7 +224,7 @@ class TestGetPerformanceMetrics:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_latest_account_snapshot.return_value = None
 
@@ -256,7 +256,7 @@ class TestGetPerformanceMetrics:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_latest_account_snapshot.return_value = None
 
@@ -272,7 +272,7 @@ class TestGetPerformanceMetrics:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             resp = client.get(f"{BASE_URL}/myport/performance-metrics?period=10Y")
@@ -303,7 +303,7 @@ class TestGetPerformanceMetrics:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_latest_account_snapshot.return_value = None
 
@@ -352,7 +352,7 @@ class TestGetAllocation:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             resp = client.get(f"{BASE_URL}/myport/allocation")
@@ -367,7 +367,7 @@ class TestGetAllocation:
 
     def test_portfolio_not_found(self, client: TestClient):
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
-            MockPortRepo.return_value.get_by_name.return_value = None
+            MockPortRepo.return_value.get_by_id_or_name.return_value = None
 
             resp = client.get(f"{BASE_URL}/missing/allocation")
 
@@ -380,7 +380,7 @@ class TestGetAllocation:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = None
 
             resp = client.get(f"{BASE_URL}/test/allocation")
@@ -396,7 +396,7 @@ class TestGetAllocation:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             resp = client.get(f"{BASE_URL}/test/allocation")
@@ -414,7 +414,7 @@ class TestGetAllocation:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             resp = client.get(f"{BASE_URL}/test/allocation")
@@ -429,7 +429,7 @@ class TestGetAllocation:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             resp = client.get(f"{BASE_URL}/test/allocation")
@@ -443,7 +443,7 @@ class TestGetAllocation:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             resp = client.get(f"{BASE_URL}/test/allocation")
@@ -457,7 +457,7 @@ class TestGetAllocation:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             resp = client.get(f"{BASE_URL}/test/allocation")
@@ -483,7 +483,7 @@ class TestGetRollingMetrics:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
@@ -509,7 +509,7 @@ class TestGetRollingMetrics:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = portfolio
+            MockPortRepo.return_value.get_by_id_or_name.return_value = portfolio
             MockPortRepo.return_value.get_latest_snapshot.return_value = snapshot
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
 
@@ -524,7 +524,7 @@ class TestGetRollingMetrics:
 
     def test_portfolio_not_found(self, client: TestClient):
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
-            MockPortRepo.return_value.get_by_name.return_value = None
+            MockPortRepo.return_value.get_by_id_or_name.return_value = None
 
             resp = client.get(f"{BASE_URL}/missing/rolling-metrics")
 
@@ -534,7 +534,7 @@ class TestGetRollingMetrics:
         portfolio = _make_portfolio()
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = None
 
             resp = client.get(f"{BASE_URL}/test/rolling-metrics")
@@ -549,7 +549,7 @@ class TestGetRollingMetrics:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = portfolio
+            MockPortRepo.return_value.get_by_id_or_name.return_value = portfolio
             MockPortRepo.return_value.get_latest_snapshot.return_value = snapshot
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = (
                 pd.DataFrame()
@@ -569,7 +569,7 @@ class TestGetRollingMetrics:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = portfolio
+            MockPortRepo.return_value.get_by_id_or_name.return_value = portfolio
             MockPortRepo.return_value.get_latest_snapshot.return_value = snapshot
 
             dash = MockDashRepo.return_value
@@ -594,7 +594,7 @@ class TestGetRollingMetrics:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = portfolio
+            MockPortRepo.return_value.get_by_id_or_name.return_value = portfolio
             MockPortRepo.return_value.get_latest_snapshot.return_value = snapshot
 
             dash = MockDashRepo.return_value
@@ -612,7 +612,7 @@ class TestGetRollingMetrics:
             patch(_PORTFOLIO_REPO) as MockPortRepo,
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
-            MockPortRepo.return_value.get_by_name.return_value = portfolio
+            MockPortRepo.return_value.get_by_id_or_name.return_value = portfolio
             MockPortRepo.return_value.get_latest_snapshot.return_value = snapshot
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
 

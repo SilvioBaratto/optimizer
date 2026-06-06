@@ -83,7 +83,7 @@ class TestPerformanceMetricsServiceError:
             ),
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_latest_account_snapshot.return_value = None
 
@@ -119,7 +119,7 @@ class TestEquityCurveServiceError:
             ),
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             dash = MockDashRepo.return_value
@@ -154,7 +154,7 @@ class TestRollingMetricsServiceError:
             ),
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             dash = MockDashRepo.return_value
@@ -187,7 +187,7 @@ class TestAllocationServiceError:
             ),
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             resp = client.get(f"{BASE_URL}/myport/allocation")
@@ -221,7 +221,7 @@ class TestAssetClassReturnsServiceError:
             ),
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             dash = MockDashRepo.return_value

@@ -90,7 +90,7 @@ class TestGetDrift:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_positions.return_value = positions
 
@@ -115,7 +115,7 @@ class TestGetDrift:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_positions.return_value = []  # no broker positions
 
@@ -129,7 +129,7 @@ class TestGetDrift:
 
     def test_portfolio_not_found(self, client: TestClient):
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
-            MockPortRepo.return_value.get_by_name.return_value = None
+            MockPortRepo.return_value.get_by_id_or_name.return_value = None
 
             resp = client.get(f"{BASE_URL}/missing/drift")
 
@@ -142,7 +142,7 @@ class TestGetDrift:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = None
 
             resp = client.get(f"{BASE_URL}/test/drift")
@@ -160,7 +160,7 @@ class TestGetDrift:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_positions.return_value = []
 
@@ -185,7 +185,7 @@ class TestGetDrift:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_positions.return_value = positions
 
@@ -205,7 +205,7 @@ class TestGetDrift:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
             repo.get_positions.return_value = positions
 

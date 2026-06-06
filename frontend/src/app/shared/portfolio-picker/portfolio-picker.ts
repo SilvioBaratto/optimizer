@@ -6,9 +6,9 @@ import {
   signal,
 } from '@angular/core';
 
-import { PortfolioApiService } from '../../services/portfolio-api.service';
-import { PortfolioDto } from '../../models/portfolio-api.model';
-import { PortfolioContextService } from '../../services/portfolio-context.service';
+import { PortfolioApiService } from '../../core/services/portfolio-api.service';
+import { PortfolioDto } from '../../core/models/portfolio-api.model';
+import { PortfolioContextService } from '../../core/services/portfolio-context.service';
 
 type State =
   | { kind: 'loading' }

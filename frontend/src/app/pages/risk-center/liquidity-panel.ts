@@ -3,7 +3,7 @@ import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { EchartsBarComponent, BarData } from '../../shared/echarts-bar/echarts-bar';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 import type { LiquidityMetric } from '../../models/risk.model';
 
 interface LiquidityBucket {

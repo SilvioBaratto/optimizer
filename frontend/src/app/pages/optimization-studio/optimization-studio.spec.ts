@@ -4,7 +4,7 @@ import type { HttpTestingController } from '@angular/common/http/testing';
 import { configureTestBed, injectHttp, installResizeObserverStub } from '../../../testing';
 import { ICON_PROVIDER } from '../../icons';
 import { OptimizationStudioComponent } from './optimization-studio';
-import { PortfolioContextService } from '../../services/portfolio-context.service';
+import { PortfolioContextService } from '../../core/services/portfolio-context.service';
 import { environment } from '../../../environments/environment';
 
 const OPTIMIZE_URL = `${environment.apiUrl}optimize`;

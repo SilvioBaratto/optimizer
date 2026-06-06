@@ -7,7 +7,7 @@ import {
 } from '@angular/core';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 import type { FactorAttributionApiResponse } from '../../models/attribution.model';
 
 @Component({

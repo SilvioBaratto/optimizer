@@ -12,7 +12,7 @@ import type {
   ApiAllocationResponse,
   ApiMarketSnapshotResponse,
   ApiAssetClassReturnsResponse,
-} from '../models/dashboard-api.model';
+} from '../core/models/dashboard-api.model';
 
 import { DashboardService } from './dashboard.service';
 import { environment } from '../../environments/environment';

@@ -87,7 +87,7 @@ def get_rebalance_preview(
     portfolio_repo = PortfolioRepository(db)
     rebalancing_repo = RebalancingRepository(db)
 
-    portfolio = portfolio_repo.get_by_name(portfolio_name)
+    portfolio = portfolio_repo.get_by_id_or_name(portfolio_name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

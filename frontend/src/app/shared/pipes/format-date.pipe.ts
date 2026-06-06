@@ -1,5 +1,5 @@
 import { Pipe, PipeTransform, inject } from '@angular/core';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 
 @Pipe({ name: 'formatDate', pure: true })
 export class FormatDatePipe implements PipeTransform {

@@ -1,5 +1,5 @@
 import { Pipe, PipeTransform, inject } from '@angular/core';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 
 export type MetricKind = 'return' | 'percent' | 'ratio' | 'bps';
 

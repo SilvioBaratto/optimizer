@@ -15,8 +15,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, Subscription, timer } from 'rxjs';
 import { catchError, of, switchMap, takeWhile, tap } from 'rxjs';
 
-import { JobsService } from '../../services/jobs.service';
-import { JobStatus, JobSummary } from '../../models/jobs.model';
+import { JobsService } from '../../core/services/jobs.service';
+import { JobStatus, JobSummary } from '../../core/models/jobs.model';
 import { ProgressBarComponent } from '../progress-bar/progress-bar';
 
 export const JOB_POLL_TICK = new InjectionToken<Observable<unknown>>(

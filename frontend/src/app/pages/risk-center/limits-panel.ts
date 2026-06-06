@@ -10,7 +10,7 @@ import {
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NotificationService } from '../../shared/notification/notification.service';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 import type {
   RiskAlert,
   RiskLimit,

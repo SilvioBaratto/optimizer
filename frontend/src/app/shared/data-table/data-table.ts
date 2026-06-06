@@ -1,7 +1,7 @@
 import { Component, input, output, computed, signal, inject, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 
 export interface TableColumn {
   key: string;

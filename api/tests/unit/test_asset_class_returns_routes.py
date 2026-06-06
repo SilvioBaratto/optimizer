@@ -78,7 +78,7 @@ class TestGetAssetClassReturns:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
@@ -100,7 +100,7 @@ class TestGetAssetClassReturns:
 
     def test_portfolio_not_found(self, client: TestClient):
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
-            MockPortRepo.return_value.get_by_name.return_value = None
+            MockPortRepo.return_value.get_by_id_or_name.return_value = None
 
             resp = client.get(f"{BASE_URL}/missing/asset-class-returns")
 
@@ -113,7 +113,7 @@ class TestGetAssetClassReturns:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = None
 
             resp = client.get(f"{BASE_URL}/test/asset-class-returns")
@@ -128,7 +128,7 @@ class TestGetAssetClassReturns:
 
         with patch(_PORTFOLIO_REPO) as MockPortRepo:
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             resp = client.get(f"{BASE_URL}/test/asset-class-returns")
@@ -146,7 +146,7 @@ class TestGetAssetClassReturns:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = (
@@ -169,7 +169,7 @@ class TestGetAssetClassReturns:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices
@@ -196,7 +196,7 @@ class TestGetAssetClassReturns:
             patch(_DASHBOARD_REPO) as MockDashRepo,
         ):
             repo = MockPortRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snapshot
 
             MockDashRepo.return_value.get_multi_ticker_prices.return_value = prices

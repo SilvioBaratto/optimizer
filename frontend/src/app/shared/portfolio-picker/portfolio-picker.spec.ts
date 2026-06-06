@@ -3,12 +3,12 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { Subject, of, throwError } from 'rxjs';
 
 import { PortfolioPickerComponent } from './portfolio-picker';
-import { PortfolioApiService } from '../../services/portfolio-api.service';
+import { PortfolioApiService } from '../../core/services/portfolio-api.service';
 import {
   PortfolioDto,
   PortfolioListResponseDto,
-} from '../../models/portfolio-api.model';
-import { PortfolioContextService } from '../../services/portfolio-context.service';
+} from '../../core/models/portfolio-api.model';
+import { PortfolioContextService } from '../../core/services/portfolio-context.service';
 
 function portfolioDto(overrides: Partial<PortfolioDto> = {}): PortfolioDto {
   return {

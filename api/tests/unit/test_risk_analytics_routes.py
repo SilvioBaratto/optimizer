@@ -78,7 +78,7 @@ class TestVarEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_var.return_value = _make_var_result()
             resp = client.get(f"{_BASE}/var")
 
@@ -89,7 +89,7 @@ class TestVarEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_var.return_value = _make_var_result()
             resp = client.get(f"{_BASE}/var")
 
@@ -102,7 +102,7 @@ class TestVarEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_var.return_value = _make_var_result()
             resp = client.get(f"{_BASE}/var")
 
@@ -115,7 +115,7 @@ class TestVarEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_var.return_value = _make_var_result()
             resp = client.get(f"{_BASE}/var")
 
@@ -128,7 +128,7 @@ class TestVarEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_var.return_value = _make_var_result()
             resp = client.get(f"{_BASE}/var")
 
@@ -141,7 +141,7 @@ class TestVarEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_var.return_value = parametric_result
             resp = client.get(f"{_BASE}/var?method=parametric")
 
@@ -157,7 +157,7 @@ class TestVarEndpoint:
 
     def test_portfolio_not_found_returns_404(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
             resp = client.get(f"{_BASE}/var")
 
         assert resp.status_code == 404
@@ -167,7 +167,7 @@ class TestVarEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_var.side_effect = ValueError(
                 "Insufficient data"
             )
@@ -180,7 +180,7 @@ class TestVarEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_var.return_value = _make_var_result()
             resp = client.get(f"{_BASE}/var?lookback=126")
 
@@ -192,7 +192,7 @@ class TestVarEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_var.return_value = _make_var_result()
             resp = client.get(f"{_BASE}/var")
 
@@ -213,7 +213,7 @@ class TestCorrelationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_correlation.return_value = (
                 _make_correlation_result()
             )
@@ -226,7 +226,7 @@ class TestCorrelationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_correlation.return_value = (
                 _make_correlation_result()
             )
@@ -241,7 +241,7 @@ class TestCorrelationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_correlation.return_value = (
                 _make_correlation_result()
             )
@@ -257,7 +257,7 @@ class TestCorrelationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_correlation.return_value = (
                 _make_correlation_result()
             )
@@ -275,7 +275,7 @@ class TestCorrelationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_correlation.return_value = (
                 _make_correlation_result()
             )
@@ -287,7 +287,7 @@ class TestCorrelationEndpoint:
 
     def test_portfolio_not_found_returns_404(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
             resp = client.get(f"{_BASE}/correlation")
 
         assert resp.status_code == 404
@@ -297,7 +297,7 @@ class TestCorrelationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_correlation.side_effect = ValueError(
                 "At least 2 assets required"
             )
@@ -323,7 +323,7 @@ class TestFactorExposureEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_factor_exposure.return_value = (
                 _make_factor_exposure_result()
             )
@@ -336,7 +336,7 @@ class TestFactorExposureEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_factor_exposure.return_value = (
                 _make_factor_exposure_result()
             )
@@ -350,7 +350,7 @@ class TestFactorExposureEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_factor_exposure.return_value = (
                 _make_factor_exposure_result()
             )
@@ -361,7 +361,7 @@ class TestFactorExposureEndpoint:
 
     def test_portfolio_not_found_returns_404(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
             resp = client.get(f"{_BASE}/factor-exposure")
 
         assert resp.status_code == 404
@@ -374,7 +374,7 @@ class TestFactorExposureEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_factor_exposure.return_value = {
                 "exposures": {},
                 "asset_exposures": {},
@@ -407,7 +407,7 @@ class TestFactorExposureEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockSvc.return_value.compute_factor_exposure.return_value = result
             resp = client.get(f"{_BASE}/factor-exposure")
 
@@ -449,7 +449,7 @@ class TestConcentrationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_concentration.return_value = (
                 _make_concentration_result()
@@ -463,7 +463,7 @@ class TestConcentrationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_concentration.return_value = (
                 _make_concentration_result()
@@ -479,7 +479,7 @@ class TestConcentrationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_concentration.return_value = (
                 _make_concentration_result()
@@ -497,7 +497,7 @@ class TestConcentrationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_concentration.return_value = (
                 _make_concentration_result()
@@ -513,7 +513,7 @@ class TestConcentrationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_concentration.return_value = (
                 _make_concentration_result()
@@ -532,7 +532,7 @@ class TestConcentrationEndpoint:
 
     def test_portfolio_not_found_returns_404(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
             resp = client.get(f"{_BASE}/concentration")
 
         assert resp.status_code == 404
@@ -548,7 +548,7 @@ class TestConcentrationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot(
                 weights={}
             )
@@ -563,7 +563,7 @@ class TestConcentrationEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_concentration.return_value = (
                 _make_concentration_result()
@@ -613,7 +613,7 @@ class TestLiquidityEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_liquidity.return_value = (
                 _make_liquidity_result()
@@ -627,7 +627,7 @@ class TestLiquidityEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_liquidity.return_value = (
                 _make_liquidity_result()
@@ -641,7 +641,7 @@ class TestLiquidityEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_liquidity.return_value = (
                 _make_liquidity_result()
@@ -656,7 +656,7 @@ class TestLiquidityEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_liquidity.return_value = (
                 _make_liquidity_result()
@@ -679,7 +679,7 @@ class TestLiquidityEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_liquidity.return_value = (
                 _make_liquidity_result()
@@ -708,7 +708,7 @@ class TestLiquidityEndpoint:
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_SERVICE) as MockSvc,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = _make_snapshot()
             MockSvc.return_value.compute_liquidity.return_value = (
                 _make_liquidity_result()
@@ -719,7 +719,7 @@ class TestLiquidityEndpoint:
 
     def test_portfolio_not_found_returns_404(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
             resp = client.get(f"{_BASE}/liquidity")
 
         assert resp.status_code == 404
@@ -740,7 +740,7 @@ class TestSnapshotNotFoundBranch:
         self, client: TestClient
     ) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = None
 
             resp = client.get(f"{_BASE}/var")

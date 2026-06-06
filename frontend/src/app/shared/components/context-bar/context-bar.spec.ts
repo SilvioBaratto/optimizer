@@ -7,7 +7,7 @@ import {
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { ContextBarComponent } from './context-bar';
-import { PortfolioContextService } from '../../../services/portfolio-context.service';
+import { PortfolioContextService } from '../../../core/services/portfolio-context.service';
 import { ICON_PROVIDER } from '../../../icons';
 import { environment } from '../../../../environments/environment';
 

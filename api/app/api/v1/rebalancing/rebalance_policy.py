@@ -35,7 +35,7 @@ router = APIRouter(prefix="/portfolio", tags=["Rebalancing Policy"])
 
 
 def _resolve_portfolio_or_404(name: str, db: Session):
-    portfolio = PortfolioRepository(db).get_by_name(name)
+    portfolio = PortfolioRepository(db).get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -9,7 +9,7 @@ import { EchartsWaterfallComponent } from '../../shared/echarts-waterfall/echart
 import { EchartsStackedAreaComponent, AreaSeries } from '../../shared/echarts-stacked-area/echarts-stacked-area';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 import type { BrinsonApiResponse } from '../../models/attribution.model';
 
 @Component({

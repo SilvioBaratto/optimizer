@@ -8,7 +8,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 
 import { PortfoliosPanelComponent } from './portfolios-panel';
 import { environment } from '../../../environments/environment';
-import type { PortfolioDto } from '../../models/portfolio-api.model';
+import type { PortfolioDto } from '../../core/models/portfolio-api.model';
 
 const API = environment.apiUrl;
 

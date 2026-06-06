@@ -13,13 +13,13 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
-import { JobsService } from '../../services/jobs.service';
+import { JobsService } from '../../core/services/jobs.service';
 import {
   DOMAIN_META,
   type JobListResponse,
   type JobStatus,
   type JobSummary,
-} from '../../models/jobs.model';
+} from '../../core/models/jobs.model';
 
 const DASH = '—';
 const PAGE_SIZE_OPTIONS: readonly number[] = [10, 25, 50, 100];

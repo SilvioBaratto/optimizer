@@ -141,14 +141,14 @@ class TestGetPortfolio:
     def test_found(self, client: TestClient) -> None:
         portfolio = _make_portfolio("myport")
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = portfolio
+            MockRepo.return_value.get_by_id_or_name.return_value = portfolio
             resp = client.get(f"{BASE_URL}/myport")
         assert resp.status_code == 200
         assert resp.json()["name"] == "myport"
 
     def test_not_found(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
             resp = client.get(f"{BASE_URL}/missing")
         assert resp.status_code == 404
 
@@ -164,7 +164,7 @@ class TestCreateSnapshot:
         snap = _make_snapshot(portfolio.id)
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.create_snapshot.return_value = snap
             resp = client.post(
                 f"{BASE_URL}/test/snapshots",
@@ -181,7 +181,7 @@ class TestCreateSnapshot:
 
     def test_portfolio_not_found(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
             resp = client.post(
                 f"{BASE_URL}/missing/snapshots",
                 json={
@@ -215,7 +215,7 @@ class TestListSnapshots:
         snap = _make_snapshot(portfolio.id)
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_snapshots.return_value = [snap]
             resp = client.get(f"{BASE_URL}/test/snapshots")
         assert resp.status_code == 200
@@ -223,7 +223,7 @@ class TestListSnapshots:
 
     def test_portfolio_not_found(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
             resp = client.get(f"{BASE_URL}/missing/snapshots")
         assert resp.status_code == 404
 
@@ -239,7 +239,7 @@ class TestGetLatestSnapshot:
         snap = _make_snapshot(portfolio.id)
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = snap
             resp = client.get(f"{BASE_URL}/test/snapshots/latest")
         assert resp.status_code == 200
@@ -249,14 +249,14 @@ class TestGetLatestSnapshot:
         portfolio = _make_portfolio()
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_snapshot.return_value = None
             resp = client.get(f"{BASE_URL}/test/snapshots/latest")
         assert resp.status_code == 404
 
     def test_portfolio_not_found(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
             resp = client.get(f"{BASE_URL}/missing/snapshots/latest")
         assert resp.status_code == 404
 
@@ -279,7 +279,7 @@ class TestTriggerSync:
                 patch(f"{_SYNC_JOB_SVC}.create_job", return_value="job-abc"),
                 patch(f"{_SYNC_JOB_SVC}.start_background"),
             ):
-                MockRepo.return_value.get_by_name.return_value = portfolio
+                MockRepo.return_value.get_by_id_or_name.return_value = portfolio
                 resp = client.post(f"{BASE_URL}/test/sync")
         finally:
             app.dependency_overrides.pop(get_t212_client, None)
@@ -304,7 +304,7 @@ class TestTriggerSync:
                     side_effect=JobAlreadyRunningError("existing-id"),
                 ),
             ):
-                MockRepo.return_value.get_by_name.return_value = portfolio
+                MockRepo.return_value.get_by_id_or_name.return_value = portfolio
                 resp = client.post(f"{BASE_URL}/test/sync")
         finally:
             app.dependency_overrides.pop(get_t212_client, None)
@@ -318,7 +318,7 @@ class TestTriggerSync:
         try:
             app.dependency_overrides[get_t212_client] = _mock_t212_client_dep
             with patch(_PORTFOLIO_REPO) as MockRepo:
-                MockRepo.return_value.get_by_name.return_value = None
+                MockRepo.return_value.get_by_id_or_name.return_value = None
                 resp = client.post(f"{BASE_URL}/missing/sync")
         finally:
             app.dependency_overrides.pop(get_t212_client, None)
@@ -390,7 +390,7 @@ class TestGetPositions:
         position = _make_position()
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_positions.return_value = [position]
             resp = client.get(f"{BASE_URL}/test/positions")
         assert resp.status_code == 200
@@ -400,7 +400,7 @@ class TestGetPositions:
 
     def test_portfolio_not_found(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
             resp = client.get(f"{BASE_URL}/missing/positions")
         assert resp.status_code == 404
 
@@ -408,7 +408,7 @@ class TestGetPositions:
         portfolio = _make_portfolio()
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_positions.return_value = []
             resp = client.get(f"{BASE_URL}/test/positions")
         assert resp.status_code == 200
@@ -426,7 +426,7 @@ class TestGetAccount:
         account = _make_account()
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_account_snapshot.return_value = account
             resp = client.get(f"{BASE_URL}/test/account")
         assert resp.status_code == 200
@@ -438,13 +438,13 @@ class TestGetAccount:
         portfolio = _make_portfolio()
         with patch(_PORTFOLIO_REPO) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_by_name.return_value = portfolio
+            repo.get_by_id_or_name.return_value = portfolio
             repo.get_latest_account_snapshot.return_value = None
             resp = client.get(f"{BASE_URL}/test/account")
         assert resp.status_code == 404
 
     def test_portfolio_not_found(self, client: TestClient) -> None:
         with patch(_PORTFOLIO_REPO) as MockRepo:
-            MockRepo.return_value.get_by_name.return_value = None
+            MockRepo.return_value.get_by_id_or_name.return_value = None
             resp = client.get(f"{BASE_URL}/missing/account")
         assert resp.status_code == 404

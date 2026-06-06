@@ -6,8 +6,8 @@ import {
   JobProgressTrackerComponent,
   JOB_POLL_TICK,
 } from './job-progress-tracker';
-import { JobsService } from '../../services/jobs.service';
-import { JobSummary } from '../../models/jobs.model';
+import { JobsService } from '../../core/services/jobs.service';
+import { JobSummary } from '../../core/models/jobs.model';
 
 function summary(overrides: Partial<JobSummary> = {}): JobSummary {
   return {

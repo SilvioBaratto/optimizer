@@ -7,7 +7,7 @@ import {
   type ReportTemplate,
   type ReportFormat,
   type ReportOrientation,
-} from '../../models/report.model';
+} from '../../core/models/report.model';
 
 interface TemplateOption {
   value: ReportTemplate;

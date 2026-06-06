@@ -25,11 +25,11 @@ import {
   type RollingMetricSeries,
 } from '../../shared/echarts-rolling-metrics/echarts-rolling-metrics';
 import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 import { DashboardService } from '../../services/dashboard.service';
-import { MarketService } from '../../services/market.service';
-import { ReportsService } from '../../services/reports.service';
-import { PortfolioContextService } from '../../services/portfolio-context.service';
+import { MarketService } from '../../core/services/market.service';
+import { ReportsService } from '../../core/services/reports.service';
+import { PortfolioContextService } from '../../core/services/portfolio-context.service';
 import { readCssVar } from '../../shared/charts/echarts-theme';
 import type {
   DashboardKPI,
@@ -40,8 +40,8 @@ import type {
 import type {
   ApiRollingMetricsResponse,
   ReferenceIndexItem,
-} from '../../models/dashboard-api.model';
-import type { ApiReportSectionId } from '../../models/report.model';
+} from '../../core/models/dashboard-api.model';
+import type { ApiReportSectionId } from '../../core/models/report.model';
 import { ModalService } from '../../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../../shared/modal/export-report-modal';
 import { PeriodSelectorComponent, type DashboardPeriod } from './period-selector';

@@ -7,8 +7,8 @@
 // inner row, pass the whole array key (e.g. `{ entries: [...] }`).
 // Keep factories < 10 lines — extend by adding a field, not a branch.
 
-import type { PortfolioDto, SnapshotDto } from '../app/models/portfolio-api.model';
-import type { ApiMarketSnapshotResponse } from '../app/models/dashboard-api.model';
+import type { PortfolioDto, SnapshotDto } from '../app/core/models/portfolio-api.model';
+import type { ApiMarketSnapshotResponse } from '../app/core/models/dashboard-api.model';
 import type {
   BrinsonApiResponse,
   FactorAttributionApiResponse,
@@ -37,10 +37,10 @@ import type {
   FactorSelectApiResponse,
   TAASignal,
 } from '../app/models/factor.model';
-import type { JobListResponse, JobSummary } from '../app/models/jobs.model';
-import type { ReportJobCreateResponse } from '../app/models/report.model';
-import type { UniverseScreenResponse } from '../app/models/universe.model';
-import type { PriceHistory } from '../app/models/yfinance.model';
+import type { JobListResponse, JobSummary } from '../app/core/models/jobs.model';
+import type { ReportJobCreateResponse } from '../app/core/models/report.model';
+import type { UniverseScreenResponse } from '../app/core/models/universe.model';
+import type { PriceHistory } from '../app/core/models/yfinance.model';
 import type {
   EntropyPoolingResponse,
   GenerateViewsResponse,

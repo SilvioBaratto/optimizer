@@ -163,7 +163,7 @@ def delete_limit(
 def _resolve_portfolio_or_404(portfolio_name: str, db: Session):
     """Lookup portfolio by name; raise 404 if not found."""
     repo = PortfolioRepository(db)
-    portfolio = repo.get_by_name(portfolio_name)
+    portfolio = repo.get_by_id_or_name(portfolio_name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -10,13 +10,13 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
-import { PortfolioApiService } from '../../services/portfolio-api.service';
-import { MarketService } from '../../services/market.service';
-import { ReferenceIndexService } from '../../services/reference-index.service';
+import { PortfolioApiService } from '../../core/services/portfolio-api.service';
+import { MarketService } from '../../core/services/market.service';
+import { ReferenceIndexService } from '../../core/services/reference-index.service';
 import type {
   CreatePortfolioDto,
   PortfolioDto,
-} from '../../models/portfolio-api.model';
+} from '../../core/models/portfolio-api.model';
 
 interface CreateForm {
   name: string;

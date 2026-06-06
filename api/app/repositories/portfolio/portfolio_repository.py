@@ -61,6 +61,19 @@ class PortfolioRepository(RepositoryBase):
         stmt = select(Portfolio).where(Portfolio.id == portfolio_id)
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def get_by_id_or_name(self, identifier: str) -> Portfolio | None:
+        """Resolve a portfolio by UUID id or by name.
+
+        The dashboard sends the portfolio UUID (from the frontend portfolio
+        context) while CRUD/sync routes use the human name. Accept both so a
+        single ``{name}`` path param works for either form.
+        """
+        try:
+            pid = uuid.UUID(identifier)
+        except (ValueError, AttributeError):
+            return self.get_by_name(identifier)
+        return self.get_by_id(pid)
+
     def get_distinct_benchmark_tickers(self) -> list[str]:
         """Return every distinct ``benchmark_ticker`` across active portfolios.
 

@@ -136,7 +136,7 @@ def get_performance_metrics(
     dashboard_repo = DashboardRepository(db)
 
     # --- Resolve portfolio ---
-    portfolio = portfolio_repo.get_by_name(name)
+    portfolio = portfolio_repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -219,7 +219,7 @@ def get_equity_curve(
     portfolio_repo = PortfolioRepository(db)
     dashboard_repo = DashboardRepository(db)
 
-    portfolio = portfolio_repo.get_by_name(name)
+    portfolio = portfolio_repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -298,7 +298,7 @@ def get_rolling_metrics(
     portfolio_repo = PortfolioRepository(db)
     dashboard_repo = DashboardRepository(db)
 
-    portfolio = portfolio_repo.get_by_name(name)
+    portfolio = portfolio_repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -360,7 +360,7 @@ def get_allocation(
     """Return sector → ticker allocation hierarchy for the sunburst chart."""
     portfolio_repo = PortfolioRepository(db)
 
-    portfolio = portfolio_repo.get_by_name(name)
+    portfolio = portfolio_repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -428,7 +428,7 @@ def get_drift(
     portfolio_repo = PortfolioRepository(db)
     dashboard_repo = DashboardRepository(db)
 
-    portfolio = portfolio_repo.get_by_name(name)
+    portfolio = portfolio_repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -501,7 +501,7 @@ def get_activity(
     """Return paginated activity events for a portfolio."""
     portfolio_repo = PortfolioRepository(db)
 
-    portfolio = portfolio_repo.get_by_name(name)
+    portfolio = portfolio_repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -557,7 +557,7 @@ def get_asset_class_returns(
     portfolio_repo = PortfolioRepository(db)
     dashboard_repo = DashboardRepository(db)
 
-    portfolio = portfolio_repo.get_by_name(name)
+    portfolio = portfolio_repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

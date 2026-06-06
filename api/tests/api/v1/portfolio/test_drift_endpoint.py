@@ -135,7 +135,7 @@ def patch_portfolio_repo() -> Iterator[Any]:
     with patch(_PORTFOLIO_REPO) as MockRepo:
 
         def install(target_weights: dict[str, float]) -> MagicMock:
-            MockRepo.return_value.get_by_name.return_value = _fake_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _fake_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = (
                 _fake_snapshot(target_weights)
             )

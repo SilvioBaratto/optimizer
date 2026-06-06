@@ -7,7 +7,7 @@ import {
 import { provideRouter } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
 import { DashboardComponent } from './dashboard';
-import { PortfolioContextService } from '../../services/portfolio-context.service';
+import { PortfolioContextService } from '../../core/services/portfolio-context.service';
 import { environment } from '../../../environments/environment';
 import { ICON_PROVIDER } from '../../icons';
 import type { DashboardKPI } from '../../models/dashboard.model';

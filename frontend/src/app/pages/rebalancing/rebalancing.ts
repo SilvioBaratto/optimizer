@@ -14,8 +14,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
-import { FormatService } from '../../services/format.service';
-import { PortfolioApiService } from '../../services/portfolio-api.service';
+import { FormatService } from '../../core/services/format.service';
+import { PortfolioApiService } from '../../core/services/portfolio-api.service';
 import { RebalancingService } from '../../services/rebalancing.service';
 
 import { StatusPanelComponent } from './status-panel';
@@ -33,8 +33,8 @@ import type {
   RebalancingPolicyCreatePayload,
   RebalancingPolicyDto,
 } from '../../models/rebalancing.model';
-import type { PortfolioDto, SnapshotDto } from '../../models/portfolio-api.model';
-import type { ApiError } from '../../models/api-error.model';
+import type { PortfolioDto, SnapshotDto } from '../../core/models/portfolio-api.model';
+import type { ApiError } from '../../core/models/api-error.model';
 
 function friendlyPreviewError(err: ApiError, portfolioName: string): string {
   if (err.status === 404) {

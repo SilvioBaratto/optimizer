@@ -1,7 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { PORTFOLIO_BUILDER_V2 } from './features/portfolio-builder/feature-flag';
-import { portfolioRequiredGuard } from './guards/portfolio-required.guard';
+import { portfolioRequiredGuard } from './core/guards/portfolio-required.guard';
 
 export const routes: Routes = [
   {
@@ -16,15 +15,8 @@ export const routes: Routes = [
       },
       {
         path: 'portfolio-builder',
-        loadComponent: PORTFOLIO_BUILDER_V2
-          ? () => import('./features/portfolio-builder/portfolio-builder').then((m) => m.PortfolioBuilderComponent)
-          : () => import('./pages/pipeline-stepper/pipeline-stepper').then((m) => m.PipelineStepperComponent),
+        loadComponent: () => import('./pages/portfolio-builder/portfolio-builder').then((m) => m.PortfolioBuilderComponent),
         title: 'Portfolio Builder',
-      },
-      {
-        path: 'portfolio-builder-legacy',
-        loadComponent: () => import('./pages/pipeline-stepper/pipeline-stepper').then((m) => m.PipelineStepperComponent),
-        title: 'Portfolio Builder (Legacy)',
       },
       {
         path: 'optimization-studio',

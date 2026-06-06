@@ -18,7 +18,7 @@ import type {
   DecisionFeedItem,
   VetoLogEntry,
 } from '../../models/ai-control.model';
-import { FEATURE_AI_DECISION_LOG_TOKEN } from '../../config/feature-flags';
+import { FEATURE_AI_DECISION_LOG_TOKEN } from '../../core/config/feature-flags';
 
 type ControlTab = 'overview' | 'history' | 'agents' | 'pipeline';
 

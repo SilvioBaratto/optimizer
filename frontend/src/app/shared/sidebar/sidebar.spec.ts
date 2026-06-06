@@ -4,8 +4,8 @@ import { of } from 'rxjs';
 
 import { configureTestBed } from '../../../testing';
 import { SidebarComponent } from './sidebar';
-import { BreakpointService } from '../../services/breakpoint.service';
-import { PortfolioApiService } from '../../services/portfolio-api.service';
+import { BreakpointService } from '../../core/services/breakpoint.service';
+import { PortfolioApiService } from '../../core/services/portfolio-api.service';
 import { ICON_PROVIDER } from '../../icons';
 
 describe('SidebarComponent', () => {

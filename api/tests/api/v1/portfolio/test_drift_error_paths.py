@@ -104,7 +104,7 @@ class TestDriftSuccess:
                 patch(_PORTFOLIO_REPO) as MockRepo,
                 patch(_COMPUTE_DRIFT, return_value=_drift_response()),
             ):
-                MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+                MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
                 MockRepo.return_value.get_latest_snapshot.return_value = (
                     _make_snapshot()
                 )
@@ -134,7 +134,7 @@ class TestDriftSuccess:
                 patch(_PORTFOLIO_REPO) as MockRepo,
                 patch(_COMPUTE_DRIFT) as mock_compute,
             ):
-                MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+                MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
                 MockRepo.return_value.get_latest_snapshot.return_value = (
                     _make_snapshot()
                 )
@@ -174,7 +174,7 @@ def test_when_base_param_then_compute_drift_called_with_enum(
             patch(_PORTFOLIO_REPO) as MockRepo,
             patch(_COMPUTE_DRIFT, return_value=_drift_response()) as mock_compute,
         ):
-            MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+            MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
             MockRepo.return_value.get_latest_snapshot.return_value = (
                 _make_snapshot()
             )
@@ -196,7 +196,7 @@ class TestDriftErrors:
         dep = _override_t212()
         try:
             with patch(_PORTFOLIO_REPO) as MockRepo:
-                MockRepo.return_value.get_by_name.return_value = None
+                MockRepo.return_value.get_by_id_or_name.return_value = None
                 resp = client.get(f"{BASE_URL}/ghost/drift")
         finally:
             _clear_t212(dep)
@@ -208,7 +208,7 @@ class TestDriftErrors:
         dep = _override_t212()
         try:
             with patch(_PORTFOLIO_REPO) as MockRepo:
-                MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+                MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
                 MockRepo.return_value.get_latest_snapshot.return_value = None
                 resp = client.get(f"{BASE_URL}/test/drift")
         finally:
@@ -235,7 +235,7 @@ class TestDriftErrors:
                     side_effect=requests.RequestException("upstream down"),
                 ),
             ):
-                MockRepo.return_value.get_by_name.return_value = _make_portfolio()
+                MockRepo.return_value.get_by_id_or_name.return_value = _make_portfolio()
                 MockRepo.return_value.get_latest_snapshot.return_value = (
                     _make_snapshot()
                 )

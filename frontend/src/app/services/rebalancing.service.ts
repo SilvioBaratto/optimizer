@@ -3,7 +3,7 @@ import { HttpClient, HttpContext, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../environments/environment';
-import { SUPPRESS_TOAST_STATUSES } from '../interceptors/api-http.interceptor';
+import { SUPPRESS_TOAST_STATUSES } from '../core/interceptors/api-http.interceptor';
 import type {
   DriftApiResponse,
   RebalanceDecideApiResponse,
@@ -13,7 +13,7 @@ import type {
   RebalancingPolicyDto,
   RebalancingPolicyListApiResponse,
 } from '../models/rebalancing.model';
-import type { SnapshotListResponseDto } from '../models/portfolio-api.model';
+import type { SnapshotListResponseDto } from '../core/models/portfolio-api.model';
 
 /**
  * HTTP client for rebalancing workflow endpoints.

@@ -5,7 +5,7 @@ import {
   input,
 } from '@angular/core';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
-import type { SnapshotDto } from '../../models/portfolio-api.model';
+import type { SnapshotDto } from '../../core/models/portfolio-api.model';
 
 const TYPE_BADGE_MAP: Record<string, { value: string; colorClass: string }> = {
   optimization: { value: 'Optimization', colorClass: 'bg-chart-1/15 text-chart-1' },

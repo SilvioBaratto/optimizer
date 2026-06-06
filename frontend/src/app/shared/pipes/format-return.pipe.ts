@@ -1,5 +1,5 @@
 import { Pipe, PipeTransform, inject } from '@angular/core';
-import { FormatService, FormattedReturn } from '../../services/format.service';
+import { FormatService, FormattedReturn } from '../../core/services/format.service';
 
 @Pipe({ name: 'formatReturn', pure: true })
 export class FormatReturnPipe implements PipeTransform {

@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { configureTestBed, setInput } from '../../../testing';
 import { FreshnessIndicatorComponent } from './freshness-indicator';
-import type { FreshnessLevel } from '../../models/jobs.model';
+import type { FreshnessLevel } from '../../core/models/jobs.model';
 
 describe('FreshnessIndicatorComponent', () => {
   let fixture: ComponentFixture<FreshnessIndicatorComponent>;

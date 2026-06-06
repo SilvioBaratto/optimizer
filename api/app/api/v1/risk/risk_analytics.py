@@ -65,7 +65,7 @@ def get_risk_analytics_service(db: Session = Depends(get_db)) -> RiskAnalyticsSe
 
 
 def _get_portfolio_or_404(name: str, repo: PortfolioRepository):  # type: ignore[return]
-    portfolio = repo.get_by_name(name)
+    portfolio = repo.get_by_id_or_name(name)
     if portfolio is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

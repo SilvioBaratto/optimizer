@@ -5,7 +5,7 @@ import { DateRangePickerComponent } from './date-range-picker';
 import {
   PortfolioContextService,
   DateRangePreset,
-} from '../../services/portfolio-context.service';
+} from '../../core/services/portfolio-context.service';
 
 describe('DateRangePickerComponent', () => {
   let ctx: PortfolioContextService;

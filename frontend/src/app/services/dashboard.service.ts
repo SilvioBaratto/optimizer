@@ -10,7 +10,7 @@ import type {
   ApiMarketSnapshotResponse,
   ApiAssetClassReturnsResponse,
   ApiRollingMetricsResponse,
-} from '../models/dashboard-api.model';
+} from '../core/models/dashboard-api.model';
 
 @Injectable({ providedIn: 'root' })
 export class DashboardService {

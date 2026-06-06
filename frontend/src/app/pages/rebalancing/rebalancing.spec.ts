@@ -13,7 +13,7 @@ import {
   RETRY_BACKOFF,
   SUPPRESS_TOAST_STATUSES,
   type BackoffFn,
-} from '../../interceptors/api-http.interceptor';
+} from '../../core/interceptors/api-http.interceptor';
 import { NotificationService } from '../../shared/notification/notification.service';
 import { environment } from '../../../environments/environment';
 

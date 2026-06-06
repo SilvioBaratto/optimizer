@@ -9,7 +9,7 @@ import { GlobalSearchComponent } from '../global-search/global-search';
 import { GlobalSearchService } from '../global-search/global-search.service';
 import { BottomTabBarComponent } from '../bottom-tab-bar/bottom-tab-bar';
 import { ContextBarComponent } from '../components/context-bar/context-bar';
-import { BreakpointService } from '../../services/breakpoint.service';
+import { BreakpointService } from '../../core/services/breakpoint.service';
 
 const routerTransition = trigger('routerTransition', [
   transition('* <=> *', [

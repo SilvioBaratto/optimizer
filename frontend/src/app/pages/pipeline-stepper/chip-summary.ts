@@ -4,7 +4,7 @@ import {
   type BuilderStage,
   stepsForSection,
   stepsForStage,
-} from '../../features/portfolio-builder/builder-stage';
+} from '../portfolio-builder/builder-stage';
 import { stepSummary } from './step-summary';
 
 type ResultMap = Map<PipelineStepId, Record<string, unknown> | null>;

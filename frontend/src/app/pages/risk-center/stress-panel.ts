@@ -3,7 +3,7 @@ import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { EchartsWaterfallComponent } from '../../shared/echarts-waterfall/echarts-waterfall';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
-import { FormatService } from '../../services/format.service';
+import { FormatService } from '../../core/services/format.service';
 import type { StressScenario } from '../../models/risk.model';
 
 const SECTOR_IMPACTS: Record<string, { categories: string[]; values: number[] }> = {

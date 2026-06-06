@@ -17,8 +17,8 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 
-import { FormatService } from '../../services/format.service';
-import { PortfolioApiService } from '../../services/portfolio-api.service';
+import { FormatService } from '../../core/services/format.service';
+import { PortfolioApiService } from '../../core/services/portfolio-api.service';
 import { RiskService } from '../../services/risk.service';
 import { VarPanelComponent } from './var-panel';
 import { StressPanelComponent } from './stress-panel';
@@ -48,7 +48,7 @@ import type {
   VaRResult,
   VarApiResponse,
 } from '../../models/risk.model';
-import type { PortfolioDto } from '../../models/portfolio-api.model';
+import type { PortfolioDto } from '../../core/models/portfolio-api.model';
 
 const DEFAULT_PORTFOLIO_VALUE = 10_000_000;
 

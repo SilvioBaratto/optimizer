@@ -53,7 +53,7 @@ import {
 // LucideIconProvider matches template names by converting kebab-case to PascalCase
 // and looking up the result in this map's keys. Most entries use the icon's own
 // PascalCase identifier as the key; the three aliased entries below preserve
-// existing kebab-case names from `models/jobs.model.ts` while pointing at the
+// existing kebab-case names from `core/models/jobs.model.ts` while pointing at the
 // canonical (non-deprecated) icons in lucide-angular ≥ 0.477.
 const icons = {
   Activity,

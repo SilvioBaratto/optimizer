@@ -11,7 +11,7 @@ import { of } from 'rxjs';
 import { JobsPanelComponent } from './jobs-panel';
 import { ICON_PROVIDER } from '../../icons';
 import { environment } from '../../../environments/environment';
-import type { JobListResponse, JobSummary } from '../../models/jobs.model';
+import type { JobListResponse, JobSummary } from '../../core/models/jobs.model';
 
 const JOBS_URL = `${environment.apiUrl}jobs`;
 

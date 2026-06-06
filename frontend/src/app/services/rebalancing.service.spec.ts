@@ -7,7 +7,7 @@ import {
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { RebalancingService } from './rebalancing.service';
-import { SUPPRESS_TOAST_STATUSES } from '../interceptors/api-http.interceptor';
+import { SUPPRESS_TOAST_STATUSES } from '../core/interceptors/api-http.interceptor';
 import { environment } from '../../environments/environment';
 import type {
   RebalanceDecideRequest,
@@ -16,7 +16,7 @@ import type {
   RebalancingPolicyListApiResponse,
   RebalancePreviewApiResponse,
 } from '../models/rebalancing.model';
-import type { SnapshotListResponseDto } from '../models/portfolio-api.model';
+import type { SnapshotListResponseDto } from '../core/models/portfolio-api.model';
 
 const API = environment.apiUrl;
 
