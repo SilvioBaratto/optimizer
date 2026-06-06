@@ -15,7 +15,7 @@ export const routes: Routes = [
       },
       {
         path: 'portfolio-builder',
-        loadComponent: () => import('./pages/portfolio-builder/portfolio-builder').then((m) => m.PortfolioBuilderComponent),
+        loadComponent: () => import('./portfolio-builder/portfolio-builder').then((m) => m.PortfolioBuilderComponent),
         title: 'Portfolio Builder',
       },
       {
