@@ -8,7 +8,7 @@ import {
   Validators,
 } from '@angular/forms';
 
-import type { BaseCurrency } from '../../models/pipeline-builder.model';
+import type { BaseCurrency } from '../../core/models/pipeline-builder.model';
 import type { PipelineConfigSubmit } from '../models/step-params.model';
 import { SCREEN_PRESETS, type ScreenPreset } from '../step-screen-panel/step-screen-panel';
 

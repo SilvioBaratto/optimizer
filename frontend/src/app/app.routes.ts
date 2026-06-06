@@ -19,6 +19,11 @@ export const routes: Routes = [
         title: 'Portfolio Builder',
       },
       {
+        path: 'portfolio-builder-legacy',
+        loadComponent: () => import('./pipeline-stepper/pipeline-stepper').then((m) => m.PipelineStepperComponent),
+        title: 'Portfolio Builder (Legacy)',
+      },
+      {
         path: 'optimization-studio',
         loadComponent: () => import('./optimization-studio/optimization-studio').then((m) => m.OptimizationStudioComponent),
         title: 'Optimization Studio',
@@ -59,7 +64,7 @@ export const routes: Routes = [
       },
       {
         path: 'ai-control-room',
-        loadComponent: () => import('./pages/ai-control-room/ai-control-room').then((m) => m.AiControlRoomComponent),
+        loadComponent: () => import('./ai-control-room/ai-control-room').then((m) => m.AiControlRoomComponent),
         title: 'AI Control Room',
       },
       {

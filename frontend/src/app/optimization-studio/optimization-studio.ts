@@ -30,7 +30,7 @@ import { PortfolioContextService } from '../core/services/portfolio-context.serv
 import type {
   OptimizationRunResponse,
   PipelineNode,
-} from '../models/optimization.model';
+} from '../core/models/optimization.model';
 
 type ApplyStatus = 'idle' | 'saving' | 'success' | 'error';
 

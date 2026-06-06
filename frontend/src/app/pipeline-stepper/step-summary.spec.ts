@@ -1,5 +1,5 @@
 import { stepSummary } from './step-summary';
-import type { PipelineStepId } from '../models/pipeline-builder.model';
+import type { PipelineStepId } from '../core/models/pipeline-builder.model';
 
 describe('stepSummary', () => {
   it('when the result is null, an empty summary is returned', () => {

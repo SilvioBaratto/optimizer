@@ -9,10 +9,13 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
-import { PieSegment } from '../pie-chart/pie-chart';
 import { CHART_EXPORTABLE, type ChartExportable } from '../charts/chart-export.token';
 
-export type { PieSegment };
+export interface PieSegment {
+  label: string;
+  value: number;
+  color: string;
+}
 
 const NARROW_BREAKPOINT_PX = 500;
 const DEFAULT_LABEL_THRESHOLD = 8;

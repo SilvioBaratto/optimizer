@@ -10,7 +10,7 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HelpTooltipComponent } from '../../shared/help-tooltip/help-tooltip';
 import { OptimizationService } from '../optimization.service';
-import type { CovEstimatorType, MuEstimatorType } from '../../models/optimization.model';
+import type { CovEstimatorType, MuEstimatorType } from '../../core/models/optimization.model';
 
 const MU_ESTIMATOR_LABELS: Record<MuEstimatorType, string> = {
   empirical: 'Empirical Mean',

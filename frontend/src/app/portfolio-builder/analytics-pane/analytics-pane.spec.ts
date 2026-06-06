@@ -11,7 +11,7 @@ import type {
   BuilderDriftDiagnostics,
   BuilderResult,
 } from '../models/builder-result.model';
-import type { DriftDiagnostics } from '../../models/drift.model';
+import type { DriftDiagnostics } from '../../core/models/drift.model';
 
 function makeBuilderDiagnostics(
   overrides: Partial<DriftDiagnostics> = {},

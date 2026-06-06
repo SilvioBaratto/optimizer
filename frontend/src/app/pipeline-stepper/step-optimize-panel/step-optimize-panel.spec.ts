@@ -5,7 +5,7 @@ import { StepOptimizePanelComponent } from './step-optimize-panel';
 import {
   StepStatus,
   type OptimizeStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const SAMPLE_RESULT: OptimizeStepResult = {
   weights: [

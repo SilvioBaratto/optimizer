@@ -22,12 +22,12 @@ import {
   type PipelineStepId,
   StepStatus,
   type StepPollResponse,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 import {
   type PipelineConfigSubmit,
   buildStepParams,
 } from '../../pipeline-stepper/models/step-params.model';
-import { PipelineBuilderApiService } from '../../services/pipeline-builder-api.service';
+import { PipelineBuilderApiService } from '../../core/services/pipeline-builder-api.service';
 import { JOB_POLL_TICK } from '../../shared/job-progress-tracker/job-progress-tracker';
 import { RunConfigPanelComponent } from '../../pipeline-stepper/run-config-panel/run-config-panel';
 import { StepLoadPanelComponent } from '../../pipeline-stepper/step-load-panel/step-load-panel';

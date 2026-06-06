@@ -7,18 +7,18 @@ import {
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
-import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
-import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
-import { StatCardComponent } from '../../shared/stat-card/stat-card';
-import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
+import { PageHeaderComponent } from '../shared/components/page-header/page-header';
+import { TabGroupComponent, Tab } from '../shared/components/tab-group/tab-group';
+import { StatCardComponent } from '../shared/stat-card/stat-card';
+import { DataTableComponent, TableColumn } from '../shared/data-table/data-table';
 import { PipelineStatusComponent } from './pipeline-status/pipeline-status';
 import type {
   AgentRole,
   AgentStatus,
   DecisionFeedItem,
   VetoLogEntry,
-} from '../../models/ai-control.model';
-import { FEATURE_AI_DECISION_LOG_TOKEN } from '../../core/config/feature-flags';
+} from './ai-control.model';
+import { FEATURE_AI_DECISION_LOG_TOKEN } from '../core/config/feature-flags';
 
 type ControlTab = 'overview' | 'history' | 'agents' | 'pipeline';
 

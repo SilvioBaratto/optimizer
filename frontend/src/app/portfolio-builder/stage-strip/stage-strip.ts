@@ -6,7 +6,7 @@ import {
   output,
 } from '@angular/core';
 
-import type { PipelineStepId } from '../../models/pipeline-builder.model';
+import type { PipelineStepId } from '../../core/models/pipeline-builder.model';
 import {
   BUILDER_STAGES,
   type BuilderStage,

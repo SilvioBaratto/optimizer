@@ -15,7 +15,7 @@ import {
 import {
   type CoverageGateStepResult,
   StepStatus,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 
 // `abortGateError` input is accepted from the outlet (#723 wiring) but

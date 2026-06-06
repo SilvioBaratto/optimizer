@@ -1,8 +1,8 @@
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
-import { DiagnosticBadgeComponent } from './diagnostic-badge.component';
-import type { FlagInstance, PositionFlag } from '../../models/drift.model';
+import { DiagnosticBadgeComponent } from './diagnostic-badge';
+import type { FlagInstance, PositionFlag } from '../../core/models/drift.model';
 
 function _flag(
   code: PositionFlag,

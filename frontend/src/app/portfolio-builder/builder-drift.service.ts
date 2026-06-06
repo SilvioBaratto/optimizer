@@ -18,7 +18,7 @@ import type {
   DriftRow,
   FlagInstance,
   TradeRow,
-} from '../models/drift.model';
+} from '../core/models/drift.model';
 import type {
   BuilderDrift,
   BuilderDriftDiagnostics,

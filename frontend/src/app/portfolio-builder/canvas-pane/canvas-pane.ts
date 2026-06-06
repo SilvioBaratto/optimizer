@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
 
-import type { WeightItem } from '../../models/pipeline-builder.model';
+import type { WeightItem } from '../../core/models/pipeline-builder.model';
 import { BuilderStore, type CanvasView } from '../state/builder.store';
 import { CanvasStateOverlayComponent } from '../canvas-state-overlay/canvas-state-overlay';
 import { AllocationDonutComponent } from './allocation-donut/allocation-donut';

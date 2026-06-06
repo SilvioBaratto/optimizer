@@ -5,7 +5,7 @@ import type {
   ObjectiveFunctionType,
   OptimizerType,
   RiskMeasureType,
-} from '../../models/optimization.model';
+} from '../../core/models/optimization.model';
 
 const OPTIMIZER_TYPES: readonly OptimizerType[] = ['mean_risk', 'regime_blended'];
 

@@ -4,7 +4,7 @@ import type {
   OptimizeStepResult,
   PipelineStepId,
   ScreenStepResult,
-} from '../models/pipeline-builder.model';
+} from '../core/models/pipeline-builder.model';
 
 function loadResult(
   overrides: Partial<LoadStepResult> = {},

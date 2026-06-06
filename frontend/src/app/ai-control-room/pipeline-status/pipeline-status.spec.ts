@@ -7,8 +7,8 @@ import {
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { PipelineStatusComponent } from './pipeline-status';
-import { environment } from '../../../../environments/environment';
-import { ICON_PROVIDER } from '../../../icons';
+import { environment } from '../../../environments/environment';
+import { ICON_PROVIDER } from '../../icons';
 
 const JOBS_URL = `${environment.apiUrl}jobs`;
 

@@ -6,7 +6,7 @@ import {
   inject,
 } from '@angular/core';
 
-import type { DriftDiagnostics } from '../../models/drift.model';
+import type { DriftDiagnostics } from '../../core/models/drift.model';
 import {
   MetricColorPipe,
   type MetricKind,
@@ -14,7 +14,7 @@ import {
 } from '../../shared/pipes/metric-color.pipe';
 import { BuilderStore } from '../state/builder.store';
 import { CanvasStateOverlayComponent } from '../canvas-state-overlay/canvas-state-overlay';
-import { DiagnosticsStripComponent } from './diagnostics-strip/diagnostics-strip.component';
+import { DiagnosticsStripComponent } from './diagnostics-strip/diagnostics-strip';
 
 export interface MetricCard {
   readonly id: string;

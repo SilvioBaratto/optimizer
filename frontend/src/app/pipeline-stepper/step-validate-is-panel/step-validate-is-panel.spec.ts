@@ -5,7 +5,7 @@ import { StepValidateIsPanelComponent } from './step-validate-is-panel';
 import {
   StepStatus,
   type ValidateIsStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const SAMPLE_RESULT: ValidateIsStepResult = {
   ic_results: [

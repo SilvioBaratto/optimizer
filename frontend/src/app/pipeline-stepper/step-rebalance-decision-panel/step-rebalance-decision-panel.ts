@@ -9,7 +9,7 @@ import {
 import {
   type RebalanceDecisionStepResult,
   StepStatus,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 
 @Component({

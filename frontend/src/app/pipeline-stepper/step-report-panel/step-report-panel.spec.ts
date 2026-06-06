@@ -5,7 +5,7 @@ import { StepReportPanelComponent } from './step-report-panel';
 import {
   StepStatus,
   type ReportStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const SAMPLE_RESULT: ReportStepResult = {
   pass_count: 17,

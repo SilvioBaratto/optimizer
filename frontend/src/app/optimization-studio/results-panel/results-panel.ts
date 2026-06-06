@@ -5,7 +5,7 @@ import { EchartsEfficientFrontierComponent } from '../../shared/echarts-efficien
 import type {
   OptimizationRunResponse,
   EfficientFrontierPoint,
-} from '../../models/optimization.model';
+} from '../../core/models/optimization.model';
 
 interface StatCard {
   label: string;

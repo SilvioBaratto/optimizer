@@ -10,14 +10,14 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
-import type { BaseToggle } from '../../models/drift.model';
+import type { BaseToggle } from '../../core/models/drift.model';
 import {
   type PipelineStepId,
   type RunLevelConfig,
   StepStatus,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 import type { StepParamsConfig } from '../../pipeline-stepper/models/step-params.model';
-import { PipelineBuilderApiService } from '../../services/pipeline-builder-api.service';
+import { PipelineBuilderApiService } from '../../core/services/pipeline-builder-api.service';
 import type {
   BuilderBacktest,
   BuilderDrift,

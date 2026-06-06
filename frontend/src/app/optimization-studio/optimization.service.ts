@@ -23,7 +23,7 @@ import type {
   SelectCovRegimeResponse,
   TuneJobCreateResponse,
   TuneRequest,
-} from '../models/optimization.model';
+} from '../core/models/optimization.model';
 
 export type OptimizeResult = OptimizationRunResponse | OptimizeAsyncResponse;
 

@@ -9,7 +9,7 @@ import {
 import {
   type ReportStepResult,
   StepStatus,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 import {
   DataTableComponent,
   type TableColumn,

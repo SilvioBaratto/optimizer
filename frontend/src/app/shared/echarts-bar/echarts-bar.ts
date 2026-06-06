@@ -9,10 +9,13 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
-import { BarData } from '../bar-chart/bar-chart';
 import { CHART_EXPORTABLE, type ChartExportable } from '../charts/chart-export.token';
 
-export type { BarData };
+export interface BarData {
+  label: string;
+  value: number;
+  color?: string;
+}
 
 @Component({
   selector: 'app-echarts-bar',

@@ -6,7 +6,7 @@ import {
   inject,
 } from '@angular/core';
 
-import type { EfficientFrontierPoint } from '../../../models/optimization.model';
+import type { EfficientFrontierPoint } from '../../../core/models/optimization.model';
 import { EchartsEfficientFrontierComponent } from '../../../shared/echarts-efficient-frontier/echarts-efficient-frontier';
 import { BuilderStore } from '../../state/builder.store';
 

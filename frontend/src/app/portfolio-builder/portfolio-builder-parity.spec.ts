@@ -16,7 +16,7 @@ import {
   STEP_PARAM_DEFAULTS,
   type PipelineConfigSubmit,
 } from '../pipeline-stepper/models/step-params.model';
-import type { RunLevelConfig } from '../models/pipeline-builder.model';
+import type { RunLevelConfig } from '../core/models/pipeline-builder.model';
 
 const SESSIONS_URL = `${environment.apiUrl}pipeline-builder/sessions`;
 

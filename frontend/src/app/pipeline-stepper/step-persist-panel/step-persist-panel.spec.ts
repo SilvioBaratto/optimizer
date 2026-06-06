@@ -5,7 +5,7 @@ import { StepPersistPanelComponent } from './step-persist-panel';
 import {
   StepStatus,
   type PersistStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const RESULT_PERSISTED: PersistStepResult = {
   persisted: true,

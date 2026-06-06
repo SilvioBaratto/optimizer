@@ -11,7 +11,7 @@ import type {
   BuilderFrontier,
   BuilderResult,
 } from '../../models/builder-result.model';
-import type { EfficientFrontierPoint } from '../../../models/optimization.model';
+import type { EfficientFrontierPoint } from '../../../core/models/optimization.model';
 
 const PALETTE = [
   '#111111',

@@ -5,7 +5,7 @@ import { StepValidateOosPanelComponent } from './step-validate-oos-panel';
 import {
   StepStatus,
   type ValidateOosStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const SAMPLE_RESULT: ValidateOosStepResult = {
   n_folds: 6,

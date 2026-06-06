@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { configureTestBed } from '../../../testing';
 import { PipelineBuilderComponent } from './pipeline-builder';
-import type { PipelineNode, PipelineNodeStatus } from '../../models/optimization.model';
+import type { PipelineNode, PipelineNodeStatus } from '../../core/models/optimization.model';
 
 function node(id: string, status: PipelineNodeStatus): PipelineNode {
   return { id, label: id, status, detail: '' };

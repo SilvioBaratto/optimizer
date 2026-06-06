@@ -34,11 +34,11 @@ import type {
 import type {
   OptimizationRunResponse,
   OptimizeRequest,
-} from '../models/optimization.model';
+} from '../core/models/optimization.model';
 import type {
   PipelineStepId,
   RunLevelConfig,
-} from '../models/pipeline-builder.model';
+} from '../core/models/pipeline-builder.model';
 // TEMPORARY CROSS-FEATURE EDGE (Cycle 5 debt)
 import { BacktestService } from '../backtesting/backtest.service';
 import { OptimizationService } from '../optimization-studio/optimization.service';

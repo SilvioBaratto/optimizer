@@ -5,7 +5,7 @@ import {
   inject,
 } from '@angular/core';
 
-import { StepStatus } from '../../models/pipeline-builder.model';
+import { StepStatus } from '../../core/models/pipeline-builder.model';
 import type { BuilderResultStatus } from '../models/builder-result.model';
 import { BuilderStore } from '../state/builder.store';
 

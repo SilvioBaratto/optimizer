@@ -5,7 +5,7 @@ import { OptimizerPanelComponent, type OptimizerRunRequest } from './optimizer-p
 import type {
   ObjectiveFunctionType,
   RiskMeasureType,
-} from '../../models/optimization.model';
+} from '../../core/models/optimization.model';
 
 const EXPECTED_OBJECTIVES: readonly ObjectiveFunctionType[] = [
   'minimize_risk',

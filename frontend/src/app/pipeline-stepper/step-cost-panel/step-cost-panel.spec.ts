@@ -5,7 +5,7 @@ import { StepCostPanelComponent } from './step-cost-panel';
 import {
   StepStatus,
   type CostStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const SAMPLE_RESULT: CostStepResult = {
   cost_bps_actual: 8.4,

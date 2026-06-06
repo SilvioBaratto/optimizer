@@ -14,7 +14,7 @@ import type {
   OptimizeStepResult,
   PipelineStepId,
   RunLevelConfig,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 type ResultMap = Map<PipelineStepId, Record<string, unknown> | null>;
 

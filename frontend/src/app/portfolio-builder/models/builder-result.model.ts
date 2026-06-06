@@ -3,8 +3,8 @@ import type {
   DriftDiagnostics,
   DriftRow,
   DriftTotals,
-} from '../../models/drift.model';
-import type { EfficientFrontierPoint } from '../../models/optimization.model';
+} from '../../core/models/drift.model';
+import type { EfficientFrontierPoint } from '../../core/models/optimization.model';
 
 export type BuilderResultStatus =
   | 'idle'

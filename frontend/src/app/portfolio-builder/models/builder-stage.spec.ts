@@ -11,7 +11,7 @@ import {
   stepsForSection,
   stepsForStage,
 } from './builder-stage';
-import type { PipelineStepId } from '../../models/pipeline-builder.model';
+import type { PipelineStepId } from '../../core/models/pipeline-builder.model';
 
 const ALL_STEP_IDS: readonly PipelineStepId[] = [
   'load',

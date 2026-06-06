@@ -5,7 +5,7 @@ import { ResultsPanelComponent } from './results-panel';
 import type {
   EfficientFrontierPoint,
   OptimizationRunResponse,
-} from '../../models/optimization.model';
+} from '../../core/models/optimization.model';
 
 function makeFrontier(): EfficientFrontierPoint[] {
   return [

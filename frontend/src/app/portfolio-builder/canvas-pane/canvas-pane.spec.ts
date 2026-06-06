@@ -6,7 +6,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { CanvasPaneComponent } from './canvas-pane';
 import { BuilderStore, type CanvasView } from '../state/builder.store';
 import { BuilderResultService } from '../builder-result.service';
-import type { WeightItem } from '../../models/pipeline-builder.model';
+import type { WeightItem } from '../../core/models/pipeline-builder.model';
 
 const PALETTE = [
   '#111111',

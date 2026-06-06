@@ -8,7 +8,7 @@ import {
 import {
   StepStatus,
   type CleanReturnsStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const SAMPLE_RESULT: CleanReturnsStepResult = {
   n_days: 1260,

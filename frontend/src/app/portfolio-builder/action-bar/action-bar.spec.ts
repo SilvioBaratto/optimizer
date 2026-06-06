@@ -6,7 +6,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { ActionBarComponent } from './action-bar';
 import { BuilderResultService } from '../builder-result.service';
 import { BuilderStore } from '../state/builder.store';
-import { StepStatus } from '../../models/pipeline-builder.model';
+import { StepStatus } from '../../core/models/pipeline-builder.model';
 
 function setup(): {
   fixture: ComponentFixture<ActionBarComponent>;

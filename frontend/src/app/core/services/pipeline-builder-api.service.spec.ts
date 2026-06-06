@@ -7,7 +7,7 @@ import {
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { PipelineBuilderApiService } from './pipeline-builder-api.service';
-import { environment } from '../../environments/environment';
+import { environment } from '../../../environments/environment';
 import {
   PIPELINE_STEPS,
   type CreateSessionResponse,

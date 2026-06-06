@@ -9,7 +9,7 @@ import {
 import {
   StepStatus,
   type ScreenStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const RESULT_OK: ScreenStepResult = {
   n_investable: 850,

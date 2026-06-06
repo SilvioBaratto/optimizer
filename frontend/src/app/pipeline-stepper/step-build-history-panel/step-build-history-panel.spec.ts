@@ -5,7 +5,7 @@ import { StepBuildHistoryPanelComponent } from './step-build-history-panel';
 import {
   StepStatus,
   type BuildHistoryStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const RESULT_CLEAN: BuildHistoryStepResult = {
   succeeded_dates: 20,

@@ -47,7 +47,7 @@ import type {
   OpinionPoolResponse,
   OptimizationRunListResponse,
   OptimizationRunResponse,
-} from '../app/models/optimization.model';
+} from '../app/core/models/optimization.model';
 import type {
   BacktestAsyncResponse,
   BacktestProgressResponse,
@@ -57,8 +57,8 @@ import type { MacroCalibrationApiResponse } from '../app/core/models/macro-intel
 import type {
   CreateSessionResponse,
   StepPollResponse,
-} from '../app/models/pipeline-builder.model';
-import type { DriftResponse as DriftResponseRich } from '../app/models/drift.model';
+} from '../app/core/models/pipeline-builder.model';
+import type { DriftResponse as DriftResponseRich } from '../app/core/models/drift.model';
 
 const ISO = '2026-01-01T00:00:00.000Z';
 

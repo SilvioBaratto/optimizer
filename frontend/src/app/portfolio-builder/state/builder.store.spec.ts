@@ -19,7 +19,7 @@ import type {
 import {
   type RunLevelConfig,
   StepStatus,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 import { STEP_PARAM_DEFAULTS } from '../../pipeline-stepper/models/step-params.model';
 import { environment } from '../../../environments/environment';
 

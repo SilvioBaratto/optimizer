@@ -14,7 +14,7 @@ import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 
 import { readCssVar } from '../charts/echarts-theme';
 import { CHART_EXPORTABLE, type ChartExportable } from '../charts/chart-export.token';
-import type { EfficientFrontierPoint } from '../../models/optimization.model';
+import type { EfficientFrontierPoint } from '../../core/models/optimization.model';
 
 interface FrontierClickPayload {
   seriesName?: string;

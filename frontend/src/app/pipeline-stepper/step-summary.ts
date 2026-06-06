@@ -17,7 +17,7 @@ import type {
   ScreenStepResult,
   ValidateIsStepResult,
   ValidateOosStepResult,
-} from '../models/pipeline-builder.model';
+} from '../core/models/pipeline-builder.model';
 
 type RawResult = Record<string, unknown>;
 

@@ -16,7 +16,7 @@ import type {
   GenerateViewsResponse,
   EntropyPoolingResponse,
   OpinionPoolResponse,
-} from '../../models/optimization.model';
+} from '../../core/models/optimization.model';
 
 export type ViewFramework = 'black_litterman' | 'opinion_pool' | 'entropy_pooling';
 

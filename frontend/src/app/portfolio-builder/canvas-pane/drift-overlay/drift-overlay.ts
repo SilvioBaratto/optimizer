@@ -12,10 +12,10 @@ import {
   type BaseToggle,
   type DriftRow,
   type FlagInstance,
-} from '../../../models/drift.model';
-import type { BarData } from '../../../shared/bar-chart/bar-chart';
+} from '../../../core/models/drift.model';
+import type { BarData } from '../../../shared/echarts-bar/echarts-bar';
 import { tickerColorMap } from '../../../shared/charts/ticker-color-map';
-import { DiagnosticBadgeComponent } from '../../../shared/diagnostic-badge/diagnostic-badge.component';
+import { DiagnosticBadgeComponent } from '../../../shared/diagnostic-badge/diagnostic-badge';
 import { EchartsBarComponent } from '../../../shared/echarts-bar/echarts-bar';
 import {
   EchartsDonutComponent,

@@ -5,7 +5,7 @@ import { StepRebalanceDecisionPanelComponent } from './step-rebalance-decision-p
 import {
   StepStatus,
   type RebalanceDecisionStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const SAMPLE_RESULT: RebalanceDecisionStepResult = {
   decision: true,

@@ -10,7 +10,7 @@ import { DecimalPipe } from '@angular/common';
 import {
   type CleanReturnsStepResult,
   StepStatus,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 import { FormatDatePipe } from '../../shared/pipes/format-date.pipe';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 

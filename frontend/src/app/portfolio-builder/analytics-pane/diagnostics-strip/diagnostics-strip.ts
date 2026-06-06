@@ -4,8 +4,8 @@ import type {
   DriftDiagnostics,
   FlagInstance,
   PositionFlag,
-} from '../../../models/drift.model';
-import { DiagnosticBadgeComponent } from '../../../shared/diagnostic-badge/diagnostic-badge.component';
+} from '../../../core/models/drift.model';
+import { DiagnosticBadgeComponent } from '../../../shared/diagnostic-badge/diagnostic-badge';
 
 interface CategoryCount {
   readonly code: PositionFlag;

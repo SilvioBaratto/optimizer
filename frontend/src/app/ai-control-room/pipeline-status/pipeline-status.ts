@@ -12,10 +12,10 @@ import { interval } from 'rxjs';
 import { switchMap, catchError } from 'rxjs/operators';
 import { of } from 'rxjs';
 import { LucideAngularModule } from 'lucide-angular';
-import { JobsService } from '../../../core/services/jobs.service';
-import { FreshnessIndicatorComponent } from '../../../shared/freshness-indicator/freshness-indicator';
-import { ProgressBarComponent } from '../../../shared/progress-bar/progress-bar';
-import type { DomainStatus } from '../../../core/models/jobs.model';
+import { JobsService } from '../../core/services/jobs.service';
+import { FreshnessIndicatorComponent } from '../../shared/freshness-indicator/freshness-indicator';
+import { ProgressBarComponent } from '../../shared/progress-bar/progress-bar';
+import type { DomainStatus } from '../../core/models/jobs.model';
 
 @Component({
   selector: 'app-pipeline-status',

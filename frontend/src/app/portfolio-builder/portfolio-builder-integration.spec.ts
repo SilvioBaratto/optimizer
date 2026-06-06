@@ -19,7 +19,7 @@ import type {
   LoadStepResult,
   PipelineStepId,
   RunLevelConfig,
-} from '../models/pipeline-builder.model';
+} from '../core/models/pipeline-builder.model';
 
 const SESSIONS_URL = `${environment.apiUrl}pipeline-builder/sessions`;
 const STEP_URL = (sid: string, step: string) =>

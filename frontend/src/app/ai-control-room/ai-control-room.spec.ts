@@ -5,8 +5,8 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 
 import { AiControlRoomComponent } from './ai-control-room';
-import { FEATURE_AI_DECISION_LOG_TOKEN } from '../../core/config/feature-flags';
-import { ICON_PROVIDER } from '../../icons';
+import { FEATURE_AI_DECISION_LOG_TOKEN } from '../core/config/feature-flags';
+import { ICON_PROVIDER } from '../icons';
 
 function createComponent(flagValue: boolean) {
   TestBed.configureTestingModule({

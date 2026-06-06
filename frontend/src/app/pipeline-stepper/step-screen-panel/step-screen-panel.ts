@@ -18,7 +18,7 @@ import {
 import {
   type ScreenStepResult,
   StepStatus,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 
 export const SCREEN_PRESETS = [

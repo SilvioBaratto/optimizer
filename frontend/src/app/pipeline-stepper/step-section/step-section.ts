@@ -6,7 +6,7 @@ import {
   output,
 } from '@angular/core';
 
-import { StepStatus } from '../../models/pipeline-builder.model';
+import { StepStatus } from '../../core/models/pipeline-builder.model';
 
 // Collapsible shell for one pipeline step. Pure presentation: it owns no
 // pipeline state and issues no HTTP. The host projects the step panel as

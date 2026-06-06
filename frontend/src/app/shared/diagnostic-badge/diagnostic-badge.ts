@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
-import type { FlagInstance, PositionFlag } from '../../models/drift.model';
+import type { FlagInstance, PositionFlag } from '../../core/models/drift.model';
 
 interface BadgeMeta {
   readonly label: string;

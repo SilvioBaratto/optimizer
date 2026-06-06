@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { configureTestBed } from '../../../testing';
 import { ConfigPanelComponent } from './config-panel';
-import type { PortfolioOptimizeRequest } from '../../models/portfolio.model';
+import type { PortfolioOptimizeRequest } from '../models/portfolio.model';
 
 describe('ConfigPanelComponent', () => {
   let fixture: ComponentFixture<ConfigPanelComponent>;

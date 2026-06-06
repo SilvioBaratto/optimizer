@@ -5,7 +5,7 @@ import { StepRegimePanelComponent } from './step-regime-panel';
 import {
   StepStatus,
   type RegimeStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const SAMPLE_RESULT: RegimeStepResult = {
   regime: 'bull',

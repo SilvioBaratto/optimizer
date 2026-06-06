@@ -1,5 +1,5 @@
 import { Component, input, output, computed, ChangeDetectionStrategy } from '@angular/core';
-import { PipelineNode, PipelineNodeStatus } from '../../models/optimization.model';
+import { PipelineNode, PipelineNodeStatus } from '../../core/models/optimization.model';
 
 @Component({
   selector: 'app-pipeline-builder',

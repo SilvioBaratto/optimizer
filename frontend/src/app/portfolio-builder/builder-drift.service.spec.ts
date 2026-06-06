@@ -9,7 +9,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { BuilderDriftService } from './builder-drift.service';
 import { BuilderStore } from './state/builder.store';
 import { environment } from '../../environments/environment';
-import type { DriftResponse } from '../models/drift.model';
+import type { DriftResponse } from '../core/models/drift.model';
 
 const API = environment.apiUrl;
 const PORTFOLIO = 'core';

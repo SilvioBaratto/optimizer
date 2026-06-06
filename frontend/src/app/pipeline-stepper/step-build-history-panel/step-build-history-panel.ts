@@ -16,7 +16,7 @@ import {
 import {
   type BuildHistoryStepResult,
   StepStatus,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 
 // Emits `market_proxy_ticker` — matches BuildHistoryStepRequest and the

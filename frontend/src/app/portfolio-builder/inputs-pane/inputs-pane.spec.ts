@@ -15,7 +15,7 @@ import {
   STEP_PARAM_DEFAULTS,
   type PipelineConfigSubmit,
 } from '../../pipeline-stepper/models/step-params.model';
-import { StepStatus, type PipelineStepId } from '../../models/pipeline-builder.model';
+import { StepStatus, type PipelineStepId } from '../../core/models/pipeline-builder.model';
 
 const SESSIONS_URL = `${environment.apiUrl}pipeline-builder/sessions`;
 const STEP_URL = (sid: string, step: string) =>

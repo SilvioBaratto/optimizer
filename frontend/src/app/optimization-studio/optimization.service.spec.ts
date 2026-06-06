@@ -25,7 +25,7 @@ import type {
   SelectCovRegimeResponse,
   TuneJobCreateResponse,
   TuneRequest,
-} from '../models/optimization.model';
+} from '../core/models/optimization.model';
 
 const API = environment.apiUrl;
 

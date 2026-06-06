@@ -1,7 +1,7 @@
 import { Component, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { PercentPipe } from '@angular/common';
 import { ReactiveFormsModule, FormGroup, FormControl } from '@angular/forms';
-import { StrategyType, PortfolioOptimizeRequest } from '../../models/portfolio.model';
+import { StrategyType, PortfolioOptimizeRequest } from '../models/portfolio.model';
 
 @Component({
   selector: 'app-config-panel',

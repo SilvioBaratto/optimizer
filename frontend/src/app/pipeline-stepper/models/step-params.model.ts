@@ -6,7 +6,7 @@
 import type {
   PipelineStepId,
   RunLevelConfig,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 import type { ScreenPreset } from '../step-screen-panel/step-screen-panel';
 
 export interface StepParamsConfig {

@@ -5,7 +5,7 @@ import { StepCoverageGatePanelComponent } from './step-coverage-gate-panel';
 import {
   StepStatus,
   type CoverageGateStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const SAMPLE_RESULT: CoverageGateStepResult = {
   passing_factors: ['MOM_12M', 'BAB'],

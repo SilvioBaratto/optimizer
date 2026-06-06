@@ -1,8 +1,8 @@
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
-import { DiagnosticsStripComponent } from './diagnostics-strip.component';
-import type { DriftDiagnostics } from '../../../models/drift.model';
+import { DiagnosticsStripComponent } from './diagnostics-strip';
+import type { DriftDiagnostics } from '../../../core/models/drift.model';
 
 function makeDiagnostics(overrides: Partial<DriftDiagnostics> = {}): DriftDiagnostics {
   return {

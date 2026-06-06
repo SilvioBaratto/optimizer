@@ -3,7 +3,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 
 import { EchartsEfficientFrontierComponent } from './echarts-efficient-frontier';
 import { CHART_EXPORTABLE } from '../charts/chart-export.token';
-import type { EfficientFrontierPoint } from '../../models/optimization.model';
+import type { EfficientFrontierPoint } from '../../core/models/optimization.model';
 
 function makeFrontier(): EfficientFrontierPoint[] {
   return [

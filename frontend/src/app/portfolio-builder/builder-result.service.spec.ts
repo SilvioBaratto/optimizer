@@ -14,11 +14,11 @@ import {
 import { BuilderStore } from './state/builder.store';
 import { JOB_POLL_TICK } from '../shared/job-progress-tracker/job-progress-tracker';
 import { environment } from '../../environments/environment';
-import type { RunLevelConfig } from '../models/pipeline-builder.model';
+import type { RunLevelConfig } from '../core/models/pipeline-builder.model';
 import type {
   OptimizationRunResponse,
   OptimizeAsyncResponse,
-} from '../models/optimization.model';
+} from '../core/models/optimization.model';
 // TEMPORARY CROSS-FEATURE EDGE (Cycle 5 debt)
 import type {
   BacktestProgressResponse,

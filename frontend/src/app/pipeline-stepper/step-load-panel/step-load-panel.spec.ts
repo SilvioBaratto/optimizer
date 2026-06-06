@@ -5,7 +5,7 @@ import { StepLoadPanelComponent } from './step-load-panel';
 import {
   StepStatus,
   type LoadStepResult,
-} from '../../models/pipeline-builder.model';
+} from '../../core/models/pipeline-builder.model';
 
 const SAMPLE_RESULT: LoadStepResult = {
   n_tickers: 1250,

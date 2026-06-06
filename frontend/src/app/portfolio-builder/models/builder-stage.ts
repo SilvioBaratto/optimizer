@@ -1,4 +1,4 @@
-import type { PipelineStepId } from '../../models/pipeline-builder.model';
+import type { PipelineStepId } from '../../core/models/pipeline-builder.model';
 
 export type BuilderStage =
   | 'universe'

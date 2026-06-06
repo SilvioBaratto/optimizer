@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { StepSectionComponent } from './step-section';
-import { StepStatus } from '../../models/pipeline-builder.model';
+import { StepStatus } from '../../core/models/pipeline-builder.model';
 
 describe('StepSectionComponent', () => {
   let fixture: ComponentFixture<StepSectionComponent>;
