@@ -14,12 +14,12 @@ import {
 import { LucideAngularModule } from 'lucide-angular';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { finalize, Observable, Subscription } from 'rxjs';
-import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
-import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
-import { StatCardComponent } from '../../shared/stat-card/stat-card';
-import { MacroIntelligenceService } from '../../services/macro-intelligence.service';
-import { SECTOR_ROTATION_TABLE, COUNTRY_NAME_MAP } from '../../constants/macro-intelligence.constants';
-import { PHASE_DEFAULTS, COMPOSITE_SCORE_THRESHOLDS, COMPOSITE_CHART_AXIS } from '../../constants/macro-intelligence.constants';
+import { PageHeaderComponent } from '../shared/components/page-header/page-header';
+import { TabGroupComponent, Tab } from '../shared/components/tab-group/tab-group';
+import { StatCardComponent } from '../shared/stat-card/stat-card';
+import { MacroIntelligenceService } from './macro-intelligence.service';
+import { SECTOR_ROTATION_TABLE, COUNTRY_NAME_MAP } from './macro-intelligence.constants';
+import { PHASE_DEFAULTS, COMPOSITE_SCORE_THRESHOLDS, COMPOSITE_CHART_AXIS } from './macro-intelligence.constants';
 import type {
   MacroCalibrationResponse,
   FredObservationPoint,
@@ -32,7 +32,7 @@ import type {
   MacroRegimeLabel,
   SectorRotationStance,
   CompositeScorePoint,
-} from '../../models/macro-intelligence.model';
+} from '../core/models/macro-intelligence.model';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 
 type ChartTab = 'yield-curve' | 'credit-spreads' | 'composite-history';

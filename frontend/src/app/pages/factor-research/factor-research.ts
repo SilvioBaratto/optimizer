@@ -36,7 +36,7 @@ import type {
   FactorValidateResponse,
   TradingEconomicsObservation,
 } from '../../models/factor.model';
-import type { MacroCalibrationResponse } from '../../models/macro-intelligence.model';
+import type { MacroCalibrationResponse } from '../../core/models/macro-intelligence.model';
 
 const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'JPM', 'V'];
 const DEFAULT_FACTOR = 'momentum_12_1';

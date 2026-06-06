@@ -52,8 +52,8 @@ import type {
   BacktestAsyncResponse,
   BacktestProgressResponse,
   BacktestRunResponse,
-} from '../app/models/backtest.model';
-import type { MacroCalibrationApiResponse } from '../app/models/macro-intelligence.model';
+} from '../app/backtesting/backtest.model';
+import type { MacroCalibrationApiResponse } from '../app/core/models/macro-intelligence.model';
 import type {
   CreateSessionResponse,
   StepPollResponse,

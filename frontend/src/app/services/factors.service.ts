@@ -21,7 +21,7 @@ import type {
   FactorValidateResponse,
   TradingEconomicsObservation,
 } from '../models/factor.model';
-import type { MacroCalibrationResponse } from '../models/macro-intelligence.model';
+import type { MacroCalibrationResponse } from '../core/models/macro-intelligence.model';
 
 interface MacroCalibrationQuery {
   country?: string;

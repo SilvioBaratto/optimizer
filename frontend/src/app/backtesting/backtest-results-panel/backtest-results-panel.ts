@@ -11,7 +11,7 @@ import {
   EchartsRollingMetricsComponent,
   type RollingMetricSeries,
 } from '../../shared/echarts-rolling-metrics/echarts-rolling-metrics';
-import type { BacktestRunResponse } from '../../models/backtest.model';
+import type { BacktestRunResponse } from '../backtest.model';
 
 interface SummaryCell {
   key: string;

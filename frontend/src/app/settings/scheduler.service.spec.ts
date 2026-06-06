@@ -8,7 +8,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 
 import { SchedulerService } from './scheduler.service';
 import { environment } from '../../environments/environment';
-import type { SchedulerStatusResponse } from '../models/scheduler.model';
+import type { SchedulerStatusResponse } from './scheduler.model';
 
 const API = environment.apiUrl;
 

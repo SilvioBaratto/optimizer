@@ -12,7 +12,7 @@ import type {
   DatabaseStatus,
   HealthCheck,
   TableInfo,
-} from '../../models/database.model';
+} from '../database.model';
 
 const API = environment.apiUrl;
 

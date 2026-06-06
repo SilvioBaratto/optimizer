@@ -13,7 +13,7 @@ import {
   HealthCheck,
   TableInfo,
   TruncateResponse,
-} from '../models/database.model';
+} from './database.model';
 
 const BASE = `${environment.apiUrl}database`;
 

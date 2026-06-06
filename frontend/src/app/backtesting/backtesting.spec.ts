@@ -4,12 +4,12 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { BacktestingComponent, toFactorLoadingSeries } from './backtesting';
-import { ICON_PROVIDER } from '../../icons';
+import { ICON_PROVIDER } from '../icons';
 import type {
   BacktestMetrics,
   BacktestResult,
   FactorLoading,
-} from '../../models/backtest.model';
+} from './backtest.model';
 
 const EMPTY_METRICS: BacktestMetrics = {
   totalReturn: 0.12,

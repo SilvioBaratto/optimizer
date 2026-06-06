@@ -9,7 +9,7 @@ import { ActivatedRoute, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 
 import { SettingsComponent } from './settings';
-import { ICON_PROVIDER } from '../../icons';
+import { ICON_PROVIDER } from '../icons';
 
 describe('SettingsComponent — Jobs tab (#457)', () => {
   let fixture: ComponentFixture<SettingsComponent>;

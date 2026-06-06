@@ -1,4 +1,4 @@
-import type { BusinessCyclePhase, SectorPhaseRow, CompositeScorePoint } from '../models/macro-intelligence.model';
+import type { BusinessCyclePhase, SectorPhaseRow, CompositeScorePoint } from '../core/models/macro-intelligence.model';
 
 export const PHASE_LABELS: Record<BusinessCyclePhase, string> = {
   EARLY_EXPANSION: 'Early Expansion',

@@ -25,11 +25,12 @@ export const BUILDER_RESULT_DEBOUNCE_MS = new InjectionToken<number>(
 );
 
 import { JOB_POLL_TICK } from '../../shared/job-progress-tracker/job-progress-tracker';
+// TEMPORARY CROSS-FEATURE EDGE (Cycle 5 debt)
 import type {
   BacktestApiRequest,
   BacktestProgressResponse,
   BacktestRunResponse,
-} from '../../models/backtest.model';
+} from '../../backtesting/backtest.model';
 import type {
   OptimizationRunResponse,
   OptimizeRequest,
@@ -38,7 +39,8 @@ import type {
   PipelineStepId,
   RunLevelConfig,
 } from '../../models/pipeline-builder.model';
-import { BacktestService } from '../../services/backtest.service';
+// TEMPORARY CROSS-FEATURE EDGE (Cycle 5 debt)
+import { BacktestService } from '../../backtesting/backtest.service';
 import { OptimizationService } from '../../services/optimization.service';
 import { BuilderStore } from './builder.store';
 import type {

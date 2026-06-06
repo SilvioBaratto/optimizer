@@ -25,7 +25,7 @@ export const routes: Routes = [
       },
       {
         path: 'backtesting',
-        loadComponent: () => import('./pages/backtesting/backtesting').then((m) => m.BacktestingComponent),
+        loadComponent: () => import('./backtesting/backtesting').then((m) => m.BacktestingComponent),
         title: 'Backtesting',
         canActivate: [portfolioRequiredGuard],
       },
@@ -54,7 +54,7 @@ export const routes: Routes = [
       },
       {
         path: 'macro-intelligence',
-        loadComponent: () => import('./pages/macro-intelligence/macro-intelligence').then((m) => m.MacroIntelligenceComponent),
+        loadComponent: () => import('./macro-intelligence/macro-intelligence').then((m) => m.MacroIntelligenceComponent),
         title: 'Macro Intelligence',
       },
       {
@@ -64,17 +64,17 @@ export const routes: Routes = [
       },
       {
         path: 'settings',
-        loadComponent: () => import('./pages/settings/settings').then((m) => m.SettingsComponent),
+        loadComponent: () => import('./settings/settings').then((m) => m.SettingsComponent),
         title: 'Settings',
       },
       {
         path: 'portfolio/:name',
-        loadComponent: () => import('./pages/portfolio-detail/portfolio-detail').then((m) => m.PortfolioDetailComponent),
+        loadComponent: () => import('./portfolio-detail/portfolio-detail').then((m) => m.PortfolioDetailComponent),
         title: 'Portfolio',
       },
       {
         path: 'instrument/:id',
-        loadComponent: () => import('./pages/instrument-detail/instrument-detail').then((m) => m.InstrumentDetailComponent),
+        loadComponent: () => import('./instrument-detail/instrument-detail').then((m) => m.InstrumentDetailComponent),
         title: 'Instrument',
       },
       {

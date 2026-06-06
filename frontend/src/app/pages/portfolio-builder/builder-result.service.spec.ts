@@ -19,10 +19,11 @@ import type {
   OptimizationRunResponse,
   OptimizeAsyncResponse,
 } from '../../models/optimization.model';
+// TEMPORARY CROSS-FEATURE EDGE (Cycle 5 debt)
 import type {
   BacktestProgressResponse,
   BacktestRunResponse,
-} from '../../models/backtest.model';
+} from '../../backtesting/backtest.model';
 
 const API = environment.apiUrl;
 const OPT_URL = `${API}optimize`;

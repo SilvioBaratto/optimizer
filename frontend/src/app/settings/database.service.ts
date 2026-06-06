@@ -8,7 +8,7 @@ import {
   HealthCheck,
   TableInfo,
   TruncateResponse,
-} from '../models/database.model';
+} from './database.model';
 
 @Injectable({ providedIn: 'root' })
 export class DatabaseService {

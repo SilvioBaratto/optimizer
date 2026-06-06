@@ -383,7 +383,7 @@ describe('FactorsService', () => {
     });
 
     it('when macro-calibration response is returned, maps phase and delta', () => {
-      let result: import('../models/macro-intelligence.model').MacroCalibrationResponse | undefined;
+      let result: import('../core/models/macro-intelligence.model').MacroCalibrationResponse | undefined;
       svc.macroCalibration({ country: 'EUR' }).subscribe((r) => (result = r));
       http.expectOne((r) => r.url === `${API}views/macro-calibration`).flush({
         phase: 'LATE_EXPANSION', delta: 4.0, tau: 0.03, confidence: 0.75,

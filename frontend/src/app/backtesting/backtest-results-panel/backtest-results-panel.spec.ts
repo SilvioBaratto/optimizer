@@ -2,7 +2,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { BacktestResultsPanelComponent } from './backtest-results-panel';
-import type { BacktestRunResponse } from '../../models/backtest.model';
+import type { BacktestRunResponse } from '../backtest.model';
 
 function makeRun(overrides: Partial<BacktestRunResponse> = {}): BacktestRunResponse {
   return {

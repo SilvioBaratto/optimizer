@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../environments/environment';
-import type { SchedulerStatusResponse } from '../models/scheduler.model';
+import type { SchedulerStatusResponse } from './scheduler.model';
 
 /**
  * HTTP client for the read-only scheduler status endpoint.

@@ -3,12 +3,12 @@ import {
   signal,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
-import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
-import { DataManagementPanelComponent } from './data-management-panel';
-import { PortfoliosPanelComponent } from './portfolios-panel';
-import { SchedulerStatusPanelComponent } from './scheduler-status-panel';
-import { JobsPanelComponent } from './jobs-panel';
+import { PageHeaderComponent } from '../shared/components/page-header/page-header';
+import { TabGroupComponent, Tab } from '../shared/components/tab-group/tab-group';
+import { DataManagementPanelComponent } from './data-management-panel/data-management-panel';
+import { PortfoliosPanelComponent } from './portfolios-panel/portfolios-panel';
+import { SchedulerStatusPanelComponent } from './scheduler-status-panel/scheduler-status-panel';
+import { JobsPanelComponent } from './jobs-panel/jobs-panel';
 
 type SettingsTab = 'data' | 'portfolios' | 'scheduler' | 'jobs';
 

@@ -17,7 +17,7 @@ import type {
   ValidateApiRequest,
   ValidateAsyncResponse,
   ValidateProgressResponse,
-} from '../models/backtest.model';
+} from './backtest.model';
 
 const API = environment.apiUrl;
 

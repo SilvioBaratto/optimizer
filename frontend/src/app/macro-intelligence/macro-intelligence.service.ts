@@ -22,13 +22,13 @@ import type {
   MacroNewsApiResponse,
   MacroNewsThemeApiResponse,
   CountryMacroSummaryResponse,
-} from '../models/macro-intelligence.model';
+} from '../core/models/macro-intelligence.model';
 import {
   COUNTRY_CODE_MAP,
   COUNTRY_NAME_MAP,
   DB_COUNTRIES,
   COMPOSITE_SCORE_THRESHOLDS,
-} from '../constants/macro-intelligence.constants';
+} from './macro-intelligence.constants';
 import { environment } from '../../environments/environment';
 
 // ---------------------------------------------------------------------------

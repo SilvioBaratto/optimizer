@@ -14,12 +14,12 @@ import {
   type TableColumn,
 } from '../../shared/data-table/data-table';
 import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
-import { BacktestService } from '../../services/backtest.service';
+import { BacktestService } from '../backtest.service';
 import type {
   CvType,
   ValidateFoldResult,
   ValidateProgressResponse,
-} from '../../models/backtest.model';
+} from '../backtest.model';
 
 interface FoldRow extends Record<string, unknown> {
   fold: string;

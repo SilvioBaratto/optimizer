@@ -10,11 +10,11 @@ import { DatePipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
-import { SchedulerService } from '../../services/scheduler.service';
+import { SchedulerService } from '../scheduler.service';
 import type {
   SchedulerJobStatusDto,
   SchedulerStatusResponse,
-} from '../../models/scheduler.model';
+} from '../scheduler.model';
 
 const DASH = '—';
 

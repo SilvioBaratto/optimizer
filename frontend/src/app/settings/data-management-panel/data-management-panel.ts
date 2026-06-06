@@ -10,12 +10,12 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { ConfirmationDialogComponent } from '../../shared/modal/confirmation-dialog';
-import { DatabaseService } from '../../services/database.service';
+import { DatabaseService } from '../database.service';
 import type {
   DatabaseStatus,
   HealthCheck,
   TableInfo,
-} from '../../models/database.model';
+} from '../database.model';
 
 @Component({
   selector: 'app-data-management-panel',

@@ -12,7 +12,7 @@ import type {
   ValidateApiRequest,
   ValidateAsyncResponse,
   ValidateProgressResponse,
-} from '../models/backtest.model';
+} from './backtest.model';
 
 /**
  * HTTP client for /api/v1/backtest and /api/v1/validate/walk-forward.

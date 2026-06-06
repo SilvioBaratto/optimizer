@@ -16,7 +16,7 @@ import type {
   MacroRegime,
   TAASignal,
 } from '../../models/factor.model';
-import type { MacroCalibrationResponse } from '../../models/macro-intelligence.model';
+import type { MacroCalibrationResponse } from '../../core/models/macro-intelligence.model';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 
 const REGIME_BADGE_MAP: Record<MacroRegime, { value: string; colorClass: string }> = {

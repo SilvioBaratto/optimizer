@@ -15,7 +15,7 @@ import type {
   FactorSelectApiResponse,
   FactorSelectRequest,
 } from '../../models/factor.model';
-import type { MacroCalibrationResponse, BlackLittermanBlConfig } from '../../models/macro-intelligence.model';
+import type { MacroCalibrationResponse, BlackLittermanBlConfig } from '../../core/models/macro-intelligence.model';
 
 function scoreResponse(): FactorScoreApiResponse {
   return {

@@ -11,33 +11,33 @@ import {
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
-import { PageHeaderComponent } from '../../shared/components/page-header/page-header';
-import { TabGroupComponent, Tab } from '../../shared/components/tab-group/tab-group';
-import { StatCardComponent } from '../../shared/stat-card/stat-card';
-import { EchartsCalendarHeatmapComponent } from '../../shared/echarts-calendar-heatmap/echarts-calendar-heatmap';
-import { EchartsHistogramComponent } from '../../shared/echarts-histogram/echarts-histogram';
-import { EchartsBarComponent, BarData } from '../../shared/echarts-bar/echarts-bar';
-import { EchartsDrawdownComponent } from '../../shared/echarts-drawdown/echarts-drawdown';
-import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
-import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
-import { FormatService } from '../../core/services/format.service';
-import { BacktestService } from '../../services/backtest.service';
-import { PortfolioContextService } from '../../core/services/portfolio-context.service';
-import { readCssVar } from '../../shared/charts/echarts-theme';
-import { CHART_EXPORTABLE, type ChartExportable } from '../../shared/charts/chart-export.token';
-import { ModalService } from '../../shared/modal/modal.service';
-import { ExportReportModalComponent } from '../../shared/modal/export-report-modal';
+import { PageHeaderComponent } from '../shared/components/page-header/page-header';
+import { TabGroupComponent, Tab } from '../shared/components/tab-group/tab-group';
+import { StatCardComponent } from '../shared/stat-card/stat-card';
+import { EchartsCalendarHeatmapComponent } from '../shared/echarts-calendar-heatmap/echarts-calendar-heatmap';
+import { EchartsHistogramComponent } from '../shared/echarts-histogram/echarts-histogram';
+import { EchartsBarComponent, BarData } from '../shared/echarts-bar/echarts-bar';
+import { EchartsDrawdownComponent } from '../shared/echarts-drawdown/echarts-drawdown';
+import { ChartToolbarComponent } from '../shared/chart-toolbar/chart-toolbar';
+import { JobProgressTrackerComponent } from '../shared/job-progress-tracker/job-progress-tracker';
+import { FormatService } from '../core/services/format.service';
+import { BacktestService } from './backtest.service';
+import { PortfolioContextService } from '../core/services/portfolio-context.service';
+import { readCssVar } from '../shared/charts/echarts-theme';
+import { CHART_EXPORTABLE, type ChartExportable } from '../shared/charts/chart-export.token';
+import { ModalService } from '../shared/modal/modal.service';
+import { ExportReportModalComponent } from '../shared/modal/export-report-modal';
 import { DestroyRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { WalkForwardPanelComponent } from './walk-forward-panel';
-import { BacktestResultsPanelComponent } from './backtest-results-panel';
+import { WalkForwardPanelComponent } from './walk-forward-panel/walk-forward-panel';
+import { BacktestResultsPanelComponent } from './backtest-results-panel/backtest-results-panel';
 import type {
   BacktestConfig,
   BacktestMetrics,
   BacktestResult,
   BacktestRunResponse,
   FactorLoading,
-} from '../../models/backtest.model';
+} from './backtest.model';
 
 // Empty defaults used until a backtest run completes — signals swap them
 // for real data fetched via BacktestService.
