@@ -20,7 +20,7 @@ export const routes: Routes = [
       },
       {
         path: 'optimization-studio',
-        loadComponent: () => import('./pages/optimization-studio/optimization-studio').then((m) => m.OptimizationStudioComponent),
+        loadComponent: () => import('./optimization-studio/optimization-studio').then((m) => m.OptimizationStudioComponent),
         title: 'Optimization Studio',
       },
       {
@@ -31,13 +31,13 @@ export const routes: Routes = [
       },
       {
         path: 'risk-center',
-        loadComponent: () => import('./pages/risk-center/risk-center').then((m) => m.RiskCenterComponent),
+        loadComponent: () => import('./risk-center/risk-center').then((m) => m.RiskCenterComponent),
         title: 'Risk Center',
         canActivate: [portfolioRequiredGuard],
       },
       {
         path: 'factor-research',
-        loadComponent: () => import('./pages/factor-research/factor-research').then((m) => m.FactorResearchComponent),
+        loadComponent: () => import('./factor-research/factor-research').then((m) => m.FactorResearchComponent),
         title: 'Factor Research',
       },
       {

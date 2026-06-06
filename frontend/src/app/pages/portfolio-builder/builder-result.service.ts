@@ -41,7 +41,7 @@ import type {
 } from '../../models/pipeline-builder.model';
 // TEMPORARY CROSS-FEATURE EDGE (Cycle 5 debt)
 import { BacktestService } from '../../backtesting/backtest.service';
-import { OptimizationService } from '../../services/optimization.service';
+import { OptimizationService } from '../../optimization-studio/optimization.service';
 import { BuilderStore } from './builder.store';
 import type {
   BuilderBacktest,

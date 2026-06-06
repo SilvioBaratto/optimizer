@@ -168,4 +168,36 @@ describe('FormatService', () => {
       expect(svc.formatDuration(3_660_000)).toBe('1h 1m');
     });
   });
+
+  describe('todayIso', () => {
+    beforeEach(() => {
+      jasmine.clock().install();
+      jasmine.clock().mockDate(new Date('2026-06-06T12:00:00.000Z'));
+    });
+    afterEach(() => jasmine.clock().uninstall());
+
+    it('when called, returns today as YYYY-MM-DD', () => {
+      expect(svc.todayIso()).toBe('2026-06-06');
+    });
+  });
+
+  describe('defaultStartIso', () => {
+    beforeEach(() => {
+      jasmine.clock().install();
+      jasmine.clock().mockDate(new Date('2026-06-06T12:00:00.000Z'));
+    });
+    afterEach(() => jasmine.clock().uninstall());
+
+    it('when called with default, returns 3 years back as YYYY-MM-DD', () => {
+      expect(svc.defaultStartIso()).toBe('2023-06-06');
+    });
+
+    it('when called with yearsBack=1, returns 1 year back', () => {
+      expect(svc.defaultStartIso(1)).toBe('2025-06-06');
+    });
+
+    it('when called with yearsBack=5, returns 5 years back', () => {
+      expect(svc.defaultStartIso(5)).toBe('2021-06-06');
+    });
+  });
 });

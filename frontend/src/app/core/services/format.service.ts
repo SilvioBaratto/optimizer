@@ -71,6 +71,16 @@ export class FormatService {
     }
   }
 
+  todayIso(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  defaultStartIso(yearsBack = 3): string {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - yearsBack);
+    return d.toISOString().slice(0, 10);
+  }
+
   formatDuration(ms: number | null | undefined): string {
     if (ms == null || isNaN(ms)) return '--';
     const seconds = Math.floor(ms / 1000);

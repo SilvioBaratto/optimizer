@@ -23,7 +23,7 @@ import type {
   StressScenarioApiResponse,
   StressScenarioItemApi,
   VarApiResponse,
-} from '../app/models/risk.model';
+} from '../app/risk-center/risk.model';
 import type {
   DriftApiResponse,
   RebalanceDecideApiResponse,
@@ -36,7 +36,7 @@ import type {
   FactorScoreDto,
   FactorSelectApiResponse,
   TAASignal,
-} from '../app/models/factor.model';
+} from '../app/factor-research/factor.model';
 import type { JobListResponse, JobSummary } from '../app/core/models/jobs.model';
 import type { ReportJobCreateResponse } from '../app/core/models/report.model';
 import type { UniverseScreenResponse } from '../app/core/models/universe.model';
