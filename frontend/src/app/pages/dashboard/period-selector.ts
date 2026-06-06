@@ -14,10 +14,10 @@ const PERIOD_OPTIONS: readonly DashboardPeriod[] = ['1Y', '3Y', '5Y', 'MAX'];
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="inline-flex items-center gap-1 bg-surface-inset rounded-lg p-1"
-      role="tablist" aria-label="Dashboard period selector">
+      role="group" aria-label="Dashboard period">
       @for (opt of options; track opt) {
         <button type="button"
-          [attr.aria-selected]="value() === opt"
+          [attr.aria-pressed]="value() === opt"
           [attr.data-testid]="'period-' + opt"
           (click)="select(opt)"
           class="px-3 py-1 text-xs font-medium rounded-md transition-colors"

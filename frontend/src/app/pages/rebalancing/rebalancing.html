@@ -4,6 +4,7 @@
       @if (portfolios().length > 0) {
         <select [ngModel]="selectedPortfolio()"
           (ngModelChange)="onPortfolioSelect($event)"
+          aria-label="Portfolio"
           class="px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
           @for (p of portfolios(); track p.id) {
             <option [value]="p.name">{{ p.name }}</option>

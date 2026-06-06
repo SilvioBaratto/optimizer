@@ -40,11 +40,13 @@ export class RunConfigPanelComponent {
         nonNullable: true,
         validators: [Validators.required, Validators.min(1)],
       }),
-      // Backend _validate_n_selected enforces the Cycle-2 §6.1 band [25, 50];
-      // values outside it raise ValueError before the pipeline runs.
-      n_selected: new FormControl(25, {
+      // API band is [15, 30] (RunLevelConfig.n_selected Field(ge=15, le=30) in
+      // api/app/schemas/pipeline_builder/pipeline_builder.py); the HTML hint and
+      // error copy already say 15–30. The prior [25, 50] validator was stale and
+      // rejected valid in-band values (e.g. 20) before submit (issue #855).
+      n_selected: new FormControl(20, {
         nonNullable: true,
-        validators: [Validators.required, Validators.min(25), Validators.max(50)],
+        validators: [Validators.required, Validators.min(15), Validators.max(30)],
       }),
       cost_bps: new FormControl(10, {
         nonNullable: true,

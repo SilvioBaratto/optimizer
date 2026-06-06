@@ -15,7 +15,7 @@ import {
   STEP_PARAM_DEFAULTS,
   type PipelineConfigSubmit,
 } from '../../../pages/pipeline-stepper/step-params.model';
-import type { PipelineStepId } from '../../../models/pipeline-builder.model';
+import { StepStatus, type PipelineStepId } from '../../../models/pipeline-builder.model';
 
 const SESSIONS_URL = `${environment.apiUrl}pipeline-builder/sessions`;
 const STEP_URL = (sid: string, step: string) =>
@@ -316,6 +316,17 @@ describe('InputsPaneComponent', () => {
     req.flush({ sessionId: 'sid-1' });
 
     expect(store.sessionId()).toBe('sid-1');
+    http.verify();
+  });
+
+  it('when a session is created, the first step is unlocked to Ready so its run-step button can appear', () => {
+    const { fixture, http } = setup();
+    const store = TestBed.inject(BuilderStore);
+
+    fixture.componentInstance.onConfigSubmit(defaultSubmit());
+    http.expectOne(SESSIONS_URL).flush({ sessionId: 'sid-ready' });
+
+    expect(store.stepStatuses().get('load')).toBe(StepStatus.Ready);
     http.verify();
   });
 });

@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject } from '@angular/core';
 
+import { PortfolioContextService } from '../../services/portfolio-context.service';
 import { ActionBarComponent } from './action-bar/action-bar';
 import { AnalyticsPaneComponent } from './analytics-pane/analytics-pane';
 import { BuilderDriftService } from './builder-drift.service';
@@ -57,9 +58,15 @@ export class PortfolioBuilderComponent {
   readonly store = inject(BuilderStore);
   private readonly resultService = inject(BuilderResultService);
   private readonly driftService = inject(BuilderDriftService);
+  private readonly portfolioContext = inject(PortfolioContextService);
 
   constructor() {
     this.resultService.init();
     this.driftService.init();
+    // Drift queries the active portfolio's broker holdings. Without this the
+    // store's portfolioName stays null and BuilderDriftService never fetches.
+    effect(() =>
+      this.store.setPortfolioName(this.portfolioContext.currentPortfolioId()),
+    );
   }
 }

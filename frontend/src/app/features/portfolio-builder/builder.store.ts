@@ -33,6 +33,14 @@ import type { BuilderStage } from './builder-stage';
 
 export type CanvasView = 'donut' | 'bars' | 'frontier' | 'backtest' | 'drift';
 
+// Final artefacts streamed by GET …/sessions/{id}/artifacts/{name}.
+const ARTIFACT_NAMES = [
+  'report.md',
+  'weights.csv',
+  'metrics.json',
+  'checklist.json',
+] as const;
+
 export interface DriftRunner {
   runExplicit(): void;
 }
@@ -203,9 +211,23 @@ export class BuilderStore {
     this.dispatchAction('rebalance_decision');
   }
 
-  // Phase 2 placeholder — Cycle 3 wires the artifact download.
+  // Download the four final pipeline artifacts via the browser. No-op until a
+  // session exists (the action-bar disables the button in that state too).
   export(): void {
-    return;
+    const sid = this._sessionId();
+    if (!sid) return;
+    for (const name of ARTIFACT_NAMES) {
+      this.downloadArtifact(this.api.getArtifactUrl(sid, name), name);
+    }
+  }
+
+  private downloadArtifact(url: string, filename: string): void {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   reset(): void {

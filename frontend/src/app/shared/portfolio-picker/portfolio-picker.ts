@@ -52,6 +52,7 @@ type State =
             <p class="text-xs text-text-secondary">No portfolios — create one</p>
           } @else {
             <select
+              aria-label="Portfolio"
               [value]="currentId() ?? ''"
               (change)="onChange($event)"
               class="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text focus:outline-none focus:ring-1 focus:ring-accent"

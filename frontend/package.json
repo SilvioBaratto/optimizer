@@ -54,6 +54,7 @@
     "karma-jasmine-html-reporter": "~2.1.0",
     "tailwindcss": "^4.1.18",
     "typescript": "~5.9.2",
-    "@axe-core/cli": "^4.11.2"
+    "@axe-core/cli": "^4.11.2",
+    "@axe-core/playwright": "^4.10.0"
   }
 }

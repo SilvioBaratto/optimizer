@@ -9,6 +9,7 @@
       formControlName="rebalance_freq"
       min="1"
       step="1"
+      aria-label="Rebalance frequency (trading days)"
       class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
       [class.border-danger]="form.controls.rebalance_freq.invalid && form.controls.rebalance_freq.touched"
     />
@@ -17,7 +18,7 @@
   <!-- N Selected -->
   <div>
     <label class="block text-data-xs font-medium text-text-secondary mb-1"
-      >Selected assets (25 – 50)</label
+      >Selected assets (15 – 30)</label
     >
     <input
       type="number"
@@ -25,6 +26,7 @@
       min="15"
       max="30"
       step="1"
+      aria-label="Selected assets (15 – 30)"
       class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
       [class.border-danger]="form.controls.n_selected.invalid && form.controls.n_selected.touched"
     />
@@ -44,6 +46,7 @@
         formControlName="cost_bps"
         min="0"
         step="0.5"
+        aria-label="Transaction cost (bps)"
         class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
       />
     </div>
@@ -57,6 +60,7 @@
         min="0"
         max="1"
         step="0.01"
+        aria-label="Tax rate (0 – 1)"
         class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
       />
     </div>
@@ -69,6 +73,7 @@
     >
     <select
       formControlName="base_currency"
+      aria-label="Base currency"
       class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
     >
       @for (c of currencies; track c) {
@@ -106,6 +111,7 @@
       <input
         type="date"
         formControlName="start_date"
+        aria-label="Start date"
         class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
       />
     </div>
@@ -116,6 +122,7 @@
       <input
         type="date"
         formControlName="end_date"
+        aria-label="End date"
         class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
       />
     </div>
@@ -133,6 +140,7 @@
       formControlName="seed"
       min="0"
       step="1"
+      aria-label="Seed"
       class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
     />
   </div>
@@ -152,6 +160,7 @@
         <input
           type="text"
           formControlName="macro_country"
+          aria-label="Macro country"
           class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
         />
       </div>
@@ -172,6 +181,7 @@
       >
       <select
         formControlName="preset"
+        aria-label="Screen preset"
         class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
       >
         @for (p of presets; track p) {
@@ -189,6 +199,7 @@
         <input
           type="text"
           formControlName="market_proxy_ticker"
+          aria-label="Market proxy ticker"
           class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
         />
       </div>
@@ -201,6 +212,7 @@
           formControlName="min_factors"
           min="1"
           step="1"
+          aria-label="Min factors (coverage gate)"
           class="w-full px-3 py-2 text-data-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-colors"
         />
       </div>

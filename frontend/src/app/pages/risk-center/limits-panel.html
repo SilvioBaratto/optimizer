@@ -21,10 +21,12 @@
         <input type="text"
           [ngModel]="createForm().metric"
           (ngModelChange)="updateFormField('metric', $event)"
+          aria-label="Metric (e.g. max_drawdown)"
           placeholder="Metric (e.g. max_drawdown)"
           class="px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent" />
         <select [ngModel]="createForm().limit_type"
           (ngModelChange)="updateFormField('limit_type', $event)"
+          aria-label="Limit type"
           class="px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent">
           <option value="upper">Upper</option>
           <option value="lower">Lower</option>
@@ -32,6 +34,7 @@
         <input type="number" step="0.001" min="0"
           [ngModel]="createForm().threshold"
           (ngModelChange)="updateFormField('threshold', +$event)"
+          aria-label="Threshold"
           placeholder="Threshold"
           class="px-3 py-2 text-sm bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent" />
         <button type="button" (click)="submitCreate()" [disabled]="!isFormValid()"

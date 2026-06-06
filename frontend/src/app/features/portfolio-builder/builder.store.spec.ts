@@ -650,18 +650,49 @@ describe('BuilderStore', () => {
   });
 
   describe('export()', () => {
-    it('when export() is invoked with no sessionId, it does not throw and no HTTP request is made', () => {
+    const ARTIFACTS = ['report.md', 'weights.csv', 'metrics.json', 'checklist.json'];
+
+    function spyOnAnchors(): { href: string; download: string }[] {
+      const created: { href: string; download: string }[] = [];
+      const realCreate = document.createElement.bind(document);
+      spyOn(document, 'createElement').and.callFake((tag: string) => {
+        const el = realCreate(tag) as HTMLElement;
+        if (tag === 'a') {
+          spyOn(el as HTMLAnchorElement, 'click').and.callFake(() =>
+            created.push({
+              href: (el as HTMLAnchorElement).getAttribute('href') ?? '',
+              download: (el as HTMLAnchorElement).download,
+            }),
+          );
+        }
+        return el;
+      });
+      return created;
+    }
+
+    it('when export() is invoked with no sessionId, it does not throw and downloads nothing', () => {
+      const clicks = spyOnAnchors();
       expect(() => store.export()).not.toThrow();
+      expect(clicks.length).toBe(0);
       http.expectNone(() => true);
     });
 
-    it('when export() is invoked with a sessionId, it does not throw and no HTTP request is made (Phase 2 stub)', () => {
+    it('when export() is invoked with a sessionId, each of the four artifacts is downloaded', () => {
+      const clicks = spyOnAnchors();
       store.setSessionId('sid-3');
-      expect(() => store.export()).not.toThrow();
+
+      store.export();
+
+      expect(clicks.map((c) => c.download)).toEqual(ARTIFACTS);
+      for (const artifact of ARTIFACTS) {
+        const hit = clicks.find((c) => c.download === artifact);
+        expect(hit?.href).toContain(`sessions/sid-3/artifacts/${artifact}`);
+      }
       http.expectNone(() => true);
     });
 
     it('when export() is invoked, status is unchanged', () => {
+      spyOnAnchors();
       store.setSessionId('sid-3');
       store.setStatus(StepStatus.Completed);
       store.export();

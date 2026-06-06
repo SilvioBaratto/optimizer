@@ -22,11 +22,11 @@ describe('PeriodSelectorComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('button').length).toBe(4);
   });
 
-  it('when a value is set, its button is aria-selected', () => {
+  it('when a value is set, its button is aria-pressed', () => {
     fixture.componentRef.setInput('value', '5Y');
     fixture.detectChanges();
-    expect(button('5Y').getAttribute('aria-selected')).toBe('true');
-    expect(button('1Y').getAttribute('aria-selected')).toBe('false');
+    expect(button('5Y').getAttribute('aria-pressed')).toBe('true');
+    expect(button('1Y').getAttribute('aria-pressed')).toBe('false');
   });
 
   it('when the current value is clicked, no change is emitted', () => {

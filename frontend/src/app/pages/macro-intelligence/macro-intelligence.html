@@ -87,7 +87,12 @@
       <div class="flex flex-col items-start gap-1.5 flex-1 min-w-0">
         <div class="flex items-center gap-3">
           <span class="inline-flex items-center gap-1.5 text-data-sm font-mono uppercase tracking-wide text-text">
-            <span class="w-1.5 h-1.5 rounded-full" [class]="regimeDotClass()"></span>
+            <span
+              data-region="regime-dot"
+              [attr.data-regime]="regimeLabel()"
+              class="w-1.5 h-1.5 rounded-full"
+              [class]="regimeDotClass()"
+            ></span>
             {{ currentPhaseLabel() }}
           </span>
           <span class="text-data-xs text-text-tertiary font-mono">

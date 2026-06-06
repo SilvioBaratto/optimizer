@@ -28,6 +28,7 @@
       <div class="flex items-center gap-2">
         <span class="text-xs text-text-secondary">Factor compute:</span>
         <select [ngModel]="country()" (ngModelChange)="country.set($event)"
+          aria-label="Factor compute country"
           class="px-3 py-1.5 text-xs bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-1 focus:ring-accent">
           <option value="USA">USA</option>
           <option value="UK">UK</option>

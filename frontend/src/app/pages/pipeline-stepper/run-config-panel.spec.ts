@@ -17,7 +17,7 @@ describe('RunConfigPanelComponent', () => {
       const panel = buildPanel();
       const raw = panel.form.getRawValue();
       expect(raw.rebalance_freq).toBe(21);
-      expect(raw.n_selected).toBe(25);
+      expect(raw.n_selected).toBe(20);
       expect(raw.cost_bps).toBe(10);
       expect(raw.tax_rate).toBe(0.26);
       expect(raw.base_currency).toBe('EUR');
@@ -33,28 +33,29 @@ describe('RunConfigPanelComponent', () => {
     });
   });
 
+  // API band is [15, 30] (RunLevelConfig Field(ge=15, le=30)); issue #855.
   describe('n_selected range', () => {
-    it('when n_selected = 24, form is invalid', () => {
+    it('when n_selected = 14, form is invalid', () => {
       const panel = buildPanel();
-      panel.form.controls.n_selected.setValue(24);
+      panel.form.controls.n_selected.setValue(14);
       expect(panel.form.controls.n_selected.valid).toBe(false);
     });
 
-    it('when n_selected = 51, form is invalid', () => {
+    it('when n_selected = 31, form is invalid', () => {
       const panel = buildPanel();
-      panel.form.controls.n_selected.setValue(51);
+      panel.form.controls.n_selected.setValue(31);
       expect(panel.form.controls.n_selected.valid).toBe(false);
     });
 
-    it('when n_selected = 25, form is valid', () => {
+    it('when n_selected = 15, form is valid', () => {
       const panel = buildPanel();
-      panel.form.controls.n_selected.setValue(25);
+      panel.form.controls.n_selected.setValue(15);
       expect(panel.form.controls.n_selected.valid).toBe(true);
     });
 
-    it('when n_selected = 50, form is valid', () => {
+    it('when n_selected = 30, form is valid', () => {
       const panel = buildPanel();
-      panel.form.controls.n_selected.setValue(50);
+      panel.form.controls.n_selected.setValue(30);
       expect(panel.form.controls.n_selected.valid).toBe(true);
     });
   });
@@ -112,7 +113,7 @@ describe('RunConfigPanelComponent', () => {
 
       panel.onSubmit();
       expect(emitted).toBeDefined();
-      expect(emitted!.config.n_selected).toBe(25);
+      expect(emitted!.config.n_selected).toBe(20);
       expect(emitted!.config.base_currency).toBe('EUR');
       // run-level keys must not leak into config (no step params)
       expect(
@@ -132,7 +133,7 @@ describe('RunConfigPanelComponent', () => {
 
     it('when form is invalid, configSubmit does not emit', () => {
       const panel = buildPanel();
-      panel.form.controls.n_selected.setValue(24);
+      panel.form.controls.n_selected.setValue(14); // below the API band [15, 30]
       let emitted: PipelineConfigSubmit | undefined;
       panel.configSubmit.subscribe((v) => (emitted = v));
 

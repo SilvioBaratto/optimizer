@@ -66,12 +66,17 @@ function buildPalette(rows: readonly DriftRow[]): Record<string, string> {
       >
         <div class="flex items-center gap-2 text-data-xs text-text-secondary">
           <span class="font-medium text-text">Drift</span>
-          <span class="rounded bg-surface-raised px-1.5 py-0.5 capitalize">
+          <span
+            data-cell="active-base"
+            class="rounded bg-surface-raised px-1.5 py-0.5 capitalize"
+          >
             {{ store.deployableBase() }}
           </span>
         </div>
         <div
           data-region="base-toggle"
+          role="group"
+          aria-label="Drift base"
           class="flex gap-1 rounded-md border border-border p-0.5"
         >
           @for (base of bases; track base) {
@@ -79,6 +84,7 @@ function buildPalette(rows: readonly DriftRow[]): Record<string, string> {
               type="button"
               data-base-btn
               [attr.data-base-id]="base"
+              [attr.aria-pressed]="store.deployableBase() === base"
               class="rounded px-2.5 py-1 text-data-xs font-medium capitalize text-text-secondary"
               [class.ring-2]="store.deployableBase() === base"
               [class.ring-accent]="store.deployableBase() === base"
@@ -97,6 +103,7 @@ function buildPalette(rows: readonly DriftRow[]): Record<string, string> {
               type="button"
               data-mode-btn
               [attr.data-mode-id]="mode"
+              [attr.aria-pressed]="viewMode() === mode"
               class="rounded px-2.5 py-1 text-data-xs font-medium capitalize text-text-secondary"
               [class.ring-2]="viewMode() === mode"
               [class.ring-accent]="viewMode() === mode"

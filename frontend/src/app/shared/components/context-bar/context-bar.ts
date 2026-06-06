@@ -36,6 +36,7 @@ interface BenchmarkOption {
               [class]="ctx.activeMode() === mode.value
                 ? 'px-3 py-1 bg-accent text-surface-raised font-medium'
                 : 'px-3 py-1 text-text-secondary hover:text-text hover:bg-surface-inset transition-colors'"
+              [attr.aria-pressed]="ctx.activeMode() === mode.value"
               (click)="ctx.setMode(mode.value)">
               {{ mode.label }}
             </button>
@@ -52,6 +53,7 @@ interface BenchmarkOption {
         <!-- Benchmark dropdown -->
         <div class="relative">
           <select
+            aria-label="Benchmark"
             class="appearance-none bg-surface-raised border border-border rounded px-3 py-1 pr-7 text-data-sm text-text cursor-pointer hover:border-accent transition-colors focus:outline-none focus:ring-1 focus:ring-accent"
             [value]="ctx.benchmark()"
             (change)="onBenchmarkChange($event)">
@@ -73,6 +75,7 @@ interface BenchmarkOption {
               [class]="ctx.activeMode() === mode.value
                 ? 'px-3 py-1.5 bg-accent text-surface-raised font-medium flex-1'
                 : 'px-3 py-1.5 text-text-secondary flex-1 hover:bg-surface-inset transition-colors'"
+              [attr.aria-pressed]="ctx.activeMode() === mode.value"
               (click)="ctx.setMode(mode.value)">
               {{ mode.label }}
             </button>
@@ -87,6 +90,7 @@ interface BenchmarkOption {
 
           <div class="relative shrink-0">
             <select
+              aria-label="Benchmark"
               class="appearance-none bg-surface-raised border border-border rounded px-2 py-0.5 pr-6 text-data-sm text-text cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent"
               [value]="ctx.benchmark()"
               (change)="onBenchmarkChange($event)">

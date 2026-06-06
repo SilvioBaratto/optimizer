@@ -149,10 +149,17 @@ export class InputsPaneComponent {
       .createSession(payload.config)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => this.store.setSessionId(r.sessionId),
+        next: (r) => this.onSessionCreated(r.sessionId),
         error: (e: HttpErrorResponse) =>
           this.lastError.set(`Session creation failed (HTTP ${e.status})`),
       });
+  }
+
+  // Unlock the first step so its run-step button appears; later steps stay
+  // Pending (gated) until each predecessor reports completed.
+  private onSessionCreated(sessionId: string): void {
+    this.store.setSessionId(sessionId);
+    this.store.setStepStatus(PIPELINE_STEPS[0].id, StepStatus.Ready);
   }
 
   onPanelRunStep(stepId: PipelineStepId, _payload: Record<string, unknown>): void {
