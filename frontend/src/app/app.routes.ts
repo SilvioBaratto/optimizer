@@ -9,7 +9,7 @@ export const routes: Routes = [
     children: [
       {
         path: '',
-        loadComponent: () => import('./pages/dashboard/dashboard').then((m) => m.DashboardComponent),
+        loadComponent: () => import('./dashboard/dashboard').then((m) => m.DashboardComponent),
         title: 'Dashboard',
         canActivate: [portfolioRequiredGuard],
       },
@@ -42,13 +42,13 @@ export const routes: Routes = [
       },
       {
         path: 'rebalancing',
-        loadComponent: () => import('./pages/rebalancing/rebalancing').then((m) => m.RebalancingComponent),
+        loadComponent: () => import('./rebalancing/rebalancing').then((m) => m.RebalancingComponent),
         title: 'Rebalancing',
         canActivate: [portfolioRequiredGuard],
       },
       {
         path: 'attribution',
-        loadComponent: () => import('./pages/attribution/attribution').then((m) => m.AttributionComponent),
+        loadComponent: () => import('./attribution/attribution').then((m) => m.AttributionComponent),
         title: 'Attribution',
         canActivate: [portfolioRequiredGuard],
       },

@@ -12,7 +12,7 @@ import type { ApiMarketSnapshotResponse } from '../app/core/models/dashboard-api
 import type {
   BrinsonApiResponse,
   FactorAttributionApiResponse,
-} from '../app/models/attribution.model';
+} from '../app/attribution/attribution.model';
 import type {
   ConcentrationAssetApi,
   ConcentrationMetric,
@@ -28,7 +28,7 @@ import type {
   DriftApiResponse,
   RebalanceDecideApiResponse,
   RebalancePreviewApiResponse,
-} from '../app/models/rebalancing.model';
+} from '../app/rebalancing/rebalancing.model';
 import type {
   CMASet,
   FactorICReport,
