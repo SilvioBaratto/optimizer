@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import type { HttpTestingController } from '@angular/common/http/testing';
+import { throwError } from 'rxjs';
 
 import { configureTestBed, injectHttp } from '../../testing';
 import { MacroIntelligenceService } from './macro-intelligence.service';
@@ -297,6 +298,22 @@ describe('MacroIntelligenceService', () => {
       expect(data[0]['gdp_growth']).toBe(2.5);
       expect(data[0]['yield_spread_bps']).toBe(100);
     });
+
+    it('when all country requests return null, filter removes them and the result is empty', () => {
+      // All four per-country HTTP calls fail → each catchError(of(null)) emits null →
+      // forkJoin resolves with [null, null, null, null] → filter removes all → [].
+      // (The outer catchError at line 130 is a purely defensive guard; this test
+      // confirms the filter path that precedes it.)
+      let data: unknown = 'unset';
+      svc.getCountryData().subscribe((v) => (data = v));
+
+      for (const c of ['USA', 'Germany', 'France', 'UK']) {
+        http.expectOne((r) => r.url === `${API}macro-data/countries/${c}`)
+          .flush('e', { status: 500, statusText: 'x' });
+      }
+
+      expect(data).toEqual([]);
+    });
   });
 
   describe('getCompositeHistory()', () => {
@@ -319,6 +336,49 @@ describe('MacroIntelligenceService', () => {
       const reqs = http.match((r) => r.url === `${API}macro-data/fred/series`);
       reqs[0].flush('e', { status: 500, statusText: 'x' });
       reqs[1].flush('e', { status: 500, statusText: 'x' });
+      expect(points).toEqual([]);
+    });
+
+    it('when spread is below YIELD_SPREAD_BEAR, the score decrements by 1', () => {
+      // Exercises the else-if (spreadVal < YIELD_SPREAD_BEAR) branch (source line 273).
+      let points: Array<{ month: string; score: number }> = [];
+      svc.getCompositeHistory().subscribe((v) => (points = v));
+
+      const reqs = http.match((r) => r.url === `${API}macro-data/fred/series`);
+      // spreadVal = -0.5 < YIELD_SPREAD_BEAR (0) → score -= 1.
+      // hyVal = 600 > HY_OAS_BEAR (500) → score -= 1.  Total: -2.
+      reqs[0].flush([{ id: '1', series_id: 'T10Y2Y', date: '2026-02-15', value: -0.5, created_at: '', updated_at: '' }]);
+      reqs[1].flush([{ id: '2', series_id: 'BAMLH0A0HYM2', date: '2026-02-20', value: 600, created_at: '', updated_at: '' }]);
+
+      expect(points).toEqual([{ month: '2026-02', score: -2 }]);
+    });
+
+    it('when spread is between thresholds, neither spread branch fires and score remains 0', () => {
+      // Exercises the else-path of the else-if on source line 273 (neutral spread).
+      // hyVal between BULL and BEAR → neither HY branch fires either.
+      let points: Array<{ month: string; score: number }> = [];
+      svc.getCompositeHistory().subscribe((v) => (points = v));
+
+      const reqs = http.match((r) => r.url === `${API}macro-data/fred/series`);
+      // spreadVal = 0.5: 0 <= 0.5 <= 1.0 → neither > BULL nor < BEAR.
+      // hyVal = 400: 350 < 400 < 500 → neither < BULL nor > BEAR. score = 0.
+      reqs[0].flush([{ id: '1', series_id: 'T10Y2Y', date: '2026-03-15', value: 0.5, created_at: '', updated_at: '' }]);
+      reqs[1].flush([{ id: '2', series_id: 'BAMLH0A0HYM2', date: '2026-03-20', value: 400, created_at: '', updated_at: '' }]);
+
+      expect(points).toEqual([{ month: '2026-03', score: 0 }]);
+    });
+
+    it('when getFredYieldSpread itself errors, the outer catchError returns an empty list', () => {
+      // Spy on the public getFredYieldSpread to return a plain throwError — bypassing
+      // its own inner catchError — so the forkJoin inside getCompositeHistory propagates
+      // the error to the outer catchError at source line 281.
+      spyOn(svc, 'getFredYieldSpread').and.returnValue(throwError(() => new Error('inject')));
+
+      let points: unknown = 'unset';
+      svc.getCompositeHistory().subscribe((v) => (points = v));
+      // getFredHyOas still fires one HTTP request — drain it so verify() passes.
+      http.match((r) => r.url === `${API}macro-data/fred/series`).forEach(r => r.flush([]));
+
       expect(points).toEqual([]);
     });
   });
@@ -352,6 +412,129 @@ describe('MacroIntelligenceService', () => {
         http
           .expectOne((r) => r.url === `${API}macro-data/news/summarize/s1`)
           .flush({ job_id: 's1', status: 'completed', current: 1, total: 1, errors: [], result: null, error: null });
+
+        expect(done).toBe(true);
+      } finally {
+        jasmine.clock().uninstall();
+      }
+    });
+
+    const FETCH_PATHS = ['macro-data/fetch', 'macro-data/fred/fetch', 'macro-data/news/fetch'];
+
+    function completed(): Record<string, unknown> {
+      return { job_id: 'x', status: 'completed', current: 1, total: 1, errors: [], result: null, error: null };
+    }
+
+    it('when a fetch POST errors, its job is skipped and surviving jobs still poll', () => {
+      jasmine.clock().install();
+      try {
+        let done = false;
+        svc.triggerRefresh().subscribe(() => (done = true));
+
+        // First fetch POST fails → catchError(of(null)) → filtered out of polls.
+        http
+          .expectOne((r) => r.url === `${API}macro-data/fetch` && r.method === 'POST')
+          .flush('e', { status: 500, statusText: 'x' });
+        http
+          .expectOne((r) => r.url === `${API}macro-data/fred/fetch` && r.method === 'POST')
+          .flush({ job_id: 'j2', status: 'pending', message: '' });
+        http
+          .expectOne((r) => r.url === `${API}macro-data/news/fetch` && r.method === 'POST')
+          .flush({ job_id: 'j3', status: 'pending', message: '' });
+
+        jasmine.clock().tick(3000);
+        http.expectOne((r) => r.url === `${API}macro-data/fred/fetch/j2`).flush(completed());
+        http.expectOne((r) => r.url === `${API}macro-data/news/fetch/j3`).flush(completed());
+
+        http
+          .expectOne((r) => r.url === `${API}macro-data/news/summarize` && r.method === 'POST')
+          .flush({ job_id: 's1', status: 'pending', message: '' });
+        jasmine.clock().tick(3000);
+        http.expectOne((r) => r.url === `${API}macro-data/news/summarize/s1`).flush(completed());
+
+        expect(done).toBe(true);
+      } finally {
+        jasmine.clock().uninstall();
+      }
+    });
+
+    it('when all three fetch POSTs error, polling is skipped and summarize still runs', () => {
+      jasmine.clock().install();
+      try {
+        let done = false;
+        svc.triggerRefresh().subscribe(() => (done = true));
+
+        for (const path of FETCH_PATHS) {
+          http
+            .expectOne((r) => r.url === `${API}${path}` && r.method === 'POST')
+            .flush('e', { status: 500, statusText: 'x' });
+        }
+
+        // polls$ is empty → the switchMap returns of(undefined) and summarize runs.
+        http
+          .expectOne((r) => r.url === `${API}macro-data/news/summarize` && r.method === 'POST')
+          .flush({ job_id: 's1', status: 'pending', message: '' });
+        jasmine.clock().tick(3000);
+        http.expectOne((r) => r.url === `${API}macro-data/news/summarize/s1`).flush(completed());
+
+        expect(done).toBe(true);
+      } finally {
+        jasmine.clock().uninstall();
+      }
+    });
+
+    it('when a fetch poll reports status failed, the poll terminates and refresh completes', () => {
+      jasmine.clock().install();
+      try {
+        let done = false;
+        svc.triggerRefresh().subscribe(() => (done = true));
+
+        for (const path of FETCH_PATHS) {
+          http
+            .expectOne((r) => r.url === `${API}${path}` && r.method === 'POST')
+            .flush({ job_id: 'j1', status: 'pending', message: '' });
+        }
+
+        jasmine.clock().tick(3000);
+        // status:'failed' is terminal too → takeWhile(..., true) emits and completes.
+        for (const path of FETCH_PATHS) {
+          http
+            .expectOne((r) => r.url === `${API}${path}/j1`)
+            .flush({ job_id: 'j1', status: 'failed', current: 0, total: 1, errors: ['x'], result: null, error: 'fail' });
+        }
+
+        http
+          .expectOne((r) => r.url === `${API}macro-data/news/summarize` && r.method === 'POST')
+          .flush({ job_id: 's1', status: 'pending', message: '' });
+        jasmine.clock().tick(3000);
+        http.expectOne((r) => r.url === `${API}macro-data/news/summarize/s1`).flush(completed());
+
+        expect(done).toBe(true);
+      } finally {
+        jasmine.clock().uninstall();
+      }
+    });
+
+    it('when the summarize POST errors, the refresh completes with the error swallowed', () => {
+      jasmine.clock().install();
+      try {
+        let done = false;
+        svc.triggerRefresh().subscribe(() => (done = true));
+
+        for (const path of FETCH_PATHS) {
+          http
+            .expectOne((r) => r.url === `${API}${path}` && r.method === 'POST')
+            .flush({ job_id: 'j1', status: 'pending', message: '' });
+        }
+        jasmine.clock().tick(3000);
+        for (const path of FETCH_PATHS) {
+          http.expectOne((r) => r.url === `${API}${path}/j1`).flush(completed());
+        }
+
+        // summarize POST errors → catchError(of(undefined)) → refresh still completes.
+        http
+          .expectOne((r) => r.url === `${API}macro-data/news/summarize` && r.method === 'POST')
+          .flush('e', { status: 500, statusText: 'x' });
 
         expect(done).toBe(true);
       } finally {
