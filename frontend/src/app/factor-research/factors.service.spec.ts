@@ -459,4 +459,114 @@ describe('FactorsService', () => {
       expect(error?.status).toBe(400);
     });
   });
+
+  describe('error-path coverage (issue #912)', () => {
+    // factors.service.ts has zero catchError — every error propagates as a raw
+    // HttpErrorResponse. Assert error.status and error.error (the flushed
+    // body), never error.message.
+    it('when the compute POST times out (status 0), the raw HttpErrorResponse propagates', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.compute(computeRequest()).subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}factors/compute`)
+        .error(new ProgressEvent('timeout'), { status: 0 });
+
+      expect(error instanceof HttpErrorResponse).toBe(true);
+      expect(error?.status).toBe(0);
+    });
+
+    it('when pollCompute returns 503, error.status is 503', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.pollCompute('j1').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}factors/compute/j1`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+    });
+
+    it('when macroCalibration returns 503 with a structured circuit-open body, the body is reachable on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.macroCalibration({ country: 'USA' }).subscribe({ error: (e) => (error = e) });
+
+      const body = { error: { message: 'circuit open' } };
+      http
+        .expectOne((r) => r.url === `${API}views/macro-calibration`)
+        .flush(body, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+      expect(error?.error).toEqual(body);
+    });
+
+    it('when validate returns 422 with a validation_errors body, the body is on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc
+        .validate({
+          tickers: ['AAPL'],
+          start_date: '2024-01-01',
+          end_date: '2024-12-31',
+          factor_type: 'momentum_12_1',
+        })
+        .subscribe({ error: (e) => (error = e) });
+
+      const body = { validation_errors: { factor_type: ['unknown factor'] } };
+      http
+        .expectOne(`${API}factors/validate`)
+        .flush(body, { status: 422, statusText: 'Unprocessable' });
+
+      expect(error?.status).toBe(422);
+      expect(error?.error).toEqual(body);
+    });
+
+    it('when score returns 422 with a nested error.details.validation_errors body, the body is reachable on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc
+        .score({ tickers: ['AAPL'], score_date: '2024-12-31', composite_method: 'equal_weight' })
+        .subscribe({ error: (e) => (error = e) });
+
+      const nested = {
+        error: { details: { validation_errors: { tickers: ['required'] } } },
+      };
+      http
+        .expectOne(`${API}factors/score`)
+        .flush(nested, { status: 422, statusText: 'Unprocessable' });
+
+      expect(error?.status).toBe(422);
+      expect(error?.error).toEqual(nested);
+    });
+
+    it('when pollCompute returns a malformed body, the result is defined and missing fields are undefined', () => {
+      let result: import('./factor.model').FactorComputeProgress | undefined;
+      svc.pollCompute('j3').subscribe((r) => (result = r));
+
+      http
+        .expectOne(`${API}factors/compute/j3`)
+        .flush({ job_id: 'j3', status: 'running' });
+
+      expect(result).toBeDefined();
+      expect(result?.result).toBeUndefined();
+      expect(result?.errors).toBeUndefined();
+      expect(result?.current).toBeUndefined();
+      expect(result?.total).toBeUndefined();
+    });
+
+    it('when the caller unsubscribes from pollCompute before the flush, next never fires', () => {
+      let emitted = false;
+      const sub = svc
+        .pollCompute('j4')
+        .subscribe({ next: () => (emitted = true), error: () => (emitted = true) });
+
+      sub.unsubscribe();
+
+      // A cancelled TestRequest cannot be flushed (Angular 21.1.1 throws), and
+      // default verify() counts cancelled requests as open — so drain it with
+      // expectOne (removes it from the open list) and assert its cancelled
+      // state instead of flushing.
+      const req = http.expectOne(`${API}factors/compute/j4`);
+      expect(req.cancelled).toBe(true);
+      expect(emitted).toBe(false);
+    });
+  });
 });

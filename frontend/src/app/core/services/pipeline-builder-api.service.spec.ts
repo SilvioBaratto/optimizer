@@ -231,4 +231,79 @@ describe('PipelineBuilderApiService', () => {
       PIPELINE_STEPS.forEach((s, i) => expect(s.index).toBe(i));
     });
   });
+
+  describe('error-path coverage (issue #915)', () => {
+    // pipeline-builder-api.service.ts has no catchError → raw HttpErrorResponse
+    // propagates; runStep pipes map(toStepRunResponse) on the success path.
+    it('when pollStep times out (status 0), the raw HttpErrorResponse propagates', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.pollStep('sid-1', 'load').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${BASE}/sessions/sid-1/steps/load`)
+        .error(new ProgressEvent('timeout'), { status: 0 });
+
+      expect(error instanceof HttpErrorResponse).toBe(true);
+      expect(error?.status).toBe(0);
+    });
+
+    it('when createSession returns 503, error.status is 503', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.createSession(defaultConfig()).subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${BASE}/sessions`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+    });
+
+    it('when deleteSession returns 503, error.status is 503', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.deleteSession('sid-1').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${BASE}/sessions/sid-1`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+    });
+
+    it('when runStep returns 422 with a validation_errors body, the body is on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.runStep('sid-1', 'load', {}).subscribe({ error: (e) => (error = e) });
+
+      const body = { validation_errors: { include_delisted: ['must be boolean'] } };
+      http
+        .expectOne(`${BASE}/sessions/sid-1/steps/load`)
+        .flush(body, { status: 422, statusText: 'Unprocessable' });
+
+      expect(error?.status).toBe(422);
+      expect(error?.error).toEqual(body);
+    });
+
+    it('when runStep returns an empty wire body, toStepRunResponse maps jobId to undefined', () => {
+      let result: StepRunResponse | undefined;
+      svc.runStep('sid-1', 'load', {}).subscribe((r) => (result = r));
+
+      http.expectOne(`${BASE}/sessions/sid-1/steps/load`).flush({});
+
+      expect(result).toBeDefined();
+      expect(result?.jobId).toBeUndefined();
+    });
+
+    it('when the caller unsubscribes from pollStep before the flush, next never fires', () => {
+      let emitted = false;
+      const sub = svc
+        .pollStep('sid-1', 'load')
+        .subscribe({ next: () => (emitted = true), error: () => (emitted = true) });
+      sub.unsubscribe();
+
+      // A cancelled TestRequest cannot be flushed (Angular 21.1.1 throws), and
+      // default verify() counts it as open — drain it with expectOne instead.
+      const req = http.expectOne(`${BASE}/sessions/sid-1/steps/load`);
+      expect(req.cancelled).toBe(true);
+      expect(emitted).toBe(false);
+    });
+  });
 });

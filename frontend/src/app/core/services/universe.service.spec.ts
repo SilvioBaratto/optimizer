@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -292,6 +292,106 @@ describe('UniverseService', () => {
         sub.unsubscribe();
         done();
       }, 10);
+    });
+  });
+
+  describe('error-path coverage (issue #915)', () => {
+    // getStats/getExchanges/getInstruments swallow errors to a fallback value
+    // and never error to the subscriber; buildUniverse/getBuildProgress/screen
+    // propagate the raw HttpErrorResponse.
+    it('when getStats times out (status 0), it swallows the error and returns EMPTY_STATS', () => {
+      let result: UniverseStats | undefined;
+      svc.getStats().subscribe({
+        next: (s) => (result = s),
+        error: () => fail('getStats must swallow errors'),
+      });
+
+      http
+        .expectOne(`${API}universe/stats`)
+        .error(new ProgressEvent('timeout'), { status: 0 });
+
+      expect(result).toEqual({
+        total_exchanges: 0,
+        total_instruments: 0,
+        last_updated: '',
+      });
+    });
+
+    it('when getInstruments returns 503, it swallows the error and returns an empty page echoing the query', () => {
+      let result: InstrumentList | undefined;
+      svc.getInstruments({ page: 3, page_size: 25 }).subscribe({
+        next: (r) => (result = r),
+        error: () => fail('getInstruments must swallow errors'),
+      });
+
+      http
+        .expectOne((r) => r.url === `${API}universe/instruments`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(result).toEqual({ items: [], total: 0, page: 3, page_size: 25 });
+    });
+
+    it('when buildUniverse returns 503, the raw error propagates', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.buildUniverse().subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}universe/build`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+    });
+
+    it('when screen returns 503, the raw error propagates', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.screen({}).subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}universe/screen`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+    });
+
+    it('when screen returns 422 with a nested error.details.validation_errors body, the body is on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.screen({}).subscribe({ error: (e) => (error = e) });
+
+      const nested = {
+        error: { details: { validation_errors: { preset: ['invalid'] } } },
+      };
+      http
+        .expectOne(`${API}universe/screen`)
+        .flush(nested, { status: 422, statusText: 'Unprocessable' });
+
+      expect(error?.status).toBe(422);
+      expect(error?.error).toEqual(nested);
+    });
+
+    it('when getBuildProgress times out (status 0), the raw error propagates', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.getBuildProgress('abc').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}universe/build/abc`)
+        .error(new ProgressEvent('timeout'), { status: 0 });
+
+      expect(error instanceof HttpErrorResponse).toBe(true);
+      expect(error?.status).toBe(0);
+    });
+
+    it('when the caller unsubscribes from getBuildProgress before the flush, next never fires', () => {
+      let emitted = false;
+      const sub = svc
+        .getBuildProgress('abc')
+        .subscribe({ next: () => (emitted = true), error: () => (emitted = true) });
+      sub.unsubscribe();
+
+      // A cancelled TestRequest cannot be flushed (Angular 21.1.1 throws), and
+      // default verify() counts it as open — drain it with expectOne instead.
+      const req = http.expectOne(`${API}universe/build/abc`);
+      expect(req.cancelled).toBe(true);
+      expect(emitted).toBe(false);
     });
   });
 });

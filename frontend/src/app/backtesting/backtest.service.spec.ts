@@ -318,4 +318,103 @@ describe('BacktestService', () => {
       expect(error?.status).toBe(404);
     });
   });
+
+  describe('error-path coverage (issue #913)', () => {
+    // backtest.service.ts has zero catchError — every error propagates as a raw
+    // HttpErrorResponse. Assert error.status and error.error (flushed body),
+    // never error.message.
+    it('when pollBacktest times out (status 0), the raw HttpErrorResponse propagates', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.pollBacktest('j1').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}backtest/j1`)
+        .error(new ProgressEvent('timeout'), { status: 0 });
+
+      expect(error instanceof HttpErrorResponse).toBe(true);
+      expect(error?.status).toBe(0);
+    });
+
+    it('when runBacktest returns 503, error.status is 503', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.runBacktest(backtestRequest()).subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}backtest`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+    });
+
+    it('when getBacktestRun returns 503, error.status is 503', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.getBacktestRun('r-1').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}backtest/runs/r-1`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+    });
+
+    it('when runBacktest returns 422 with a validation_errors body, the body is on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.runBacktest(backtestRequest()).subscribe({ error: (e) => (error = e) });
+
+      const body = { validation_errors: { tickers: ['required'] } };
+      http
+        .expectOne(`${API}backtest`)
+        .flush(body, { status: 422, statusText: 'Unprocessable' });
+
+      expect(error?.status).toBe(422);
+      expect(error?.error).toEqual(body);
+    });
+
+    it('when runWalkForward returns 422 with a nested error.details.validation_errors body, the body is reachable on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc
+        .runWalkForward({ tickers: ['AAPL'], start_date: '2024-01-01', end_date: '2024-12-31' })
+        .subscribe({ error: (e) => (error = e) });
+
+      const nested = {
+        error: { details: { validation_errors: { cv_type: ['unsupported'] } } },
+      };
+      http
+        .expectOne(`${API}validate/walk-forward`)
+        .flush(nested, { status: 422, statusText: 'Unprocessable' });
+
+      expect(error?.status).toBe(422);
+      expect(error?.error).toEqual(nested);
+    });
+
+    it('when getBacktestRun returns a malformed body, the result is defined and equityCurve/summaryStats are undefined', () => {
+      let result: BacktestRunResponse | undefined;
+      svc.getBacktestRun('r-1').subscribe((r) => (result = r));
+
+      http
+        .expectOne(`${API}backtest/runs/r-1`)
+        .flush({ id: 'r-1', status: 'completed' });
+
+      expect(result).toBeDefined();
+      expect(result?.equityCurve).toBeUndefined();
+      expect(result?.summaryStats).toBeUndefined();
+    });
+
+    it('when the caller unsubscribes from pollBacktest before the flush, next never fires', () => {
+      let emitted = false;
+      const sub = svc
+        .pollBacktest('j9')
+        .subscribe({ next: () => (emitted = true), error: () => (emitted = true) });
+
+      sub.unsubscribe();
+
+      // A cancelled TestRequest cannot be flushed (Angular 21.1.1 throws), and
+      // default verify() counts cancelled requests as open — so drain it with
+      // expectOne (removes it from the open list) and assert its cancelled
+      // state instead of flushing.
+      const req = http.expectOne(`${API}backtest/j9`);
+      expect(req.cancelled).toBe(true);
+      expect(emitted).toBe(false);
+    });
+  });
 });

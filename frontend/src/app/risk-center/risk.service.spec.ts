@@ -307,4 +307,103 @@ describe('RiskService', () => {
       http.expectOne(`${API}risk/my%20port/limits`).flush({ items: [], breachCount: 0 });
     });
   });
+
+  describe('error-path coverage (issue #912)', () => {
+    // risk.service.ts has zero catchError — every error propagates as a raw
+    // HttpErrorResponse. Assert error.status and error.error (the flushed
+    // body), never error.message.
+    it('when getVar times out (status 0), the raw HttpErrorResponse propagates', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.getVar('my-port').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne((r) => r.url === `${API}portfolio/my-port/risk/var`)
+        .error(new ProgressEvent('timeout'), { status: 0 });
+
+      expect(error instanceof HttpErrorResponse).toBe(true);
+      expect(error?.status).toBe(0);
+    });
+
+    it('when getCorrelation returns 503, error.status is 503', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.getCorrelation('my-port').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne((r) => r.url === `${API}portfolio/my-port/risk/correlation`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+    });
+
+    it('when getLiquidity returns 503, error.status is 503', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.getLiquidity('my-port').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne((r) => r.url === `${API}portfolio/my-port/risk/liquidity`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+    });
+
+    it('when createLimit returns 422 with a structured validation_errors body, the body is on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc
+        .createLimit('my-port', { metric: 'max_drawdown', limit_type: 'upper', threshold: -1 })
+        .subscribe({ error: (e) => (error = e) });
+
+      const body = { detail: 'invalid', validation_errors: { threshold: ['must be > 0'] } };
+      http
+        .expectOne(`${API}risk/my-port/limits`)
+        .flush(body, { status: 422, statusText: 'Unprocessable Entity' });
+
+      expect(error?.status).toBe(422);
+      expect(error?.error).toEqual(body);
+    });
+
+    it('when generateStressScenarios returns 422 with a nested validation_errors body, the body is reachable on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc
+        .generateStressScenarios({ current_portfolio: { AAPL: 1 }, macro_context: 'a'.repeat(15) })
+        .subscribe({ error: (e) => (error = e) });
+
+      const nested = {
+        error: { details: { validation_errors: { macro_context: ['too short'] } } },
+      };
+      http
+        .expectOne(`${API}risk/stress-scenarios`)
+        .flush(nested, { status: 422, statusText: 'Unprocessable Entity' });
+
+      expect(error?.status).toBe(422);
+      expect(error?.error).toEqual(nested);
+    });
+
+    it('when getVar returns a malformed body, the result is defined and var/cvar are undefined', () => {
+      let result: import('./risk.model').VarApiResponse | undefined;
+      svc.getVar('my-port').subscribe((r) => (result = r));
+
+      http.expectOne((r) => r.url === `${API}portfolio/my-port/risk/var`).flush({});
+
+      expect(result).toBeDefined();
+      expect(result?.var).toBeUndefined();
+      expect(result?.cvar).toBeUndefined();
+    });
+
+    it('when the caller unsubscribes from getVar before the flush, next never fires', () => {
+      let emitted = false;
+      const sub = svc
+        .getVar('my-port')
+        .subscribe({ next: () => (emitted = true), error: () => (emitted = true) });
+
+      sub.unsubscribe();
+
+      // A cancelled TestRequest cannot be flushed (Angular 21.1.1 throws), and
+      // default verify() counts cancelled requests as open — so drain it with
+      // expectOne (removes it from the open list) and assert its cancelled
+      // state instead of flushing.
+      const req = http.expectOne((r) => r.url === `${API}portfolio/my-port/risk/var`);
+      expect(req.cancelled).toBe(true);
+      expect(emitted).toBe(false);
+    });
+  });
 });

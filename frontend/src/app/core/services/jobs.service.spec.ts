@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -209,6 +209,39 @@ describe('JobsService', () => {
       expect(error?.status).toBe(404);
     });
   });
+
+  describe('error-path coverage (issue #914)', () => {
+    // jobs.service.ts has no catchError → raw HttpErrorResponse propagates.
+    it('when getDomainStatuses times out (status 0), the error propagates and is not swallowed', () => {
+      let error: HttpErrorResponse | undefined;
+      let next: DomainStatus[] | undefined;
+      svc
+        .getDomainStatuses()
+        .subscribe({ next: (r) => (next = r), error: (e) => (error = e) });
+
+      http
+        .expectOne((r) => r.url === JOBS_URL)
+        .error(new ProgressEvent('timeout'), { status: 0 });
+
+      expect(next).toBeUndefined();
+      expect(error instanceof HttpErrorResponse).toBe(true);
+      expect(error?.status).toBe(0);
+    });
+
+    it('when the caller unsubscribes from getJob before the flush, next never fires', () => {
+      let emitted = false;
+      const sub = svc
+        .getJob('j1')
+        .subscribe({ next: () => (emitted = true), error: () => (emitted = true) });
+      sub.unsubscribe();
+
+      // A cancelled TestRequest cannot be flushed (Angular 21.1.1 throws), and
+      // default verify() counts it as open — drain it with expectOne instead.
+      const req = http.expectOne(`${JOBS_URL}/j1`);
+      expect(req.cancelled).toBe(true);
+      expect(emitted).toBe(false);
+    });
+  });
 });
 
 describe('JobsService.listJobs()', () => {
@@ -306,5 +339,27 @@ describe('JobsService.listJobs()', () => {
       .expectOne((r) => r.url === JOBS_URL)
       .flush({ detail: 'db error' }, { status: 500, statusText: 'Server Error' });
     expect(error?.status).toBe(500);
+  });
+
+  it('propagates 503 from /jobs', () => {
+    let error: HttpErrorResponse | undefined;
+    svc.listJobs({ limit: 25, offset: 0 }).subscribe({ error: (e) => (error = e) });
+
+    http
+      .expectOne((r) => r.url === JOBS_URL)
+      .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+    expect(error?.status).toBe(503);
+  });
+
+  it('propagates 422 from /jobs with the raw body on error.error', () => {
+    let error: HttpErrorResponse | undefined;
+    svc.listJobs({ limit: 25, offset: 0 }).subscribe({ error: (e) => (error = e) });
+
+    const body = { validation_errors: { limit: ['too large'] } };
+    http
+      .expectOne((r) => r.url === JOBS_URL)
+      .flush(body, { status: 422, statusText: 'Unprocessable' });
+    expect(error?.status).toBe(422);
+    expect(error?.error).toEqual(body);
   });
 });

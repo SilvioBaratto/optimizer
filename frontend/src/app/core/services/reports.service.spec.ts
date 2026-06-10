@@ -127,4 +127,84 @@ describe('ReportsService', () => {
       expect(svc.downloadUrl('r 42/x')).toBe(`${API}reports/r%2042%2Fx/download`);
     });
   });
+
+  describe('error-path coverage (issue #915)', () => {
+    // reports.service.ts has no catchError → raw HttpErrorResponse propagates.
+    it('when pollJob times out (status 0), the raw HttpErrorResponse propagates', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.pollJob('rpt-1').subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}reports/jobs/rpt-1`)
+        .error(new ProgressEvent('timeout'), { status: 0 });
+
+      expect(error instanceof HttpErrorResponse).toBe(true);
+      expect(error?.status).toBe(0);
+    });
+
+    it('when generate returns 503, error.status is 503 and the body is on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.generate(generateRequest()).subscribe({ error: (e) => (error = e) });
+
+      const body = { detail: 'worker pool exhausted' };
+      http
+        .expectOne(`${API}reports/generate`)
+        .flush(body, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+      expect(error?.error).toEqual(body);
+    });
+
+    it('when generate returns 422 with a top-level validation_errors body, the body is on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.generate(generateRequest()).subscribe({ error: (e) => (error = e) });
+
+      const body = { validation_errors: { template: ['required'] } };
+      http
+        .expectOne(`${API}reports/generate`)
+        .flush(body, { status: 422, statusText: 'Unprocessable' });
+
+      expect(error?.status).toBe(422);
+      expect(error?.error).toEqual(body);
+    });
+
+    it('when generate returns 422 with a nested error.details.validation_errors body, the body is reachable on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.generate(generateRequest()).subscribe({ error: (e) => (error = e) });
+
+      const nested = {
+        error: { details: { validation_errors: { sections: ['required'] } } },
+      };
+      http
+        .expectOne(`${API}reports/generate`)
+        .flush(nested, { status: 422, statusText: 'Unprocessable' });
+
+      expect(error?.status).toBe(422);
+      expect(error?.error).toEqual(nested);
+    });
+
+    it('when pollJob returns a malformed body, the result is defined and status is undefined', () => {
+      let result: ReportJobProgress | undefined;
+      svc.pollJob('rpt-1').subscribe((r) => (result = r));
+
+      http.expectOne(`${API}reports/jobs/rpt-1`).flush({ job_id: 'rpt-1' });
+
+      expect(result).toBeDefined();
+      expect(result?.status).toBeUndefined();
+    });
+
+    it('when the caller unsubscribes from pollJob before the flush, next never fires', () => {
+      let emitted = false;
+      const sub = svc
+        .pollJob('rpt-1')
+        .subscribe({ next: () => (emitted = true), error: () => (emitted = true) });
+      sub.unsubscribe();
+
+      // A cancelled TestRequest cannot be flushed (Angular 21.1.1 throws), and
+      // default verify() counts it as open — drain it with expectOne instead.
+      const req = http.expectOne(`${API}reports/jobs/rpt-1`);
+      expect(req.cancelled).toBe(true);
+      expect(emitted).toBe(false);
+    });
+  });
 });

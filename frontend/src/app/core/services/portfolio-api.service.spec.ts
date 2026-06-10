@@ -397,4 +397,91 @@ describe('PortfolioApiService', () => {
       expect(error?.message).toContain('broker unavailable');
     });
   });
+
+  describe('error-path coverage (issue #914)', () => {
+    // wrapError reads only `err.error.detail`; when absent it returns the
+    // fallback string. Subscribers receive a plain Error → assert error.message.
+    it('when get() fails with no detail in the body, the fallback message is used', () => {
+      let error: Error | undefined;
+      svc.get('alpha').subscribe({ error: (e: Error) => (error = e) });
+
+      http
+        .expectOne(`${BASE}/alpha`)
+        .flush({}, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.message).toBe("Failed to load portfolio 'alpha'");
+    });
+
+    it('when getSnapshots fails with a null body, the fallback message is used', () => {
+      let error: Error | undefined;
+      svc.getSnapshots('alpha').subscribe({ error: (e: Error) => (error = e) });
+
+      http
+        .expectOne(`${BASE}/alpha/snapshots`)
+        .flush(null, { status: 500, statusText: 'Server Error' });
+
+      expect(error?.message).toBe("Failed to load snapshots for 'alpha'");
+    });
+
+    it('when get() times out (status 0), err.error.detail is undefined so the fallback message is used', () => {
+      let error: Error | undefined;
+      svc.get('alpha').subscribe({ error: (e: Error) => (error = e) });
+
+      http
+        .expectOne(`${BASE}/alpha`)
+        .error(new ProgressEvent('timeout'), { status: 0 });
+
+      expect(error?.message).toBe("Failed to load portfolio 'alpha'");
+    });
+
+    it('when createSnapshot returns 422 with only validation_errors (no detail), wrapError still uses the fallback', () => {
+      let error: Error | undefined;
+      svc
+        .createSnapshot('alpha', { snapshot_date: 'bad', weights: {} })
+        .subscribe({ error: (e: Error) => (error = e) });
+
+      http
+        .expectOne(`${BASE}/alpha/snapshots`)
+        .flush(
+          { validation_errors: { snapshot_date: ['invalid'] } },
+          { status: 422, statusText: 'Unprocessable Entity' },
+        );
+
+      expect(error?.message).toBe("Failed to create snapshot for 'alpha'");
+    });
+
+    it('when list() errors with no detail, the fallback is used and a later list() re-fetches and succeeds', () => {
+      let firstError: Error | undefined;
+      svc.list().subscribe({ error: (e: Error) => (firstError = e) });
+      http
+        .expectOne(`${BASE}/`)
+        .flush({}, { status: 503, statusText: 'Service Unavailable' });
+      expect(firstError?.message).toBe('Failed to load portfolio list');
+
+      let result: unknown;
+      svc.list().subscribe((v) => (result = v));
+      http.expectOne(`${BASE}/`).flush({ items: [], total: 0 });
+      expect(result).toEqual({ items: [], total: 0 });
+    });
+
+    it('when a list() subscriber unsubscribes before the response, a later list() issues a fresh request', () => {
+      let emitted = false;
+      const sub = svc
+        .list()
+        .subscribe({ next: () => (emitted = true), error: () => (emitted = true) });
+      sub.unsubscribe();
+
+      // The cancelled request cannot be flushed (Angular 21.1.1 throws) and
+      // default verify() counts it as open — drain it with expectOne instead.
+      const cancelled = http.expectOne(`${BASE}/`);
+      expect(cancelled.cancelled).toBe(true);
+      expect(emitted).toBe(false);
+
+      // A later list() re-subscribes the refCount shareReplay, issuing a new GET.
+      let result: unknown;
+      svc.list().subscribe((v) => (result = v));
+      http.expectOne(`${BASE}/`).flush({ items: [], total: 0 });
+      expect(result).toEqual({ items: [], total: 0 });
+    });
+  });
 });

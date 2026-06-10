@@ -513,6 +513,86 @@ describe('OptimizationService', () => {
       expect(result).toBe('my-portfolio');
     });
   });
+
+  describe('error propagation via mapHttpError re-throw (issue #911)', () => {
+    // optimization.service.ts wires `catchError(mapHttpError())` =
+    // `(err) => throwError(() => err)` — a pure identity re-throw. The
+    // module-private extractApiMessage / readBodyMessage /
+    // formatValidationErrors helpers are never invoked in the observable chain
+    // (dead code relative to the HTTP flow), so their internal branches are
+    // unreachable without a test-only production export, which review rejected.
+    // These tests assert the real contract: subscribers receive the RAW
+    // HttpErrorResponse (status + body on error.error), NOT a formatted Error.
+    it('when calibrateDelta returns 422, the raw HttpErrorResponse propagates with status 422', () => {
+      let error: unknown;
+      svc.calibrateDelta({ macro_text: 'bad' }).subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}llm-moments/calibrate-delta`)
+        .flush({ detail: 'bad macro text' }, { status: 422, statusText: 'Unprocessable' });
+
+      expect(error instanceof HttpErrorResponse).toBe(true);
+      const httpErr = error as HttpErrorResponse;
+      expect(httpErr.status).toBe(422);
+      expect(httpErr.error).toEqual({ detail: 'bad macro text' });
+    });
+
+    it('when calibrateDelta times out (status 0), the subscriber error fires', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.calibrateDelta({ macro_text: 'x' }).subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}llm-moments/calibrate-delta`)
+        .error(new ProgressEvent('timeout'), { status: 0 });
+
+      expect(error instanceof HttpErrorResponse).toBe(true);
+      expect(error?.status).toBe(0);
+    });
+
+    it('when adaptFactorWeights returns 503, error.status is 503', () => {
+      let error: HttpErrorResponse | undefined;
+      svc
+        .adaptFactorWeights({ macro_indicators: 'x', factor_groups: ['value'] })
+        .subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}llm-moments/adapt-factor-weights`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(error?.status).toBe(503);
+    });
+
+    it('when generateViews returns 422 with a validation_errors body, the body is on error.error', () => {
+      let error: HttpErrorResponse | undefined;
+      svc.generateViews({ tickers: ['AAPL'] }).subscribe({ error: (e) => (error = e) });
+
+      http
+        .expectOne(`${API}views/generate`)
+        .flush(
+          { validation_errors: { tickers: ['required'] } },
+          { status: 422, statusText: 'Unprocessable' },
+        );
+
+      expect(error?.status).toBe(422);
+      expect(error?.error).toEqual({ validation_errors: { tickers: ['required'] } });
+    });
+  });
+
+  describe('malformed success body — no schema validation (issue #911)', () => {
+    it('when /optimize returns a body missing weights, the result is defined and weights is undefined', () => {
+      let result: OptimizationRunResponse | undefined;
+      svc
+        .optimize(baseRequest())
+        .subscribe((r) => (result = r as OptimizationRunResponse));
+
+      http
+        .expectOne(`${API}optimize`)
+        .flush({ id: 'run-x', status: 'completed' });
+
+      expect(result).toBeDefined();
+      expect(result?.weights).toBeUndefined();
+    });
+  });
 });
 
 function fakeStorage(seed: Record<string, string>): Storage {

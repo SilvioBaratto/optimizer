@@ -298,4 +298,98 @@ describe('RebalancingService', () => {
       expect(err?.status).toBe(400);
     });
   });
+
+  describe('error-path coverage (issue #913)', () => {
+    // rebalancing.service.ts has zero catchError — every error propagates as a
+    // raw HttpErrorResponse. Assert error.status and error.error (flushed
+    // body), never error.message.
+    it('when getPreview returns 503, the error propagates with status 503 (only 404 is suppressed)', () => {
+      let err: HttpErrorResponse | undefined;
+      svc.getPreview('myport').subscribe({ error: (e) => (err = e) });
+
+      http
+        .expectOne(`${API}rebalance/preview/myport`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(err?.status).toBe(503);
+    });
+
+    it('when decide returns 422 with a validation_errors body, the body is on error.error', () => {
+      let err: HttpErrorResponse | undefined;
+      svc
+        .decide({ current_weights: {}, target_weights: {}, policy_type: 'calendar' })
+        .subscribe({ error: (e) => (err = e) });
+
+      const body = { validation_errors: { target_weights: ['must sum to 1'] } };
+      http
+        .expectOne(`${API}rebalance/decide`)
+        .flush(body, { status: 422, statusText: 'Unprocessable' });
+
+      expect(err?.status).toBe(422);
+      expect(err?.error).toEqual(body);
+    });
+
+    it('when getDrift times out (status 0), the raw HttpErrorResponse propagates', () => {
+      let err: HttpErrorResponse | undefined;
+      svc.getDrift('myport').subscribe({ error: (e) => (err = e) });
+
+      http
+        .expectOne((r) => r.url === `${API}portfolio-analytics/myport/drift`)
+        .error(new ProgressEvent('timeout'), { status: 0 });
+
+      expect(err instanceof HttpErrorResponse).toBe(true);
+      expect(err?.status).toBe(0);
+    });
+
+    it('when listPolicies returns 503, error.status is 503', () => {
+      let err: HttpErrorResponse | undefined;
+      svc.listPolicies('myport').subscribe({ error: (e) => (err = e) });
+
+      http
+        .expectOne(`${API}portfolio/myport/rebalance-policy`)
+        .flush({ detail: 'down' }, { status: 503, statusText: 'Service Unavailable' });
+
+      expect(err?.status).toBe(503);
+    });
+
+    it('when getPreview returns a malformed body, the result is defined and trades/targetWeights are undefined', () => {
+      let result: RebalancePreviewApiResponse | undefined;
+      svc.getPreview('myport').subscribe((r) => (result = r));
+
+      http
+        .expectOne(`${API}rebalance/preview/myport`)
+        .flush({ portfolioName: 'myport', policyType: 'calendar' });
+
+      expect(result).toBeDefined();
+      expect(result?.trades).toBeUndefined();
+      expect(result?.targetWeights).toBeUndefined();
+    });
+
+    it('when the caller unsubscribes from getPreview before the flush, next never fires', () => {
+      let emitted = false;
+      const sub = svc
+        .getPreview('myport')
+        .subscribe({ next: () => (emitted = true), error: () => (emitted = true) });
+
+      sub.unsubscribe();
+
+      // A cancelled TestRequest cannot be flushed (Angular 21.1.1 throws), and
+      // default verify() counts cancelled requests as open — so drain it with
+      // expectOne (removes it from the open list) and assert its cancelled
+      // state instead of flushing.
+      const req = http.expectOne(`${API}rebalance/preview/myport`);
+      expect(req.cancelled).toBe(true);
+      expect(emitted).toBe(false);
+    });
+
+    it('does NOT set SUPPRESS_TOAST_STATUSES on non-preview requests (getDrift uses the default empty list)', () => {
+      svc.getDrift('myport').subscribe();
+
+      const req = http.expectOne(
+        (r) => r.url === `${API}portfolio-analytics/myport/drift`,
+      );
+      expect(req.request.context.get(SUPPRESS_TOAST_STATUSES)).toEqual([]);
+      req.flush({ entries: [], totalDrift: 0, breachedCount: 0, threshold: 0.05 });
+    });
+  });
 });
