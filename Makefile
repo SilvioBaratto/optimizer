@@ -1,4 +1,4 @@
-.PHONY: lint format typecheck test coverage all clean cycle2-gate contract-snapshots
+.PHONY: lint format typecheck test coverage coverage-report all clean cycle2-gate contract-snapshots
 
 lint:
 	ruff check optimizer/ tests/
@@ -16,6 +16,10 @@ test:
 coverage:
 	pytest tests/ --cov=optimizer --cov-report=html --cov-fail-under=90
 	@echo "Coverage report generated in htmlcov/index.html"
+
+coverage-report:
+	pytest tests/ --cov=optimizer --cov-branch --cov-report=xml --cov-fail-under=90
+	python scripts/check_branch_coverage.py coverage.xml 0.80
 
 all: lint typecheck test
 

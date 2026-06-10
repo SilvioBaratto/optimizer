@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pandas as pd
 import pytest
 from skfolio.moments import (
@@ -23,6 +25,7 @@ from skfolio.moments import (
 )
 from skfolio.prior import EmpiricalPrior, TimeSeriesFactorModel
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.moments import (
     CovEstimatorType,
     MomentEstimationConfig,
@@ -148,6 +151,24 @@ class TestBuildCovEstimator:
         assert estimator.half_life == 23.0
         assert estimator.corr_half_life == 50.0
         assert estimator.hac_lags == 4
+
+
+class TestUnsupportedEstimatorRaises:
+    """The match dispatch rejects unknown estimator values (defensive guard)."""
+
+    def test_unsupported_mu_estimator_raises(self) -> None:
+        cfg = MomentEstimationConfig(
+            mu_estimator=cast(MuEstimatorType, "not_an_estimator")
+        )
+        with pytest.raises(ConfigurationError, match="mu_estimator"):
+            build_mu_estimator(cfg)
+
+    def test_unsupported_cov_estimator_raises(self) -> None:
+        cfg = MomentEstimationConfig(
+            cov_estimator=cast(CovEstimatorType, "not_an_estimator")
+        )
+        with pytest.raises(ConfigurationError, match="cov_estimator"):
+            build_cov_estimator(cfg)
 
 
 class TestPresetRegression:

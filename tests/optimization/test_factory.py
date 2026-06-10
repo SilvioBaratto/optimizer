@@ -520,3 +520,66 @@ class TestMinSectorWeightsIntegration:
             assert sector_weight >= floor - 1e-6, (
                 f"Sector {sector!r} weight {sector_weight:.4f} below floor {floor}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Sector bands and factor-exposure constraint injection (factory-level paths)
+# ---------------------------------------------------------------------------
+
+
+class TestSectorBandsAndFactorExposure:
+    """Cover the sector_bands and factor_exposure_constraints emit paths."""
+
+    def test_sector_bands_emit_floor_and_cap_rows(self) -> None:
+        """sector_bands emits a >= row only when floor > 0 plus a <= cap row."""
+        mapping = {"AAPL": "Technology", "XOM": "Energy"}
+        bands = {"Technology": (0.05, 0.30), "Energy": (0.0, 0.10)}
+        model = build_mean_risk(
+            MeanRiskConfig(), sector_mapping=mapping, sector_bands=bands
+        )
+        constraints = list(model.linear_constraints)
+        assert "Technology >= 0.05" in constraints
+        assert "Technology <= 0.3" in constraints
+        assert "Energy <= 0.1" in constraints
+        # Energy floor is 0.0 → no floor row is emitted.
+        assert "Energy >= 0.0" not in constraints
+        assert model.groups == mapping
+
+    def test_factor_exposure_constraints_injected(self) -> None:
+        """factor_exposure_constraints inject left/right_inequality into MeanRisk."""
+        from optimizer.factors._integration import FactorExposureConstraints
+
+        left = np.array([[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        right = np.array([0.2, 0.5])
+        fec = FactorExposureConstraints(
+            left_inequality=left,
+            right_inequality=right,
+            factor_names=["momentum"],
+            lower_bounds=np.array([-0.2]),
+            upper_bounds=np.array([0.5]),
+        )
+        model = build_mean_risk(MeanRiskConfig(), factor_exposure_constraints=fec)
+        np.testing.assert_array_equal(model.left_inequality, left)
+        np.testing.assert_array_equal(model.right_inequality, right)
+
+    def test_explicit_inequality_kwargs_take_precedence(self) -> None:
+        """An explicit left_inequality kwarg wins over factor_exposure_constraints."""
+        from optimizer.factors._integration import FactorExposureConstraints
+
+        fec = FactorExposureConstraints(
+            left_inequality=np.zeros((2, 3)),
+            right_inequality=np.zeros(2),
+            factor_names=["f"],
+            lower_bounds=np.zeros(1),
+            upper_bounds=np.ones(1),
+        )
+        custom_left = np.ones((1, 3))
+        custom_right = np.ones(1)
+        model = build_mean_risk(
+            MeanRiskConfig(),
+            factor_exposure_constraints=fec,
+            left_inequality=custom_left,
+            right_inequality=custom_right,
+        )
+        np.testing.assert_array_equal(model.left_inequality, custom_left)
+        np.testing.assert_array_equal(model.right_inequality, custom_right)

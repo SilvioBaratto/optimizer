@@ -513,3 +513,107 @@ class TestBoundedTilts:
         # Pre-norm: 1.2 + 1.2 + 0.8 = 3.2; scale = 3.0 / 3.2
         expected = 1.2 / 3.2 * 3.0
         assert abs(result[FactorGroupType.MOMENTUM] - expected) < 1e-10
+
+
+def _composite(**cols: float) -> pd.DataFrame:
+    """Single-row macro frame for composite-score branch tests."""
+    return pd.DataFrame(
+        {k: [v] for k, v in cols.items()},
+        index=pd.date_range("2024-01-01", periods=1),
+    )
+
+
+class TestCompositeScoreBranches:
+    """Cover the sentiment-augmented and 3-indicator composite-score arms."""
+
+    def test_composite_without_spread_uses_remaining_indicators(self) -> None:
+        """When spread_2s10s is absent, its component score stays neutral."""
+        # s_pmi=+1 (54>52), s_2s10s=0 (absent), s_hy=+1 (300<350) → S_t=2 → EXPANSION
+        result = classify_regime(_composite(pmi=54.0, hy_oas=300.0))
+        assert result == MacroRegime.EXPANSION
+
+    def test_sentiment_augmented_recession(self) -> None:
+        """A strongly negative augmented score classifies as RECESSION."""
+        # S_t=-3, s_sent=-1 → S_aug=-4 ≤ -3 → RECESSION
+        macro = _composite(pmi=45.0, spread_2s10s=-0.5, hy_oas=600.0, sentiment=-0.5)
+        assert classify_regime_composite(macro) == MacroRegime.RECESSION
+
+    def test_sentiment_augmented_expansion(self) -> None:
+        """A positive (but < 3) augmented score classifies as EXPANSION."""
+        # S_t=1, s_sent=+1 → S_aug=2 (>0) → EXPANSION
+        macro = _composite(pmi=54.0, spread_2s10s=0.5, hy_oas=420.0, sentiment=0.5)
+        assert classify_regime_composite(macro) == MacroRegime.EXPANSION
+
+    def test_sentiment_augmented_slowdown(self) -> None:
+        """An augmented score of exactly zero classifies as SLOWDOWN."""
+        # S_t=1, s_sent=-1 → S_aug=0 → SLOWDOWN
+        macro = _composite(pmi=54.0, spread_2s10s=0.5, hy_oas=420.0, sentiment=-0.5)
+        assert classify_regime_composite(macro) == MacroRegime.SLOWDOWN
+
+    def test_sentiment_augmented_recovery(self) -> None:
+        """A mildly negative augmented score classifies as RECOVERY."""
+        # S_t=0, s_sent=-1 → S_aug=-1 (>-3, <0, !=0) → RECOVERY
+        macro = _composite(pmi=50.0, spread_2s10s=0.5, hy_oas=420.0, sentiment=-0.5)
+        assert classify_regime_composite(macro) == MacroRegime.RECOVERY
+
+    def test_three_indicator_recovery(self) -> None:
+        """A 3-indicator score of -1 (no sentiment) classifies as RECOVERY."""
+        # s_pmi=-1, s_2s10s=0, s_hy=0 → S_t=-1 → RECOVERY
+        macro = _composite(pmi=45.0, spread_2s10s=0.5, hy_oas=420.0)
+        assert classify_regime_composite(macro) == MacroRegime.RECOVERY
+
+
+class TestClassifyRegimeYieldSpreadFallback:
+    """Cover the GDP-too-short fallthrough and yield-spread fallback arms."""
+
+    def test_gdp_single_observation_falls_through_to_yield_spread(self) -> None:
+        """A single GDP observation (len < 2) defers to the yield-spread fallback."""
+        macro = pd.DataFrame(
+            {"gdp_growth": [2.0], "yield_spread": [1.5]},
+            index=pd.date_range("2024-01-01", periods=1),
+        )
+        # gdp len 1 → skip GDP block; yield_spread 1.5 > 1.0 → EXPANSION
+        assert classify_regime(macro) == MacroRegime.EXPANSION
+
+    def test_yield_spread_slowdown(self) -> None:
+        """A positive but flat yield spread classifies as SLOWDOWN."""
+        macro = _composite(yield_spread=0.5)
+        assert classify_regime(macro) == MacroRegime.SLOWDOWN
+
+    def test_yield_spread_recovery(self) -> None:
+        """A mildly inverted yield spread classifies as RECOVERY."""
+        macro = _composite(yield_spread=-0.2)
+        assert classify_regime(macro) == MacroRegime.RECOVERY
+
+    def test_yield_spread_all_nan_returns_unknown(self) -> None:
+        """An all-NaN yield spread leaves no usable signal → UNKNOWN."""
+        macro = _composite(yield_spread=float("nan"))
+        assert classify_regime(macro) == MacroRegime.UNKNOWN
+
+
+class TestRegimeTiltBranchCoverage:
+    """Cover invalid-group skip, default-config, and zero-total-weight arms."""
+
+    def test_get_regime_tilts_skips_unknown_group_name(self) -> None:
+        """A tilt referencing an unknown group name is silently skipped."""
+        config = RegimeTiltConfig(
+            enable=True, expansion_tilts=(("not_a_real_group", 1.5),)
+        )
+        assert get_regime_tilts(MacroRegime.EXPANSION, config) == {}
+
+    def test_apply_regime_tilts_defaults_to_disabled_config(self) -> None:
+        """With no config, the default (disabled) leaves weights unchanged."""
+        weights = {FactorGroupType.VALUE: 1.0, FactorGroupType.MOMENTUM: 1.0}
+        result = apply_regime_tilts(weights, MacroRegime.EXPANSION)
+        assert result == weights
+        assert result is not weights
+
+    def test_apply_regime_tilts_zero_total_weights(self) -> None:
+        """All-zero weights skip the floor and re-normalization steps."""
+        weights = {FactorGroupType.VALUE: 0.0, FactorGroupType.MOMENTUM: 0.0}
+        config = RegimeTiltConfig(enable=True)
+        result = apply_regime_tilts(weights, MacroRegime.EXPANSION, config)
+        # Zero total → floor and re-normalization steps are skipped; every
+        # group is preserved and stays at 0.0 (no division-by-zero).
+        assert set(result) == set(weights)
+        assert all(value == 0.0 for value in result.values())

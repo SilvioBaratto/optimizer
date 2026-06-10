@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+import logging
+from contextlib import ExitStack
+from types import SimpleNamespace
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
 from skfolio.optimization import EqualWeighted
 
+from optimizer.exceptions import ConfigurationError
+from optimizer.factors._config import (
+    MacroRegime,
+    RegimeTiltConfig,
+    SectorRegimeBandsConfig,
+)
+from optimizer.fx._config import BaseCurrency, FxConfig
 from optimizer.optimization import MeanRiskConfig, build_mean_risk
 from optimizer.pipeline import (
     PortfolioResult,
@@ -122,6 +134,29 @@ class TestTuneAndOptimize:
         assert isinstance(result, PortfolioResult)
         assert result.weights.sum() == pytest.approx(1.0, abs=1e-6)
 
+    def test_risk_free_rate_updates_sharpe_scorer(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        """A non-zero risk_free_rate rewrites the Sharpe scorer config (issue #272)."""
+        from optimizer.tuning import GridSearchConfig
+
+        optimizer = build_mean_risk(MeanRiskConfig.for_min_variance())
+        pipe = build_portfolio_pipeline(optimizer)
+        cfg = GridSearchConfig(
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        result = tune_and_optimize(
+            pipe,
+            returns_df,
+            param_grid={"optimizer__l2_coef": [0.0, 0.01]},
+            tuning_config=cfg,
+            risk_free_rate=0.02,
+        )
+        assert isinstance(result, PortfolioResult)
+        # The rf-injected scorer path still yields a valid, fully-invested portfolio.
+        assert result.weights.sum() == pytest.approx(1.0, abs=1e-6)
+        assert result.pipeline is not None
+
 
 class TestRunFullPipeline:
     def test_end_to_end(self, prices_df: pd.DataFrame) -> None:
@@ -178,6 +213,19 @@ class TestRunFullPipeline:
         assert result.rebalance_needed is True
         assert result.turnover is not None
         assert result.turnover > 0.3  # significant turnover
+
+    def test_zero_sum_previous_weights_skip_renormalisation(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """All-zero previous weights skip re-normalisation but still yield turnover."""
+        prev = np.zeros(prices_df.shape[1])
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            previous_weights=prev,
+        )
+        assert result.turnover is not None
+        assert result.turnover == pytest.approx(0.5, abs=1e-6)
 
 
 class TestRunFullPipelineRebalancing:
@@ -1158,3 +1206,537 @@ class TestReturnsDfFallback:
             "weights_per_observation" in rec.message and rec.levelno == logging.WARNING
             for rec in caplog.records
         )
+
+
+# ---------------------------------------------------------------------------
+# Selection-path test helpers (issue #922)
+# ---------------------------------------------------------------------------
+
+
+def _fx_rates_frame(index: pd.Index, **rates: float) -> pd.DataFrame:
+    """Build a constant FX-rate frame (base-per-foreign) for the given index."""
+    return pd.DataFrame({ccy: float(val) for ccy, val in rates.items()}, index=index)
+
+
+def _enter_selection_mocks(stack: ExitStack, tickers: list[str]) -> dict[str, object]:
+    """Patch the five selection functions in the orchestrator module.
+
+    Returns the mock objects keyed by name so callers can assert call args.
+    """
+    rng = np.random.default_rng(42)
+    factors = pd.DataFrame(
+        rng.normal(0, 1, (len(tickers), 2)), index=tickers, columns=["F1", "F2"]
+    )
+    coverage = pd.Series(1.0, index=["F1", "F2"])
+    composite = pd.Series(rng.uniform(0, 1, len(tickers)), index=tickers)
+    idx = pd.Index(tickers)
+    mocks: dict[str, object] = {}
+    for name, value in (
+        ("screen_universe", idx),
+        ("compute_all_factors", factors),
+        ("standardize_all_factors", (factors, coverage)),
+        ("compute_composite_score", composite),
+        ("select_stocks", idx),
+    ):
+        mocks[name] = stack.enter_context(
+            patch(f"optimizer.pipeline._orchestrator.{name}", return_value=value)
+        )
+    return mocks
+
+
+@pytest.fixture()
+def sel_tickers(prices_df: pd.DataFrame) -> list[str]:
+    """First five tickers used as the selected universe in mocked runs."""
+    return list(prices_df.columns[:5])
+
+
+@pytest.fixture()
+def sel_fundamentals(sel_tickers: list[str]) -> pd.DataFrame:
+    """Minimal fundamentals frame indexed by the selected tickers."""
+    return pd.DataFrame({"market_cap": [1e9] * len(sel_tickers)}, index=sel_tickers)
+
+
+def _mock_result(tickers: list[str]) -> PortfolioResult:
+    """A minimal PortfolioResult for patching run_full_pipeline."""
+    return PortfolioResult(
+        weights=pd.Series(1.0 / len(tickers), index=tickers), portfolio=None
+    )
+
+
+class TestFxModes:
+    """FX conversion branches in run_full_pipeline (issues #283, #307, #308)."""
+
+    def test_to_base_mode_sets_currency_and_leaves_decomposition_none(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """When mode is TO_BASE, currency is set and no decomposition is produced."""
+        currency_map = {prices_df.columns[0]: "USD"}
+        fx_rates = _fx_rates_frame(prices_df.index, USD=1.1)
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            fx_config=FxConfig.for_eur_base(),
+            currency_map=currency_map,
+            fx_rates=fx_rates,
+        )
+        assert result.currency == "EUR"
+        assert result.fx_decomposition is None
+
+    def test_decompose_mode_produces_fx_decomposition(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """When mode is DECOMPOSE, an FxReturnDecomposition is attached."""
+        currency_map = {prices_df.columns[0]: "USD", prices_df.columns[1]: "GBP"}
+        fx_rates = _fx_rates_frame(prices_df.index, USD=1.1, GBP=1.2)
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            fx_config=FxConfig.for_decomposition(BaseCurrency.EUR),
+            currency_map=currency_map,
+            fx_rates=fx_rates,
+        )
+        assert result.currency == "EUR"
+        assert result.fx_decomposition is not None
+        assert result.fx_decomposition.base_currency == "EUR"
+
+    def test_strict_mode_with_missing_inputs_raises_configuration_error(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """Strict mode with no currency_map/fx_rates raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="FX conversion requested"):
+            run_full_pipeline(
+                prices=prices_df,
+                optimizer=EqualWeighted(),
+                fx_config=FxConfig.for_strict_conversion(),
+                currency_map=None,
+                fx_rates=None,
+            )
+
+    def test_non_strict_missing_inputs_skips_and_currency_stays_none(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """Non-strict mode with missing inputs skips conversion; currency is None."""
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            fx_config=FxConfig.for_eur_base(),
+            currency_map=None,
+            fx_rates=None,
+        )
+        assert result.currency is None
+        assert result.fx_decomposition is None
+
+    def test_benchmark_prices_converted_with_benchmark_currency(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """y_prices are FX-converted using benchmark_currency (issue #308)."""
+        currency_map = dict.fromkeys(prices_df.columns, "USD")
+        fx_rates = _fx_rates_frame(prices_df.index, USD=1.1)
+        y_prices = prices_df.iloc[:, :1].copy()
+        y_prices.columns = ["BENCH"]
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            fx_config=FxConfig.for_eur_base(),
+            currency_map=currency_map,
+            fx_rates=fx_rates,
+            y_prices=y_prices,
+            benchmark_currency="USD",
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        assert result.currency == "EUR"
+        assert result.backtest is not None
+
+    def test_benchmark_converted_without_explicit_benchmark_currency(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """y_prices convert using the portfolio map when benchmark_currency is None."""
+        currency_map = dict.fromkeys(prices_df.columns, "USD")
+        fx_rates = _fx_rates_frame(prices_df.index, USD=1.1)
+        y_prices = prices_df.iloc[:, :1].copy()
+        y_prices.columns = ["BENCH"]
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            fx_config=FxConfig.for_eur_base(),
+            currency_map=currency_map,
+            fx_rates=fx_rates,
+            y_prices=y_prices,
+            benchmark_currency=None,
+        )
+        assert result.currency == "EUR"
+
+
+class TestInjectSectorBands:
+    """Direct unit tests for the _inject_sector_bands helper (issue #285)."""
+
+    def test_region_mapping_builds_multilevel_groups_and_band_rows(self) -> None:
+        """With a region map, groups become [sector, region] and band rows append."""
+        from optimizer.pipeline._orchestrator import _inject_sector_bands
+
+        opt = build_mean_risk(MeanRiskConfig())
+        opt.linear_constraints = ["Americas <= 0.60"]
+        bands = {"Technology": (0.05, 0.30), "Energy": (0.0, 0.10)}
+        sector_map = {"AAPL": "Technology", "XOM": "Energy"}
+        region_map = {"AAPL": "Americas", "XOM": "Americas"}
+
+        out = _inject_sector_bands(opt, bands, sector_map, region_map)
+
+        assert out.groups == {
+            "AAPL": ["Technology", "Americas"],
+            "XOM": ["Energy", "Americas"],
+        }
+        assert "Americas <= 0.60" in out.linear_constraints
+        assert "Technology >= 0.05" in out.linear_constraints
+        assert "Technology <= 0.3" in out.linear_constraints
+        assert "Energy <= 0.1" in out.linear_constraints
+        # Energy floor is 0.0 → no floor row emitted.
+        assert "Energy >= 0.0" not in out.linear_constraints
+
+    def test_flat_groups_when_no_region_mapping(self) -> None:
+        """Without a region map, groups fall back to the flat sector dict."""
+        from optimizer.pipeline._orchestrator import _inject_sector_bands
+
+        opt = build_mean_risk(MeanRiskConfig())
+        opt.min_weights = None  # exercises the no-advisory branch
+        out = _inject_sector_bands(
+            opt, {"Technology": (0.0, 0.30)}, {"AAPL": "Technology"}, None
+        )
+
+        assert out.groups == {"AAPL": "Technology"}
+
+    def test_existing_non_sector_rows_preserved_and_sanitized(self) -> None:
+        """Region (>=) rows are sanitized and operator-free rows pass through."""
+        from optimizer.pipeline._orchestrator import _inject_sector_bands
+
+        opt = build_mean_risk(MeanRiskConfig())
+        opt.linear_constraints = ["Asia-Pacific >= 0.05", "BLOCKED"]
+        out = _inject_sector_bands(
+            opt, {"Technology": (0.0, 0.30)}, {"AAPL": "Technology"}, None
+        )
+
+        # Hyphenated region label is rewritten to its DSL-safe form.
+        assert "Asia Pacific >= 0.05" in out.linear_constraints
+        # A row with no comparison operator is kept verbatim.
+        assert "BLOCKED" in out.linear_constraints
+
+    def test_none_sector_mapping_skips_injection(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A None sector_mapping logs a warning and returns the optimizer unchanged."""
+        from optimizer.pipeline._orchestrator import _inject_sector_bands
+
+        opt = build_mean_risk(MeanRiskConfig())
+        with caplog.at_level(
+            logging.WARNING, logger="optimizer.pipeline._orchestrator"
+        ):
+            out = _inject_sector_bands(opt, {"Technology": (0.0, 0.30)}, None, None)
+
+        assert "sector_mapping is None" in caplog.text
+        assert out is not opt  # still a deep copy
+
+    def test_infeasible_floor_emits_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A per-sector min-weight above the cap logs an infeasibility warning."""
+        from optimizer.pipeline._orchestrator import _inject_sector_bands
+
+        opt = build_mean_risk(MeanRiskConfig())
+        opt.min_weights = 0.2  # 1 stock x 0.2 = 0.2 > cap 0.10 → infeasible
+        with caplog.at_level(
+            logging.WARNING, logger="optimizer.pipeline._orchestrator"
+        ):
+            _inject_sector_bands(
+                opt, {"Technology": (0.0, 0.10)}, {"AAPL": "Technology"}, None
+            )
+
+        assert "infeasible" in caplog.text
+
+
+class TestSelectionRegimeAndBands:
+    """Regime classification, sector bands, and integration wiring (issue #285)."""
+
+    def test_sector_bands_injected_and_regime_attached(
+        self,
+        prices_df: pd.DataFrame,
+        sel_tickers: list[str],
+        sel_fundamentals: pd.DataFrame,
+    ) -> None:
+        """Enabled sector bands inject sector rows and the regime is attached."""
+        macro = pd.DataFrame(
+            {"gdp_growth": [1.0]}, index=pd.to_datetime(["2021-01-01"])
+        )
+        with ExitStack() as stack:
+            _enter_selection_mocks(stack, sel_tickers)
+            stack.enter_context(
+                patch(
+                    "optimizer.pipeline._orchestrator.classify_regime",
+                    return_value=MacroRegime.EXPANSION,
+                )
+            )
+            m_rfp = stack.enter_context(
+                patch(
+                    "optimizer.pipeline._orchestrator.run_full_pipeline",
+                    return_value=_mock_result(sel_tickers),
+                )
+            )
+            result = run_full_pipeline_with_selection(
+                prices=prices_df,
+                optimizer=build_mean_risk(MeanRiskConfig()),
+                fundamentals=sel_fundamentals,
+                macro_data=macro,
+                sector_bands_config=SectorRegimeBandsConfig.for_default(),
+                sector_mapping=dict.fromkeys(sel_tickers, "Technology"),
+                region_mapping=dict.fromkeys(sel_tickers, "Americas"),
+            )
+
+        assert result.classified_regime == MacroRegime.EXPANSION
+        injected = m_rfp.call_args.kwargs["optimizer"]
+        assert any(c.startswith("Technology <=") for c in injected.linear_constraints)
+        assert any(c.startswith("Technology >=") for c in injected.linear_constraints)
+        assert all(isinstance(v, list) for v in injected.groups.values())
+
+    def test_regime_data_takes_precedence_for_classification(
+        self,
+        prices_df: pd.DataFrame,
+        sel_tickers: list[str],
+        sel_fundamentals: pd.DataFrame,
+    ) -> None:
+        """Non-empty regime_data is used for classification instead of macro_data.
+
+        Both frames are dated after the price window so the publication-lag
+        cutoff leaves them empty, exercising the "fall back to the full
+        frame" branch for macro and regime data alike.
+        """
+        macro = pd.DataFrame(
+            {"gdp_growth": [1.0]}, index=pd.to_datetime(["2099-01-01"])
+        )
+        regime_data = pd.DataFrame(
+            {"pmi": [52.0], "spread_2s10s": [0.5], "hy_oas": [400.0]},
+            index=pd.to_datetime(["2099-01-01"]),
+        )
+        with ExitStack() as stack:
+            _enter_selection_mocks(stack, sel_tickers)
+            m_classify = stack.enter_context(
+                patch(
+                    "optimizer.pipeline._orchestrator.classify_regime",
+                    return_value=MacroRegime.SLOWDOWN,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "optimizer.pipeline._orchestrator.run_full_pipeline",
+                    return_value=_mock_result(sel_tickers),
+                )
+            )
+            result = run_full_pipeline_with_selection(
+                prices=prices_df,
+                optimizer=build_mean_risk(MeanRiskConfig()),
+                fundamentals=sel_fundamentals,
+                macro_data=macro,
+                regime_data=regime_data,
+                sector_bands_config=SectorRegimeBandsConfig.for_default(),
+                sector_mapping=dict.fromkeys(sel_tickers, "Technology"),
+            )
+
+        assert result.classified_regime == MacroRegime.SLOWDOWN
+        classified_with = m_classify.call_args.args[0]
+        assert "pmi" in classified_with.columns
+
+    def test_regime_tilts_applied_when_regime_config_enabled(
+        self,
+        prices_df: pd.DataFrame,
+        sel_tickers: list[str],
+        sel_fundamentals: pd.DataFrame,
+    ) -> None:
+        """An enabled RegimeTiltConfig produces group_weights for composite scoring."""
+        macro = pd.DataFrame(
+            {"gdp_growth": [1.0]}, index=pd.to_datetime(["2021-01-01"])
+        )
+        with ExitStack() as stack:
+            mocks = _enter_selection_mocks(stack, sel_tickers)
+            stack.enter_context(
+                patch(
+                    "optimizer.pipeline._orchestrator.classify_regime",
+                    return_value=MacroRegime.EXPANSION,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "optimizer.pipeline._orchestrator.run_full_pipeline",
+                    return_value=_mock_result(sel_tickers),
+                )
+            )
+            result = run_full_pipeline_with_selection(
+                prices=prices_df,
+                optimizer=EqualWeighted(),
+                fundamentals=sel_fundamentals,
+                macro_data=macro,
+                regime_config=RegimeTiltConfig.for_moderate_tilts(),
+                current_date=pd.Timestamp(prices_df.index[-1]),
+            )
+
+        assert result.classified_regime == MacroRegime.EXPANSION
+        _, score_kwargs = mocks["compute_composite_score"].call_args
+        assert score_kwargs["group_weights"] is not None
+
+    def test_integration_config_injects_prior_and_constraints(
+        self,
+        prices_df: pd.DataFrame,
+        sel_tickers: list[str],
+        sel_fundamentals: pd.DataFrame,
+    ) -> None:
+        """An integration_config injects a BL prior and factor exposure constraints."""
+        from optimizer.factors._config import FactorIntegrationConfig
+
+        left = np.zeros((2, len(sel_tickers)))
+        right = np.zeros(2)
+        fake_prior = SimpleNamespace()  # non-None prior sentinel; deepcopy-safe
+        fake_constraints = SimpleNamespace(left_inequality=left, right_inequality=right)
+
+        with ExitStack() as stack:
+            _enter_selection_mocks(stack, sel_tickers)
+            m_build = stack.enter_context(
+                patch(
+                    "optimizer.factors._integration.build_factor_integration",
+                    return_value=(fake_prior, fake_constraints),
+                )
+            )
+            m_rfp = stack.enter_context(
+                patch(
+                    "optimizer.pipeline._orchestrator.run_full_pipeline",
+                    return_value=_mock_result(sel_tickers),
+                )
+            )
+            run_full_pipeline_with_selection(
+                prices=prices_df,
+                optimizer=build_mean_risk(MeanRiskConfig()),
+                fundamentals=sel_fundamentals,
+                integration_config=FactorIntegrationConfig(),
+            )
+
+        m_build.assert_called_once()
+        injected = m_rfp.call_args.kwargs["optimizer"]
+        assert injected.prior_estimator is not None
+        assert np.array_equal(injected.left_inequality, left)
+
+    def test_integration_warns_when_optimizer_lacks_hooks(
+        self,
+        prices_df: pd.DataFrame,
+        sel_tickers: list[str],
+        sel_fundamentals: pd.DataFrame,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An optimizer without prior/constraint hooks logs skip warnings."""
+        from optimizer.factors._config import FactorIntegrationConfig
+
+        fake_constraints = SimpleNamespace(
+            left_inequality=np.zeros((2, len(sel_tickers))),
+            right_inequality=np.zeros(2),
+        )
+        with ExitStack() as stack:
+            _enter_selection_mocks(stack, sel_tickers)
+            stack.enter_context(
+                patch(
+                    "optimizer.factors._integration.build_factor_integration",
+                    return_value=(SimpleNamespace(), fake_constraints),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "optimizer.pipeline._orchestrator.run_full_pipeline",
+                    return_value=_mock_result(sel_tickers),
+                )
+            )
+            with caplog.at_level(
+                logging.WARNING, logger="optimizer.pipeline._orchestrator"
+            ):
+                run_full_pipeline_with_selection(
+                    prices=prices_df,
+                    optimizer=EqualWeighted(),  # lacks prior_estimator/left_inequality
+                    fundamentals=sel_fundamentals,
+                    integration_config=FactorIntegrationConfig(),
+                )
+
+        assert "no prior_estimator" in caplog.text
+        assert "no left_inequality" in caplog.text
+
+    def test_sector_bands_enabled_without_macro_logs_warning(
+        self,
+        prices_df: pd.DataFrame,
+        sel_tickers: list[str],
+        sel_fundamentals: pd.DataFrame,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Enabled bands with no macro_data classify no regime and log a warning."""
+        # Pre-seed a non-None regime so the assertion proves the orchestrator
+        # actively attaches None (rather than passing vacuously by default).
+        seeded = _mock_result(sel_tickers)
+        seeded.classified_regime = MacroRegime.EXPANSION
+        with ExitStack() as stack:
+            _enter_selection_mocks(stack, sel_tickers)
+            stack.enter_context(
+                patch(
+                    "optimizer.pipeline._orchestrator.run_full_pipeline",
+                    return_value=seeded,
+                )
+            )
+            with caplog.at_level(
+                logging.WARNING, logger="optimizer.pipeline._orchestrator"
+            ):
+                result = run_full_pipeline_with_selection(
+                    prices=prices_df,
+                    optimizer=build_mean_risk(MeanRiskConfig()),
+                    fundamentals=sel_fundamentals,
+                    sector_bands_config=SectorRegimeBandsConfig.for_default(),
+                    sector_mapping=dict.fromkeys(sel_tickers, "Technology"),
+                    macro_data=None,
+                )
+
+        assert result.classified_regime is None
+        assert "no regime was classified" in caplog.text
+
+    def test_currency_map_sliced_to_selected_universe(
+        self,
+        prices_df: pd.DataFrame,
+        sel_tickers: list[str],
+        sel_fundamentals: pd.DataFrame,
+    ) -> None:
+        """currency_map is filtered to the selected universe before delegation."""
+        unselected = prices_df.columns[9]
+        currency_map = dict.fromkeys(sel_tickers, "USD")
+        currency_map[unselected] = "GBP"
+        with ExitStack() as stack:
+            _enter_selection_mocks(stack, sel_tickers)
+            m_rfp = stack.enter_context(
+                patch(
+                    "optimizer.pipeline._orchestrator.run_full_pipeline",
+                    return_value=_mock_result(sel_tickers),
+                )
+            )
+            run_full_pipeline_with_selection(
+                prices=prices_df,
+                optimizer=EqualWeighted(),
+                fundamentals=sel_fundamentals,
+                currency_map=currency_map,
+            )
+
+        passed = m_rfp.call_args.kwargs["currency_map"]
+        assert unselected not in passed
+        assert set(passed) == set(sel_tickers)
+
+
+class TestComputeNetSharpeEdgeCases:
+    """Edge-case exits of _compute_net_sharpe (issues #284, #309)."""
+
+    def test_returns_none_for_single_observation(self) -> None:
+        """A series shorter than two observations yields None."""
+        from optimizer.pipeline._orchestrator import _compute_net_sharpe
+
+        assert _compute_net_sharpe(pd.Series([0.01])) is None
+
+    def test_returns_none_for_zero_variance(self) -> None:
+        """A constant return series (zero std) yields None."""
+        from optimizer.pipeline._orchestrator import _compute_net_sharpe
+
+        assert _compute_net_sharpe(pd.Series([0.01, 0.01, 0.01])) is None

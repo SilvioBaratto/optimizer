@@ -710,3 +710,91 @@ class TestGbxPriceScreenRegression:
         )
         # £3.50 > €2.0 → passes
         assert "BARC.L" in result
+
+
+# ---------------------------------------------------------------------------
+# Short-window fallback, lookback filtering, and screen skip-paths
+# ---------------------------------------------------------------------------
+
+
+class TestShortWindowFallback:
+    """When history is shorter than the window, the full history is used."""
+
+    def test_compute_addv_window_exceeds_history(self) -> None:
+        dates = pd.bdate_range("2023-01-01", periods=10)
+        prices = pd.DataFrame({"A": [10.0] * 10}, index=dates)
+        volume = pd.DataFrame({"A": [1000] * 10}, index=dates)
+        addv = compute_addv(prices, volume, window=252)
+        assert addv["A"] == pytest.approx(10_000.0)
+
+    def test_compute_trading_frequency_window_exceeds_history(self) -> None:
+        dates = pd.bdate_range("2023-01-01", periods=10)
+        volume = pd.DataFrame(
+            {"A": [1000, 0, 1000, 1000, 0, 1000, 1000, 1000, 1000, 1000]},
+            index=dates,
+        )
+        freq = compute_trading_frequency(volume, window=252)
+        assert freq["A"] == pytest.approx(0.8)
+
+
+class TestCountFinancialStatementsLookback:
+    """min_lookback_days drops statements older than the cutoff."""
+
+    def test_min_lookback_days_filters_old_statements(self) -> None:
+        df = pd.DataFrame(
+            [
+                {"ticker": "A", "period_type": "annual", "period_date": "2020-12-31"},
+                {"ticker": "A", "period_type": "annual", "period_date": "2023-12-31"},
+            ]
+        )
+        counts = count_financial_statements(
+            df, period_type="annual", min_lookback_days=400
+        )
+        # Only the 2023 record is within 400 days of the latest date.
+        assert counts["A"] == 1
+
+    def test_min_lookback_days_with_no_matching_period_type(self) -> None:
+        df = pd.DataFrame(
+            [{"ticker": "A", "period_type": "annual", "period_date": "2023-12-31"}]
+        )
+        # No quarterly rows → empty frame → latest is NaT → cutoff filter skipped.
+        counts = count_financial_statements(
+            df, period_type="quarterly", min_lookback_days=400
+        )
+        assert len(counts) == 0
+
+
+class TestMcapPercentileScreenHysteresis:
+    """Existing members below the exit percentile are dropped (issue #22)."""
+
+    def test_member_below_exit_threshold_removed(self) -> None:
+        from optimizer.universe._screener import _apply_mcap_percentile_screen
+
+        tickers = [f"T{i}" for i in range(10)]
+        mcaps = pd.Series([100.0 * (i + 1) for i in range(10)], index=tickers)
+        exchanges = pd.Series(["NYSE"] * 10, index=tickers)
+        config = InvestabilityScreenConfig()  # entry pct 0.10, exit pct 0.075
+
+        # T0 (100) is below both the entry and exit percentile thresholds.
+        result = _apply_mcap_percentile_screen(
+            mcaps, exchanges, config, current_members=pd.Index(["T0"])
+        )
+        assert "T0" not in result  # existing member fails the exit threshold
+        assert "T9" in result  # largest stock is a new entrant
+
+
+class TestApplyInvestabilityScreensSkipPaths:
+    """Absent columns / empty history skip their respective screens."""
+
+    def test_all_screens_skipped_when_data_absent(self) -> None:
+        fundamentals = pd.DataFrame(index=pd.Index(["A", "B"], name="ticker"))
+        empty = pd.DataFrame()
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=empty,
+            volume_history=empty,
+            financial_statements=None,
+        )
+        assert isinstance(result, pd.Index)
+        # No price history → listing-age screen removes every candidate.
+        assert len(result) == 0

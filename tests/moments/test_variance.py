@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -101,6 +103,53 @@ class TestVarianceFitShape:
         est.fit(returns)
         n_assets = returns.shape[1]
         assert est.variance_.shape == (n_assets,)
+
+
+class TestVarianceVsCovarianceGotcha:
+    """Variance estimators expose 1-D ``variance_``, never 2-D ``covariance_``."""
+
+    @pytest.mark.parametrize("variance_type", list(VarianceEstimatorType))
+    def test_when_fitted_then_variance_1d_and_covariance_absent(
+        self,
+        variance_type: VarianceEstimatorType,
+        returns: pd.DataFrame,
+    ) -> None:
+        cfg = MomentEstimationConfig(variance_estimator=variance_type)
+        est = build_variance_estimator(cfg)
+        est.fit(returns)
+        # 1-D variance_ of shape (n_assets,) — asserted after fit (not vacuous).
+        assert est.variance_.ndim == 1
+        assert est.variance_.shape == (returns.shape[1],)
+        # Variance estimators must NOT expose a 2-D covariance_ attribute.
+        assert not hasattr(est, "covariance_")
+
+
+class TestRegimeAdjustedVarianceForwarding:
+    """REGIME_ADJUSTED_EW forwards the regime-specific kwargs."""
+
+    def test_when_regime_adjusted_ew_then_regime_kwargs_forwarded(self) -> None:
+        cfg = MomentEstimationConfig(
+            variance_estimator=VarianceEstimatorType.REGIME_ADJUSTED_EW,
+            regime_half_life=15.0,
+            regime_multiplier_clip=(0.8, 1.4),
+            min_observations=120,
+        )
+        est = build_variance_estimator(cfg)
+        assert isinstance(est, RegimeAdjustedEWVariance)
+        assert est.regime_half_life == 15.0
+        assert est.regime_multiplier_clip == (0.8, 1.4)
+        assert est.min_observations == 120
+
+
+class TestUnsupportedVarianceEstimatorRaises:
+    """An unknown (non-enum) variance type hits the defensive default."""
+
+    def test_unsupported_variance_estimator_raises(self) -> None:
+        cfg = MomentEstimationConfig(
+            variance_estimator=cast(VarianceEstimatorType, "not_an_estimator")
+        )
+        with pytest.raises(ConfigurationError, match="variance_estimator"):
+            build_variance_estimator(cfg)
 
 
 class TestRegimeAdjustedEWPreset:

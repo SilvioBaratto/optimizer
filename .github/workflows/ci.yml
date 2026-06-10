@@ -67,7 +67,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
       - run: pip install -e ".[test]"
-      - run: pytest tests/ -v --tb=short --cov=optimizer --cov-report=xml --cov-report=term-missing --cov-fail-under=90
+      - run: pytest tests/ -v --tb=short --cov=optimizer --cov-branch --cov-report=xml --cov-report=term-missing --cov-fail-under=90
+      # Branch-aware, per-metric floor: fails if line-rate OR branch-rate < 0.80.
+      # Complements the blended --cov-fail-under so a branch regression cannot
+      # hide behind high statement coverage. 3.12 leg only (coverage.xml is
+      # identical across legs; one check is sufficient).
+      - if: matrix.python-version == '3.12'
+        run: python scripts/check_branch_coverage.py coverage.xml 0.80
       - if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v5
         with:

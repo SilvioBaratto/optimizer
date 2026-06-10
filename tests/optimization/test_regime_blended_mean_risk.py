@@ -234,3 +234,89 @@ class TestConfigIsSerialisable:
         assert "mean_risk_config" in result
         assert "walk_forward_config" in result
         assert result["half_life"] == 40
+
+
+# ---------------------------------------------------------------------------
+# 7. Factory input validation (empty-frame guards)
+# ---------------------------------------------------------------------------
+
+
+class TestFactoryInputValidation:
+    def test_empty_factor_returns_raises(self, regime_probs_df: pd.DataFrame) -> None:
+        with pytest.raises(ConfigurationError, match="factor_returns"):
+            build_regime_blended_mean_risk(
+                factor_returns=pd.DataFrame(), regime_probabilities=regime_probs_df
+            )
+
+    def test_empty_regime_probabilities_raises(
+        self, factor_returns_df: pd.DataFrame
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="regime_probabilities"):
+            build_regime_blended_mean_risk(
+                factor_returns=factor_returns_df, regime_probabilities=pd.DataFrame()
+            )
+
+
+# ---------------------------------------------------------------------------
+# 8. Explicit config propagation and previous-weights forwarding
+# ---------------------------------------------------------------------------
+
+
+class TestExplicitConfigAndPreviousWeights:
+    def test_explicit_config_half_life_propagates(
+        self, factor_returns_df: pd.DataFrame, regime_probs_df: pd.DataFrame
+    ) -> None:
+        """An explicit config reaches the regime covariance estimator."""
+        cfg = RegimeBlendedMeanRiskConfig(half_life=20)
+        pipeline, _ = build_regime_blended_mean_risk(
+            config=cfg,
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+        )
+        # White-box walk of the prior chain (depends on skfolio attribute
+        # names): MeanRisk → TimeSeriesFactorModel → EmpiricalPrior → regime cov.
+        covariance = pipeline[
+            -1
+        ].prior_estimator.factor_prior_estimator.covariance_estimator
+        assert covariance.half_life == 20
+
+    def test_previous_weights_forwarded_to_optimizer(
+        self, factor_returns_df: pd.DataFrame, regime_probs_df: pd.DataFrame
+    ) -> None:
+        """previous_weights are forwarded into the MeanRisk optimizer."""
+        prev = np.full(len(_COLS), 1.0 / len(_COLS))
+        pipeline, _ = build_regime_blended_mean_risk(
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+            previous_weights=prev,
+        )
+        np.testing.assert_array_equal(pipeline[-1].previous_weights, prev)
+
+
+# ---------------------------------------------------------------------------
+# 9. Direct fit() guards on the regime covariance estimator
+# ---------------------------------------------------------------------------
+
+
+class TestRegimeCovarianceFitGuards:
+    def test_fit_without_regime_probabilities_raises(self) -> None:
+        from optimizer.optimization._regime_blended_mean_risk import (
+            _ExternallyControlledRegimeCovariance,
+        )
+
+        cov = _ExternallyControlledRegimeCovariance(regime_probabilities=None)
+        with pytest.raises(ConfigurationError, match="regime_probabilities must be"):
+            cov.fit(pd.DataFrame({"A": [0.01, 0.02], "B": [0.0, 0.01]}))
+
+    def test_fit_with_non_dataframe_x_raises(
+        self, regime_probs_df: pd.DataFrame
+    ) -> None:
+        from optimizer.optimization._regime_blended_mean_risk import (
+            _ExternallyControlledRegimeCovariance,
+        )
+
+        cov = _ExternallyControlledRegimeCovariance(
+            regime_probabilities=regime_probs_df
+        )
+        with pytest.raises(ConfigurationError, match="pandas DataFrame"):
+            cov.fit(np.zeros((50, 3)))

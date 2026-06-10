@@ -242,6 +242,37 @@ class TestBuildEntropyPooling:
         with pytest.raises(ConfigurationError, match="prior_moments"):
             build_entropy_pooling(cfg)
 
+    def test_relative_mean_views_appended_to_existing_mean_views(self) -> None:
+        """Relative mean views append to a pre-existing mean_views list (not None)."""
+        mu = np.array([0.05, 0.03])
+        cov = np.diag([0.04, 0.02])
+        cfg = EntropyPoolingConfig(
+            mean_views=("MSFT == 0.02",),
+            relative_mean_views=(("AAPL", 0.01),),
+        )
+        prior = build_entropy_pooling(
+            cfg, prior_moments=(mu, cov), asset_names=["AAPL", "MSFT"]
+        )
+        assert isinstance(prior, EntropyPooling)
+        assert prior.mean_views is not None
+        assert "MSFT == 0.02" in prior.mean_views
+        assert any("AAPL == 0.06" in v for v in prior.mean_views)
+
+    def test_relative_variance_views_appended_to_existing_variance_views(self) -> None:
+        """Relative variance views append to a pre-existing variance_views list."""
+        mu = np.array([0.05, 0.03])
+        cov = np.diag([0.04, 0.02])
+        cfg = EntropyPoolingConfig(
+            variance_views=("MSFT == 0.05",),
+            relative_variance_views=(("AAPL", 2.0),),
+        )
+        prior = build_entropy_pooling(
+            cfg, prior_moments=(mu, cov), asset_names=["AAPL", "MSFT"]
+        )
+        assert prior.variance_views is not None
+        assert "MSFT == 0.05" in prior.variance_views
+        assert any("AAPL == 0.08" in v for v in prior.variance_views)
+
 
 class TestBuildOpinionPooling:
     def test_produces_opinion_pooling_instance(self) -> None:

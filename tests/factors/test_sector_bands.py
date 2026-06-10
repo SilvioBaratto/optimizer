@@ -217,3 +217,36 @@ def test_matrix_to_bands_tuple_types() -> None:
         assert isinstance(sector, str)
         assert isinstance(floor, float)
         assert isinstance(cap, float)
+
+
+# ---------------------------------------------------------------------------
+# resolve_sector_bands fallback branches (config + default paths)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_with_config_missing_regime_falls_back_to_unknown() -> None:
+    """When the config lacks the queried regime, its UNKNOWN bands are used."""
+    bands = tuple(("unknown", sector, 0.02, 0.20) for sector in ALL_11_SECTORS)
+    cfg = SectorRegimeBandsConfig(enable=True, bands=bands)
+    result = resolve_sector_bands(MacroRegime.RECESSION, cfg)
+    for sector in ALL_11_SECTORS:
+        assert result[sector] == (0.02, 0.20)
+
+
+def test_resolve_with_config_missing_regime_and_unknown_uses_uniform() -> None:
+    """Config lacking both the regime and UNKNOWN returns uniform (0.03, 0.16)."""
+    bands = tuple(("recovery", sector, 0.04, 0.18) for sector in ALL_11_SECTORS)
+    cfg = SectorRegimeBandsConfig(enable=True, bands=bands)
+    result = resolve_sector_bands(MacroRegime.SLOWDOWN, cfg)
+    for sector in ALL_11_SECTORS:
+        assert result[sector] == (0.03, 0.16)
+
+
+def test_resolve_default_path_falls_back_to_unknown_when_regime_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default path falls back to UNKNOWN when the regime is absent from the matrix."""
+    monkeypatch.delitem(SECTOR_REGIME_BANDS, MacroRegime.RECOVERY)
+    result = resolve_sector_bands(MacroRegime.RECOVERY)
+    for sector in ALL_11_SECTORS:
+        assert result[sector] == (0.03, 0.16)

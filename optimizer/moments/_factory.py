@@ -94,6 +94,10 @@ def build_mu_estimator(config: MomentEstimationConfig) -> BaseMu:
             return EWMu(alpha=config.ew_mu_alpha)
         case MuEstimatorType.EQUILIBRIUM:
             return EquilibriumMu(risk_aversion=config.risk_aversion)
+        case _:
+            raise ConfigurationError(
+                f"Unsupported mu_estimator: {config.mu_estimator!r}"
+            )
 
 
 def build_cov_estimator(config: MomentEstimationConfig) -> BaseCovariance:
@@ -145,6 +149,10 @@ def build_cov_estimator(config: MomentEstimationConfig) -> BaseCovariance:
                 regime_multiplier_clip=config.regime_multiplier_clip,
                 min_observations=config.min_observations,
             )
+        case _:
+            raise ConfigurationError(
+                f"Unsupported cov_estimator: {config.cov_estimator!r}"
+            )
 
 
 def build_variance_estimator(config: MomentEstimationConfig) -> BaseVariance:
@@ -184,6 +192,10 @@ def build_variance_estimator(config: MomentEstimationConfig) -> BaseVariance:
                 regime_method=_REGIME_METHOD_MAP[config.regime_method],
                 regime_multiplier_clip=config.regime_multiplier_clip,
                 min_observations=config.min_observations,
+            )
+        case _:
+            raise ConfigurationError(
+                f"Unsupported variance_estimator: {config.variance_estimator!r}"
             )
 
 

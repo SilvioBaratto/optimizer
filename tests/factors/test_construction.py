@@ -794,3 +794,219 @@ class TestFactorDirectionConventions:
             api_beta.reindex(common).round(10),
             raw_beta.reindex(common).round(10),
         )
+
+
+# ---------------------------------------------------------------------------
+# Missing-input guards and dispatch edges (branch coverage)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def _tiny_prices() -> pd.DataFrame:
+    """Minimal price history for factors that ignore prices."""
+    return pd.DataFrame(
+        {"A": [100.0, 101.0, 99.0], "B": [50.0, 51.0, 52.0]},
+        index=pd.bdate_range("2023-01-01", periods=3),
+    )
+
+
+@pytest.fixture()
+def _dummy() -> pd.DataFrame:
+    """One-row market_cap frame shared by analyst/insider factor tests."""
+    return pd.DataFrame({"market_cap": [1.0]}, index=pd.Index(["A"], name="ticker"))
+
+
+class TestFactorMissingInputGuards:
+    """Calculators return an empty Series when required columns are absent."""
+
+    @pytest.fixture()
+    def _market_cap_only(self) -> pd.DataFrame:
+        """Fundamentals holding only market_cap — every numerator column absent."""
+        return pd.DataFrame(
+            {"market_cap": [1.0e9, 2.0e9]},
+            index=pd.Index(["A", "B"], name="ticker"),
+        )
+
+    @pytest.mark.parametrize(
+        "factor_type",
+        [
+            FactorType.BOOK_TO_PRICE,
+            FactorType.EARNINGS_YIELD,
+            FactorType.SALES_TO_PRICE,
+            FactorType.EBITDA_TO_EV,
+            FactorType.ROE,
+            FactorType.OPERATING_MARGIN,
+            FactorType.PROFIT_MARGIN,
+            FactorType.ASSET_GROWTH,
+        ],
+    )
+    def test_missing_numerator_returns_empty(
+        self,
+        factor_type: FactorType,
+        _market_cap_only: pd.DataFrame,
+        _tiny_prices: pd.DataFrame,
+    ) -> None:
+        result = compute_factor(factor_type, _market_cap_only, _tiny_prices)
+        assert isinstance(result, pd.Series)
+        assert result.empty
+
+
+class TestAlignToPitNoTickerColumn:
+    """align_to_pit without a ticker column returns the filtered rows as-is."""
+
+    def test_passthrough_when_ticker_column_absent(self) -> None:
+        data = pd.DataFrame(
+            {"period_date": ["2023-01-01", "2023-02-01"], "val": [1.0, 2.0]}
+        )
+        result = align_to_pit(data, "period_date", "2024-01-01", lag_days=10)
+        assert len(result) == 2
+        assert "ticker" not in result.columns
+
+
+class TestBetaDegenerateMarket:
+    """A near-zero market variance produces NaN betas rather than huge values."""
+
+    def test_zero_variance_market_returns_nan(self) -> None:
+        from optimizer.factors._construction import _compute_beta
+
+        dates = pd.bdate_range("2023-01-01", periods=60)
+        prices = pd.DataFrame(
+            {"A": np.linspace(100, 110, 60), "B": np.linspace(50, 60, 60)},
+            index=dates,
+        )
+        returns_index = prices.pct_change().dropna().index
+        # A constant series has variance 0.0 (< 1e-12), regardless of its value.
+        constant_market = pd.Series(0.001, index=returns_index)
+        result = _compute_beta(prices, market_returns=constant_market)
+        assert result.isna().all()
+
+
+class TestRecommendationChangeBranches:
+    """Cover all analyst-data paths of the recommendation-change factor."""
+
+    def test_recommendation_change_column_averaged_per_ticker(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        analyst = pd.DataFrame(
+            {"ticker": ["A", "A", "B"], "recommendation_change": [1.0, -1.0, 2.0]}
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.loc["A"] == 0.0
+        assert result.loc["B"] == 2.0
+
+    def test_raw_counts_with_ticker_compute_net_score(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        analyst = pd.DataFrame(
+            {
+                "ticker": ["A", "B"],
+                "strong_buy": [5, 1],
+                "buy": [3, 0],
+                "sell": [1, 2],
+                "strong_sell": [0, 4],
+            }
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.loc["A"] == 7.0  # (5+3) - (0+1)
+        assert result.loc["B"] == -5.0  # (1+0) - (4+2)
+
+    def test_raw_counts_without_ticker_returns_score(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        analyst = pd.DataFrame(
+            {"strong_buy": [5], "buy": [3], "sell": [1], "strong_sell": [0]}
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.iloc[0] == 7.0
+
+    def test_unrecognized_columns_return_empty(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        analyst = pd.DataFrame({"irrelevant": [1.0]})
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.empty
+
+
+class TestNetInsiderBuyingBranches:
+    """Cover the insider-buying signed/unsigned and missing-column paths."""
+
+    def test_missing_shares_or_ticker_returns_empty(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame({"irrelevant": [1.0]})
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+        )
+        assert result.empty
+
+    def test_transaction_type_signs_shares(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "A", "B"],
+                "shares": [100, 50, 200],
+                "transaction_type": ["Purchase", "Sale", "buy"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+        )
+        assert result.loc["A"] == 50.0  # +100 purchase - 50 sale
+        assert result.loc["B"] == 200.0  # +200 buy
+
+    def test_no_transaction_type_sums_shares(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame({"ticker": ["A", "A"], "shares": [100, 50]})
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+        )
+        assert result.loc["A"] == 150.0
+
+
+class TestComputeFactorDispatchEdges:
+    """Cover the price/volume dispatch guards."""
+
+    def test_amihud_without_volume_returns_empty(
+        self, _tiny_prices: pd.DataFrame
+    ) -> None:
+        fundamentals = pd.DataFrame(
+            {"market_cap": [1.0, 2.0]}, index=pd.Index(["A", "B"], name="ticker")
+        )
+        result = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            fundamentals,
+            _tiny_prices,
+            volume_history=None,
+        )
+        assert result.empty
+
+
+class TestComputeAllFactorsEmpty:
+    """compute_all_factors returns an empty frame when no factor is computable."""
+
+    def test_no_computable_factors_returns_indexed_empty_frame(self) -> None:
+        fundamentals = pd.DataFrame(
+            {"market_cap": [1.0e9, 2.0e9]},
+            index=pd.Index(["A", "B"], name="ticker"),
+        )
+        prices = pd.DataFrame(
+            {"A": [1.0, 2.0, 3.0], "B": [3.0, 2.0, 1.0]},
+            index=pd.bdate_range("2023-01-01", periods=3),
+        )
+        # RECOMMENDATION_CHANGE with no analyst_data yields an empty Series,
+        # so no columns survive and an index-only frame is returned.
+        config = FactorConstructionConfig(factors=(FactorType.RECOMMENDATION_CHANGE,))
+        result = compute_all_factors(fundamentals, prices, config=config)
+        assert isinstance(result, pd.DataFrame)
+        assert result.shape[1] == 0
+        assert list(result.index) == ["A", "B"]
