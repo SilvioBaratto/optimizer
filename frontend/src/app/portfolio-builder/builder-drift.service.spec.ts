@@ -415,4 +415,40 @@ describe('BuilderDriftService', () => {
     expect(after.request.params.get('base')).toBe('total');
     after.flush(sampleDriftResponse(2));
   });
+
+  it('when a trade ticker has no matching drift row, delta_weight and flags fall back to defaults', () => {
+    service.init();
+    arm();
+    service.runExplicit();
+    const req = http.expectOne((r) => r.url === DRIFT_URL);
+
+    const base = sampleDriftResponse();
+    const orphan: DriftResponse = {
+      ...base,
+      trades: [
+        ...base.trades,
+        {
+          ticker: 'GOOG',
+          action: 'buy' as const,
+          delta_eur: 100,
+          est_shares: 1,
+          est_cost_eur: 0.1,
+        },
+      ],
+    };
+    req.flush(orphan);
+
+    const goog = store.trades()!.trades.find((t) => t.ticker === 'GOOG')!;
+    expect(goog.delta_weight).toBe(0);
+    expect(goog.flags).toEqual([]);
+  });
+
+  it('when init is called twice, the trigger pipeline is registered only once', () => {
+    service.init();
+    service.init();
+    arm();
+    service.runExplicit();
+    http.expectOne((r) => r.url === DRIFT_URL).flush(sampleDriftResponse());
+    http.expectNone((r) => r.url === DRIFT_URL);
+  });
 });

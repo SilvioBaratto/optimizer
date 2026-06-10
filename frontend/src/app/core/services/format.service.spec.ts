@@ -61,6 +61,19 @@ describe('FormatService', () => {
     it('when compact value is null, the placeholder is returned', () => {
       expect(svc.formatCurrencyCompact(null)).toBe('--');
     });
+
+    it('when a non-default currency is passed, formatCurrency uses it', () => {
+      const out = svc.formatCurrency(1234.5, 'EUR');
+      expect(out).toContain('1,234.50');
+      expect(out).toContain('€');
+    });
+
+    it('when a non-default currency is passed, formatCurrencyCompact uses it', () => {
+      const out = svc.formatCurrencyCompact(1_500_000, 'EUR');
+      expect(out).toContain('€');
+      expect(out).toContain('1.5');
+      expect(out).toContain('M');
+    });
   });
 
   describe('formatBps', () => {

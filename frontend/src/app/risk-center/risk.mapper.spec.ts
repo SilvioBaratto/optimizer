@@ -46,6 +46,16 @@ describe('risk.mapper', () => {
       const [r] = toVarResults(response, PORTFOLIO_VALUE);
       expect(r.method).toBe('historical');
     });
+
+    it('when a confidence value is null and cvar lacks the key, both coalesce to 0', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const response = { var: { '95': null }, cvar: {}, method: 'historical', lookback: 252, nObservations: 100 } as any;
+      const [r] = toVarResults(response, PORTFOLIO_VALUE);
+      expect(r.var).toBe(0);
+      expect(r.cvar).toBe(0);
+      expect(r.varDollar).toBe(0);
+      expect(r.cvarDollar).toBe(0);
+    });
   });
 
   describe('toCorrelationData', () => {
@@ -145,6 +155,20 @@ describe('risk.mapper', () => {
       };
       const [s] = toStressScenarios(response);
       expect(s.benchmarkImpact).toBe(0);
+    });
+
+    it('when multiple scenarios are present, ids are index-named s-0, s-1, …', () => {
+      const response: StressScenarioApiResponse = {
+        nScenarios: 2,
+        tickers: ['AAPL'],
+        scenarios: [
+          { name: 'crash', description: 'first', shocks: { AAPL: -0.1 }, probability: 0.1, horizonDays: 5, syntheticDataArgs: {} },
+          { name: 'rally', description: 'second', shocks: { AAPL: 0.1 }, probability: 0.05, horizonDays: 5, syntheticDataArgs: {} },
+        ],
+      };
+      const result = toStressScenarios(response);
+      expect(result[0].id).toBe('s-0');
+      expect(result[1].id).toBe('s-1');
     });
   });
 

@@ -181,4 +181,8 @@ describe('builder-stage', () => {
     expect(sectionForStep('report')).toBe('horizon');
     expect(sectionForStep('persist')).toBe('horizon');
   });
+
+  it('when sectionForStep is given an unknown step id, it throws', () => {
+    expect(() => sectionForStep('bogus_step' as PipelineStepId)).toThrow();
+  });
 });

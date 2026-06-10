@@ -84,6 +84,12 @@ describe('RunConfigPanelComponent', () => {
       panel.form.patchValue({ start_date: '2024-01-01', end_date: null });
       expect(panel.form.errors).toBeNull();
     });
+
+    it('when start_date is null and end_date is set, no cross-field error', () => {
+      const panel = buildPanel();
+      panel.form.patchValue({ start_date: null, end_date: '2024-06-01' });
+      expect(panel.form.errors).toBeNull();
+    });
   });
 
   describe('base_currency', () => {

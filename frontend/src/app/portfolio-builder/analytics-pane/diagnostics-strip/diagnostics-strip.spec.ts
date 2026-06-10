@@ -139,4 +139,12 @@ describe('DiagnosticsStripComponent', () => {
     expect(host.querySelector('[data-cat-code="unmapped"]')).not.toBeNull();
     expect(host.querySelector('[data-region="diagnostics-reconciliation"]')).not.toBeNull();
   });
+
+  it('when unmapped_count is negative, buildCategory drops it and only non-negative non-zero counts render', () => {
+    render(makeDiagnostics({ unmapped_count: -1, stale_price_count: 2 }));
+    const codes = Array.from(
+      host.querySelectorAll('[data-region="diagnostics-count-item"]'),
+    ).map((el) => el.getAttribute('data-cat-code'));
+    expect(codes).toEqual(['stale_price']);
+  });
 });

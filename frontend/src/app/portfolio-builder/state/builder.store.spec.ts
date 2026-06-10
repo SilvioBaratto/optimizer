@@ -7,6 +7,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 
 import { BUILDER_DRIFT_SERVICE, BuilderStore, type CanvasView } from './builder.store';
+import { BuilderResultService } from '../builder-result.service';
 import type { BuilderStage } from '../models/builder-stage';
 import type {
   BuilderBacktest,
@@ -622,6 +623,35 @@ describe('BuilderStore', () => {
 
     it('when triggerDriftRun is never called, runExplicit is not invoked', () => {
       expect(runner.runExplicit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('triggerResultRun()', () => {
+    let resultRunner: { runExplicit: jasmine.Spy };
+
+    beforeEach(() => {
+      resultRunner = { runExplicit: jasmine.createSpy('runExplicit') };
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          provideZonelessChangeDetection(),
+          provideHttpClient(),
+          provideHttpClientTesting(),
+          BuilderStore,
+          { provide: BuilderResultService, useValue: resultRunner },
+        ],
+      });
+      store = TestBed.inject(BuilderStore);
+      http = TestBed.inject(HttpTestingController);
+    });
+
+    it('when triggerResultRun is called once, BuilderResultService.runExplicit is invoked exactly once', () => {
+      store.triggerResultRun();
+      expect(resultRunner.runExplicit).toHaveBeenCalledTimes(1);
+    });
+
+    it('when triggerResultRun is never called, runExplicit is not invoked', () => {
+      expect(resultRunner.runExplicit).not.toHaveBeenCalled();
     });
   });
 

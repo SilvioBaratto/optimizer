@@ -104,4 +104,49 @@ describe('PolicyPanelComponent', () => {
     fx.componentInstance.submit();
     expect(count).toBe(0);
   });
+
+  it('when policy_type is calendar and frequency_days is 0, isFormValid returns false', () => {
+    const fx = create();
+    fx.componentInstance.updateField('name', 'Valid Name');
+    fx.componentInstance.updateField('policy_type', 'calendar');
+    fx.componentInstance.updateField('frequency_days', 0);
+    expect(fx.componentInstance.isFormValid()).toBe(false);
+  });
+
+  it('when policy_type is threshold and threshold is negative, isFormValid returns false', () => {
+    const fx = create();
+    fx.componentInstance.updateField('name', 'Valid Name');
+    fx.componentInstance.updateField('policy_type', 'threshold');
+    fx.componentInstance.updateField('threshold', -0.1);
+    expect(fx.componentInstance.isFormValid()).toBe(false);
+  });
+
+  it('when toggleCreate is called once, showCreate becomes true and form is reset; called again it is false', () => {
+    const fx = create();
+    expect(fx.componentInstance.showCreate()).toBe(false);
+
+    fx.componentInstance.updateField('name', 'Dirty');
+    fx.componentInstance.toggleCreate();
+    expect(fx.componentInstance.showCreate()).toBe(true);
+    expect(fx.componentInstance.form().name).toBe('');
+
+    fx.componentInstance.toggleCreate();
+    expect(fx.componentInstance.showCreate()).toBe(false);
+  });
+
+  it('when getPolicyBadge is called, it returns the exact label and colorClass for each type', () => {
+    const fx = create();
+    expect(fx.componentInstance.getPolicyBadge('calendar')).toEqual({
+      label: 'Calendar',
+      colorClass: 'bg-chart-1/15 text-chart-1',
+    });
+    expect(fx.componentInstance.getPolicyBadge('threshold')).toEqual({
+      label: 'Threshold',
+      colorClass: 'bg-chart-4/15 text-chart-4',
+    });
+    expect(fx.componentInstance.getPolicyBadge('hybrid')).toEqual({
+      label: 'Hybrid',
+      colorClass: 'bg-chart-3/15 text-chart-3',
+    });
+  });
 });

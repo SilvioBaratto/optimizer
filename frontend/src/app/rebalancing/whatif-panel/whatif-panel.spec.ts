@@ -62,4 +62,38 @@ describe('WhatifPanelComponent', () => {
     expect(comp.kpiShouldRebalance()).toBe('—');
     expect(comp.kpiTurnover()).toBe('—');
   });
+
+  it('when shouldRebalance is false, kpiShouldRebalance returns NO', () => {
+    fixture.componentRef.setInput('decideResponse', makeRebalanceDecideResponse({ shouldRebalance: false }));
+    expect(comp.kpiShouldRebalance()).toBe('NO');
+  });
+
+  it('when a decide response is present, tradeRows sign-prefixes positives only; when null it returns empty', () => {
+    // null guard
+    expect(comp.tradeRows()).toEqual([]);
+
+    fixture.componentRef.setInput('decideResponse', makeRebalanceDecideResponse());
+    const rows = comp.tradeRows();
+    // default: MSFT +0.05, AAPL -0.05 — sorted by abs descending (equal → stable)
+    const msft = rows.find((r) => r['ticker'] === 'MSFT')!;
+    const aapl = rows.find((r) => r['ticker'] === 'AAPL')!;
+    expect(msft['delta']).toBe('+5.00%');
+    expect(aapl['delta']).toBe('-5.00%');
+  });
+
+  it('when currentRaw is empty, weightsSumTolerant returns false so isFormValid is false', () => {
+    comp.currentRaw.set('');
+    expect(comp.isFormValid()).toBe(false);
+  });
+
+  it('when parseWeights receives a no-colon entry, that entry is dropped', () => {
+    // empty string → all entries have no colon → result is {}
+    comp.currentRaw.set('');
+    expect(comp.currentWeights()).toEqual({});
+
+    // 'AAPL' has no colon: key='AAPL', value=undefined → Number(undefined)=NaN → dropped
+    // 'MSFT:0.5' is valid
+    comp.currentRaw.set('AAPL, MSFT:0.5');
+    expect(comp.currentWeights()).toEqual({ MSFT: 0.5 });
+  });
 });

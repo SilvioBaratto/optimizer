@@ -105,6 +105,16 @@ describe('ExposureConstraintsPanelComponent', () => {
     expect(component.rows.at(0).errors?.['maxGtMin']).toBeUndefined();
   });
 
+  it('maxGtMin: row is valid when a bound is non-numeric', () => {
+    const row = component.rows.at(0);
+    row.controls.min.setValue(null as unknown as number);
+    row.controls.max.setValue(-0.5);
+    fixture.detectChanges();
+    // Without the typeof guard, `-0.5 > (null→0)` is false → maxGtMin error.
+    // The guard short-circuits to null first, so the row stays valid.
+    expect(row.errors?.['maxGtMin']).toBeUndefined();
+  });
+
   // ---------------- Form-level validators ----------------
 
   it('uniqueFactor: form invalid when two rows share the same factor', () => {
