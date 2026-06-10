@@ -13,6 +13,7 @@ delegates to.
 from __future__ import annotations
 
 from datetime import date
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -55,6 +56,53 @@ class TestExpectedTradingSessions:
         )
         assert sessions is not None
         assert 240 <= sessions <= 256
+
+    # ------------------------------------------------------------------
+    # Uncovered branch: lines 54-56 — Feb-29 leap-year fallback (day=28)
+    # ------------------------------------------------------------------
+
+    def test_when_feb29_reference_date_then_falls_back_to_day28(self) -> None:
+        # 2024-02-29 is a real leap day.  Subtracting 1 year raises ValueError
+        # (2023 has no Feb 29), so the except branch replaces day with 28.
+        result = get_expected_trading_sessions("NYSE", "1y", date(2024, 2, 29))
+        # The fallback must produce a valid integer — not None.
+        assert result is not None
+        assert result > 0
+
+    # ------------------------------------------------------------------
+    # Uncovered branch: line 74 — start >= end returns None
+    # ------------------------------------------------------------------
+
+    def test_when_calendar_bounds_force_start_gte_end_then_none(self) -> None:
+        # Construct a mock calendar whose first_session is far in the future,
+        # forcing start > reference_date after the max(start, cal_start) clamp.
+        # Use plain date objects to exercise the `not hasattr(..., "date")`
+        # branch in the hasattr guard.
+        future_date = date(2099, 1, 1)
+        mock_cal = MagicMock()
+        mock_cal.first_session = future_date  # plain date — no .date() method
+        mock_cal.last_session = date(2099, 12, 31)
+
+        with patch(
+            "app.services._shared.trading_calendar.xcals.get_calendar",
+            return_value=mock_cal,
+        ):
+            result = get_expected_trading_sessions("NYSE", "1y", self._REF)
+
+        assert result is None
+
+    # ------------------------------------------------------------------
+    # Uncovered branch: lines 77-84 — xcals.get_calendar raises → None
+    # ------------------------------------------------------------------
+
+    def test_when_get_calendar_raises_then_returns_none(self) -> None:
+        with patch(
+            "app.services._shared.trading_calendar.xcals.get_calendar",
+            side_effect=Exception("boom"),
+        ):
+            result = get_expected_trading_sessions("NYSE", "1y", self._REF)
+
+        assert result is None
 
 
 class TestHasSufficientHistory:

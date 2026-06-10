@@ -5,6 +5,7 @@ import time
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 from app.config import settings
 
@@ -56,7 +57,11 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
             oldest_request = min(self.client_requests[client_ip])
             retry_after = int(oldest_request + self.window - current_time) + 1
 
-            return Response(
+            # JSONResponse (not Response) — Response.render() calls
+            # content.encode(), which raises AttributeError on a dict and would
+            # turn every real rate-limit hit into a 500. JSONResponse serialises
+            # the dict and sets the application/json media type itself.
+            return JSONResponse(
                 content={
                     "error": {
                         "code": "RATE_LIMIT_EXCEEDED",
@@ -71,7 +76,6 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                     "X-RateLimit-Remaining": "0",
                     "X-RateLimit-Reset": str(int(oldest_request + self.window)),
                 },
-                media_type="application/json",
             )
 
         # Record this request

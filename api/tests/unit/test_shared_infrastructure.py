@@ -11,7 +11,7 @@ from app.services.infrastructure import (
     RateLimiter,
     retry_with_backoff,
 )
-from app.services.infrastructure.retry import is_transient_network_error
+from app.services.infrastructure.retry import _full_jitter, is_transient_network_error
 
 # ---------------------------------------------------------------------------
 # CircuitBreaker
@@ -96,6 +96,80 @@ class TestCircuitBreaker:
         assert first_wait == 120.0
         assert second_wait == 240.0
         assert second_wait == 2 * first_wait
+
+    # ------------------------------------------------------------------
+    # Uncovered branch: lines 57-58 — cooldown-elapsed half-open decay
+    # ------------------------------------------------------------------
+
+    def test_check_when_cooldown_elapsed_clears_active_and_decrements_attempt(self):
+        mock_time = MagicMock()
+        with patch("app.services.infrastructure.circuit_breaker.time", mock_time):
+            # Phase 1: trigger() — time=0.0 so _until = 0.0 + wait_seconds
+            mock_time.time.return_value = 0.0
+            cb = CircuitBreaker(service_name="test", base_wait_minutes=1.0)
+            cb.trigger()
+            assert cb.attempt_count == 1
+            assert cb._active is True
+
+            # Phase 2: advance past _until so cooldown has elapsed
+            mock_time.time.return_value = cb._until + 1.0
+
+            # check() must NOT raise, must NOT sleep, and must enter the
+            # half-open decay branch (lines 57-58).
+            cb.check()
+
+        mock_time.sleep.assert_not_called()
+        assert cb.attempt_count == 0
+        assert cb.is_active is False
+
+    # ------------------------------------------------------------------
+    # Uncovered branch: lines 76-77 — is_active expiry-clearing
+    # ------------------------------------------------------------------
+
+    def test_is_active_when_time_past_until_clears_and_returns_false(self):
+        mock_time = MagicMock()
+        with patch("app.services.infrastructure.circuit_breaker.time", mock_time):
+            mock_time.time.return_value = 0.0
+            cb = CircuitBreaker(service_name="test", base_wait_minutes=1.0)
+            cb.trigger()
+            assert cb._active is True
+
+            # Advance past _until
+            mock_time.time.return_value = cb._until + 1.0
+            result = cb.is_active
+
+        assert result is False
+        assert cb._active is False
+
+    # ------------------------------------------------------------------
+    # AC: concurrent trigger() calls must not cause runaway increments
+    # ------------------------------------------------------------------
+
+    def test_concurrent_triggers_do_not_exceed_small_attempt_count(self):
+        import threading
+
+        # Large base_wait_minutes keeps the window open for the whole test
+        cb = CircuitBreaker(service_name="test", base_wait_minutes=60.0)
+        barrier = threading.Barrier(2)
+        call_count = 10
+
+        def hammer() -> None:
+            barrier.wait()
+            for _ in range(call_count):
+                cb.trigger()
+
+        t1 = threading.Thread(target=hammer)
+        t2 = threading.Thread(target=hammer)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        # First trigger arms the breaker; all subsequent calls inside the same
+        # active window are no-ops (guard at line 19-22).  With two threads
+        # firing simultaneously exactly ONE trigger may land before the guard
+        # is set, meaning attempt_count must be <= 2, not 20.
+        assert cb.attempt_count <= 2
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +273,44 @@ class TestRetryWithBackoff:
         )
         assert result == "good"
         assert action.call_count == 2
+
+    # ------------------------------------------------------------------
+    # Uncovered branch: line 106 False path — on_rate_limit is None
+    # ------------------------------------------------------------------
+
+    @patch("app.services.infrastructure.retry._full_jitter", return_value=0.0)
+    def test_rate_limit_error_with_no_on_rate_limit_callback_returns_none(
+        self, _mock_jitter
+    ):
+        # is_rate_limit_error fires, but on_rate_limit=None — line 106 False
+        # branch must be taken without AttributeError or crash.
+        action = MagicMock(
+            side_effect=requests.exceptions.HTTPError("429 Too Many Requests")
+        )
+        result = retry_with_backoff(
+            action,
+            max_retries=3,
+            is_rate_limit_error=is_transient_network_error,
+            on_rate_limit=None,
+        )
+        assert result is None
+        assert action.call_count == 3
+
+    # ------------------------------------------------------------------
+    # AC: _full_jitter bounds — cap and exponential ceiling respected
+    # ------------------------------------------------------------------
+
+    def test_full_jitter_bounded_by_base_when_cap_not_reached(self):
+        # attempt=0 → uniform(0, min(120, 2.0*1)) = uniform(0, 2.0)
+        for _ in range(20):
+            val = _full_jitter(0, base=2.0, cap=120.0)
+            assert 0.0 <= val <= 2.0
+
+    def test_full_jitter_bounded_by_cap_when_exponential_exceeds_cap(self):
+        # attempt=10 → base*2**10 = 2048 >> cap=5.0 → uniform(0, 5.0)
+        for _ in range(20):
+            val = _full_jitter(10, base=2.0, cap=5.0)
+            assert 0.0 <= val <= 5.0
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,685 @@
+"""Unit tests for pipeline-orchestration functions in app.services.jobs.scheduler.
+
+Pure-unit: no HTTP client, no real DB, no real threads, no real network.
+All external collaborators are patched with MagicMock.
+"""
+
+from __future__ import annotations
+
+from contextlib import ExitStack
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from app.config import settings
+from app.services.jobs.background_job import JobAlreadyRunningError
+
+# Module under test (imported as a string to avoid side-effects at collection time)
+M = "app.services.jobs.scheduler"
+
+# A valid UUID string required because _run_step calls uuid.UUID(job_id)
+_VALID_JOB_ID = "12345678-1234-1234-1234-123456789abc"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_job_svc(*, get_job_return=None):
+    """Return a MagicMock BackgroundJobService with sensible defaults."""
+    svc = MagicMock()
+    svc.create_job.return_value = _VALID_JOB_ID
+    svc._heartbeat_cadence = 30
+    svc.get_job.return_value = get_job_return or {"status": "completed"}
+    return svc
+
+
+# ---------------------------------------------------------------------------
+# TestRunStep
+# ---------------------------------------------------------------------------
+
+
+class TestRunStep:
+    def _call(self, job_svc, fn, **kwargs):
+        from app.services.jobs.scheduler import _run_step
+
+        return _run_step("test_label", job_svc, fn)
+
+    def test_when_already_running_then_returns_false_and_fn_not_called(self):
+        job_svc = _make_job_svc()
+        job_svc.create_job.side_effect = JobAlreadyRunningError("existing-id")
+        fn = MagicMock()
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            result = self._call(job_svc, fn)
+
+        assert result is False
+        fn.assert_not_called()
+        mock_thread.assert_not_called()
+
+    def test_when_fn_succeeds_and_already_completed_then_returns_true_no_defensive_update(
+        self,
+    ):
+        job_svc = _make_job_svc(get_job_return={"status": "completed"})
+        fn = MagicMock()
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            result = self._call(job_svc, fn)
+
+        assert result is True
+        fn.assert_called_once()
+        _, kwargs = fn.call_args
+        assert "on_progress" in kwargs
+        # Defensive update must NOT have been called with status="completed"
+        for c in job_svc.update_job.call_args_list:
+            assert c.kwargs.get("status") != "completed" or c.args[1:] != ()
+
+    def test_when_fn_succeeds_but_status_not_completed_then_defensive_update_called(
+        self,
+    ):
+        job_svc = _make_job_svc(get_job_return={"status": "running"})
+        fn = MagicMock()
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            result = self._call(job_svc, fn)
+
+        assert result is True
+        # Defensive path: update_job must have been called with status="completed"
+        found = any(
+            kw.get("status") == "completed"
+            for _, kw in [
+                (c.args, c.kwargs) for c in job_svc.update_job.call_args_list
+            ]
+        )
+        assert found
+
+    def test_when_fn_raises_then_returns_false_and_status_failed(self):
+        job_svc = _make_job_svc()
+        fn = MagicMock(side_effect=Exception("boom"))
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            result = self._call(job_svc, fn)
+
+        assert result is False
+        failed_calls = [
+            c
+            for c in job_svc.update_job.call_args_list
+            if c.kwargs.get("status") == "failed"
+        ]
+        assert failed_calls
+
+
+# ---------------------------------------------------------------------------
+# TestRunDailyPipeline
+# ---------------------------------------------------------------------------
+
+def _make_step_side_effect(returns: dict[str, bool]):
+    """Return a side_effect callable for _run_step that maps label → bool."""
+
+    def _effect(label, *args, **kwargs):
+        return returns.get(label, False)
+
+    return _effect
+
+
+@pytest.mark.parametrize(
+    "yf_ok,news_ok,summarize_ok,expected,absent",
+    [
+        (
+            True,
+            True,
+            True,
+            {"yfinance", "macro", "news", "summarize", "calibrate"},
+            set(),
+        ),
+        (
+            False,
+            False,
+            False,
+            {"yfinance", "macro"},
+            {"news", "summarize", "calibrate"},
+        ),
+        (
+            True,
+            False,
+            False,
+            {"yfinance", "macro", "news"},
+            {"summarize", "calibrate"},
+        ),
+        (
+            True,
+            True,
+            False,
+            {"yfinance", "macro", "news", "summarize"},
+            {"calibrate"},
+        ),
+    ],
+)
+class TestRunDailyPipeline:
+    def test_step_gating(self, yf_ok, news_ok, summarize_ok, expected, absent):
+        returns = {
+            "yfinance": yf_ok,
+            "macro": True,
+            "news": news_ok,
+            "summarize": summarize_ok,
+            "calibrate": True,
+        }
+
+        with ExitStack() as stack:
+            mock_step = stack.enter_context(patch(f"{M}._run_step"))
+            mock_refresh = stack.enter_context(
+                patch(f"{M}._refresh_reference_indices")
+            )
+            stack.enter_context(
+                patch(
+                    "app.services.market_data.yfinance.get_yfinance_client",
+                    return_value=MagicMock(),
+                )
+            )
+            # Patch schema imports so they don't fail
+            stack.enter_context(
+                patch(
+                    "app.schemas.macro.macro_regime.MacroFetchRequest",
+                    return_value=MagicMock(),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.schemas.macro.macro_regime.MacroNewsFetchRequest",
+                    return_value=MagicMock(),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.schemas.macro.macro_regime.MacroNewsSummarizeRequest",
+                    return_value=MagicMock(),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.schemas.market_data.yfinance_data.YFinanceFetchRequest",
+                    return_value=MagicMock(),
+                )
+            )
+
+            mock_step.side_effect = _make_step_side_effect(returns)
+
+            from app.services.jobs.scheduler import run_daily_pipeline
+
+            run_daily_pipeline()
+
+        called_labels = {c.args[0] for c in mock_step.call_args_list}
+
+        assert expected.issubset(called_labels), (
+            f"Expected labels {expected} not all present in {called_labels}"
+        )
+        for label in absent:
+            assert label not in called_labels, (
+                f"Label '{label}' should be absent but was called"
+            )
+
+        mock_refresh.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# TestRunMiddayNewsRefresh
+# ---------------------------------------------------------------------------
+
+
+class TestRunMiddayNewsRefresh:
+    def _run(self, step_returns: dict[str, bool]):
+        with ExitStack() as stack:
+            mock_step = stack.enter_context(patch(f"{M}._run_step"))
+            stack.enter_context(
+                patch(
+                    "app.schemas.macro.macro_regime.MacroNewsFetchRequest",
+                    return_value=MagicMock(),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.schemas.macro.macro_regime.MacroNewsSummarizeRequest",
+                    return_value=MagicMock(),
+                )
+            )
+            mock_step.side_effect = _make_step_side_effect(step_returns)
+
+            from app.services.jobs.scheduler import run_midday_news_refresh
+
+            run_midday_news_refresh()
+
+        return mock_step
+
+    def test_when_news_ok_then_summarize_called(self):
+        mock_step = self._run({"news": True, "summarize": True})
+        labels = {c.args[0] for c in mock_step.call_args_list}
+        assert "news" in labels
+        assert "summarize" in labels
+
+    def test_when_news_fails_then_summarize_not_called(self):
+        mock_step = self._run({"news": False})
+        labels = {c.args[0] for c in mock_step.call_args_list}
+        assert "news" in labels
+        assert "summarize" not in labels
+
+
+# ---------------------------------------------------------------------------
+# TestRunWeeklyRefetch
+# ---------------------------------------------------------------------------
+
+
+class TestRunWeeklyRefetch:
+    def test_when_called_then_yfinance_and_macro_run_and_refresh_called_once(self):
+        with ExitStack() as stack:
+            mock_step = stack.enter_context(patch(f"{M}._run_step"))
+            mock_refresh = stack.enter_context(
+                patch(f"{M}._refresh_reference_indices")
+            )
+            stack.enter_context(
+                patch(
+                    "app.services.market_data.yfinance.get_yfinance_client",
+                    return_value=MagicMock(),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.schemas.macro.macro_regime.MacroFetchRequest",
+                    return_value=MagicMock(),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.schemas.market_data.yfinance_data.YFinanceFetchRequest",
+                    return_value=MagicMock(),
+                )
+            )
+            mock_step.return_value = True
+
+            from app.services.jobs.scheduler import run_weekly_refetch
+
+            run_weekly_refetch()
+
+        labels = {c.args[0] for c in mock_step.call_args_list}
+        assert "yfinance" in labels
+        assert "macro" in labels
+        mock_refresh.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# TestRunFredMonthly
+# ---------------------------------------------------------------------------
+
+
+class TestRunFredMonthly:
+    def test_when_called_then_fred_step_runs(self):
+        with ExitStack() as stack:
+            mock_step = stack.enter_context(patch(f"{M}._run_step"))
+            stack.enter_context(
+                patch(
+                    "app.schemas.macro.macro_regime.FredFetchRequest",
+                    return_value=MagicMock(),
+                )
+            )
+            mock_step.return_value = True
+
+            from app.services.jobs.scheduler import run_fred_monthly
+
+            run_fred_monthly()
+
+        labels = {c.args[0] for c in mock_step.call_args_list}
+        assert "fred" in labels
+
+
+# ---------------------------------------------------------------------------
+# TestRefreshReferenceIndices
+# ---------------------------------------------------------------------------
+
+
+class TestRefreshReferenceIndices:
+    def _patch_all(self, stack, *, tickers=None, seed_side_effect=None):
+        """Enter all necessary patches; returns (mock_resolve, mock_seed, mock_ref_jobs).
+
+        Pass ``tickers=[]`` explicitly to test the no-tickers branch; omit to
+        default to ``["SPY"]``.
+        """
+        resolved = ["SPY"] if tickers is None else tickers
+        mock_resolve = stack.enter_context(
+            patch(f"{M}._resolve_benchmark_tickers", return_value=resolved)
+        )
+        mock_seed = stack.enter_context(
+            patch(
+                "app.services.market_data.reference_index_seeder.seed_reference_indices",
+                side_effect=seed_side_effect,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "app.services.market_data.yfinance.get_yfinance_client",
+                return_value=MagicMock(),
+            )
+        )
+        mock_ref_jobs = MagicMock()
+        mock_ref_jobs.create_job.return_value = "job-1"
+        mock_ref_jobs.get_job.return_value = {"status": "completed"}
+        stack.enter_context(patch(f"{M}._ref_index_jobs", mock_ref_jobs))
+        return mock_resolve, mock_seed, mock_ref_jobs
+
+    def test_when_no_tickers_then_returns_false_and_create_job_not_called(self):
+        with ExitStack() as stack:
+            mock_resolve, _, mock_ref_jobs = self._patch_all(stack, tickers=[])
+
+            from app.services.jobs.scheduler import _refresh_reference_indices
+
+            result = _refresh_reference_indices("test")
+
+        assert result is False
+        mock_ref_jobs.create_job.assert_not_called()
+
+    def test_when_already_running_then_returns_false(self):
+        with ExitStack() as stack:
+            mock_resolve, _, mock_ref_jobs = self._patch_all(stack)
+            err = JobAlreadyRunningError("j9")
+            err.existing_job_id = "j9"
+            mock_ref_jobs.create_job.side_effect = err
+
+            from app.services.jobs.scheduler import _refresh_reference_indices
+
+            result = _refresh_reference_indices("test")
+
+        assert result is False
+
+    def test_when_success_then_returns_true(self):
+        with ExitStack() as stack:
+            _, mock_seed, mock_ref_jobs = self._patch_all(stack)
+            mock_ref_jobs.get_job.return_value = {"status": "completed"}
+
+            from app.services.jobs.scheduler import _refresh_reference_indices
+
+            result = _refresh_reference_indices("test")
+
+        assert result is True
+        mock_seed.assert_called_once()
+
+    def test_when_success_but_status_not_completed_then_defensive_update_called(self):
+        with ExitStack() as stack:
+            _, _, mock_ref_jobs = self._patch_all(stack)
+            mock_ref_jobs.get_job.return_value = {"status": "running"}
+
+            from app.services.jobs.scheduler import _refresh_reference_indices
+
+            result = _refresh_reference_indices("test")
+
+        assert result is True
+        found = any(
+            c.kwargs.get("status") == "completed"
+            for c in mock_ref_jobs.update_job.call_args_list
+        )
+        assert found
+
+    def test_when_seed_raises_then_returns_false_and_status_failed(self):
+        with ExitStack() as stack:
+            _, _, mock_ref_jobs = self._patch_all(
+                stack, seed_side_effect=Exception("network error")
+            )
+
+            from app.services.jobs.scheduler import _refresh_reference_indices
+
+            result = _refresh_reference_indices("test")
+
+        assert result is False
+        failed_calls = [
+            c
+            for c in mock_ref_jobs.update_job.call_args_list
+            if c.kwargs.get("status") == "failed"
+        ]
+        assert failed_calls
+
+
+# ---------------------------------------------------------------------------
+# TestResolveBenchmarkTickers
+# ---------------------------------------------------------------------------
+
+
+class TestResolveBenchmarkTickers:
+    def test_when_db_ok_then_returns_sorted_union(self):
+        mock_dm = MagicMock()
+        mock_session = MagicMock()
+        mock_dm.get_session.return_value.__enter__ = MagicMock(
+            return_value=mock_session
+        )
+        mock_dm.get_session.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.get_distinct_benchmark_tickers.return_value = ["SPY"]
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{M}.database_manager", mock_dm))
+            stack.enter_context(
+                patch(
+                    "app.repositories.portfolio.portfolio_repository.PortfolioRepository",
+                    return_value=mock_repo_instance,
+                )
+            )
+
+            from app.services.jobs.scheduler import _resolve_benchmark_tickers
+
+            result = _resolve_benchmark_tickers()
+
+        assert "SPY" in result
+        assert result == sorted(result)
+
+    def test_when_db_raises_then_returns_sorted_default_tickers(self):
+        mock_dm = MagicMock()
+        mock_dm.get_session.side_effect = Exception("db down")
+
+        with patch(f"{M}.database_manager", mock_dm):
+            from app.services.jobs.scheduler import _resolve_benchmark_tickers
+
+            result = _resolve_benchmark_tickers()
+
+        expected = sorted(set(settings.benchmark_tickers))
+        assert result == expected
+
+
+# ---------------------------------------------------------------------------
+# TestRunNewsRefresh
+# ---------------------------------------------------------------------------
+
+
+class TestRunNewsRefresh:
+    def _patch_all(
+        self,
+        stack,
+        *,
+        morning_complete=True,
+        countries=None,
+        pruned=0,
+        db_side_effect=None,
+    ):
+        mock_dm = MagicMock()
+        mock_session = MagicMock()
+        mock_repo = MagicMock()
+        mock_repo.delete_old_news_summaries.return_value = pruned
+
+        if db_side_effect:
+            mock_dm.get_session.side_effect = db_side_effect
+        else:
+            mock_dm.get_session.return_value.__enter__ = MagicMock(
+                return_value=mock_session
+            )
+            mock_dm.get_session.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_repo_cls = MagicMock(return_value=mock_repo)
+
+        stack.enter_context(patch(f"{M}.database_manager", mock_dm))
+        stack.enter_context(
+            patch(
+                "app.repositories.macro.macro_regime_repository.MacroRegimeRepository",
+                mock_repo_cls,
+            )
+        )
+        mock_morning = stack.enter_context(
+            patch(
+                "app.services.macro.macro_news_summary._is_morning_pipeline_complete",
+                return_value=morning_complete,
+            )
+        )
+        mock_find = stack.enter_context(
+            patch(
+                "app.services.macro.macro_news_summary._find_countries_with_new_articles",
+                return_value=countries or [],
+            )
+        )
+        mock_summarize = stack.enter_context(
+            patch("app.services.macro.macro_news_summary._summarize_country_safe")
+        )
+        stack.enter_context(
+            patch(
+                f"{M}._get_last_refresh_time",
+                return_value=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            )
+        )
+        return mock_morning, mock_find, mock_summarize, mock_session, mock_repo
+
+    def test_when_morning_incomplete_then_early_return(self):
+        with ExitStack() as stack:
+            mock_morning, mock_find, mock_summarize, _, _ = self._patch_all(
+                stack, morning_complete=False
+            )
+
+            from app.services.jobs.scheduler import run_news_refresh
+
+            run_news_refresh()
+
+        mock_find.assert_not_called()
+
+    def test_when_no_new_articles_then_summarize_not_called_but_prune_runs(self):
+        with ExitStack() as stack:
+            _, mock_find, mock_summarize, mock_session, mock_repo = self._patch_all(
+                stack, morning_complete=True, countries=[]
+            )
+
+            from app.services.jobs.scheduler import run_news_refresh
+
+            run_news_refresh()
+
+        mock_summarize.assert_not_called()
+        mock_repo.delete_old_news_summaries.assert_called_once()
+        mock_session.commit.assert_called_once()
+
+    def test_when_countries_found_then_summarize_called_per_country_and_prune_runs(
+        self,
+    ):
+        with ExitStack() as stack:
+            _, _, mock_summarize, mock_session, mock_repo = self._patch_all(
+                stack, morning_complete=True, countries=["USA", "UK"], pruned=3
+            )
+
+            from app.services.jobs.scheduler import run_news_refresh
+
+            run_news_refresh()
+
+        assert mock_summarize.call_count == 2
+        mock_session.commit.assert_called_once()
+
+    def test_when_db_raises_then_exception_is_swallowed(self):
+        with ExitStack() as stack:
+            self._patch_all(
+                stack, db_side_effect=Exception("boom")
+            )
+
+            from app.services.jobs.scheduler import run_news_refresh
+
+            # Must not raise
+            run_news_refresh()
+
+
+# ---------------------------------------------------------------------------
+# TestGetLastRefreshTime
+# ---------------------------------------------------------------------------
+
+
+class TestGetLastRefreshTime:
+    def test_when_db_has_value_then_returns_that_datetime(self):
+        from app.services.jobs.scheduler import _get_last_refresh_time
+
+        expected = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        mock_session = MagicMock()
+        mock_session.execute.return_value.scalar_one_or_none.return_value = expected
+
+        result = _get_last_refresh_time(mock_session)
+
+        assert result == expected
+
+    def test_when_db_returns_none_then_returns_past_datetime(self):
+        from app.services.jobs.scheduler import _get_last_refresh_time
+
+        mock_session = MagicMock()
+        mock_session.execute.return_value.scalar_one_or_none.return_value = None
+
+        now = datetime.now(timezone.utc)
+        result = _get_last_refresh_time(mock_session)
+
+        assert isinstance(result, datetime)
+        assert result < now
+
+
+# ---------------------------------------------------------------------------
+# TestRunOrphanReaper
+# ---------------------------------------------------------------------------
+
+
+class TestRunOrphanReaper:
+    def _run(self, stack, *, reconcile_return=0, db_side_effect=None):
+        mock_dm = MagicMock()
+        mock_session = MagicMock()
+        mock_repo = MagicMock()
+        mock_repo.reconcile_orphans.return_value = reconcile_return
+
+        if db_side_effect:
+            mock_dm.get_session.side_effect = db_side_effect
+        else:
+            mock_dm.get_session.return_value.__enter__ = MagicMock(
+                return_value=mock_session
+            )
+            mock_dm.get_session.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_repo_cls = MagicMock(return_value=mock_repo)
+
+        stack.enter_context(patch(f"{M}.database_manager", mock_dm))
+        stack.enter_context(
+            patch(
+                "app.repositories.jobs.background_job_repository.BackgroundJobRepository",
+                mock_repo_cls,
+            )
+        )
+
+        from app.services.jobs.scheduler import run_orphan_reaper
+
+        run_orphan_reaper()
+
+        return mock_session, mock_repo
+
+    def test_when_orphans_reaped_then_commit_called(self):
+        with ExitStack() as stack:
+            mock_session, mock_repo = self._run(stack, reconcile_return=2)
+
+        mock_repo.reconcile_orphans.assert_called_once()
+        mock_session.commit.assert_called_once()
+
+    def test_when_no_orphans_then_commit_still_called(self):
+        with ExitStack() as stack:
+            mock_session, mock_repo = self._run(stack, reconcile_return=0)
+
+        mock_repo.reconcile_orphans.assert_called_once()
+        mock_session.commit.assert_called_once()
+
+    def test_when_db_raises_then_exception_is_swallowed(self):
+        with ExitStack() as stack:
+            # Must not raise
+            self._run(stack, db_side_effect=Exception("db gone"))

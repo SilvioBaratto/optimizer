@@ -92,7 +92,15 @@ jobs:
       # editable root install must precede the api requirements.
       - run: pip install -e .
       - run: pip install -r api/requirements.txt
-      - run: cd api && pytest tests/ -v --tb=short
+      # --cov-report=xml:coverage.xml writes api/coverage.xml (the `cd api`
+      # scope only covers this step). --cov-fail-under=80 is the fast blended
+      # first gate; the floor lives in CI, not pyproject, so local pytest stays
+      # flag-free.
+      - run: cd api && pytest tests/ -v --tb=short --cov=app --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
+      # Branch-aware, per-metric floor: fails if line-rate OR branch-rate < 0.80,
+      # so a branch regression cannot hide behind high statement coverage.
+      # Mirrors the optimizer `test` job. Reads api/coverage.xml from repo root.
+      - run: python scripts/check_branch_coverage.py api/coverage.xml 0.80
 
   frontend-test:
     runs-on: ubuntu-latest
