@@ -167,6 +167,7 @@ describe('DatabaseService', () => {
       const req = http.expectOne(
         (r) => r.url === `${BASE}/tables/schema.weird-name`,
       );
+      expect(req.request.url).toContain('schema.weird-name');
       req.flush({ table: 'schema.weird-name', status: 'truncated' });
     });
 

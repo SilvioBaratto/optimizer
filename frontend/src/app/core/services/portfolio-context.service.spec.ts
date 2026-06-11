@@ -1,5 +1,6 @@
 import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { HttpTestingController } from '@angular/common/http/testing';
 
 import { configureTestBed } from '../../../testing';
 import { PortfolioContextService } from './portfolio-context.service';
@@ -9,15 +10,23 @@ const STORAGE_KEY = 'optimizer.currentPortfolioId';
 describe('PortfolioContextService', () => {
   let svc: PortfolioContextService;
   let appRef: ApplicationRef;
+  let http: HttpTestingController;
 
   beforeEach(async () => {
     localStorage.clear();
-    await configureTestBed({ withHttp: false });
+    await configureTestBed({ withHttp: true });
     svc = TestBed.inject(PortfolioContextService);
+    http = TestBed.inject(HttpTestingController);
     appRef = TestBed.inject(ApplicationRef);
+    // No list request fires at construction — lazy: only emits when currentPortfolioId is non-null.
   });
 
-  afterEach(() => localStorage.clear());
+  afterEach(() => {
+    // Drain any portfolio list request that a test may have triggered (setPortfolio calls).
+    http.match((r) => r.url.includes('portfolio'));
+    localStorage.clear();
+    http.verify();
+  });
 
   it('when injected twice, the providedIn root singleton resolves once', () => {
     expect(TestBed.inject(PortfolioContextService)).toBe(svc);

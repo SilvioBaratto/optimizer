@@ -33,6 +33,10 @@ export async function configureTestBed(
   options: ConfigureTestBedOptions = {},
 ): Promise<void> {
   const { imports = [], providers = [], withHttp = true, withRouter = false } = options;
+  // Clear persisted portfolio state so a leaked `optimizer.currentPortfolioId`
+  // from a prior spec can't make the root PortfolioContextService fire an
+  // unmocked GET /portfolio/ (it now fetches the list lazily on a non-null id).
+  localStorage.clear();
   TestBed.configureTestingModule({
     imports,
     providers: [...baseProviders(withHttp, withRouter), ...providers],

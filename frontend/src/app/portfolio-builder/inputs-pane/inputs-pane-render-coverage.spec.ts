@@ -138,7 +138,9 @@ describe('InputsPaneComponent — render-coverage (#942)', () => {
     store.setSessionId('sid-1');
     store.setStepStatus('load', StepStatus.Completed);
     comp.onContinue('load');
-    http.expectOne(STEP_URL('sid-1', 'screen')).flush(acceptResponse(), ACCEPTED);
+    const req = http.expectOne(STEP_URL('sid-1', 'screen'));
+    expect(req.request.url).toContain('screen');
+    req.flush(acceptResponse(), ACCEPTED);
     http.verify();
   });
 
@@ -146,7 +148,7 @@ describe('InputsPaneComponent — render-coverage (#942)', () => {
     const { comp, store, http } = setup();
     store.setSessionId('sid-1');
     comp.onContinue('load');
-    http.expectNone(() => true);
+    expect(http.match(() => true).length).toBe(0);
     http.verify();
   });
 
@@ -164,14 +166,14 @@ describe('InputsPaneComponent — render-coverage (#942)', () => {
     store.setSessionId('sid-1');
     store.setStepStatus('load', StepStatus.Running);
     comp.onPanelRunStep('load', {});
-    http.expectNone(() => true);
+    expect(http.match(() => true).length).toBe(0);
     http.verify();
   });
 
   it('dispatchStep is a no-op without a session', () => {
     const { comp, http } = setup();
     comp.onPanelRunStep('load', {});
-    http.expectNone(() => true);
+    expect(http.match(() => true).length).toBe(0);
     http.verify();
   });
 

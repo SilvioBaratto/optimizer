@@ -25,7 +25,7 @@ describe('ViewPanelComponent', () => {
   it('when only one persona is given, the opinion-pool request does not fire', () => {
     comp.personasRaw.set('VALUE_INVESTOR');
     comp.runOpinionPool();
-    http.expectNone(OPINION_URL);
+    expect(http.match(OPINION_URL).length).toBe(0);
   });
 
   it('when two personas are given, the opinion-pool request fires', () => {

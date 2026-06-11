@@ -266,7 +266,7 @@ describe('PipelineStepperComponent — workflow coverage (#943)', () => {
     await setup();
     createSessionAndDispatchLoad();
     comp.onPanelRunStep({}); // load is Running
-    http.expectNone(STEP_URL('sid-1', 'load'));
+    expect(http.match(STEP_URL('sid-1', 'load')).length).toBe(0);
     http.verify();
   });
 

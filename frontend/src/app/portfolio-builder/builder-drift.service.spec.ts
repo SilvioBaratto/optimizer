@@ -448,7 +448,8 @@ describe('BuilderDriftService', () => {
     service.init();
     arm();
     service.runExplicit();
-    http.expectOne((r) => r.url === DRIFT_URL).flush(sampleDriftResponse());
-    http.expectNone((r) => r.url === DRIFT_URL);
+    const reqs = http.match((r) => r.url === DRIFT_URL);
+    expect(reqs.length).toBe(1);
+    reqs[0].flush(sampleDriftResponse());
   });
 });

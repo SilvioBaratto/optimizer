@@ -63,6 +63,9 @@ function setup(): {
   tick: Subject<number>;
 } {
   const tick = new Subject<number>();
+  // Isolate from any leaked portfolio id: the root PortfolioContextService reads
+  // localStorage at construction and would otherwise fire an unmocked GET /portfolio/.
+  localStorage.clear();
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),

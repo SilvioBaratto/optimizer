@@ -11,10 +11,11 @@
 # baml-cli is available with the baml package.
 
 import typing
+import typing_extensions
+
 
 from . import stream_types, types
-from .runtime import BamlCallOptions, DoNotUseDirectlyCallManager
-
+from .runtime import DoNotUseDirectlyCallManager, BamlCallOptions
 
 class LlmResponseParser:
     __options: DoNotUseDirectlyCallManager
@@ -42,9 +43,9 @@ class LlmResponseParser:
 
     def DesignStressScenarios(
         self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> list["types.StressScenario"]:
+    ) -> typing.List["types.StressScenario"]:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="DesignStressScenarios", llm_response=llm_response, mode="request")
-        return typing.cast(list["types.StressScenario"], __result__)
+        return typing.cast(typing.List["types.StressScenario"], __result__)
 
     def GenerateExpertView(
         self, llm_response: str, baml_options: BamlCallOptions = {},
@@ -100,7 +101,7 @@ class LlmResponseParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="Test", llm_response=llm_response, mode="request")
         return typing.cast(str, __result__)
 
-
+    
 
 class LlmStreamParser:
     __options: DoNotUseDirectlyCallManager
@@ -128,9 +129,9 @@ class LlmStreamParser:
 
     def DesignStressScenarios(
         self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> list["stream_types.StressScenario"]:
+    ) -> typing.List["stream_types.StressScenario"]:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="DesignStressScenarios", llm_response=llm_response, mode="stream")
-        return typing.cast(list["stream_types.StressScenario"], __result__)
+        return typing.cast(typing.List["stream_types.StressScenario"], __result__)
 
     def GenerateExpertView(
         self, llm_response: str, baml_options: BamlCallOptions = {},
@@ -186,3 +187,4 @@ class LlmStreamParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="Test", llm_response=llm_response, mode="stream")
         return typing.cast(str, __result__)
 
+    

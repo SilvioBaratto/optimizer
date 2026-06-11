@@ -17,6 +17,7 @@ import {
   EchartsDrawdownComponent,
   type DrawdownPoint,
 } from './echarts-drawdown';
+import { EMPTY_STATE_OPTION } from '../charts/safe-chart-option';
 
 // ---------------------------------------------------------------------------
 // Cast helper
@@ -120,5 +121,21 @@ describe('EchartsDrawdownComponent — render-coverage', () => {
     expect(series['areaStyle']).toBeDefined();
     const areaStyle = series['areaStyle'] as { origin: string };
     expect(areaStyle.origin).toBe('start');
+  });
+
+  // ── Empty data → chart.setOption receives EMPTY_STATE_OPTION ─────────────
+
+  it('when data is [], chart.setOption is called with EMPTY_STATE_OPTION', () => {
+    const mockChart = {
+      setOption: jasmine.createSpy('setOption'),
+      dispose: jasmine.createSpy('dispose'),
+      resize: jasmine.createSpy('resize'),
+    };
+    (comp as unknown as { chart: unknown }).chart = mockChart;
+
+    fixture.componentRef.setInput('data', []);
+    fixture.detectChanges();
+
+    expect(mockChart.setOption).toHaveBeenCalledWith(EMPTY_STATE_OPTION);
   });
 });

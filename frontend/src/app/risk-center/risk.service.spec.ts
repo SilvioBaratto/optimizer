@@ -304,7 +304,9 @@ describe('RiskService', () => {
 
     it('URI-encodes the portfolio name in limits endpoints', () => {
       svc.listLimits('my port').subscribe();
-      http.expectOne(`${API}risk/my%20port/limits`).flush({ items: [], breachCount: 0 });
+      const req = http.expectOne(`${API}risk/my%20port/limits`);
+      expect(req.request.url).toContain('my%20port');
+      req.flush({ items: [], breachCount: 0 });
     });
   });
 

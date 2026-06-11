@@ -82,7 +82,7 @@ describe('OptimizationStudioComponent', () => {
   it('onRunPipeline is a no-op while a run is already in flight', () => {
     comp.isRunning.set(true);
     comp.onRunPipeline(RUN);
-    http.expectNone(OPTIMIZE_URL);
+    expect(http.match(OPTIMIZE_URL).length).toBe(0);
   });
 
   it('onJobFailed records the error with a default fallback', () => {

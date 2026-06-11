@@ -83,7 +83,7 @@ describe('RiskCenterComponent', () => {
     settle();
     comp.selectedPortfolio.set('');
     comp.onGenerateStress({ macroContext: 'recession', nScenarios: 4 });
-    http.expectNone((r) => r.url.includes('risk/stress-scenarios'));
+    expect(http.match((r) => r.url.includes('risk/stress-scenarios')).length).toBe(0);
   });
 
   it('when a portfolio is selected, onGenerateStress POSTs the scenario request', () => {
@@ -99,7 +99,8 @@ describe('RiskCenterComponent', () => {
     comp.onCreateLimit({ metric: 'max_drawdown', limit_type: 'upper', threshold: 0.2 });
     http.expectOne((r) => r.url.includes('/limits') && r.method === 'POST').flush({});
     http.expectOne((r) => r.url.includes('/limits') && r.method === 'GET')
-      .flush({ items: [], breachCount: 0 });
+      .flush({ items: [], breachCount: 3 });
+    expect(comp.limitsResponse().breachCount).toBe(3);
   });
 
   it('when a limit is deleted, it DELETEs then reloads the limits', () => {
@@ -107,7 +108,8 @@ describe('RiskCenterComponent', () => {
     comp.onDeleteLimit('l1');
     http.expectOne((r) => r.url.includes('/limits/l1') && r.method === 'DELETE').flush(null, { status: 204, statusText: 'No Content' });
     http.expectOne((r) => r.url.includes('/limits') && r.method === 'GET')
-      .flush({ items: [], breachCount: 0 });
+      .flush({ items: [], breachCount: 1 });
+    expect(comp.limitsResponse().breachCount).toBe(1);
   });
 
   it('when analytics fetches fail, the values are cleared and panel errors recorded', () => {
@@ -127,7 +129,8 @@ describe('RiskCenterComponent', () => {
     comp.onUpdateLimit({ id: 'l1', current: 0.5, breached: true });
     http.expectOne((r) => r.url.includes('/limits/l1') && r.method === 'PUT').flush({});
     http.expectOne((r) => r.url.includes('/limits') && r.method === 'GET')
-      .flush({ items: [], breachCount: 0 });
+      .flush({ items: [], breachCount: 2 });
+    expect(comp.limitsResponse().breachCount).toBe(2);
   });
 
   it('when stress generation fails, a panel error is set and loading clears', () => {

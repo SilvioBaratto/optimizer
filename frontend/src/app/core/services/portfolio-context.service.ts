@@ -1,4 +1,9 @@
-import { Injectable, signal, computed, effect } from '@angular/core';
+import { Injectable, signal, computed, effect, inject } from '@angular/core';
+import { toSignal, toObservable } from '@angular/core/rxjs-interop';
+import { catchError, distinctUntilChanged, filter, map, of, switchMap } from 'rxjs';
+
+import { PortfolioApiService } from './portfolio-api.service';
+import type { PortfolioDto } from '../models/portfolio-api.model';
 
 export type PortfolioMode = 'live' | 'backtest' | 'paper';
 export type DateRangePreset = '1D' | '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | '3Y' | '5Y' | 'Max' | 'Custom';
@@ -22,10 +27,25 @@ function readStoredPortfolioId(): string | null {
 
 @Injectable({ providedIn: 'root' })
 export class PortfolioContextService {
+  private readonly portfolioApi = inject(PortfolioApiService);
+
   readonly activeMode = signal<PortfolioMode>('backtest');
   readonly currentPortfolioId = signal<string | null>(readStoredPortfolioId());
   readonly dateRange = signal<DateRange>(this.computeDateRange('1Y'));
   readonly benchmark = signal('SPY');
+
+  // Only fires the HTTP request on the first null→non-null transition.
+  // Switching between non-null ids does NOT re-fetch — the list is cached
+  // in this signal while portfolioApi.list()'s shareReplay stays subscribed.
+  private readonly portfolioList = toSignal(
+    toObservable(this.currentPortfolioId).pipe(
+      map((id) => id !== null),
+      distinctUntilChanged(),
+      filter((hasId) => hasId),
+      switchMap(() => this.portfolioApi.list().pipe(catchError(() => of(null)))),
+    ),
+    { initialValue: null },
+  );
 
   constructor() {
     // Persist portfolio selection across reloads. Storage errors (quota,
@@ -46,6 +66,21 @@ export class PortfolioContextService {
   }
 
   readonly hasPortfolio = computed(() => this.currentPortfolioId() !== null);
+
+  readonly currentPortfolioName = computed<string | null>(() => {
+    const id = this.currentPortfolioId();
+    if (!id) return null;
+    const list = this.portfolioList();
+    return list?.items.find((p) => p.id === id)?.name ?? null;
+  });
+
+  readonly selectedPortfolio = computed<PortfolioDto | null>(() => {
+    const id = this.currentPortfolioId();
+    if (!id) return null;
+    const list = this.portfolioList();
+    return list?.items.find((p) => p.id === id) ?? null;
+  });
+
   readonly isLive = computed(() => this.activeMode() === 'live');
   readonly isBacktest = computed(() => this.activeMode() === 'backtest');
   readonly isPaper = computed(() => this.activeMode() === 'paper');

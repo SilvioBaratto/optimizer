@@ -12,6 +12,7 @@ import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 
 import { readCssVar } from '../charts/echarts-theme';
 import { CHART_EXPORTABLE, type ChartExportable } from '../charts/chart-export.token';
+import { safeChartOption } from '../charts/safe-chart-option';
 
 export interface DrawdownPoint {
   date: string;
@@ -36,8 +37,8 @@ export class EchartsDrawdownComponent implements OnDestroy, ChartExportable {
     afterNextRender(() => this.initChart());
     effect(() => {
       const d = this.data();
-      if (this.chart && d.length > 0) {
-        this.chart.setOption(this.buildOption(d));
+      if (this.chart) {
+        this.chart.setOption(safeChartOption(d, (safe) => this.buildOption(safe)));
       }
     });
   }
@@ -52,7 +53,7 @@ export class EchartsDrawdownComponent implements OnDestroy, ChartExportable {
 
     const el = this.container().nativeElement;
     this.chart = init(el, 'portfolio', { renderer: 'canvas' });
-    this.chart.setOption(this.buildOption(this.data()));
+    this.chart.setOption(safeChartOption(this.data(), (safe) => this.buildOption(safe)));
 
     this.ro = new ResizeObserver(() => this.chart?.resize());
     this.ro.observe(el);

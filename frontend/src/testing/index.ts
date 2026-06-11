@@ -5,3 +5,4 @@ export * from './domain-fixtures';
 export * from './contract-parity';
 export * from './test-globals';
 export * from './signal-harness';
+export * from './contract-field-parity';

@@ -20,7 +20,7 @@ import riskSnapshot from './contract-snapshots/risk.json';
 import scenariosSnapshot from './contract-snapshots/scenarios.json';
 import universeSnapshot from './contract-snapshots/universe.json';
 import viewsSnapshot from './contract-snapshots/views.json';
-import { assertParity, schemaOf } from './contract-parity';
+import { assertParity, schemaOf, type JsonSchema } from './contract-parity';
 import {
   makeBacktestAsyncResponse,
   makeBacktestProgressResponse,
@@ -59,13 +59,21 @@ import {
   makeVarApiResponse,
 } from './domain-fixtures';
 
+// `assertParity` is jasmine-free (it throws) so it compiles in the production
+// build, which type-checks every non-spec file under src/. Wrap it here so each
+// spec registers a real Jasmine expectation — otherwise every parity spec
+// reports "has no expectations".
+function expectParity(schema: JsonSchema, fixture: object): void {
+  expect(() => assertParity(schema, fixture)).not.toThrow();
+}
+
 describe('contract-parity: dashboard', () => {
   it('when DriftResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(dashboardSnapshot, 'DriftResponse'), makeDriftResponse());
+    expectParity(schemaOf(dashboardSnapshot, 'DriftResponse'), makeDriftResponse());
   });
 
   it('when MarketSnapshotResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(dashboardSnapshot, 'MarketSnapshotResponse'),
       makeMarketSnapshotResponse(),
     );
@@ -74,29 +82,29 @@ describe('contract-parity: dashboard', () => {
 
 describe('contract-parity: risk', () => {
   it('when VarResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(riskSnapshot, 'VarResponse'), makeVarApiResponse());
+    expectParity(schemaOf(riskSnapshot, 'VarResponse'), makeVarApiResponse());
   });
 
   it('when ConcentrationAsset is checked, the wire fixture matches the wire row', () => {
-    assertParity(schemaOf(riskSnapshot, 'ConcentrationAsset'), makeConcentrationAssetApi());
+    expectParity(schemaOf(riskSnapshot, 'ConcentrationAsset'), makeConcentrationAssetApi());
   });
 
   it('when CorrelationResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(riskSnapshot, 'CorrelationResponse'), makeCorrelationApiResponse());
+    expectParity(schemaOf(riskSnapshot, 'CorrelationResponse'), makeCorrelationApiResponse());
   });
 
   it('when LiquidityAsset is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(riskSnapshot, 'LiquidityAsset'), makeLiquidityMetrics()[0]);
+    expectParity(schemaOf(riskSnapshot, 'LiquidityAsset'), makeLiquidityMetrics()[0]);
   });
 });
 
 describe('contract-parity: attribution', () => {
   it('when BrinsonResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(attributionSnapshot, 'BrinsonResponse'), makeBrinsonResponse());
+    expectParity(schemaOf(attributionSnapshot, 'BrinsonResponse'), makeBrinsonResponse());
   });
 
   it('when FactorAttributionResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(attributionSnapshot, 'FactorAttributionResponse'),
       makeFactorAttributionResponse(),
     );
@@ -105,14 +113,14 @@ describe('contract-parity: attribution', () => {
 
 describe('contract-parity: rebalancing', () => {
   it('when RebalanceDecideResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(rebalancingSnapshot, 'RebalanceDecideResponse'),
       makeRebalanceDecideResponse(),
     );
   });
 
   it('when RebalancePreviewResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(rebalancingSnapshot, 'RebalancePreviewResponse'),
       makeRebalancePreview(),
     );
@@ -121,11 +129,11 @@ describe('contract-parity: rebalancing', () => {
 
 describe('contract-parity: portfolio', () => {
   it('when PortfolioResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(portfolioSnapshot, 'PortfolioResponse'), makePortfolioDto());
+    expectParity(schemaOf(portfolioSnapshot, 'PortfolioResponse'), makePortfolioDto());
   });
 
   it('when SnapshotResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(portfolioSnapshot, 'SnapshotResponse'), makeSnapshotDto());
+    expectParity(schemaOf(portfolioSnapshot, 'SnapshotResponse'), makeSnapshotDto());
   });
 });
 
@@ -133,17 +141,17 @@ describe('contract-parity: portfolio', () => {
 
 describe('contract-parity: jobs', () => {
   it('when JobListResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(jobsSnapshot, 'JobListResponse'), makeJobListResponse());
+    expectParity(schemaOf(jobsSnapshot, 'JobListResponse'), makeJobListResponse());
   });
 
   it('when JobSummary is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(jobsSnapshot, 'JobSummary'), makeJobSummary());
+    expectParity(schemaOf(jobsSnapshot, 'JobSummary'), makeJobSummary());
   });
 });
 
 describe('contract-parity: reports', () => {
   it('when ReportJobCreateResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(reportsSnapshot, 'ReportJobCreateResponse'),
       makeReportJobCreateResponse(),
     );
@@ -152,7 +160,7 @@ describe('contract-parity: reports', () => {
 
 describe('contract-parity: universe', () => {
   it('when UniverseScreenResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(universeSnapshot, 'UniverseScreenResponse'),
       makeUniverseScreenResponse(),
     );
@@ -161,20 +169,20 @@ describe('contract-parity: universe', () => {
 
 describe('contract-parity: scenarios', () => {
   it('when StressScenarioResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(scenariosSnapshot, 'StressScenarioResponse'),
       makeStressScenarioApiResponse(),
     );
   });
 
   it('when StressScenarioItem is checked, the wire-only fixture matches the wire row', () => {
-    assertParity(schemaOf(scenariosSnapshot, 'StressScenarioItem'), makeStressScenarioItemApi());
+    expectParity(schemaOf(scenariosSnapshot, 'StressScenarioItem'), makeStressScenarioItemApi());
   });
 });
 
 describe('contract-parity: market_data', () => {
   it('when PriceHistoryResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(marketDataSnapshot, 'PriceHistoryResponse'),
       makePriceHistoryResponse(),
     );
@@ -186,14 +194,14 @@ describe('contract-parity: market_data', () => {
 
 describe('contract-parity: optimization', () => {
   it('when OptimizationRunResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(optimizationSnapshot, 'OptimizationRunResponse'),
       makeOptimizationRunResponse(),
     );
   });
 
   it('when OptimizationRunListResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(optimizationSnapshot, 'OptimizationRunListResponse'),
       makeOptimizationRunListResponse(),
     );
@@ -202,11 +210,11 @@ describe('contract-parity: optimization', () => {
 
 describe('contract-parity: backtest', () => {
   it('when BacktestRunResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(backtestSnapshot, 'BacktestRunResponse'), makeBacktestRunResponse());
+    expectParity(schemaOf(backtestSnapshot, 'BacktestRunResponse'), makeBacktestRunResponse());
   });
 
   it('when BacktestProgressResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(backtestSnapshot, 'BacktestProgressResponse'),
       makeBacktestProgressResponse(),
     );
@@ -227,32 +235,32 @@ describe('contract-parity: backtest', () => {
 
 describe('contract-parity: factors', () => {
   it('when FactorScoreResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(factorsSnapshot, 'FactorScoreResponse'), makeFactorScoreDto());
+    expectParity(schemaOf(factorsSnapshot, 'FactorScoreResponse'), makeFactorScoreDto());
   });
 
   it('when FactorCompositeScoreResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(factorsSnapshot, 'FactorCompositeScoreResponse'),
       makeFactorCompositeResponse(),
     );
   });
 
   it('when FactorSelectResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(factorsSnapshot, 'FactorSelectResponse'), makeFactorSelectResponse());
+    expectParity(schemaOf(factorsSnapshot, 'FactorSelectResponse'), makeFactorSelectResponse());
   });
 });
 
 describe('contract-parity: views', () => {
   it('when GenerateViewsResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(viewsSnapshot, 'GenerateViewsResponse'), makeGenerateViewsResponse());
+    expectParity(schemaOf(viewsSnapshot, 'GenerateViewsResponse'), makeGenerateViewsResponse());
   });
 
   it('when OpinionPoolResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(viewsSnapshot, 'OpinionPoolResponse'), makeOpinionPoolResponse());
+    expectParity(schemaOf(viewsSnapshot, 'OpinionPoolResponse'), makeOpinionPoolResponse());
   });
 
   it('when EntropyPoolingResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(viewsSnapshot, 'EntropyPoolingResponse'),
       makeEntropyPoolingResponse(),
     );
@@ -261,7 +269,7 @@ describe('contract-parity: views', () => {
 
 describe('contract-parity: macro', () => {
   it('when MacroCalibrationResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(macroSnapshot, 'MacroCalibrationResponse'),
       makeMacroCalibrationApiResponse(),
     );
@@ -270,24 +278,24 @@ describe('contract-parity: macro', () => {
 
 describe('contract-parity: pipeline_builder', () => {
   it('when CreateSessionResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(
+    expectParity(
       schemaOf(pipelineBuilderSnapshot, 'CreateSessionResponse'),
       makeCreateSessionResponse(),
     );
   });
 
   it('when StepPollResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(pipelineBuilderSnapshot, 'StepPollResponse'), makeStepPollResponse());
+    expectParity(schemaOf(pipelineBuilderSnapshot, 'StepPollResponse'), makeStepPollResponse());
   });
 
   it('when StepRunResponse is checked, the wire fixture matches (frontend remaps to jobId)', () => {
-    assertParity(schemaOf(pipelineBuilderSnapshot, 'StepRunResponse'), makeStepRunWireResponse());
+    expectParity(schemaOf(pipelineBuilderSnapshot, 'StepRunResponse'), makeStepRunWireResponse());
   });
 
   // DriftResponse collision: pipeline_builder/builder-drift consumes the rich
   // portfolio DriftResponse (holdings/target/drift/trades/totals/diagnostics/
   // request_id), distinct from the dashboard simple DriftResponse (entries[]).
   it('when the portfolio rich DriftResponse is checked, fixture keys equal the wire properties', () => {
-    assertParity(schemaOf(portfolioSnapshot, 'DriftResponse'), makeDriftResponseRich());
+    expectParity(schemaOf(portfolioSnapshot, 'DriftResponse'), makeDriftResponseRich());
   });
 });

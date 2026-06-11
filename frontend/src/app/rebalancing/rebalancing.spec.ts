@@ -237,7 +237,7 @@ describe('RebalancingComponent — workflow coverage (issue #940)', () => {
   it('confirmActivate is a no-op when nothing is pending', () => {
     settle();
     comp.confirmActivate();
-    http.expectNone((r) => r.url.includes('activate-policy'));
+    expect(http.match((r) => r.url.includes('activate-policy')).length).toBe(0);
   });
 
   it('confirmActivate activates the policy and refreshes preview on success', () => {
@@ -268,9 +268,11 @@ describe('RebalancingComponent — workflow coverage (issue #940)', () => {
     settle();
     comp.onCreatePolicy({ name: 'P', policy_type: 'threshold', config: {} });
     http.expectOne((r) => r.url.includes('rebalance-policy') && r.method === 'POST').flush({});
+    const created = makeRebalancingPolicyDto({ name: 'P' });
     http
       .expectOne((r) => r.url.includes('rebalance-policy') && r.method === 'GET')
-      .flush({ items: [] });
+      .flush({ items: [created] });
+    expect(comp.policies()).toEqual([created]);
   });
 
   it('onCreatePolicy records an error on failure', () => {

@@ -1,13 +1,6 @@
 // ============================================================
-// Single client — Ollama local inference
-//
-// Model created via: ./create_model.sh --original_model qwen3.5:4b --new_model finance-qwen
-// Set OLLAMA_MODEL=finance-qwen in .env
-//
-// reasoning_effort "none": Qwen3.5 auto-enables thinking by default
-//   and thinking tokens count against max_tokens (Ollama PR #14821).
-//   "low" reasoning adds 3-5 min latency; "none" keeps responses at
-//   5-30s with identical JSON quality for our prompts.
+// Single client — Ollama local inference (gemma4:12b-mlx)
+// Set OLLAMA_MODEL=gemma4:12b-mlx in .env
 // ============================================================
 client<llm> Model {
   provider "openai-generic"
@@ -18,7 +11,6 @@ client<llm> Model {
     timeout_ms        300000
     temperature       0
     max_tokens        1500
-    reasoning_effort  "none"
   }
 }
 // ============================================================

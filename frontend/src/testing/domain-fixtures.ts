@@ -6,6 +6,15 @@
 // entries / assets), `overrides` patches top-level keys only — to change an
 // inner row, pass the whole array key (e.g. `{ entries: [...] }`).
 // Keep factories < 10 lines — extend by adding a field, not a branch.
+//
+// Cycle-4 contract-parity conventions (field-level assertions):
+//   - Mirror wire casing verbatim: snake_case for REST responses (portfolio.json),
+//     camelCase only where the backend actually emits camelCase.
+//   - Reuse existing make<X>() factories as the fixture argument to assertFieldParity.
+//   - Always pass the domain snapshot as the third `root` argument to assertFieldParity
+//     so $ref pointers inside the schema are resolved within the same document, e.g.:
+//       import portfolioSnapshot from './contract-snapshots/portfolio.json';
+//       assertFieldParity(schemaOf(portfolioSnapshot, 'PortfolioResponse'), makePortfolioDto(), portfolioSnapshot);
 
 import type { PortfolioDto, SnapshotDto } from '../app/core/models/portfolio-api.model';
 import type { ApiMarketSnapshotResponse } from '../app/core/models/dashboard-api.model';

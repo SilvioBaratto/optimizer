@@ -18,6 +18,7 @@ import {
   EchartsSunburstComponent,
   type SunburstNode,
 } from './echarts-sunburst';
+import { EMPTY_STATE_OPTION } from '../charts/safe-chart-option';
 
 // ---------------------------------------------------------------------------
 // Cast helper
@@ -145,5 +146,21 @@ describe('EchartsSunburstComponent — render-coverage', () => {
     const opt = build(comp, [{ name: 'X', value: 1 }]);
     const series = getSeriesAt(opt, 0) as { radius: string[] };
     expect(series.radius).toEqual(['20%', '85%']);
+  });
+
+  // ── Empty data → chart.setOption receives EMPTY_STATE_OPTION ─────────────
+
+  it('when data is [], chart.setOption is called with EMPTY_STATE_OPTION', () => {
+    const mockChart = {
+      setOption: jasmine.createSpy('setOption'),
+      dispose: jasmine.createSpy('dispose'),
+      resize: jasmine.createSpy('resize'),
+    };
+    (comp as unknown as { chart: unknown }).chart = mockChart;
+
+    fixture.componentRef.setInput('data', []);
+    fixture.detectChanges();
+
+    expect(mockChart.setOption).toHaveBeenCalledWith(EMPTY_STATE_OPTION);
   });
 });

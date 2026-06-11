@@ -98,7 +98,7 @@ describe('AttributionComponent', () => {
     settle();
     comp.portfolioWeights.set({});
     comp.runBrinson();
-    http.expectNone((r) => r.url.includes('attribution/brinson'));
+    expect(http.match((r) => r.url.includes('attribution/brinson')).length).toBe(0);
   });
 
   it('when the benchmark is entirely Unclassified, benchAllUnclassified is true', () => {
@@ -133,7 +133,7 @@ describe('AttributionComponent', () => {
     settle();
     comp.portfolioWeights.set({});
     comp.runFactor();
-    http.expectNone((r) => r.url.includes('attribution/factor'));
+    expect(http.match((r) => r.url.includes('attribution/factor')).length).toBe(0);
   });
 
   it('runFactor is guarded when the dates are not ordered', () => {
@@ -141,7 +141,7 @@ describe('AttributionComponent', () => {
     comp.portfolioWeights.set({ AAPL: 1 });
     comp.endDate.set('2000-01-01');
     comp.runFactor();
-    http.expectNone((r) => r.url.includes('attribution/factor'));
+    expect(http.match((r) => r.url.includes('attribution/factor')).length).toBe(0);
   });
 
   it('runFactor posts and stores the response on success', () => {

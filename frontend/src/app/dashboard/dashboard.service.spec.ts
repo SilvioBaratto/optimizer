@@ -231,6 +231,7 @@ describe('DashboardService', () => {
       const req = http.expectOne(
         (r) => r.url === `${API}portfolio-analytics/my%20port/equity-curve`,
       );
+      expect(req.request.url).toContain('my%20port');
       req.flush({ points: [], portfolioTotalReturn: 0, benchmarkTotalReturn: 0 });
     });
 
@@ -263,6 +264,7 @@ describe('DashboardService', () => {
       const req = http.expectOne(
         (r) => r.url === `${API}portfolio-analytics/my%20port/allocation`,
       );
+      expect(req.request.url).toContain('my%20port');
       req.flush({ nodes: [], totalPositions: 0, totalSectors: 0 });
     });
 
@@ -353,6 +355,7 @@ describe('DashboardService', () => {
       const req = http.expectOne(
         (r) => r.url === `${API}portfolio-analytics/my%20port/asset-class-returns`,
       );
+      expect(req.request.url).toContain('my%20port');
       req.flush({ returns: [], asOf: '2024-06-05' });
     });
 

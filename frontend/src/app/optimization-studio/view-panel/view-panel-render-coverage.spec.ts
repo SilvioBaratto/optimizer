@@ -166,7 +166,7 @@ describe('ViewPanelComponent — render-coverage (#942)', () => {
     it('runBlackLitterman is guarded when there are no tickers', () => {
       comp.tickersRaw.set('');
       comp.runBlackLitterman();
-      http.expectNone(`${API}views/generate`);
+      expect(http.match(`${API}views/generate`).length).toBe(0);
     });
 
     it('runBlackLitterman records an error on failure', () => {
@@ -197,7 +197,7 @@ describe('ViewPanelComponent — render-coverage (#942)', () => {
     it('runEntropyPooling is guarded when there are no tickers', () => {
       comp.tickersRaw.set('');
       comp.runEntropyPooling();
-      http.expectNone(`${API}views/entropy-pooling`);
+      expect(http.match(`${API}views/entropy-pooling`).length).toBe(0);
     });
 
     it('runEntropyPooling records an error on failure', () => {

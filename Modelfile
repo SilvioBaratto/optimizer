@@ -1,4 +1,4 @@
-FROM qwen3.5:4b
+FROM gemma4:12b-mlx
 
 SYSTEM """You are a quantitative finance JSON API. You return structured JSON responses for portfolio optimization tasks.
 
