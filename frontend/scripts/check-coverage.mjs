@@ -4,20 +4,13 @@
 // HTML report + this console summary; no lcov/json-summary by default), and
 // fails if any metric falls below the regression FLOOR.
 //
-// Cycle 1 (render-coverage), Cycle 2 (service-error), Cycle 3 (#916–#920,
-// function/statement edge branches), and Cycle 4 (#938–#943, page/panel/shared
-// render-coverage + service/interceptor HttpTestingController coverage) have all
-// landed. Measured coverage is now ~93.3% statements / 79.9% branches /
-// 91.9% functions / 94.7% lines (2710 specs). Cycle 4 closed the branch gap:
-// the render-coverage effort on the previously-untested page/panel components
-// (optimization-studio, view/results panels, pipeline-stepper, several shared
-// components) lifted Branches from ~56% to ~80%, clearing the original 80 target.
+// The FLOOR is a fixed 80/80/80/80 hard gate (Cycle 5, "Coverage Gates"): the
+// build goes red if statements, branches, functions, or lines falls below 80.
+// The suite already clears 80 on every metric, so this gate only blocks
+// backsliding below the locked floor.
 //
-// The FLOOR is a strict regression ratchet: each value sits just below the
-// current measured actual to lock in the Cycle 1–4 gains and block backsliding
-// while keeping CI green. NEVER lower a value; raise each toward the measured
-// actual only as real coverage lands. Raising any floor above the actual measured
-// value (e.g. to 80 before the suite clears it) will hard-fail CI — by design.
+// The floor is a one-way ratchet: raise a value above 80 only as real coverage
+// lands and holds, NEVER lower one to make CI green.
 import { readFileSync } from 'node:fs';
 
 const FLOOR = { Statements: 80, Branches: 80, Functions: 80, Lines: 80 };
