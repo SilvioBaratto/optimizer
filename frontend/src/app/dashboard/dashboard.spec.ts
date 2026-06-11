@@ -6,11 +6,16 @@ import {
 } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
+import { of, throwError } from 'rxjs';
 import { DashboardComponent } from './dashboard';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
+import { ReportsService } from '../core/services/reports.service';
+import { DashboardService } from './dashboard.service';
 import { environment } from '../../environments/environment';
 import { ICON_PROVIDER } from '../icons';
-import type { DashboardKPI } from './dashboard.model';
+import { makeReportJobCreateResponse } from '../../testing';
+import type { DashboardKPI, EquityCurvePoint } from './dashboard.model';
+import type { SunburstNode } from '../shared/echarts-sunburst/echarts-sunburst';
 
 function makeKpi(overrides: Partial<DashboardKPI>): DashboardKPI {
   return {
@@ -341,5 +346,202 @@ describe('DashboardComponent — rolling-metrics wiring (issue #453)', () => {
     expect(component.rollingMetricsError()).toContain('boom');
     expect(component.rollingMetrics()).toBeNull();
     expect(component.rollingMetricsLoading()).toBe(false);
+  });
+});
+
+// ── Method coverage (#941) ───────────────────────────────────────────────────
+// Drives the report-generation flow (spied ReportsService), benchmark change,
+// and the small delegating helpers. Bootstrap HTTP is drained.
+describe('DashboardComponent — method coverage (#941)', () => {
+  let fixture: ReturnType<typeof TestBed.createComponent<DashboardComponent>>;
+  let component: DashboardComponent;
+  let http: HttpTestingController;
+  let reports: ReportsService;
+
+  function stub(url: string): Record<string, unknown> {
+    if (url.includes('/market/indices')) {
+      return { indices: [{ ticker: 'SPY', name: 'S&P 500' }, { ticker: 'QQQ', name: 'Nasdaq' }], total: 2 };
+    }
+    if (url.includes('/market/snapshot')) {
+      return { vix: 0, vixChange: 0, sp500Return: 0, tenYearYield: 0, yieldChange: 0, usdIndex: 0, usdChange: 0, asOf: '2026-01-01T00:00:00Z' };
+    }
+    if (url.includes('/equity-curve')) return { points: [] };
+    if (url.includes('/performance-metrics')) return { kpis: [], nav: 0, navChangePct: 0, currency: 'EUR' };
+    if (url.includes('/allocation')) return { nodes: [], totalPositions: 0, totalSectors: 0 };
+    if (url.includes('/asset-class-returns')) return { returns: [] };
+    if (url.includes('/rolling-metrics')) return { window: 63, sharpe: [], volatility: [], beta: [] };
+    return {};
+  }
+
+  function drainAll(): void {
+    for (const r of http.match(() => true)) r.flush(stub(r.request.url));
+  }
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [DashboardComponent],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        ICON_PROVIDER,
+      ],
+    }).compileComponents();
+
+    TestBed.inject(PortfolioContextService).currentPortfolioId.set('gamma');
+    reports = TestBed.inject(ReportsService);
+    http = TestBed.inject(HttpTestingController);
+    fixture = TestBed.createComponent(DashboardComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    drainAll();
+  });
+
+  afterEach(() => http.verify());
+
+  it('onGenerateReport guards when a report is already generating', () => {
+    component.reportLoading.set(true);
+    const spy = spyOn(reports, 'generate');
+    component.onGenerateReport();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('onGenerateReport stores the job id on success', () => {
+    spyOn(reports, 'generate').and.returnValue(of(makeReportJobCreateResponse({ job_id: 'rep-1' })));
+    component.onGenerateReport();
+    expect(component.reportJobId()).toBe('rep-1');
+  });
+
+  it('onGenerateReport records the default error on a message-less failure', () => {
+    spyOn(reports, 'generate').and.returnValue(throwError(() => ({})));
+    component.onGenerateReport();
+    expect(component.reportError()).toBe('Report generation failed');
+  });
+
+  it('onReportJobCompleted sets the download url from a report_id', () => {
+    spyOn(reports, 'downloadUrl').and.returnValue('http://x/report.pdf');
+    spyOn(reports, 'pollJob').and.returnValue(
+      of({ status: 'completed', result: { report_id: 'r1' } }) as ReturnType<ReportsService['pollJob']>,
+    );
+    component.reportJobId.set('rep-1');
+    component.onReportJobCompleted();
+    expect(component.reportDownloadUrl()).toBe('http://x/report.pdf');
+  });
+
+  it('onReportJobCompleted falls back to download_url when no report_id is present', () => {
+    spyOn(reports, 'pollJob').and.returnValue(
+      of({ status: 'completed', result: { download_url: 'http://y/r.pdf' } }) as ReturnType<ReportsService['pollJob']>,
+    );
+    component.reportJobId.set('rep-1');
+    component.onReportJobCompleted();
+    expect(component.reportDownloadUrl()).toBe('http://y/r.pdf');
+  });
+
+  it('onReportJobCompleted is a no-op when there is no job id', () => {
+    const spy = spyOn(reports, 'pollJob');
+    component.reportJobId.set(null);
+    component.onReportJobCompleted();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('onReportJobCompleted records the default error when polling fails', () => {
+    spyOn(reports, 'pollJob').and.returnValue(throwError(() => ({})));
+    component.reportJobId.set('rep-1');
+    component.onReportJobCompleted();
+    expect(component.reportError()).toBe('Failed to fetch report');
+  });
+
+  it('onReportJobFailed records the error with a default fallback', () => {
+    component.onReportJobFailed('boom');
+    expect(component.reportError()).toBe('boom');
+    component.onReportJobFailed('');
+    expect(component.reportError()).toBe('Report job failed');
+  });
+
+  it('onBenchmarkChange updates the benchmark and refetches the equity curve', () => {
+    component.onBenchmarkChange('QQQ');
+    expect(component.benchmark()).toBe('QQQ');
+    const eq = http.match((r) => r.url.includes('/equity-curve'));
+    expect(eq.length).toBeGreaterThanOrEqual(1);
+    for (const r of eq) r.flush({ points: [] });
+  });
+
+  it('retry re-fires the portfolio load', () => {
+    component.retry();
+    drainAll();
+    expect(component.hasError()).toBe(false);
+  });
+
+  it('openReportModal does not throw', () => {
+    expect(() => component.openReportModal()).not.toThrow();
+  });
+
+  it('formatKpiValue and kpiTrend delegate to the dashboard service', () => {
+    const kpi: DashboardKPI = { label: 'R', value: 0.1, format: 'percent', change: 0.01, changeLabel: '', sparkline: [] };
+    expect(typeof component.formatKpiValue(kpi)).toBe('string');
+    expect(['up', 'down', 'flat']).toContain(component.kpiTrend(kpi));
+  });
+
+  it('returnCellBg returns a style string', () => {
+    expect(typeof component.returnCellBg(0.05)).toBe('string');
+  });
+
+  it('subtitle describes the NAV when a portfolio is active', () => {
+    component.nav.set(1_000_000);
+    component.dailyChange.set(0.01);
+    expect(component.subtitle()).toContain('today');
+  });
+
+  it('allocation and drawdown computeds tolerate missing optional fields', () => {
+    component.allocationData.set([{ name: 'X' } as SunburstNode]);
+    expect(component.allocationSectors()[0].holdings).toBe(0); // children?.length ?? 0
+    expect(component.allocationTotalHoldings()).toBe(0);
+    component.equityCurve.set([{ date: '2026-01-01' } as EquityCurvePoint]); // portfolio ?? 0
+    expect(component.drawdownSeries().length).toBeGreaterThanOrEqual(0);
+  });
+
+  it('onReportJobCompleted with no result leaves the download url unset', () => {
+    spyOn(reports, 'pollJob').and.returnValue(
+      of({ status: 'completed' }) as ReturnType<ReportsService['pollJob']>,
+    );
+    component.reportJobId.set('rep-1');
+    component.onReportJobCompleted();
+    expect(component.reportDownloadUrl()).toBeNull();
+  });
+
+  it('rolling-metrics error falls back to the default message on a message-less failure', () => {
+    spyOn(TestBed.inject(DashboardService), 'getRollingMetrics').and.returnValue(throwError(() => ({})));
+    TestBed.inject(PortfolioContextService).setPreset('3Y'); // re-fires the effect
+    fixture.detectChanges();
+    expect(component.rollingMetricsError()).toBe('Failed to load rolling metrics');
+  });
+
+  it('loadPortfolioData populates the snapshot and clears loading on success', () => {
+    spyOn(TestBed.inject(DashboardService), 'loadPortfolioData').and.returnValue(
+      of({
+        kpis: [], nav: 42, navChangePct: 0, currency: 'EUR',
+        equityCurvePoints: [], allocationNodes: [], assetClassReturns: [],
+      }) as unknown as ReturnType<DashboardService['loadPortfolioData']>,
+    );
+    component.retry();
+    expect(component.nav()).toBe(42);
+    expect(component.isLoadingPortfolio()).toBe(false);
+  });
+
+  it('refetchPerformanceMetrics defaults the currency to EUR when absent', () => {
+    component.onPeriodChange('3Y');
+    http
+      .expectOne((r) => r.url.includes('/performance-metrics'))
+      .flush({ kpis: [], nav: 0, navChangePct: 0 }); // currency omitted → ?? 'EUR'
+    http.expectOne((r) => r.url.includes('/equity-curve')).flush({ points: [] });
+    expect(component.currency()).toBe('EUR');
+  });
+
+  it('loadPortfolioData records the default error message on a message-less failure', () => {
+    spyOn(TestBed.inject(DashboardService), 'loadPortfolioData').and.returnValue(throwError(() => ({})));
+    component.retry();
+    expect(component.hasError()).toBe(true);
+    expect(component.errorMessage()).toBe('Failed to load portfolio data');
   });
 });

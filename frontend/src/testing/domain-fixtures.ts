@@ -28,13 +28,16 @@ import type {
   DriftApiResponse,
   RebalanceDecideApiResponse,
   RebalancePreviewApiResponse,
+  RebalancingPolicyDto,
 } from '../app/rebalancing/rebalancing.model';
 import type {
   CMASet,
   FactorICReport,
+  FactorReturnSeries,
   FactorScoreApiResponse,
   FactorScoreDto,
   FactorSelectApiResponse,
+  FactorValidateResponse,
   TAASignal,
 } from '../app/factor-research/factor.model';
 import type { JobListResponse, JobSummary } from '../app/core/models/jobs.model';
@@ -279,6 +282,60 @@ export function makeRebalanceDecideResponse(
     turnover: 0.1,
     estimatedCost: 0.0005,
     tradeWeights: { AAPL: -0.05, MSFT: 0.05 },
+    ...overrides,
+  };
+}
+
+// Matches the real RebalancingPolicyDto wire shape (id/portfolioId/name/
+// policyType/config/isActive/createdAt/updatedAt) — NOT the flattened
+// threshold/calendarDays shape sketched in issue #940; those live inside
+// `config`. Inserted with the rebalancing fixtures (not at EOF) to keep the
+// parallel-append surface small for sibling fixture additions.
+export function makeRebalancingPolicyDto(
+  overrides: Partial<RebalancingPolicyDto> = {},
+): RebalancingPolicyDto {
+  return {
+    id: 'pol-1',
+    portfolioId: 'pf-1',
+    name: 'Quarterly Threshold',
+    policyType: 'threshold',
+    config: { threshold: 0.05 },
+    isActive: false,
+    createdAt: ISO,
+    updatedAt: ISO,
+    ...overrides,
+  };
+}
+
+export function makeFactorReturnSeries(
+  overrides: Partial<FactorReturnSeries> = {},
+): FactorReturnSeries {
+  return {
+    factor: 'momentum_12_1',
+    group: 'momentum',
+    points: [
+      { date: '2026-01-01', cumReturn: 0.0 },
+      { date: '2026-01-02', cumReturn: 0.01 },
+      { date: '2026-01-03', cumReturn: 0.025 },
+    ],
+    ...overrides,
+  } as FactorReturnSeries;
+}
+
+export function makeFactorValidateResponse(
+  overrides: Partial<FactorValidateResponse> = {},
+): FactorValidateResponse {
+  return {
+    report_date: '2026-01-01',
+    factor_type: 'momentum_12_1',
+    validation_type: 'in_sample',
+    ic_mean: 0.05,
+    ic_std: 0.1,
+    icir: 0.5,
+    t_stat: 2.4,
+    p_value: 0.01,
+    vif: 1.2,
+    details: null,
     ...overrides,
   };
 }

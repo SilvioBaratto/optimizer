@@ -187,6 +187,91 @@ describe('JobsService', () => {
     });
   });
 
+  describe('freshness levels (computeFreshness)', () => {
+    function hoursAgo(hours: number): string {
+      return new Date(Date.now() - hours * 3_600_000).toISOString();
+    }
+
+    function statusFor(domain: string, finishedAt: string): DomainStatus {
+      let result: DomainStatus[] | undefined;
+      svc.getDomainStatuses().subscribe((r) => (result = r));
+      http.expectOne((r) => r.url === JOBS_URL).flush({
+        jobs: [
+          job({ id: 'f1', domain, status: 'completed', finished_at: finishedAt }),
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      });
+      return result!.find((s) => s.meta.domain === domain)!;
+    }
+
+    it('when the last success is 48h old on a daily domain, freshness is stale', () => {
+      // yfinance_fetch thresholds: stale >= 26h, critical >= 72h.
+      const status = statusFor('yfinance_fetch', hoursAgo(48));
+      expect(status.freshness).toBe('stale');
+      expect(status.lastSuccessAgeHours).toBeGreaterThanOrEqual(26);
+      expect(status.lastSuccessAgeHours).toBeLessThan(72);
+    });
+
+    it('when the last success is 100h old on a daily domain, freshness is critical', () => {
+      const status = statusFor('yfinance_fetch', hoursAgo(100));
+      expect(status.freshness).toBe('critical');
+      expect(status.lastSuccessAgeHours).toBeGreaterThanOrEqual(72);
+    });
+
+    it('when the last success is 1h old, freshness is fresh', () => {
+      const status = statusFor('yfinance_fetch', hoursAgo(1));
+      expect(status.freshness).toBe('fresh');
+    });
+
+    it('when the domain is unknown, meta.label is title-cased from the domain key', () => {
+      const status = statusFor('brand_new_thing', hoursAgo(1));
+      expect(status.meta.label).toBe('Brand New Thing');
+    });
+  });
+
+  describe('job grouping edge inputs (branch coverage)', () => {
+    function flushJobs(jobs: JobSummary[]): DomainStatus[] {
+      let result: DomainStatus[] | undefined;
+      svc.getDomainStatuses().subscribe((r) => (result = r));
+      http.expectOne((r) => r.url === JOBS_URL).flush({
+        jobs,
+        total: jobs.length,
+        limit: 100,
+        offset: 0,
+      });
+      return result!;
+    }
+
+    it('treats a pending job as the running entry', () => {
+      const [optimize] = flushJobs([
+        job({ id: 'p', domain: 'optimize', status: 'pending', finished_at: null }),
+      ]);
+      expect(optimize.running?.id).toBe('p');
+      expect(optimize.freshness).toBe('unknown');
+    });
+
+    it('keeps a completed job with a null finished_at as lastSuccess but marks freshness unknown', () => {
+      const [bt] = flushJobs([
+        job({ id: 'c1', domain: 'backtest', status: 'completed', finished_at: null }),
+        job({ id: 'c2', domain: 'backtest', status: 'completed', finished_at: null }),
+      ]);
+      expect(bt.lastSuccess).not.toBeNull();
+      expect(bt.freshness).toBe('unknown');
+      expect(bt.lastSuccessAgeHours).toBeNull();
+    });
+
+    it('orders recent failures even when started_at is null on some entries', () => {
+      const [v] = flushJobs([
+        job({ id: 'e1', domain: 'validate', status: 'failed', started_at: null, finished_at: null }),
+        job({ id: 'e2', domain: 'validate', status: 'failed', started_at: '2026-01-02T00:00:00Z', finished_at: null }),
+      ]);
+      expect(v.recentFailures.length).toBe(2);
+      expect(v.freshness).toBe('unknown');
+    });
+  });
+
   describe('getJob()', () => {
     it('GETs /jobs/{id} (URI-encoded) and returns the payload', () => {
       const payload = job({ id: 'abc 123', domain: 'optimize', status: 'running' });
@@ -272,6 +357,15 @@ describe('JobsService.listJobs()', () => {
     expect(req.request.method).toBe('GET');
     expect(req.request.params.get('limit')).toBe('25');
     expect(req.request.params.get('offset')).toBe('0');
+    expect(req.request.params.has('domain')).toBe(false);
+    expect(req.request.params.has('status')).toBe(false);
+    req.flush(emptyResponse);
+  });
+
+  it('omits domain/status params when given empty arrays', () => {
+    svc.listJobs({ domain: [], status: [], limit: 10, offset: 0 }).subscribe();
+
+    const req = http.expectOne((r) => r.url === JOBS_URL);
     expect(req.request.params.has('domain')).toBe(false);
     expect(req.request.params.has('status')).toBe(false);
     req.flush(emptyResponse);

@@ -169,6 +169,10 @@ describe('FormatService', () => {
       expect(svc.formatDuration(NaN)).toBe('--');
     });
 
+    it('when zero, 0s is returned', () => {
+      expect(svc.formatDuration(0)).toBe('0s');
+    });
+
     it('when under a minute, seconds are returned', () => {
       expect(svc.formatDuration(1000)).toBe('1s');
     });

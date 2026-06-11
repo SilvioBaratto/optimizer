@@ -516,11 +516,10 @@ describe('OptimizationService', () => {
 
   describe('error propagation via mapHttpError re-throw (issue #911)', () => {
     // optimization.service.ts wires `catchError(mapHttpError())` =
-    // `(err) => throwError(() => err)` — a pure identity re-throw. The
-    // module-private extractApiMessage / readBodyMessage /
-    // formatValidationErrors helpers are never invoked in the observable chain
-    // (dead code relative to the HTTP flow), so their internal branches are
-    // unreachable without a test-only production export, which review rejected.
+    // `(err) => throwError(() => err)` — a pure identity re-throw. The former
+    // extractApiMessage / readBodyMessage / formatValidationErrors helpers were
+    // dead code (never invoked in the observable chain; message normalization
+    // lives in api-http.interceptor.ts) and have been deleted (issue #938).
     // These tests assert the real contract: subscribers receive the RAW
     // HttpErrorResponse (status + body on error.error), NOT a formatted Error.
     it('when calibrateDelta returns 422, the raw HttpErrorResponse propagates with status 422', () => {

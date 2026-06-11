@@ -8,6 +8,7 @@ import {
   installResizeObserverStub,
   makePortfolioDto,
   makeBrinsonResponse,
+  makeFactorAttributionResponse,
 } from '../../testing';
 import { ICON_PROVIDER } from '../icons';
 import { AttributionComponent } from './attribution';
@@ -106,5 +107,98 @@ describe('AttributionComponent', () => {
     expect(comp.benchAllUnclassified()).toBe(true);
     comp.brinsonResponse.set(makeBrinsonResponse());
     expect(comp.benchAllUnclassified()).toBe(false);
+  });
+
+  it('runBrinson posts and stores the response on success', () => {
+    settle();
+    comp.portfolioWeights.set({ AAPL: 1 });
+    comp.runBrinson();
+    http.expectOne((r) => r.url.includes('attribution/brinson')).flush(makeBrinsonResponse());
+    expect(comp.brinsonResponse()).not.toBeNull();
+    expect(comp.brinsonLoading()).toBe(false);
+  });
+
+  it('runBrinson records an error on failure', () => {
+    settle();
+    comp.portfolioWeights.set({ AAPL: 1 });
+    comp.runBrinson();
+    http
+      .expectOne((r) => r.url.includes('attribution/brinson'))
+      .flush({ detail: 'bad' }, { status: 422, statusText: 'Unprocessable' });
+    expect(comp.brinsonError()).toBeTruthy();
+    expect(comp.brinsonLoading()).toBe(false);
+  });
+
+  it('runFactor is guarded when weights do not sum to one', () => {
+    settle();
+    comp.portfolioWeights.set({});
+    comp.runFactor();
+    http.expectNone((r) => r.url.includes('attribution/factor'));
+  });
+
+  it('runFactor is guarded when the dates are not ordered', () => {
+    settle();
+    comp.portfolioWeights.set({ AAPL: 1 });
+    comp.endDate.set('2000-01-01');
+    comp.runFactor();
+    http.expectNone((r) => r.url.includes('attribution/factor'));
+  });
+
+  it('runFactor posts and stores the response on success', () => {
+    settle();
+    comp.portfolioWeights.set({ AAPL: 1 });
+    comp.runFactor();
+    http
+      .expectOne((r) => r.url.includes('attribution/factor'))
+      .flush(makeFactorAttributionResponse());
+    expect(comp.factorResponse()).not.toBeNull();
+    expect(comp.factorLoading()).toBe(false);
+  });
+
+  it('runFactor records an error on failure', () => {
+    settle();
+    comp.portfolioWeights.set({ AAPL: 1 });
+    comp.runFactor();
+    http
+      .expectOne((r) => r.url.includes('attribution/factor'))
+      .flush({ detail: 'bad' }, { status: 500, statusText: 'Server Error' });
+    expect(comp.factorError()).toBeTruthy();
+  });
+
+  it('selecting a portfolio refetches the snapshot weights', () => {
+    settle();
+    comp.onPortfolioSelect('Other');
+    fixture.detectChanges();
+    http.expectOne((r) => r.url.includes('snapshots/latest')).flush({ weights: { MSFT: 1 } });
+    expect(comp.portfolioWeights()['MSFT']).toBe(1);
+  });
+
+  it('when the snapshot fetch fails, the weights reset to empty', () => {
+    settle();
+    comp.onPortfolioSelect('Other');
+    fixture.detectChanges();
+    http
+      .expectOne((r) => r.url.includes('snapshots/latest'))
+      .flush({ detail: 'x' }, { status: 500, statusText: 'Server Error' });
+    expect(comp.portfolioWeights()).toEqual({});
+  });
+
+  it('retry clears the error and reloads', () => {
+    fixture.detectChanges();
+    http
+      .expectOne((r) => r.url.includes('portfolio'))
+      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+    expect(comp.hasError()).toBe(true);
+    comp.retry();
+    expect(comp.hasError()).toBe(false);
+    drainRequests(http, stubFor);
+    fixture.detectChanges();
+    drainRequests(http, stubFor);
+  });
+
+  it('openReportModal does not throw', () => {
+    settle();
+    expect(() => comp.openReportModal()).not.toThrow();
   });
 });

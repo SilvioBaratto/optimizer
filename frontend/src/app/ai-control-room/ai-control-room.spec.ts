@@ -68,4 +68,25 @@ describe('AiControlRoomComponent — feature flag gating', () => {
       expect(cards.length).toBeGreaterThan(0);
     });
   });
+
+  describe('method fallbacks for unknown values', () => {
+    it('getStatusDotClass returns default class for unknown status', () => {
+      const fx = createComponent(false);
+      expect(fx.componentInstance.getStatusDotClass('unknown_status')).toBe('bg-text-tertiary');
+    });
+
+    it('getOutcomeBadge returns the outcome value as label when unknown', () => {
+      const fx = createComponent(false);
+      const badge = fx.componentInstance.getOutcomeBadge('unknown_outcome');
+      expect(badge.value).toBe('unknown_outcome');
+      expect(badge.colorClass).toBe('');
+    });
+
+    it('getTypeBadge returns the type value as label when unknown', () => {
+      const fx = createComponent(false);
+      const badge = fx.componentInstance.getTypeBadge('unknown_type');
+      expect(badge.value).toBe('unknown_type');
+      expect(badge.colorClass).toBe('');
+    });
+  });
 });

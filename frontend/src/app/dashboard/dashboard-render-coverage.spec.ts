@@ -355,4 +355,82 @@ describe('DashboardComponent — render-coverage (issue #909)', () => {
       expect(dots.length).toBe(0);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 8. Market Context macro stat-cards (revealIndex >= 3) — issue #941
+  // -------------------------------------------------------------------------
+
+  describe('market context macro cards (issue #941)', () => {
+    it('when revealIndex >= 3, the Market Context heading renders', () => {
+      comp.revealIndex.set(3);
+      fixture.detectChanges();
+
+      const headings = Array.from(el.querySelectorAll('h2')).map((h) => h.textContent ?? '');
+      expect(headings.some((t) => t.includes('Market Context'))).toBeTrue();
+    });
+
+    it('when market indicators are positive, the macro trend computeds resolve up arms', () => {
+      comp.revealIndex.set(3);
+      comp.marketContext.set({
+        vix: 20, vixChange: -1, sp500Return: 0.01,
+        tenYearYield: 4.2, yieldChange: 0.5, usdIndex: 100, usdChange: 1,
+      });
+      fixture.detectChanges();
+
+      expect(comp.macroVixTrend()).toBe('up'); // vixChange < 0
+      expect(comp.macroYieldTrend()).toBe('up'); // yieldChange > 0
+      expect(comp.macroUsdTrend()).toBe('up'); // usdChange > 0
+      expect(comp.macroVixDelta()).toBeCloseTo(-0.05, 5);
+      expect(comp.macroUsdDelta()).toBeCloseTo(0.01, 5);
+    });
+
+    it('when market indicators are negative, the macro trend computeds resolve down arms', () => {
+      comp.revealIndex.set(3);
+      comp.marketContext.set({
+        vix: 20, vixChange: 1, sp500Return: -0.01,
+        tenYearYield: 4.2, yieldChange: -0.5, usdIndex: 100, usdChange: -1,
+      });
+      fixture.detectChanges();
+
+      expect(comp.macroVixTrend()).toBe('down');
+      expect(comp.macroYieldTrend()).toBe('down');
+      expect(comp.macroUsdTrend()).toBe('down');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 9. KPI strip empty collection, single-loading arm, subtitle — issue #941
+  // -------------------------------------------------------------------------
+
+  describe('kpi strip, single-loading arm and subtitle (issue #941)', () => {
+    it('when revealIndex >= 1 and kpis is empty, no KPI stat-cards render', () => {
+      comp.revealIndex.set(1);
+      comp.kpis.set([]);
+      fixture.detectChanges();
+
+      // Market Context (revealIndex >= 3) is not revealed → zero stat-cards.
+      expect(el.querySelectorAll('app-stat-card').length).toBe(0);
+    });
+
+    it('when only one domain is loading, isLoading is false and the success branch shows', () => {
+      comp.isLoadingPortfolio.set(true);
+      comp.isLoadingMarket.set(false);
+      fixture.detectChanges();
+
+      expect(comp.isLoading()).toBeFalse();
+      expect(el.querySelectorAll('.skeleton').length).toBe(0);
+    });
+
+    it('subtitle reflects a selected portfolio with a positive then negative daily change', () => {
+      const ctx = TestBed.inject(PortfolioContextService);
+      ctx.setPortfolio('alpha');
+      comp.nav.set(1_000_000);
+
+      comp.dailyChange.set(0.012);
+      expect(comp.subtitle()).toContain('+');
+
+      comp.dailyChange.set(-0.012);
+      expect(comp.subtitle()).not.toContain('+');
+    });
+  });
 });

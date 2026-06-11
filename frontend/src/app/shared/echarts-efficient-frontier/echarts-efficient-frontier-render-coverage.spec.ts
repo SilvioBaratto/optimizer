@@ -166,4 +166,63 @@ describe('EchartsEfficientFrontierComponent — render-coverage', () => {
 
     expect(emitted.length).toBe(0);
   });
+
+  // ── CAL: built from the tangency point when no optimal is supplied ────────
+
+  it('when riskFreeRate is set with no optimal, a CAL series is built from the tangency point', () => {
+    fixture.componentRef.setInput('frontier', makeFrontier());
+    fixture.componentRef.setInput('riskFreeRate', 0.02);
+    fixture.detectChanges();
+
+    expect(seriesNames(fixture.componentInstance)).toContain('Capital Allocation Line');
+  });
+
+  it('when riskFreeRate and optimal are both set, the CAL anchors on the optimal point', () => {
+    fixture.componentRef.setInput('frontier', makeFrontier());
+    fixture.componentRef.setInput('optimal', makePoint(0.08, 0.06, 0.75, 'Max Sharpe'));
+    fixture.componentRef.setInput('riskFreeRate', 0.02);
+    fixture.detectChanges();
+
+    expect(seriesNames(fixture.componentInstance)).toContain('Capital Allocation Line');
+  });
+
+  it('when the frontier is empty, no CAL series is built even if riskFreeRate is set', () => {
+    fixture.componentRef.setInput('frontier', []);
+    fixture.componentRef.setInput('riskFreeRate', 0.02);
+    fixture.detectChanges();
+
+    expect(seriesNames(fixture.componentInstance)).not.toContain('Capital Allocation Line');
+  });
+
+  // ── scatter label fallback: unlabeled marker → 'Marker', label hidden ─────
+
+  it('when an asset marker has no label, the series name falls back to "Marker"', () => {
+    fixture.componentRef.setInput('frontier', makeFrontier());
+    fixture.componentRef.setInput('assetMarkers', [makePoint(0.05, 0.03, 0.6)]);
+    fixture.detectChanges();
+
+    expect(seriesNames(fixture.componentInstance)).toContain('Marker');
+  });
+
+  // ── option callbacks: tooltip + axis-label formatters ────────────────────
+
+  it('the tooltip formatter renders risk/return and tolerates a missing value', () => {
+    fixture.componentRef.setInput('frontier', makeFrontier());
+    fixture.detectChanges();
+    const option = fixture.componentInstance.buildOptionForTest() as Record<string, unknown>;
+    const fmt = (option['tooltip'] as { formatter: (p: unknown) => string }).formatter;
+
+    expect(fmt({ seriesName: 'Efficient Frontier', value: [5, 3] })).toContain('Efficient Frontier');
+    expect(fmt({})).toContain('Risk: 0.00%');
+  });
+
+  it('the axis-label formatter appends a percent sign', () => {
+    fixture.componentRef.setInput('frontier', makeFrontier());
+    fixture.detectChanges();
+    const option = fixture.componentInstance.buildOptionForTest() as Record<string, unknown>;
+    const xfmt = (option['xAxis'] as { axisLabel: { formatter: (v: number) => string } })
+      .axisLabel.formatter;
+
+    expect(xfmt(12.34)).toBe('12.3%');
+  });
 });

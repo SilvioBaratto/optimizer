@@ -199,6 +199,11 @@ describe('risk.mapper', () => {
       expect(result.status).toBe('ok');
     });
 
+    it('when current is negative and above warning threshold via absolute value, status is warning', () => {
+      const d = dto({ threshold: 0.25, currentValue: -0.2, isBreached: false });
+      expect(toRiskLimitDisplay(d).status).toBe('warning');
+    });
+
     it('when lastCheckedAt is null, falls back to updatedAt', () => {
       const d = dto({ lastCheckedAt: null, updatedAt: '2026-06-01' });
       expect(toRiskLimitDisplay(d).lastChecked).toBe('2026-06-01');

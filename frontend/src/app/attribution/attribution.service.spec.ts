@@ -150,13 +150,12 @@ describe('AttributionService', () => {
 
   describe('error propagation via mapHttpError re-throw (issue #911)', () => {
     // attribution.service.ts wires `catchError(mapHttpError())` =
-    // `(err) => throwError(() => err)` — a pure identity re-throw. The
-    // module-private extractApiMessage / readBodyMessage /
-    // formatValidationErrors helpers are never called in the chain (dead code
-    // relative to the HTTP flow); their branches are unreachable without a
-    // test-only production export, which review rejected. These tests assert
-    // the real contract: the RAW HttpErrorResponse propagates (status + body
-    // on error.error).
+    // `(err) => throwError(() => err)` — a pure identity re-throw. The former
+    // extractApiMessage / readBodyMessage / formatValidationErrors helpers were
+    // dead code (never reached in the HTTP flow; message normalization lives in
+    // api-http.interceptor.ts) and have been deleted (issue #938). These tests
+    // assert the real contract: the RAW HttpErrorResponse propagates (status +
+    // body on error.error).
     it('when factor times out (status 0), the subscriber error fires', () => {
       let error: HttpErrorResponse | undefined;
       svc.factor(factorRequest()).subscribe({ error: (e) => (error = e) });

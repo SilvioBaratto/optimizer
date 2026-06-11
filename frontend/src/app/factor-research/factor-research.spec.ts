@@ -2,18 +2,21 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { FactorResearchComponent } from './factor-research';
 import { FactorsService } from './factors.service';
 import { ICON_PROVIDER } from '../icons';
 import type {
+  FactorComputeAsyncResponse,
   FactorExposureConstraintsApiResponse,
   FactorExposureConstraintsRequest,
+  FactorQuintileSpreadApiResponse,
   FactorScoreApiResponse,
   FactorScoreRequest,
   FactorSelectApiResponse,
   FactorSelectRequest,
+  FactorValidateResponse,
 } from './factor.model';
 import type { MacroCalibrationResponse, BlackLittermanBlConfig } from '../core/models/macro-intelligence.model';
 
@@ -319,5 +322,143 @@ describe('FactorResearchComponent — macro-calibration stat-card computeds (#49
   it('macroDelta formats delta with two decimal places', () => {
     component.macroCalibration.set(cal);
     expect(component.macroDelta()).toBe('3.50');
+  });
+});
+
+// ── Method coverage (#941) ───────────────────────────────────────────────────
+// Spies cover each handler's success path; a message-less `throwError(() => ({}))`
+// covers the error path AND the `?? 'default'` fallback (an HttpErrorResponse
+// always has a `.message`, so the default is otherwise unreachable).
+describe('FactorResearchComponent — method coverage (#941)', () => {
+  let fixture: ComponentFixture<FactorResearchComponent>;
+  let comp: FactorResearchComponent;
+  let factors: FactorsService;
+
+  const okScore = { score_date: '2026-01-01', scores: { AAPL: 1 }, group_contributions: {} } as FactorScoreApiResponse;
+  const okSelect = { selected_tickers: ['AAPL'], count: 1, turnover: 0, buffer_zone: { entered: [], exited: [] } } as FactorSelectApiResponse;
+  const okConstraints = { left_inequality: [[1]], right_inequality: [0.5] } as FactorExposureConstraintsApiResponse;
+  const okValidate = {} as FactorValidateResponse;
+  const okQuintile = {} as FactorQuintileSpreadApiResponse;
+  const okCompute = { job_id: 'j1', status: 'pending', message: '' } as FactorComputeAsyncResponse;
+  const okCal = {
+    phase: 'EARLY_EXPANSION', delta: 1, tau: 0.1, confidence: 0.5, rationale: 'r',
+    macro_summary: 's', timestamp: 't',
+    bl_config: { views: [], tau: 0.1, prior_config: { mu_estimator: 'm', risk_aversion: 1, cov_estimator: 'c' } },
+  } as MacroCalibrationResponse;
+  const boom = () => throwError(() => ({}));
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [FactorResearchComponent],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        ICON_PROVIDER,
+      ],
+    }).compileComponents();
+
+    factors = TestBed.inject(FactorsService);
+    spyOn(factors, 'macroCalibration').and.returnValue(of(okCal));
+    spyOn(factors, 'compute').and.returnValue(of(okCompute));
+    spyOn(factors, 'validate').and.returnValue(of(okValidate));
+    spyOn(factors, 'score').and.returnValue(of(okScore));
+    spyOn(factors, 'select').and.returnValue(of(okSelect));
+    spyOn(factors, 'exposureConstraints').and.returnValue(of(okConstraints));
+    spyOn(factors, 'quintileSpread').and.returnValue(of(okQuintile));
+    spyOn(factors, 'teObservations').and.returnValue(of([]));
+
+    fixture = TestBed.createComponent(FactorResearchComponent);
+    comp = fixture.componentInstance;
+    fixture.detectChanges(); // ngOnInit → macroCalibration success
+  });
+
+  it('ngOnInit populates macroCalibration on success', () => {
+    expect(comp.macroCalibration()).not.toBeNull();
+  });
+
+  it('onRunCompute stores the job id on success', () => {
+    comp.onRunCompute();
+    expect(comp.computeJobId()).toBe('j1');
+  });
+
+  it('onRunCompute records the default error on a message-less failure', () => {
+    (factors.compute as jasmine.Spy).and.returnValue(boom());
+    comp.computeJobId.set(null);
+    comp.onRunCompute();
+    expect(comp.computeError()).toBe('Compute failed');
+  });
+
+  it('onComputeCompleted clears the job id', () => {
+    comp.computeJobId.set('j1');
+    comp.onComputeCompleted();
+    expect(comp.computeJobId()).toBeNull();
+  });
+
+  it('onComputeFailed clears the job and sets the error (with default fallback)', () => {
+    comp.onComputeFailed('boom');
+    expect(comp.computeError()).toBe('boom');
+    comp.onComputeFailed('');
+    expect(comp.computeError()).toBe('Compute job failed');
+  });
+
+  it('onValidate stores the report on success and the default error on failure', () => {
+    comp.onValidate('momentum');
+    expect(comp.validateReport()).not.toBeNull();
+    (factors.validate as jasmine.Spy).and.returnValue(boom());
+    comp.onValidate('momentum');
+    expect(comp.panelErrors()['validate']).toBe('Validate failed');
+  });
+
+  it('onQuintileSpread stores the result and the default error on failure', () => {
+    comp.onQuintileSpread('momentum');
+    expect(comp.quintileSpread()).not.toBeNull();
+    (factors.quintileSpread as jasmine.Spy).and.returnValue(boom());
+    comp.onQuintileSpread('momentum');
+    expect(comp.panelErrors()['quintile']).toBe('Quintile spread failed');
+  });
+
+  it('onRunScore records the default error on a message-less failure', () => {
+    (factors.score as jasmine.Spy).and.returnValue(boom());
+    comp.onRunScore({ tickers: ['AAPL'], score_date: '2026-01-01', composite_method: 'equal_weight' });
+    expect(comp.scoreLoading()).toBe(false);
+    expect(comp.panelErrors()['score']).toBe('Score run failed');
+  });
+
+  it('onRunSelect records the default error on a message-less failure', () => {
+    (factors.select as jasmine.Spy).and.returnValue(boom());
+    comp.onRunSelect({ tickers: ['AAPL'], start_date: '2025-01-01', end_date: '2026-01-01', method: 'fixed_count', sector_balance: false, target_count: 10 });
+    expect(comp.selectLoading()).toBe(false);
+    expect(comp.panelErrors()['select']).toBe('Select run failed');
+  });
+
+  it('onRunExposureConstraints records the default error on a message-less failure', () => {
+    (factors.exposureConstraints as jasmine.Spy).and.returnValue(boom());
+    comp.onRunExposureConstraints({ tickers: ['AAPL'], start_date: '2025-01-01', end_date: '2026-01-01', bounds: {} });
+    expect(comp.exposureConstraintsLoading()).toBe(false);
+    expect(comp.panelErrors()['exposure-constraints']).toBe('Exposure constraints run failed');
+  });
+
+  it('onFetchTe stores observations on success and the default error on failure', () => {
+    comp.onFetchTe();
+    expect(comp.teObservations()).toEqual([]);
+    (factors.teObservations as jasmine.Spy).and.returnValue(boom());
+    comp.onFetchTe();
+    expect(comp.panelErrors()['te']).toBe('TE fetch failed');
+  });
+
+  it('fetchMacroCalibration records the default error on a message-less failure', () => {
+    (factors.macroCalibration as jasmine.Spy).and.returnValue(boom());
+    comp.macroCalibration.set(null);
+    comp.ngOnInit();
+    expect(comp.panelErrors()['macro-calibration']).toBe('Macro calibration failed');
+  });
+
+  it('retry clears the error state', () => {
+    comp.hasError.set(true);
+    comp.errorMessage.set('x');
+    comp.retry();
+    expect(comp.hasError()).toBe(false);
+    expect(comp.errorMessage()).toBe('');
   });
 });

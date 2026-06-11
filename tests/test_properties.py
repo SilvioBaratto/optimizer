@@ -215,15 +215,14 @@ def test_rebalancing_cost_non_negative(
         ),
         min_size=10,
         max_size=200,
-    ).filter(lambda v: len(set(v)) >= 3)
+    ).filter(lambda v: pd.Series(v).std() > 1e-10)
 )
 @settings(max_examples=100)
 def test_z_score_zero_mean_unit_variance(raw: list[float]) -> None:
     """z_score_standardize produces output with mean ~0 and std ~1.
 
-    For any input with at least 3 distinct finite values (ensuring non-zero
-    standard deviation), the z-scored output must have mean close to zero
-    and sample standard deviation close to one.
+    For any input with non-zero standard deviation, the z-scored output
+    must have mean close to zero and sample standard deviation close to one.
     """
     scores = pd.Series(raw, dtype=float)
     result = z_score_standardize(scores)

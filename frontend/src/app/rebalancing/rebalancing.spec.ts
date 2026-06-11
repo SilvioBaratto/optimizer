@@ -1,13 +1,15 @@
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
 } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { RebalancingComponent } from './rebalancing';
+import { RebalancingService } from './rebalancing.service';
+import { PortfolioApiService } from '../core/services/portfolio-api.service';
 import {
   apiHttpInterceptor,
   RETRY_BACKOFF,
@@ -16,6 +18,17 @@ import {
 } from '../core/interceptors/api-http.interceptor';
 import { NotificationService } from '../shared/notification/notification.service';
 import { environment } from '../../environments/environment';
+import {
+  configureTestBed,
+  drainRequests,
+  injectHttp,
+  installResizeObserverStub,
+  makePortfolioDto,
+  makeDriftResponse,
+  makeRebalanceDecideResponse,
+  makeRebalancingPolicyDto,
+} from '../../testing';
+import { ICON_PROVIDER } from '../icons';
 
 const API = environment.apiUrl;
 const PORTFOLIO = 'trading212';
@@ -130,5 +143,265 @@ describe('RebalancingComponent — preview error handling (issue #438)', () => {
       { status: 404, statusText: 'Not Found' },
     );
     void fx;
+  });
+});
+
+// ── Full workflow coverage (issue #940) ──────────────────────────────────────
+// Drives the component's methods through the standard drainRequests harness so
+// the drift / policy / decide / activate flows (success + error) are covered.
+describe('RebalancingComponent — workflow coverage (issue #940)', () => {
+  let fixture: ComponentFixture<RebalancingComponent>;
+  let comp: RebalancingComponent;
+  let http: HttpTestingController;
+
+  function stubFor(url: string): Record<string, unknown> {
+    if (url.includes('portfolio-analytics') || url.includes('/drift')) {
+      return { entries: [], totalDrift: 0, breachedCount: 0, threshold: 0.05 };
+    }
+    if (url.includes('rebalance-policy')) return { items: [] };
+    if (url.includes('activate-policy')) return {};
+    if (url.includes('rebalance/preview')) {
+      return {
+        portfolioName: 'Test Portfolio',
+        policyType: 'threshold',
+        targetWeights: {},
+        currentWeights: {},
+        trades: [],
+        portfolioValue: 0,
+        status: null,
+      };
+    }
+    if (url.includes('/snapshots')) return { items: [] };
+    if (url.includes('rebalance/decide')) {
+      return { shouldRebalance: false, turnover: 0, estimatedCost: 0, tradeWeights: {} };
+    }
+    if (url.includes('portfolio')) return { items: [makePortfolioDto()], total: 1 };
+    return {};
+  }
+
+  function settle(): void {
+    fixture.detectChanges();
+    drainRequests(http, stubFor);
+    fixture.detectChanges();
+    drainRequests(http, stubFor);
+  }
+
+  beforeEach(async () => {
+    installResizeObserverStub();
+    await configureTestBed({
+      imports: [RebalancingComponent],
+      withHttp: true,
+      providers: [ICON_PROVIDER],
+    });
+    fixture = TestBed.createComponent(RebalancingComponent);
+    comp = fixture.componentInstance;
+    http = injectHttp();
+  });
+
+  afterEach(() => http.verify());
+
+  it('initialises into loading then resolves with the first portfolio selected', () => {
+    fixture.detectChanges();
+    expect(comp.isLoading()).toBe(true);
+    settle();
+    expect(comp.isLoading()).toBe(false);
+    expect(comp.selectedPortfolio()).toBe('Test Portfolio');
+  });
+
+  it('when the list request fails, the error state is shown', () => {
+    fixture.detectChanges();
+    http
+      .expectOne((r) => r.url.includes('portfolio'))
+      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+    expect(comp.hasError()).toBe(true);
+  });
+
+  it('onThresholdChange refetches drift with the new threshold', () => {
+    settle();
+    comp.onThresholdChange(0.1);
+    http
+      .expectOne((r) => r.url.includes('/drift'))
+      .flush({ entries: [], totalDrift: 0, breachedCount: 0, threshold: 0.1 });
+    expect(comp.driftThreshold()).toBe(0.1);
+  });
+
+  it('requestActivate then cancelActivate toggles the pending id', () => {
+    settle();
+    comp.requestActivate('p1');
+    expect(comp.pendingActivateId()).toBe('p1');
+    comp.cancelActivate();
+    expect(comp.pendingActivateId()).toBeNull();
+  });
+
+  it('confirmActivate is a no-op when nothing is pending', () => {
+    settle();
+    comp.confirmActivate();
+    http.expectNone((r) => r.url.includes('activate-policy'));
+  });
+
+  it('confirmActivate activates the policy and refreshes preview on success', () => {
+    settle();
+    comp.policies.set([
+      makeRebalancingPolicyDto({ id: 'p1', isActive: false }),
+      makeRebalancingPolicyDto({ id: 'p2', isActive: true }),
+    ]);
+    comp.requestActivate('p1');
+    comp.confirmActivate();
+    http.expectOne((r) => r.url.includes('activate-policy/p1')).flush({});
+    expect(comp.pendingActivateId()).toBeNull();
+    expect(comp.activePolicy()?.id).toBe('p1');
+    drainRequests(http, stubFor);
+  });
+
+  it('confirmActivate records an error on failure', () => {
+    settle();
+    comp.requestActivate('p1');
+    comp.confirmActivate();
+    http
+      .expectOne((r) => r.url.includes('activate-policy/p1'))
+      .flush({ detail: 'no' }, { status: 500, statusText: 'Server Error' });
+    expect(comp.panelErrors()['policy']).toBeTruthy();
+  });
+
+  it('onCreatePolicy posts then reloads the policy list', () => {
+    settle();
+    comp.onCreatePolicy({ name: 'P', policy_type: 'threshold', config: {} });
+    http.expectOne((r) => r.url.includes('rebalance-policy') && r.method === 'POST').flush({});
+    http
+      .expectOne((r) => r.url.includes('rebalance-policy') && r.method === 'GET')
+      .flush({ items: [] });
+  });
+
+  it('onCreatePolicy records an error on failure', () => {
+    settle();
+    comp.onCreatePolicy({ name: 'P', policy_type: 'threshold', config: {} });
+    http
+      .expectOne((r) => r.url.includes('rebalance-policy') && r.method === 'POST')
+      .flush({ detail: 'bad' }, { status: 422, statusText: 'Unprocessable' });
+    expect(comp.panelErrors()['policy']).toBeTruthy();
+  });
+
+  it('onRunDecide posts and stores the decision', () => {
+    settle();
+    comp.onRunDecide({
+      current_weights: { AAPL: 0.6 },
+      target_weights: { AAPL: 0.5 },
+      policy_type: 'threshold',
+    });
+    http.expectOne((r) => r.url.includes('rebalance/decide')).flush(makeRebalanceDecideResponse());
+    expect(comp.decideResponse()).not.toBeNull();
+  });
+
+  it('onRunDecide records an error on failure', () => {
+    settle();
+    comp.onRunDecide({
+      current_weights: {},
+      target_weights: {},
+      policy_type: 'threshold',
+    });
+    http
+      .expectOne((r) => r.url.includes('rebalance/decide'))
+      .flush({ detail: 'bad' }, { status: 500, statusText: 'Server Error' });
+    expect(comp.panelErrors()['whatif']).toBeTruthy();
+  });
+
+  it('a 5xx preview error yields a temporarily-unavailable message', () => {
+    settle();
+    comp.onPortfolioSelect('Other');
+    fixture.detectChanges();
+    http
+      .expectOne((r) => r.url.includes('rebalance/preview'))
+      .flush({ detail: 'down' }, { status: 500, statusText: 'Server Error' });
+    expect(comp.panelErrors()['preview']).toContain('temporarily unavailable');
+    drainRequests(http, stubFor);
+  });
+
+  it('kpiMaxDrift em-dashes on null/empty drift; driftEntries defaults to []', () => {
+    settle();
+    comp.driftResponse.set(null);
+    expect(comp.kpiMaxDrift()).toBe('—');
+    expect(comp.driftEntries()).toEqual([]); // covers ?.entries ?? []
+    comp.driftResponse.set({ entries: [], totalDrift: 0, breachedCount: 0, threshold: 0.05 });
+    expect(comp.kpiMaxDrift()).toBe('—'); // covers entries.length === 0
+    comp.driftResponse.set(makeDriftResponse());
+    expect(comp.kpiMaxDrift()).not.toBe('—');
+    expect(comp.driftEntries().length).toBe(1);
+  });
+
+  it('retry reloads after an error', () => {
+    fixture.detectChanges();
+    http
+      .expectOne((r) => r.url.includes('portfolio'))
+      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+    expect(comp.hasError()).toBe(true);
+    comp.retry();
+    expect(comp.hasError()).toBe(false);
+    drainRequests(http, stubFor);
+    fixture.detectChanges();
+    drainRequests(http, stubFor);
+  });
+});
+
+// The subscribe error callbacks are typed `(err: Error)` and an HttpErrorResponse
+// always carries a `.message`, so the `?? 'default'` / `|| 'Preview failed'`
+// fallbacks are only reachable when the source errors with a message-less value.
+// A mocked service supplies that, covering the otherwise-unreachable defaults.
+describe('RebalancingComponent — default error messages', () => {
+  function boomService(): RebalancingService {
+    const boom = () => throwError(() => ({}));
+    return {
+      getDrift: boom, listPolicies: boom, createPolicy: boom, activatePolicy: boom,
+      getPreview: boom, getSnapshots: boom, decide: boom,
+    } as unknown as RebalancingService;
+  }
+
+  it('falls back to default panel messages when services error without a message', async () => {
+    installResizeObserverStub();
+    await configureTestBed({
+      imports: [RebalancingComponent],
+      withHttp: true,
+      providers: [
+        ICON_PROVIDER,
+        { provide: RebalancingService, useValue: boomService() },
+        { provide: PortfolioApiService, useValue: { list: () => of({ items: [makePortfolioDto()], total: 1 }) } },
+      ],
+    });
+    const fx = TestBed.createComponent(RebalancingComponent);
+    fx.detectChanges();
+    const c = fx.componentInstance;
+
+    expect(c.panelErrors()['drift']).toBe('Drift failed');
+    expect(c.panelErrors()['policy']).toBe('Policy load failed');
+    expect(c.panelErrors()['history']).toBe('History failed');
+    expect(c.panelErrors()['preview']).toBe('Preview failed');
+
+    c.requestActivate('p1');
+    c.confirmActivate();
+    expect(c.panelErrors()['policy']).toBe('Activate failed');
+
+    c.onCreatePolicy({ name: 'P', policy_type: 'threshold', config: {} });
+    expect(c.panelErrors()['policy']).toBe('Create failed');
+
+    c.onRunDecide({ current_weights: {}, target_weights: {}, policy_type: 'threshold' });
+    expect(c.panelErrors()['whatif']).toBe('Decide failed');
+  });
+
+  it('falls back to the default error when portfolio loading errors without a message', async () => {
+    installResizeObserverStub();
+    await configureTestBed({
+      imports: [RebalancingComponent],
+      withHttp: true,
+      providers: [
+        ICON_PROVIDER,
+        { provide: RebalancingService, useValue: boomService() },
+        { provide: PortfolioApiService, useValue: { list: () => throwError(() => ({})) } },
+      ],
+    });
+    const fx = TestBed.createComponent(RebalancingComponent);
+    fx.detectChanges();
+    expect(fx.componentInstance.hasError()).toBe(true);
+    expect(fx.componentInstance.errorMessage()).toBe('Failed to load portfolios');
   });
 });
