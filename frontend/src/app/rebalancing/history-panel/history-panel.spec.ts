@@ -39,4 +39,18 @@ describe('HistoryPanelComponent', () => {
     fixture.componentRef.setInput('snapshots', [makeSnapshotDto({ snapshot_type: 'rebalance' })]);
     expect(comp.tableRows()[0]['snapshot_type']).toBe('rebalance');
   });
+
+  it('when error is set, a non-blank role="alert" region with the message is rendered', () => {
+    fixture.componentRef.setInput('error', 'History failed');
+    fixture.detectChanges();
+
+    const alert = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent?.trim()).toContain('History failed');
+  });
+
+  it('when error is null, no alert region is rendered', () => {
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
+  });
 });

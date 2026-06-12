@@ -430,3 +430,116 @@ describe('RebalancingComponent — default error messages', () => {
     expect(fx.componentInstance.errorMessage()).toBe('Failed to load drift data');
   });
 });
+
+// ── Per-panel error rendering (issue #984) ───────────────────────────────────
+describe('RebalancingComponent — per-panel error rendering (issue #984)', () => {
+  let fixture: ComponentFixture<RebalancingComponent>;
+  let comp: RebalancingComponent;
+  let http: HttpTestingController;
+
+  function stubFor(url: string): Record<string, unknown> {
+    if (url.includes('portfolio-analytics') || url.includes('/drift')) {
+      return { entries: [], totalDrift: 0, breachedCount: 0, threshold: 0.05 };
+    }
+    if (url.includes('rebalance-policy')) return { items: [] };
+    if (url.includes('rebalance/preview')) {
+      return {
+        portfolioName: 'P', policyType: 'threshold', targetWeights: {},
+        currentWeights: {}, trades: [], portfolioValue: 0, status: null,
+      };
+    }
+    if (url.includes('/snapshots')) return { items: [] };
+    return {};
+  }
+
+  function settle(): void {
+    fixture.detectChanges();
+    drainRequests(http, stubFor);
+    fixture.detectChanges();
+    drainRequests(http, stubFor);
+  }
+
+  function queryAlert(): HTMLElement | null {
+    return (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
+  }
+
+  beforeEach(async () => {
+    installResizeObserverStub();
+    await configureTestBed({
+      imports: [RebalancingComponent],
+      withHttp: true,
+      providers: [
+        ICON_PROVIDER,
+        { provide: PortfolioContextService, useValue: makeCtxMock('Test Portfolio', 'test-id') },
+      ],
+    });
+    fixture = TestBed.createComponent(RebalancingComponent);
+    comp = fixture.componentInstance;
+    http = injectHttp();
+  });
+
+  afterEach(() => http.verify());
+
+  it('when a what-if decide fails, the what-if panel renders a visible role="alert" error', () => {
+    settle();
+    comp.activeTab.set('what-if');
+    fixture.detectChanges();
+
+    comp.onRunDecide({ current_weights: {}, target_weights: {}, policy_type: 'threshold' });
+    http
+      .expectOne((r) => r.url.includes('rebalance/decide'))
+      .flush({ detail: 'bad' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    const msg = comp.panelErrors()['whatif'];
+    expect(msg).toBeTruthy();
+    expect(queryAlert()).not.toBeNull();
+    expect(queryAlert()?.textContent).toContain(msg!);
+  });
+
+  it('when a policy create fails, the policy panel renders a visible role="alert" error', () => {
+    settle();
+    comp.activeTab.set('policy');
+    fixture.detectChanges();
+
+    comp.onCreatePolicy({ name: 'P', policy_type: 'threshold', config: {} });
+    http
+      .expectOne((r) => r.url.includes('rebalance-policy') && r.method === 'POST')
+      .flush({ detail: 'bad' }, { status: 422, statusText: 'Unprocessable' });
+    fixture.detectChanges();
+
+    const msg = comp.panelErrors()['policy'];
+    expect(msg).toBeTruthy();
+    expect(queryAlert()).not.toBeNull();
+    expect(queryAlert()?.textContent).toContain(msg!);
+  });
+
+  it('when a failed policy create is followed by a successful one, the policy error clears', () => {
+    settle();
+    comp.onCreatePolicy({ name: 'P', policy_type: 'threshold', config: {} });
+    http
+      .expectOne((r) => r.url.includes('rebalance-policy') && r.method === 'POST')
+      .flush({ detail: 'bad' }, { status: 422, statusText: 'Unprocessable' });
+    expect(comp.panelErrors()['policy']).toBeTruthy();
+
+    comp.onCreatePolicy({ name: 'P', policy_type: 'threshold', config: {} });
+    http.expectOne((r) => r.url.includes('rebalance-policy') && r.method === 'POST').flush({});
+    http.expectOne((r) => r.url.includes('rebalance-policy') && r.method === 'GET').flush({ items: [] });
+
+    expect(comp.panelErrors()['policy']).toBeNull();
+  });
+
+  it('when what-if decide succeeds after a failure, the what-if error clears', () => {
+    settle();
+    comp.onRunDecide({ current_weights: {}, target_weights: {}, policy_type: 'threshold' });
+    http
+      .expectOne((r) => r.url.includes('rebalance/decide'))
+      .flush({ detail: 'bad' }, { status: 500, statusText: 'Server Error' });
+    expect(comp.panelErrors()['whatif']).toBeTruthy();
+
+    comp.onRunDecide({ current_weights: {}, target_weights: {}, policy_type: 'threshold' });
+    http.expectOne((r) => r.url.includes('rebalance/decide')).flush(makeRebalanceDecideResponse());
+
+    expect(comp.panelErrors()['whatif']).toBeNull();
+  });
+});

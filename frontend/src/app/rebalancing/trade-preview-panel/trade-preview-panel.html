@@ -1,4 +1,8 @@
 <div class="space-y-6">
+  @if (error(); as err) {
+    <app-page-error-banner [message]="err" />
+  }
+
   <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
     <app-stat-card label="Turnover" [value]="kpiTurnover()" subtitle="Σ |Δw| / 2" />
     <app-stat-card label="Trades" [value]="kpiTradeCount()" subtitle="Number of trades" />

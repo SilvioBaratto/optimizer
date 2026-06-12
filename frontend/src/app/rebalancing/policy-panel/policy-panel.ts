@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { KeyValuePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { PageErrorBannerComponent } from '../../shared/components/page-error-banner/page-error-banner';
 import type {
   PolicyType,
   RebalancingPolicyCreatePayload,
@@ -37,12 +38,13 @@ const EMPTY_FORM: CreateForm = {
 
 @Component({
   selector: 'app-policy-panel',
-  imports: [FormsModule, KeyValuePipe],
+  imports: [FormsModule, KeyValuePipe, PageErrorBannerComponent],
   templateUrl: './policy-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PolicyPanelComponent {
   readonly policies = input<RebalancingPolicyDto[]>([]);
+  readonly error = input<string | null>(null);
 
   readonly requestActivate = output<string>();
   readonly createPolicy = output<RebalancingPolicyCreatePayload>();

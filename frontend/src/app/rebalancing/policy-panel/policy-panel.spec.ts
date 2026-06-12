@@ -149,4 +149,20 @@ describe('PolicyPanelComponent', () => {
       colorClass: 'bg-chart-3/15 text-chart-3',
     });
   });
+
+  it('when error is set, a non-blank role="alert" region with the message is rendered', () => {
+    const fx = create();
+    fx.componentRef.setInput('error', 'Create failed');
+    fx.detectChanges();
+
+    const alert = (fx.nativeElement as HTMLElement).querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent?.trim()).toContain('Create failed');
+  });
+
+  it('when error is null, no alert region is rendered', () => {
+    const fx = create();
+    fx.detectChanges();
+    expect((fx.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
+  });
 });

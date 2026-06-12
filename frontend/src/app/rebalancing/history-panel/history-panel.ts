@@ -5,6 +5,7 @@ import {
   input,
 } from '@angular/core';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
+import { PageErrorBannerComponent } from '../../shared/components/page-error-banner/page-error-banner';
 import type { SnapshotDto } from '../../core/models/portfolio-api.model';
 
 const TYPE_BADGE_MAP: Record<string, { value: string; colorClass: string }> = {
@@ -15,12 +16,13 @@ const TYPE_BADGE_MAP: Record<string, { value: string; colorClass: string }> = {
 
 @Component({
   selector: 'app-history-panel',
-  imports: [DataTableComponent],
+  imports: [DataTableComponent, PageErrorBannerComponent],
   templateUrl: './history-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HistoryPanelComponent {
   readonly snapshots = input<SnapshotDto[]>([]);
+  readonly error = input<string | null>(null);
 
   readonly columns: TableColumn[] = [
     { key: 'snapshot_date', label: 'Date', type: 'date', sortable: true },

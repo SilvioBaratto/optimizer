@@ -31,4 +31,18 @@ describe('TradePreviewPanelComponent', () => {
     expect(comp.tradeRows()[0]['side']).toBe('sell');
     expect(comp.waterfallValues()).toEqual([-500]); // -0.05 × 10000
   });
+
+  it('when error is set, a non-blank role="alert" region with the message is rendered', () => {
+    fixture.componentRef.setInput('error', 'Preview failed');
+    fixture.detectChanges();
+
+    const alert = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent?.trim()).toContain('Preview failed');
+  });
+
+  it('when error is null, no alert region is rendered', () => {
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
+  });
 });

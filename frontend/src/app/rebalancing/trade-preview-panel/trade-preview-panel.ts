@@ -8,6 +8,7 @@ import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
 import { EchartsWaterfallComponent } from '../../shared/echarts-waterfall/echarts-waterfall';
+import { PageErrorBannerComponent } from '../../shared/components/page-error-banner/page-error-banner';
 import type {
   RebalancePreviewApiResponse,
   TradeItemDto,
@@ -15,12 +16,13 @@ import type {
 
 @Component({
   selector: 'app-trade-preview-panel',
-  imports: [StatCardComponent, DataTableComponent, ChartToolbarComponent, EchartsWaterfallComponent],
+  imports: [StatCardComponent, DataTableComponent, ChartToolbarComponent, EchartsWaterfallComponent, PageErrorBannerComponent],
   templateUrl: './trade-preview-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TradePreviewPanelComponent {
   readonly preview = input<RebalancePreviewApiResponse | null>(null);
+  readonly error = input<string | null>(null);
 
   readonly tradeColumns: TableColumn[] = [
     { key: 'ticker', label: 'Ticker', sortable: true },

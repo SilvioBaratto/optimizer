@@ -30,21 +30,23 @@
       @if (activeTab() === 'policy') {
         <app-policy-panel
           [policies]="policies()"
+          [error]="panelError('policy')"
           (requestActivate)="requestActivate($event)"
           (createPolicy)="onCreatePolicy($event)" />
       }
 
       @if (activeTab() === 'trade-preview') {
-        <app-trade-preview-panel [preview]="previewResponse()" />
+        <app-trade-preview-panel [preview]="previewResponse()" [error]="panelError('preview')" />
       }
 
       @if (activeTab() === 'history') {
-        <app-history-panel [snapshots]="snapshots()" />
+        <app-history-panel [snapshots]="snapshots()" [error]="panelError('history')" />
       }
 
       @if (activeTab() === 'what-if') {
         <app-whatif-panel
           [decideResponse]="decideResponse()"
+          [error]="panelError('whatif')"
           (runDecide)="onRunDecide($event)" />
       }
     </div>

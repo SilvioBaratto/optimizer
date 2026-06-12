@@ -9,6 +9,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
+import { PageErrorBannerComponent } from '../../shared/components/page-error-banner/page-error-banner';
 import type {
   PolicyType,
   RebalanceDecideApiResponse,
@@ -38,12 +39,13 @@ function weightsSumTolerant(weights: Record<string, number>): boolean {
 
 @Component({
   selector: 'app-whatif-panel',
-  imports: [FormsModule, StatCardComponent, DataTableComponent],
+  imports: [FormsModule, StatCardComponent, DataTableComponent, PageErrorBannerComponent],
   templateUrl: './whatif-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WhatifPanelComponent {
   readonly decideResponse = input<RebalanceDecideApiResponse | null>(null);
+  readonly error = input<string | null>(null);
 
   readonly runDecide = output<RebalanceDecideRequest>();
 

@@ -40,6 +40,19 @@ function response(
   return { jobs, total, limit, offset };
 }
 
+/** Build a multi-select change event with the given option values selected. */
+function makeSelectEvent(values: string[]): Event {
+  const select = document.createElement('select');
+  select.multiple = true;
+  for (const v of values) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.selected = true;
+    select.appendChild(opt);
+  }
+  return { target: select } as unknown as Event;
+}
+
 describe('JobsPanelComponent', () => {
   let fixture: ComponentFixture<JobsPanelComponent>;
   let component: JobsPanelComponent;
@@ -270,5 +283,215 @@ describe('JobsPanelComponent', () => {
 
     expect(component.drawerError()).toBeTruthy();
     expect(component.selected()).toEqual(first); // summary preserved on error
+  });
+
+  // ── Filter controls reset to page 0 and refetch (issue #986) ───────────────
+  it('when setDomainFilter is called off page 0, page resets to 0 and refetch uses offset 0', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([], 100));
+    component.page.set(2);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([], 100));
+
+    component.setDomainFilter(['optimize']);
+    expect(component.page()).toBe(0);
+    fixture.detectChanges();
+
+    const req = http.expectOne((r) => r.url === JOBS_URL);
+    expect(req.request.params.get('offset')).toBe('0');
+    expect(req.request.params.getAll('domain')).toEqual(['optimize']);
+    req.flush(response());
+  });
+
+  it('when setStatusFilter is called off page 0, page resets to 0', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([], 100));
+    component.page.set(2);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([], 100));
+
+    component.setStatusFilter(['failed']);
+    expect(component.page()).toBe(0);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+  });
+
+  it('when setPageSize is called off page 0, page resets to 0 and limit updates', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([], 100));
+    component.page.set(2);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([], 100));
+
+    component.setPageSize(50);
+    expect(component.page()).toBe(0);
+    fixture.detectChanges();
+    const req = http.expectOne((r) => r.url === JOBS_URL);
+    expect(req.request.params.get('limit')).toBe('50');
+    expect(req.request.params.get('offset')).toBe('0');
+    req.flush(response());
+  });
+
+  // ── Pagination bounds (issue #986) ─────────────────────────────────────────
+  it('when nextPage is called below the last page, the page advances by one', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([job()], 100));
+    component.nextPage();
+    expect(component.page()).toBe(1);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([job()], 100));
+  });
+
+  it('when nextPage is called on the last page, the page does not change', () => {
+    configure({ page: '3' }); // (3+1)*25 = 100 >= total 100 → next disabled
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([job()], 100));
+    expect(component.nextDisabled()).toBe(true);
+    component.nextPage();
+    expect(component.page()).toBe(3);
+  });
+
+  it('when prevPage is called above page 0, the page decreases by one', () => {
+    configure({ page: '2' });
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([job()], 100));
+    component.prevPage();
+    expect(component.page()).toBe(1);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([job()], 100));
+  });
+
+  it('when prevPage is called on page 0, the page stays at 0', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([job()], 100));
+    component.prevPage();
+    expect(component.page()).toBe(0);
+  });
+
+  // ── Drawer interactions (issue #986) ───────────────────────────────────────
+  it('when onRowClick is called, the row raw job opens the detail request', () => {
+    configure();
+    const first = job({ id: 'abc' });
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([first], 1));
+
+    component.onRowClick({ raw: first } as unknown as Record<string, unknown>);
+    http.expectOne((r) => r.url === `${JOBS_URL}/abc`).flush(first);
+    expect(component.selected()).toEqual(first);
+  });
+
+  it('when closeDrawer is called, the selected job is cleared', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    component.selected.set(job());
+    component.closeDrawer();
+    expect(component.selected()).toBeNull();
+  });
+
+  // ── Multi-select event parsing (issue #986) ────────────────────────────────
+  it('when selectedOptions reads a multi-select event, all selected values are returned', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    expect(component.selectedOptions(makeSelectEvent(['a', 'b']))).toEqual(['a', 'b']);
+  });
+
+  it('when selectedStatuses reads a multi-select event, only valid statuses are kept', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    expect(component.selectedStatuses(makeSelectEvent(['running', 'bogus']))).toEqual(['running']);
+  });
+
+  // ── Row formatting branches (issue #986) ───────────────────────────────────
+  it('when a job has a null duration, the duration cell shows the dash placeholder', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    component.jobs.set([job({ duration_seconds: null })]);
+    expect(component.rows()[0]['duration']).toBe('—');
+  });
+
+  it('when a job duration is under a minute, the duration cell shows seconds', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    component.jobs.set([job({ duration_seconds: 30.5 })]);
+    expect(component.rows()[0]['duration']).toBe('30.5s');
+  });
+
+  it('when a running job has a falsy total, progress falls back to zero denominator', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    component.jobs.set([job({ status: 'running', current: 5, total: 0 })]);
+    expect(component.rows()[0]['progress']).toBe('5/0');
+  });
+
+  it('when a failed job error exceeds 80 chars, the error cell is truncated with an ellipsis', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    const longError = 'x'.repeat(120);
+    component.jobs.set([job({ status: 'failed', error: longError })]);
+    const cell = component.rows()[0]['error'] as string;
+    expect(cell.endsWith('…')).toBe(true);
+    expect(cell.length).toBe(78); // 77 chars + ellipsis
+  });
+
+  it('when a failed job error is short, the error cell passes it through unchanged', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    component.jobs.set([job({ status: 'failed', error: 'boom' })]);
+    expect(component.rows()[0]['error']).toBe('boom');
+  });
+
+  it('when a job has a null started_at, the started cell shows the dash placeholder', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    component.jobs.set([job({ started_at: null })]);
+    expect(component.rows()[0]['startedAt']).toBe('—');
+  });
+
+  it('when a job domain is unknown, the domain label falls back to the raw domain', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    component.jobs.set([job({ domain: 'totally_unknown_domain' })]);
+    expect(component.rows()[0]['domainLabel']).toBe('totally_unknown_domain');
+  });
+
+  it('when jobs are present, the data table renders the rows', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([job()], 1));
+    fixture.detectChanges();
+    expect(component.hasRows()).toBe(true);
+  });
+
+  // ── Query-param hydration edge cases (issue #986) ──────────────────────────
+  it('when the domain query param is a single string, it hydrates to a one-element array', () => {
+    configure({ domain: 'yfinance_fetch' });
+    expect(component.domainFilter()).toEqual(['yfinance_fetch']);
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+  });
+
+  it('when the page query param is negative, page falls back to 0', () => {
+    configure({ page: '-5' });
+    expect(component.page()).toBe(0);
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+  });
+
+  it('when the page query param is non-numeric, page falls back to 0', () => {
+    configure({ page: 'abc' });
+    expect(component.page()).toBe(0);
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+  });
+
+  it('when status, page, and a non-default pageSize are set, syncQueryParams emits all three', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([], 1000));
+    const router = TestBed.inject(Router);
+    const navSpy = spyOn(router, 'navigate').and.callThrough();
+
+    component.statusFilter.set(['running']);
+    component.page.set(2);
+    component.pageSize.set(50);
+    fixture.detectChanges();
+
+    const [, extras] = navSpy.calls.mostRecent().args;
+    expect(extras?.queryParams).toEqual(
+      jasmine.objectContaining({ status: ['running'], page: 2, pageSize: 50 }),
+    );
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([], 1000));
   });
 });

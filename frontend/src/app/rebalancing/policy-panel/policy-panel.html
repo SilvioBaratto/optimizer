@@ -1,5 +1,9 @@
 <div class="space-y-6">
 
+  @if (error(); as err) {
+    <app-page-error-banner [message]="err" />
+  }
+
   <!-- Create-policy toolbar -->
   <div class="bg-surface-raised border border-border rounded-lg p-4 flex items-center justify-between">
     <div>

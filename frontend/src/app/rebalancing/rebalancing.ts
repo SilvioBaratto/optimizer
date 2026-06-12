@@ -186,7 +186,10 @@ export class RebalancingComponent {
       .decide(body)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => this.decideResponse.set(res),
+        next: (res) => {
+          this.decideResponse.set(res);
+          this.setPanelError('whatif', null);
+        },
         error: (err: Error) => this.setPanelError('whatif', err.message ?? 'Decide failed'),
       });
   }
@@ -218,7 +221,10 @@ export class RebalancingComponent {
       .listPolicies(name)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (list) => this.policies.set(list.items),
+        next: (list) => {
+          this.policies.set(list.items);
+          this.setPanelError('policy', null);
+        },
         error: (err: Error) => this.setPanelError('policy', err.message ?? 'Policy load failed'),
       });
   }
@@ -228,7 +234,10 @@ export class RebalancingComponent {
       .getPreview(name)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => this.previewResponse.set(res),
+        next: (res) => {
+          this.previewResponse.set(res);
+          this.setPanelError('preview', null);
+        },
         error: (err: ApiError) =>
           this.setPanelError('preview', friendlyPreviewError(err, name)),
       });
@@ -239,13 +248,17 @@ export class RebalancingComponent {
       .getSnapshots(name)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => this.snapshots.set(res.items),
+        next: (res) => {
+          this.snapshots.set(res.items);
+          this.setPanelError('history', null);
+        },
         error: (err: Error) => this.setPanelError('history', err.message ?? 'History failed'),
       });
   }
 
   private onActivateSuccess(id: string): void {
     this.pendingActivateId.set(null);
+    this.setPanelError('policy', null);
     this.policies.update((list) =>
       list.map((p) => ({ ...p, isActive: p.id === id })),
     );
@@ -253,8 +266,12 @@ export class RebalancingComponent {
     if (portfolio) this.fetchPreview(portfolio);
   }
 
-  private setPanelError(key: string, message: string): void {
+  private setPanelError(key: string, message: string | null): void {
     this.panelErrors.update((prev) => ({ ...prev, [key]: message }));
+  }
+
+  panelError(key: string): string | null {
+    return this.panelErrors()[key] ?? null;
   }
 
   // Convenience accessor for template derivations

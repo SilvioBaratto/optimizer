@@ -96,4 +96,18 @@ describe('WhatifPanelComponent', () => {
     comp.currentRaw.set('AAPL, MSFT:0.5');
     expect(comp.currentWeights()).toEqual({ MSFT: 0.5 });
   });
+
+  it('when error is set, a non-blank role="alert" region with the message is rendered', () => {
+    fixture.componentRef.setInput('error', 'Decide failed');
+    fixture.detectChanges();
+
+    const alert = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent?.trim()).toContain('Decide failed');
+  });
+
+  it('when error is null, no alert region is rendered', () => {
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
+  });
 });
