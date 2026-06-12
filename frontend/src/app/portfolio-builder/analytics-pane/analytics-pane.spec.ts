@@ -223,6 +223,37 @@ describe('AnalyticsPaneComponent', () => {
     });
   });
 
+  describe('null-data null-safety', () => {
+    it('when store.result() is null, cards() returns exactly 6 items', () => {
+      const { fixture } = setup();
+      // store starts with result=null by default
+      const cards = fixture.componentInstance.cards();
+      expect(cards.length).toBe(6);
+    });
+
+    it('when store.result() is null, every card value is null', () => {
+      const { fixture } = setup();
+      const allNull = fixture.componentInstance.cards().every((c) => c.value === null);
+      expect(allNull).toBeTrue();
+    });
+
+    it('when result has metrics but backtest is null, turnover card value is null', () => {
+      const { fixture, store } = setup();
+      store.setResult(makeResult({ annualized_return: 0.1 }));
+      fixture.detectChanges();
+      const turnover = fixture.componentInstance.cards().find((c) => c.id === 'turnover');
+      expect(turnover?.value).toBeNull();
+    });
+
+    it('when result has metrics but backtest is null, cost card value is null', () => {
+      const { fixture, store } = setup();
+      store.setResult(makeResult({ annualized_return: 0.1 }));
+      fixture.detectChanges();
+      const cost = fixture.componentInstance.cards().find((c) => c.id === 'cost');
+      expect(cost?.value).toBeNull();
+    });
+  });
+
   describe('live-state overlay', () => {
     it('when resultStatus is "running", overlay-loading is present inside analytics-pane and no metric cards are in the DOM', () => {
       const { fixture, store, host } = setup();

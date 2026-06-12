@@ -187,4 +187,66 @@ describe('DataManagementPanelComponent', () => {
     expect(fx.componentInstance.deleteError()).toBeTruthy();
     expect(fx.componentInstance.pendingDelete()?.name).toBe('prices');
   });
+
+  describe('error banner (issue #964)', () => {
+    it('when health endpoint returns 500, loadError is set and app-page-error-banner is in the DOM', () => {
+      const fx = TestBed.createComponent(DataManagementPanelComponent);
+      fx.detectChanges();
+      http.expectOne(`${API}database/health`)
+        .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+      http.expectOne(`${API}database/status`).flush(STATUS);
+      http.expectOne(`${API}database/tables`).flush(TABLES);
+      fx.detectChanges();
+
+      expect(fx.componentInstance.loadError()).toBeTruthy();
+      expect(fx.nativeElement.querySelector('app-page-error-banner')).not.toBeNull();
+    });
+
+    it('when tables endpoint returns 500, loadError is set and app-page-error-banner is in the DOM', () => {
+      const fx = TestBed.createComponent(DataManagementPanelComponent);
+      fx.detectChanges();
+      http.expectOne(`${API}database/health`).flush(HEALTH);
+      http.expectOne(`${API}database/status`).flush(STATUS);
+      http.expectOne(`${API}database/tables`)
+        .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+      fx.detectChanges();
+
+      expect(fx.componentInstance.loadError()).toBeTruthy();
+      expect(fx.nativeElement.querySelector('app-page-error-banner')).not.toBeNull();
+    });
+
+    it('when status endpoint returns 500, loadError is set (previously silent failure)', () => {
+      const fx = TestBed.createComponent(DataManagementPanelComponent);
+      fx.detectChanges();
+      http.expectOne(`${API}database/health`).flush(HEALTH);
+      http.expectOne(`${API}database/status`)
+        .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+      http.expectOne(`${API}database/tables`).flush(TABLES);
+      fx.detectChanges();
+
+      expect(fx.componentInstance.loadError()).toBeTruthy();
+      expect(fx.nativeElement.querySelector('app-page-error-banner')).not.toBeNull();
+    });
+
+    it('clicking the retry button in the banner re-fires all load requests', () => {
+      const fx = TestBed.createComponent(DataManagementPanelComponent);
+      fx.detectChanges();
+      http.expectOne(`${API}database/health`)
+        .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+      http.expectOne(`${API}database/status`).flush(STATUS);
+      http.expectOne(`${API}database/tables`).flush(TABLES);
+      fx.detectChanges();
+
+      const banner: HTMLElement = fx.nativeElement.querySelector('app-page-error-banner');
+      banner.querySelector<HTMLButtonElement>('button')!.click();
+      fx.detectChanges();
+
+      http.expectOne(`${API}database/health`).flush(HEALTH);
+      http.expectOne(`${API}database/status`).flush(STATUS);
+      http.expectOne(`${API}database/tables`).flush(TABLES);
+
+      fx.detectChanges();
+      expect(fx.componentInstance.loadError()).toBeNull();
+    });
+  });
 });

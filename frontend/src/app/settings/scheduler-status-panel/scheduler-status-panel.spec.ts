@@ -136,4 +136,39 @@ describe('SchedulerStatusPanelComponent', () => {
     expect(fx.componentInstance.loadError()).toBeTruthy();
     expect(fx.componentInstance.loading()).toBe(false);
   });
+
+  describe('error banner (issue #964)', () => {
+    it('when scheduler endpoint returns 500, loadError is set and app-page-error-banner is in the DOM', () => {
+      const fx = TestBed.createComponent(SchedulerStatusPanelComponent);
+      fx.detectChanges();
+      http
+        .expectOne(`${API}scheduler/status`)
+        .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+      fx.detectChanges();
+
+      expect(fx.componentInstance.loadError()).toBeTruthy();
+      expect(fx.nativeElement.querySelector('app-page-error-banner')).not.toBeNull();
+    });
+
+    it('clicking the retry button in the error banner re-fires GET /scheduler/status', () => {
+      const fx = TestBed.createComponent(SchedulerStatusPanelComponent);
+      fx.detectChanges();
+      http
+        .expectOne(`${API}scheduler/status`)
+        .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+      fx.detectChanges();
+
+      const banner: HTMLElement = fx.nativeElement.querySelector('app-page-error-banner');
+      banner.querySelector<HTMLButtonElement>('button')!.click();
+      fx.detectChanges();
+
+      http
+        .expectOne(`${API}scheduler/status`)
+        .flush({ schedulerRunning: true, jobs: [] });
+      fx.detectChanges();
+
+      expect(fx.componentInstance.loadError()).toBeNull();
+      expect(fx.componentInstance.schedulerRunning()).toBe(true);
+    });
+  });
 });

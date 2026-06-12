@@ -452,4 +452,30 @@ describe('BuilderDriftService', () => {
     expect(reqs.length).toBe(1);
     reqs[0].flush(sampleDriftResponse());
   });
+
+  describe('encodes portfolio name in drift URL', () => {
+    it('when portfolioName is "Core Portfolio" and resultStatus is ok, drift URL contains portfolio/Core%20Portfolio/drift', () => {
+      service.init();
+      store.setPortfolioName('Core Portfolio');
+      store.setResultStatus('ok');
+
+      service.runExplicit();
+
+      const req = http.expectOne(
+        (r) => r.url.includes(`portfolio/${encodeURIComponent('Core Portfolio')}/drift`),
+      );
+      expect(req.request.method).toBe('GET');
+      req.flush(sampleDriftResponse());
+    });
+
+    it('when portfolioName is null, no drift HTTP fires', () => {
+      service.init();
+      store.setPortfolioName(null);
+      store.setResultStatus('ok');
+
+      service.runExplicit();
+
+      http.expectNone((r) => r.url.includes('/drift'));
+    });
+  });
 });

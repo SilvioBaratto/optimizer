@@ -8,8 +8,10 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { catchError, EMPTY } from 'rxjs';
 
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
+import { PageErrorBannerComponent } from '../../shared/components/page-error-banner/page-error-banner';
 import { PortfolioApiService } from '../../core/services/portfolio-api.service';
 import { MarketService } from '../../core/services/market.service';
 import { ReferenceIndexService } from '../../core/services/reference-index.service';
@@ -36,7 +38,7 @@ const CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD'] as const;
 
 @Component({
   selector: 'app-portfolios-panel',
-  imports: [FormsModule, DataTableComponent],
+  imports: [FormsModule, DataTableComponent, PageErrorBannerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './portfolios-panel.html',
 })
@@ -90,13 +92,16 @@ export class PortfoliosPanelComponent {
   private loadKnownBenchmarks(): void {
     this.marketSvc
       .getIndices()
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError(() => {
+          this.knownBenchmarks = new Set();
+          return EMPTY;
+        }),
+      )
       .subscribe({
         next: (res) => {
           this.knownBenchmarks = new Set(res.indices.map((i) => i.ticker.toUpperCase()));
-        },
-        error: () => {
-          this.knownBenchmarks = new Set();
         },
       });
   }
@@ -106,14 +111,17 @@ export class PortfoliosPanelComponent {
     this.loadError.set(null);
     this.api
       .list()
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError((err: Error) => {
+          this.loadError.set(err.message ?? 'Failed to load portfolios');
+          this.loading.set(false);
+          return EMPTY;
+        }),
+      )
       .subscribe({
         next: (list) => {
           this.portfolios.set(list.items);
-          this.loading.set(false);
-        },
-        error: (err: Error) => {
-          this.loadError.set(err.message ?? 'Failed to load portfolios');
           this.loading.set(false);
         },
       });
@@ -147,18 +155,26 @@ export class PortfoliosPanelComponent {
     this.seedingMessage.set(`Seeding price history for ${benchmark}…`);
     this.refIndex
       .startSeed([benchmark])
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (job) => this.pollSeedJob(job.job_id, benchmark),
-        error: (err: Error) =>
-          this.onCreateError(err.message ?? `Failed to seed ${benchmark}`),
-      });
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError((err: Error) => {
+          this.onCreateError(err.message ?? `Failed to seed ${benchmark}`);
+          return EMPTY;
+        }),
+      )
+      .subscribe({ next: (job) => this.pollSeedJob(job.job_id, benchmark) });
   }
 
   private pollSeedJob(jobId: string, benchmark: string): void {
     this.refIndex
       .pollUntilDone(jobId)
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError((err: Error) => {
+          this.onCreateError(err.message ?? 'Seed polling failed');
+          return EMPTY;
+        }),
+      )
       .subscribe({
         next: (progress) => {
           if (progress.status === 'completed') {
@@ -175,19 +191,20 @@ export class PortfoliosPanelComponent {
             );
           }
         },
-        error: (err: Error) =>
-          this.onCreateError(err.message ?? 'Seed polling failed'),
       });
   }
 
   private create(): void {
     this.api
       .create(this.buildPayload())
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => this.onCreateSuccess(),
-        error: (err: Error) => this.onCreateError(err.message ?? 'Create failed'),
-      });
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError((err: Error) => {
+          this.onCreateError(err.message ?? 'Create failed');
+          return EMPTY;
+        }),
+      )
+      .subscribe({ next: () => this.onCreateSuccess() });
   }
 
   private buildPayload(): CreatePortfolioDto {

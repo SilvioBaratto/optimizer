@@ -10,9 +10,11 @@ import {
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { catchError, EMPTY } from 'rxjs';
 
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/job-progress-tracker';
+import { PageErrorBannerComponent } from '../../shared/components/page-error-banner/page-error-banner';
 import { JobsService } from '../../core/services/jobs.service';
 import {
   DOMAIN_META,
@@ -49,7 +51,7 @@ interface JobRow extends Record<string, unknown> {
 
 @Component({
   selector: 'app-jobs-panel',
-  imports: [DataTableComponent, JobProgressTrackerComponent],
+  imports: [DataTableComponent, JobProgressTrackerComponent, PageErrorBannerComponent],
   providers: [DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './jobs-panel.html',
@@ -75,6 +77,7 @@ export class JobsPanelComponent {
   readonly loading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
   readonly selected = signal<JobSummary | null>(null);
+  readonly drawerError = signal<string | null>(null);
   private readonly hasFetched = signal<boolean>(false);
 
   readonly tableColumns: TableColumn[] = [
@@ -104,13 +107,17 @@ export class JobsPanelComponent {
 
   openJob(summary: JobSummary): void {
     this.selected.set(summary);
+    this.drawerError.set(null);
     this.jobsSvc
       .getJob(summary.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (full) => this.selected.set(full),
-        error: () => { /* keep the summary we already have */ },
-      });
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError((err: { message?: string }) => {
+          this.drawerError.set(err?.message ?? 'Failed to load job detail');
+          return EMPTY;
+        }),
+      )
+      .subscribe({ next: (full) => this.selected.set(full) });
   }
 
   onRowClick(row: Record<string, unknown>): void {
@@ -154,7 +161,7 @@ export class JobsPanelComponent {
     if (!this.nextDisabled()) this.page.update((p) => p + 1);
   }
 
-  private refresh(): void {
+  refresh(): void {
     const domain = this.domainFilter();
     const status = this.statusFilter();
     const limit = this.pageSize();
@@ -164,12 +171,14 @@ export class JobsPanelComponent {
     this.error.set(null);
     this.jobsSvc
       .listJobs({ domain, status, limit, offset })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => this.applyResponse(res),
-        error: (err: { error?: { detail?: string }; message?: string }) =>
-          this.applyError(err),
-      });
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError((err: { error?: { detail?: string }; message?: string }) => {
+          this.applyError(err);
+          return EMPTY;
+        }),
+      )
+      .subscribe({ next: (res) => this.applyResponse(res) });
   }
 
   private applyResponse(res: JobListResponse): void {

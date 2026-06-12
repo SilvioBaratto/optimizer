@@ -8,8 +8,10 @@ import {
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { catchError, EMPTY } from 'rxjs';
 
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
+import { PageErrorBannerComponent } from '../../shared/components/page-error-banner/page-error-banner';
 import { SchedulerService } from '../scheduler.service';
 import type {
   SchedulerJobStatusDto,
@@ -25,7 +27,7 @@ function formatTimestamp(value: unknown, datePipe: DatePipe): string {
 
 @Component({
   selector: 'app-scheduler-status-panel',
-  imports: [DataTableComponent],
+  imports: [DataTableComponent, PageErrorBannerComponent],
   providers: [DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './scheduler-status-panel.html',
@@ -82,14 +84,17 @@ export class SchedulerStatusPanelComponent {
     this.loadError.set(null);
     this.scheduler
       .getStatus()
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError((err: Error) => {
+          this.loadError.set(err.message ?? 'Failed to load scheduler status');
+          this.loading.set(false);
+          return EMPTY;
+        }),
+      )
       .subscribe({
         next: (s) => {
           this.status.set(s);
-          this.loading.set(false);
-        },
-        error: (err: Error) => {
-          this.loadError.set(err.message ?? 'Failed to load scheduler status');
           this.loading.set(false);
         },
       });

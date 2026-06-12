@@ -1,12 +1,18 @@
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { provideZonelessChangeDetection } from '@angular/core';
-import { Subject } from 'rxjs';
+import { NO_ERRORS_SCHEMA, provideZonelessChangeDetection, signal } from '@angular/core';
+import { Subject, EMPTY } from 'rxjs';
 
 import { PortfolioBuilderComponent } from './portfolio-builder';
 import { BUILDER_STAGES, type BuilderStage } from './models/builder-stage';
 import { JOB_POLL_TICK } from '../shared/job-progress-tracker/job-progress-tracker';
+import { PortfolioContextService } from '../core/services/portfolio-context.service';
+import { BuilderStore } from './state/builder.store';
+import { BuilderResultService } from './builder-result.service';
+import { BuilderDriftService } from './builder-drift.service';
+import { BUILDER_DRIFT_SERVICE } from './state/builder.store';
+import { PipelineBuilderApiService } from '../core/services/pipeline-builder-api.service';
 
 function configure(): void {
   const tick = new Subject<number>();
@@ -103,5 +109,67 @@ describe('PortfolioBuilderComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.componentInstance.store.currentStage()).toBe(target);
+  });
+});
+
+describe('portfolio context name propagation', () => {
+  const mockName = signal<string | null>(null);
+  const mockId = signal<string | null>(null);
+
+  beforeEach(() => {
+    mockName.set(null);
+    mockId.set(null);
+
+    TestBed.configureTestingModule({
+      imports: [PortfolioBuilderComponent],
+      schemas: [NO_ERRORS_SCHEMA],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: PortfolioContextService,
+          useValue: {
+            currentPortfolioName: mockName.asReadonly(),
+            currentPortfolioId: mockId.asReadonly(),
+          },
+        },
+        {
+          provide: PipelineBuilderApiService,
+          useValue: { runStep: () => EMPTY, getArtifactUrl: () => '' },
+        },
+      ],
+    });
+
+    TestBed.overrideComponent(PortfolioBuilderComponent, {
+      set: {
+        providers: [
+          BuilderStore,
+          { provide: BuilderResultService, useValue: { init: () => {}, runExplicit: () => {} } },
+          { provide: BuilderDriftService, useValue: { init: () => {}, runExplicit: () => {} } },
+          { provide: BUILDER_DRIFT_SERVICE, useValue: { runExplicit: () => {} } },
+        ],
+      },
+    });
+  });
+
+  it('when currentPortfolioName() is "Test Portfolio", store.portfolioName() mirrors it', () => {
+    mockName.set('Test Portfolio');
+    const fixture = TestBed.createComponent(PortfolioBuilderComponent);
+    fixture.detectChanges();
+    TestBed.flushEffects();
+
+    const store = fixture.debugElement.injector.get(BuilderStore);
+    expect(store.portfolioName()).toBe('Test Portfolio');
+  });
+
+  it('when currentPortfolioName() is null, store.portfolioName() is null', () => {
+    mockName.set(null);
+    const fixture = TestBed.createComponent(PortfolioBuilderComponent);
+    fixture.detectChanges();
+    TestBed.flushEffects();
+
+    const store = fixture.debugElement.injector.get(BuilderStore);
+    expect(store.portfolioName()).toBeNull();
   });
 });

@@ -23,7 +23,7 @@
   </div>
 
   @if (loadError(); as err) {
-    <p class="text-xs text-loss">{{ err }}</p>
+    <app-page-error-banner [message]="err" (retry)="refresh()" />
   }
 
   <!-- Body -->

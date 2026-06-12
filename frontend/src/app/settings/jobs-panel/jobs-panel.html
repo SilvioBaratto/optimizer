@@ -1,10 +1,6 @@
 <div class="space-y-4">
   @if (error(); as err) {
-    <div
-      data-testid="jobs-error"
-      class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
-      {{ err }}
-    </div>
+    <app-page-error-banner [message]="err" (retry)="refresh()" />
   }
 
   <div class="flex flex-wrap items-end gap-3">
@@ -115,6 +111,9 @@
       </header>
 
       <div class="p-4 space-y-3 text-data-sm">
+        @if (drawerError(); as err) {
+          <p class="text-sm text-loss">{{ err }}</p>
+        }
         <div class="grid grid-cols-2 gap-3">
           <div>
             <div class="text-xs text-text-tertiary uppercase tracking-wide">Status</div>

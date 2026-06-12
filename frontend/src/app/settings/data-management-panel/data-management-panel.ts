@@ -7,9 +7,11 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { catchError, EMPTY } from 'rxjs';
 
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { ConfirmationDialogComponent } from '../../shared/modal/confirmation-dialog';
+import { PageErrorBannerComponent } from '../../shared/components/page-error-banner/page-error-banner';
 import { DatabaseService } from '../database.service';
 import type {
   DatabaseStatus,
@@ -19,7 +21,7 @@ import type {
 
 @Component({
   selector: 'app-data-management-panel',
-  imports: [DataTableComponent, ConfirmationDialogComponent],
+  imports: [DataTableComponent, ConfirmationDialogComponent, PageErrorBannerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './data-management-panel.html',
 })
@@ -77,25 +79,37 @@ export class DataManagementPanelComponent {
     this.loadError.set(null);
     this.db
       .getHealth()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (h) => this.health.set(h),
-        error: (err: Error) => this.loadError.set(err.message ?? 'health failed'),
-      });
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError((err: Error) => {
+          this.loadError.set(err.message ?? 'health check failed');
+          return EMPTY;
+        }),
+      )
+      .subscribe({ next: (h) => this.health.set(h) });
     this.db
       .getStatus()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (s) => this.status.set(s), error: () => this.status.set(null) });
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError((err: Error) => {
+          this.loadError.set(err.message ?? 'status check failed');
+          return EMPTY;
+        }),
+      )
+      .subscribe({ next: (s) => this.status.set(s) });
     this.db
       .getTables()
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError((err: Error) => {
+          this.loadError.set(err.message ?? 'tables failed');
+          this.loading.set(false);
+          return EMPTY;
+        }),
+      )
       .subscribe({
         next: (rows) => {
           this.tables.set(rows);
-          this.loading.set(false);
-        },
-        error: (err: Error) => {
-          this.loadError.set(err.message ?? 'tables failed');
           this.loading.set(false);
         },
       });
@@ -117,11 +131,14 @@ export class DataManagementPanelComponent {
     this.deleteError.set(null);
     this.db
       .truncateTable(target.name)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => this.onDeleteSuccess(target.name),
-        error: (err: Error) => this.onDeleteError(err.message ?? 'Truncate failed'),
-      });
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        catchError((err: Error) => {
+          this.onDeleteError(err.message ?? 'Truncate failed');
+          return EMPTY;
+        }),
+      )
+      .subscribe({ next: () => this.onDeleteSuccess(target.name) });
   }
 
   private onDeleteSuccess(tableName: string): void {

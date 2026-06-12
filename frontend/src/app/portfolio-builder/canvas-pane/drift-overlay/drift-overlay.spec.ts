@@ -360,6 +360,24 @@ describe('DriftOverlayComponent', () => {
     ).not.toBeNull();
   });
 
+  describe('null-data signal safety', () => {
+    it('when store.drift() is null, barData() returns an empty array', () => {
+      const { fixture } = setup();
+      // drift starts null by default
+      expect(fixture.componentInstance.barData()).toEqual([]);
+    });
+
+    it('when store.drift() is null, donutSegments() returns an empty array', () => {
+      const { fixture } = setup();
+      expect(fixture.componentInstance.donutSegments()).toEqual([]);
+    });
+
+    it('when store.drift() is null, barData() is an array not null', () => {
+      const { fixture } = setup();
+      expect(Array.isArray(fixture.componentInstance.barData())).toBeTrue();
+    });
+  });
+
   it('when refresh button is clicked, store.triggerDriftRun fires and BUILDER_DRIFT_SERVICE.runExplicit is invoked', () => {
     const { fixture, host, driftRunner } = setup();
     const refresh = host.querySelector<HTMLButtonElement>(

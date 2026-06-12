@@ -225,7 +225,7 @@ describe('JobsPanelComponent', () => {
 
     expect(component.error()).toContain('boom');
     const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('[data-testid="jobs-error"]')).not.toBeNull();
+    expect(root.querySelector('[role="alert"]')).not.toBeNull();
   });
 
   it('shows an empty-state message when total === 0 after the first successful fetch', () => {
@@ -235,5 +235,40 @@ describe('JobsPanelComponent', () => {
 
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector('[data-testid="jobs-empty"]')).not.toBeNull();
+  });
+
+  it('clicking the retry button in the error banner re-fires GET /jobs and clears the error', () => {
+    configure();
+    http
+      .expectOne((r) => r.url === JOBS_URL)
+      .flush({ detail: 'boom' }, { status: 500, statusText: 'err' });
+    fixture.detectChanges();
+
+    expect(component.error()).toBeTruthy();
+    const root = fixture.nativeElement as HTMLElement;
+    const retryBtn = root.querySelector<HTMLButtonElement>('[role="alert"] button');
+    retryBtn!.click();
+    fixture.detectChanges();
+
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    fixture.detectChanges();
+
+    expect(component.error()).toBeNull();
+  });
+
+  it('when getJob fails, drawerError signal is set', () => {
+    configure();
+    const first = job({ id: 'abc' });
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([first], 1));
+    fixture.detectChanges();
+
+    component.openJob(first);
+    http
+      .expectOne((r) => r.url === `${JOBS_URL}/abc`)
+      .flush({ detail: 'fetch failed' }, { status: 500, statusText: 'err' });
+    fixture.detectChanges();
+
+    expect(component.drawerError()).toBeTruthy();
+    expect(component.selected()).toEqual(first); // summary preserved on error
   });
 });

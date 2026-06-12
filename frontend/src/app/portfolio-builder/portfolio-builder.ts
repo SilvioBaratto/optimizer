@@ -66,7 +66,7 @@ export class PortfolioBuilderComponent {
     // Drift queries the active portfolio's broker holdings. Without this the
     // store's portfolioName stays null and BuilderDriftService never fetches.
     effect(() =>
-      this.store.setPortfolioName(this.portfolioContext.currentPortfolioId()),
+      this.store.setPortfolioName(this.portfolioContext.currentPortfolioName()),
     );
   }
 }

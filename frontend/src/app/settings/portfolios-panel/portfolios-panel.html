@@ -16,7 +16,7 @@
   </div>
 
   @if (loadError(); as err) {
-    <p class="text-xs text-loss">{{ err }}</p>
+    <app-page-error-banner [message]="err" (retry)="refresh()" />
   }
 
   <!-- Create form -->
@@ -58,7 +58,13 @@
       </label>
 
       @if (createError(); as err) {
-        <p class="text-xs text-loss md:col-span-2">{{ err }}</p>
+        <div class="md:col-span-2">
+          <app-page-error-banner [message]="err" (retry)="submit()" />
+        </div>
+      }
+
+      @if (seedingMessage(); as msg) {
+        <p class="text-xs text-text-secondary md:col-span-2">{{ msg }}</p>
       }
 
       <div class="md:col-span-2 flex justify-end gap-2 pt-1">

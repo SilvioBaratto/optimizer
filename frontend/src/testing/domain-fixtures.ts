@@ -17,6 +17,8 @@
 //       assertFieldParity(schemaOf(portfolioSnapshot, 'PortfolioResponse'), makePortfolioDto(), portfolioSnapshot);
 
 import type { PortfolioDto, SnapshotDto } from '../app/core/models/portfolio-api.model';
+import type { DatabaseStatus, HealthCheck, TableInfo, TruncateResponse } from '../app/settings/database.model';
+import type { SchedulerJobStatusDto, SchedulerStatusResponse } from '../app/settings/scheduler.model';
 import type { ApiMarketSnapshotResponse } from '../app/core/models/dashboard-api.model';
 import type {
   BrinsonApiResponse,
@@ -729,4 +731,202 @@ export function makeDriftResponseRich(
     request_id: 1,
     ...overrides,
   };
+}
+
+// ── Settings wire DTOs (database, scheduler) — snake_case except scheduler
+// which uses CamelCaseModel. Mirrors api/app/schemas/database.py and
+// api/app/schemas/scheduler.py exactly. ──────────────────────────────────────
+
+export function makeHealthCheck(overrides: Partial<HealthCheck> = {}): HealthCheck {
+  return { healthy: true, latency_ms: 3.2, database_url: 'postgresql://***@localhost/db', ...overrides };
+}
+
+export function makeTableInfo(overrides: Partial<TableInfo> = {}): TableInfo {
+  return { name: 'instruments', schema: 'public', row_count: 500, size_bytes: 65536, size_pretty: '64 kB', ...overrides };
+}
+
+export function makeDatabaseStatus(overrides: Partial<DatabaseStatus> = {}): DatabaseStatus {
+  return { health: makeHealthCheck(), tables: [makeTableInfo()], total_size_pretty: '64 kB', ...overrides };
+}
+
+export function makeTruncateResponse(overrides: Partial<TruncateResponse> = {}): TruncateResponse {
+  return { table: 'price_history', status: 'truncated', ...overrides };
+}
+
+export function makeSchedulerJobStatusDto(overrides: Partial<SchedulerJobStatusDto> = {}): SchedulerJobStatusDto {
+  return {
+    jobId: 'daily_pipeline',
+    name: 'Daily Pipeline',
+    nextRunTime: ISO,
+    lastRunTime: ISO,
+    lastStatus: 'completed',
+    trigger: 'cron[hour=7]',
+    ...overrides,
+  };
+}
+
+export function makeSchedulerStatusResponse(overrides: Partial<SchedulerStatusResponse> = {}): SchedulerStatusResponse {
+  return { schedulerRunning: true, jobs: [makeSchedulerJobStatusDto()], ...overrides };
+}
+
+// ── New factories for issue #968 (cross-page service field parity) ────────────
+// All shapes mirror the JSON-schema snapshot verbatim. Casing follows the wire:
+// camelCase for CamelCaseModel endpoints, snake_case for plain BaseModel endpoints.
+
+// ConcentrationResponse — full wire shape (risk.json, camelCase)
+export function makeConcentrationApiResponse() {
+  return {
+    assets: [{ ticker: 'AAPL', name: 'Apple Inc.', weight: 0.6 }],
+    summary: { hhi: 0.36, effectiveN: 2.78, topNRatio: 0.6 },
+  };
+}
+
+// LiquidityResponse — full wire shape (risk.json, camelCase)
+export function makeLiquidityApiResponse() {
+  return {
+    assets: [
+      { ticker: 'AAPL', name: 'Apple Inc.', weight: 0.6, avgDailyVolume: 1_000_000, daysToLiquidate: 1.5, liquidityCost: 0.001 },
+    ],
+    summary: { weightedAvgDaysToLiquidate: 1.5 },
+  };
+}
+
+// RiskLimitResponse — single row (risk.json, camelCase)
+export function makeRiskLimitResponse() {
+  return {
+    id: 'rl-1',
+    portfolioId: 'pf-1',
+    metric: 'var_95',
+    limitType: 'upper',
+    threshold: 0.05,
+    isBreached: false,
+    currentValue: 0.03,
+    lastCheckedAt: ISO,
+    createdAt: ISO,
+    updatedAt: ISO,
+  };
+}
+
+// RiskLimitListResponse — list wrapper (risk.json, camelCase)
+export function makeRiskLimitListResponse() {
+  return { items: [makeRiskLimitResponse()], breachCount: 0 };
+}
+
+// AllocationResponse — dashboard.json, camelCase
+export function makeAllocationResponse() {
+  return {
+    nodes: [{ name: 'Technology', value: 0.6, children: [{ name: 'AAPL', value: 0.6 }] }],
+    totalPositions: 1,
+    totalSectors: 1,
+  };
+}
+
+// AssetClassReturnsResponse — dashboard.json, camelCase (numeric period keys)
+export function makeAssetClassReturnsResponse() {
+  return {
+    returns: [{ name: 'Technology', '1D': 0.01, '1W': 0.03, '1M': 0.05, YTD: 0.12 }],
+    asOf: '2026-01-01',
+  };
+}
+
+// EquityCurveResponse — dashboard.json, camelCase
+export function makeEquityCurveResponse() {
+  return {
+    points: [{ date: '2026-01-01', portfolio: 1.0, benchmark: 1.0 }],
+    portfolioTotalReturn: 0.12,
+    benchmarkTotalReturn: 0.1,
+  };
+}
+
+// PerformanceMetricsResponse — dashboard.json, camelCase (currency has default 'EUR', not null)
+export function makePerformanceMetricsResponse() {
+  return {
+    kpis: [{ label: 'Sharpe', value: 1.2, format: 'ratio', change: 0.1, changeLabel: '+0.1', sparkline: [1.0, 1.1, 1.2] }],
+    nav: 100_000,
+    navChangePct: 0.12,
+    currency: 'EUR',
+  };
+}
+
+// InstrumentListResponse — universe.json, snake_case items inside camelCase wrapper
+export function makeInstrumentListResponse() {
+  return {
+    items: [{ id: 'inst-1', ticker: 'AAPL', short_name: 'Apple', created_at: ISO, updated_at: ISO }],
+    total: 1,
+  };
+}
+
+// UniverseStatsResponse — universe.json, snake_case (plain BaseModel)
+export function makeUniverseStatsResponse() {
+  return { exchange_count: 5, instrument_count: 100 };
+}
+
+// TickerProfileResponse — market_data.json, snake_case (plain BaseModel).
+// All optional fields included as null so assertFieldParity type-matches anyOf[T, null].
+export function makeTickerProfileResponse() {
+  return {
+    id: 'prof-1',
+    instrument_id: 'inst-1',
+    created_at: ISO,
+    updated_at: ISO,
+    symbol: null,
+    short_name: null,
+    long_name: null,
+    currency: null,
+    exchange: null,
+    quote_type: null,
+    isin: null,
+    sector: null,
+    industry: null,
+    country: null,
+    website: null,
+    long_business_summary: null,
+    current_price: null,
+    previous_close: null,
+    market_cap: null,
+    enterprise_value: null,
+    shares_outstanding: null,
+    float_shares: null,
+    beta: null,
+    trailing_pe: null,
+    forward_pe: null,
+    trailing_eps: null,
+    forward_eps: null,
+    peg_ratio: null,
+    book_value: null,
+    price_to_book: null,
+    dividend_rate: null,
+    dividend_yield: null,
+    payout_ratio: null,
+    total_revenue: null,
+    gross_margins: null,
+    operating_margins: null,
+    profit_margins: null,
+    ebitda: null,
+    operating_cashflow: null,
+    free_cashflow: null,
+    total_debt: null,
+    return_on_assets: null,
+    return_on_equity: null,
+    revenue_growth: null,
+    earnings_growth: null,
+    current_ratio: null,
+    debt_to_equity: null,
+    enterprise_to_revenue: null,
+    enterprise_to_ebitda: null,
+    full_time_employees: null,
+    fifty_day_average: null,
+    two_hundred_day_average: null,
+    fifty_two_week_high: null,
+    fifty_two_week_low: null,
+    average_volume: null,
+    price_to_sales_trailing_12months: null,
+    recommendation_key: null,
+    recommendation_mean: null,
+  };
+}
+
+// RebalancingPolicyListResponse — rebalancing.json, camelCase (total + items[])
+export function makeRebalancingPolicyListResponse() {
+  return { items: [makeRebalancingPolicyDto()], total: 1 };
 }

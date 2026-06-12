@@ -109,4 +109,56 @@ describe('PortfoliosPanelComponent', () => {
     expect(fx.componentInstance.createError()).toBeTruthy();
     expect(fx.componentInstance.showCreate()).toBe(true);
   });
+
+  describe('error banner (issue #964)', () => {
+    it('when portfolio list returns 500, loadError is set and app-page-error-banner is in the DOM', () => {
+      const fx = TestBed.createComponent(PortfoliosPanelComponent);
+      fx.detectChanges();
+      http.expectOne(`${API}market/indices`).flush({ indices: [] });
+      http.expectOne(`${API}portfolio/`)
+        .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+      fx.detectChanges();
+
+      expect(fx.componentInstance.loadError()).toBeTruthy();
+      expect(fx.nativeElement.querySelector('app-page-error-banner')).not.toBeNull();
+    });
+
+    it('clicking the retry button in the load-error banner re-fires the portfolio list request', () => {
+      const fx = TestBed.createComponent(PortfoliosPanelComponent);
+      fx.detectChanges();
+      http.expectOne(`${API}market/indices`).flush({ indices: [] });
+      http.expectOne(`${API}portfolio/`)
+        .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+      fx.detectChanges();
+
+      const banner: HTMLElement = fx.nativeElement.querySelector('app-page-error-banner');
+      banner.querySelector<HTMLButtonElement>('button')!.click();
+      fx.detectChanges();
+
+      http.expectOne(`${API}portfolio/`).flush({ items: [EXISTING], total: 1 });
+      fx.detectChanges();
+
+      expect(fx.componentInstance.loadError()).toBeNull();
+      expect(fx.componentInstance.portfolios().length).toBe(1);
+    });
+
+    it('when create returns 409, createError is set and app-page-error-banner is in the DOM', () => {
+      const fx = TestBed.createComponent(PortfoliosPanelComponent);
+      fx.detectChanges();
+      http.expectOne(`${API}market/indices`).flush({ indices: [{ ticker: 'SPY' }] });
+      http.expectOne(`${API}portfolio/`).flush({ items: [], total: 0 });
+
+      fx.componentInstance.toggleCreate();
+      fx.componentInstance.updateField('name', 'Core');
+      fx.componentInstance.submit();
+
+      http
+        .expectOne((r) => r.method === 'POST' && r.url === `${API}portfolio/`)
+        .flush({ detail: 'duplicate' }, { status: 409, statusText: 'Conflict' });
+      fx.detectChanges();
+
+      expect(fx.componentInstance.createError()).toBeTruthy();
+      expect(fx.nativeElement.querySelector('app-page-error-banner')).not.toBeNull();
+    });
+  });
 });
