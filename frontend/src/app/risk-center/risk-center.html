@@ -2,15 +2,6 @@
   <!-- Page Header -->
   <app-page-header title="Risk Center" subtitle="Portfolio risk monitoring and analytics">
     <div actions class="flex items-center gap-2">
-      @if (portfolios().length > 0) {
-        <select [ngModel]="selectedPortfolio()" (ngModelChange)="selectedPortfolio.set($event)"
-          aria-label="Portfolio"
-          class="px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
-          @for (p of portfolios(); track p.id) {
-            <option [value]="p.name">{{ p.name }}</option>
-          }
-        </select>
-      }
       <button type="button" (click)="openReportModal()"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
         <i-lucide name="download" />
@@ -28,15 +19,7 @@
       </div>
     </div>
   } @else if (hasError()) {
-    <div class="flex flex-col items-center justify-center py-20 px-4">
-      <i-lucide name="triangle-alert" [size]="48" class="text-loss mb-4" />
-      <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
-      <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
-      <button type="button" (click)="retry()"
-        class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
-        Try Again
-      </button>
-    </div>
+    <app-page-error-banner [message]="errorMessage()" (retry)="retry()" />
   } @else {
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 mt-6">
@@ -52,6 +35,9 @@
 
     <div class="mt-6">
       @if (activeTab() === 'var') {
+        @if (panelErrors()['var']) {
+          <app-alert-banner level="error" [message]="panelErrors()['var']!" />
+        }
         <app-var-panel
           [varResults]="varResults()"
           [selectedMethod]="varMethod()"
@@ -61,28 +47,46 @@
       }
 
       @if (activeTab() === 'stress') {
+        @if (panelErrors()['stress']) {
+          <app-alert-banner level="error" [message]="panelErrors()['stress']!" />
+        }
         <app-stress-panel [scenarios]="stressScenarios()" />
       }
 
       @if (activeTab() === 'correlation') {
+        @if (panelErrors()['correlation']) {
+          <app-alert-banner level="error" [message]="panelErrors()['correlation']!" />
+        }
         <app-correlation-panel
           [correlationData]="correlationData()"
           method="pearson" />
       }
 
       @if (activeTab() === 'factor') {
+        @if (panelErrors()['factor']) {
+          <app-alert-banner level="error" [message]="panelErrors()['factor']!" />
+        }
         <app-factor-panel [exposures]="factorExposures()" />
       }
 
       @if (activeTab() === 'concentration') {
+        @if (panelErrors()['concentration']) {
+          <app-alert-banner level="error" [message]="panelErrors()['concentration']!" />
+        }
         <app-concentration-panel [metrics]="concentration()" />
       }
 
       @if (activeTab() === 'liquidity') {
+        @if (panelErrors()['liquidity']) {
+          <app-alert-banner level="error" [message]="panelErrors()['liquidity']!" />
+        }
         <app-liquidity-panel [metrics]="liquidity()" />
       }
 
       @if (activeTab() === 'limits') {
+        @if (panelErrors()['limits']) {
+          <app-alert-banner level="error" [message]="panelErrors()['limits']!" />
+        }
         <app-limits-panel
           [limits]="limits()"
           [alerts]="alerts()"

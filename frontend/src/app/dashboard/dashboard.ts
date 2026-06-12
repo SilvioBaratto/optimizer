@@ -31,6 +31,8 @@ import { MarketService } from '../core/services/market.service';
 import { ReportsService } from '../core/services/reports.service';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
 import { readCssVar } from '../shared/charts/echarts-theme';
+import { EMPTY_STATE_OPTION } from '../shared/charts/safe-chart-option';
+import { PageErrorBannerComponent } from '../shared/components/page-error-banner/page-error-banner';
 import type {
   DashboardKPI,
   MarketContext,
@@ -62,6 +64,7 @@ const MARKET_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
     EchartsRollingMetricsComponent,
     JobProgressTrackerComponent,
     PeriodSelectorComponent,
+    PageErrorBannerComponent,
   ],
   templateUrl: './dashboard.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -94,7 +97,7 @@ export class DashboardComponent implements OnDestroy {
   // Portfolio name from context. Null when no portfolio has been selected
   // (no portfolios exist yet, or bootstrap hasn't run).
   readonly portfolioName = computed(
-    () => this.portfolioCtx.currentPortfolioId() ?? 'No portfolio',
+    () => this.portfolioCtx.currentPortfolioName() ?? 'No portfolio',
   );
   readonly hasPortfolio = computed(
     () => this.portfolioCtx.currentPortfolioId() !== null,
@@ -226,7 +229,7 @@ export class DashboardComponent implements OnDestroy {
     // Refetch rolling metrics whenever the active portfolio, the dashboard
     // period, or the global date-range preset changes.
     effect(() => {
-      const name = this.portfolioCtx.currentPortfolioId();
+      const name = this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId();
       void this.portfolioCtx.dateRange().preset;
       void this.period();
       if (name === null) {
@@ -323,7 +326,7 @@ export class DashboardComponent implements OnDestroy {
   }
 
   private refetchEquityCurve(): void {
-    const name = this.portfolioCtx.currentPortfolioId();
+    const name = this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId();
     if (!name) return;
     this.dashboardSvc
       .getEquityCurve(name, this.benchmark(), this.period())
@@ -332,7 +335,9 @@ export class DashboardComponent implements OnDestroy {
         next: (res) => {
           this.equityCurve.set(res.points as EquityCurvePoint[]);
           if (this.equityChart) {
-            this.equityChart.setOption(this.buildEquityCurveOption());
+            this.equityChart.setOption(
+              this.equityCurve().length === 0 ? EMPTY_STATE_OPTION : this.buildEquityCurveOption(),
+            );
           }
         },
         error: () => { /* non-critical */ },
@@ -340,7 +345,7 @@ export class DashboardComponent implements OnDestroy {
   }
 
   private refetchPerformanceMetrics(): void {
-    const name = this.portfolioCtx.currentPortfolioId();
+    const name = this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId();
     if (!name) return;
     this.dashboardSvc
       .getPerformanceMetrics(name, this.period())
@@ -382,7 +387,7 @@ export class DashboardComponent implements OnDestroy {
   }
 
   private loadPortfolioData(): void {
-    const name = this.portfolioCtx.currentPortfolioId();
+    const name = this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId();
     if (name === null) {
       this.isLoadingPortfolio.set(false);
       this.hasError.set(false);
@@ -404,7 +409,9 @@ export class DashboardComponent implements OnDestroy {
           this.allocationData.set(snapshot.allocationNodes as SunburstNode[]);
           this.assetClassReturns.set(snapshot.assetClassReturns);
           if (this.equityChart) {
-            this.equityChart.setOption(this.buildEquityCurveOption());
+            this.equityChart.setOption(
+              this.equityCurve().length === 0 ? EMPTY_STATE_OPTION : this.buildEquityCurveOption(),
+            );
           }
           this.isLoadingPortfolio.set(false);
           this.startRevealAnimation();
@@ -504,7 +511,9 @@ export class DashboardComponent implements OnDestroy {
     use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkAreaComponent, CanvasRenderer]);
 
     this.equityChart = init(el, 'portfolio', { renderer: 'canvas' });
-    this.equityChart.setOption(this.buildEquityCurveOption());
+    this.equityChart.setOption(
+      this.equityCurve().length === 0 ? EMPTY_STATE_OPTION : this.buildEquityCurveOption(),
+    );
 
     this.equityRo = new ResizeObserver(() => this.equityChart?.resize());
     this.equityRo.observe(el);

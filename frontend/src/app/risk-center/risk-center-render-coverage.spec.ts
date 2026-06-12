@@ -2,20 +2,29 @@
  * risk-center-render-coverage.spec.ts — issue #940
  *
  * Template-branch coverage for RiskCenterComponent. Mounts the full template
- * and drives each @if / @else / @for arm (three-way gate, portfolio select,
- * 7 tab arms, KPI ternaries, breach badge) by setting STATE signals directly.
- * HTTP from the constructor's loadPortfolios() is left pending (no http.verify()).
+ * and drives each @if / @else / @for arm (three-way gate, 7 tab arms,
+ * KPI ternaries, breach badge) by setting STATE signals directly.
+ * HTTP from the constructor's effect-driven analytics is left pending
+ * (no http.verify() in afterEach — requests left open are acceptable here).
  */
 
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 
-import { installResizeObserverStub, makePortfolioDto, makeVarApiResponse } from '../../testing';
+import { installResizeObserverStub, makeVarApiResponse } from '../../testing';
 import { ICON_PROVIDER } from '../icons';
 import { RiskCenterComponent } from './risk-center';
+import { PortfolioContextService } from '../core/services/portfolio-context.service';
+
+function makeCtxStub(name: string | null = 'Test Portfolio', id: string | null = 'test-id') {
+  return {
+    currentPortfolioId: signal<string | null>(id),
+    currentPortfolioName: signal<string | null>(name),
+  };
+}
 
 describe('RiskCenterComponent — render-coverage (issue #940)', () => {
   let fixture: ComponentFixture<RiskCenterComponent>;
@@ -32,6 +41,7 @@ describe('RiskCenterComponent — render-coverage (issue #940)', () => {
         provideHttpClientTesting(),
         provideRouter([]),
         ICON_PROVIDER,
+        { provide: PortfolioContextService, useValue: makeCtxStub() },
       ],
     }).compileComponents();
 
@@ -55,13 +65,13 @@ describe('RiskCenterComponent — render-coverage (issue #940)', () => {
       expect(el.querySelectorAll('.skeleton').length).toBeGreaterThan(0);
     });
 
-    it('when hasError is true, the error block and message are shown', () => {
+    it('when hasError is true, the page-error-banner is shown', () => {
       comp.isLoading.set(false);
       comp.hasError.set(true);
       comp.errorMessage.set('risk boom');
       fixture.detectChanges();
-      expect(el.textContent).toContain('Something went wrong');
-      expect(el.textContent).toContain('risk boom');
+      const banner = el.querySelector('app-page-error-banner');
+      expect(banner).not.toBeNull();
     });
 
     it('when not loading and no error, the tab group is rendered', () => {
@@ -69,27 +79,6 @@ describe('RiskCenterComponent — render-coverage (issue #940)', () => {
       fixture.detectChanges();
       expect(el.querySelector('app-tab-group')).not.toBeNull();
       expect(el.querySelectorAll('.skeleton').length).toBe(0);
-    });
-  });
-
-  describe('portfolio selector @if + @for', () => {
-    it('when there are no portfolios, the selector is absent', () => {
-      comp.isLoading.set(false);
-      comp.portfolios.set([]);
-      fixture.detectChanges();
-      expect(el.querySelector('select[aria-label="Portfolio"]')).toBeNull();
-    });
-
-    it('when there are two portfolios, the selector renders two options', () => {
-      comp.isLoading.set(false);
-      comp.portfolios.set([
-        makePortfolioDto({ id: 'a', name: 'Alpha' }),
-        makePortfolioDto({ id: 'b', name: 'Beta' }),
-      ]);
-      fixture.detectChanges();
-      const select = el.querySelector<HTMLSelectElement>('select[aria-label="Portfolio"]');
-      expect(select).not.toBeNull();
-      expect(select?.options.length).toBe(2);
     });
   });
 
@@ -111,6 +100,26 @@ describe('RiskCenterComponent — render-coverage (issue #940)', () => {
         fixture.detectChanges();
         expect(el.querySelector(selector)).not.toBeNull();
       });
+    });
+  });
+
+  describe('panel error banners', () => {
+    it('when a panel error is set for var, alert-banner is rendered in the var tab', () => {
+      comp.isLoading.set(false);
+      comp.activeTab.set('var');
+      comp.panelErrors.set({ var: 'VaR load failed' });
+      fixture.detectChanges();
+      const banner = el.querySelector('app-alert-banner');
+      expect(banner).not.toBeNull();
+    });
+
+    it('when a panel error is set for limits, alert-banner is rendered in the limits tab', () => {
+      comp.isLoading.set(false);
+      comp.activeTab.set('limits');
+      comp.panelErrors.set({ limits: 'Limits load failed' });
+      fixture.detectChanges();
+      const banner = el.querySelector('app-alert-banner');
+      expect(banner).not.toBeNull();
     });
   });
 

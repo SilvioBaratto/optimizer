@@ -28,7 +28,7 @@ export class BrinsonPanelComponent {
 
   private readonly fmt = inject(FormatService);
 
-  readonly hasData = computed(() => (this.response()?.sectors.length ?? 0) > 0);
+  readonly hasData = computed(() => (this.response()?.sectors?.length ?? 0) > 0);
 
   readonly waterfallCategories = computed(() => [
     'Allocation',

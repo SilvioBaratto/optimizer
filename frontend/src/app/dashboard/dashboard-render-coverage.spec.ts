@@ -111,14 +111,14 @@ describe('DashboardComponent — render-coverage (issue #909)', () => {
       expect(el.querySelectorAll('.skeleton').length).toBeGreaterThan(0);
     });
 
-    it('when hasError is true, shows "Something went wrong" and a Try Again button', () => {
+    it('when hasError is true, shows the page-error-banner and a Try Again button', () => {
       comp.isLoadingPortfolio.set(false);
       comp.isLoadingMarket.set(false);
       comp.hasError.set(true);
       comp.errorMessage.set('boom');
       fixture.detectChanges();
 
-      expect(el.textContent).toContain('Something went wrong');
+      expect(el.querySelector('app-page-error-banner')).not.toBeNull();
       const tryAgain = Array.from(el.querySelectorAll('button')).find(
         (b) => b.textContent?.includes('Try Again'),
       );

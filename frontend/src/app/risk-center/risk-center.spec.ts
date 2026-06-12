@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type { HttpTestingController } from '@angular/common/http/testing';
+import { signal } from '@angular/core';
 
 import {
   configureTestBed,
@@ -11,10 +12,10 @@ import {
 import { ICON_PROVIDER } from '../icons';
 import { RiskCenterComponent } from './risk-center';
 import { RiskService } from './risk.service';
-import { PortfolioApiService } from '../core/services/portfolio-api.service';
+import { PortfolioContextService } from '../core/services/portfolio-context.service';
 import { of, throwError } from 'rxjs';
 
-// URL-aware stub for the list + 5 parallel analytics + limits fetches.
+// URL-aware stub for the 5 parallel analytics + limits fetches.
 function stubFor(url: string): Record<string, unknown> {
   if (url.includes('/risk/var')) return { var: { '95': 0.03 }, cvar: { '95': 0.05 }, method: 'historical', lookback: 252, nObservations: 252 };
   if (url.includes('/risk/correlation')) return { assets: [], matrix: [], clusterLabels: [] };
@@ -22,26 +23,46 @@ function stubFor(url: string): Record<string, unknown> {
   if (url.includes('/risk/concentration')) return { assets: [], summary: { hhi: 0, effectiveN: 0, topNRatio: 0 } };
   if (url.includes('/risk/liquidity')) return { assets: [], summary: { weightedAvgDaysToLiquidate: 0 } };
   if (url.includes('/limits')) return { items: [], breachCount: 0 };
-  if (url.includes('portfolio')) return { items: [makePortfolioDto()], total: 1 };
   return {};
+}
+
+/** Minimal PortfolioContextService stub with a named portfolio. */
+function makeCtxStub(name = 'Test Portfolio', id = 'test-id') {
+  const idSig = signal<string | null>(id);
+  const nameSig = signal<string | null>(name);
+  return {
+    currentPortfolioId: idSig,
+    currentPortfolioName: nameSig,
+    hasPortfolio: { _value: true },
+    _idSig: idSig,
+    _nameSig: nameSig,
+  };
 }
 
 describe('RiskCenterComponent', () => {
   let fixture: ComponentFixture<RiskCenterComponent>;
   let comp: RiskCenterComponent;
   let http: HttpTestingController;
+  let ctx: ReturnType<typeof makeCtxStub>;
 
-  // Flush the list, then the effect-driven analytics + limits fetches.
+  // Flush the effect-driven analytics + limits fetches.
   function settle(): void {
     fixture.detectChanges();
     drainRequests(http, stubFor);
     fixture.detectChanges();
-    drainRequests(http, stubFor);
   }
 
   beforeEach(async () => {
+    ctx = makeCtxStub();
     installResizeObserverStub();
-    await configureTestBed({ imports: [RiskCenterComponent], withHttp: true, providers: [ICON_PROVIDER] });
+    await configureTestBed({
+      imports: [RiskCenterComponent],
+      withHttp: true,
+      providers: [
+        ICON_PROVIDER,
+        { provide: PortfolioContextService, useValue: ctx },
+      ],
+    });
     fixture = TestBed.createComponent(RiskCenterComponent);
     comp = fixture.componentInstance;
     http = injectHttp();
@@ -49,27 +70,18 @@ describe('RiskCenterComponent', () => {
 
   afterEach(() => http.verify());
 
-  it('when initialising, it loads until the portfolios resolve', () => {
+  it('when initialising with a portfolio in context, analytics requests fire immediately', () => {
     fixture.detectChanges();
-    expect(comp.isLoading()).toBe(true);
-    settle();
-    expect(comp.isLoading()).toBe(false);
+    const pending = http.match(() => true);
+    expect(pending.length).toBeGreaterThan(0);
+    for (const req of pending) req.flush(stubFor(req.request.url));
+    fixture.detectChanges();
   });
 
-  it('when the list resolves, all parallel analytics requests are flushed cleanly', () => {
+  it('when all analytics resolve, panel error signals remain null for each key', () => {
     settle();
-    expect(comp.portfolios().length).toBe(1);
-    expect(comp.selectedPortfolio()).toBe('Test Portfolio');
-    // afterEach http.verify() proves every parallel request was flushed.
-  });
-
-  it('when the list request fails, the error state is shown', () => {
-    fixture.detectChanges();
-    http
-      .expectOne((r) => r.url.includes('portfolio'))
-      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
-    fixture.detectChanges();
-    expect(comp.hasError()).toBe(true);
+    expect(comp.panelErrors()['var']).toBeFalsy();
+    expect(comp.panelErrors()['correlation']).toBeFalsy();
   });
 
   it('when there are limit breaches, the Risk Limits tab carries a badge', () => {
@@ -79,9 +91,11 @@ describe('RiskCenterComponent', () => {
     expect(limitsTab?.badge).toBe(3);
   });
 
-  it('when no portfolio is selected, onGenerateStress fires no request', () => {
-    settle();
-    comp.selectedPortfolio.set('');
+  it('when no portfolio name is in context, onGenerateStress fires no request', () => {
+    ctx._nameSig.set(null);
+    ctx._idSig.set(null);
+    fixture.detectChanges();
+    drainRequests(http, stubFor); // drain any in-flight from prior state
     comp.onGenerateStress({ macroContext: 'recession', nScenarios: 4 });
     expect(http.match((r) => r.url.includes('risk/stress-scenarios')).length).toBe(0);
   });
@@ -114,7 +128,8 @@ describe('RiskCenterComponent', () => {
 
   it('when analytics fetches fail, the values are cleared and panel errors recorded', () => {
     settle();
-    comp.selectedPortfolio.set('Other'); // re-fires every analytics fetch + limits
+    // Switch name to trigger re-fetch
+    ctx._nameSig.set('Other');
     fixture.detectChanges();
     for (const req of http.match(() => true)) {
       req.flush({ detail: 'x' }, { status: 500, statusText: 'Server Error' });
@@ -168,17 +183,12 @@ describe('RiskCenterComponent', () => {
     expect(comp.varConfidence()).toBe(0.99);
   });
 
-  it('retry clears the error and reloads the portfolios', () => {
-    fixture.detectChanges();
-    http
-      .expectOne((r) => r.url.includes('portfolio'))
-      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
-    fixture.detectChanges();
-    expect(comp.hasError()).toBe(true);
+  it('retry clears the error flag and refetches analytics', () => {
+    settle();
+    comp.hasError.set(true);
+    comp.errorMessage.set('boom');
     comp.retry();
     expect(comp.hasError()).toBe(false);
-    drainRequests(http, stubFor);
-    fixture.detectChanges();
     drainRequests(http, stubFor);
   });
 
@@ -246,6 +256,10 @@ describe('RiskCenterComponent — default error messages', () => {
   }
 
   it('falls back to default panel messages when analytics error without a message', async () => {
+    const idSig = signal<string | null>('test-id');
+    const nameSig = signal<string | null>('Test Portfolio');
+    const ctxStub = { currentPortfolioId: idSig, currentPortfolioName: nameSig };
+
     installResizeObserverStub();
     await configureTestBed({
       imports: [RiskCenterComponent],
@@ -253,7 +267,7 @@ describe('RiskCenterComponent — default error messages', () => {
       providers: [
         ICON_PROVIDER,
         { provide: RiskService, useValue: boomRisk() },
-        { provide: PortfolioApiService, useValue: { list: () => of({ items: [makePortfolioDto()], total: 1 }) } },
+        { provide: PortfolioContextService, useValue: ctxStub },
       ],
     });
     const fx = TestBed.createComponent(RiskCenterComponent);
@@ -266,22 +280,5 @@ describe('RiskCenterComponent — default error messages', () => {
     expect(c.panelErrors()['stress']).toBe('Stress failed');
     c.onCreateLimit({ metric: 'm', limit_type: 'upper', threshold: 0.1 });
     expect(c.panelErrors()['limits']).toBe('Create failed');
-  });
-
-  it('falls back to the default error when portfolio loading errors without a message', async () => {
-    installResizeObserverStub();
-    await configureTestBed({
-      imports: [RiskCenterComponent],
-      withHttp: true,
-      providers: [
-        ICON_PROVIDER,
-        { provide: RiskService, useValue: boomRisk() },
-        { provide: PortfolioApiService, useValue: { list: () => throwError(() => ({})) } },
-      ],
-    });
-    const fx = TestBed.createComponent(RiskCenterComponent);
-    fx.detectChanges();
-    expect(fx.componentInstance.hasError()).toBe(true);
-    expect(fx.componentInstance.errorMessage()).toBe('Failed to load portfolios');
   });
 });

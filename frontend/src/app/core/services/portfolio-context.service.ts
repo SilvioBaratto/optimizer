@@ -71,14 +71,14 @@ export class PortfolioContextService {
     const id = this.currentPortfolioId();
     if (!id) return null;
     const list = this.portfolioList();
-    return list?.items.find((p) => p.id === id)?.name ?? null;
+    return list?.items?.find((p) => p.id === id)?.name ?? null;
   });
 
   readonly selectedPortfolio = computed<PortfolioDto | null>(() => {
     const id = this.currentPortfolioId();
     if (!id) return null;
     const list = this.portfolioList();
-    return list?.items.find((p) => p.id === id) ?? null;
+    return list?.items?.find((p) => p.id === id) ?? null;
   });
 
   readonly isLive = computed(() => this.activeMode() === 'live');

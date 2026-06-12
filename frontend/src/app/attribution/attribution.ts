@@ -10,15 +10,17 @@ import {
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { EMPTY, catchError } from 'rxjs';
 
 import { ModalService } from '../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../shared/modal/export-report-modal';
 import { PageHeaderComponent } from '../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../shared/stat-card/stat-card';
+import { PageErrorBannerComponent } from '../shared/components/page-error-banner/page-error-banner';
 import { FormatService } from '../core/services/format.service';
+import { PortfolioContextService } from '../core/services/portfolio-context.service';
 import { AttributionService } from './attribution.service';
-import { PortfolioApiService } from '../core/services/portfolio-api.service';
 
 import { BrinsonPanelComponent } from './brinson-panel/brinson-panel';
 import { SaaTaaPanelComponent } from './saa-taa-panel/saa-taa-panel';
@@ -39,6 +41,7 @@ import type { PortfolioDto } from '../core/models/portfolio-api.model';
     PageHeaderComponent,
     TabGroupComponent,
     StatCardComponent,
+    PageErrorBannerComponent,
     BrinsonPanelComponent,
     SaaTaaPanelComponent,
     FactorAttributionPanelComponent,
@@ -51,23 +54,32 @@ export class AttributionComponent {
   private readonly fmt = inject(FormatService);
   private readonly modalService = inject(ModalService);
   private readonly attribution = inject(AttributionService);
-  private readonly portfolioApi = inject(PortfolioApiService);
+  private readonly portfolioCtx = inject(PortfolioContextService);
   private readonly destroyRef = inject(DestroyRef);
 
+  // ── Portfolio context ─────────────────────────────────────────────────────
+  readonly portfolioName = computed(
+    () => this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId(),
+  );
+
+  // ── Global loading / error state ──────────────────────────────────────────
   readonly isLoading = signal<boolean>(false);
   readonly hasError = signal<boolean>(false);
   readonly errorMessage = signal<string>('');
 
+  // ── Tab navigation ────────────────────────────────────────────────────────
   readonly activeTab = signal<string>('brinson');
 
+  // ── Legacy manual-entry signals (kept for render-coverage spec) ───────────
+  /** Kept for backward compat with render-coverage spec and manual form flow. */
   readonly portfolios = signal<PortfolioDto[]>([]);
   readonly selectedPortfolio = signal<string>('');
   readonly benchmarkWeightsRaw = signal<string>('SPY:1.0');
   readonly startDate = signal<string>(this.defaultStart());
   readonly endDate = signal<string>(this.todayIso());
-
   readonly portfolioWeights = signal<Record<string, number>>({});
 
+  // ── Panel data ────────────────────────────────────────────────────────────
   readonly brinsonResponse = signal<BrinsonApiResponse | null>(null);
   readonly factorResponse = signal<FactorAttributionApiResponse | null>(null);
 
@@ -83,6 +95,7 @@ export class AttributionComponent {
     { id: 'holdings', label: 'Holdings' },
   ];
 
+  // ── KPI computed views ────────────────────────────────────────────────────
   readonly kpiActiveReturn = computed(() =>
     this.brinsonResponse()
       ? this.fmt.formatPercent(this.brinsonResponse()!.totalActiveReturn)
@@ -129,7 +142,7 @@ export class AttributionComponent {
    */
   readonly benchAllUnclassified = computed<boolean>(() => {
     const r = this.brinsonResponse();
-    if (!r) return false;
+    if (!r || !r.sectors?.length) return false;
     const total = r.sectors.reduce((acc, s) => acc + s.benchmarkWeight, 0);
     if (total <= 0) return false;
     const unclassified = r.sectors
@@ -139,13 +152,17 @@ export class AttributionComponent {
   });
 
   constructor() {
-    this.loadPortfolios();
-    effect(() => this.onPortfolioChange());
+    // React to portfolio context changes and refetch attribution data.
+    effect(() => this.onPortfolioContextChange());
   }
+
+  // ── Public actions ────────────────────────────────────────────────────────
 
   retry(): void {
     this.hasError.set(false);
-    this.loadPortfolios();
+    this.errorMessage.set('');
+    const name = this.portfolioName();
+    if (name) this.loadAttributionData(name);
   }
 
   openReportModal(): void {
@@ -196,6 +213,41 @@ export class AttributionComponent {
       });
   }
 
+  // ── Portfolio context wiring ──────────────────────────────────────────────
+
+  private onPortfolioContextChange(): void {
+    const name = this.portfolioName();
+    if (!name) return;
+    this.loadAttributionData(name);
+  }
+
+  private loadAttributionData(portfolioName: string): void {
+    this.hasError.set(false);
+    this.errorMessage.set('');
+
+    this.attribution
+      .getBrinsonAttribution(portfolioName, this.startDate(), this.endDate())
+      .pipe(
+        catchError((err: Error) => {
+          this.hasError.set(true);
+          this.errorMessage.set(err?.message ?? 'Failed to load attribution data');
+          return EMPTY;
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => this.brinsonResponse.set(res));
+
+    this.attribution
+      .getFactorAttribution(portfolioName, this.startDate(), this.endDate())
+      .pipe(
+        catchError(() => EMPTY),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => this.factorResponse.set(res));
+  }
+
+  // ── Private panel handlers ────────────────────────────────────────────────
+
   private onBrinsonSuccess(res: BrinsonApiResponse): void {
     this.brinsonResponse.set(res);
     this.brinsonLoading.set(false);
@@ -216,42 +268,7 @@ export class AttributionComponent {
     this.factorLoading.set(false);
   }
 
-  private loadPortfolios(): void {
-    this.isLoading.set(true);
-    this.portfolioApi
-      .list()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (list) => this.applyPortfolios(list.items),
-        error: (err: Error) => this.failLoad(err.message ?? 'Failed to load portfolios'),
-      });
-  }
-
-  private applyPortfolios(items: PortfolioDto[]): void {
-    this.portfolios.set(items);
-    if (items.length > 0 && !this.selectedPortfolio()) {
-      this.selectedPortfolio.set(items[0].name);
-    }
-    this.isLoading.set(false);
-  }
-
-  private failLoad(message: string): void {
-    this.errorMessage.set(message);
-    this.hasError.set(true);
-    this.isLoading.set(false);
-  }
-
-  private onPortfolioChange(): void {
-    const name = this.selectedPortfolio();
-    if (!name) return;
-    this.portfolioApi
-      .getLatestSnapshot(name)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (snap) => this.portfolioWeights.set(snap.weights ?? {}),
-        error: () => this.portfolioWeights.set({}),
-      });
-  }
+  // ── Utilities ─────────────────────────────────────────────────────────────
 
   private parseWeights(raw: string): Record<string, number> {
     const result: Record<string, number> = {};

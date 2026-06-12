@@ -16,9 +16,11 @@ import { ExportReportModalComponent } from '../shared/modal/export-report-modal'
 import { PageHeaderComponent } from '../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../shared/stat-card/stat-card';
+import { PageErrorBannerComponent } from '../shared/components/page-error-banner/page-error-banner';
+import { AlertBannerComponent } from '../shared/notification/alert-banner';
 
 import { FormatService } from '../core/services/format.service';
-import { PortfolioApiService } from '../core/services/portfolio-api.service';
+import { PortfolioContextService } from '../core/services/portfolio-context.service';
 import { RiskService } from './risk.service';
 import {
   toVarResults,
@@ -58,7 +60,6 @@ import type {
   VaRResult,
   VarApiResponse,
 } from './risk.model';
-import type { PortfolioDto } from '../core/models/portfolio-api.model';
 
 const DEFAULT_PORTFOLIO_VALUE = 10_000_000;
 
@@ -72,6 +73,8 @@ type ApiVarMethod = 'historical' | 'parametric';
     PageHeaderComponent,
     TabGroupComponent,
     StatCardComponent,
+    PageErrorBannerComponent,
+    AlertBannerComponent,
     VarPanelComponent,
     StressPanelComponent,
     CorrelationPanelComponent,
@@ -87,17 +90,21 @@ export class RiskCenterComponent {
   private readonly fmt = inject(FormatService);
   private readonly modalService = inject(ModalService);
   private readonly risk = inject(RiskService);
-  private readonly portfolioApi = inject(PortfolioApiService);
+  private readonly portfolioCtx = inject(PortfolioContextService);
   private readonly destroyRef = inject(DestroyRef);
+
+  // ── Portfolio context ────────────────────────────────────────────────────
+  readonly portfolioName = computed(
+    () => this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId(),
+  );
+  readonly hasPortfolio = computed(() => this.portfolioCtx.currentPortfolioId() !== null);
 
   // ── Loading state ────────────────────────────────────────────────────────
   readonly isLoading = signal<boolean>(false);
   readonly hasError = signal<boolean>(false);
   readonly errorMessage = signal<string>('');
 
-  // ── Portfolio selection ──────────────────────────────────────────────────
-  readonly portfolios = signal<PortfolioDto[]>([]);
-  readonly selectedPortfolio = signal<string>('');
+  // ── Portfolio value (used for dollar VaR computation) ────────────────────
   readonly portfolioValue = signal<number>(DEFAULT_PORTFOLIO_VALUE);
 
   // ── Panel state ──────────────────────────────────────────────────────────
@@ -183,14 +190,17 @@ export class RiskCenterComponent {
   readonly alerts = signal<RiskAlert[]>([]);
 
   constructor() {
-    this.loadPortfolios();
     effect(() => this.onPortfolioChange());
     effect(() => this.onVarMethodChange());
   }
 
   retry(): void {
+    const name = this.portfolioName();
     this.hasError.set(false);
-    this.loadPortfolios();
+    this.errorMessage.set('');
+    if (!name) return;
+    this.fetchAnalytics(name);
+    this.reloadLimits();
   }
 
   openReportModal(): void {
@@ -211,7 +221,7 @@ export class RiskCenterComponent {
   }
 
   onGenerateStress(payload: { macroContext: string; nScenarios: number }): void {
-    const name = this.selectedPortfolio();
+    const name = this.portfolioName();
     if (!name) return;
     this.stressLoading.set(true);
     const weights = this.concentration().reduce<Record<string, number>>(
@@ -239,7 +249,7 @@ export class RiskCenterComponent {
   }
 
   onCreateLimit(body: RiskLimitCreatePayload): void {
-    const name = this.selectedPortfolio();
+    const name = this.portfolioName();
     if (!name) return;
     this.risk
       .createLimit(name, body)
@@ -251,7 +261,7 @@ export class RiskCenterComponent {
   }
 
   onUpdateLimit(update: { id: string; current: number; breached: boolean }): void {
-    const name = this.selectedPortfolio();
+    const name = this.portfolioName();
     if (!name) return;
     this.risk
       .updateLimit(name, update.id, {
@@ -266,7 +276,7 @@ export class RiskCenterComponent {
   }
 
   onDeleteLimit(id: string): void {
-    const name = this.selectedPortfolio();
+    const name = this.portfolioName();
     if (!name) return;
     this.risk
       .deleteLimit(name, id)
@@ -277,38 +287,15 @@ export class RiskCenterComponent {
       });
   }
 
-  private loadPortfolios(): void {
-    this.isLoading.set(true);
-    this.portfolioApi
-      .list()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (list) => this.applyPortfolios(list.items),
-        error: (err: Error) => {
-          this.errorMessage.set(err.message ?? 'Failed to load portfolios');
-          this.hasError.set(true);
-          this.isLoading.set(false);
-        },
-      });
-  }
-
-  private applyPortfolios(items: PortfolioDto[]): void {
-    this.portfolios.set(items);
-    if (items.length > 0 && !this.selectedPortfolio()) {
-      this.selectedPortfolio.set(items[0].name);
-    }
-    this.isLoading.set(false);
-  }
-
   private onPortfolioChange(): void {
-    const name = this.selectedPortfolio();
+    const name = this.portfolioName();
     if (!name) return;
     this.fetchAnalytics(name);
     this.reloadLimits();
   }
 
   private onVarMethodChange(): void {
-    const name = this.selectedPortfolio();
+    const name = this.portfolioName();
     if (!name) return;
     this.fetchVar(name);
   }
@@ -329,8 +316,8 @@ export class RiskCenterComponent {
     );
   }
 
-  private reloadLimits(): void {
-    const name = this.selectedPortfolio();
+  reloadLimits(): void {
+    const name = this.portfolioName();
     if (!name) return;
     this.risk
       .listLimits(name)

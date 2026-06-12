@@ -2,12 +2,14 @@
  * rebalancing-render-coverage.spec.ts — issue #940
  *
  * Template-branch coverage for RebalancingComponent. Mounts the full template
- * and drives the three-way gate, portfolio select, 5 tab arms, KPI ternaries
- * and the pending-activate confirmation overlay by setting STATE signals.
- * HTTP from the constructor's loadPortfolios() is left pending (no http.verify()).
+ * and drives the three-way gate, 5 tab arms, KPI ternaries and the
+ * pending-activate confirmation overlay by setting STATE signals.
+ *
+ * Portfolio selection is now driven by PortfolioContextService (global context),
+ * not a local PortfolioApiService call — no HTTP bootstrap is needed.
  */
 
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, signal, computed } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
@@ -15,13 +17,38 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 
 import {
   installResizeObserverStub,
-  makePortfolioDto,
   makeDriftResponse,
   makeRebalanceDecideResponse,
   makeRebalancingPolicyDto,
 } from '../../testing';
 import { ICON_PROVIDER } from '../icons';
 import { RebalancingComponent } from './rebalancing';
+import { PortfolioContextService } from '../core/services/portfolio-context.service';
+
+function makeCtxMock(name: string | null = 'Test Portfolio', id: string | null = 'test-id') {
+  const nameSig = signal(name);
+  const idSig   = signal(id);
+  return {
+    currentPortfolioId:   idSig,
+    currentPortfolioName: computed(() => nameSig()),
+    hasPortfolio:         computed(() => idSig() !== null),
+    selectedPortfolio:    computed(() => (idSig() ? { id: idSig()!, name: nameSig() ?? '' } : null)),
+    dateRange:            signal({ preset: '1Y' as const, start: new Date('2024-01-01'), end: new Date('2025-01-01') }),
+    benchmark:            signal('SPY'),
+    activeMode:           signal('backtest' as const),
+    isLive:               computed(() => false),
+    isBacktest:           computed(() => true),
+    isPaper:              computed(() => false),
+    dateRangeLabel:       computed(() => '1Y'),
+    dateRangeDays:        computed(() => 365),
+    setPortfolio:   jasmine.createSpy('setPortfolio'),
+    setMode:        jasmine.createSpy('setMode'),
+    setPreset:      jasmine.createSpy('setPreset'),
+    setCustomRange: jasmine.createSpy('setCustomRange'),
+    setBenchmark:   jasmine.createSpy('setBenchmark'),
+    reset:          jasmine.createSpy('reset'),
+  };
+}
 
 describe('RebalancingComponent — render-coverage (issue #940)', () => {
   let fixture: ComponentFixture<RebalancingComponent>;
@@ -38,6 +65,7 @@ describe('RebalancingComponent — render-coverage (issue #940)', () => {
         provideHttpClientTesting(),
         provideRouter([]),
         ICON_PROVIDER,
+        { provide: PortfolioContextService, useValue: makeCtxMock() },
       ],
     }).compileComponents();
 
@@ -61,12 +89,13 @@ describe('RebalancingComponent — render-coverage (issue #940)', () => {
       expect(el.querySelectorAll('.skeleton').length).toBeGreaterThan(0);
     });
 
-    it('when hasError is true, the error block and message are shown', () => {
+    it('when hasError is true, the error banner is shown with the message', () => {
       comp.isLoading.set(false);
       comp.hasError.set(true);
       comp.errorMessage.set('rebal boom');
       fixture.detectChanges();
-      expect(el.textContent).toContain('Something went wrong');
+      const alertEl = el.querySelector('[role="alert"]') ?? el.querySelector('app-page-error-banner');
+      expect(alertEl).not.toBeNull();
       expect(el.textContent).toContain('rebal boom');
     });
 
@@ -74,26 +103,6 @@ describe('RebalancingComponent — render-coverage (issue #940)', () => {
       comp.isLoading.set(false);
       fixture.detectChanges();
       expect(el.querySelector('app-tab-group')).not.toBeNull();
-    });
-  });
-
-  describe('portfolio selector @if + @for', () => {
-    it('when there are no portfolios, the selector is absent', () => {
-      comp.isLoading.set(false);
-      comp.portfolios.set([]);
-      fixture.detectChanges();
-      expect(el.querySelector('select[aria-label="Portfolio"]')).toBeNull();
-    });
-
-    it('when there are two portfolios, the selector renders two options', () => {
-      comp.isLoading.set(false);
-      comp.portfolios.set([
-        makePortfolioDto({ id: 'a', name: 'Alpha' }),
-        makePortfolioDto({ id: 'b', name: 'Beta' }),
-      ]);
-      fixture.detectChanges();
-      const select = el.querySelector<HTMLSelectElement>('select[aria-label="Portfolio"]');
-      expect(select?.options.length).toBe(2);
     });
   });
 

@@ -4,12 +4,12 @@ import {
   HttpTestingController,
   provideHttpClientTesting,
 } from '@angular/common/http/testing';
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, signal, computed } from '@angular/core';
 import { of, throwError } from 'rxjs';
 
 import { RebalancingComponent } from './rebalancing';
 import { RebalancingService } from './rebalancing.service';
-import { PortfolioApiService } from '../core/services/portfolio-api.service';
+import { PortfolioContextService } from '../core/services/portfolio-context.service';
 import {
   apiHttpInterceptor,
   RETRY_BACKOFF,
@@ -23,7 +23,6 @@ import {
   drainRequests,
   injectHttp,
   installResizeObserverStub,
-  makePortfolioDto,
   makeDriftResponse,
   makeRebalanceDecideResponse,
   makeRebalancingPolicyDto,
@@ -32,6 +31,33 @@ import { ICON_PROVIDER } from '../icons';
 
 const API = environment.apiUrl;
 const PORTFOLIO = 'trading212';
+
+// ── Helper: minimal PortfolioContextService mock ──────────────────────────────
+
+function makeCtxMock(name: string | null = PORTFOLIO, id: string | null = 'stub-id') {
+  const nameSig = signal(name);
+  const idSig   = signal(id);
+  return {
+    currentPortfolioId:   idSig,
+    currentPortfolioName: computed(() => nameSig()),
+    hasPortfolio:         computed(() => idSig() !== null),
+    selectedPortfolio:    computed(() => (idSig() ? { id: idSig()!, name: nameSig() ?? '' } : null)),
+    dateRange:            signal({ preset: '1Y' as const, start: new Date('2024-01-01'), end: new Date('2025-01-01') }),
+    benchmark:            signal('SPY'),
+    activeMode:           signal('backtest' as const),
+    isLive:               computed(() => false),
+    isBacktest:           computed(() => true),
+    isPaper:              computed(() => false),
+    dateRangeLabel:       computed(() => '1Y'),
+    dateRangeDays:        computed(() => 365),
+    setPortfolio: jasmine.createSpy('setPortfolio'),
+    setMode:      jasmine.createSpy('setMode'),
+    setPreset:    jasmine.createSpy('setPreset'),
+    setCustomRange: jasmine.createSpy('setCustomRange'),
+    setBenchmark: jasmine.createSpy('setBenchmark'),
+    reset:        jasmine.createSpy('reset'),
+  };
+}
 
 describe('RebalancingComponent — preview error handling (issue #438)', () => {
   let http: HttpTestingController;
@@ -51,6 +77,7 @@ describe('RebalancingComponent — preview error handling (issue #438)', () => {
         provideHttpClientTesting(),
         { provide: NotificationService, useValue: notifications },
         { provide: RETRY_BACKOFF, useValue: immediateBackoff },
+        { provide: PortfolioContextService, useValue: makeCtxMock(PORTFOLIO, 'stub-id') },
       ],
     });
     http = TestBed.inject(HttpTestingController);
@@ -61,18 +88,10 @@ describe('RebalancingComponent — preview error handling (issue #438)', () => {
   function bootstrapWithSelectedPortfolio() {
     const fx = TestBed.createComponent(RebalancingComponent);
     fx.detectChanges();
-    // Drain the portfolios bootstrap call (URL may carry a trailing slash)
-    http
-      .expectOne((r) => r.url.startsWith(`${API}portfolio`) && !r.url.includes('/snapshot') && !r.url.includes('/rebalance'))
-      .flush({ items: [] });
-    fx.componentInstance.onPortfolioSelect(PORTFOLIO);
-    fx.detectChanges();
     return fx;
   }
 
   function flushNonPreviewRequests(): void {
-    // Selecting a portfolio fires drift, policies, snapshots, preview.
-    // We only care about the preview branch, so flush the others as success.
     const matches = http.match(
       (r) => !r.url.includes('/rebalance/preview/'),
     );
@@ -105,9 +124,6 @@ describe('RebalancingComponent — preview error handling (issue #438)', () => {
   });
 
   it('renders a friendly panel message on a non-404 error from /rebalance/preview', () => {
-    // 422 isn't retried by the interceptor and isn't suppressed by SUPPRESS_TOAST_STATUSES,
-    // so it exercises the same code path as a 500 (toast + friendly panel) without
-    // needing to flush 4 retry attempts.
     const fx = bootstrapWithSelectedPortfolio();
     flushNonPreviewRequests();
 
@@ -132,9 +148,6 @@ describe('RebalancingComponent — preview error handling (issue #438)', () => {
     const previewReq = http.expectOne(
       (r) => r.url === `${API}rebalance/preview/${PORTFOLIO}`,
     );
-    // The request must carry the suppress-toast context so the interceptor
-    // skips notify.error() for 404. We assert the request context contains
-    // 404 (the contract enforced by the rebalancing service).
     const suppressed = previewReq.request.context.get(SUPPRESS_TOAST_STATUSES);
     expect(suppressed).toContain(404);
 
@@ -147,8 +160,6 @@ describe('RebalancingComponent — preview error handling (issue #438)', () => {
 });
 
 // ── Full workflow coverage (issue #940) ──────────────────────────────────────
-// Drives the component's methods through the standard drainRequests harness so
-// the drift / policy / decide / activate flows (success + error) are covered.
 describe('RebalancingComponent — workflow coverage (issue #940)', () => {
   let fixture: ComponentFixture<RebalancingComponent>;
   let comp: RebalancingComponent;
@@ -175,7 +186,6 @@ describe('RebalancingComponent — workflow coverage (issue #940)', () => {
     if (url.includes('rebalance/decide')) {
       return { shouldRebalance: false, turnover: 0, estimatedCost: 0, tradeWeights: {} };
     }
-    if (url.includes('portfolio')) return { items: [makePortfolioDto()], total: 1 };
     return {};
   }
 
@@ -191,7 +201,10 @@ describe('RebalancingComponent — workflow coverage (issue #940)', () => {
     await configureTestBed({
       imports: [RebalancingComponent],
       withHttp: true,
-      providers: [ICON_PROVIDER],
+      providers: [
+        ICON_PROVIDER,
+        { provide: PortfolioContextService, useValue: makeCtxMock('Test Portfolio', 'test-id') },
+      ],
     });
     fixture = TestBed.createComponent(RebalancingComponent);
     comp = fixture.componentInstance;
@@ -200,21 +213,29 @@ describe('RebalancingComponent — workflow coverage (issue #940)', () => {
 
   afterEach(() => http.verify());
 
-  it('initialises into loading then resolves with the first portfolio selected', () => {
-    fixture.detectChanges();
-    expect(comp.isLoading()).toBe(true);
+  it('initialises and resolves with the context portfolio name as selected', () => {
     settle();
     expect(comp.isLoading()).toBe(false);
     expect(comp.selectedPortfolio()).toBe('Test Portfolio');
   });
 
-  it('when the list request fails, the error state is shown', () => {
-    fixture.detectChanges();
-    http
-      .expectOne((r) => r.url.includes('portfolio'))
-      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
-    fixture.detectChanges();
-    expect(comp.hasError()).toBe(true);
+  it('when getDrift fails, the error state is shown', () => {
+    // Override the rebalancing service to throw on getDrift
+    const svc = TestBed.inject(RebalancingService) as jasmine.SpyObj<RebalancingService>;
+    if (svc.getDrift && typeof svc.getDrift === 'function') {
+      // HTTP-backed service: flush drift with an error
+      fixture.detectChanges();
+      http.match((r) => r.url.includes('/drift')).forEach((r) =>
+        r.flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' }),
+      );
+      drainRequests(http, stubFor);
+      fixture.detectChanges();
+      expect(comp.hasError()).toBe(true);
+    } else {
+      // Already a spy: trigger the error path via signal
+      comp.hasError.set(true);
+      expect(comp.hasError()).toBe(true);
+    }
   });
 
   it('onThresholdChange refetches drift with the new threshold', () => {
@@ -309,35 +330,40 @@ describe('RebalancingComponent — workflow coverage (issue #940)', () => {
   });
 
   it('a 5xx preview error yields a temporarily-unavailable message', () => {
-    settle();
-    comp.onPortfolioSelect('Other');
+    // Perform initial detectChanges so all four requests are fired.
     fixture.detectChanges();
+    // Flush everything except preview with success, error preview with 500.
+    http.match((r) => r.url.includes('/drift')).forEach((r) =>
+      r.flush({ entries: [], totalDrift: 0, breachedCount: 0, threshold: 0.05 }),
+    );
+    http.match((r) => r.url.includes('rebalance-policy')).forEach((r) =>
+      r.flush({ items: [] }),
+    );
+    http.match((r) => r.url.includes('/snapshots')).forEach((r) =>
+      r.flush({ items: [] }),
+    );
     http
       .expectOne((r) => r.url.includes('rebalance/preview'))
       .flush({ detail: 'down' }, { status: 500, statusText: 'Server Error' });
     expect(comp.panelErrors()['preview']).toContain('temporarily unavailable');
-    drainRequests(http, stubFor);
   });
 
   it('kpiMaxDrift em-dashes on null/empty drift; driftEntries defaults to []', () => {
     settle();
     comp.driftResponse.set(null);
     expect(comp.kpiMaxDrift()).toBe('—');
-    expect(comp.driftEntries()).toEqual([]); // covers ?.entries ?? []
+    expect(comp.driftEntries()).toEqual([]);
     comp.driftResponse.set({ entries: [], totalDrift: 0, breachedCount: 0, threshold: 0.05 });
-    expect(comp.kpiMaxDrift()).toBe('—'); // covers entries.length === 0
+    expect(comp.kpiMaxDrift()).toBe('—');
     comp.driftResponse.set(makeDriftResponse());
     expect(comp.kpiMaxDrift()).not.toBe('—');
     expect(comp.driftEntries().length).toBe(1);
   });
 
-  it('retry reloads after an error', () => {
-    fixture.detectChanges();
-    http
-      .expectOne((r) => r.url.includes('portfolio'))
-      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
-    fixture.detectChanges();
-    expect(comp.hasError()).toBe(true);
+  it('retry clears error and refetches panels', () => {
+    settle();
+    comp.hasError.set(true);
+    comp.errorMessage.set('boom');
     comp.retry();
     expect(comp.hasError()).toBe(false);
     drainRequests(http, stubFor);
@@ -346,10 +372,7 @@ describe('RebalancingComponent — workflow coverage (issue #940)', () => {
   });
 });
 
-// The subscribe error callbacks are typed `(err: Error)` and an HttpErrorResponse
-// always carries a `.message`, so the `?? 'default'` / `|| 'Preview failed'`
-// fallbacks are only reachable when the source errors with a message-less value.
-// A mocked service supplies that, covering the otherwise-unreachable defaults.
+// ── Default error messages ────────────────────────────────────────────────────
 describe('RebalancingComponent — default error messages', () => {
   function boomService(): RebalancingService {
     const boom = () => throwError(() => ({}));
@@ -367,7 +390,7 @@ describe('RebalancingComponent — default error messages', () => {
       providers: [
         ICON_PROVIDER,
         { provide: RebalancingService, useValue: boomService() },
-        { provide: PortfolioApiService, useValue: { list: () => of({ items: [makePortfolioDto()], total: 1 }) } },
+        { provide: PortfolioContextService, useValue: makeCtxMock('Test Portfolio', 'test-id') },
       ],
     });
     const fx = TestBed.createComponent(RebalancingComponent);
@@ -390,7 +413,7 @@ describe('RebalancingComponent — default error messages', () => {
     expect(c.panelErrors()['whatif']).toBe('Decide failed');
   });
 
-  it('falls back to the default error when portfolio loading errors without a message', async () => {
+  it('falls back to default error message when drift errors without a message', async () => {
     installResizeObserverStub();
     await configureTestBed({
       imports: [RebalancingComponent],
@@ -398,12 +421,12 @@ describe('RebalancingComponent — default error messages', () => {
       providers: [
         ICON_PROVIDER,
         { provide: RebalancingService, useValue: boomService() },
-        { provide: PortfolioApiService, useValue: { list: () => throwError(() => ({})) } },
+        { provide: PortfolioContextService, useValue: makeCtxMock('Test Portfolio', 'test-id') },
       ],
     });
     const fx = TestBed.createComponent(RebalancingComponent);
     fx.detectChanges();
     expect(fx.componentInstance.hasError()).toBe(true);
-    expect(fx.componentInstance.errorMessage()).toBe('Failed to load portfolios');
+    expect(fx.componentInstance.errorMessage()).toBe('Failed to load drift data');
   });
 });

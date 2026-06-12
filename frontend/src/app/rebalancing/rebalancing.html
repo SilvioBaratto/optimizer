@@ -1,18 +1,5 @@
 <div class="flex-1 overflow-y-auto p-6">
-  <app-page-header title="Rebalancing" subtitle="Drift monitoring, policies, trade preview, and what-if analysis">
-    <div actions class="flex items-center gap-2">
-      @if (portfolios().length > 0) {
-        <select [ngModel]="selectedPortfolio()"
-          (ngModelChange)="onPortfolioSelect($event)"
-          aria-label="Portfolio"
-          class="px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
-          @for (p of portfolios(); track p.id) {
-            <option [value]="p.name">{{ p.name }}</option>
-          }
-        </select>
-      }
-    </div>
-  </app-page-header>
+  <app-page-header title="Rebalancing" subtitle="Drift monitoring, policies, trade preview, and what-if analysis" />
 
   @if (isLoading()) {
     <div class="space-y-6 mt-6">
@@ -23,15 +10,7 @@
       </div>
     </div>
   } @else if (hasError()) {
-    <div class="flex flex-col items-center justify-center py-20 px-4">
-      <i-lucide name="triangle-alert" [size]="48" class="text-loss mb-4" />
-      <h3 class="text-lg font-semibold text-text mb-1">Something went wrong</h3>
-      <p class="text-sm text-text-secondary mb-4">{{ errorMessage() }}</p>
-      <button type="button" (click)="retry()"
-        class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors">
-        Try Again
-      </button>
-    </div>
+    <app-page-error-banner [message]="errorMessage()" (retry)="retry()" />
   } @else {
     <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-6 mt-6">
       <app-stat-card label="Max Drift" [value]="kpiMaxDrift()" subtitle="Largest absolute deviation" />

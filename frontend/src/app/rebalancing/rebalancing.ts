@@ -10,12 +10,14 @@ import {
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { EMPTY, catchError } from 'rxjs';
 
 import { PageHeaderComponent } from '../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../shared/stat-card/stat-card';
+import { PageErrorBannerComponent } from '../shared/components/page-error-banner/page-error-banner';
 import { FormatService } from '../core/services/format.service';
-import { PortfolioApiService } from '../core/services/portfolio-api.service';
+import { PortfolioContextService } from '../core/services/portfolio-context.service';
 import { RebalancingService } from './rebalancing.service';
 
 import { StatusPanelComponent } from './status-panel/status-panel';
@@ -33,7 +35,7 @@ import type {
   RebalancingPolicyCreatePayload,
   RebalancingPolicyDto,
 } from './rebalancing.model';
-import type { PortfolioDto, SnapshotDto } from '../core/models/portfolio-api.model';
+import type { SnapshotDto } from '../core/models/portfolio-api.model';
 import type { ApiError } from '../core/models/api-error.model';
 
 function friendlyPreviewError(err: ApiError, portfolioName: string): string {
@@ -54,6 +56,7 @@ function friendlyPreviewError(err: ApiError, portfolioName: string): string {
     PageHeaderComponent,
     TabGroupComponent,
     StatCardComponent,
+    PageErrorBannerComponent,
     StatusPanelComponent,
     PolicyPanelComponent,
     TradePreviewPanelComponent,
@@ -65,7 +68,7 @@ function friendlyPreviewError(err: ApiError, portfolioName: string): string {
 })
 export class RebalancingComponent {
   private readonly fmt = inject(FormatService);
-  private readonly portfolioApi = inject(PortfolioApiService);
+  private readonly portfolioCtx = inject(PortfolioContextService);
   private readonly rebalancing = inject(RebalancingService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -76,9 +79,10 @@ export class RebalancingComponent {
   readonly activeTab = signal<string>('status');
   readonly driftThreshold = signal<number>(0.05);
 
-  // Portfolio state
-  readonly portfolios = signal<PortfolioDto[]>([]);
-  readonly selectedPortfolio = signal<string>('');
+  // Derived from PortfolioContextService — name takes priority over raw id
+  readonly selectedPortfolio = computed<string>(
+    () => this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId() ?? '',
+  );
 
   // Data signals
   readonly driftResponse = signal<DriftApiResponse | null>(null);
@@ -122,22 +126,26 @@ export class RebalancingComponent {
   });
 
   constructor() {
-    this.loadPortfolios();
-    effect(() => this.onPortfolioChange());
+    effect(() => {
+      const name = this.portfolioCtx.currentPortfolioName();
+      const id = this.portfolioCtx.currentPortfolioId();
+      const portfolio = name ?? id;
+      if (!portfolio) return;
+      this.loadAllPanels(portfolio);
+    });
   }
 
   retry(): void {
     this.hasError.set(false);
-    this.loadPortfolios();
-  }
-
-  onPortfolioSelect(name: string): void {
-    this.selectedPortfolio.set(name);
+    this.errorMessage.set('');
+    const portfolio = this.selectedPortfolio();
+    if (portfolio) this.loadAllPanels(portfolio);
   }
 
   onThresholdChange(value: number): void {
     this.driftThreshold.set(value);
-    this.fetchDrift();
+    const portfolio = this.selectedPortfolio();
+    if (portfolio) this.fetchDrift(portfolio);
   }
 
   requestActivate(policyId: string): void {
@@ -168,7 +176,7 @@ export class RebalancingComponent {
       .createPolicy(name, payload)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => this.reloadPolicies(),
+        next: () => this.reloadPolicies(name),
         error: (err: Error) => this.setPanelError('policy', err.message ?? 'Create failed'),
       });
   }
@@ -183,55 +191,29 @@ export class RebalancingComponent {
       });
   }
 
-  private loadPortfolios(): void {
-    this.isLoading.set(true);
-    this.portfolioApi
-      .list()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (list) => this.applyPortfolios(list.items),
-        error: (err: Error) => this.failInitialLoad(err.message ?? 'Failed to load portfolios'),
-      });
+  private loadAllPanels(portfolio: string): void {
+    this.fetchDrift(portfolio);
+    this.reloadPolicies(portfolio);
+    this.fetchPreview(portfolio);
+    this.reloadSnapshots(portfolio);
   }
 
-  private applyPortfolios(items: PortfolioDto[]): void {
-    this.portfolios.set(items);
-    if (items.length > 0 && !this.selectedPortfolio()) {
-      this.selectedPortfolio.set(items[0].name);
-    }
-    this.isLoading.set(false);
-  }
-
-  private failInitialLoad(message: string): void {
-    this.errorMessage.set(message);
-    this.hasError.set(true);
-    this.isLoading.set(false);
-  }
-
-  private onPortfolioChange(): void {
-    const name = this.selectedPortfolio();
-    if (!name) return;
-    this.fetchDrift();
-    this.reloadPolicies();
-    this.fetchPreview();
-    this.reloadSnapshots();
-  }
-
-  private fetchDrift(): void {
-    const name = this.selectedPortfolio();
-    if (!name) return;
+  private fetchDrift(name: string): void {
     this.rebalancing
       .getDrift(name, this.driftThreshold())
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => this.driftResponse.set(res),
-        error: (err: Error) => this.setPanelError('drift', err.message ?? 'Drift failed'),
-      });
+      .pipe(
+        catchError((err: Error) => {
+          this.hasError.set(true);
+          this.errorMessage.set(err.message ?? 'Failed to load drift data');
+          this.setPanelError('drift', err.message ?? 'Drift failed');
+          return EMPTY;
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => this.driftResponse.set(res));
   }
 
-  private reloadPolicies(): void {
-    const name = this.selectedPortfolio();
-    if (!name) return;
+  private reloadPolicies(name: string): void {
     this.rebalancing
       .listPolicies(name)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -241,9 +223,7 @@ export class RebalancingComponent {
       });
   }
 
-  private fetchPreview(): void {
-    const name = this.selectedPortfolio();
-    if (!name) return;
+  private fetchPreview(name: string): void {
     this.rebalancing
       .getPreview(name)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -254,9 +234,7 @@ export class RebalancingComponent {
       });
   }
 
-  private reloadSnapshots(): void {
-    const name = this.selectedPortfolio();
-    if (!name) return;
+  private reloadSnapshots(name: string): void {
     this.rebalancing
       .getSnapshots(name)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -271,8 +249,8 @@ export class RebalancingComponent {
     this.policies.update((list) =>
       list.map((p) => ({ ...p, isActive: p.id === id })),
     );
-    // Refresh preview since active policy changed.
-    this.fetchPreview();
+    const portfolio = this.selectedPortfolio();
+    if (portfolio) this.fetchPreview(portfolio);
   }
 
   private setPanelError(key: string, message: string): void {

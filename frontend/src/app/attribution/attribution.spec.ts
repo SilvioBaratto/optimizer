@@ -1,25 +1,77 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import type { HttpTestingController } from '@angular/common/http/testing';
+import { provideZonelessChangeDetection, signal, computed, NO_ERRORS_SCHEMA } from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController } from '@angular/common/http/testing';
+import { of, throwError } from 'rxjs';
 
 import {
-  configureTestBed,
-  drainRequests,
-  injectHttp,
   installResizeObserverStub,
-  makePortfolioDto,
   makeBrinsonResponse,
   makeFactorAttributionResponse,
 } from '../../testing';
 import { ICON_PROVIDER } from '../icons';
 import { AttributionComponent } from './attribution';
+import { PortfolioContextService } from '../core/services/portfolio-context.service';
+import { AttributionService } from './attribution.service';
+import { environment } from '../../environments/environment';
+
 import type { BrinsonSectorRowDto } from './attribution.model';
 
-// URL-aware stub: snapshot is matched first since its URL also contains
-// "portfolio". list → one portfolio; snapshot → weights.
-function stubFor(url: string): Record<string, unknown> {
-  if (url.includes('snapshots/latest')) return { weights: { AAPL: 1 } };
-  if (url.includes('portfolio')) return { items: [makePortfolioDto()], total: 1 };
-  return {};
+const API = environment.apiUrl;
+
+const PORTFOLIO_NAME = 'Test Portfolio';
+const PORTFOLIO_ID = 'pf-1';
+
+function makePortfolioCtxMock(
+  id: string | null = PORTFOLIO_ID,
+  name: string | null = PORTFOLIO_NAME,
+) {
+  const idSig = signal<string | null>(id);
+  const nameSig = signal<string | null>(name);
+  return {
+    currentPortfolioId: idSig,
+    currentPortfolioName: computed(() => nameSig()),
+    selectedPortfolio: computed(() => (id ? { id, name: name ?? '' } : null)),
+    dateRange: signal({
+      preset: '1Y' as const,
+      start: new Date('2024-01-01'),
+      end: new Date('2025-01-01'),
+    }),
+    benchmark: signal('SPY'),
+    hasPortfolio: computed(() => id !== null),
+    activeMode: signal('backtest' as const),
+    isLive: computed(() => false),
+    isBacktest: computed(() => true),
+    isPaper: computed(() => false),
+    dateRangeLabel: computed(() => '1Y'),
+    dateRangeDays: computed(() => 365),
+    setPortfolio: jasmine.createSpy('setPortfolio'),
+    setMode: jasmine.createSpy('setMode'),
+    setPreset: jasmine.createSpy('setPreset'),
+    setCustomRange: jasmine.createSpy('setCustomRange'),
+    setBenchmark: jasmine.createSpy('setBenchmark'),
+    reset: jasmine.createSpy('reset'),
+    _nameSig: nameSig,
+    _idSig: idSig,
+  };
+}
+
+function makeAttrSvcMock(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  brinsonReturn: any = of(makeBrinsonResponse()),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  factorReturn: any = of(makeFactorAttributionResponse()),
+) {
+  return {
+    getBrinsonAttribution: jasmine.createSpy('getBrinsonAttribution').and.returnValue(brinsonReturn),
+    getFactorAttribution: jasmine.createSpy('getFactorAttribution').and.returnValue(factorReturn),
+    loadAttributionData: jasmine.createSpy('loadAttributionData').and.returnValue(of({})),
+    getAttribution: jasmine.createSpy('getAttribution').and.returnValue(of({})),
+    // Legacy POST methods used by runBrinson/runFactor
+    brinson: jasmine.createSpy('brinson').and.returnValue(of(makeBrinsonResponse())),
+    factor: jasmine.createSpy('factor').and.returnValue(of(makeFactorAttributionResponse())),
+  };
 }
 
 function unclassifiedSector(weight: number): BrinsonSectorRowDto {
@@ -39,166 +91,213 @@ function unclassifiedSector(weight: number): BrinsonSectorRowDto {
 describe('AttributionComponent', () => {
   let fixture: ComponentFixture<AttributionComponent>;
   let comp: AttributionComponent;
-  let http: HttpTestingController;
-
-  // Flush the list fetch, then the effect-driven snapshot fetch.
-  function settle(): void {
-    fixture.detectChanges();
-    drainRequests(http, stubFor);
-    fixture.detectChanges();
-    drainRequests(http, stubFor);
-  }
+  let portfolioCtxMock: ReturnType<typeof makePortfolioCtxMock>;
+  let attrSvcMock: ReturnType<typeof makeAttrSvcMock>;
 
   beforeEach(async () => {
     installResizeObserverStub();
-    await configureTestBed({ imports: [AttributionComponent], withHttp: true, providers: [ICON_PROVIDER] });
+    portfolioCtxMock = makePortfolioCtxMock();
+    attrSvcMock = makeAttrSvcMock();
+
+    await TestBed.configureTestingModule({
+      imports: [AttributionComponent],
+      schemas: [NO_ERRORS_SCHEMA],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        ICON_PROVIDER,
+        { provide: PortfolioContextService, useValue: portfolioCtxMock },
+        { provide: AttributionService, useValue: attrSvcMock },
+      ],
+    }).compileComponents();
+
     fixture = TestBed.createComponent(AttributionComponent);
     comp = fixture.componentInstance;
-    http = injectHttp();
-  });
-
-  afterEach(() => http.verify());
-
-  it('when initialising, it is in the loading state until the portfolios resolve', () => {
     fixture.detectChanges();
-    expect(comp.isLoading()).toBe(true);
-    settle();
-    expect(comp.isLoading()).toBe(false);
   });
 
-  it('when the list resolves, the portfolios populate and the first is selected', () => {
-    settle();
-    expect(comp.portfolios().length).toBe(1);
-    expect(comp.selectedPortfolio()).toBe('Test Portfolio');
+  afterEach(() => {
+    // Drain any pending HTTP requests (e.g. from runBrinson/runFactor calls).
+    const http = TestBed.inject(HttpTestingController);
+    http.verify();
   });
 
-  it('when a portfolio is selected, the effect-driven snapshot fetch populates the weights', () => {
-    settle();
-    expect(comp.portfolioWeights()['AAPL']).toBe(1);
+  it('on init, attribution API is called with the portfolio name', () => {
+    expect(attrSvcMock.getBrinsonAttribution).toHaveBeenCalledWith(
+      PORTFOLIO_NAME,
+      jasmine.any(String),
+      jasmine.any(String),
+    );
   });
 
-  it('when the list request fails, the error state is shown', () => {
+  it('on init, attribution API is NOT called with the raw UUID', () => {
+    const calls = attrSvcMock.getBrinsonAttribution.calls.allArgs();
+    for (const args of calls) {
+      expect(args[0]).not.toBe(PORTFOLIO_ID);
+    }
+  });
+
+  it('when attribution API returns data, brinsonResponse is populated', () => {
+    expect(comp.brinsonResponse()).not.toBeNull();
+  });
+
+  it('when attribution API returns data, factorResponse is populated', () => {
+    expect(comp.factorResponse()).not.toBeNull();
+  });
+
+  it('when portfolio context changes, attribution API is called again', () => {
+    attrSvcMock.getBrinsonAttribution.calls.reset();
+    portfolioCtxMock._nameSig.set('European Bonds');
     fixture.detectChanges();
-    http
-      .expectOne((r) => r.url.includes('portfolio'))
-      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+
+    expect(attrSvcMock.getBrinsonAttribution.calls.count()).toBeGreaterThan(0);
+  });
+
+  it('when portfolio is cleared, attribution API is not called', () => {
+    attrSvcMock.getBrinsonAttribution.calls.reset();
+    attrSvcMock.getFactorAttribution.calls.reset();
+    portfolioCtxMock._nameSig.set(null);
+    portfolioCtxMock._idSig.set(null);
     fixture.detectChanges();
-    expect(comp.hasError()).toBe(true);
+
+    expect(attrSvcMock.getBrinsonAttribution.calls.count()).toBe(0);
+    expect(attrSvcMock.getFactorAttribution.calls.count()).toBe(0);
+  });
+
+  it('retry clears the error and refetches', () => {
+    comp.hasError.set(true);
+    comp.errorMessage.set('some error');
+    attrSvcMock.getBrinsonAttribution.calls.reset();
+
+    comp.retry();
+
+    expect(comp.hasError()).toBe(false);
+    expect(attrSvcMock.getBrinsonAttribution.calls.count()).toBeGreaterThan(0);
   });
 
   it('when weights sum to one, the form is valid; an empty portfolio invalidates it', () => {
-    settle();
     comp.portfolioWeights.set({ AAPL: 1 });
     expect(comp.isFormValid()).toBe(true);
     comp.portfolioWeights.set({});
     expect(comp.isFormValid()).toBe(false);
   });
 
-  it('when the form is invalid, runBrinson does not fire a request (guard)', () => {
-    settle();
+  it('when the form is invalid, runBrinson does not call the brinson API', () => {
     comp.portfolioWeights.set({});
+    attrSvcMock.brinson.calls.reset();
     comp.runBrinson();
-    expect(http.match((r) => r.url.includes('attribution/brinson')).length).toBe(0);
+    expect(attrSvcMock.brinson.calls.count()).toBe(0);
   });
 
   it('when the benchmark is entirely Unclassified, benchAllUnclassified is true', () => {
-    settle();
     comp.brinsonResponse.set(makeBrinsonResponse({ sectors: [unclassifiedSector(1)] }));
     expect(comp.benchAllUnclassified()).toBe(true);
     comp.brinsonResponse.set(makeBrinsonResponse());
     expect(comp.benchAllUnclassified()).toBe(false);
   });
 
-  it('runBrinson posts and stores the response on success', () => {
-    settle();
+  it('runBrinson calls brinson service and stores the response on success', () => {
     comp.portfolioWeights.set({ AAPL: 1 });
+    const brinsonResponse = makeBrinsonResponse();
+    attrSvcMock.brinson.and.returnValue(of(brinsonResponse));
+
     comp.runBrinson();
-    http.expectOne((r) => r.url.includes('attribution/brinson')).flush(makeBrinsonResponse());
-    expect(comp.brinsonResponse()).not.toBeNull();
+
+    expect(attrSvcMock.brinson).toHaveBeenCalled();
+    expect(comp.brinsonResponse()).toEqual(brinsonResponse);
     expect(comp.brinsonLoading()).toBe(false);
   });
 
   it('runBrinson records an error on failure', () => {
-    settle();
     comp.portfolioWeights.set({ AAPL: 1 });
+    attrSvcMock.brinson.and.returnValue(
+      throwError(() => new Error('bad request')),
+    );
+
     comp.runBrinson();
-    http
-      .expectOne((r) => r.url.includes('attribution/brinson'))
-      .flush({ detail: 'bad' }, { status: 422, statusText: 'Unprocessable' });
+
     expect(comp.brinsonError()).toBeTruthy();
     expect(comp.brinsonLoading()).toBe(false);
   });
 
   it('runFactor is guarded when weights do not sum to one', () => {
-    settle();
     comp.portfolioWeights.set({});
+    attrSvcMock.factor.calls.reset();
     comp.runFactor();
-    expect(http.match((r) => r.url.includes('attribution/factor')).length).toBe(0);
+    expect(attrSvcMock.factor.calls.count()).toBe(0);
   });
 
   it('runFactor is guarded when the dates are not ordered', () => {
-    settle();
     comp.portfolioWeights.set({ AAPL: 1 });
     comp.endDate.set('2000-01-01');
+    attrSvcMock.factor.calls.reset();
     comp.runFactor();
-    expect(http.match((r) => r.url.includes('attribution/factor')).length).toBe(0);
+    expect(attrSvcMock.factor.calls.count()).toBe(0);
   });
 
-  it('runFactor posts and stores the response on success', () => {
-    settle();
+  it('runFactor calls factor service and stores the response on success', () => {
     comp.portfolioWeights.set({ AAPL: 1 });
+    const factorResponse = makeFactorAttributionResponse();
+    attrSvcMock.factor.and.returnValue(of(factorResponse));
+
     comp.runFactor();
-    http
-      .expectOne((r) => r.url.includes('attribution/factor'))
-      .flush(makeFactorAttributionResponse());
-    expect(comp.factorResponse()).not.toBeNull();
+
+    expect(attrSvcMock.factor).toHaveBeenCalled();
+    expect(comp.factorResponse()).toEqual(factorResponse);
     expect(comp.factorLoading()).toBe(false);
   });
 
   it('runFactor records an error on failure', () => {
-    settle();
     comp.portfolioWeights.set({ AAPL: 1 });
+    attrSvcMock.factor.and.returnValue(
+      throwError(() => new Error('factor failed')),
+    );
+
     comp.runFactor();
-    http
-      .expectOne((r) => r.url.includes('attribution/factor'))
-      .flush({ detail: 'bad' }, { status: 500, statusText: 'Server Error' });
+
     expect(comp.factorError()).toBeTruthy();
   });
 
-  it('selecting a portfolio refetches the snapshot weights', () => {
-    settle();
-    comp.onPortfolioSelect('Other');
-    fixture.detectChanges();
-    http.expectOne((r) => r.url.includes('snapshots/latest')).flush({ weights: { MSFT: 1 } });
-    expect(comp.portfolioWeights()['MSFT']).toBe(1);
-  });
-
-  it('when the snapshot fetch fails, the weights reset to empty', () => {
-    settle();
-    comp.onPortfolioSelect('Other');
-    fixture.detectChanges();
-    http
-      .expectOne((r) => r.url.includes('snapshots/latest'))
-      .flush({ detail: 'x' }, { status: 500, statusText: 'Server Error' });
-    expect(comp.portfolioWeights()).toEqual({});
-  });
-
-  it('retry clears the error and reloads', () => {
-    fixture.detectChanges();
-    http
-      .expectOne((r) => r.url.includes('portfolio'))
-      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
-    fixture.detectChanges();
-    expect(comp.hasError()).toBe(true);
-    comp.retry();
-    expect(comp.hasError()).toBe(false);
-    drainRequests(http, stubFor);
-    fixture.detectChanges();
-    drainRequests(http, stubFor);
-  });
-
   it('openReportModal does not throw', () => {
-    settle();
     expect(() => comp.openReportModal()).not.toThrow();
+  });
+
+  it('onPortfolioSelect updates the selectedPortfolio signal', () => {
+    comp.onPortfolioSelect('Other Portfolio');
+    expect(comp.selectedPortfolio()).toBe('Other Portfolio');
+  });
+});
+
+describe('AttributionComponent — error state', () => {
+  let fixture: ComponentFixture<AttributionComponent>;
+
+  beforeEach(async () => {
+    installResizeObserverStub();
+    const errorCtx = makePortfolioCtxMock();
+    const errorSvc = makeAttrSvcMock(
+      throwError(() => new Error('500 Internal Server Error')),
+      throwError(() => new Error('500 Internal Server Error')),
+    );
+
+    await TestBed.configureTestingModule({
+      imports: [AttributionComponent],
+      schemas: [NO_ERRORS_SCHEMA],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        ICON_PROVIDER,
+        { provide: PortfolioContextService, useValue: errorCtx },
+        { provide: AttributionService, useValue: errorSvc },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(AttributionComponent);
+    fixture.detectChanges();
+  });
+
+  it('when attribution API errors, hasError is set to true', () => {
+    expect(fixture.componentInstance.hasError()).toBe(true);
   });
 });
