@@ -204,7 +204,7 @@ describe('TickerSeedingService', () => {
       );
 
       service.seedFromPortfolio('broken-fund', DEFAULT_TICKERS).subscribe({
-        next: () => { /* ok */ },
+        next: (tickers) => expect(tickers).toEqual(DEFAULT_TICKERS),
         complete: done,
         error: () => done.fail('Observable must not error on HTTP failure'),
       });

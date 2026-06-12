@@ -83,6 +83,11 @@ export const routes: Routes = [
         title: 'Instrument',
       },
       {
+        path: 'dashboard',
+        redirectTo: '',
+        pathMatch: 'full',
+      },
+      {
         path: 'optimize',
         redirectTo: 'optimization-studio',
       },

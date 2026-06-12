@@ -7,6 +7,18 @@ import { PortfolioContextService } from './portfolio-context.service';
 
 const STORAGE_KEY = 'optimizer.currentPortfolioId';
 
+// Minimal portfolio DTOs for the cached-list derivation tests (#969).
+const ISO = '2026-01-01T00:00:00.000Z';
+const ALPHA = {
+  id: 'pf-alpha', name: 'Alpha Fund', description: null, currency: 'USD',
+  benchmark_ticker: 'SPY', is_active: true, created_at: ISO, updated_at: ISO,
+};
+const BETA = {
+  id: 'pf-beta', name: 'Beta Portfolio', description: null, currency: 'EUR',
+  benchmark_ticker: 'MSCI', is_active: true, created_at: ISO, updated_at: ISO,
+};
+const LIST_RESPONSE = { items: [ALPHA, BETA], total: 2 };
+
 describe('PortfolioContextService', () => {
   let svc: PortfolioContextService;
   let appRef: ApplicationRef;
@@ -83,5 +95,34 @@ describe('PortfolioContextService', () => {
     expect(svc.dateRange().preset).toBe('1Y');
     expect(svc.benchmark()).toBe('SPY');
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  // ── #969: derived signals from the cached list ───────────────────────────
+
+  it('when an id is set but the portfolio list has not loaded, currentPortfolioName returns null', () => {
+    svc.setPortfolio(ALPHA.id);
+    appRef.tick(); // fires the (shared) list request but leaves it unflushed
+    expect(svc.currentPortfolioName()).toBeNull();
+  });
+
+  it('when an id is set but the portfolio list has not loaded, selectedPortfolio returns null', () => {
+    svc.setPortfolio(ALPHA.id);
+    appRef.tick();
+    expect(svc.selectedPortfolio()).toBeNull();
+  });
+
+  it('when switching between two non-null ids, no second portfolio list request is issued', () => {
+    svc.setPortfolio(ALPHA.id);
+    appRef.tick();
+    http.expectOne((r) => r.url.includes('portfolio')).flush(LIST_RESPONSE);
+    appRef.tick();
+    expect(svc.currentPortfolioName()).toBe(ALPHA.name);
+
+    svc.setPortfolio(BETA.id);
+    appRef.tick();
+
+    // Flipping between two non-null ids must reuse the cached list.
+    http.expectNone((r) => r.url.includes('portfolio'));
+    expect(svc.currentPortfolioName()).toBe(BETA.name);
   });
 });

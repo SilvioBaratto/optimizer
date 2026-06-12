@@ -101,6 +101,10 @@ describe('PortfolioContextService – currentPortfolioName and selectedPortfolio
   });
 
   afterEach(() => {
+    // The auto-select bootstrap fires GET /portfolio/ whenever construction
+    // starts with no stored id; drain any such pending list request so verify()
+    // only asserts on requests the test itself flushed.
+    http.match((r) => r.url.includes('portfolio'));
     localStorage.clear();
     http.verify();
   });
@@ -137,16 +141,20 @@ describe('PortfolioContextService – currentPortfolioName and selectedPortfolio
 
   // ── id not in list → both signals return null ─────────────────────────────
 
+  // An empty list is used so the id is genuinely absent: with a populated list
+  // the service's auto-heal effect would reset the id to the first portfolio,
+  // making `null` unobservable. The empty-list case isolates the computed's
+  // "id not present → null" contract.
   it('when the selected id is not in the loaded list, currentPortfolioName returns null', () => {
     svc.setPortfolio('pf-does-not-exist');
-    flushPortfolioList(http, appRef);
+    flushPortfolioList(http, appRef, { items: [], total: 0 });
 
     expect(svc.currentPortfolioName()).toBeNull();
   });
 
   it('when the selected id is not in the loaded list, selectedPortfolio returns null', () => {
     svc.setPortfolio('pf-does-not-exist');
-    flushPortfolioList(http, appRef);
+    flushPortfolioList(http, appRef, { items: [], total: 0 });
 
     expect(svc.selectedPortfolio()).toBeNull();
   });

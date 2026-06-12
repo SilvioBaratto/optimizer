@@ -4,6 +4,7 @@ import {
   inject,
   computed,
   effect,
+  untracked,
   ElementRef,
   viewChild,
   OnDestroy,
@@ -208,9 +209,15 @@ export class DashboardComponent implements OnDestroy {
     ];
   });
 
+  // Tracks the portfolio the core analytics were last loaded for, so the
+  // re-drive effect fires only on an actual portfolio change (not the initial
+  // value already loaded synchronously in the constructor).
+  private lastLoadedPortfolio: string | null = null;
+
   constructor() {
     this.loadBenchmarks();
     this.loadPortfolioData();
+    this.lastLoadedPortfolio = this.portfolioKey();
     this.startMarketRefresh();
 
     effect((onCleanup) => {
@@ -226,10 +233,21 @@ export class DashboardComponent implements OnDestroy {
       });
     });
 
+    // Re-drive the core analytics (KPIs, equity curve, allocation, asset-class
+    // returns) whenever the active portfolio changes. period/benchmark have their
+    // own granular refetch handlers, so the load body runs untracked to keep this
+    // effect keyed on portfolio identity only.
+    effect(() => {
+      const key = this.portfolioKey();
+      if (key === this.lastLoadedPortfolio) return;
+      this.lastLoadedPortfolio = key;
+      untracked(() => this.loadPortfolioData());
+    });
+
     // Refetch rolling metrics whenever the active portfolio, the dashboard
     // period, or the global date-range preset changes.
     effect(() => {
-      const name = this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId();
+      const name = this.portfolioKey();
       void this.portfolioCtx.dateRange().preset;
       void this.period();
       if (name === null) {
@@ -238,6 +256,10 @@ export class DashboardComponent implements OnDestroy {
       }
       this.refetchRollingMetrics(name);
     });
+  }
+
+  private portfolioKey(): string | null {
+    return this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId();
   }
 
   private refetchRollingMetrics(name: string): void {
@@ -326,7 +348,7 @@ export class DashboardComponent implements OnDestroy {
   }
 
   private refetchEquityCurve(): void {
-    const name = this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId();
+    const name = this.portfolioKey();
     if (!name) return;
     this.dashboardSvc
       .getEquityCurve(name, this.benchmark(), this.period())
@@ -345,7 +367,7 @@ export class DashboardComponent implements OnDestroy {
   }
 
   private refetchPerformanceMetrics(): void {
-    const name = this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId();
+    const name = this.portfolioKey();
     if (!name) return;
     this.dashboardSvc
       .getPerformanceMetrics(name, this.period())
@@ -387,7 +409,7 @@ export class DashboardComponent implements OnDestroy {
   }
 
   private loadPortfolioData(): void {
-    const name = this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId();
+    const name = this.portfolioKey();
     if (name === null) {
       this.isLoadingPortfolio.set(false);
       this.hasError.set(false);

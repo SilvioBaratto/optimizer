@@ -19,7 +19,6 @@ import { of } from 'rxjs';
 
 import {
   installResizeObserverStub,
-  makePortfolioDto,
   makeBrinsonResponse,
   makeFactorAttributionResponse,
 } from '../../testing';
@@ -129,23 +128,11 @@ describe('AttributionComponent — render-coverage (issue #940)', () => {
     });
   });
 
-  describe('portfolio selector @if + @for', () => {
-    it('when there are no portfolios, the selector is absent', () => {
+  describe('portfolio selection moved to global header', () => {
+    it('when the page renders, no local portfolio dropdown is present', () => {
       comp.isLoading.set(false);
-      comp.portfolios.set([]);
       fixture.detectChanges();
       expect(el.querySelector('select[aria-label="Portfolio"]')).toBeNull();
-    });
-
-    it('when there are two portfolios, the selector renders two options', () => {
-      comp.isLoading.set(false);
-      comp.portfolios.set([
-        makePortfolioDto({ id: 'a', name: 'Alpha' }),
-        makePortfolioDto({ id: 'b', name: 'Beta' }),
-      ]);
-      fixture.detectChanges();
-      const select = el.querySelector<HTMLSelectElement>('select[aria-label="Portfolio"]');
-      expect(select?.options.length).toBe(2);
     });
   });
 

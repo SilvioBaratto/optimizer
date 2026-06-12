@@ -85,6 +85,10 @@ describe('BacktestingComponent — ticker seeding (issue #951)', () => {
   });
 
   afterEach(() => {
+    // Drain the PortfolioContextService auto-select bootstrap (GET /portfolio/)
+    // that fires when no portfolio id is stored, so verify() only asserts on the
+    // requests each test explicitly exercises.
+    http.match((r) => r.method === 'GET' && r.url.endsWith('/portfolio/'));
     http.verify();
     localStorage.clear();
   });

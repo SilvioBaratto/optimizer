@@ -4,7 +4,7 @@ import {
   HttpTestingController,
   provideHttpClientTesting,
 } from '@angular/common/http/testing';
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, signal } from '@angular/core';
 
 import { ContextBarComponent } from './context-bar';
 import { PortfolioContextService } from '../../../core/services/portfolio-context.service';
@@ -25,8 +25,8 @@ describe('ContextBarComponent', () => {
         provideHttpClientTesting(),
       ],
     });
-    ctx = TestBed.inject(PortfolioContextService);
     http = TestBed.inject(HttpTestingController);
+    ctx = TestBed.inject(PortfolioContextService);
   });
 
   afterEach(() => http.verify());

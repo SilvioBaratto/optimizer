@@ -316,6 +316,23 @@ describe('DashboardComponent — rolling-metrics wiring (issue #453)', () => {
     );
     expect(second.length).toBeGreaterThanOrEqual(1);
     for (const r of second) r.flush(rollingBody());
+    // The portfolio change also re-drives the core analytics; drain them.
+    drainExcept('/rolling-metrics');
+  });
+
+  it('refetches the core analytics when the active portfolio changes', () => {
+    flushAllRollingMetrics('/rolling-metrics', rollingBody());
+    drainExcept('/rolling-metrics');
+
+    ctx.currentPortfolioId.set('beta');
+    fixture.detectChanges();
+
+    const perf = http.match(
+      (r) => r.url === `${API}portfolio-analytics/beta/performance-metrics`,
+    );
+    expect(perf.length).toBeGreaterThanOrEqual(1);
+    // Drain all pending requests (perf, equity, allocation, asset-class, rolling).
+    for (const r of http.match(() => true)) r.flush(stubBody(r.request.url));
   });
 
   it('refetches rolling metrics when the PortfolioContextService.dateRange() preset changes', () => {

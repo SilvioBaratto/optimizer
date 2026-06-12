@@ -13,15 +13,26 @@ import {
 import { ICON_PROVIDER } from '../icons';
 import { AttributionComponent } from './attribution';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
+import { PortfolioApiService } from '../core/services/portfolio-api.service';
 import { AttributionService } from './attribution.service';
-import { environment } from '../../environments/environment';
 
 import type { BrinsonSectorRowDto } from './attribution.model';
-
-const API = environment.apiUrl;
+import type { SnapshotDto } from '../core/models/portfolio-api.model';
 
 const PORTFOLIO_NAME = 'Test Portfolio';
 const PORTFOLIO_ID = 'pf-1';
+
+// Weights the mocked latest snapshot resolves to — sum to 1 so the run-form is valid.
+const SNAPSHOT_WEIGHTS: Record<string, number> = { AAPL: 0.6, MSFT: 0.4 };
+
+function makePortfolioApiMock(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  snapshotReturn: any = of({ weights: SNAPSHOT_WEIGHTS } as unknown as SnapshotDto),
+) {
+  return {
+    getLatestSnapshot: jasmine.createSpy('getLatestSnapshot').and.returnValue(snapshotReturn),
+  };
+}
 
 function makePortfolioCtxMock(
   id: string | null = PORTFOLIO_ID,
@@ -93,11 +104,13 @@ describe('AttributionComponent', () => {
   let comp: AttributionComponent;
   let portfolioCtxMock: ReturnType<typeof makePortfolioCtxMock>;
   let attrSvcMock: ReturnType<typeof makeAttrSvcMock>;
+  let portfolioApiMock: ReturnType<typeof makePortfolioApiMock>;
 
   beforeEach(async () => {
     installResizeObserverStub();
     portfolioCtxMock = makePortfolioCtxMock();
     attrSvcMock = makeAttrSvcMock();
+    portfolioApiMock = makePortfolioApiMock();
 
     await TestBed.configureTestingModule({
       imports: [AttributionComponent],
@@ -109,6 +122,7 @@ describe('AttributionComponent', () => {
         ICON_PROVIDER,
         { provide: PortfolioContextService, useValue: portfolioCtxMock },
         { provide: AttributionService, useValue: attrSvcMock },
+        { provide: PortfolioApiService, useValue: portfolioApiMock },
       ],
     }).compileComponents();
 
@@ -123,19 +137,18 @@ describe('AttributionComponent', () => {
     http.verify();
   });
 
-  it('on init, attribution API is called with the portfolio name', () => {
-    expect(attrSvcMock.getBrinsonAttribution).toHaveBeenCalledWith(
-      PORTFOLIO_NAME,
-      jasmine.any(String),
-      jasmine.any(String),
-    );
+  it('on init, the latest snapshot is fetched with the portfolio name', () => {
+    expect(portfolioApiMock.getLatestSnapshot).toHaveBeenCalledWith(PORTFOLIO_NAME);
   });
 
-  it('on init, attribution API is NOT called with the raw UUID', () => {
-    const calls = attrSvcMock.getBrinsonAttribution.calls.allArgs();
-    for (const args of calls) {
+  it('on init, the snapshot is NOT fetched with the raw UUID', () => {
+    for (const args of portfolioApiMock.getLatestSnapshot.calls.allArgs()) {
       expect(args[0]).not.toBe(PORTFOLIO_ID);
     }
+  });
+
+  it('when a snapshot loads, portfolioWeights is populated from snapshot.weights', () => {
+    expect(comp.portfolioWeights()).toEqual(SNAPSHOT_WEIGHTS);
   });
 
   it('when attribution API returns data, brinsonResponse is populated', () => {
@@ -146,34 +159,40 @@ describe('AttributionComponent', () => {
     expect(comp.factorResponse()).not.toBeNull();
   });
 
-  it('when portfolio context changes, attribution API is called again', () => {
-    attrSvcMock.getBrinsonAttribution.calls.reset();
+  it('when portfolio context changes, the snapshot is fetched again', () => {
+    portfolioApiMock.getLatestSnapshot.calls.reset();
     portfolioCtxMock._nameSig.set('European Bonds');
     fixture.detectChanges();
 
-    expect(attrSvcMock.getBrinsonAttribution.calls.count()).toBeGreaterThan(0);
+    expect(portfolioApiMock.getLatestSnapshot.calls.count()).toBeGreaterThan(0);
   });
 
-  it('when portfolio is cleared, attribution API is not called', () => {
-    attrSvcMock.getBrinsonAttribution.calls.reset();
-    attrSvcMock.getFactorAttribution.calls.reset();
+  it('when portfolio context changes, the snapshot is fetched with the new name', () => {
+    portfolioApiMock.getLatestSnapshot.calls.reset();
+    portfolioCtxMock._nameSig.set('European Bonds');
+    fixture.detectChanges();
+
+    expect(portfolioApiMock.getLatestSnapshot).toHaveBeenCalledWith('European Bonds');
+  });
+
+  it('when portfolio is cleared, the snapshot is not fetched', () => {
+    portfolioApiMock.getLatestSnapshot.calls.reset();
     portfolioCtxMock._nameSig.set(null);
     portfolioCtxMock._idSig.set(null);
     fixture.detectChanges();
 
-    expect(attrSvcMock.getBrinsonAttribution.calls.count()).toBe(0);
-    expect(attrSvcMock.getFactorAttribution.calls.count()).toBe(0);
+    expect(portfolioApiMock.getLatestSnapshot.calls.count()).toBe(0);
   });
 
-  it('retry clears the error and refetches', () => {
+  it('retry clears the error and refetches the snapshot', () => {
     comp.hasError.set(true);
     comp.errorMessage.set('some error');
-    attrSvcMock.getBrinsonAttribution.calls.reset();
+    portfolioApiMock.getLatestSnapshot.calls.reset();
 
     comp.retry();
 
     expect(comp.hasError()).toBe(false);
-    expect(attrSvcMock.getBrinsonAttribution.calls.count()).toBeGreaterThan(0);
+    expect(portfolioApiMock.getLatestSnapshot.calls.count()).toBeGreaterThan(0);
   });
 
   it('when weights sum to one, the form is valid; an empty portfolio invalidates it', () => {
@@ -262,11 +281,6 @@ describe('AttributionComponent', () => {
   it('openReportModal does not throw', () => {
     expect(() => comp.openReportModal()).not.toThrow();
   });
-
-  it('onPortfolioSelect updates the selectedPortfolio signal', () => {
-    comp.onPortfolioSelect('Other Portfolio');
-    expect(comp.selectedPortfolio()).toBe('Other Portfolio');
-  });
 });
 
 describe('AttributionComponent — error state', () => {
@@ -275,8 +289,9 @@ describe('AttributionComponent — error state', () => {
   beforeEach(async () => {
     installResizeObserverStub();
     const errorCtx = makePortfolioCtxMock();
-    const errorSvc = makeAttrSvcMock(
-      throwError(() => new Error('500 Internal Server Error')),
+    const errorSvc = makeAttrSvcMock();
+    // The snapshot fetch is the primary call; a 500 here drives the error state.
+    const errorApi = makePortfolioApiMock(
       throwError(() => new Error('500 Internal Server Error')),
     );
 
@@ -290,6 +305,7 @@ describe('AttributionComponent — error state', () => {
         ICON_PROVIDER,
         { provide: PortfolioContextService, useValue: errorCtx },
         { provide: AttributionService, useValue: errorSvc },
+        { provide: PortfolioApiService, useValue: errorApi },
       ],
     }).compileComponents();
 
@@ -297,7 +313,7 @@ describe('AttributionComponent — error state', () => {
     fixture.detectChanges();
   });
 
-  it('when attribution API errors, hasError is set to true', () => {
+  it('when the snapshot fetch errors, hasError is set to true', () => {
     expect(fixture.componentInstance.hasError()).toBe(true);
   });
 });

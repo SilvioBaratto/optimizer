@@ -1,16 +1,6 @@
 <div class="flex-1 overflow-y-auto p-6">
   <app-page-header title="Attribution" subtitle="Brinson-Fachler and factor attribution">
     <div actions class="flex items-center gap-2">
-      @if (portfolios().length > 0) {
-        <select [ngModel]="selectedPortfolio()"
-          (ngModelChange)="onPortfolioSelect($event)"
-          aria-label="Portfolio"
-          class="px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent">
-          @for (p of portfolios(); track p.id) {
-            <option [value]="p.name">{{ p.name }}</option>
-          }
-        </select>
-      }
       <button type="button" (click)="openReportModal()"
         class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
         <i-lucide name="download" />
@@ -55,7 +45,7 @@
       </div>
       <p class="text-xs text-text-tertiary">
         Portfolio weights are taken from the latest snapshot of the selected portfolio
-        ({{ selectedPortfolio() || 'none' }}).
+        ({{ portfolioName() || 'none' }}).
       </p>
       <div class="flex justify-end gap-2">
         <button type="button" (click)="runFactor()"

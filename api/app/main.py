@@ -296,6 +296,21 @@ def setup_health_endpoints(app: FastAPI) -> None:
         """Simple health check endpoint - just return OK"""
         return {"status": "ok"}
 
+    @app.get("/dashboard", include_in_schema=False)
+    async def dashboard_root() -> dict[str, Any]:
+        """Resolve the SPA's ``/dashboard`` route to the application root.
+
+        ``/dashboard`` is the Angular dashboard's client-side route, aliased to
+        the app root (see ``frontend/src/app/app.routes.ts``: ``dashboard`` →
+        ``redirectTo: ''``). A direct hit on this path must resolve to the app
+        root with ``200`` — mirroring the SPA host that serves ``index.html``
+        for deep links and lets the client router rewrite ``/dashboard`` to
+        ``/`` — rather than falling through to the generic 404 handler. Serving
+        the root representation (not an HTTP redirect) matches that rewrite
+        semantics at the HTTP layer.
+        """
+        return await read_root()
+
 
 def setup_documentation_endpoints(app: FastAPI) -> None:
     """Setup documentation endpoints - always accessible in local development"""

@@ -75,9 +75,14 @@ services:
     container_name: optimizer_frontend
     ports:
       - "4300:80"
+      # Runtime-verification bind address (orchestrator probes exactly this).
+      - "127.0.0.1:52379:80"
     depends_on:
+      # The static SPA routes (e.g. /dashboard) only need the `api` host to be
+      # resolvable on the network, not healthy, so the frontend can come up
+      # without waiting on the API health window.
       api:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]

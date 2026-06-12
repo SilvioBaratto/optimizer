@@ -1,6 +1,6 @@
 import { Injectable, signal, computed, effect, inject } from '@angular/core';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
-import { catchError, distinctUntilChanged, filter, map, of, switchMap } from 'rxjs';
+import { catchError, distinctUntilChanged, filter, map, of, switchMap, take } from 'rxjs';
 
 import { PortfolioApiService } from './portfolio-api.service';
 import type { PortfolioDto } from '../models/portfolio-api.model';
@@ -61,6 +61,29 @@ export class PortfolioContextService {
         }
       } catch {
         /* ignore */
+      }
+    });
+
+    // Auto-select first portfolio on fresh session (no stored id).
+    if (this.currentPortfolioId() === null) {
+      this.portfolioApi.list().pipe(
+        take(1),
+        catchError(() => of(null)),
+      ).subscribe((result) => {
+        if (result?.items?.length && this.currentPortfolioId() === null) {
+          this.currentPortfolioId.set(result.items[0].id);
+        }
+      });
+    }
+
+    // Heal stale/invalid stored id (e.g. old code stored name instead of UUID).
+    effect(() => {
+      const id = this.currentPortfolioId();
+      const list = this.portfolioList();
+      if (!id || !list) return;
+      const valid = list.items?.some((p) => p.id === id);
+      if (!valid && list.items?.length) {
+        this.currentPortfolioId.set(list.items[0].id);
       }
     });
   }

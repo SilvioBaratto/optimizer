@@ -20,6 +20,7 @@ import { StatCardComponent } from '../shared/stat-card/stat-card';
 import { PageErrorBannerComponent } from '../shared/components/page-error-banner/page-error-banner';
 import { FormatService } from '../core/services/format.service';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
+import { PortfolioApiService } from '../core/services/portfolio-api.service';
 import { AttributionService } from './attribution.service';
 
 import { BrinsonPanelComponent } from './brinson-panel/brinson-panel';
@@ -31,7 +32,6 @@ import type {
   BrinsonApiResponse,
   FactorAttributionApiResponse,
 } from './attribution.model';
-import type { PortfolioDto } from '../core/models/portfolio-api.model';
 
 @Component({
   selector: 'app-attribution',
@@ -55,6 +55,7 @@ export class AttributionComponent {
   private readonly modalService = inject(ModalService);
   private readonly attribution = inject(AttributionService);
   private readonly portfolioCtx = inject(PortfolioContextService);
+  private readonly portfolioApi = inject(PortfolioApiService);
   private readonly destroyRef = inject(DestroyRef);
 
   // ── Portfolio context ─────────────────────────────────────────────────────
@@ -70,10 +71,7 @@ export class AttributionComponent {
   // ── Tab navigation ────────────────────────────────────────────────────────
   readonly activeTab = signal<string>('brinson');
 
-  // ── Legacy manual-entry signals (kept for render-coverage spec) ───────────
-  /** Kept for backward compat with render-coverage spec and manual form flow. */
-  readonly portfolios = signal<PortfolioDto[]>([]);
-  readonly selectedPortfolio = signal<string>('');
+  // ── Manual-entry signals (benchmark + date range for the run-attribution form)
   readonly benchmarkWeightsRaw = signal<string>('SPY:1.0');
   readonly startDate = signal<string>(this.defaultStart());
   readonly endDate = signal<string>(this.todayIso());
@@ -173,10 +171,6 @@ export class AttributionComponent {
     });
   }
 
-  onPortfolioSelect(name: string): void {
-    this.selectedPortfolio.set(name);
-  }
-
   runBrinson(): void {
     if (!this.isFormValid()) return;
     this.brinsonLoading.set(true);
@@ -225,25 +219,46 @@ export class AttributionComponent {
     this.hasError.set(false);
     this.errorMessage.set('');
 
-    this.attribution
-      .getBrinsonAttribution(portfolioName, this.startDate(), this.endDate())
+    const portfolio = this.portfolioCtx.selectedPortfolio();
+    const benchmarkTicker = portfolio?.benchmark_ticker ?? 'SPY';
+    const benchmarkWeights: Record<string, number> = { [benchmarkTicker]: 1.0 };
+    const startDate = this.startDate();
+    const endDate = this.endDate();
+
+    this.portfolioApi
+      .getLatestSnapshot(portfolioName)
       .pipe(
+        takeUntilDestroyed(this.destroyRef),
         catchError((err: Error) => {
           this.hasError.set(true);
-          this.errorMessage.set(err?.message ?? 'Failed to load attribution data');
+          this.errorMessage.set(err?.message ?? 'Failed to load portfolio snapshot');
           return EMPTY;
         }),
-        takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe((res) => this.brinsonResponse.set(res));
+      .subscribe((snapshot) => {
+        const weights = snapshot.weights;
+        this.portfolioWeights.set(weights);
 
-    this.attribution
-      .getFactorAttribution(portfolioName, this.startDate(), this.endDate())
-      .pipe(
-        catchError(() => EMPTY),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((res) => this.factorResponse.set(res));
+        this.attribution
+          .brinson({ portfolio_weights: weights, benchmark_weights: benchmarkWeights, start_date: startDate, end_date: endDate })
+          .pipe(
+            catchError((err: Error) => {
+              this.hasError.set(true);
+              this.errorMessage.set(err?.message ?? 'Failed to load attribution data');
+              return EMPTY;
+            }),
+            takeUntilDestroyed(this.destroyRef),
+          )
+          .subscribe((res) => this.brinsonResponse.set(res));
+
+        this.attribution
+          .factor({ portfolio_weights: weights, start_date: startDate, end_date: endDate })
+          .pipe(
+            catchError(() => EMPTY),
+            takeUntilDestroyed(this.destroyRef),
+          )
+          .subscribe((res) => this.factorResponse.set(res));
+      });
   }
 
   // ── Private panel handlers ────────────────────────────────────────────────

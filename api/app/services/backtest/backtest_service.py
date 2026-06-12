@@ -37,15 +37,18 @@ _ROLLING_WINDOW = 63  # ~1 quarter
 # ---------------------------------------------------------------------------
 
 
-def validate_prices(prices: pd.DataFrame, tickers: list[str]) -> None:
-    """Raise ValueError with a descriptive message when price data is unusable.
+def validate_prices(prices: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
+    """Validate price data and drop any tickers with missing data.
 
     Args:
         prices: Price DataFrame (dates × tickers).
         tickers: Requested tickers.
 
+    Returns:
+        DataFrame with absent tickers dropped (columns limited to those present).
+
     Raises:
-        ValueError: When ``prices`` is empty or all requested tickers are absent.
+        ValueError: When ``prices`` is empty or ALL requested tickers are absent.
     """
     if prices.empty:
         missing = ", ".join(tickers)
@@ -56,10 +59,20 @@ def validate_prices(prices: pd.DataFrame, tickers: list[str]) -> None:
 
     absent = [t for t in tickers if t not in prices.columns]
     if absent:
-        raise ValueError(
-            f"Price data missing for tickers: {', '.join(absent)}. "
-            "Run yfinance fetch first."
+        if len(absent) == len(tickers):
+            raise ValueError(
+                f"Price data missing for all tickers: {', '.join(absent)}. "
+                "Run yfinance fetch first."
+            )
+        logger.warning(
+            "Dropping %d ticker(s) with no price data: %s",
+            len(absent),
+            ", ".join(absent),
         )
+        keep = [t for t in tickers if t in prices.columns]
+        prices = prices[keep].copy()
+
+    return prices
 
 
 def _ensure_datetime_index(prices: pd.DataFrame) -> pd.DataFrame:
@@ -156,7 +169,7 @@ def run_and_persist(
     prices = fetch_close_prices(
         tickers, session, start_date=start_date, end_date=end_date
     )
-    validate_prices(prices, tickers)
+    prices = validate_prices(prices, tickers)
     prices = _ensure_datetime_index(prices)
 
     optimizer = build_optimizer(pipeline_config)

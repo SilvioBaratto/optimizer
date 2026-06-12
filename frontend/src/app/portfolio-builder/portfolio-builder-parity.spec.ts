@@ -148,6 +148,8 @@ describe('PortfolioBuilder parity — clean state on route re-entry', () => {
   let http: HttpTestingController;
 
   beforeEach(() => {
+    // Clear localStorage to isolate portfolio context from any prior state.
+    localStorage.clear();
     configure();
     http = TestBed.inject(HttpTestingController);
   });
@@ -159,6 +161,11 @@ describe('PortfolioBuilder parity — clean state on route re-entry', () => {
   it('when PortfolioBuilderComponent is destroyed and re-mounted, the new BuilderStore is a fresh instance with default signals', () => {
     const fixture1 = TestBed.createComponent(PortfolioBuilderComponent);
     fixture1.detectChanges();
+    // Mock the portfolio list fetch for the first component instance.
+    http
+      .expectOne(`${environment.apiUrl}portfolio/`)
+      .flush({ items: [{ id: 't212', name: 't212', currency: 'EUR' }] });
+
     const store1 = fixture1.componentInstance.store;
     store1.setSessionId('s-first');
     store1.setConfig(legacySubmit().config);
@@ -170,6 +177,11 @@ describe('PortfolioBuilder parity — clean state on route re-entry', () => {
 
     const fixture2 = TestBed.createComponent(PortfolioBuilderComponent);
     fixture2.detectChanges();
+    // Mock the portfolio list fetch for the second component instance.
+    http
+      .expectOne(`${environment.apiUrl}portfolio/`)
+      .flush({ items: [{ id: 't212', name: 't212', currency: 'EUR' }] });
+
     const store2 = fixture2.componentInstance.store;
 
     expect(store2).not.toBe(store1);

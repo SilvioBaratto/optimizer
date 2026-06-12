@@ -1,28 +1,22 @@
 /**
- * Source-blind contract tests for issue #960.
+ * Context-wiring contract tests for attribution (issues #960 / #972).
  *
- * T3 criteria pinned:
- *   (a) loads data on init — attribution API calls use the portfolio NAME, not the raw UUID
+ * Criteria pinned (retargeted to the real, snapshot-based architecture per
+ * requirements §5/§13 — the page resolves the portfolio NAME, fetches the
+ * latest snapshot for that name, and POSTs the snapshot weights to
+ * attribution.brinson/factor; the older GET /attribution/{brinson,factor}/{name}
+ * methods hit non-existent endpoints and are not used):
+ *   (a) loads data on init — the latest-snapshot fetch uses the portfolio NAME,
+ *       not the raw UUID
  *   (b) handles API error — a visible, non-blank error state is shown when the
- *       primary API call returns an error
- *   (c) reacts to portfolio context change — switching portfolio refetches with the
- *       new portfolio name
- *
- * Panels in scope: Brinson waterfall, factor attribution bars.
+ *       primary (snapshot) call returns an error
+ *   (c) reacts to portfolio context change — switching portfolio refetches the
+ *       snapshot with the new portfolio name
  *
  * NOT-VERIFIABLE criteria intentionally omitted:
  *   - 3-second SLA for chart rendering
  *   - visual rendering of individual sub-charts
  *   - console.error suppression
- *   - navigation pre-fill of tickers
- *
- * Assumptions recorded (source-blind guesses correctable without changing test intent):
- *   - Component class: AttributionComponent in ./attribution
- *   - Primary service: AttributionService injected by the component
- *   - Load methods: getBrinsonAttribution and/or getFactorAttribution (or a single
- *     loadAttributionData bundle); mock covers both because all spies share the same
- *     portfolio-name assertion
- *   - Error state uses <app-page-error-banner> or any element with role="alert"
  */
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -31,27 +25,28 @@ import { of, throwError } from 'rxjs';
 
 import { AttributionComponent } from './attribution';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
+import { PortfolioApiService } from '../core/services/portfolio-api.service';
 import { AttributionService } from './attribution.service';
 import { ICON_PROVIDER } from '../icons';
+
+import type { SnapshotDto } from '../core/models/portfolio-api.model';
 
 // ─── Test constants ──────────────────────────────────────────────────────────
 
 const PORTFOLIO_ID   = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
 const PORTFOLIO_NAME = 'Global Equity Fund';
+const SNAPSHOT_WEIGHTS: Record<string, number> = { AAPL: 0.5, MSFT: 0.5 };
 
-// Minimal stub responses shaped after the panel names in the acceptance criteria.
 const BRINSON_RESPONSE = {
-  periods: [],
-  summary: { allocationEffect: 0.012, selectionEffect: -0.004, totalEffect: 0.008 },
+  totalActiveReturn: 0.008,
+  totalAllocation: 0.012,
+  totalSelection: -0.004,
+  sectors: [],
 };
 
 const FACTOR_RESPONSE = {
-  factors: [
-    { name: 'Momentum', contribution: 0.006 },
-    { name: 'Value',    contribution: -0.002 },
-    { name: 'Quality',  contribution: 0.004 },
-  ],
-  totalFactorReturn: 0.008,
+  residual: 0.001,
+  factors: [],
 };
 
 // ─── Mock factories ───────────────────────────────────────────────────────────
@@ -65,7 +60,7 @@ function makePortfolioCtxMock(
   return {
     currentPortfolioId:   idSig,
     currentPortfolioName: computed(() => nameSig()),
-    selectedPortfolio:    computed(() => (id ? { id, name: name ?? '' } : null)),
+    selectedPortfolio:    computed(() => (id ? { id, name: name ?? '', benchmark_ticker: 'SPY' } : null)),
     dateRange: signal({
       preset: '1Y' as const,
       start: new Date('2024-01-01'),
@@ -90,111 +85,76 @@ function makePortfolioCtxMock(
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeAttrSvcMock(
-  brinsonReturn: any = of(BRINSON_RESPONSE),
-  factorReturn:  any = of(FACTOR_RESPONSE),
+function makeAttrSvcMock() {
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    brinson: jasmine.createSpy('brinson').and.returnValue(of(BRINSON_RESPONSE as any)),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    factor:  jasmine.createSpy('factor').and.returnValue(of(FACTOR_RESPONSE as any)),
+  };
+}
+
+function makePortfolioApiMock(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  snapshotReturn: any = of({ weights: SNAPSHOT_WEIGHTS } as unknown as SnapshotDto),
 ) {
   return {
-    getBrinsonAttribution:  jasmine.createSpy('getBrinsonAttribution').and.returnValue(brinsonReturn),
-    getFactorAttribution:   jasmine.createSpy('getFactorAttribution').and.returnValue(factorReturn),
-    // Bundled variant some implementations use instead of per-panel calls
-    loadAttributionData:    jasmine.createSpy('loadAttributionData').and.returnValue(of({
-      brinson: BRINSON_RESPONSE,
-      factor:  FACTOR_RESPONSE,
-    })),
-    getAttribution:         jasmine.createSpy('getAttribution').and.returnValue(of({
-      brinson: BRINSON_RESPONSE,
-      factor:  FACTOR_RESPONSE,
-    })),
+    getLatestSnapshot: jasmine.createSpy('getLatestSnapshot').and.returnValue(snapshotReturn),
   };
 }
 
 function attrProviders(
   ctx: ReturnType<typeof makePortfolioCtxMock>,
   svc: ReturnType<typeof makeAttrSvcMock>,
+  api: ReturnType<typeof makePortfolioApiMock>,
 ) {
   return [
     provideZonelessChangeDetection(),
     ICON_PROVIDER,
     { provide: PortfolioContextService, useValue: ctx },
     { provide: AttributionService,      useValue: svc },
+    { provide: PortfolioApiService,     useValue: api },
   ];
-}
-
-function allCallArgs(svc: ReturnType<typeof makeAttrSvcMock>): unknown[][] {
-  return [
-    ...svc.getBrinsonAttribution.calls.allArgs(),
-    ...svc.getFactorAttribution.calls.allArgs(),
-    ...svc.loadAttributionData.calls.allArgs(),
-    ...svc.getAttribution.calls.allArgs(),
-  ] as unknown[][];
 }
 
 // ─── Suite: happy-path name wiring ───────────────────────────────────────────
 
-describe('AttributionComponent — analytics use portfolio NAME, not UUID (issue #960)', () => {
-  let portfolioCtxMock: ReturnType<typeof makePortfolioCtxMock>;
-  let attrSvcMock: ReturnType<typeof makeAttrSvcMock>;
-  let fixture: ComponentFixture<AttributionComponent>;
+describe('AttributionComponent — snapshot fetch uses portfolio NAME, not UUID (issue #960)', () => {
+  let portfolioApiMock: ReturnType<typeof makePortfolioApiMock>;
 
   beforeEach(async () => {
-    portfolioCtxMock = makePortfolioCtxMock();
-    attrSvcMock      = makeAttrSvcMock();
-
     await TestBed.configureTestingModule({
       imports: [AttributionComponent],
       schemas: [NO_ERRORS_SCHEMA],
-      providers: attrProviders(portfolioCtxMock, attrSvcMock),
+      providers: attrProviders(makePortfolioCtxMock(), makeAttrSvcMock(), (portfolioApiMock = makePortfolioApiMock())),
     }).compileComponents();
 
-    fixture = TestBed.createComponent(AttributionComponent);
+    const fixture = TestBed.createComponent(AttributionComponent);
     fixture.detectChanges();
   });
 
-  // ── T3(a): loads data on init using the NAME ────────────────────────────
+  it('when portfolio context has a resolved name, the snapshot is fetched with the portfolio name', () => {
+    expect(portfolioApiMock.getLatestSnapshot).toHaveBeenCalledWith(PORTFOLIO_NAME);
+  });
 
-  it('when portfolio context has a resolved name, attribution API is not called with the raw UUID', () => {
-    const calls = allCallArgs(attrSvcMock);
-
-    expect(calls.length).toBeGreaterThan(0);
-
-    for (const args of calls) {
+  it('when portfolio context has a resolved name, the snapshot is not fetched with the raw UUID', () => {
+    expect(portfolioApiMock.getLatestSnapshot.calls.count()).toBeGreaterThan(0);
+    for (const args of portfolioApiMock.getLatestSnapshot.calls.allArgs()) {
       expect(args[0]).not.toBe(PORTFOLIO_ID);
     }
   });
-
-  it('when portfolio context has a resolved name, attribution API is called with the portfolio name', () => {
-    const calls = allCallArgs(attrSvcMock);
-
-    const calledWithName = calls.some((args) => args[0] === PORTFOLIO_NAME);
-    expect(calledWithName).toBeTrue();
-  });
-
 });
 
-// ─── Suite: null-safety — empty API responses must not throw ─────────────────
+// ─── Suite: null-safety — empty snapshot must not throw ──────────────────────
 
-describe('AttributionComponent — empty API responses do not throw (issue #960)', () => {
-  it('when attribution API returns empty collections, component renders without throwing', async () => {
-    const emptyCtx = makePortfolioCtxMock();
-    const emptySvc = makeAttrSvcMock(
-      of({ periods: [], summary: { allocationEffect: 0, selectionEffect: 0, totalEffect: 0 } }),
-      of({ factors: [], totalFactorReturn: 0 }),
-    );
-    emptySvc.loadAttributionData.and.returnValue(of({
-      brinson: { periods: [], summary: { allocationEffect: 0, selectionEffect: 0, totalEffect: 0 } },
-      factor:  { factors: [], totalFactorReturn: 0 },
-    }));
-    emptySvc.getAttribution.and.returnValue(of({
-      brinson: { periods: [], summary: { allocationEffect: 0, selectionEffect: 0, totalEffect: 0 } },
-      factor:  { factors: [], totalFactorReturn: 0 },
-    }));
+describe('AttributionComponent — empty snapshot does not throw (issue #960)', () => {
+  it('when the snapshot has empty weights, the component renders without throwing', async () => {
+    const emptyApi = makePortfolioApiMock(of({ weights: {} } as unknown as SnapshotDto));
 
     await TestBed.configureTestingModule({
       imports: [AttributionComponent],
       schemas: [NO_ERRORS_SCHEMA],
-      providers: attrProviders(emptyCtx, emptySvc),
+      providers: attrProviders(makePortfolioCtxMock(), makeAttrSvcMock(), emptyApi),
     }).compileComponents();
 
     const f = TestBed.createComponent(AttributionComponent);
@@ -204,35 +164,23 @@ describe('AttributionComponent — empty API responses do not throw (issue #960)
 
 // ─── Suite: API error → visible error state ───────────────────────────────────
 
-describe('AttributionComponent — error state when primary attribution API fails (issue #960)', () => {
+describe('AttributionComponent — error state when the snapshot fetch fails (issue #960)', () => {
   let fixture: ComponentFixture<AttributionComponent>;
 
   beforeEach(async () => {
-    const errorCtx = makePortfolioCtxMock();
-    const errorSvc = makeAttrSvcMock(
-      throwError(() => new Error('500 Internal Server Error')),
-      throwError(() => new Error('500 Internal Server Error')),
-    );
-    errorSvc.loadAttributionData.and.returnValue(
-      throwError(() => new Error('500 Internal Server Error')),
-    );
-    errorSvc.getAttribution.and.returnValue(
-      throwError(() => new Error('500 Internal Server Error')),
-    );
+    const errorApi = makePortfolioApiMock(throwError(() => new Error('500 Internal Server Error')));
 
     await TestBed.configureTestingModule({
       imports: [AttributionComponent],
       schemas: [NO_ERRORS_SCHEMA],
-      providers: attrProviders(errorCtx, errorSvc),
+      providers: attrProviders(makePortfolioCtxMock(), makeAttrSvcMock(), errorApi),
     }).compileComponents();
 
     fixture = TestBed.createComponent(AttributionComponent);
     fixture.detectChanges();
   });
 
-  // ── T3(b): visible non-blank error state ────────────────────────────────
-
-  it('when primary attribution API returns an error, a role="alert" element is present in the DOM', () => {
+  it('when the snapshot fetch returns an error, a role="alert" element is present in the DOM', () => {
     fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
 
@@ -244,7 +192,7 @@ describe('AttributionComponent — error state when primary attribution API fail
     expect(alertEl).not.toBeNull();
   });
 
-  it('when primary attribution API returns an error, the error region contains non-blank text', () => {
+  it('when the snapshot fetch returns an error, the error region contains non-blank text', () => {
     fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
 
@@ -263,7 +211,7 @@ describe('AttributionComponent — error state when primary attribution API fail
 
 describe('AttributionComponent — reacts to portfolio context change (issue #960)', () => {
   let portfolioCtxMock: ReturnType<typeof makePortfolioCtxMock>;
-  let attrSvcMock: ReturnType<typeof makeAttrSvcMock>;
+  let portfolioApiMock: ReturnType<typeof makePortfolioApiMock>;
   let fixture: ComponentFixture<AttributionComponent>;
 
   const SECOND_NAME = 'European Bonds';
@@ -271,53 +219,44 @@ describe('AttributionComponent — reacts to portfolio context change (issue #96
 
   beforeEach(async () => {
     portfolioCtxMock = makePortfolioCtxMock();
-    attrSvcMock      = makeAttrSvcMock();
+    portfolioApiMock = makePortfolioApiMock();
 
     await TestBed.configureTestingModule({
       imports: [AttributionComponent],
       schemas: [NO_ERRORS_SCHEMA],
-      providers: attrProviders(portfolioCtxMock, attrSvcMock),
+      providers: attrProviders(portfolioCtxMock, makeAttrSvcMock(), portfolioApiMock),
     }).compileComponents();
 
     fixture = TestBed.createComponent(AttributionComponent);
     fixture.detectChanges();
 
-    // Reset call counts so only post-switch calls are counted.
-    attrSvcMock.getBrinsonAttribution.calls.reset();
-    attrSvcMock.getFactorAttribution.calls.reset();
-    attrSvcMock.loadAttributionData.calls.reset();
-    attrSvcMock.getAttribution.calls.reset();
+    portfolioApiMock.getLatestSnapshot.calls.reset();
   });
 
-  // ── T3(c): reacts to portfolio context change ───────────────────────────
-
-  it('when portfolio name changes, attribution API is called again', () => {
+  it('when portfolio name changes, the snapshot is fetched again', () => {
     portfolioCtxMock._nameSig.set(SECOND_NAME);
     portfolioCtxMock._idSig.set(SECOND_ID);
     fixture.detectChanges();
 
-    const totalCalls = allCallArgs(attrSvcMock).length;
-    expect(totalCalls).toBeGreaterThan(0);
+    expect(portfolioApiMock.getLatestSnapshot.calls.count()).toBeGreaterThan(0);
   });
 
-  it('when portfolio name changes, the new API call uses the new name, not the old one', () => {
+  it('when portfolio name changes, the snapshot fetch uses the new name, not the old one', () => {
     portfolioCtxMock._nameSig.set(SECOND_NAME);
     portfolioCtxMock._idSig.set(SECOND_ID);
     fixture.detectChanges();
 
-    const calls = allCallArgs(attrSvcMock);
-    const calledWithNew = calls.some((args) => args[0] === SECOND_NAME);
-    expect(calledWithNew).toBeTrue();
+    expect(portfolioApiMock.getLatestSnapshot).toHaveBeenCalledWith(SECOND_NAME);
+    for (const args of portfolioApiMock.getLatestSnapshot.calls.allArgs()) {
+      expect(args[0]).not.toBe(PORTFOLIO_NAME);
+    }
   });
 
-  it('when portfolio is cleared, attribution API is not called with any portfolio identifier', () => {
+  it('when portfolio is cleared, the snapshot is not fetched again', () => {
     portfolioCtxMock._nameSig.set(null);
     portfolioCtxMock._idSig.set(null);
     fixture.detectChanges();
 
-    const calls = allCallArgs(attrSvcMock);
-    // Component should guard on null name/id and skip the fetch entirely.
-    const anyIdentifierCall = calls.some((args) => args[0] != null && args[0] !== '');
-    expect(anyIdentifierCall).toBeFalse();
+    expect(portfolioApiMock.getLatestSnapshot.calls.count()).toBe(0);
   });
 });

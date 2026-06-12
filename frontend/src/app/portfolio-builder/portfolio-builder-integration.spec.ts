@@ -77,6 +77,13 @@ function setup(): {
   const http = TestBed.inject(HttpTestingController);
   const fixture = TestBed.createComponent(PortfolioBuilderComponent);
   fixture.detectChanges();
+
+  // Mock the auto-fetch of portfolio list that happens in the service constructor
+  // when currentPortfolioId is null (fresh session in tests).
+  http
+    .expectOne(`${environment.apiUrl}portfolio/`)
+    .flush({ items: [{ id: 't212', name: 't212', currency: 'EUR' }] });
+
   return { fixture, http, tick };
 }
 
