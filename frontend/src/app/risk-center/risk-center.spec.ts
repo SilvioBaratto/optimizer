@@ -239,6 +239,89 @@ describe('RiskCenterComponent', () => {
       .flush({ detail: 'bad' }, { status: 500, statusText: 'Server Error' });
     expect(comp.panelErrors()['limits']).toBeTruthy();
   });
+
+  // ── AC2: every analytics panel records an error on BOTH a 4xx and a 5xx ──────
+  // Flush the target endpoint with the error status and every other endpoint with
+  // a success body, isolating the panel under test.
+  const ANALYTICS_PANELS = [
+    { key: 'var', frag: '/risk/var' },
+    { key: 'correlation', frag: '/risk/correlation' },
+    { key: 'factor', frag: '/risk/factor-exposure' },
+    { key: 'concentration', frag: '/risk/concentration' },
+    { key: 'liquidity', frag: '/risk/liquidity' },
+  ];
+
+  for (const status of [422, 500]) {
+    ANALYTICS_PANELS.forEach(({ key, frag }) => {
+      it(`when the ${key} endpoint returns ${status}, panelErrors['${key}'] is set`, () => {
+        fixture.detectChanges();
+        for (const req of http.match(() => true)) {
+          if (req.request.url.includes(frag)) {
+            req.flush({ detail: 'err' }, { status, statusText: 'Error' });
+          } else {
+            req.flush(stubFor(req.request.url));
+          }
+        }
+        fixture.detectChanges();
+        expect(comp.panelErrors()[key]).toBeTruthy();
+      });
+    });
+  }
+
+  for (const status of [422, 500]) {
+    it(`when stress generation returns ${status}, panelErrors['stress'] is set`, () => {
+      settle();
+      comp.onGenerateStress({ macroContext: 'recession', nScenarios: 2 });
+      http
+        .expectOne((r) => r.url.includes('risk/stress-scenarios'))
+        .flush({ detail: 'err' }, { status, statusText: 'Error' });
+      expect(comp.panelErrors()['stress']).toBeTruthy();
+    });
+  }
+
+  for (const status of [404, 500]) {
+    it(`when limits listing returns ${status}, panelErrors['limits'] is set`, () => {
+      fixture.detectChanges();
+      for (const req of http.match(() => true)) {
+        if (req.request.url.includes('/limits')) {
+          req.flush({ detail: 'err' }, { status, statusText: 'Error' });
+        } else {
+          req.flush(stubFor(req.request.url));
+        }
+      }
+      fixture.detectChanges();
+      expect(comp.panelErrors()['limits']).toBeTruthy();
+    });
+  }
+
+  // ── AC3: a successful stress POST surfaces scenario results ──────────────────
+  it('when stress generation succeeds, stressScenarios() reflects the returned scenarios', () => {
+    settle();
+    comp.onGenerateStress({ macroContext: 'recession', nScenarios: 1 });
+    http.expectOne((r) => r.url.includes('risk/stress-scenarios')).flush({
+      nScenarios: 1,
+      tickers: ['AAPL'],
+      scenarios: [{ name: 'Recession', description: 'severe', shocks: { AAPL: -0.1 } }],
+    });
+    expect(comp.stressScenarios().length).toBe(1);
+    expect(comp.stressScenarios()[0].name).toBe('Recession');
+  });
+
+  // ── AC4: create → reload round-trip surfaces the new limit in local state ────
+  it('when a limit is created, the new limit appears in limits() after the reload', () => {
+    settle();
+    comp.onCreateLimit({ metric: 'max_drawdown', limit_type: 'upper', threshold: 0.2 });
+    http.expectOne((r) => r.url.includes('/limits') && r.method === 'POST').flush({});
+    http.expectOne((r) => r.url.includes('/limits') && r.method === 'GET').flush({
+      items: [{
+        id: 'l9', portfolioId: 'p', metric: 'max_drawdown', limitType: 'upper',
+        threshold: 0.2, currentValue: 0.1, isBreached: false,
+        lastCheckedAt: null, createdAt: '', updatedAt: '',
+      }],
+      breachCount: 0,
+    });
+    expect(comp.limits().some((l) => l.id === 'l9')).toBe(true);
+  });
 });
 
 // The subscribe error callbacks are typed `(err: Error)`, and an

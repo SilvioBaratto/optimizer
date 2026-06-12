@@ -253,11 +253,12 @@ export class AttributionComponent {
 
         this.attribution
           .factor({ portfolio_weights: weights, start_date: startDate, end_date: endDate })
-          .pipe(
-            catchError(() => EMPTY),
-            takeUntilDestroyed(this.destroyRef),
-          )
-          .subscribe((res) => this.factorResponse.set(res));
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: (res) => this.onFactorSuccess(res),
+            error: (err: Error) =>
+              this.onFactorError(err.message ?? 'Failed to load factor attribution'),
+          });
       });
   }
 

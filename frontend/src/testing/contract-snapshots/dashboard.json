@@ -398,5 +398,65 @@
     ],
     "title": "PerformanceMetricsResponse",
     "type": "object"
+  },
+  "RollingMetricsResponse": {
+    "$defs": {
+      "RollingMetricPoint": {
+        "description": "Single dated observation for a rolling metric series.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "value"
+        ],
+        "title": "RollingMetricPoint",
+        "type": "object"
+      }
+    },
+    "description": "Response for GET /portfolio/{name}/rolling-metrics.",
+    "properties": {
+      "beta": {
+        "items": {
+          "$ref": "#/$defs/RollingMetricPoint"
+        },
+        "title": "Beta",
+        "type": "array"
+      },
+      "sharpe": {
+        "items": {
+          "$ref": "#/$defs/RollingMetricPoint"
+        },
+        "title": "Sharpe",
+        "type": "array"
+      },
+      "volatility": {
+        "items": {
+          "$ref": "#/$defs/RollingMetricPoint"
+        },
+        "title": "Volatility",
+        "type": "array"
+      },
+      "window": {
+        "title": "Window",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "window",
+      "sharpe",
+      "volatility",
+      "beta"
+    ],
+    "title": "RollingMetricsResponse",
+    "type": "object"
   }
 }

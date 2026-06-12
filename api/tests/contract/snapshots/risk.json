@@ -117,6 +117,36 @@
     "title": "CorrelationResponse",
     "type": "object"
   },
+  "FactorExposureResponse": {
+    "description": "Response for GET /portfolio/{name}/risk/factor-exposure.",
+    "properties": {
+      "assetExposures": {
+        "additionalProperties": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        "description": "Per-asset factor exposure breakdown",
+        "title": "Assetexposures",
+        "type": "object"
+      },
+      "exposures": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "description": "Portfolio-weighted exposure per factor type",
+        "title": "Exposures",
+        "type": "object"
+      }
+    },
+    "required": [
+      "exposures",
+      "assetExposures"
+    ],
+    "title": "FactorExposureResponse",
+    "type": "object"
+  },
   "LiquidityResponse": {
     "$defs": {
       "LiquidityAsset": {

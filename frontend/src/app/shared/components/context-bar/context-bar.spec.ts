@@ -8,14 +8,19 @@ import { provideZonelessChangeDetection, signal } from '@angular/core';
 
 import { ContextBarComponent } from './context-bar';
 import { PortfolioContextService } from '../../../core/services/portfolio-context.service';
+import { PortfolioApiService } from '../../../core/services/portfolio-api.service';
 import { ICON_PROVIDER } from '../../../icons';
 import { environment } from '../../../../environments/environment';
+import { of } from 'rxjs';
 
 describe('ContextBarComponent', () => {
   let ctx: PortfolioContextService;
   let http: HttpTestingController;
 
   beforeEach(() => {
+    const portfolioApiSpy = jasmine.createSpyObj('PortfolioApiService', ['list', 'getLatestSnapshot']);
+    portfolioApiSpy.list.and.returnValue(of(null));
+
     TestBed.configureTestingModule({
       imports: [ContextBarComponent],
       providers: [
@@ -23,6 +28,7 @@ describe('ContextBarComponent', () => {
         ICON_PROVIDER,
         provideHttpClient(),
         provideHttpClientTesting(),
+        { provide: PortfolioApiService, useValue: portfolioApiSpy },
       ],
     });
     http = TestBed.inject(HttpTestingController);

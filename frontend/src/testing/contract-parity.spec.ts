@@ -22,6 +22,8 @@ import universeSnapshot from './contract-snapshots/universe.json';
 import viewsSnapshot from './contract-snapshots/views.json';
 import { assertParity, schemaOf, type JsonSchema } from './contract-parity';
 import {
+  makeAllocationResponse,
+  makeAssetClassReturnsResponse,
   makeBacktestAsyncResponse,
   makeBacktestProgressResponse,
   makeBacktestRunResponse,
@@ -32,8 +34,10 @@ import {
   makeDriftResponse,
   makeDriftResponseRich,
   makeEntropyPoolingResponse,
+  makeEquityCurveResponse,
   makeFactorAttributionResponse,
   makeFactorCompositeResponse,
+  makeFactorExposureResponse,
   makeFactorScoreDto,
   makeFactorSelectResponse,
   makeGenerateViewsResponse,
@@ -45,11 +49,14 @@ import {
   makeOpinionPoolResponse,
   makeOptimizationRunListResponse,
   makeOptimizationRunResponse,
+  makePerformanceMetricsResponse,
   makePortfolioDto,
   makePriceHistoryResponse,
   makeRebalanceDecideResponse,
   makeRebalancePreview,
   makeReportJobCreateResponse,
+  makeRiskLimitListResponse,
+  makeRollingMetricsResponse,
   makeSnapshotDto,
   makeStepPollResponse,
   makeStepRunWireResponse,
@@ -78,6 +85,35 @@ describe('contract-parity: dashboard', () => {
       makeMarketSnapshotResponse(),
     );
   });
+
+  it('when PerformanceMetricsResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(dashboardSnapshot, 'PerformanceMetricsResponse'),
+      makePerformanceMetricsResponse(),
+    );
+  });
+
+  it('when EquityCurveResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(schemaOf(dashboardSnapshot, 'EquityCurveResponse'), makeEquityCurveResponse());
+  });
+
+  it('when AllocationResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(schemaOf(dashboardSnapshot, 'AllocationResponse'), makeAllocationResponse());
+  });
+
+  it('when AssetClassReturnsResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(dashboardSnapshot, 'AssetClassReturnsResponse'),
+      makeAssetClassReturnsResponse(),
+    );
+  });
+
+  it('when RollingMetricsResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(dashboardSnapshot, 'RollingMetricsResponse'),
+      makeRollingMetricsResponse(),
+    );
+  });
 });
 
 describe('contract-parity: risk', () => {
@@ -95,6 +131,20 @@ describe('contract-parity: risk', () => {
 
   it('when LiquidityAsset is checked, fixture keys equal the wire properties', () => {
     expectParity(schemaOf(riskSnapshot, 'LiquidityAsset'), makeLiquidityMetrics()[0]);
+  });
+
+  it('when FactorExposureResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(riskSnapshot, 'FactorExposureResponse'),
+      makeFactorExposureResponse(),
+    );
+  });
+
+  it('when RiskLimitListResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(riskSnapshot, 'RiskLimitListResponse'),
+      makeRiskLimitListResponse(),
+    );
   });
 });
 

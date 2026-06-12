@@ -8,7 +8,7 @@
  * requests stay pending unflushed — harmless without http.verify()).
  */
 
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, Type } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
@@ -19,7 +19,9 @@ import { DashboardComponent } from './dashboard';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
 import type { DashboardKPI } from './dashboard.model';
 import type { ReferenceIndexItem } from '../core/models/dashboard-api.model';
-import type { SunburstNode } from '../shared/echarts-sunburst/echarts-sunburst';
+import { EchartsSunburstComponent, type SunburstNode } from '../shared/echarts-sunburst/echarts-sunburst';
+import { EchartsDrawdownComponent } from '../shared/echarts-drawdown/echarts-drawdown';
+import { EchartsRollingMetricsComponent } from '../shared/echarts-rolling-metrics/echarts-rolling-metrics';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -432,5 +434,42 @@ describe('DashboardComponent — render-coverage (issue #909)', () => {
       comp.dailyChange.set(-0.012);
       expect(comp.subtitle()).not.toContain('+');
     });
+  });
+});
+
+// ── Chart components: empty-state safety (issue #981) ─────────────────────────
+// The dashboard feeds the allocation sunburst, drawdown, and rolling-metrics
+// charts data that is null/empty before the first load. Each chart must render
+// its empty state without throwing.
+
+describe('dashboard charts — empty-state safety (issue #981)', () => {
+  beforeEach(() => installResizeObserverStub());
+
+  async function mount<T>(type: Type<T>): Promise<ComponentFixture<T>> {
+    await TestBed.configureTestingModule({
+      imports: [type],
+      providers: [provideZonelessChangeDetection()],
+    }).compileComponents();
+    return TestBed.createComponent(type);
+  }
+
+  it('when the allocation sunburst receives empty data, it renders without throwing', async () => {
+    const f = await mount(EchartsSunburstComponent);
+    f.componentRef.setInput('data', []);
+    expect(() => f.detectChanges()).not.toThrow();
+  });
+
+  it('when the drawdown chart receives empty data, it renders without throwing', async () => {
+    const f = await mount(EchartsDrawdownComponent);
+    f.componentRef.setInput('data', []);
+    expect(() => f.detectChanges()).not.toThrow();
+  });
+
+  it('when the rolling-metrics chart receives empty series, it renders the empty state without throwing', async () => {
+    const f = await mount(EchartsRollingMetricsComponent);
+    f.componentRef.setInput('series', []);
+    expect(() => f.detectChanges()).not.toThrow();
+    const empty = (f.nativeElement as HTMLElement).querySelector('[data-testid="empty"]');
+    expect(empty).not.toBeNull();
   });
 });

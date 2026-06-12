@@ -200,6 +200,13 @@ describe('RiskCenterComponent — analytics use portfolio NAME, not UUID (issue 
     expect(calledWithName).toBeTrue();
   });
 
+  it('when portfolio context has a resolved name, listLimits is called with the portfolio name', () => {
+    // The limits endpoint is the 6th risk endpoint; it must be scoped to the
+    // context name like the five analytics endpoints. (Stress, the 7th, is
+    // user-triggered and scopes via its request body, not a name in the path.)
+    expect(riskSvcMock.listLimits).toHaveBeenCalledWith(PORTFOLIO_NAME);
+  });
+
 });
 
 // ─── Suite: null-safety — empty API responses must not throw ─────────────────

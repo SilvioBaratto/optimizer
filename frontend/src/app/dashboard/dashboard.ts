@@ -44,7 +44,7 @@ import type {
   ApiRollingMetricsResponse,
   ReferenceIndexItem,
 } from '../core/models/dashboard-api.model';
-import type { ApiReportSectionId } from '../core/models/report.model';
+import type { ApiReportSectionId, ReportGenerateRequest } from '../core/models/report.model';
 import { ModalService } from '../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../shared/modal/export-report-modal';
 import { PeriodSelectorComponent, type DashboardPeriod } from './period-selector/period-selector';
@@ -297,14 +297,8 @@ export class DashboardComponent implements OnDestroy {
     this.reportError.set(null);
     this.reportDownloadUrl.set(null);
     this.reportLoading.set(true);
-    const sections: ApiReportSectionId[] = [
-      'portfolio_summary',
-      'weights',
-      'performance_metrics',
-      'risk_analytics',
-    ];
     this.reportsSvc
-      .generate({ template: 'standard', sections, format: 'pdf', orientation: 'portrait' })
+      .generate(this.buildReportRequest())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
@@ -313,6 +307,25 @@ export class DashboardComponent implements OnDestroy {
         },
         error: (err: Error) => this.onReportError(err.message ?? 'Report generation failed'),
       });
+  }
+
+  // Carries the selected portfolio's UUID so the backend scopes the report to it.
+  // `?? undefined` drops the key from the JSON body when nothing is selected
+  // (no `null` is sent), keeping the request valid for the portfolio-less case.
+  private buildReportRequest(): ReportGenerateRequest {
+    const sections: ApiReportSectionId[] = [
+      'portfolio_summary',
+      'weights',
+      'performance_metrics',
+      'risk_analytics',
+    ];
+    return {
+      template: 'standard',
+      sections,
+      format: 'pdf',
+      orientation: 'portrait',
+      portfolio_id: this.portfolioCtx.currentPortfolioId() ?? undefined,
+    };
   }
 
   onReportJobCompleted(): void {

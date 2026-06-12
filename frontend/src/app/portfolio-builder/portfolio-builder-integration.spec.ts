@@ -5,11 +5,12 @@ import {
 } from '@angular/common/http/testing';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
-import { Subject } from 'rxjs';
+import { Subject, of } from 'rxjs';
 
 import { PortfolioBuilderComponent } from './portfolio-builder';
 import { BuilderStore } from './state/builder.store';
 import { JOB_POLL_TICK } from '../shared/job-progress-tracker/job-progress-tracker';
+import { PortfolioApiService } from '../core/services/portfolio-api.service';
 import { environment } from '../../environments/environment';
 import {
   type PipelineConfigSubmit,
@@ -63,6 +64,9 @@ function setup(): {
   tick: Subject<number>;
 } {
   const tick = new Subject<number>();
+  const portfolioApiSpy = jasmine.createSpyObj('PortfolioApiService', ['list', 'getLatestSnapshot']);
+  portfolioApiSpy.list.and.returnValue(of(null));
+
   // Isolate from any leaked portfolio id: the root PortfolioContextService reads
   // localStorage at construction and would otherwise fire an unmocked GET /portfolio/.
   localStorage.clear();
@@ -72,17 +76,12 @@ function setup(): {
       provideHttpClient(),
       provideHttpClientTesting(),
       { provide: JOB_POLL_TICK, useValue: tick.asObservable() },
+      { provide: PortfolioApiService, useValue: portfolioApiSpy },
     ],
   });
   const http = TestBed.inject(HttpTestingController);
   const fixture = TestBed.createComponent(PortfolioBuilderComponent);
   fixture.detectChanges();
-
-  // Mock the auto-fetch of portfolio list that happens in the service constructor
-  // when currentPortfolioId is null (fresh session in tests).
-  http
-    .expectOne(`${environment.apiUrl}portfolio/`)
-    .flush({ items: [{ id: 't212', name: 't212', currency: 'EUR' }] });
 
   return { fixture, http, tick };
 }

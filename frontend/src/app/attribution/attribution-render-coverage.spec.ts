@@ -54,10 +54,6 @@ function makeNullCtxMock() {
 
 function makeAttrSvcStub() {
   return {
-    getBrinsonAttribution: jasmine.createSpy('getBrinsonAttribution').and.returnValue(of(null)),
-    getFactorAttribution: jasmine.createSpy('getFactorAttribution').and.returnValue(of(null)),
-    loadAttributionData: jasmine.createSpy('loadAttributionData').and.returnValue(of({})),
-    getAttribution: jasmine.createSpy('getAttribution').and.returnValue(of({})),
     brinson: jasmine.createSpy('brinson').and.returnValue(of(makeBrinsonResponse())),
     factor: jasmine.createSpy('factor').and.returnValue(of(makeFactorAttributionResponse())),
   };
@@ -198,6 +194,14 @@ describe('AttributionComponent — render-coverage (issue #940)', () => {
       fixture.detectChanges();
       expect(el.textContent).toContain('Brinson: brinson failed');
       expect(el.textContent).toContain('Factor: factor failed');
+    });
+
+    // AC2/AC4: a factor() failure must show a visible indicator, not a silent blank.
+    it('when only factorError is set, the factor error indicator is visible (not blank)', () => {
+      comp.isLoading.set(false);
+      comp.factorError.set('Factor scores not available');
+      fixture.detectChanges();
+      expect(el.textContent).toContain('Factor: Factor scores not available');
     });
 
     it('when responses are null, KPI cards show em dashes', () => {

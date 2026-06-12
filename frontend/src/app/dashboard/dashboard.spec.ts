@@ -430,6 +430,25 @@ describe('DashboardComponent — method coverage (#941)', () => {
     expect(component.reportJobId()).toBe('rep-1');
   });
 
+  it('when a portfolio is selected, the generate body carries portfolio_id equal to the context UUID', () => {
+    // beforeEach sets currentPortfolioId('gamma') — the report must scope to it.
+    const spy = spyOn(reports, 'generate').and.returnValue(
+      of(makeReportJobCreateResponse({ job_id: 'rep-1' })),
+    );
+    component.onGenerateReport();
+    expect(spy).toHaveBeenCalledWith(jasmine.objectContaining({ portfolio_id: 'gamma' }));
+  });
+
+  it('when no portfolio is selected, the generate body omits portfolio_id and does not throw', () => {
+    TestBed.inject(PortfolioContextService).currentPortfolioId.set(null);
+    const spy = spyOn(reports, 'generate').and.returnValue(
+      of(makeReportJobCreateResponse({ job_id: 'rep-1' })),
+    );
+    expect(() => component.onGenerateReport()).not.toThrow();
+    const body = spy.calls.mostRecent().args[0];
+    expect(body.portfolio_id).toBeUndefined();
+  });
+
   it('onGenerateReport records the default error on a message-less failure', () => {
     spyOn(reports, 'generate').and.returnValue(throwError(() => ({})));
     component.onGenerateReport();

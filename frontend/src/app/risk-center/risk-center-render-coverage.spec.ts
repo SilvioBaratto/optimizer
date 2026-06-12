@@ -103,23 +103,20 @@ describe('RiskCenterComponent — render-coverage (issue #940)', () => {
     });
   });
 
-  describe('panel error banners', () => {
-    it('when a panel error is set for var, alert-banner is rendered in the var tab', () => {
-      comp.isLoading.set(false);
-      comp.activeTab.set('var');
-      comp.panelErrors.set({ var: 'VaR load failed' });
-      fixture.detectChanges();
-      const banner = el.querySelector('app-alert-banner');
-      expect(banner).not.toBeNull();
-    });
+  // AC2 (render side): every panel surfaces a visible alert-banner when its
+  // panelErrors key is set. Pairs with risk-center.spec.ts, which proves a 4xx
+  // and a 5xx each set that key.
+  describe('panel error banners — every panel surfaces a visible alert (issue #982)', () => {
+    const PANELS = ['var', 'correlation', 'factor', 'concentration', 'liquidity', 'stress', 'limits'];
 
-    it('when a panel error is set for limits, alert-banner is rendered in the limits tab', () => {
-      comp.isLoading.set(false);
-      comp.activeTab.set('limits');
-      comp.panelErrors.set({ limits: 'Limits load failed' });
-      fixture.detectChanges();
-      const banner = el.querySelector('app-alert-banner');
-      expect(banner).not.toBeNull();
+    PANELS.forEach((key) => {
+      it(`when a panel error is set for ${key}, an app-alert-banner renders in the ${key} tab`, () => {
+        comp.isLoading.set(false);
+        comp.activeTab.set(key);
+        comp.panelErrors.set({ [key]: `${key} load failed` });
+        fixture.detectChanges();
+        expect(el.querySelector('app-alert-banner')).not.toBeNull();
+      });
     });
   });
 

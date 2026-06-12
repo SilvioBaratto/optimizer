@@ -145,6 +145,35 @@ describe('AttributionComponent — snapshot fetch uses portfolio NAME, not UUID 
   });
 });
 
+// ─── Suite: POST bodies use the snapshot weights (issue #983) ────────────────
+
+describe('AttributionComponent — POST bodies use snapshot weights (issue #983)', () => {
+  let svcMock: ReturnType<typeof makeAttrSvcMock>;
+
+  beforeEach(async () => {
+    svcMock = makeAttrSvcMock();
+    await TestBed.configureTestingModule({
+      imports: [AttributionComponent],
+      schemas: [NO_ERRORS_SCHEMA],
+      providers: attrProviders(makePortfolioCtxMock(), svcMock, makePortfolioApiMock()),
+    }).compileComponents();
+
+    TestBed.createComponent(AttributionComponent).detectChanges();
+  });
+
+  it('when the snapshot loads, the brinson() POST body carries the snapshot weights', () => {
+    expect(svcMock.brinson).toHaveBeenCalledWith(
+      jasmine.objectContaining({ portfolio_weights: SNAPSHOT_WEIGHTS }),
+    );
+  });
+
+  it('when the snapshot loads, the factor() POST body carries the snapshot weights', () => {
+    expect(svcMock.factor).toHaveBeenCalledWith(
+      jasmine.objectContaining({ portfolio_weights: SNAPSHOT_WEIGHTS }),
+    );
+  });
+});
+
 // ─── Suite: null-safety — empty snapshot must not throw ──────────────────────
 
 describe('AttributionComponent — empty snapshot does not throw (issue #960)', () => {

@@ -68,6 +68,8 @@ function makePortfolioCtxMock(
   };
 }
 
+// The service exposes only the POST methods brinson()/factor(); the params feed
+// those spies so tests can inject success or error streams.
 function makeAttrSvcMock(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   brinsonReturn: any = of(makeBrinsonResponse()),
@@ -75,13 +77,8 @@ function makeAttrSvcMock(
   factorReturn: any = of(makeFactorAttributionResponse()),
 ) {
   return {
-    getBrinsonAttribution: jasmine.createSpy('getBrinsonAttribution').and.returnValue(brinsonReturn),
-    getFactorAttribution: jasmine.createSpy('getFactorAttribution').and.returnValue(factorReturn),
-    loadAttributionData: jasmine.createSpy('loadAttributionData').and.returnValue(of({})),
-    getAttribution: jasmine.createSpy('getAttribution').and.returnValue(of({})),
-    // Legacy POST methods used by runBrinson/runFactor
-    brinson: jasmine.createSpy('brinson').and.returnValue(of(makeBrinsonResponse())),
-    factor: jasmine.createSpy('factor').and.returnValue(of(makeFactorAttributionResponse())),
+    brinson: jasmine.createSpy('brinson').and.returnValue(brinsonReturn),
+    factor: jasmine.createSpy('factor').and.returnValue(factorReturn),
   };
 }
 
@@ -315,5 +312,38 @@ describe('AttributionComponent — error state', () => {
 
   it('when the snapshot fetch errors, hasError is set to true', () => {
     expect(fixture.componentInstance.hasError()).toBe(true);
+  });
+});
+
+// AC2: a factor() failure during the auto-load must surface a visible state
+// (factorError), not silently blank — the prior `catchError(() => EMPTY)` hid it.
+describe('AttributionComponent — factor auto-load surfaces a visible error (issue #983)', () => {
+  it('when the auto-loaded factor() call fails, factorError is set (not a silent blank)', async () => {
+    installResizeObserverStub();
+    const ctx = makePortfolioCtxMock();
+    const svc = makeAttrSvcMock(
+      of(makeBrinsonResponse()),
+      throwError(() => new Error('Factor scores not available')),
+    );
+    const api = makePortfolioApiMock();
+
+    await TestBed.configureTestingModule({
+      imports: [AttributionComponent],
+      schemas: [NO_ERRORS_SCHEMA],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        ICON_PROVIDER,
+        { provide: PortfolioContextService, useValue: ctx },
+        { provide: AttributionService, useValue: svc },
+        { provide: PortfolioApiService, useValue: api },
+      ],
+    }).compileComponents();
+
+    const fx = TestBed.createComponent(AttributionComponent);
+    fx.detectChanges();
+
+    expect(fx.componentInstance.factorError()).toBeTruthy();
   });
 });

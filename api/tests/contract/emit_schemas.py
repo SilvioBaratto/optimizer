@@ -43,6 +43,7 @@ from app.schemas.dashboard.dashboard import (
     EquityCurveResponse,
     MarketSnapshotResponse,
     PerformanceMetricsResponse,
+    RollingMetricsResponse,
 )
 from app.schemas.factors.factors import (
     FactorCompositeScoreResponse,
@@ -83,6 +84,7 @@ from app.schemas.risk.risk import RiskLimitListResponse
 from app.schemas.risk.risk_analytics import (
     ConcentrationResponse,
     CorrelationResponse,
+    FactorExposureResponse,
     LiquidityResponse,
     VarResponse,
 )
@@ -110,6 +112,7 @@ DOMAIN_SCHEMAS: dict[str, list[type[BaseModel]]] = {
         EquityCurveResponse,
         AllocationResponse,
         AssetClassReturnsResponse,
+        RollingMetricsResponse,
     ],
     "optimization": [OptimizationRunResponse, OptimizationRunListResponse],
     "backtest": [
@@ -122,6 +125,7 @@ DOMAIN_SCHEMAS: dict[str, list[type[BaseModel]]] = {
         CorrelationResponse,
         ConcentrationResponse,
         LiquidityResponse,
+        FactorExposureResponse,
         RiskLimitListResponse,
     ],
     "factors": [

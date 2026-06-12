@@ -812,6 +812,14 @@ export function makeRiskLimitListResponse() {
   return { items: [makeRiskLimitResponse()], breachCount: 0 };
 }
 
+// FactorExposureResponse — risk.json, camelCase (portfolio + per-asset exposures)
+export function makeFactorExposureResponse() {
+  return {
+    exposures: { momentum: 0.3, value: -0.1 },
+    assetExposures: { AAPL: { momentum: 0.4, value: -0.2 } },
+  };
+}
+
 // AllocationResponse — dashboard.json, camelCase
 export function makeAllocationResponse() {
   return {
@@ -845,6 +853,16 @@ export function makePerformanceMetricsResponse() {
     nav: 100_000,
     navChangePct: 0.12,
     currency: 'EUR',
+  };
+}
+
+// RollingMetricsResponse — dashboard.json, camelCase (RollingMetricPoint = {date, value})
+export function makeRollingMetricsResponse() {
+  return {
+    window: 63,
+    sharpe: [{ date: '2026-01-01', value: 1.2 }],
+    volatility: [{ date: '2026-01-01', value: 0.15 }],
+    beta: [{ date: '2026-01-01', value: 0.9 }],
   };
 }
 
