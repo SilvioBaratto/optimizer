@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection, signal, computed, NO_ERRORS_SCHEMA } from '@angular/core';
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { HttpTestingController } from '@angular/common/http/testing';
 import { of, throwError } from 'rxjs';
@@ -275,6 +275,52 @@ describe('AttributionComponent', () => {
     expect(comp.factorError()).toBeTruthy();
   });
 
+  // ── issue #997, 13c: 404 → not-available empty-state vs other → error ──────
+
+  it('when factor() returns a 404, factorNotAvailable is true and factorError stays null', () => {
+    comp.portfolioWeights.set({ AAPL: 1 });
+    attrSvcMock.factor.and.returnValue(
+      throwError(() => new HttpErrorResponse({ status: 404, statusText: 'Not Found' })),
+    );
+
+    comp.runFactor();
+
+    expect(comp.factorNotAvailable()).toBe(true);
+    expect(comp.factorError()).toBeNull();
+  });
+
+  it('when factor() returns a non-404 error, factorError is set and factorNotAvailable is false', () => {
+    comp.portfolioWeights.set({ AAPL: 1 });
+    attrSvcMock.factor.and.returnValue(
+      throwError(() => new HttpErrorResponse({ status: 500, statusText: 'Server Error' })),
+    );
+
+    comp.runFactor();
+
+    expect(comp.factorError()).toBeTruthy();
+    expect(comp.factorNotAvailable()).toBe(false);
+  });
+
+  it('when a factor run later succeeds, factorNotAvailable is cleared', () => {
+    comp.portfolioWeights.set({ AAPL: 1 });
+    attrSvcMock.factor.and.returnValue(
+      throwError(() => new HttpErrorResponse({ status: 404, statusText: 'Not Found' })),
+    );
+    comp.runFactor();
+    expect(comp.factorNotAvailable()).toBe(true);
+
+    attrSvcMock.factor.and.returnValue(of(makeFactorAttributionResponse()));
+    comp.runFactor();
+
+    expect(comp.factorNotAvailable()).toBe(false);
+  });
+
+  it('when a portfolio is selected, the form hint shows the portfolio name and not "(none)"', () => {
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain(PORTFOLIO_NAME);
+    expect(text).not.toContain('(none)');
+  });
+
   it('openReportModal does not throw', () => {
     expect(() => comp.openReportModal()).not.toThrow();
   });
@@ -345,5 +391,36 @@ describe('AttributionComponent — factor auto-load surfaces a visible error (is
     fx.detectChanges();
 
     expect(fx.componentInstance.factorError()).toBeTruthy();
+  });
+});
+
+// issue #997, 13f: the form hint must read an explicit copy when no portfolio
+// is selected — not the stale "(none)" placeholder.
+describe('AttributionComponent — no-portfolio form hint (issue #997)', () => {
+  it('when no portfolio is selected, the hint reads the exact no-portfolio copy', async () => {
+    installResizeObserverStub();
+    const ctx = makePortfolioCtxMock(null, null);
+    const svc = makeAttrSvcMock();
+    const api = makePortfolioApiMock();
+
+    await TestBed.configureTestingModule({
+      imports: [AttributionComponent],
+      schemas: [NO_ERRORS_SCHEMA],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        ICON_PROVIDER,
+        { provide: PortfolioContextService, useValue: ctx },
+        { provide: AttributionService, useValue: svc },
+        { provide: PortfolioApiService, useValue: api },
+      ],
+    }).compileComponents();
+
+    const fx = TestBed.createComponent(AttributionComponent);
+    fx.detectChanges();
+
+    const text = (fx.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('No portfolio selected. Select one in the navigation bar.');
   });
 });

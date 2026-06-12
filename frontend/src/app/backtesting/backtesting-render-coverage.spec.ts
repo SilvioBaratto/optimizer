@@ -111,6 +111,9 @@ describe('BacktestingComponent — render-coverage (issue #936)', () => {
   let el: HTMLElement;
 
   beforeEach(async () => {
+    // Clear persisted backtest-run state so a run persisted by an earlier test
+    // (issue #996, 13a) cannot trigger a restore GET in a later construct.
+    localStorage.clear();
     installResizeObserverStub();
 
     await TestBed.configureTestingModule({
@@ -136,6 +139,10 @@ describe('BacktestingComponent — render-coverage (issue #936)', () => {
     // (@else) branch the unambiguous baseline for every non-loading test.
     comp.isLoading.set(false);
     fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
   });
 
   // -------------------------------------------------------------------------

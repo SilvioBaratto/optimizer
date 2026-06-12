@@ -48,11 +48,19 @@
  */
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import type { HttpTestingController } from '@angular/common/http/testing';
+import type { HttpTestingController, TestRequest } from '@angular/common/http/testing';
 
-import { configureTestBed, injectHttp, installResizeObserverStub } from '../../testing';
+import {
+  assertBodyKeys,
+  assertMethod,
+  assertUrl,
+  configureTestBed,
+  injectHttp,
+  installResizeObserverStub,
+} from '../../testing';
 import { ICON_PROVIDER } from '../icons';
 import { BacktestingComponent } from './backtesting';
+import { BacktestService } from './backtest.service';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
 import { environment } from '../../environments/environment';
 
@@ -433,5 +441,78 @@ describe('BacktestingComponent — /backtest contracts & error state (issue #954
     const req = http.expectOne(BACKTEST_URL);
     expect(req.request.body['tickers']).toEqual(jasmine.arrayContaining(['TSLA', 'GOOGL']));
     req.flush(ASYNC_RESPONSE);
+  });
+});
+
+// ── Service-level request contract parity (issue #1000) ──────────────────────
+// Covers every BacktestService method's method + URL (path params encoded, no
+// raw token) + body, independently of the page component above.
+describe('BacktestService — request contract parity (issue #1000)', () => {
+  let svc: BacktestService;
+  let http: HttpTestingController;
+  const JOB_ID = 'job 1';
+  const JOB_ENC = encodeURIComponent(JOB_ID);
+  const RUN_ID = 'run 1';
+  const RUN_ENC = encodeURIComponent(RUN_ID);
+  const NAME_ENC = encodeURIComponent('My Port');
+
+  beforeEach(async () => {
+    await configureTestBed({ withHttp: true });
+    svc = TestBed.inject(BacktestService);
+    http = injectHttp();
+  });
+
+  afterEach(() => http.verify());
+
+  function capture(url: string): TestRequest {
+    const req = http.expectOne((r) => r.url === url);
+    req.flush({});
+    return req;
+  }
+
+  it('when runBacktest is called, a POST to /backtest carries the request body', () => {
+    svc.runBacktest({ tickers: ['AAPL'], start_date: '2024-01-01', end_date: '2024-12-31' })
+      .subscribe({ error: () => {} });
+    const req = capture(BACKTEST_URL);
+    assertMethod(req, 'POST');
+    assertUrl(req, BACKTEST_URL);
+    assertBodyKeys(req, ['tickers', 'start_date', 'end_date']);
+  });
+
+  it('when pollBacktest is called, a GET to the interpolated /backtest/{jobId} URL is issued', () => {
+    svc.pollBacktest(JOB_ID).subscribe({ error: () => {} });
+    const req = capture(`${BACKTEST_URL}/${JOB_ENC}`);
+    assertMethod(req, 'GET');
+    assertUrl(req, `${BACKTEST_URL}/${JOB_ENC}`);
+  });
+
+  it('when getBacktestRun is called, a GET to the interpolated /backtest/runs/{runId} URL is issued', () => {
+    svc.getBacktestRun(RUN_ID).subscribe({ error: () => {} });
+    const req = capture(`${BACKTEST_URL}/runs/${RUN_ENC}`);
+    assertMethod(req, 'GET');
+    assertUrl(req, `${BACKTEST_URL}/runs/${RUN_ENC}`);
+  });
+
+  it('when runWalkForward is called, a POST to /validate/walk-forward carries the request body', () => {
+    svc.runWalkForward({ tickers: ['AAPL'], start_date: '2024-01-01', end_date: '2024-12-31' })
+      .subscribe({ error: () => {} });
+    const req = capture(WALK_FORWARD_URL);
+    assertMethod(req, 'POST');
+    assertUrl(req, WALK_FORWARD_URL);
+    assertBodyKeys(req, ['tickers', 'start_date', 'end_date']);
+  });
+
+  it('when pollWalkForward is called, a GET to the interpolated walk-forward job URL is issued', () => {
+    svc.pollWalkForward(JOB_ID).subscribe({ error: () => {} });
+    const req = capture(`${WALK_FORWARD_URL}/${JOB_ENC}`);
+    assertMethod(req, 'GET');
+    assertUrl(req, `${WALK_FORWARD_URL}/${JOB_ENC}`);
+  });
+
+  it('when getEquityCurve is called, a GET to the interpolated analytics URL is issued', () => {
+    svc.getEquityCurve('My Port').subscribe({ error: () => {} });
+    const req = capture(`${environment.apiUrl}portfolio-analytics/${NAME_ENC}/equity-curve`);
+    assertMethod(req, 'GET');
+    assertUrl(req, `${environment.apiUrl}portfolio-analytics/${NAME_ENC}/equity-curve`);
   });
 });

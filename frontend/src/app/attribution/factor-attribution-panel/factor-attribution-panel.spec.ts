@@ -28,4 +28,29 @@ describe('FactorAttributionPanelComponent', () => {
     expect(comp.factorTableRows().length).toBe(1);
     expect(comp.factorTableRows()[0]['factorName']).toBe('momentum');
   });
+
+  // ── issue #997, 13c: 404 empty-state vs generic "no run yet" ───────────────
+
+  it('when notAvailable is true and there is no data, the "Factor scores not available" message is shown', () => {
+    fixture.componentRef.setInput('notAvailable', true);
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Factor scores not available');
+  });
+
+  it('when notAvailable is false and there is no data, the generic "no run yet" message is shown', () => {
+    fixture.componentRef.setInput('notAvailable', false);
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('No factor attribution result yet');
+    expect(text).not.toContain('Factor scores not available');
+  });
+
+  it('when data is present, the not-available empty-state is not shown even if notAvailable is true', () => {
+    fixture.componentRef.setInput('response', makeFactorAttributionResponse());
+    fixture.componentRef.setInput('notAvailable', true);
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).not.toContain('Factor scores not available');
+  });
 });

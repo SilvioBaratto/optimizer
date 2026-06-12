@@ -18,6 +18,8 @@ import type { FactorAttributionApiResponse } from '../attribution.model';
 })
 export class FactorAttributionPanelComponent {
   readonly response = input<FactorAttributionApiResponse | null>(null);
+  /** True when the factor endpoint returned 404 — drives the inline empty state. */
+  readonly notAvailable = input<boolean>(false);
 
   private readonly fmt = inject(FormatService);
 

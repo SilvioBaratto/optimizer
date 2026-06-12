@@ -55,6 +55,7 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'attribution.service.spec.ts',
       'cross-page-service-field-parity.spec.ts',
+      'attribution-contracts.spec.ts',
     ],
   },
   {
@@ -62,6 +63,7 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'backtest.service.spec.ts',
       'research-service-field-parity.spec.ts',
+      'backtesting-contracts.spec.ts',
     ],
   },
   {
@@ -73,6 +75,7 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'dashboard.service.spec.ts',
       'cross-page-service-field-parity.spec.ts',
+      'dashboard-contracts.spec.ts',
     ],
   },
   {
@@ -84,11 +87,15 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'factors.service.spec.ts',
       'research-service-field-parity.spec.ts',
+      'factor-research-contracts.spec.ts',
     ],
   },
   {
     cls: JobsService,
-    coveredBy: ['settings-field-parity.spec.ts'],
+    coveredBy: [
+      'settings-field-parity.spec.ts',
+      'shared-service-contracts.spec.ts',
+    ],
   },
   {
     cls: MacroIntelligenceService,
@@ -102,6 +109,7 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'market.service.spec.ts',
       'cross-page-service-field-parity.spec.ts',
+      'shared-service-contracts.spec.ts',
     ],
   },
   {
@@ -109,6 +117,7 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'optimization.service.spec.ts',
       'research-service-field-parity.spec.ts',
+      'optimization-service-contracts.spec.ts',
     ],
   },
   {
@@ -120,13 +129,17 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
   },
   {
     cls: PortfolioApiService,
-    coveredBy: ['portfolio-api.service.spec.ts'],
+    coveredBy: [
+      'portfolio-api.service.spec.ts',
+      'portfolio-builder-contracts.spec.ts',
+    ],
   },
   {
     cls: RebalancingService,
     coveredBy: [
       'rebalancing.service.spec.ts',
       'cross-page-service-field-parity.spec.ts',
+      'rebalancing-contracts.spec.ts',
     ],
   },
   {
@@ -145,6 +158,7 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'risk.service.spec.ts',
       'cross-page-service-field-parity.spec.ts',
+      'risk-contracts.spec.ts',
     ],
   },
   {
@@ -160,6 +174,7 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'universe.service.spec.ts',
       'cross-page-service-field-parity.spec.ts',
+      'shared-service-contracts.spec.ts',
     ],
   },
   {

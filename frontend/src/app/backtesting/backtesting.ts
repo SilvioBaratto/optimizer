@@ -34,6 +34,11 @@ import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { switchMap } from 'rxjs';
 import { WalkForwardPanelComponent } from './walk-forward-panel/walk-forward-panel';
 import { BacktestResultsPanelComponent } from './backtest-results-panel/backtest-results-panel';
+import {
+  clearBacktestRun,
+  loadBacktestRun,
+  saveBacktestRun,
+} from './backtesting-run-storage';
 import type {
   BacktestConfig,
   BacktestMetrics,
@@ -177,7 +182,13 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   readonly config = signal<BacktestConfig>(DEFAULT_CONFIG);
   readonly result = signal<BacktestResult>(EMPTY_RESULT);
 
-  readonly hasResult = computed(() => this.result().equity.length > 0);
+  /**
+   * True once a real backtest result is loaded (issue #996, 13a/13b). Drives the
+   * KPI em-dash pre-run state and the restore/empty-state branch. `hasResult` is
+   * kept as an alias so existing specs continue to compile against one predicate.
+   */
+  readonly hasLoadedResult = computed(() => this.result().equity.length > 0);
+  readonly hasResult = this.hasLoadedResult;
 
   // ── Tab definitions (computed for dynamic badge) ─────────────────────────
   readonly drawdownCount = computed(() =>
@@ -476,6 +487,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   constructor() {
     this.loadData();
     this.initTickerSeeding();
+    this.restorePersistedRun();
 
     // Sync local backtest date inputs with the global PortfolioContextService
     // date range — header presets (1Y, 3Y, etc.) propagate to the run window.
@@ -981,6 +993,16 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     return this.fmt.formatCurrency(v);
   }
 
+  /** KPI percent value, or em-dash when no run is loaded (issue #996, 13b). */
+  displayPct(v: number): string {
+    return this.hasLoadedResult() ? this.formatPct(v) : '—';
+  }
+
+  /** KPI ratio value, or em-dash when no run is loaded (issue #996, 13b). */
+  displayRatio(v: number, decimals = 2): string {
+    return this.hasLoadedResult() ? this.formatRatio(v, decimals) : '—';
+  }
+
   signClass(v: number): string {
     if (v > 0) return 'text-gain';
     if (v < 0) return 'text-loss';
@@ -1028,24 +1050,58 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     const id = runId ?? this.runRunId();
     this.runJobId.set(null);
     if (!id) return;
+    this.hydrateRun(id);
+  }
+
+  /**
+   * Re-hydrate a persisted run on construct (issue #996, 13a). Only restores when
+   * the stored run belongs to the currently selected portfolio; otherwise the
+   * stale entry is discarded and the page shows the empty state.
+   */
+  private restorePersistedRun(): void {
+    const stored = loadBacktestRun();
+    if (!stored) return;
+    if (stored.portfolioId !== this.portfolioContext.currentPortfolioId()) {
+      clearBacktestRun();
+      return;
+    }
+    this.runRunId.set(stored.runId);
+    this.hydrateRun(stored.runId);
+  }
+
+  /** Fetch a completed run and swap it into the results/KPI/tab state. */
+  private hydrateRun(runId: string): void {
     this.runResponse.set(null);
     this.runResponseError.set(null);
     this.runResponseLoading.set(true);
     this.result.set(EMPTY_RESULT);
     this.backtest
-      .getBacktestRun(id)
+      .getBacktestRun(runId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (run) => {
-          this.runResponse.set(run);
-          this.result.set(mapRunResponseToResult(run));
-          this.runResponseLoading.set(false);
-        },
-        error: (err: Error) => {
-          this.runResponseLoading.set(false);
-          this.runResponseError.set(err?.message ?? 'Failed to load completed run');
-        },
+        next: (run) => this.onRunHydrated(run),
+        error: (err: Error) => this.onRunHydrateError(err),
       });
+  }
+
+  private onRunHydrated(run: BacktestRunResponse): void {
+    this.runResponse.set(run);
+    this.result.set(mapRunResponseToResult(run));
+    this.runResponseLoading.set(false);
+    this.persistRun(run.id);
+  }
+
+  private onRunHydrateError(err: Error): void {
+    this.runResponseLoading.set(false);
+    this.runResponseError.set(err?.message ?? 'Failed to load completed run');
+  }
+
+  /** Persist `{ runId, portfolioId }` so the run survives navigation / F5. */
+  private persistRun(runId: string): void {
+    saveBacktestRun({
+      runId,
+      portfolioId: this.portfolioContext.currentPortfolioId(),
+    });
   }
 
   onJobFailed(message: string): void {

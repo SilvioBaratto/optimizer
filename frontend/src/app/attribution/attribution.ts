@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { HttpErrorResponse } from '@angular/common/http';
 import { LucideAngularModule } from 'lucide-angular';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { EMPTY, catchError } from 'rxjs';
@@ -85,6 +86,8 @@ export class AttributionComponent {
   readonly factorLoading = signal<boolean>(false);
   readonly brinsonError = signal<string | null>(null);
   readonly factorError = signal<string | null>(null);
+  /** Set when the factor endpoint returns 404 — drives the panel's empty state. */
+  readonly factorNotAvailable = signal<boolean>(false);
 
   readonly tabs: Tab[] = [
     { id: 'brinson', label: 'Brinson-Fachler' },
@@ -193,7 +196,7 @@ export class AttributionComponent {
     if (!this.sumsToOne(this.portfolioWeights())) return;
     if (!(this.startDate() < this.endDate())) return;
     this.factorLoading.set(true);
-    this.factorError.set(null);
+    this.resetFactorErrorState();
     this.attribution
       .factor({
         portfolio_weights: this.portfolioWeights(),
@@ -203,7 +206,7 @@ export class AttributionComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => this.onFactorSuccess(res),
-        error: (err: Error) => this.onFactorError(err.message ?? 'Factor failed'),
+        error: (err: unknown) => this.onFactorError(err),
       });
   }
 
@@ -256,8 +259,7 @@ export class AttributionComponent {
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
             next: (res) => this.onFactorSuccess(res),
-            error: (err: Error) =>
-              this.onFactorError(err.message ?? 'Failed to load factor attribution'),
+            error: (err: unknown) => this.onFactorError(err),
           });
       });
   }
@@ -277,11 +279,34 @@ export class AttributionComponent {
   private onFactorSuccess(res: FactorAttributionApiResponse): void {
     this.factorResponse.set(res);
     this.factorLoading.set(false);
+    this.resetFactorErrorState();
   }
 
-  private onFactorError(message: string): void {
-    this.factorError.set(message);
+  /**
+   * Classify a factor() failure: a 404 means "no factor scores in the DB" and
+   * routes to the panel's inline empty state; any other status stays a visible
+   * error (issue #997, 13c).
+   */
+  private onFactorError(err: unknown): void {
     this.factorLoading.set(false);
+    if (err instanceof HttpErrorResponse && err.status === 404) {
+      this.factorNotAvailable.set(true);
+      this.factorError.set(null);
+      return;
+    }
+    this.factorNotAvailable.set(false);
+    this.factorError.set(this.errorMessageOf(err));
+  }
+
+  private resetFactorErrorState(): void {
+    this.factorError.set(null);
+    this.factorNotAvailable.set(false);
+  }
+
+  private errorMessageOf(err: unknown): string {
+    if (err instanceof HttpErrorResponse) return err.message;
+    if (err instanceof Error) return err.message;
+    return 'Factor failed';
   }
 
   // ── Utilities ─────────────────────────────────────────────────────────────

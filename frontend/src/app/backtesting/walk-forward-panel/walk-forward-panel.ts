@@ -59,7 +59,7 @@ function fmtPct(value: number | undefined): string {
             Walk-forward validation
           </h4>
           <p class="text-xs text-text-tertiary mt-1">
-            Runs a background job via POST /validate/walk-forward with cv_type=walk_forward.
+            Runs an out-of-sample walk-forward validation across rolling train/test windows.
           </p>
         </div>
         <button type="button" (click)="onRun()" [disabled]="isRunning()"

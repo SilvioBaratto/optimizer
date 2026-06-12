@@ -15,6 +15,12 @@
         [pageSize]="15"
         [dense]="true" />
     </div>
+  } @else if (notAvailable()) {
+    <div class="bg-surface-raised border border-border rounded-lg p-8 text-center">
+      <p class="text-xs text-text-secondary">
+        Factor scores not available. Run the factor pipeline first.
+      </p>
+    </div>
   } @else {
     <div class="bg-surface-raised border border-border rounded-lg p-8 text-center">
       <p class="text-xs text-text-secondary">

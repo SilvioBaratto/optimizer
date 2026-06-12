@@ -130,22 +130,22 @@
 
   <!-- KPI Stat Cards -->
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-4">
-    <app-stat-card label="Total Return" [value]="formatPct(result().metrics.totalReturn)"
+    <app-stat-card label="Total Return" [value]="displayPct(result().metrics.totalReturn)"
       [subtitle]="benchmarkSubtitle('totalReturn')"
       [delta]="benchmarkDelta('totalReturn')"
       [trend]="benchmarkTrend('totalReturn')" deltaLabel="vs benchmark" />
 
-    <app-stat-card label="Sharpe Ratio" [value]="formatRatio(result().metrics.sharpe)"
+    <app-stat-card label="Sharpe Ratio" [value]="displayRatio(result().metrics.sharpe)"
       subtitle="Sortino: {{ formatRatio(result().metrics.sortino) }}"
       [delta]="benchmarkDelta('sharpe')"
       [trend]="benchmarkTrend('sharpe')" deltaLabel="vs benchmark" />
 
-    <app-stat-card label="Max Drawdown" [value]="formatPct(result().metrics.maxDrawdown)"
+    <app-stat-card label="Max Drawdown" [value]="displayPct(result().metrics.maxDrawdown)"
       subtitle="Calmar: {{ formatRatio(result().metrics.calmar) }}"
       [delta]="benchmarkDelta('maxDrawdown')"
       [trend]="benchmarkTrend('maxDrawdown')" deltaLabel="vs benchmark" />
 
-    <app-stat-card label="Information Ratio" [value]="formatRatio(result().metrics.informationRatio)"
+    <app-stat-card label="Information Ratio" [value]="displayRatio(result().metrics.informationRatio)"
       subtitle="TE: {{ formatPct(result().metrics.trackingError) }}" />
   </div>
 
@@ -229,7 +229,7 @@
           <tr class="text-text-secondary border-b border-border bg-surface-inset">
             <th class="py-2.5 px-4 text-left font-medium">Metric</th>
             <th class="py-2.5 px-4 text-right font-medium">Portfolio</th>
-            <th class="py-2.5 px-4 text-right font-medium">Benchmark (SPY)</th>
+            <th class="py-2.5 px-4 text-right font-medium">Benchmark ({{ selectedBenchmark() }})</th>
           </tr>
         </thead>
         <tbody>
@@ -240,7 +240,11 @@
               {{ row.portfolio }}
             </td>
             <td class="py-2.5 px-4 text-right font-mono tabular-nums text-text-secondary">
-              {{ row.benchmark }}
+              @if (row.benchmarkRaw === null) {
+                <span title="Benchmark metrics unavailable for this run">N/A</span>
+              } @else {
+                {{ row.benchmark }}
+              }
             </td>
           </tr>
           }

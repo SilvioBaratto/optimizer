@@ -36,6 +36,15 @@ describe('WalkForwardPanelComponent', () => {
     return fx;
   }
 
+  // issue #997, 13e: user-facing copy must not leak endpoint/parameter names.
+  it('when rendered, the description contains no API endpoint or parameter names', () => {
+    const fx = createPanel();
+    const text = (fx.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).not.toContain('validate');
+    expect(text).not.toContain('cv_type');
+    expect(text).not.toContain('POST');
+  });
+
   it('POSTs /validate/walk-forward with cv_type=walk_forward', () => {
     const fx = createPanel();
     fx.componentInstance.onRun();

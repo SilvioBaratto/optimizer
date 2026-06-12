@@ -6,3 +6,4 @@ export * from './contract-parity';
 export * from './test-globals';
 export * from './signal-harness';
 export * from './contract-field-parity';
+export * from './contract-request.helper';

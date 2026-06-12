@@ -27,11 +27,26 @@
  */
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import type { HttpTestingController } from '@angular/common/http/testing';
+import { provideZonelessChangeDetection } from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+  type TestRequest,
+} from '@angular/common/http/testing';
 
-import { configureTestBed, injectHttp, installResizeObserverStub } from '../../testing';
+import {
+  assertBodyKeys,
+  assertMethod,
+  assertQueryParams,
+  assertUrl,
+  configureTestBed,
+  injectHttp,
+  installResizeObserverStub,
+} from '../../testing';
 import { ICON_PROVIDER } from '../icons';
 import { FactorResearchComponent } from './factor-research';
+import { FactorsService } from './factors.service';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
 import { environment } from '../../environments/environment';
 
@@ -367,5 +382,121 @@ describe('FactorResearchComponent — compute contracts (issue #955)', () => {
     const tickers = (req.request.body as Record<string, unknown>)['tickers'] as string[];
     expect(tickers).toContain('TSLA');
     expect(tickers).toContain('NVDA');
+  });
+});
+
+// ── Service-level request contract parity (issue #1000) ──────────────────────
+// Covers every FactorsService method's method + URL (path params encoded) + query
+// + body. Uses a plain (non-intercepted) HTTP testbed so `macroCalibration`, which
+// tags its request with the background HttpContext, still reaches the test backend.
+describe('FactorsService — request contract parity (issue #1000)', () => {
+  let svc: FactorsService;
+  let http: HttpTestingController;
+  const JOB_ID = 'job 1';
+  const JOB_ENC = encodeURIComponent(JOB_ID);
+  const FWD = { tickers: ['AAPL'], start_date: '2024-01-01', end_date: '2024-12-31' };
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
+    svc = TestBed.inject(FactorsService);
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => http.verify());
+
+  function capture(url: string): TestRequest {
+    const req = http.expectOne((r) => r.url === url);
+    req.flush({});
+    return req;
+  }
+
+  function postForwards(
+    call: () => void,
+    url: string,
+  ): void {
+    call();
+    const req = capture(url);
+    assertMethod(req, 'POST');
+    assertUrl(req, url);
+    expect(req.request.body).toEqual(FWD);
+  }
+
+  it('when compute is called, a POST to /factors/compute carries the body', () => {
+    postForwards(
+      () => svc.compute(FWD as unknown as Parameters<typeof svc.compute>[0]).subscribe({ error: () => {} }),
+      `${API}factors/compute`,
+    );
+  });
+
+  it('when pollCompute is called, a GET to the interpolated /factors/compute/{id} URL is issued', () => {
+    svc.pollCompute(JOB_ID).subscribe({ error: () => {} });
+    const req = capture(`${API}factors/compute/${JOB_ENC}`);
+    assertMethod(req, 'GET');
+    assertUrl(req, `${API}factors/compute/${JOB_ENC}`);
+  });
+
+  it('when validate is called, a POST to /factors/validate carries the body', () => {
+    postForwards(
+      () => svc.validate(FWD as unknown as Parameters<typeof svc.validate>[0]).subscribe({ error: () => {} }),
+      `${API}factors/validate`,
+    );
+  });
+
+  it('when score is called, a POST to /factors/score carries the body', () => {
+    postForwards(
+      () => svc.score(FWD as unknown as Parameters<typeof svc.score>[0]).subscribe({ error: () => {} }),
+      `${API}factors/score`,
+    );
+  });
+
+  it('when select is called, a POST to /factors/select carries the body', () => {
+    postForwards(
+      () => svc.select(FWD as unknown as Parameters<typeof svc.select>[0]).subscribe({ error: () => {} }),
+      `${API}factors/select`,
+    );
+  });
+
+  it('when exposureConstraints is called, a POST to /factors/exposure-constraints carries the body', () => {
+    postForwards(
+      () => svc.exposureConstraints(FWD as unknown as Parameters<typeof svc.exposureConstraints>[0]).subscribe({ error: () => {} }),
+      `${API}factors/exposure-constraints`,
+    );
+  });
+
+  it('when quintileSpread is called, a POST to /factors/quintile-spread carries the body', () => {
+    postForwards(
+      () => svc.quintileSpread(FWD as unknown as Parameters<typeof svc.quintileSpread>[0]).subscribe({ error: () => {} }),
+      `${API}factors/quintile-spread`,
+    );
+  });
+
+  it('when regimeTilt is called, a POST to /factors/regime-tilt carries the body', () => {
+    postForwards(
+      () => svc.regimeTilt(FWD as unknown as Parameters<typeof svc.regimeTilt>[0]).subscribe({ error: () => {} }),
+      `${API}factors/regime-tilt`,
+    );
+  });
+
+  it('when macroCalibration is called, a GET to /views/macro-calibration carries query params (not body)', () => {
+    svc.macroCalibration({ country: 'US', macroText: 'recession', refresh: true }).subscribe({ error: () => {} });
+    const req = capture(`${API}views/macro-calibration`);
+    assertMethod(req, 'GET');
+    assertUrl(req, `${API}views/macro-calibration`);
+    assertQueryParams(req, { country: 'US', macro_text: 'recession', refresh: true });
+  });
+
+  it('when teObservations is called, a GET to /macro-data/te-observations carries query params', () => {
+    svc.teObservations({ country: 'US', startDate: '2024-01-01', endDate: '2024-12-31', limit: 50 })
+      .subscribe({ error: () => {} });
+    const req = capture(`${API}macro-data/te-observations`);
+    assertMethod(req, 'GET');
+    assertUrl(req, `${API}macro-data/te-observations`);
+    assertQueryParams(req, { country: 'US', start_date: '2024-01-01', end_date: '2024-12-31', limit: 50 });
   });
 });
