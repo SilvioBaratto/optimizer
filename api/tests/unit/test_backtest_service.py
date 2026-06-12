@@ -31,12 +31,13 @@ class TestValidatePrices:
         with pytest.raises(ValueError, match="price data"):
             validate_prices(pd.DataFrame(), ["AAPL", "MSFT"])
 
-    def test_single_missing_ticker_mentioned_in_error(self) -> None:
+    def test_single_missing_ticker_is_dropped(self) -> None:
         from app.services.backtest.backtest_service import validate_prices
 
         prices = pd.DataFrame({"AAPL": [1.0, 2.0]})
-        with pytest.raises(ValueError, match="MSFT"):
-            validate_prices(prices, ["AAPL", "MSFT"])
+        result = validate_prices(prices, ["AAPL", "MSFT"])
+        assert list(result.columns) == ["AAPL"]
+        assert len(result) == 2
 
     def test_valid_prices_does_not_raise(self) -> None:
         from app.services.backtest.backtest_service import validate_prices

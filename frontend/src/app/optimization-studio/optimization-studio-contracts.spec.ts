@@ -45,6 +45,7 @@ import type { HttpTestingController } from '@angular/common/http/testing';
 import { configureTestBed, injectHttp, installResizeObserverStub } from '../../testing';
 import { ICON_PROVIDER } from '../icons';
 import { OptimizationStudioComponent } from './optimization-studio';
+import { OptimizationService } from './optimization.service';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
 import { environment } from '../../environments/environment';
 
@@ -329,6 +330,65 @@ describe('OptimizationStudioComponent — /optimize contracts & error state (iss
     expect(comp.applyStatus()).toBe('success');
   });
 
+  // ── AC1: body matches OptimizeRequest field-for-field, no extra keys ──────────
+
+  it('when optimization runs, the POST body has exactly the OptimizeRequest keys', () => {
+    comp.onRunPipeline(RUN);
+    const req = http.expectOne(OPTIMIZE_URL);
+    expect(Object.keys(req.request.body as object).sort()).toEqual([
+      'config',
+      'end_date',
+      'optimizer_type',
+      'start_date',
+      'tickers',
+    ]);
+    req.flush(RUN_RESULT);
+  });
+
+  it('when optimization runs without constraints, the body omits the constraints key', () => {
+    comp.onRunPipeline(RUN);
+    const req = http.expectOne(OPTIMIZE_URL);
+    expect('constraints' in (req.request.body as object)).toBe(false);
+    req.flush(RUN_RESULT);
+  });
+
+  // ── AC2: optimizer_type must be a backend-accepted literal ───────────────────
+
+  it('when an unsupported optimizer_type is run, no POST /optimize is sent', () => {
+    comp.onRunPipeline({ optimizerType: 'regime_blended', config: {} });
+    const posts = http.match((r) => r.method === 'POST' && r.url === OPTIMIZE_URL);
+    expect(posts.length).toBe(0);
+  });
+
+  it('when an unsupported optimizer_type is run, runError is set (visible error)', () => {
+    comp.onRunPipeline({ optimizerType: 'regime_blended', config: {} });
+    expect(comp.runError()).not.toBeNull();
+  });
+
+  // ── AC3: async run_id is captured and drives the final GET (never the job_id) ─
+
+  it('when /optimize returns an async response, runRunId is set to the response run_id', () => {
+    comp.onRunPipeline(RUN);
+    http.expectOne(OPTIMIZE_URL).flush({ job_id: 'job-X', run_id: 'run-Y' });
+    expect(comp.runRunId()).toBe('run-Y');
+  });
+
+  it('when the job completes, GET /optimize targets the run_id, not the job_id', () => {
+    // The tracker emits the JobSummary whose id is the BackgroundJob (job) id, and
+    // calls onJobCompleted() with no argument. The component must resolve the final
+    // GET against the run_id captured from the async response, not the job id.
+    comp.onRunPipeline(RUN);
+    http.expectOne(OPTIMIZE_URL).flush({ job_id: 'job-X', run_id: 'run-Y' });
+
+    comp.onJobCompleted();
+
+    http.expectNone(`${OPTIMIZE_URL}/job-X`);
+    const req = http.expectOne(`${OPTIMIZE_URL}/run-Y`);
+    req.flush(RUN_RESULT);
+    expect(comp.hasResult()).toBe(true);
+    expect(comp.isPolling()).toBe(false);
+  });
+
   // ── T3-c: reacts to portfolio context change ──────────────────────────────────
 
   it('when portfolio changes and then optimize runs, request body tickers reflect the new portfolio', () => {
@@ -362,5 +422,108 @@ describe('OptimizationStudioComponent — /optimize contracts & error state (iss
     const req = http.expectOne(OPTIMIZE_URL);
     expect(req.request.body['tickers']).toEqual(jasmine.arrayContaining(['NVDA', 'AMZN']));
     req.flush(RUN_RESULT);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue #989 — LLM-moments & views request-shape contract parity.
+//
+// Each of the six OptimizationService endpoints must send a body whose keys match
+// the backend Pydantic schema field-for-field (no extra keys), including the
+// optional fields the schemas declare — `ic_histories: list[ICHistory]` on
+// /views/opinion-pool and `kurtosis_views` on /views/entropy-pooling.
+// Exercised directly against the service with HttpTestingController.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('OptimizationService — LLM-moments & views request parity (issue #989)', () => {
+  let svc: OptimizationService;
+  let http: HttpTestingController;
+
+  beforeEach(async () => {
+    await configureTestBed({ withHttp: true });
+    svc = TestBed.inject(OptimizationService);
+    http = injectHttp();
+  });
+
+  afterEach(() => http.verify());
+
+  function bodyKeys(body: unknown): string[] {
+    return Object.keys(body as object).sort();
+  }
+
+  it('when calibrate-delta is called, the body has exactly {macro_text}', () => {
+    svc.calibrateDelta({ macro_text: 'macro regime description text' }).subscribe();
+    const req = http.expectOne(`${environment.apiUrl}llm-moments/calibrate-delta`);
+    expect(bodyKeys(req.request.body)).toEqual(['macro_text']);
+    req.flush({ delta: 3, rationale: 'r' });
+  });
+
+  it('when adapt-factor-weights is called, the body has exactly {factor_groups, macro_indicators}', () => {
+    svc
+      .adaptFactorWeights({ macro_indicators: 'gdp 1.5 pmi 47', factor_groups: ['value'] })
+      .subscribe();
+    const req = http.expectOne(`${environment.apiUrl}llm-moments/adapt-factor-weights`);
+    expect(bodyKeys(req.request.body)).toEqual(['factor_groups', 'macro_indicators']);
+    req.flush({ phase: 'expansion', weights: {}, rationale: 'r' });
+  });
+
+  it('when select-cov-regime is called, the body has exactly its three schema fields', () => {
+    svc
+      .selectCovRegime({ news_headlines: ['h'], avg_sentiment_score: 0, realized_vol_30d: 0.1 })
+      .subscribe();
+    const req = http.expectOne(`${environment.apiUrl}llm-moments/select-cov-regime`);
+    expect(bodyKeys(req.request.body)).toEqual([
+      'avg_sentiment_score',
+      'news_headlines',
+      'realized_vol_30d',
+    ]);
+    req.flush({ estimator_type: 'ledoit_wolf', rationale: 'r' });
+  });
+
+  it('when generate-views is called, the body has exactly {tickers}', () => {
+    svc.generateViews({ tickers: ['AAPL', 'MSFT'] }).subscribe();
+    const req = http.expectOne(`${environment.apiUrl}views/generate`);
+    expect(bodyKeys(req.request.body)).toEqual(['tickers']);
+    req.flush({
+      nViews: 0, nAssets: 0, viewStrings: [], p: [], q: [], viewConfidences: [],
+      idzorekAlphas: {}, views: [], rationale: '', tickersWithData: [], tickersMissingData: [],
+    });
+  });
+
+  it('when opinion-pool is called with ic_histories, each entry is {persona, ic_values}', () => {
+    svc
+      .opinionPool({
+        tickers: ['AAPL', 'MSFT'],
+        personas: ['VALUE_INVESTOR', 'MOMENTUM_TRADER'],
+        ic_histories: [{ persona: 'VALUE_INVESTOR', ic_values: [0.1, 0.2, 0.3] }],
+      })
+      .subscribe();
+    const req = http.expectOne(`${environment.apiUrl}views/opinion-pool`);
+    const body = req.request.body as {
+      ic_histories: { persona: string; ic_values: number[] }[];
+    };
+    expect(body.ic_histories[0]).toEqual({
+      persona: 'VALUE_INVESTOR',
+      ic_values: [0.1, 0.2, 0.3],
+    });
+    req.flush({
+      nExperts: 0, tickers: [], tickersWithData: [], tickersMissingData: [],
+      experts: [], icWeights: [], poolingType: 'linear', totalViews: 0,
+    });
+  });
+
+  it('when entropy-pooling is called, kurtosis_views is an accepted view field', () => {
+    svc
+      .entropyPooling({
+        tickers: ['AAPL'],
+        start_date: '2024-01-01',
+        end_date: '2024-12-31',
+        kurtosis_views: ['AAPL == 3.0'],
+      })
+      .subscribe();
+    const req = http.expectOne(`${environment.apiUrl}views/entropy-pooling`);
+    expect((req.request.body as { kurtosis_views: string[] }).kurtosis_views).toEqual([
+      'AAPL == 3.0',
+    ]);
+    req.flush({ tickers: ['AAPL'], mu: [0.1], covariance: [[0.04]] });
   });
 });

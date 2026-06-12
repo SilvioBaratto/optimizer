@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { configureTestBed, makeCMASet } from '../../../testing';
+import { configureTestBed, installResizeObserverStub, makeCMASet } from '../../../testing';
 import { CmaBuilderPanelComponent } from './cma-builder-panel';
 
 describe('CmaBuilderPanelComponent', () => {
@@ -32,5 +32,22 @@ describe('CmaBuilderPanelComponent', () => {
     ]);
     comp.selectedSet.set(1);
     expect(comp.activeSet().label).toBe('B');
+  });
+
+  it('when a CMA set is present, the returns table and CMA scatter chart render', () => {
+    installResizeObserverStub();
+    fixture.componentRef.setInput('cmaSets', [makeCMASet()]);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('app-data-table')).not.toBeNull();
+    expect(el.querySelector('app-echarts-scatter')).not.toBeNull();
+  });
+
+  it('when errorMessage is set, a role="alert" element renders with the message', () => {
+    fixture.componentRef.setInput('errorMessage', 'CMA fetch failed');
+    fixture.detectChanges();
+    const alert = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent).toContain('CMA fetch failed');
   });
 });

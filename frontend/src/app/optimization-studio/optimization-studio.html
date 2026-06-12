@@ -50,7 +50,7 @@
         <div class="text-xs font-medium text-text-secondary mb-2">Pipeline running…</div>
         <app-job-progress-tracker
           [jobId]="runJobId()"
-          (completed)="onJobCompleted($event.id.replace(/^job-/, ''))"
+          (completed)="onJobCompleted()"
           (failed)="onJobFailed($event.error ?? 'Job failed')" />
       </div>
     }

@@ -194,6 +194,52 @@ describe('FactorResearchComponent — compute contracts (issue #955)', () => {
       .toBe(true);
   });
 
+  it('POST body has exactly the FactorComputeRequest keys (no extra keys)', () => {
+    comp.onRunCompute();
+    const req = http.expectOne(COMPUTE_URL);
+    expect(Object.keys(req.request.body as object).sort()).toEqual([
+      'end_date',
+      'start_date',
+      'tickers',
+    ]);
+    req.flush(ASYNC_RESPONSE);
+  });
+
+  // ── AC4: active-portfolio reference is shown on the page ──────────────────────
+
+  it('when no portfolio is selected, a non-blank active-portfolio reference is shown', () => {
+    const ref = fixture.nativeElement.querySelector(
+      '[data-testid="active-portfolio"]',
+    ) as HTMLElement | null;
+    expect(ref)
+      .withContext('expected a [data-testid="active-portfolio"] reference element')
+      .toBeTruthy();
+    expect(ref?.textContent?.trim().length)
+      .withContext('active-portfolio reference must not be blank')
+      .toBeGreaterThan(0);
+  });
+
+  it('when a portfolio is selected, its name appears in the active-portfolio reference', () => {
+    ctx.currentPortfolioId.set('pf-fr');
+    fixture.detectChanges();
+
+    http
+      .expectOne((r) => r.method === 'GET' && r.url === PORTFOLIO_LIST_URL)
+      .flush(buildPortfolioList([{ id: 'pf-fr', name: 'research-fund' }]));
+    fixture.detectChanges();
+
+    // Selecting a portfolio triggers ticker seeding (latest-snapshot fetch); drain it.
+    http
+      .match((r) => r.url.includes('snapshots/latest'))
+      .forEach((r) => r.flush(buildSnapshotDto({ AAPL: 1 })));
+    fixture.detectChanges();
+
+    const ref = fixture.nativeElement.querySelector(
+      '[data-testid="active-portfolio"]',
+    ) as HTMLElement | null;
+    expect(ref?.textContent).toContain('research-fund');
+  });
+
   // ── Async response → computeJobId set ────────────────────────────────────────
 
   it('response job_id (snake_case) sets computeJobId', () => {

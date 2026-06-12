@@ -71,6 +71,18 @@ describe('TaaPanelComponent — render-coverage (#943)', () => {
     expect(fixture.componentInstance.signalRows()).toEqual([]);
   });
 
+  it('when errorMessage is set, a role="alert" element renders with the message', async () => {
+    const fixture = await mount({ errorMessage: 'TAA load failed' });
+    const alert = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent).toContain('TAA load failed');
+  });
+
+  it('when errorMessage is null, no role="alert" element renders', async () => {
+    const fixture = await mount({ signals: [makeTAASignal()] });
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
+  });
+
   it('updating data on wide containers re-runs the chart effects with the wide-layout branch', async () => {
     const fixture = await mount({ signals: [makeTAASignal()], factorReturns: [makeFactorReturnSeries()] });
     const el = fixture.nativeElement as HTMLElement;

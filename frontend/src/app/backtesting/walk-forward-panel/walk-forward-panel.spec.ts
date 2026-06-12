@@ -50,6 +50,34 @@ describe('WalkForwardPanelComponent', () => {
     expect(fx.componentInstance.isRunning()).toBe(true);
   });
 
+  it('when walk-forward runs, the POST body carries all 7 ValidateRequest fields', () => {
+    const fx = createPanel();
+    fx.componentInstance.onRun();
+
+    const req = http.expectOne(`${API}validate/walk-forward`);
+    expect(Object.keys(req.request.body as object).sort()).toEqual([
+      'cv_config',
+      'cv_type',
+      'end_date',
+      'optimizer_config',
+      'optimizer_type',
+      'start_date',
+      'tickers',
+    ]);
+    req.flush({ job_id: 'v1', status: 'pending', message: '' });
+  });
+
+  it('when walk-forward runs, cv_config and optimizer_config are objects', () => {
+    const fx = createPanel();
+    fx.componentInstance.onRun();
+
+    const req = http.expectOne(`${API}validate/walk-forward`);
+    const body = req.request.body as Record<string, unknown>;
+    expect(typeof body['cv_config']).toBe('object');
+    expect(typeof body['optimizer_config']).toBe('object');
+    req.flush({ job_id: 'v1', status: 'pending', message: '' });
+  });
+
   it('surfaces the error when walk-forward POST fails', () => {
     const fx = createPanel();
     fx.componentInstance.onRun();
@@ -154,5 +182,102 @@ describe('WalkForwardPanelComponent', () => {
     const alertEl = fx.nativeElement.querySelector('[role="alert"]') as HTMLElement | null;
     expect(alertEl).withContext('expected [role="alert"] after walk-forward error').toBeTruthy();
     expect(alertEl?.textContent?.trim().length).toBeGreaterThan(0);
+  });
+
+  // ── Branch coverage: guards, key fallbacks, result-shape variants ─────────────
+
+  it('ignores a second onRun while a job is already running', () => {
+    const fx = createPanel();
+    fx.componentInstance.onRun();
+    http.expectOne(`${API}validate/walk-forward`).flush({ job_id: 'v1', status: 'pending', message: '' });
+
+    fx.componentInstance.onRun();
+    http.expectNone(`${API}validate/walk-forward`);
+  });
+
+  it('does not poll when onJobCompleted is called with no active job', () => {
+    const fx = createPanel();
+    fx.componentInstance.onJobCompleted();
+    http.expectNone((r) => r.url.includes('/validate/walk-forward/'));
+  });
+
+  it('surfaces the error when pollWalkForward fails', () => {
+    const fx = createPanel();
+    fx.componentInstance.onRun();
+    http.expectOne(`${API}validate/walk-forward`).flush({ job_id: 'v1', status: 'pending', message: '' });
+
+    fx.componentInstance.onJobCompleted();
+    http
+      .expectOne(`${API}validate/walk-forward/v1`)
+      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+
+    expect(fx.componentInstance.error()).toBeTruthy();
+  });
+
+  it('renders "—" for fold cells when the fold has no recognised measures', () => {
+    const fx = createPanel();
+    fx.componentInstance.onRun();
+    http.expectOne(`${API}validate/walk-forward`).flush({ job_id: 'v1', status: 'pending', message: '' });
+
+    fx.componentInstance.onJobCompleted();
+    http.expectOne(`${API}validate/walk-forward/v1`).flush({
+      job_id: 'v1', status: 'completed', current: 1, total: 1, current_fold: 1, total_folds: 1,
+      errors: [], result: { folds: [{ weights: {}, measures: {} }] }, error: null,
+    });
+
+    const row = fx.componentInstance.foldRows()[0];
+    expect(row['sharpe']).toBe('—');
+    expect(row['annualizedReturn']).toBe('—');
+    expect(row['maxDrawdown']).toBe('—');
+  });
+
+  it('reads Title-cased skfolio measure keys and negates the drawdown for a fold row', () => {
+    const fx = createPanel();
+    fx.componentInstance.onRun();
+    http.expectOne(`${API}validate/walk-forward`).flush({ job_id: 'v1', status: 'pending', message: '' });
+
+    fx.componentInstance.onJobCompleted();
+    http.expectOne(`${API}validate/walk-forward/v1`).flush({
+      job_id: 'v1', status: 'completed', current: 1, total: 1, current_fold: 1, total_folds: 1,
+      errors: [],
+      result: { folds: [{ weights: {}, measures: { 'Annualized Sharpe Ratio': 1.5, 'MAX Drawdown': 0.2 } }] },
+      error: null,
+    });
+
+    const row = fx.componentInstance.foldRows()[0];
+    expect(row['sharpe']).toBe('1.500');
+    expect(row['maxDrawdown']).toBe('-20.00%');
+  });
+
+  it('applies results delivered under the fold_results key with an aggregate_score', () => {
+    const fx = createPanel();
+    fx.componentInstance.onRun();
+    http.expectOne(`${API}validate/walk-forward`).flush({ job_id: 'v1', status: 'pending', message: '' });
+
+    fx.componentInstance.onJobCompleted();
+    http.expectOne(`${API}validate/walk-forward/v1`).flush({
+      job_id: 'v1', status: 'completed', current: 1, total: 1, current_fold: 1, total_folds: 1,
+      errors: [],
+      result: { fold_results: [{ weights: {}, measures: { sharpe: 1.0 } }], aggregate_score: 0.9 },
+      error: null,
+    });
+
+    expect(fx.componentInstance.folds().length).toBe(1);
+    expect(fx.componentInstance.aggregate()['aggregate_score']).toBe(0.9);
+  });
+
+  it('handles a poll result with a null payload by leaving folds empty', () => {
+    const fx = createPanel();
+    fx.componentInstance.onRun();
+    http.expectOne(`${API}validate/walk-forward`).flush({ job_id: 'v1', status: 'pending', message: '' });
+
+    fx.componentInstance.onJobCompleted();
+    http.expectOne(`${API}validate/walk-forward/v1`).flush({
+      job_id: 'v1', status: 'completed', current: 0, total: 0, current_fold: 0, total_folds: 0,
+      errors: [], result: null, error: null,
+    });
+
+    expect(fx.componentInstance.folds()).toEqual([]);
+    expect(fx.componentInstance.aggregateRows()).toEqual([]);
   });
 });

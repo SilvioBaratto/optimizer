@@ -158,4 +158,29 @@ describe('FactorAnalysisPanelComponent — render-coverage (#943)', () => {
     button(fixture.nativeElement, 'Run quintile spread').click();
     expect(emitted).toBe('momentum_12_1');
   });
+
+  // ── AC2: the validate row exposes IC mean and t-stat for the IC/t-stat table ──
+
+  it('validateRows exposes the IC mean and t-stat from the validate response', async () => {
+    const fixture = await mount({
+      validateReport: makeFactorValidateResponse({ ic_mean: 0.07, t_stat: 3.1 }),
+    });
+    const row = fixture.componentInstance.validateRows()[0];
+    expect(row['icMean']).toBe(0.07);
+    expect(row['tStat']).toBe(3.1);
+  });
+
+  // ── AC4: visible error state (role="alert"), never a blank panel ──────────────
+
+  it('when errorMessage is set, a role="alert" element renders with the message', async () => {
+    const fixture = await mount({ errorMessage: 'validate backend down' });
+    const alert = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent).toContain('validate backend down');
+  });
+
+  it('when errorMessage is null, no role="alert" element renders', async () => {
+    const fixture = await mount({ errorMessage: null });
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
+  });
 });

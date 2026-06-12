@@ -27,6 +27,18 @@ import type {
 
 export type OptimizeResult = OptimizationRunResponse | OptimizeAsyncResponse;
 
+/**
+ * Optimizer types the backend `OptimizeRequest.optimizer_type` Literal accepts
+ * (`api/app/schemas/optimization/optimization.py`: `Literal["mean_risk"]`).
+ * Single source of truth so an unsupported value cannot reach POST /optimize.
+ */
+export const ACCEPTED_OPTIMIZER_TYPES = ['mean_risk'] as const;
+
+/** True when `value` is an optimizer_type the backend `/optimize` endpoint accepts. */
+export function isAcceptedOptimizerType(value: string): boolean {
+  return (ACCEPTED_OPTIMIZER_TYPES as readonly string[]).includes(value);
+}
+
 export const PIPELINE_STORAGE_KEY = 'optimizer.savedPipeline';
 
 export interface SavedPipeline {

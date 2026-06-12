@@ -229,6 +229,7 @@ export interface EntropyPoolingRequest {
   variance_views?: string[];
   correlation_views?: string[];
   skew_views?: string[];
+  kurtosis_views?: string[];
   cvar_views?: string[];
 }
 
@@ -238,10 +239,17 @@ export interface EntropyPoolingResponse {
   covariance: number[][];
 }
 
+// Historical IC series for one expert, mirroring `ICHistory` in
+// api/app/schemas/views/views.py (backend `ic_histories: list[ICHistory]`).
+export interface ICHistory {
+  persona: string;
+  ic_values: number[];
+}
+
 export interface OpinionPoolRequest {
   tickers: string[];
   personas: string[];
-  ic_histories?: Record<string, number[]>;
+  ic_histories?: ICHistory[];
 }
 
 // Per-expert summary inside OpinionPoolResponse.experts (wire $def).

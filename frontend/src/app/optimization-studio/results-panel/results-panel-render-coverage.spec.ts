@@ -128,4 +128,53 @@ describe('ResultsPanelComponent — render-coverage (#942)', () => {
     comp.exportResults();
     expect(createSpy).not.toHaveBeenCalled();
   });
+
+  // ── AC3: visible error state (role="alert"), never a blank panel ──────────────
+
+  it('when an error message is set, a [role="alert"] element renders', () => {
+    fixture.componentRef.setInput('errorMessage', 'Optimization failed');
+    fixture.componentRef.setInput('hasResult', false);
+    fixture.detectChanges();
+    expect(el.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
+  it('when an error message is set, the alert text contains the message', () => {
+    fixture.componentRef.setInput('errorMessage', 'Solver did not converge');
+    fixture.componentRef.setInput('hasResult', false);
+    fixture.detectChanges();
+    const alert = el.querySelector('[role="alert"]') as HTMLElement | null;
+    expect(alert?.textContent).toContain('Solver did not converge');
+  });
+
+  it('when an error message is set and there is no result, the panel is not blank', () => {
+    fixture.componentRef.setInput('errorMessage', 'boom');
+    fixture.componentRef.setInput('hasResult', false);
+    fixture.detectChanges();
+    expect(el.textContent?.trim().length).toBeGreaterThan(0);
+    expect(el.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
+  it('when there is no error message, no [role="alert"] element renders', () => {
+    fixture.componentRef.setInput('errorMessage', null);
+    fixture.componentRef.setInput('hasResult', false);
+    fixture.detectChanges();
+    expect(el.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  // ── AC1: risk contributions render alongside weights ─────────────────────────
+
+  it('when a result is present, the weights table includes a risk contribution per asset', () => {
+    fixture.componentRef.setInput(
+      'result',
+      makeOptimizationRunResponse({
+        weights: { AAPL: 0.6, MSFT: 0.4 },
+        riskContributions: { AAPL: 0.7, MSFT: 0.3 },
+      }),
+    );
+    fixture.componentRef.setInput('hasResult', true);
+    fixture.detectChanges();
+    const rows = comp.weightsTableRows();
+    expect(rows.length).toBe(2);
+    expect(rows.every((r) => r['riskContribution'] !== '—')).toBe(true);
+  });
 });

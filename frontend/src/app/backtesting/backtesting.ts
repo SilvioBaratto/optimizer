@@ -1060,6 +1060,10 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
         tickers: this.tickers(),
         start_date: this.selectedStartDate(),
         end_date: this.selectedEndDate(),
+        cv_type: 'walk_forward',
+        cv_config: {},
+        optimizer_type: 'hrp',
+        optimizer_config: {},
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({

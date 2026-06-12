@@ -95,6 +95,16 @@ describe('FactorResearchComponent — render-coverage (issue #941)', () => {
       expect(el.textContent).toContain('EARLY_EXPANSION');
       expect(el.textContent).toContain('Leading indicators positive');
     });
+
+    it('when the macro-calibration call fails, the regime tab shows a visible error', () => {
+      comp.activeTab.set('regime');
+      comp.macroCalibration.set(null);
+      comp['setPanelError']('macro-calibration', 'macro service down');
+      fixture.detectChanges();
+      const alert = el.querySelector('[role="alert"]');
+      expect(alert).withContext('expected a [role="alert"] on macro-calibration failure').not.toBeNull();
+      expect(alert?.textContent).toContain('macro service down');
+    });
   });
 
   describe('child panel tab arms', () => {
@@ -114,6 +124,15 @@ describe('FactorResearchComponent — render-coverage (issue #941)', () => {
         fixture.detectChanges();
         expect(el.querySelector(selector)).not.toBeNull();
       });
+    });
+
+    it('when the te-observations call fails, the screener tab shows a visible error', () => {
+      comp.activeTab.set('screener');
+      comp['setPanelError']('te', 'TE service unavailable');
+      fixture.detectChanges();
+      const alert = el.querySelector('[role="alert"]');
+      expect(alert).withContext('expected a [role="alert"] on te-observations failure').not.toBeNull();
+      expect(alert?.textContent).toContain('TE service unavailable');
     });
   });
 

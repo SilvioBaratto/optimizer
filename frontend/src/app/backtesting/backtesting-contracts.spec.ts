@@ -204,6 +204,39 @@ describe('BacktestingComponent — /backtest contracts & error state (issue #954
     req.flush(ASYNC_RESPONSE);
   });
 
+  // ── AC1: body matches BacktestRequest field-for-field, no extra keys ──────────
+
+  it('when backtest runs, request body contains pipeline_config as an object', () => {
+    comp.onRun();
+    const req = http.expectOne(BACKTEST_URL);
+    const body = req.request.body as Record<string, unknown>;
+    expect(typeof body['pipeline_config']).toBe('object');
+    expect(body['pipeline_config']).not.toBeNull();
+    req.flush(ASYNC_RESPONSE);
+  });
+
+  it('when backtest runs, the body has exactly the BacktestRequest keys', () => {
+    comp.onRun();
+    const req = http.expectOne(BACKTEST_URL);
+    expect(Object.keys(req.request.body as object).sort()).toEqual([
+      'end_date',
+      'pipeline_config',
+      'start_date',
+      'tickers',
+    ]);
+    req.flush(ASYNC_RESPONSE);
+  });
+
+  it('when backtest runs, pipeline_config carries the selected benchmark', () => {
+    comp.onRun();
+    const req = http.expectOne(BACKTEST_URL);
+    const pipelineConfig = (req.request.body as {
+      pipeline_config: Record<string, unknown>;
+    }).pipeline_config;
+    expect(pipelineConfig['benchmark']).toBe('SPY');
+    req.flush(ASYNC_RESPONSE);
+  });
+
   it('when backtest runs, request body tickers reflect the current tickersRaw signal', () => {
     comp.tickersRaw.set('TSLA, NVDA');
     comp.onRun();
@@ -321,6 +354,21 @@ describe('BacktestingComponent — /backtest contracts & error state (issue #954
     );
     req.flush({ job_id: 'wf-job-1', run_id: 'wf-run-1', status: 'pending' });
     expect(req.request.url).toBe(WALK_FORWARD_URL);
+  });
+
+  it('when walk-forward runs, the body carries the full ValidateRequest contract', () => {
+    comp.onRunWalkForward();
+    const req = http.expectOne(WALK_FORWARD_URL);
+    expect(Object.keys(req.request.body as object).sort()).toEqual([
+      'cv_config',
+      'cv_type',
+      'end_date',
+      'optimizer_config',
+      'optimizer_type',
+      'start_date',
+      'tickers',
+    ]);
+    req.flush({ job_id: 'wf-job-1', run_id: 'wf-run-1', status: 'pending' });
   });
 
   it('when walk-forward runs, request body contains tickers as a non-empty array', () => {

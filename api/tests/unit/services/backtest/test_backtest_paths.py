@@ -55,12 +55,13 @@ class TestValidatePricesAllTickersAbsent:
         with pytest.raises(ValueError, match="AAPL"):
             validate_prices(prices, ["AAPL", "MSFT"])
 
-    def test_when_only_some_tickers_present_then_raises_for_missing_ones(self) -> None:
+    def test_when_only_some_tickers_present_then_drops_missing_ones(self) -> None:
         from app.services.backtest.backtest_service import validate_prices
 
         prices = pd.DataFrame({"AAPL": [100.0, 101.0], "UNRELATED": [50.0, 51.0]})
-        with pytest.raises(ValueError, match="MSFT"):
-            validate_prices(prices, ["AAPL", "MSFT"])
+        result = validate_prices(prices, ["AAPL", "MSFT"])
+        assert list(result.columns) == ["AAPL"]
+        assert len(result) == 2
 
     def test_when_all_requested_tickers_present_then_does_not_raise(self) -> None:
         from app.services.backtest.backtest_service import validate_prices

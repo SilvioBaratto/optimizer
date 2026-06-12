@@ -135,6 +135,9 @@ export class FactorResearchComponent {
     { id: 'exposure-constraints', label: 'Exposure Constraints' },
   ];
 
+  /** Active portfolio name from the global context, shown in the page header. */
+  readonly portfolioName = this.portfolioContext.currentPortfolioName;
+
   readonly macroPhase = computed(() => this.macroCalibration()?.phase ?? '—');
 
   readonly macroConfidence = computed(() => {

@@ -23,6 +23,7 @@ import { ResultsPanelComponent } from './results-panel/results-panel';
 import { JobProgressTrackerComponent } from '../shared/job-progress-tracker/job-progress-tracker';
 import {
   OptimizationService,
+  isAcceptedOptimizerType,
   type OptimizeResult,
   type SavedPipeline,
 } from './optimization.service';
@@ -85,6 +86,11 @@ export class OptimizationStudioComponent {
   readonly pipelineNodes = signal<PipelineNode[]>(INITIAL_PIPELINE_NODES);
   readonly isRunning = signal(false);
   readonly runJobId = signal<string | null>(null);
+  // BackgroundJob id (`runJobId`) drives progress polling via the tracker; the
+  // OptimizationRun id (`runRunId`) is what GET /optimize/{runId} expects. They
+  // are distinct ids returned together by the async-create response and must not
+  // be conflated — the tracker emits the job id, never the run id.
+  readonly runRunId = signal<string | null>(null);
   readonly runResult = signal<OptimizationRunResponse | null>(null);
   readonly runError = signal<string | null>(null);
 
@@ -152,8 +158,24 @@ export class OptimizationStudioComponent {
 
   onRunPipeline(request: OptimizerRunRequest): void {
     if (this.isRunning()) return;
+    if (!isAcceptedOptimizerType(request.optimizerType)) {
+      this.handleRunError(`Unsupported optimizer type: ${request.optimizerType}`);
+      return;
+    }
     this.beginRun();
-    const body = this.optimization.buildOptimizeBody(request, this.tickers(), this.startDate(), this.endDate());
+    this.submitRun(request);
+  }
+
+  onJobCompleted(runId?: string): void {
+    const id = runId ?? this.runRunId();
+    if (!id) return this.handleRunError('Optimization run id unavailable');
+    this.fetchRun(id);
+  }
+
+  private submitRun(request: OptimizerRunRequest): void {
+    const body = this.optimization.buildOptimizeBody(
+      request, this.tickers(), this.startDate(), this.endDate(),
+    );
     this.optimization
       .optimize(body)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -163,9 +185,9 @@ export class OptimizationStudioComponent {
       });
   }
 
-  onJobCompleted(runId: string): void {
+  private fetchRun(id: string): void {
     this.optimization
-      .getOptimizationRun(runId)
+      .getOptimizationRun(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (run) => this.completeWithRun(run),
@@ -236,6 +258,7 @@ export class OptimizationStudioComponent {
     this.runError.set(null);
     this.runResult.set(null);
     this.runJobId.set(null);
+    this.runRunId.set(null);
     this.isRunning.set(true);
     this.updateRunNodeStatus('running');
   }
@@ -243,6 +266,7 @@ export class OptimizationStudioComponent {
   private handleOptimizeResponse(res: OptimizeResult): void {
     if (OptimizationService.isAsyncResponse(res)) {
       this.runJobId.set(res.job_id);
+      this.runRunId.set(res.run_id);
       return;
     }
     this.completeWithRun(res);

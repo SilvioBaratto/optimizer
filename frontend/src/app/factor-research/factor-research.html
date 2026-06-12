@@ -1,5 +1,17 @@
 <div class="flex-1 overflow-y-auto p-4 sm:p-6">
-  <app-page-header title="Factor Research" subtitle="Regime detection, TAA signals, and factor analytics" />
+  <app-page-header title="Factor Research" subtitle="Regime detection, TAA signals, and factor analytics">
+    <div actions>
+      <span data-testid="active-portfolio"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-surface-raised text-text-secondary">
+        <i-lucide name="briefcase" [size]="14" />
+        @if (portfolioName(); as name) {
+          {{ name }}
+        } @else {
+          No portfolio selected
+        }
+      </span>
+    </div>
+  </app-page-header>
 
   @if (isLoading()) {
     <div class="space-y-6">
@@ -65,6 +77,11 @@
 
     <div class="mt-6">
       @if (activeTab() === 'regime') {
+        @if (panelErrors()['macro-calibration']; as err) {
+          <div role="alert" class="mb-4 bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+            {{ err }}
+          </div>
+        }
         @if (macroCalibration(); as cal) {
           <div class="bg-surface-raised border border-border rounded-lg p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
             <div>
@@ -110,7 +127,7 @@
           [validateReport]="validateReport()"
           [quintileSpread]="quintileSpread()"
           [factorName]="selectedFactor()"
-          [errorMessage]="panelErrors()['factor-analysis'] ?? null"
+          [errorMessage]="panelErrors()['validate'] ?? panelErrors()['quintile'] ?? null"
           (validate)="onValidate($event)"
           (runQuintileSpread)="onQuintileSpread($event)" />
       }
@@ -124,6 +141,7 @@
       @if (activeTab() === 'screener') {
         <app-asset-screener-panel [icReports]="[]"
           [teObservations]="teObservations()"
+          [errorMessage]="panelErrors()['te'] ?? null"
           (fetchTe)="onFetchTe()" />
       }
 

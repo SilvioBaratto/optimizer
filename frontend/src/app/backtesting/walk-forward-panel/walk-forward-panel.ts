@@ -17,6 +17,7 @@ import { JobProgressTrackerComponent } from '../../shared/job-progress-tracker/j
 import { BacktestService } from '../backtest.service';
 import type {
   CvType,
+  ValidateApiRequest,
   ValidateFoldResult,
   ValidateProgressResponse,
 } from '../backtest.model';
@@ -118,6 +119,10 @@ export class WalkForwardPanelComponent {
   readonly endDate = input<string>('');
   readonly optimizerType = input<string>('mean_risk');
   readonly cvType = input<CvType>('walk_forward');
+  // CV / optimizer override maps — empty by default so the backend applies its
+  // own defaults; exposed as inputs so callers can pass non-default config.
+  readonly cvConfig = input<Record<string, unknown>>({});
+  readonly optimizerConfig = input<Record<string, unknown>>({});
 
   readonly jobId = signal<string | null>(null);
   readonly folds = signal<ValidateFoldResult[]>([]);
@@ -172,25 +177,34 @@ export class WalkForwardPanelComponent {
 
   onRun(): void {
     if (this.isRunning()) return;
-    const tickers = this.tickers();
-    if (tickers.length === 0) {
+    if (this.tickers().length === 0) {
       this.error.set('No tickers provided');
       return;
     }
     this.error.set(null);
+    this.submitRun();
+  }
+
+  private submitRun(): void {
     this.backtest
-      .runWalkForward({
-        tickers,
-        start_date: this.startDate(),
-        end_date: this.endDate(),
-        cv_type: this.cvType(),
-        optimizer_type: this.optimizerType(),
-      })
+      .runWalkForward(this.buildRequest())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => this.jobId.set(res.job_id),
         error: (err: Error) => this.error.set(err.message ?? 'CV failed'),
       });
+  }
+
+  private buildRequest(): ValidateApiRequest {
+    return {
+      tickers: this.tickers(),
+      start_date: this.startDate(),
+      end_date: this.endDate(),
+      cv_type: this.cvType(),
+      cv_config: this.cvConfig(),
+      optimizer_type: this.optimizerType(),
+      optimizer_config: this.optimizerConfig(),
+    };
   }
 
   onJobCompleted(): void {

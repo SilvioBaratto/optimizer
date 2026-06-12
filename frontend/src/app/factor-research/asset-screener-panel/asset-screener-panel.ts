@@ -27,6 +27,7 @@ const IC_BADGE_MAP: Record<string, { value: string; colorClass: string }> = {
 export class AssetScreenerPanelComponent {
   icReports = input<FactorICReport[]>([]);
   teObservations = input<TradingEconomicsObservation[]>([]);
+  readonly errorMessage = input<string | null>(null);
 
   fetchTe = output<void>();
 
