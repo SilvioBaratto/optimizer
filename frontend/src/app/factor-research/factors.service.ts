@@ -2,6 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
+import { backgroundContext } from '../core/http-context';
+
 import { environment } from '../../environments/environment';
 import type {
   FactorComputeAsyncResponse,
@@ -117,7 +119,7 @@ export class FactorsService {
     if (query.refresh !== undefined) params = params.set('refresh', String(query.refresh));
     return this.http.get<MacroCalibrationResponse>(
       `${this.api}views/macro-calibration`,
-      params.keys().length ? { params } : {},
+      { ...(params.keys().length ? { params } : {}), context: backgroundContext() },
     );
   }
 

@@ -23,12 +23,15 @@ import { JobProgressTrackerComponent } from '../shared/job-progress-tracker/job-
 import { FormatService } from '../core/services/format.service';
 import { BacktestService } from './backtest.service';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
+import { TickerSeedingService } from '../core/services/ticker-seeding.service';
 import { readCssVar } from '../shared/charts/echarts-theme';
+import { safeChartOption } from '../shared/charts/safe-chart-option';
 import { CHART_EXPORTABLE, type ChartExportable } from '../shared/charts/chart-export.token';
 import { ModalService } from '../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../shared/modal/export-report-modal';
 import { DestroyRef } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { switchMap } from 'rxjs';
 import { WalkForwardPanelComponent } from './walk-forward-panel/walk-forward-panel';
 import { BacktestResultsPanelComponent } from './backtest-results-panel/backtest-results-panel';
 import type {
@@ -38,6 +41,16 @@ import type {
   BacktestRunResponse,
   FactorLoading,
 } from './backtest.model';
+
+const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA'] as const;
+
+/** Order-insensitive equality check for two string arrays. */
+function arraysEqualUnordered(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const aSorted = [...a].sort();
+  const bSorted = [...b].sort();
+  return aSorted.every((v, i) => v === bSorted[i]);
+}
 
 // Empty defaults used until a backtest run completes — signals swap them
 // for real data fetched via BacktestService.
@@ -99,7 +112,11 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   private readonly modalService = inject(ModalService);
   private readonly backtest = inject(BacktestService);
   private readonly portfolioContext = inject(PortfolioContextService);
+  private readonly tickerSeeding = inject(TickerSeedingService);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** Tracks the last array written by the seeding pipeline for the re-seed guard. */
+  private readonly lastSeed = signal<string[] | null>(null);
 
   // ── Loading / error state ──────────────────────────────────────────────────
   readonly isLoading = signal(false);
@@ -111,6 +128,8 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   readonly runRunId = signal<string | null>(null);
   readonly runError = signal<string | null>(null);
   readonly isRunning = computed(() => this.runJobId() !== null);
+  readonly isPolling = computed(() => this.runJobId() !== null);
+  readonly walkForwardError = signal<string | null>(null);
 
   // Results panel state (issue #465): populated by `getBacktestRun` after
   // the job completes. `runResponseLoading` / `runResponseError` drive the
@@ -128,7 +147,12 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   readonly selectedBenchmark = signal('SPY');
   readonly selectedStartDate = signal('2021-03-01');
   readonly selectedEndDate = signal('2026-02-25');
-  readonly tickersRaw = signal('AAPL, MSFT, GOOGL, AMZN, NVDA');
+
+  /** Public aliases consumed by the ticker-seeding spec (criterion d). */
+  readonly startDate = this.selectedStartDate;
+  readonly endDate = this.selectedEndDate;
+
+  readonly tickersRaw = signal(DEFAULT_TICKERS.join(', '));
 
   readonly tickers = computed<string[]>(() =>
     this.tickersRaw()
@@ -451,6 +475,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   constructor() {
     this.loadData();
+    this.initTickerSeeding();
 
     // Sync local backtest date inputs with the global PortfolioContextService
     // date range — header presets (1Y, 3Y, etc.) propagate to the run window.
@@ -565,6 +590,28 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     this.loadData();
   }
 
+  private initTickerSeeding(): void {
+    toObservable(this.portfolioContext.currentPortfolioName)
+      .pipe(
+        switchMap((name) =>
+          this.tickerSeeding.seedFromPortfolio(name, [...DEFAULT_TICKERS]),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((seeded) => this.applySeed(seeded));
+  }
+
+  private applySeed(seeded: string[]): void {
+    const prior = this.lastSeed();
+    const current = this.tickers();
+    const isUnseeded = prior === null;
+    const matchesPriorSeed = prior !== null && arraysEqualUnordered(current, prior);
+    if (isUnseeded || matchesPriorSeed) {
+      this.lastSeed.set(seeded);
+      this.tickersRaw.set(seeded.join(', '));
+    }
+  }
+
   private async initOverviewCharts() {
     await this.loadEcharts();
     this.initChartInstance(this.equityContainer, c => { this.equityChart = c; this.equityChart.setOption(this.buildEquityOption()); }, r => this.equityRo = r);
@@ -619,6 +666,11 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   // ── Chart option builders ──────────────────────────────────────────────────
   private buildEquityOption(): EChartsCoreOption {
+    const labels = this.equityLabels();
+    return safeChartOption(labels.length > 0 ? labels : null, () => this.buildEquityOptionImpl());
+  }
+
+  private buildEquityOptionImpl(): EChartsCoreOption {
     const labels = this.equityLabels();
     const portfolio = this.portfolioValues();
     const benchmark = this.benchmarkValues();
@@ -692,6 +744,11 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   private buildUnderwaterOption(): EChartsCoreOption {
     const labels = this.equityLabels();
+    return safeChartOption(labels.length > 0 ? labels : null, () => this.buildUnderwaterOptionImpl());
+  }
+
+  private buildUnderwaterOptionImpl(): EChartsCoreOption {
+    const labels = this.equityLabels();
     const underwater = this.underwaterValues();
     const lossColor = readCssVar('--color-loss');
 
@@ -740,6 +797,17 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   }
 
   private buildRollingOption(
+    name: string,
+    labels: string[],
+    values: number[],
+    colorVar: string,
+    isPercent = false,
+  ): EChartsCoreOption {
+    return safeChartOption(labels.length > 0 ? labels : null, () =>
+      this.buildRollingOptionImpl(name, labels, values, colorVar, isPercent));
+  }
+
+  private buildRollingOptionImpl(
     name: string,
     labels: string[],
     values: number[],
@@ -807,6 +875,14 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
 
   private buildQQOption(): EChartsCoreOption {
     const { points, refLine } = this.qqPlotData();
+    return safeChartOption(points.length > 0 ? points : null, () =>
+      this.buildQQOptionImpl(points, refLine));
+  }
+
+  private buildQQOptionImpl(
+    points: [number, number][],
+    refLine: [number, number][],
+  ): EChartsCoreOption {
     const chart1 = readCssVar('--color-chart-1');
     const chart7 = readCssVar('--color-chart-7');
     const textSecondary = readCssVar('--color-text-secondary');
@@ -944,16 +1020,20 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
       });
   }
 
-  onJobCompleted(): void {
-    const runId = this.runRunId();
+  onRun(): void {
+    this.onRunBacktest();
+  }
+
+  onJobCompleted(runId?: string): void {
+    const id = runId ?? this.runRunId();
     this.runJobId.set(null);
-    if (!runId) return;
+    if (!id) return;
     this.runResponse.set(null);
     this.runResponseError.set(null);
     this.runResponseLoading.set(true);
     this.result.set(EMPTY_RESULT);
     this.backtest
-      .getBacktestRun(runId)
+      .getBacktestRun(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (run) => {
@@ -971,6 +1051,21 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   onJobFailed(message: string): void {
     this.runError.set(message || 'Backtest job failed');
     this.runJobId.set(null);
+  }
+
+  onRunWalkForward(): void {
+    this.walkForwardError.set(null);
+    this.backtest
+      .runWalkForward({
+        tickers: this.tickers(),
+        start_date: this.selectedStartDate(),
+        end_date: this.selectedEndDate(),
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => { /* job polling handled by WalkForwardPanelComponent */ },
+        error: (err: Error) => this.walkForwardError.set(err.message ?? 'Walk-forward failed'),
+      });
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────

@@ -68,7 +68,7 @@ function fmtPct(value: number | undefined): string {
       </div>
 
       @if (error(); as err) {
-        <p class="text-xs text-loss">{{ err }}</p>
+        <p role="alert" class="text-xs text-loss">{{ err }}</p>
       }
 
       @if (jobId(); as id) {

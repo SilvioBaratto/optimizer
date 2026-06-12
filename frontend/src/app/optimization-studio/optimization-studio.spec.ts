@@ -154,4 +154,280 @@ describe('OptimizationStudioComponent', () => {
   it('openReportModal does not throw', () => {
     expect(() => comp.openReportModal()).not.toThrow();
   });
+
+  // ── Ticker seeding (issue #950) ───────────────────────────────────────────────
+  //
+  // T3 criterion: "every wired page has specs covering
+  //   (a) loads data on init,
+  //   (b) handles API error,
+  //   (c) reacts to portfolio context change."
+  //
+  // DEFAULT_TICKERS taken from optimization-studio.ts:37.
+  // All HTTP assertions use the same http.expectOne pattern as the rest of
+  // this file so that afterEach's http.verify() catches any leaked request.
+
+  describe('ticker seeding', () => {
+    const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'JPM', 'V'];
+    const PORTFOLIO_LIST_URL = `${environment.apiUrl}portfolio/`;
+
+    function snapshotUrl(name: string): string {
+      return `${environment.apiUrl}portfolio/${encodeURIComponent(name)}/snapshots/latest`;
+    }
+
+    function buildSnapshotDto(weights: Record<string, number>) {
+      return {
+        id: 'snap-1',
+        portfolio_id: 'pf-1',
+        snapshot_date: '2026-01-01',
+        snapshot_type: 'manual',
+        weights,
+        sector_mapping: null,
+        summary: null,
+        optimizer_config: null,
+        turnover: null,
+        holding_count: Object.keys(weights).length,
+        created_at: '2026-01-01T00:00:00Z',
+      };
+    }
+
+    function buildPortfolioList(
+      portfolios: { id: string; name: string }[],
+    ) {
+      return {
+        items: portfolios.map((p) => ({
+          id: p.id,
+          name: p.name,
+          description: null,
+          currency: 'USD',
+          benchmark_ticker: 'SPY',
+        })),
+        total: portfolios.length,
+      };
+    }
+
+    // ── (a) loads data on init ──────────────────────────────────────────────────
+
+    it('when no portfolio is selected at startup, tickers() equals DEFAULT_TICKERS', () => {
+      // No portfolio → no HTTP, no seed.
+      expect(comp.tickers()).toEqual(DEFAULT_TICKERS);
+      http.expectNone((r) => r.url.includes('snapshot'));
+    });
+
+    it('when a portfolio is selected at startup, snapshot is fetched', () => {
+      ctx.currentPortfolioId.set('pf-1');
+      fixture.detectChanges();
+
+      // portfolio/ list fires because id transitioned null → non-null
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === PORTFOLIO_LIST_URL)
+        .flush(buildPortfolioList([{ id: 'pf-1', name: 'growth-fund' }]));
+      fixture.detectChanges();
+
+      // snapshot fetch fires because currentPortfolioName() became 'growth-fund'
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('growth-fund'))
+        .flush(buildSnapshotDto({ TSLA: 0.6, NVDA: 0.4 }));
+      fixture.detectChanges();
+
+      expect(comp.tickers()).toEqual(jasmine.arrayContaining(['TSLA', 'NVDA']));
+      expect(comp.tickers().length).toBe(2);
+    });
+
+    it('when portfolio selected at startup, DEFAULT_TICKERS are replaced by snapshot keys', () => {
+      ctx.currentPortfolioId.set('pf-1');
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === PORTFOLIO_LIST_URL)
+        .flush(buildPortfolioList([{ id: 'pf-1', name: 'growth-fund' }]));
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('growth-fund'))
+        .flush(buildSnapshotDto({ TSLA: 1.0 }));
+      fixture.detectChanges();
+
+      expect(comp.tickers()).not.toEqual(DEFAULT_TICKERS);
+    });
+
+    // ── (b) handles API error ───────────────────────────────────────────────────
+
+    it('when snapshot API returns an error, tickers() falls back to DEFAULT_TICKERS', () => {
+      ctx.currentPortfolioId.set('pf-1');
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === PORTFOLIO_LIST_URL)
+        .flush(buildPortfolioList([{ id: 'pf-1', name: 'growth-fund' }]));
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('growth-fund'))
+        .flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      expect(comp.tickers()).toEqual(DEFAULT_TICKERS);
+    });
+
+    it('when snapshot.weights is empty, tickers() falls back to DEFAULT_TICKERS', () => {
+      ctx.currentPortfolioId.set('pf-1');
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === PORTFOLIO_LIST_URL)
+        .flush(buildPortfolioList([{ id: 'pf-1', name: 'growth-fund' }]));
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('growth-fund'))
+        .flush(buildSnapshotDto({}));
+      fixture.detectChanges();
+
+      expect(comp.tickers()).toEqual(DEFAULT_TICKERS);
+    });
+
+    it('when API errors, runError() is not polluted by the seeding path', () => {
+      ctx.currentPortfolioId.set('pf-1');
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === PORTFOLIO_LIST_URL)
+        .flush(buildPortfolioList([{ id: 'pf-1', name: 'growth-fund' }]));
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('growth-fund'))
+        .flush({ detail: 'oops' }, { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      // Ticker seeding errors are silent — runError belongs to optimization, not seeding.
+      expect(comp.runError()).toBeNull();
+    });
+
+    // ── (c) reacts to portfolio context change ──────────────────────────────────
+
+    it('when portfolio switches from null to selected, snapshot is fetched and tickers updated', () => {
+      // Start: no portfolio, no HTTP.
+      expect(comp.tickers()).toEqual(DEFAULT_TICKERS);
+
+      // Select a portfolio.
+      ctx.currentPortfolioId.set('pf-1');
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === PORTFOLIO_LIST_URL)
+        .flush(buildPortfolioList([
+          { id: 'pf-1', name: 'fund-a' },
+          { id: 'pf-2', name: 'fund-b' },
+        ]));
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('fund-a'))
+        .flush(buildSnapshotDto({ MSFT: 1.0 }));
+      fixture.detectChanges();
+
+      expect(comp.tickers()).toEqual(['MSFT']);
+    });
+
+    it('when portfolio id changes, snapshot is fetched for the new portfolio name', () => {
+      // Select portfolio A — flush list (includes B so the switch works without a new list fetch).
+      ctx.currentPortfolioId.set('pf-1');
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === PORTFOLIO_LIST_URL)
+        .flush(buildPortfolioList([
+          { id: 'pf-1', name: 'fund-a' },
+          { id: 'pf-2', name: 'fund-b' },
+        ]));
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('fund-a'))
+        .flush(buildSnapshotDto({ TSLA: 1.0 }));
+      fixture.detectChanges();
+
+      expect(comp.tickers()).toEqual(['TSLA']);
+
+      // Switch to portfolio B — no new list fetch (id was already non-null).
+      ctx.currentPortfolioId.set('pf-2');
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('fund-b'))
+        .flush(buildSnapshotDto({ NVDA: 0.7, AMZN: 0.3 }));
+      fixture.detectChanges();
+
+      expect(comp.tickers()).toEqual(jasmine.arrayContaining(['NVDA', 'AMZN']));
+      expect(comp.tickers()).not.toContain('TSLA');
+    });
+
+    // ── Re-seed guard ───────────────────────────────────────────────────────────
+
+    it('when user edits tickers after seeding, a portfolio change does not overwrite the edit', () => {
+      ctx.currentPortfolioId.set('pf-1');
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === PORTFOLIO_LIST_URL)
+        .flush(buildPortfolioList([
+          { id: 'pf-1', name: 'fund-a' },
+          { id: 'pf-2', name: 'fund-b' },
+        ]));
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('fund-a'))
+        .flush(buildSnapshotDto({ TSLA: 1.0 }));
+      fixture.detectChanges();
+
+      // User edits tickers — now diverges from the last seed.
+      comp.tickers.set(['MY_CUSTOM_TICKER']);
+
+      // Switch portfolio.
+      ctx.currentPortfolioId.set('pf-2');
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('fund-b'))
+        .flush(buildSnapshotDto({ NVDA: 1.0 }));
+      fixture.detectChanges();
+
+      // Guard must preserve the user's edit.
+      expect(comp.tickers()).toEqual(['MY_CUSTOM_TICKER']);
+    });
+
+    it('when tickers still match the last seed, a portfolio change re-seeds normally', () => {
+      ctx.currentPortfolioId.set('pf-1');
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === PORTFOLIO_LIST_URL)
+        .flush(buildPortfolioList([
+          { id: 'pf-1', name: 'fund-a' },
+          { id: 'pf-2', name: 'fund-b' },
+        ]));
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('fund-a'))
+        .flush(buildSnapshotDto({ TSLA: 1.0 }));
+      fixture.detectChanges();
+
+      // No user edit — tickers still match the seed.
+      expect(comp.tickers()).toEqual(['TSLA']);
+
+      // Switch portfolio.
+      ctx.currentPortfolioId.set('pf-2');
+      fixture.detectChanges();
+
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('fund-b'))
+        .flush(buildSnapshotDto({ SPY: 1.0 }));
+      fixture.detectChanges();
+
+      expect(comp.tickers()).toEqual(['SPY']);
+    });
+  });
 });

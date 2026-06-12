@@ -43,7 +43,7 @@
     </div>
 
     @if (computeError(); as err) {
-      <div class="mb-4 bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+      <div role="alert" class="mb-4 bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
         Compute failed: {{ err }}
       </div>
     }
@@ -96,23 +96,29 @@
       }
 
       @if (activeTab() === 'taa') {
-        <app-taa-panel [signals]="[]" [factorReturns]="[]"
-          [macroCalibration]="macroCalibration()" />
+        <app-taa-panel
+          [signals]="taaSignals()"
+          [factorReturns]="factorReturns()"
+          [macroCalibration]="macroCalibration()"
+          [errorMessage]="panelErrors()['taa'] ?? null" />
       }
 
       @if (activeTab() === 'factor-analysis') {
         <app-factor-analysis-panel
-          [factorReturns]="[]"
-          [icReports]="[]"
+          [factorReturns]="factorReturns()"
+          [icReports]="icReports()"
           [validateReport]="validateReport()"
           [quintileSpread]="quintileSpread()"
           [factorName]="selectedFactor()"
+          [errorMessage]="panelErrors()['factor-analysis'] ?? null"
           (validate)="onValidate($event)"
           (runQuintileSpread)="onQuintileSpread($event)" />
       }
 
       @if (activeTab() === 'cma-builder') {
-        <app-cma-builder-panel [cmaSets]="[]" />
+        <app-cma-builder-panel
+          [cmaSets]="cmaSets()"
+          [errorMessage]="panelErrors()['cma-builder'] ?? null" />
       }
 
       @if (activeTab() === 'screener') {

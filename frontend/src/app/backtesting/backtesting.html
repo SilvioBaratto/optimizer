@@ -69,8 +69,13 @@
 
   <!-- Run status banners -->
   @if (runError(); as err) {
-    <div class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+    <div role="alert" class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
       Backtest failed: {{ err }}
+    </div>
+  }
+  @if (walkForwardError(); as err) {
+    <div role="alert" class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+      Walk-forward failed: {{ err }}
     </div>
   }
   @if (runJobId(); as id) {

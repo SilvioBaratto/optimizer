@@ -74,6 +74,16 @@ describe('BacktestResultsPanelComponent', () => {
     expect(err?.textContent).toContain('fetch failed');
   });
 
+  it('when error is set, error element has role="alert" with non-blank text', () => {
+    const fixture = createFixture();
+    fixture.componentRef.setInput('error', 'Backtest run unavailable');
+    fixture.detectChanges();
+
+    const alertEl = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement | null;
+    expect(alertEl).withContext('expected [role="alert"] when error is set').toBeTruthy();
+    expect(alertEl?.textContent?.trim().length).toBeGreaterThan(0);
+  });
+
   it('renders nothing when run is null and not loading/erroring', () => {
     const fixture = createFixture();
     fixture.detectChanges();

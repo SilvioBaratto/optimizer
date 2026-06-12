@@ -17,6 +17,7 @@ import type { CMASet } from '../factor.model';
 })
 export class CmaBuilderPanelComponent {
   cmaSets = input<CMASet[]>([]);
+  readonly errorMessage = input<string | null>(null);
 
   selectedSet = signal(0);
 

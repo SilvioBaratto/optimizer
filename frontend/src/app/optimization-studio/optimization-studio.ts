@@ -8,7 +8,8 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { switchMap } from 'rxjs';
 import { ModalService } from '../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../shared/modal/export-report-modal';
 import { PageHeaderComponent } from '../shared/components/page-header/page-header';
@@ -27,12 +28,17 @@ import {
 } from './optimization.service';
 import { FormatService } from '../core/services/format.service';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
+import { TickerSeedingService } from '../core/services/ticker-seeding.service';
 import type {
   OptimizationRunResponse,
   PipelineNode,
 } from '../core/models/optimization.model';
 
 type ApplyStatus = 'idle' | 'saving' | 'success' | 'error';
+
+function arraysEqual(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
 
 const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'JPM', 'V'];
 
@@ -68,6 +74,7 @@ export class OptimizationStudioComponent {
   private readonly optimization = inject(OptimizationService);
   private readonly fmt = inject(FormatService);
   private readonly portfolioContext = inject(PortfolioContextService);
+  private readonly tickerSeeding = inject(TickerSeedingService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly isLoading = signal(false);
@@ -82,6 +89,7 @@ export class OptimizationStudioComponent {
   readonly runError = signal<string | null>(null);
 
   readonly tickers = signal<string[]>(DEFAULT_TICKERS);
+  private readonly lastSeed = signal<string[]>([]);
   readonly startDate = signal<string>(this.fmt.defaultStartIso());
   readonly endDate = signal<string>(this.fmt.todayIso());
 
@@ -102,6 +110,26 @@ export class OptimizationStudioComponent {
       this.startDate.set(this.toIso(range.start));
       this.endDate.set(this.toIso(range.end));
     });
+
+    // Re-seed tickers whenever the active portfolio changes.
+    // switchMap cancels the in-flight snapshot request when the portfolio
+    // switches, avoiding stale data. The re-seed guard (lastSeed) prevents
+    // overwriting tickers the user has manually edited since the last seed.
+    toObservable(this.portfolioContext.currentPortfolioName)
+      .pipe(
+        switchMap((name) =>
+          this.tickerSeeding.seedFromPortfolio(name, DEFAULT_TICKERS),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((seeded) => {
+        const current = this.tickers();
+        const last = this.lastSeed();
+        if (last.length === 0 || arraysEqual(current, last)) {
+          this.tickers.set(seeded);
+          this.lastSeed.set(seeded);
+        }
+      });
   }
 
   private toIso(d: Date): string {

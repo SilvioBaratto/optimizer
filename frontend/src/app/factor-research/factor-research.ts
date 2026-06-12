@@ -8,7 +8,8 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { switchMap } from 'rxjs';
 
 import { PageHeaderComponent } from '../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../shared/components/tab-group/tab-group';
@@ -16,6 +17,8 @@ import { StatCardComponent } from '../shared/stat-card/stat-card';
 import { JobProgressTrackerComponent } from '../shared/job-progress-tracker/job-progress-tracker';
 import { FormatService } from '../core/services/format.service';
 import { FactorsService } from './factors.service';
+import { PortfolioContextService } from '../core/services/portfolio-context.service';
+import { TickerSeedingService } from '../core/services/ticker-seeding.service';
 
 import { TaaPanelComponent } from './taa-panel/taa-panel';
 import { FactorAnalysisPanelComponent } from './factor-analysis-panel/factor-analysis-panel';
@@ -26,20 +29,32 @@ import { SelectPanelComponent } from './select-panel/select-panel';
 import { ExposureConstraintsPanelComponent } from './exposure-constraints-panel/exposure-constraints-panel';
 
 import type {
+  CMASet,
   FactorExposureConstraintsApiResponse,
   FactorExposureConstraintsRequest,
+  FactorICReport,
   FactorQuintileSpreadApiResponse,
+  FactorReturnSeries,
   FactorScoreApiResponse,
   FactorScoreRequest,
   FactorSelectApiResponse,
   FactorSelectRequest,
   FactorValidateResponse,
+  TAASignal,
   TradingEconomicsObservation,
 } from './factor.model';
 import type { MacroCalibrationResponse } from '../core/models/macro-intelligence.model';
 
 const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'JPM', 'V'];
 const DEFAULT_FACTOR = 'momentum_12_1';
+
+/** Order-insensitive equality check for two string arrays. */
+function arraysEqualUnordered(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const aSorted = [...a].sort();
+  const bSorted = [...b].sort();
+  return aSorted.every((v, i) => v === bSorted[i]);
+}
 
 @Component({
   selector: 'app-factor-research',
@@ -65,6 +80,11 @@ export class FactorResearchComponent {
   private readonly fmt = inject(FormatService);
   private readonly factors = inject(FactorsService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly portfolioContext = inject(PortfolioContextService);
+  private readonly tickerSeeding = inject(TickerSeedingService);
+
+  /** Tracks the last array written by the seeding pipeline for the re-seed guard. */
+  private readonly lastSeed = signal<string[] | null>(null);
 
   readonly isLoading = signal<boolean>(false);
   readonly hasError = signal<boolean>(false);
@@ -82,6 +102,12 @@ export class FactorResearchComponent {
   // Compute (async) state
   readonly computeJobId = signal<string | null>(null);
   readonly computeError = signal<string | null>(null);
+
+  // Compute result signals (populated from pollCompute after job completes)
+  readonly taaSignals = signal<TAASignal[]>([]);
+  readonly factorReturns = signal<FactorReturnSeries[]>([]);
+  readonly icReports = signal<FactorICReport[]>([]);
+  readonly cmaSets = signal<CMASet[]>([]);
 
   // Response signals
   readonly validateReport = signal<FactorValidateResponse | null>(null);
@@ -121,6 +147,10 @@ export class FactorResearchComponent {
     return cal ? cal.delta.toFixed(2) : '—';
   });
 
+  constructor() {
+    this.initTickerSeeding();
+  }
+
   ngOnInit(): void {
     this.fetchMacroCalibration();
   }
@@ -147,7 +177,28 @@ export class FactorResearchComponent {
   }
 
   onComputeCompleted(): void {
+    const id = this.computeJobId();
     this.computeJobId.set(null);
+    if (!id) return;
+    this.factors
+      .pollCompute(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (progress) => this.applyComputeResult(progress.result),
+        error: (err: Error) => this.computeError.set(err.message ?? 'Failed to load compute result'),
+      });
+  }
+
+  private applyComputeResult(result: Record<string, unknown> | null): void {
+    if (!result) return;
+    const taaSignals = result['taa_signals'];
+    if (Array.isArray(taaSignals)) this.taaSignals.set(taaSignals as TAASignal[]);
+    const factorReturns = result['factor_returns'];
+    if (Array.isArray(factorReturns)) this.factorReturns.set(factorReturns as FactorReturnSeries[]);
+    const icReports = result['ic_reports'];
+    if (Array.isArray(icReports)) this.icReports.set(icReports as FactorICReport[]);
+    const cmaSets = result['cma_sets'];
+    if (Array.isArray(cmaSets)) this.cmaSets.set(cmaSets as CMASet[]);
   }
 
   onComputeFailed(message: string): void {
@@ -251,6 +302,28 @@ export class FactorResearchComponent {
         next: (rows) => this.teObservations.set(rows),
         error: (err: Error) => this.setPanelError('te', err.message ?? 'TE fetch failed'),
       });
+  }
+
+  private initTickerSeeding(): void {
+    toObservable(this.portfolioContext.currentPortfolioName)
+      .pipe(
+        switchMap((name) =>
+          this.tickerSeeding.seedFromPortfolio(name, [...DEFAULT_TICKERS]),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((seeded) => this.applySeed(seeded));
+  }
+
+  private applySeed(seeded: string[]): void {
+    const prior = this.lastSeed();
+    const current = this.tickers();
+    const isUnseeded = prior === null;
+    const matchesPriorSeed = prior !== null && arraysEqualUnordered(current, prior);
+    if (isUnseeded || matchesPriorSeed) {
+      this.lastSeed.set(seeded);
+      this.tickers.set(seeded);
+    }
   }
 
   private fetchMacroCalibration(): void {

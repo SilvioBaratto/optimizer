@@ -40,7 +40,7 @@
 
     <!-- Run-time status banners -->
     @if (runError(); as err) {
-      <div class="mb-4 bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+      <div role="alert" class="mb-4 bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
         Optimization failed: {{ err }}
       </div>
     }
@@ -94,12 +94,14 @@
             <app-results-panel
               [result]="runResult()"
               [hasResult]="hasResult()"
+              [errorMessage]="runError()"
               (applyWeights)="onApplyWeights($event)" />
           }
           @default {
             <app-results-panel
               [result]="runResult()"
               [hasResult]="hasResult()"
+              [errorMessage]="runError()"
               (applyWeights)="onApplyWeights($event)" />
           }
         }
@@ -112,6 +114,7 @@
         <app-results-panel
               [result]="runResult()"
               [hasResult]="hasResult()"
+              [errorMessage]="runError()"
               (applyWeights)="onApplyWeights($event)" />
       </div>
     }

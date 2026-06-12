@@ -1,5 +1,7 @@
 import { HttpTestingController } from '@angular/common/http/testing';
 
+export { BACKGROUND_REQUEST, backgroundContext } from '../app/core/http-context';
+
 /** Maps a request URL to a stub response body. */
 export type StubFor = (url: string) => Record<string, unknown>;
 

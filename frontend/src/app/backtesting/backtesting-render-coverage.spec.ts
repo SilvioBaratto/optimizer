@@ -463,6 +463,7 @@ describe('BacktestingComponent — render-coverage (issue #936)', () => {
     });
 
     it('buildEquityOption tooltip formatter returns empty string for empty params', () => {
+      comp.result.set(makeResult());
       const priv = comp as unknown as Record<string, unknown>;
       const option = (priv['buildEquityOption'] as () => Record<string, unknown>).call(comp);
       const tooltip = option['tooltip'] as Record<string, unknown>;
@@ -475,6 +476,7 @@ describe('BacktestingComponent — render-coverage (issue #936)', () => {
     });
 
     it('buildUnderwaterOption tooltip formatter returns empty string for empty params', () => {
+      comp.result.set(makeResult());
       const priv = comp as unknown as Record<string, unknown>;
       const option = (priv['buildUnderwaterOption'] as () => Record<string, unknown>).call(comp);
       const tooltip = option['tooltip'] as Record<string, unknown>;
@@ -509,6 +511,13 @@ describe('BacktestingComponent — render-coverage (issue #936)', () => {
     });
 
     it('buildQQOption tooltip formatter returns empty string when value is not an array', () => {
+      comp.result.set(makeResult({
+        returnDistribution: [
+          { binStart: -0.02, binEnd: -0.01, count: 5, frequency: 0.2 },
+          { binStart: -0.01, binEnd: 0.0, count: 10, frequency: 0.4 },
+          { binStart: 0.0, binEnd: 0.01, count: 8, frequency: 0.32 },
+        ],
+      }));
       const priv = comp as unknown as Record<string, unknown>;
       const option = (priv['buildQQOption'] as () => Record<string, unknown>).call(comp);
       const tooltip = option['tooltip'] as Record<string, unknown>;

@@ -15,6 +15,7 @@ import { DataTableComponent, TableColumn } from '../../shared/data-table/data-ta
 import { EchartsHeatmapComponent } from '../../shared/echarts-heatmap/echarts-heatmap';
 import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
 import { readCssVar } from '../../shared/charts/echarts-theme';
+import { safeChartOption } from '../../shared/charts/safe-chart-option';
 import type {
   FactorICReport,
   FactorQuintileSpreadApiResponse,
@@ -39,8 +40,8 @@ function computePairwiseCorrelation(series: FactorReturnSeries[]): number[][] {
         continue;
       }
 
-      const a = series[i].points.map(p => p.cumReturn);
-      const b = series[j].points.map(p => p.cumReturn);
+      const a = (series[i].points ?? []).map(p => p.cumReturn);
+      const b = (series[j].points ?? []).map(p => p.cumReturn);
       const len = Math.min(a.length, b.length);
 
       if (len < 2) {
@@ -83,6 +84,7 @@ export class FactorAnalysisPanelComponent implements OnDestroy {
   validateReport = input<FactorValidateResponse | null>(null);
   quintileSpread = input<FactorQuintileSpreadApiResponse | null>(null);
   factorName = input<string>('momentum_12_1');
+  readonly errorMessage = input<string | null>(null);
 
   validate = output<string>();
   runQuintileSpread = output<string>();
@@ -219,50 +221,39 @@ export class FactorAnalysisPanelComponent implements OnDestroy {
   }
 
   private buildLineOption(factorReturns: FactorReturnSeries[]): EChartsCoreOption {
-    const colors = Array.from({ length: 8 }, (_, i) => readCssVar(`--color-chart-${i + 1}`));
-
-    const seriesData = factorReturns.map((fr, i) => {
-      const sampled = fr.points.filter((_, idx) => idx % 5 === 0);
+    return safeChartOption(factorReturns, (fr) => {
+      const colors = Array.from({ length: 8 }, (_, i) => readCssVar(`--color-chart-${i + 1}`));
+      const seriesData = fr.map((f, i) => {
+        const sampled = (f.points ?? []).filter((_, idx) => idx % 5 === 0);
+        return {
+          name: f.factor.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+          type: 'line' as const,
+          data: sampled.map(p => +(p.cumReturn * 100).toFixed(3)),
+          symbol: 'none',
+          lineStyle: { width: 1.5, color: colors[i % colors.length] },
+          itemStyle: { color: colors[i % colors.length] },
+        };
+      });
+      const labels = (fr[0]?.points ?? []).filter((_, idx) => idx % 5 === 0).map(p => p.date);
       return {
-        name: fr.factor.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-        type: 'line' as const,
-        data: sampled.map(p => +(p.cumReturn * 100).toFixed(3)),
-        symbol: 'none',
-        lineStyle: { width: 1.5, color: colors[i % colors.length] },
-        itemStyle: { color: colors[i % colors.length] },
+        tooltip: {
+          trigger: 'axis',
+          formatter: (params: unknown) => {
+            const items = params as Array<{ seriesName: string; value: number; color: string; axisValue?: string }>;
+            const date = items[0]?.axisValue ?? '';
+            const lines = items
+              .map(p => `<span style="color:${p.color}">&#9679;</span> ${p.seriesName}: ${p.value.toFixed(2)}%`)
+              .join('<br/>');
+            return `${date}<br/>${lines}`;
+          },
+        },
+        legend: { bottom: 0, type: 'scroll' },
+        grid: { left: 50, right: 16, top: 16, bottom: 56 },
+        xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 10 } },
+        yAxis: { type: 'value', axisLabel: { formatter: (v: number) => `${v.toFixed(0)}%` } },
+        series: seriesData,
       };
     });
-
-    const labels =
-      factorReturns[0]?.points
-        .filter((_, idx) => idx % 5 === 0)
-        .map(p => p.date) ?? [];
-
-    return {
-      tooltip: {
-        trigger: 'axis',
-        formatter: (params: unknown) => {
-          const items = params as Array<{ seriesName: string; value: number; color: string; axisValue?: string }>;
-          const date = items[0]?.axisValue ?? '';
-          const lines = items
-            .map(p => `<span style="color:${p.color}">&#9679;</span> ${p.seriesName}: ${p.value.toFixed(2)}%`)
-            .join('<br/>');
-          return `${date}<br/>${lines}`;
-        },
-      },
-      legend: { bottom: 0, type: 'scroll' },
-      grid: { left: 50, right: 16, top: 16, bottom: 56 },
-      xAxis: {
-        type: 'category',
-        data: labels,
-        axisLabel: { fontSize: 10 },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: { formatter: (v: number) => `${v.toFixed(0)}%` },
-      },
-      series: seriesData,
-    };
   }
 
   ngOnDestroy() {

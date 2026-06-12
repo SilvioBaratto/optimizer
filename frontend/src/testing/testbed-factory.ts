@@ -4,13 +4,21 @@ import {
   Type,
   provideZonelessChangeDetection,
 } from '@angular/core';
-import { provideHttpClient } from '@angular/common/http';
+import {
+  HttpErrorResponse,
+  withInterceptors,
+  provideHttpClient,
+  type HttpInterceptorFn,
+} from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
 } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
+import { throwError } from 'rxjs';
+
+import { BACKGROUND_REQUEST } from '../app/core/http-context';
 
 type TestProvider = Provider | EnvironmentProviders;
 
@@ -22,6 +30,21 @@ export interface ConfigureTestBedOptions {
   /** Add provideRouter([]) (default false). */
   withRouter?: boolean;
 }
+
+/**
+ * Functional interceptor that silently stubs requests tagged with the
+ * BACKGROUND_REQUEST context token. Tagged requests return a 204 error so the
+ * component's catchError path is exercised without polluting HttpTestingController.
+ * Untagged requests (including service-level unit tests) pass through unchanged.
+ */
+const backgroundStubInterceptor: HttpInterceptorFn = (req, next) => {
+  if (req.context.get(BACKGROUND_REQUEST)) {
+    return throwError(
+      () => new HttpErrorResponse({ status: 204, statusText: 'No Content (test stub)' }),
+    );
+  }
+  return next(req);
+};
 
 /**
  * Configure a zoneless TestBed and compile components.
@@ -47,7 +70,10 @@ export async function configureTestBed(
 function baseProviders(withHttp: boolean, withRouter: boolean): TestProvider[] {
   const providers: TestProvider[] = [provideZonelessChangeDetection()];
   if (withHttp) {
-    providers.push(provideHttpClient(), provideHttpClientTesting());
+    providers.push(
+      provideHttpClient(withInterceptors([backgroundStubInterceptor])),
+      provideHttpClientTesting(),
+    );
   }
   if (withRouter) {
     providers.push(provideRouter([]));

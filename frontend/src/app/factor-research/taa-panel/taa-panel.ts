@@ -11,6 +11,7 @@ import {
 } from '@angular/core';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { readCssVar } from '../../shared/charts/echarts-theme';
+import { safeChartOption } from '../../shared/charts/safe-chart-option';
 import type {
   FactorReturnSeries,
   MacroRegime,
@@ -36,6 +37,7 @@ export class TaaPanelComponent implements OnDestroy {
   signals = input<TAASignal[]>([]);
   factorReturns = input<FactorReturnSeries[]>([]);
   macroCalibration = input<MacroCalibrationResponse | null>(null);
+  readonly errorMessage = input<string | null>(null);
 
   private readonly barChartContainer = viewChild<ElementRef<HTMLElement>>('barChart');
   private readonly lineChartContainer = viewChild<ElementRef<HTMLElement>>('lineChart');
@@ -135,99 +137,73 @@ export class TaaPanelComponent implements OnDestroy {
   }
 
   private buildBarOption(signals: TAASignal[]): EChartsCoreOption {
-    const color1 = readCssVar('--color-chart-1');
-    const color2 = readCssVar('--color-chart-3');
-
-    const containerWidth = this.barChartContainer()?.nativeElement.clientWidth ?? 600;
-    const isNarrow = containerWidth < 500;
-
-    const labels = signals.map(s =>
-      s.factor.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()),
-    );
-
-    return {
-      tooltip: { trigger: 'axis' },
-      legend: { bottom: 0, data: ['Current', 'Tilted'] },
-      grid: { left: isNarrow ? 40 : 60, right: 16, top: 16, bottom: 48 },
-      xAxis: {
-        type: 'category',
-        data: labels,
-        axisLabel: { rotate: 20, fontSize: 10 },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: { formatter: (v: number) => `${v.toFixed(1)}%` },
-      },
-      series: [
-        {
-          name: 'Current',
-          type: 'bar',
-          data: signals.map(s => +(s.currentWeight * 100).toFixed(2)),
-          itemStyle: { color: color1 },
-          barMaxWidth: 28,
-        },
-        {
-          name: 'Tilted',
-          type: 'bar',
-          data: signals.map(s => +(s.tiltedWeight * 100).toFixed(2)),
-          itemStyle: { color: color2 },
-          barMaxWidth: 28,
-        },
-      ],
-    };
+    return safeChartOption(signals, (s) => {
+      const color1 = readCssVar('--color-chart-1');
+      const color2 = readCssVar('--color-chart-3');
+      const containerWidth = this.barChartContainer()?.nativeElement.clientWidth ?? 600;
+      const isNarrow = containerWidth < 500;
+      const labels = s.map(sig =>
+        sig.factor.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      );
+      return {
+        tooltip: { trigger: 'axis' },
+        legend: { bottom: 0, data: ['Current', 'Tilted'] },
+        grid: { left: isNarrow ? 40 : 60, right: 16, top: 16, bottom: 48 },
+        xAxis: { type: 'category', data: labels, axisLabel: { rotate: 20, fontSize: 10 } },
+        yAxis: { type: 'value', axisLabel: { formatter: (v: number) => `${v.toFixed(1)}%` } },
+        series: [
+          {
+            name: 'Current', type: 'bar',
+            data: s.map(sig => +(sig.currentWeight * 100).toFixed(2)),
+            itemStyle: { color: color1 }, barMaxWidth: 28,
+          },
+          {
+            name: 'Tilted', type: 'bar',
+            data: s.map(sig => +(sig.tiltedWeight * 100).toFixed(2)),
+            itemStyle: { color: color2 }, barMaxWidth: 28,
+          },
+        ],
+      };
+    });
   }
 
   private buildLineOption(factorReturns: FactorReturnSeries[]): EChartsCoreOption {
-    const colors = Array.from({ length: 8 }, (_, i) => readCssVar(`--color-chart-${i + 1}`));
-
-    // Sample every 5th point for performance
-    const seriesData = factorReturns.map((fr, i) => {
-      const sampled = fr.points.filter((_, idx) => idx % 5 === 0);
+    return safeChartOption(factorReturns, (fr) => {
+      const colors = Array.from({ length: 8 }, (_, i) => readCssVar(`--color-chart-${i + 1}`));
+      const seriesData = fr.map((f, i) => {
+        const sampled = (f.points ?? []).filter((_, idx) => idx % 5 === 0);
+        return {
+          name: f.factor.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+          type: 'line' as const,
+          data: sampled.map(p => +(p.cumReturn * 100).toFixed(3)),
+          symbol: 'none',
+          lineStyle: { width: 1.5, color: colors[i % colors.length] },
+          itemStyle: { color: colors[i % colors.length] },
+        };
+      });
+      const labels = (fr[0]?.points ?? []).filter((_, idx) => idx % 5 === 0).map(p => p.date);
       return {
-        name: fr.factor.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-        type: 'line' as const,
-        data: sampled.map(p => +(p.cumReturn * 100).toFixed(3)),
-        symbol: 'none',
-        lineStyle: { width: 1.5, color: colors[i % colors.length] },
-        itemStyle: { color: colors[i % colors.length] },
+        tooltip: {
+          trigger: 'axis',
+          formatter: (params: unknown) => {
+            const items = params as Array<{ seriesName: string; value: number; color: string }>;
+            const date = (items[0] as { axisValue?: string })?.axisValue ?? '';
+            const lines = items
+              .map(p => `<span style="color:${p.color}">&#9679;</span> ${p.seriesName}: ${p.value.toFixed(2)}%`)
+              .join('<br/>');
+            return `${date}<br/>${lines}`;
+          },
+        },
+        legend: { bottom: 0, type: 'scroll' },
+        grid: {
+          left: (this.lineChartContainer()?.nativeElement.clientWidth ?? 600) < 500 ? 40 : 50,
+          right: 16, top: 16, bottom: 56,
+        },
+        xAxis: { type: 'category', data: labels, axisLabel: { rotate: 0, fontSize: 10 } },
+        yAxis: { type: 'value', axisLabel: { formatter: (v: number) => `${v.toFixed(0)}%` } },
+        series: seriesData,
       };
     });
-
-    const labels =
-      factorReturns[0]?.points
-        .filter((_, idx) => idx % 5 === 0)
-        .map(p => p.date) ?? [];
-
-    return {
-      tooltip: {
-        trigger: 'axis',
-        formatter: (params: unknown) => {
-          const items = params as Array<{ seriesName: string; value: number; color: string }>;
-          const date = (items[0] as { axisValue?: string })?.axisValue ?? '';
-          const lines = items
-            .map(p => `<span style="color:${p.color}">&#9679;</span> ${p.seriesName}: ${p.value.toFixed(2)}%`)
-            .join('<br/>');
-          return `${date}<br/>${lines}`;
-        },
-      },
-      legend: { bottom: 0, type: 'scroll' },
-      grid: {
-        left: (this.lineChartContainer()?.nativeElement.clientWidth ?? 600) < 500 ? 40 : 50,
-        right: 16,
-        top: 16,
-        bottom: 56,
-      },
-      xAxis: {
-        type: 'category',
-        data: labels,
-        axisLabel: { rotate: 0, fontSize: 10 },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: { formatter: (v: number) => `${v.toFixed(0)}%` },
-      },
-      series: seriesData,
-    };
   }
 
   ngOnDestroy() {

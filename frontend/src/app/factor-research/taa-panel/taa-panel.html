@@ -1,3 +1,9 @@
+@if (errorMessage(); as err) {
+  <div role="alert" class="mb-4 bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+    {{ err }}
+  </div>
+}
+
 <div class="space-y-6">
 
   <!-- Macro calibration (from /views/macro-calibration) -->

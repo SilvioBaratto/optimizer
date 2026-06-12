@@ -89,6 +89,8 @@ export interface BacktestApiRequest {
   pipeline_config?: Record<string, unknown>;
 }
 
+// Intentional: POST /api/v1/backtest returns CamelCaseModel (jobId, runId) unlike
+// the snake_case responses used by /optimize and /factors/compute.
 export interface BacktestAsyncResponse {
   jobId: string;
   runId: string;

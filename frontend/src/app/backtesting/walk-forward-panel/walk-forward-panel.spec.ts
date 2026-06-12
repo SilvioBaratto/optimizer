@@ -141,4 +141,18 @@ describe('WalkForwardPanelComponent', () => {
     expect(fx.componentInstance.jobId()).toBeNull();
     expect(fx.componentInstance.error()).toBe('solver crashed');
   });
+
+  it('when walk-forward POST fails, error element has role="alert" with non-blank text', () => {
+    const fx = createPanel();
+    fx.componentInstance.onRun();
+
+    http
+      .expectOne(`${API}validate/walk-forward`)
+      .flush({ detail: 'busy' }, { status: 409, statusText: 'Conflict' });
+    fx.detectChanges();
+
+    const alertEl = fx.nativeElement.querySelector('[role="alert"]') as HTMLElement | null;
+    expect(alertEl).withContext('expected [role="alert"] after walk-forward error').toBeTruthy();
+    expect(alertEl?.textContent?.trim().length).toBeGreaterThan(0);
+  });
 });

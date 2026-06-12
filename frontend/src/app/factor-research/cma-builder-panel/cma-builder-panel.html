@@ -1,5 +1,11 @@
 <div class="space-y-6">
 
+  @if (errorMessage(); as err) {
+    <div role="alert" class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+      {{ err }}
+    </div>
+  }
+
   <!-- Set Selector -->
   <div class="flex flex-wrap items-center gap-2">
     <span class="text-data-sm text-text-secondary">Scenario:</span>

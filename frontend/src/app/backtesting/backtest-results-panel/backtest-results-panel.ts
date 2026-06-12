@@ -46,6 +46,7 @@ const DRAWDOWN_SUMMARY_KEYS: ReadonlySet<string> = new Set(['max_drawdown']);
       </div>
     } @else if (error(); as err) {
       <div
+        role="alert"
         data-testid="error"
         class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3"
       >

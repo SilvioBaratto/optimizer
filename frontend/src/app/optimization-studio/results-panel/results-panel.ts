@@ -43,6 +43,7 @@ function formatPercent(value: unknown, digits = 2): string {
 export class ResultsPanelComponent {
   readonly result = input<OptimizationRunResponse | null>(null);
   readonly hasResult = input<boolean>(false);
+  readonly errorMessage = input<string | null>(null);
   readonly applyWeights = output<Record<string, number>>();
 
   exportResults(): void {
