@@ -47,7 +47,7 @@ import type {
   FactorLoading,
 } from './backtest.model';
 
-const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA'] as const;
+export const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA'] as const;
 
 /** Order-insensitive equality check for two string arrays. */
 function arraysEqualUnordered(a: string[], b: string[]): boolean {

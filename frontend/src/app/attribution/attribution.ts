@@ -60,9 +60,11 @@ export class AttributionComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   // ── Portfolio context ─────────────────────────────────────────────────────
-  readonly portfolioName = computed(
-    () => this.portfolioCtx.currentPortfolioName() ?? this.portfolioCtx.currentPortfolioId(),
-  );
+  // Wait for the resolved name — never fall through to the raw UUID.
+  // During cold-boot (id restored, name still resolving), portfolioName() is
+  // null and the effect returns early, preventing a UUID-keyed snapshot call.
+  readonly portfolioName = computed(() => this.portfolioCtx.currentPortfolioName());
+  readonly selectedPortfolio = computed(() => this.portfolioCtx.selectedPortfolio());
 
   // ── Global loading / error state ──────────────────────────────────────────
   readonly isLoading = signal<boolean>(false);
@@ -222,7 +224,7 @@ export class AttributionComponent {
     this.hasError.set(false);
     this.errorMessage.set('');
 
-    const portfolio = this.portfolioCtx.selectedPortfolio();
+    const portfolio = this.selectedPortfolio();
     const benchmarkTicker = portfolio?.benchmark_ticker ?? 'SPY';
     const benchmarkWeights: Record<string, number> = { [benchmarkTicker]: 1.0 };
     const startDate = this.startDate();

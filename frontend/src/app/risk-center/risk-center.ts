@@ -288,14 +288,14 @@ export class RiskCenterComponent {
   }
 
   private onPortfolioChange(): void {
-    const name = this.portfolioName();
+    const name = this.portfolioCtx.currentPortfolioName();
     if (!name) return;
     this.fetchAnalytics(name);
     this.reloadLimits();
   }
 
   private onVarMethodChange(): void {
-    const name = this.portfolioName();
+    const name = this.portfolioCtx.currentPortfolioName();
     if (!name) return;
     this.fetchVar(name);
   }
