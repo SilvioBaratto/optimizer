@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
+import { mapHttpError } from '../core/http-error';
 
 import { environment } from '../../environments/environment';
 import { PortfolioApiService } from '../core/services/portfolio-api.service';
@@ -57,16 +58,6 @@ export interface PipelineLoadResult {
 export interface RunConfig {
   optimizerType: string;
   config: Record<string, unknown>;
-}
-
-/**
- * Identity error mapper: re-throws the raw error unchanged so subscribers
- * receive the original `HttpErrorResponse` (status + body on `error.error`).
- * The interceptor (`api-http.interceptor.ts`) owns message normalization and
- * toast dispatch — services do not duplicate that logic.
- */
-function mapHttpError() {
-  return (err: unknown) => throwError(() => err);
 }
 
 @Injectable({ providedIn: 'root' })

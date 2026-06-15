@@ -51,13 +51,10 @@ export class RebalancingService {
     return this.http.post<RebalancingPolicyDto>(this.policyUrl(portfolioName), body);
   }
 
-  activatePolicy(
-    portfolioName: string,
-    policyId: string,
-  ): Observable<RebalancingPolicyDto> {
+  activatePolicy(portfolioName: string, policyId: string): Observable<void> {
     const url =
       `${this.api}portfolio/${encodeURIComponent(portfolioName)}/activate-policy/${encodeURIComponent(policyId)}`;
-    return this.http.post<RebalancingPolicyDto>(url, {});
+    return this.http.post<void>(url, {});
   }
 
   getPreview(portfolioName: string): Observable<RebalancePreviewApiResponse> {

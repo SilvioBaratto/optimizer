@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -79,8 +79,8 @@ describe('DashboardService', () => {
       }
     });
 
-    it('when portfolio not found, mapped error message is propagated', () => {
-      let error: Error | undefined;
+    it('when portfolio not found, propagates HttpErrorResponse with status 404', () => {
+      let error: HttpErrorResponse | undefined;
       svc.getPerformanceMetrics('ghost').subscribe({ error: (e) => (error = e) });
 
       http
@@ -89,7 +89,8 @@ describe('DashboardService', () => {
         )
         .flush({ detail: 'portfolio not found' }, { status: 404, statusText: 'Not Found' });
 
-      expect(error?.message).toBe('portfolio not found');
+      expect(error?.status).toBe(404);
+      expect(error?.error?.detail).toBe('portfolio not found');
     });
 
     it('when response mapping succeeds, kpis array and nav are returned', () => {
@@ -172,15 +173,16 @@ describe('DashboardService', () => {
       expect(result?.sharpe[0].value).toBe(1.1);
     });
 
-    it('when portfolio not found, mapped error message is propagated', () => {
-      let error: Error | undefined;
+    it('when portfolio not found, propagates HttpErrorResponse with status 404', () => {
+      let error: HttpErrorResponse | undefined;
       svc.getRollingMetrics('ghost').subscribe({ error: (e) => (error = e) });
 
       http
         .expectOne((r) => r.url === `${API}portfolio-analytics/ghost/rolling-metrics`)
         .flush({ detail: 'portfolio not found' }, { status: 404, statusText: 'Not Found' });
 
-      expect(error?.message).toBe('portfolio not found');
+      expect(error?.status).toBe(404);
+      expect(error?.error?.detail).toBe('portfolio not found');
     });
   });
 
@@ -235,15 +237,16 @@ describe('DashboardService', () => {
       req.flush({ points: [], portfolioTotalReturn: 0, benchmarkTotalReturn: 0 });
     });
 
-    it('when portfolio not found, mapped error message is propagated', () => {
-      let error: Error | undefined;
+    it('when portfolio not found, propagates HttpErrorResponse with status 404', () => {
+      let error: HttpErrorResponse | undefined;
       svc.getEquityCurve('ghost').subscribe({ error: (e) => (error = e) });
 
       http
         .expectOne((r) => r.url === `${API}portfolio-analytics/ghost/equity-curve`)
         .flush({ detail: 'portfolio not found' }, { status: 404, statusText: 'Not Found' });
 
-      expect(error?.message).toBe('portfolio not found');
+      expect(error?.status).toBe(404);
+      expect(error?.error?.detail).toBe('portfolio not found');
     });
   });
 
@@ -285,15 +288,16 @@ describe('DashboardService', () => {
       expect(result?.nodes[0].name).toBe('Technology');
     });
 
-    it('when portfolio not found, mapped error message is propagated', () => {
-      let error: Error | undefined;
+    it('when portfolio not found, propagates HttpErrorResponse with status 404', () => {
+      let error: HttpErrorResponse | undefined;
       svc.getAllocation('ghost').subscribe({ error: (e) => (error = e) });
 
       http
         .expectOne((r) => r.url === `${API}portfolio-analytics/ghost/allocation`)
         .flush({ detail: 'portfolio not found' }, { status: 404, statusText: 'Not Found' });
 
-      expect(error?.message).toBe('portfolio not found');
+      expect(error?.status).toBe(404);
+      expect(error?.error?.detail).toBe('portfolio not found');
     });
   });
 
@@ -326,15 +330,16 @@ describe('DashboardService', () => {
       expect(result?.sp500Return).toBe(-0.005);
     });
 
-    it('when backend is unavailable, mapped error message is propagated', () => {
-      let error: Error | undefined;
+    it('when backend is unavailable, propagates HttpErrorResponse with status 503', () => {
+      let error: HttpErrorResponse | undefined;
       svc.getMarketSnapshot().subscribe({ error: (e) => (error = e) });
 
       http
         .expectOne(`${API}market/snapshot`)
         .flush({ detail: 'market data unavailable' }, { status: 503, statusText: 'Service Unavailable' });
 
-      expect(error?.message).toBe('market data unavailable');
+      expect(error?.status).toBe(503);
+      expect(error?.error?.detail).toBe('market data unavailable');
     });
   });
 
@@ -375,15 +380,16 @@ describe('DashboardService', () => {
       expect(result?.returns[0].name).toBe('Equities');
     });
 
-    it('when portfolio not found, mapped error message is propagated', () => {
-      let error: Error | undefined;
+    it('when portfolio not found, propagates HttpErrorResponse with status 404', () => {
+      let error: HttpErrorResponse | undefined;
       svc.getAssetClassReturns('ghost').subscribe({ error: (e) => (error = e) });
 
       http
         .expectOne((r) => r.url === `${API}portfolio-analytics/ghost/asset-class-returns`)
         .flush({ detail: 'portfolio not found' }, { status: 404, statusText: 'Not Found' });
 
-      expect(error?.message).toBe('portfolio not found');
+      expect(error?.status).toBe(404);
+      expect(error?.error?.detail).toBe('portfolio not found');
     });
   });
 

@@ -1,25 +1,16 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, throwError } from 'rxjs';
+import { Observable } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
+import { mapHttpError } from '../core/http-error';
 import type {
   BrinsonApiRequest,
   BrinsonApiResponse,
   FactorAttributionApiRequest,
   FactorAttributionApiResponse,
 } from './attribution.model';
-
-/**
- * Identity error mapper: re-throws the raw error unchanged so subscribers
- * receive the original `HttpErrorResponse` (status + body on `error.error`).
- * The interceptor (`api-http.interceptor.ts`) owns message normalization and
- * toast dispatch — services do not duplicate that logic.
- */
-function mapHttpError() {
-  return (err: unknown) => throwError(() => err);
-}
 
 /**
  * HTTP client for /api/v1/attribution/{brinson,factor}.

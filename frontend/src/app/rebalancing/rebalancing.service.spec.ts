@@ -135,18 +135,19 @@ describe('RebalancingService', () => {
       req.flush(policy());
     });
 
-    it('POSTs /portfolio/{name}/activate-policy/{id} with empty body', () => {
+    it('POSTs /portfolio/{name}/activate-policy/{id} with empty body and treats 204 as void', () => {
       svc.activatePolicy('myport', 'p1').subscribe();
       const req = http.expectOne(`${API}portfolio/myport/activate-policy/p1`);
       expect(req.request.method).toBe('POST');
-      req.flush(policy({ isActive: true }));
+      expect(req.request.body).toEqual({});
+      req.flush(null, { status: 204, statusText: 'No Content' });
     });
 
     it('URI-encodes both portfolio name and policy id in activatePolicy URL', () => {
       svc.activatePolicy('my port', 'p/1').subscribe();
       const req = http.expectOne(`${API}portfolio/my%20port/activate-policy/p%2F1`);
       expect(req.request.method).toBe('POST');
-      req.flush(policy({ isActive: true }));
+      req.flush(null, { status: 204, statusText: 'No Content' });
     });
 
     it('when activatePolicy returns 404, the error is propagated to the subscriber', () => {

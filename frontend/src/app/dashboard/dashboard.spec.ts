@@ -360,7 +360,7 @@ describe('DashboardComponent — rolling-metrics wiring (issue #453)', () => {
     drainExcept('/rolling-metrics');
     fixture.detectChanges();
 
-    expect(component.rollingMetricsError()).toContain('boom');
+    expect(component.rollingMetricsError()).not.toBeNull();
     expect(component.rollingMetrics()).toBeNull();
     expect(component.rollingMetricsLoading()).toBe(false);
   });

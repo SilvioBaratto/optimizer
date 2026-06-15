@@ -1,8 +1,9 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, throwError, forkJoin, of } from 'rxjs';
+import { Observable, forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
+import { mapHttpError } from '../core/http-error';
 import { FormatService } from '../core/services/format.service';
 import type {
   ApiPerformanceMetricsResponse,
@@ -46,9 +47,7 @@ export class DashboardService {
         `${this.base}portfolio-analytics/${encodeURIComponent(name)}/performance-metrics`,
         { params },
       )
-      .pipe(catchError(err => throwError(() => new Error(
-        err.error?.detail ?? 'Failed to load performance metrics',
-      ))));
+      .pipe(catchError(mapHttpError()));
   }
 
   getRollingMetrics(
@@ -65,9 +64,7 @@ export class DashboardService {
         `${this.base}portfolio-analytics/${encodeURIComponent(name)}/rolling-metrics`,
         { params },
       )
-      .pipe(catchError(err => throwError(() => new Error(
-        err.error?.detail ?? 'Failed to load rolling metrics',
-      ))));
+      .pipe(catchError(mapHttpError()));
   }
 
   getEquityCurve(
@@ -83,9 +80,7 @@ export class DashboardService {
         `${this.base}portfolio-analytics/${encodeURIComponent(name)}/equity-curve`,
         { params },
       )
-      .pipe(catchError(err => throwError(() => new Error(
-        err.error?.detail ?? 'Failed to load equity curve',
-      ))));
+      .pipe(catchError(mapHttpError()));
   }
 
   getAllocation(name: string): Observable<ApiAllocationResponse> {
@@ -93,17 +88,13 @@ export class DashboardService {
       .get<ApiAllocationResponse>(
         `${this.base}portfolio-analytics/${encodeURIComponent(name)}/allocation`,
       )
-      .pipe(catchError(err => throwError(() => new Error(
-        err.error?.detail ?? 'Failed to load allocation',
-      ))));
+      .pipe(catchError(mapHttpError()));
   }
 
   getMarketSnapshot(): Observable<ApiMarketSnapshotResponse> {
     return this.http
       .get<ApiMarketSnapshotResponse>(`${this.base}market/snapshot`)
-      .pipe(catchError(err => throwError(() => new Error(
-        err.error?.detail ?? 'Failed to load market snapshot',
-      ))));
+      .pipe(catchError(mapHttpError()));
   }
 
   getAssetClassReturns(name: string): Observable<ApiAssetClassReturnsResponse> {
@@ -111,9 +102,7 @@ export class DashboardService {
       .get<ApiAssetClassReturnsResponse>(
         `${this.base}portfolio-analytics/${encodeURIComponent(name)}/asset-class-returns`,
       )
-      .pipe(catchError(err => throwError(() => new Error(
-        err.error?.detail ?? 'Failed to load asset class returns',
-      ))));
+      .pipe(catchError(mapHttpError()));
   }
 
   loadPortfolioData(

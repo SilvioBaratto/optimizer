@@ -109,7 +109,7 @@ function makeRebalSvcMock(
     listPolicies:   jasmine.createSpy('listPolicies').and.returnValue(policiesReturn),
     getPreview:     jasmine.createSpy('getPreview').and.returnValue(previewReturn),
     getSnapshots:   jasmine.createSpy('getSnapshots').and.returnValue(snapshotsReturn),
-    activatePolicy: jasmine.createSpy('activatePolicy').and.returnValue(of({})),
+    activatePolicy: jasmine.createSpy('activatePolicy').and.returnValue(of(undefined)),
     createPolicy:   jasmine.createSpy('createPolicy').and.returnValue(of({})),
     decide:         jasmine.createSpy('decide').and.returnValue(of({})),
   };
