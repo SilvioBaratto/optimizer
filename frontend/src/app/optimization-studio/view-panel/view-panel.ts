@@ -3,6 +3,7 @@ import {
   signal,
   computed,
   inject,
+  input,
   ChangeDetectionStrategy,
   DestroyRef,
 } from '@angular/core';
@@ -64,6 +65,10 @@ export class ViewPanelComponent {
   private readonly optimization = inject(OptimizationService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly fmt = inject(FormatService);
+
+  /** Parent-seeded tickers from the active portfolio snapshot. When non-empty,
+   *  overrides the user-editable tickersRaw field for all /views/* requests. */
+  readonly tickers = input<string[]>([]);
 
   readonly viewFrameworkOptions: ViewFramework[] = [
     'black_litterman',
@@ -154,8 +159,15 @@ export class ViewPanelComponent {
     this.selectedViewFramework.set(value);
   }
 
+  /** Returns the effective tickers for /views/* requests.
+   *  Prefers the parent-seeded input; falls back to the user-editable field. */
+  private resolvedTickers(): string[] {
+    const seeded = this.tickers();
+    return seeded.length > 0 ? seeded : parseTickers(this.tickersRaw());
+  }
+
   runBlackLitterman(): void {
-    const tickers = parseTickers(this.tickersRaw());
+    const tickers = this.resolvedTickers();
     if (tickers.length === 0) return;
     this.blLoading.set(true);
     this.blError.set(null);
@@ -175,7 +187,7 @@ export class ViewPanelComponent {
   }
 
   runOpinionPool(): void {
-    const tickers = parseTickers(this.tickersRaw());
+    const tickers = this.resolvedTickers();
     const personas = parseTickers(this.personasRaw());
     if (tickers.length === 0 || personas.length < 2) return;
     this.opinionLoading.set(true);
@@ -196,7 +208,7 @@ export class ViewPanelComponent {
   }
 
   runEntropyPooling(): void {
-    const tickers = parseTickers(this.tickersRaw());
+    const tickers = this.resolvedTickers();
     if (tickers.length === 0) return;
     this.entropyLoading.set(true);
     this.entropyError.set(null);

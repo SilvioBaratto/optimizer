@@ -86,7 +86,7 @@
         @switch (activeNode()) {
           @case ('p2') { <app-preprocessing-panel /> }
           @case ('p3') { <app-moment-panel /> }
-          @case ('p4') { <app-view-panel /> }
+          @case ('p4') { <app-view-panel [tickers]="tickers()" /> }
           @case ('p5') {
             <app-optimizer-panel (runOptimization)="onRunPipeline($event)" />
           }

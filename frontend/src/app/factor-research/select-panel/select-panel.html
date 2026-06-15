@@ -1,6 +1,7 @@
 <form class="space-y-4" [formGroup]="form" (ngSubmit)="run()">
   @if (errorMessage(); as err) {
     <div
+      role="alert"
       data-testid="select-error"
       class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
       {{ err }}
