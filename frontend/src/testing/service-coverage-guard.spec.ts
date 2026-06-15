@@ -68,7 +68,10 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
   },
   {
     cls: BuilderDriftService,
-    coveredBy: ['portfolio-builder-field-parity.spec.ts'],
+    coveredBy: [
+      'portfolio-builder-field-parity.spec.ts',
+      'builder-drift-service-contracts.spec.ts',
+    ],
   },
   {
     cls: DashboardService,
@@ -80,7 +83,10 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
   },
   {
     cls: DatabaseService,
-    coveredBy: ['settings-field-parity.spec.ts'],
+    coveredBy: [
+      'settings-field-parity.spec.ts',
+      'settings/database.service-contract.spec.ts',
+    ],
   },
   {
     cls: FactorsService,
@@ -102,6 +108,7 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'macro-intelligence.service.spec.ts',
       'cross-page-service-field-parity.spec.ts',
+      'macro-intelligence-service-contracts.spec.ts',
     ],
   },
   {
@@ -125,6 +132,7 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'pipeline-builder-api.service.spec.ts',
       'portfolio-builder-field-parity.spec.ts',
+      'pipeline-builder-api-service-contracts.spec.ts',
     ],
   },
   {
@@ -132,6 +140,7 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'portfolio-api.service.spec.ts',
       'portfolio-builder-contracts.spec.ts',
+      'portfolio-api-service-contracts.spec.ts',
     ],
   },
   {
@@ -144,13 +153,17 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
   },
   {
     cls: ReferenceIndexService,
-    coveredBy: ['reference-index.service.spec.ts'],
+    coveredBy: [
+      'reference-index.service.spec.ts',
+      'reference-index-service-contracts.spec.ts',
+    ],
   },
   {
     cls: ReportsService,
     coveredBy: [
       'reports.service.spec.ts',
       'cross-page-service-field-parity.spec.ts',
+      'reports-service-contracts.spec.ts',
     ],
   },
   {
@@ -163,7 +176,10 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
   },
   {
     cls: SchedulerService,
-    coveredBy: ['settings-field-parity.spec.ts'],
+    coveredBy: [
+      'settings-field-parity.spec.ts',
+      'settings/scheduler.service-contract.spec.ts',
+    ],
   },
   {
     cls: TickerSeedingService,
@@ -179,7 +195,10 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
   },
   {
     cls: YfinanceService,
-    coveredBy: ['yfinance.service.spec.ts'],
+    coveredBy: [
+      'yfinance.service.spec.ts',
+      'yfinance-service-contracts.spec.ts',
+    ],
   },
 ];
 
@@ -220,6 +239,12 @@ describe('Service coverage guard — every HTTP service referenced in a parity s
       'These services are in the inventory but list no covering spec. ' +
       'Add at least one parity spec filename to their coveredBy array.',
     );
+  });
+
+  it('BuilderDriftService coveredBy list references the dedicated contract spec (issue #1029)', () => {
+    const entry = HTTP_SERVICE_INVENTORY.find(e => e.cls === BuilderDriftService);
+    expect(entry).toBeDefined();
+    expect(entry!.coveredBy).toContain('builder-drift-service-contracts.spec.ts');
   });
 
   HTTP_SERVICE_INVENTORY.forEach(({ cls, coveredBy }) => {

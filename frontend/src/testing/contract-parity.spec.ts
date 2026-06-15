@@ -28,6 +28,7 @@ import {
   makeBacktestProgressResponse,
   makeBacktestRunResponse,
   makeBrinsonResponse,
+  makeConcentrationApiResponse,
   makeConcentrationAssetApi,
   makeCorrelationApiResponse,
   makeCreateSessionResponse,
@@ -41,8 +42,10 @@ import {
   makeFactorScoreDto,
   makeFactorSelectResponse,
   makeGenerateViewsResponse,
+  makeInstrumentListResponse,
   makeJobListResponse,
   makeJobSummary,
+  makeLiquidityApiResponse,
   makeLiquidityMetrics,
   makeMacroCalibrationApiResponse,
   makeMarketSnapshotResponse,
@@ -54,6 +57,7 @@ import {
   makePriceHistoryResponse,
   makeRebalanceDecideResponse,
   makeRebalancePreview,
+  makeRebalancingPolicyListResponse,
   makeReportJobCreateResponse,
   makeRiskLimitListResponse,
   makeRollingMetricsResponse,
@@ -62,9 +66,34 @@ import {
   makeStepRunWireResponse,
   makeStressScenarioApiResponse,
   makeStressScenarioItemApi,
+  makeTickerProfileResponse,
   makeUniverseScreenResponse,
+  makeUniverseStatsResponse,
   makeVarApiResponse,
 } from './domain-fixtures';
+
+// ── Batch D (#1029) inline fixtures ──────────────────────────────────────────
+// Used for DTOs that lack a domain-fixtures factory.
+
+const FACTOR_SCORE_LIST_FIXTURE = { items: [makeFactorScoreDto()], total: 1 };
+
+// FactorValidationReportResponse — camelCase CamelCaseModel (distinct from the
+// snake_case FactorValidateResponse used in earlier parity tasks).
+const FACTOR_VALIDATION_REPORT_FIXTURE = {
+  id: 'fvr-1',
+  factorType: 'momentum_12_1',
+  reportDate: '2026-01-01',
+  validationType: 'in_sample',
+  icMean: 0.05,
+  icStd: 0.1,
+  icir: 0.5,
+  tStat: 2.4,
+  pValue: 0.01,
+  vif: 1.2,
+  details: null,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
 
 // `assertParity` is jasmine-free (it throws) so it compiles in the production
 // build, which type-checks every non-spec file under src/. Wrap it here so each
@@ -347,5 +376,76 @@ describe('contract-parity: pipeline_builder', () => {
   // request_id), distinct from the dashboard simple DriftResponse (entries[]).
   it('when the portfolio rich DriftResponse is checked, fixture keys equal the wire properties', () => {
     expectParity(schemaOf(portfolioSnapshot, 'DriftResponse'), makeDriftResponseRich());
+  });
+});
+
+// ── Batch D (#1029): remaining DTOs — closes out all uncovered response types ─
+// Covers: RebalancingPolicyListResponse, FactorScoreListResponse,
+// FactorValidationReportResponse, InstrumentListResponse, UniverseStatsResponse,
+// TickerProfileResponse, ConcentrationResponse, LiquidityResponse.
+
+describe('contract-parity: rebalancing (extended #1029)', () => {
+  it('when RebalancingPolicyListResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(rebalancingSnapshot, 'RebalancingPolicyListResponse'),
+      makeRebalancingPolicyListResponse(),
+    );
+  });
+});
+
+describe('contract-parity: factors (extended #1029)', () => {
+  it('when FactorScoreListResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(factorsSnapshot, 'FactorScoreListResponse'),
+      FACTOR_SCORE_LIST_FIXTURE,
+    );
+  });
+
+  it('when FactorValidationReportResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(factorsSnapshot, 'FactorValidationReportResponse'),
+      FACTOR_VALIDATION_REPORT_FIXTURE,
+    );
+  });
+});
+
+describe('contract-parity: universe (extended #1029)', () => {
+  it('when InstrumentListResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(universeSnapshot, 'InstrumentListResponse'),
+      makeInstrumentListResponse(),
+    );
+  });
+
+  it('when UniverseStatsResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(universeSnapshot, 'UniverseStatsResponse'),
+      makeUniverseStatsResponse(),
+    );
+  });
+});
+
+describe('contract-parity: market_data (extended #1029)', () => {
+  it('when TickerProfileResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(marketDataSnapshot, 'TickerProfileResponse'),
+      makeTickerProfileResponse(),
+    );
+  });
+});
+
+describe('contract-parity: risk (extended #1029)', () => {
+  it('when ConcentrationResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(riskSnapshot, 'ConcentrationResponse'),
+      makeConcentrationApiResponse(),
+    );
+  });
+
+  it('when LiquidityResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(
+      schemaOf(riskSnapshot, 'LiquidityResponse'),
+      makeLiquidityApiResponse(),
+    );
   });
 });
