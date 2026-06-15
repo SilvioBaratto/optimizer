@@ -46,13 +46,11 @@ function toLiquidityParams(query?: LiquidityQuery): HttpParams | undefined {
 }
 
 /**
- * HTTP client for risk analytics, stress scenarios, budget calibration and
- * risk-limits CRUD.
+ * HTTP client for risk analytics, stress scenarios and risk-limits CRUD.
  *
  * Endpoint groups:
  *   - GET  /portfolio/{name}/risk/{var|correlation|factor-exposure|concentration|liquidity}
  *   - POST /risk/stress-scenarios     (synchronous LLM call)
- *   - POST /risk/budget-calibration   (synchronous LLM call)
  *   - GET/POST    /risk/{portfolio_name}/limits
  *   - PUT/DELETE  /risk/{portfolio_name}/limits/{limit_id}
  */

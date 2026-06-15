@@ -11,6 +11,7 @@ import {
   EchartsRebalancingDiffComponent,
   type RebalancingDiffData,
 } from '../../shared/echarts-rebalancing-diff/echarts-rebalancing-diff';
+import { PageErrorBannerComponent } from '../../shared/components/page-error-banner/page-error-banner';
 import type { DriftApiResponse, DriftEntryDto } from '../rebalancing.model';
 
 @Component({
@@ -19,6 +20,7 @@ import type { DriftApiResponse, DriftEntryDto } from '../rebalancing.model';
     FormsModule,
     DataTableComponent,
     EchartsRebalancingDiffComponent,
+    PageErrorBannerComponent,
   ],
   templateUrl: './status-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -26,6 +28,7 @@ import type { DriftApiResponse, DriftEntryDto } from '../rebalancing.model';
 export class StatusPanelComponent {
   readonly drift = input<DriftApiResponse | null>(null);
   readonly threshold = input<number>(0.05);
+  readonly error = input<string | null>(null);
 
   readonly thresholdChange = output<number>();
 

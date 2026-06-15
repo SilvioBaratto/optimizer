@@ -219,23 +219,15 @@ describe('RebalancingComponent — workflow coverage (issue #940)', () => {
     expect(comp.selectedPortfolio()).toBe('Test Portfolio');
   });
 
-  it('when getDrift fails, the error state is shown', () => {
-    // Override the rebalancing service to throw on getDrift
-    const svc = TestBed.inject(RebalancingService) as jasmine.SpyObj<RebalancingService>;
-    if (svc.getDrift && typeof svc.getDrift === 'function') {
-      // HTTP-backed service: flush drift with an error
-      fixture.detectChanges();
-      http.match((r) => r.url.includes('/drift')).forEach((r) =>
-        r.flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' }),
-      );
-      drainRequests(http, stubFor);
-      fixture.detectChanges();
-      expect(comp.hasError()).toBe(true);
-    } else {
-      // Already a spy: trigger the error path via signal
-      comp.hasError.set(true);
-      expect(comp.hasError()).toBe(true);
-    }
+  it('when getDrift fails, drift panel error is set and global hasError remains false', () => {
+    fixture.detectChanges();
+    http.match((r) => r.url.includes('/drift')).forEach((r) =>
+      r.flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' }),
+    );
+    drainRequests(http, stubFor);
+    fixture.detectChanges();
+    expect(comp.panelErrors()['drift']).toBeTruthy();
+    expect(comp.hasError()).toBe(false);
   });
 
   it('onThresholdChange refetches drift with the new threshold', () => {
@@ -413,7 +405,7 @@ describe('RebalancingComponent — default error messages', () => {
     expect(c.panelErrors()['whatif']).toBe('Decide failed');
   });
 
-  it('falls back to default error message when drift errors without a message', async () => {
+  it('falls back to default drift panel error message when drift errors without a message', async () => {
     installResizeObserverStub();
     await configureTestBed({
       imports: [RebalancingComponent],
@@ -426,8 +418,8 @@ describe('RebalancingComponent — default error messages', () => {
     });
     const fx = TestBed.createComponent(RebalancingComponent);
     fx.detectChanges();
-    expect(fx.componentInstance.hasError()).toBe(true);
-    expect(fx.componentInstance.errorMessage()).toBe('Failed to load drift data');
+    expect(fx.componentInstance.panelErrors()['drift']).toBe('Drift failed');
+    expect(fx.componentInstance.hasError()).toBe(false);
   });
 });
 
@@ -541,5 +533,73 @@ describe('RebalancingComponent — per-panel error rendering (issue #984)', () =
     http.expectOne((r) => r.url.includes('rebalance/decide')).flush(makeRebalanceDecideResponse());
 
     expect(comp.panelErrors()['whatif']).toBeNull();
+  });
+
+  // ── Issue #1019: drift 5xx shows in-panel error, page not blanked ───────────
+
+  it('when getDrift returns 5xx, status panel shows a visible role="alert" and global hasError stays false', () => {
+    fixture.detectChanges();
+    http
+      .expectOne((r) => r.url.includes('/drift'))
+      .flush({ detail: 'down' }, { status: 500, statusText: 'Server Error' });
+    drainRequests(http, stubFor);
+    fixture.detectChanges();
+
+    expect(comp.hasError()).toBe(false);
+    expect(comp.panelErrors()['drift']).toBeTruthy();
+    // activeTab defaults to 'status' — status panel renders in-panel PageErrorBannerComponent
+    expect(queryAlert()).not.toBeNull();
+  });
+
+  it('when getDrift returns 5xx, the tab-group remains in the DOM', () => {
+    fixture.detectChanges();
+    http
+      .expectOne((r) => r.url.includes('/drift'))
+      .flush({ detail: 'down' }, { status: 500, statusText: 'Server Error' });
+    drainRequests(http, stubFor);
+    fixture.detectChanges();
+
+    const tabGroup = (fixture.nativeElement as HTMLElement).querySelector('app-tab-group');
+    expect(tabGroup).not.toBeNull();
+  });
+
+  // ── Issue #1019: trade-preview 5xx shows role="alert" ───────────────────────
+
+  it('when getPreview returns 5xx, trade-preview tab shows a visible role="alert"', () => {
+    fixture.detectChanges();
+    http
+      .match((r) => !r.url.includes('rebalance/preview'))
+      .forEach((r) => r.flush(stubFor(r.request.url)));
+    http
+      .expectOne((r) => r.url.includes('rebalance/preview'))
+      .flush({ detail: 'down' }, { status: 500, statusText: 'Server Error' });
+
+    comp.activeTab.set('trade-preview');
+    fixture.detectChanges();
+
+    const msg = comp.panelErrors()['preview'];
+    expect(msg).toBeTruthy();
+    expect(queryAlert()).not.toBeNull();
+    expect(queryAlert()?.textContent).toContain(msg!);
+  });
+
+  // ── Issue #1019: snapshots 5xx shows role="alert" ───────────────────────────
+
+  it('when getSnapshots returns 5xx, history tab shows a visible role="alert"', () => {
+    fixture.detectChanges();
+    http
+      .match((r) => !r.url.includes('/snapshots'))
+      .forEach((r) => r.flush(stubFor(r.request.url)));
+    http
+      .expectOne((r) => r.url.includes('/snapshots'))
+      .flush({ detail: 'down' }, { status: 500, statusText: 'Server Error' });
+
+    comp.activeTab.set('history');
+    fixture.detectChanges();
+
+    const msg = comp.panelErrors()['history'];
+    expect(msg).toBeTruthy();
+    expect(queryAlert()).not.toBeNull();
+    expect(queryAlert()?.textContent).toContain(msg!);
   });
 });

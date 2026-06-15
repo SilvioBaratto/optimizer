@@ -191,6 +191,11 @@ export class DashboardComponent implements OnDestroy {
     ),
   );
 
+  // Non-blocking per-card error signals for period/benchmark refetches.
+  // These do NOT set hasError — a stale 5xx must not blank the whole page.
+  readonly equityCurveRefetchError = signal<string | null>(null);
+  readonly performanceMetricsRefetchError = signal<string | null>(null);
+
   // Rolling metrics (Sharpe / volatility / beta) fetched from
   // GET /portfolio-analytics/{name}/rolling-metrics. The card refetches on
   // portfolio-name or date-range changes via a dedicated effect in the
@@ -368,6 +373,7 @@ export class DashboardComponent implements OnDestroy {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
+          this.equityCurveRefetchError.set(null);
           this.equityCurve.set(res.points as EquityCurvePoint[]);
           if (this.equityChart) {
             this.equityChart.setOption(
@@ -375,7 +381,9 @@ export class DashboardComponent implements OnDestroy {
             );
           }
         },
-        error: () => { /* non-critical */ },
+        error: (err: Error) => {
+          this.equityCurveRefetchError.set(err?.message ?? 'Failed to refresh equity curve');
+        },
       });
   }
 
@@ -387,12 +395,15 @@ export class DashboardComponent implements OnDestroy {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
+          this.performanceMetricsRefetchError.set(null);
           this.kpis.set(res.kpis as DashboardKPI[]);
           this.nav.set(res.nav);
           this.dailyChange.set(res.navChangePct);
           this.currency.set(res.currency ?? 'EUR');
         },
-        error: () => { /* non-critical */ },
+        error: (err: Error) => {
+          this.performanceMetricsRefetchError.set(err?.message ?? 'Failed to refresh performance metrics');
+        },
       });
   }
 

@@ -70,6 +70,11 @@
 
   <!-- 2. KPI Strip -->
   @if (revealIndex() >= 1) {
+  @if (performanceMetricsRefetchError(); as err) {
+    <div role="alert" class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3">
+      KPI refresh failed: {{ err }}
+    </div>
+  }
   <div class="grid grid-cols-2 sm:grid-cols-4 2xl:grid-cols-7 gap-3 reveal">
     @for (kpi of kpis(); track kpi.label) {
     <app-stat-card [label]="kpi.label" [value]="formatKpiValue(kpi)" [sparklineData]="kpi.sparkline"
@@ -86,6 +91,11 @@
     <div class="lg:col-span-2 bg-surface-raised border border-border rounded-lg p-4 space-y-4">
       <div>
         <h2 class="text-data-lg font-medium text-text mb-3">Portfolio Performance ({{ period() }} vs {{ benchmark() }})</h2>
+        @if (equityCurveRefetchError(); as err) {
+          <div role="alert" class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3 mb-2">
+            Chart refresh failed: {{ err }}
+          </div>
+        }
         <div #equityCurve class="w-full" style="height: 320px;"></div>
       </div>
       @if (drawdownSeries().length > 0) {

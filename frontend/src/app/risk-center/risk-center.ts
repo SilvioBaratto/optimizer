@@ -199,6 +199,7 @@ export class RiskCenterComponent {
     this.hasError.set(false);
     this.errorMessage.set('');
     if (!name) return;
+    this.fetchVar(name);
     this.fetchAnalytics(name);
     this.reloadLimits();
   }
@@ -301,7 +302,6 @@ export class RiskCenterComponent {
   }
 
   private fetchAnalytics(name: string): void {
-    this.fetchVar(name);
     this.fetchFor('correlation', () => this.risk.getCorrelation(name), this.correlationResponse);
     this.fetchFor('factor', () => this.risk.getFactorExposure(name), this.factorExposureResponse);
     this.fetchFor('concentration', () => this.risk.getConcentration(name), this.concentrationResponse);

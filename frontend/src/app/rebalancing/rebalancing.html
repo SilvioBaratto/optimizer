@@ -24,6 +24,7 @@
     <div class="mt-6">
       @if (activeTab() === 'status') {
         <app-status-panel [drift]="driftResponse()" [threshold]="driftThreshold()"
+          [error]="panelError('drift')"
           (thresholdChange)="onThresholdChange($event)" />
       }
 
@@ -50,6 +51,12 @@
           (runDecide)="onRunDecide($event)" />
       }
     </div>
+
+    @if (hasAnyPanelError()) {
+      <div role="alert" aria-live="polite" aria-atomic="true" class="sr-only">
+        One or more panels failed to load. Navigate to the affected tab for details.
+      </div>
+    }
   }
 
   <!-- Confirmation dialog for policy activation -->

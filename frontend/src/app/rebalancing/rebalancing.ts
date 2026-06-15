@@ -94,6 +94,10 @@ export class RebalancingComponent {
   readonly panelErrors = signal<Record<string, string | null>>({});
   readonly pendingActivateId = signal<string | null>(null);
 
+  readonly hasAnyPanelError = computed(() =>
+    Object.values(this.panelErrors()).some((v) => v !== null),
+  );
+
   readonly tabs: Tab[] = [
     { id: 'status',        label: 'Drift Status' },
     { id: 'policy',        label: 'Policy' },
@@ -206,14 +210,15 @@ export class RebalancingComponent {
       .getDrift(name, this.driftThreshold())
       .pipe(
         catchError((err: Error) => {
-          this.hasError.set(true);
-          this.errorMessage.set(err.message ?? 'Failed to load drift data');
           this.setPanelError('drift', err.message ?? 'Drift failed');
           return EMPTY;
         }),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe((res) => this.driftResponse.set(res));
+      .subscribe((res) => {
+        this.driftResponse.set(res);
+        this.setPanelError('drift', null);
+      });
   }
 
   private reloadPolicies(name: string): void {

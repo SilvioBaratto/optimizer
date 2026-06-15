@@ -33,4 +33,22 @@ describe('StatusPanelComponent', () => {
     comp.onThresholdInput(0.1);
     expect(value).toBe(0.1);
   });
+
+  // ── Issue #1019: error input ─────────────────────────────────────────────────
+
+  it('when error is set, a role="alert" banner is rendered with the error text', () => {
+    fixture.componentRef.setInput('error', 'Drift data unavailable');
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const alert = el.querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent).toContain('Drift data unavailable');
+  });
+
+  it('when error is null, no role="alert" banner is rendered', () => {
+    fixture.componentRef.setInput('error', null);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[role="alert"]')).toBeNull();
+  });
 });

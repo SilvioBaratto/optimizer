@@ -221,6 +221,37 @@ describe('AnalyticsPaneComponent', () => {
       expect(host.querySelector('app-diagnostics-strip')).not.toBeNull();
       expect(host.querySelector('[data-region="diagnostics-reconciliation"]')).not.toBeNull();
     });
+
+    // Previously-uncovered branches inside hasAnySignal(): the OR chain
+    // short-circuits at unmapped_count > 0 in the existing tests, so the
+    // remaining three count conditions need dedicated cases.
+
+    it('when fx_missing_count is 1 and all other counts are zero, strip is rendered', () => {
+      const { fixture, store, host } = setup();
+      store.setDriftDiagnostics(
+        makeBuilderDiagnostics({ fx_missing_count: 1 }),
+      );
+      fixture.detectChanges();
+      expect(host.querySelector('app-diagnostics-strip')).not.toBeNull();
+    });
+
+    it('when stale_price_count is 1 and all other counts are zero, strip is rendered', () => {
+      const { fixture, store, host } = setup();
+      store.setDriftDiagnostics(
+        makeBuilderDiagnostics({ stale_price_count: 1 }),
+      );
+      fixture.detectChanges();
+      expect(host.querySelector('app-diagnostics-strip')).not.toBeNull();
+    });
+
+    it('when target_not_on_broker_count is 1 and all other counts are zero, strip is rendered', () => {
+      const { fixture, store, host } = setup();
+      store.setDriftDiagnostics(
+        makeBuilderDiagnostics({ target_not_on_broker_count: 1 }),
+      );
+      fixture.detectChanges();
+      expect(host.querySelector('app-diagnostics-strip')).not.toBeNull();
+    });
   });
 
   describe('null-data null-safety', () => {
