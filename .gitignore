@@ -99,6 +99,9 @@ volumes/
 # Cache directories
 .cache/
 cache/
+# ...but NOT the Trading212 ticker-cache source package (real code, not a build artifact)
+!api/app/services/universe/trading212/cache/
+!api/app/services/universe/trading212/cache/**
 
 # Output files (keep structure, ignore generated files)
 optimizer/outputs/*.csv
