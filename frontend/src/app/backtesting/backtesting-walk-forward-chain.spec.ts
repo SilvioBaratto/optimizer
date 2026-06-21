@@ -93,17 +93,6 @@ describe('BacktestingComponent — walk-forward panel wiring (issue #1024)', () 
     expect(panel.endDate()).toBe('2024-09-30');
   });
 
-  it('when date-range is synced from context, the panel endDate input reflects the new end', () => {
-    const ctx = TestBed.inject(PortfolioContextService);
-    ctx.setCustomRange(new Date('2023-01-01'), new Date('2023-12-31'));
-    fixture.detectChanges();
-
-    const panelEl = fixture.debugElement.query(By.directive(WalkForwardPanelComponent));
-    if (!panelEl) pending('WalkForwardPanelComponent not found');
-    const panel = panelEl.componentInstance as WalkForwardPanelComponent;
-    expect(panel.endDate()).toBe('2023-12-31');
-  });
-
   // ── Parent walk-forward error → [role="alert"] in parent DOM ─────────────
 
   it('when walkForwardError is set on the parent, a [role="alert"] element appears', () => {

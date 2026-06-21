@@ -1,13 +1,16 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 
 import { environment } from '../../environments/environment';
 import type {
   BacktestApiRequest,
   BacktestAsyncResponse,
   BacktestProgressResponse,
+  BacktestResultEnvelope,
   BacktestRunResponse,
+  BacktestSubmitParams,
+  BacktestSubmitResponse,
   EquityCurvePoint,
   ValidateApiRequest,
   ValidateAsyncResponse,
@@ -27,6 +30,29 @@ export class BacktestService {
 
   runBacktest(body: BacktestApiRequest): Observable<BacktestAsyncResponse> {
     return this.http.post<BacktestAsyncResponse>(`${this.api}backtest`, body);
+  }
+
+  /**
+   * High-level run entry point (issue #1030, criterion 12). Wraps `runBacktest`
+   * with the camelCase params the UI carries and projects the async response
+   * down to the `{ jobId }` the component polls on.
+   */
+  submit(params: BacktestSubmitParams): Observable<BacktestSubmitResponse> {
+    return this.runBacktest({
+      tickers: params.tickers,
+      start_date: params.startDate,
+      end_date: params.endDate,
+      pipeline_config: { benchmark: params.benchmark },
+    }).pipe(map((res) => ({ jobId: res.jobId })));
+  }
+
+  /**
+   * Fetch the result envelope for a run. Returns `{ status, result? }`; the
+   * `result` KPI payload is present once `status === 'completed'`.
+   */
+  getResult(jobId: string): Observable<BacktestResultEnvelope> {
+    const encoded = encodeURIComponent(jobId);
+    return this.http.get<BacktestResultEnvelope>(`${this.api}backtest/${encoded}/result`);
   }
 
   pollBacktest(jobId: string): Observable<BacktestProgressResponse> {

@@ -20,37 +20,6 @@ import type { PortfolioDto, SnapshotDto } from '../app/core/models/portfolio-api
 import type { DatabaseStatus, HealthCheck, TableInfo, TruncateResponse } from '../app/settings/database.model';
 import type { SchedulerJobStatusDto, SchedulerStatusResponse } from '../app/settings/scheduler.model';
 import type { ApiMarketSnapshotResponse } from '../app/core/models/dashboard-api.model';
-import type {
-  BrinsonApiResponse,
-  FactorAttributionApiResponse,
-} from '../app/attribution/attribution.model';
-import type {
-  ConcentrationAssetApi,
-  ConcentrationMetric,
-  CorrelationApiResponse,
-  CorrelationData,
-  LiquidityMetric,
-  StressScenario,
-  StressScenarioApiResponse,
-  StressScenarioItemApi,
-  VarApiResponse,
-} from '../app/risk-center/risk.model';
-import type {
-  DriftApiResponse,
-  RebalanceDecideApiResponse,
-  RebalancePreviewApiResponse,
-  RebalancingPolicyDto,
-} from '../app/rebalancing/rebalancing.model';
-import type {
-  CMASet,
-  FactorICReport,
-  FactorReturnSeries,
-  FactorScoreApiResponse,
-  FactorScoreDto,
-  FactorSelectApiResponse,
-  FactorValidateResponse,
-  TAASignal,
-} from '../app/factor-research/factor.model';
 import type { JobListResponse, JobSummary } from '../app/core/models/jobs.model';
 import type { ReportJobCreateResponse } from '../app/core/models/report.model';
 import type { UniverseScreenResponse } from '../app/core/models/universe.model';
@@ -107,141 +76,6 @@ export function makeSnapshotDto(overrides: Partial<SnapshotDto> = {}): SnapshotD
   };
 }
 
-export function makeBrinsonResponse(
-  overrides: Partial<BrinsonApiResponse> = {},
-): BrinsonApiResponse {
-  return {
-    sectors: [
-      {
-        sector: 'Technology',
-        portfolioWeight: 0.6,
-        benchmarkWeight: 0.5,
-        portfolioReturn: 0.1,
-        benchmarkReturn: 0.08,
-        allocationEffect: 0.002,
-        selectionEffect: 0.001,
-        interactionEffect: 0.0,
-        totalEffect: 0.003,
-      },
-    ],
-    totalAllocation: 0.002,
-    totalSelection: 0.001,
-    totalInteraction: 0.0,
-    totalActiveReturn: 0.003,
-    portfolioReturn: 0.1,
-    benchmarkReturn: 0.08,
-    ...overrides,
-  };
-}
-
-export function makeFactorAttributionResponse(
-  overrides: Partial<FactorAttributionApiResponse> = {},
-): FactorAttributionApiResponse {
-  return {
-    factors: [
-      { factorName: 'momentum', exposure: 0.5, factorReturn: 0.04, contribution: 0.02 },
-    ],
-    portfolioReturn: 0.1,
-    explainedReturn: 0.08,
-    residual: 0.02,
-    ...overrides,
-  };
-}
-
-export function makeVarApiResponse(overrides: Partial<VarApiResponse> = {}): VarApiResponse {
-  return {
-    var: { '0.95': 0.03 },
-    cvar: { '0.95': 0.05 },
-    method: 'historical',
-    lookback: 252,
-    nObservations: 252,
-    ...overrides,
-  };
-}
-
-export function makeCorrelationData(overrides: Partial<CorrelationData> = {}): CorrelationData {
-  return {
-    assets: ['AAPL', 'MSFT'],
-    matrix: [
-      [1, 0.5],
-      [0.5, 1],
-    ],
-    ...overrides,
-  };
-}
-
-// Wire DTO for GET /risk/correlation — adds `clusterLabels` that the client-only
-// `CorrelationData` omits. Parity pins the wire shape, not the client view.
-export function makeCorrelationApiResponse(
-  overrides: Partial<CorrelationApiResponse> = {},
-): CorrelationApiResponse {
-  return {
-    assets: ['AAPL', 'MSFT'],
-    matrix: [
-      [1, 0.5],
-      [0.5, 1],
-    ],
-    clusterLabels: [0, 0],
-    ...overrides,
-  };
-}
-
-// Wire DTO row for GET /risk/concentration — the bare wire shape (ticker, name,
-// weight), separate from the client-enriched `ConcentrationMetric`.
-export function makeConcentrationAssetApi(
-  overrides: Partial<ConcentrationAssetApi> = {},
-): ConcentrationAssetApi {
-  return { ticker: 'AAPL', name: 'Apple Inc.', weight: 0.6, ...overrides };
-}
-
-export function makeConcentrationMetrics(
-  overrides: Partial<ConcentrationMetric> = {},
-): ConcentrationMetric[] {
-  return [
-    {
-      ticker: 'AAPL',
-      name: 'Apple Inc.',
-      weight: 0.6,
-      riskContribution: 0.7,
-      componentVar: 0.04,
-      ...overrides,
-    },
-  ];
-}
-
-export function makeLiquidityMetrics(
-  overrides: Partial<LiquidityMetric> = {},
-): LiquidityMetric[] {
-  return [
-    {
-      ticker: 'AAPL',
-      name: 'Apple Inc.',
-      avgDailyVolume: 1_000_000,
-      daysToLiquidate: 1.5,
-      liquidityCost: 0.001,
-      weight: 0.6,
-      ...overrides,
-    },
-  ];
-}
-
-export function makeStressScenarios(
-  overrides: Partial<StressScenario> = {},
-): StressScenario[] {
-  return [
-    {
-      id: 'scn-1',
-      name: 'Rate Shock',
-      description: '+100bps parallel shift',
-      portfolioImpact: -0.08,
-      benchmarkImpact: -0.06,
-      worstAsset: 'TLT',
-      worstAssetImpact: -0.15,
-      ...overrides,
-    },
-  ];
-}
-
 export function makeMarketSnapshotResponse(
   overrides: Partial<ApiMarketSnapshotResponse> = {},
 ): ApiMarketSnapshotResponse {
@@ -254,133 +88,6 @@ export function makeMarketSnapshotResponse(
     usdIndex: 104.3,
     usdChange: -0.1,
     asOf: ISO,
-    ...overrides,
-  };
-}
-
-export function makeDriftResponse(overrides: Partial<DriftApiResponse> = {}): DriftApiResponse {
-  return {
-    entries: [
-      { ticker: 'AAPL', name: 'Apple Inc.', target: 0.6, actual: 0.65, drift: 0.05, breached: false },
-    ],
-    totalDrift: 0.05,
-    breachedCount: 0,
-    threshold: 0.05,
-    ...overrides,
-  };
-}
-
-export function makeRebalancePreview(
-  overrides: Partial<RebalancePreviewApiResponse> = {},
-): RebalancePreviewApiResponse {
-  return {
-    portfolioName: 'Test Portfolio',
-    policyType: 'threshold',
-    targetWeights: { AAPL: 0.6, MSFT: 0.4 },
-    currentWeights: { AAPL: 0.65, MSFT: 0.35 },
-    trades: [{ ticker: 'AAPL', weightDelta: -0.05, side: 'sell', shares: 10 }],
-    portfolioValue: 100_000,
-    status: null,
-    ...overrides,
-  };
-}
-
-export function makeRebalanceDecideResponse(
-  overrides: Partial<RebalanceDecideApiResponse> = {},
-): RebalanceDecideApiResponse {
-  return {
-    shouldRebalance: true,
-    turnover: 0.1,
-    estimatedCost: 0.0005,
-    tradeWeights: { AAPL: -0.05, MSFT: 0.05 },
-    ...overrides,
-  };
-}
-
-// Matches the real RebalancingPolicyDto wire shape (id/portfolioId/name/
-// policyType/config/isActive/createdAt/updatedAt) — NOT the flattened
-// threshold/calendarDays shape sketched in issue #940; those live inside
-// `config`. Inserted with the rebalancing fixtures (not at EOF) to keep the
-// parallel-append surface small for sibling fixture additions.
-export function makeRebalancingPolicyDto(
-  overrides: Partial<RebalancingPolicyDto> = {},
-): RebalancingPolicyDto {
-  return {
-    id: 'pol-1',
-    portfolioId: 'pf-1',
-    name: 'Quarterly Threshold',
-    policyType: 'threshold',
-    config: { threshold: 0.05 },
-    isActive: false,
-    createdAt: ISO,
-    updatedAt: ISO,
-    ...overrides,
-  };
-}
-
-export function makeFactorReturnSeries(
-  overrides: Partial<FactorReturnSeries> = {},
-): FactorReturnSeries {
-  return {
-    factor: 'momentum_12_1',
-    group: 'momentum',
-    points: [
-      { date: '2026-01-01', cumReturn: 0.0 },
-      { date: '2026-01-02', cumReturn: 0.01 },
-      { date: '2026-01-03', cumReturn: 0.025 },
-    ],
-    ...overrides,
-  } as FactorReturnSeries;
-}
-
-export function makeFactorValidateResponse(
-  overrides: Partial<FactorValidateResponse> = {},
-): FactorValidateResponse {
-  return {
-    report_date: '2026-01-01',
-    factor_type: 'momentum_12_1',
-    validation_type: 'in_sample',
-    ic_mean: 0.05,
-    ic_std: 0.1,
-    icir: 0.5,
-    t_stat: 2.4,
-    p_value: 0.01,
-    vif: 1.2,
-    details: null,
-    ...overrides,
-  };
-}
-
-export function makeFactorICReport(overrides: Partial<FactorICReport> = {}): FactorICReport {
-  return {
-    factor: 'momentum_12_1',
-    group: 'momentum',
-    ic: 0.05,
-    icir: 0.8,
-    tStat: 2.5,
-    pValue: 0.01,
-    vif: 1.2,
-    significant: true,
-    ...overrides,
-  };
-}
-
-export function makeCMASet(overrides: Partial<CMASet> = {}): CMASet {
-  return {
-    label: 'Base CMA',
-    horizon: '10Y',
-    assets: [{ ticker: 'AAPL', expectedReturn: 0.07, expectedVol: 0.2 }],
-    ...overrides,
-  };
-}
-
-export function makeTAASignal(overrides: Partial<TAASignal> = {}): TAASignal {
-  return {
-    factor: 'momentum',
-    currentWeight: 0.2,
-    tiltedWeight: 0.25,
-    tiltReason: 'Expansion regime favours momentum',
-    regime: 'expansion',
     ...overrides,
   };
 }
@@ -425,31 +132,6 @@ export function makeUniverseScreenResponse(
     passingTickers: ['AAPL', 'MSFT'],
     totalScreened: 100,
     diagnostics: { AAPL: { market_cap: true } },
-    ...overrides,
-  };
-}
-
-export function makeStressScenarioItemApi(
-  overrides: Partial<StressScenarioItemApi> = {},
-): StressScenarioItemApi {
-  return {
-    name: 'Rate Shock',
-    description: '+100bps parallel shift',
-    shocks: { TLT: -0.15 },
-    probability: 0.1,
-    horizonDays: 21,
-    syntheticDataArgs: {},
-    ...overrides,
-  };
-}
-
-export function makeStressScenarioApiResponse(
-  overrides: Partial<StressScenarioApiResponse> = {},
-): StressScenarioApiResponse {
-  return {
-    nScenarios: 1,
-    tickers: ['TLT', 'SPY'],
-    scenarios: [makeStressScenarioItemApi()],
     ...overrides,
   };
 }
@@ -552,45 +234,6 @@ export function makeBacktestAsyncResponse(
   overrides: Partial<BacktestAsyncResponse> = {},
 ): BacktestAsyncResponse {
   return { jobId: 'bt-job-1', runId: 'bt-run-1', status: 'pending', message: 'Queued', ...overrides };
-}
-
-export function makeFactorScoreDto(overrides: Partial<FactorScoreDto> = {}): FactorScoreDto {
-  return {
-    id: 'fs-1',
-    ticker: 'AAPL',
-    factorType: 'momentum_12_1',
-    factorGroup: 'momentum',
-    scoreDate: '2026-01-01',
-    rawScore: 0.5,
-    standardizedScore: 0.8,
-    compositeScore: 0.65,
-    createdAt: ISO,
-    updatedAt: ISO,
-    ...overrides,
-  };
-}
-
-export function makeFactorCompositeResponse(
-  overrides: Partial<FactorScoreApiResponse> = {},
-): FactorScoreApiResponse {
-  return {
-    score_date: '2026-01-01',
-    scores: { AAPL: 0.65 },
-    group_contributions: { momentum: 0.4 },
-    ...overrides,
-  };
-}
-
-export function makeFactorSelectResponse(
-  overrides: Partial<FactorSelectApiResponse> = {},
-): FactorSelectApiResponse {
-  return {
-    selected_tickers: ['AAPL', 'MSFT'],
-    count: 2,
-    turnover: 0.1,
-    buffer_zone: { entered: ['MSFT'], exited: [] },
-    ...overrides,
-  };
 }
 
 export function makeGenerateViewsResponse(
@@ -773,50 +416,37 @@ export function makeSchedulerStatusResponse(overrides: Partial<SchedulerStatusRe
 // All shapes mirror the JSON-schema snapshot verbatim. Casing follows the wire:
 // camelCase for CamelCaseModel endpoints, snake_case for plain BaseModel endpoints.
 
-// ConcentrationResponse — full wire shape (risk.json, camelCase)
-export function makeConcentrationApiResponse() {
+// DriftResponse — dashboard.json, camelCase (simple per-holding drift table)
+export function makeDriftResponse(overrides: Record<string, unknown> = {}) {
   return {
-    assets: [{ ticker: 'AAPL', name: 'Apple Inc.', weight: 0.6 }],
-    summary: { hhi: 0.36, effectiveN: 2.78, topNRatio: 0.6 },
+    entries: [{ ticker: 'AAPL', name: 'Apple Inc.', target: 0.5, actual: 0.55, drift: 0.05, breached: true }],
+    totalDrift: 0.05,
+    breachedCount: 1,
+    threshold: 0.03,
+    ...overrides,
   };
 }
 
-// LiquidityResponse — full wire shape (risk.json, camelCase)
-export function makeLiquidityApiResponse() {
+// StressScenarioItem — scenarios.json, camelCase (single stress test scenario)
+export function makeStressScenarioItemApi(overrides: Record<string, unknown> = {}) {
   return {
-    assets: [
-      { ticker: 'AAPL', name: 'Apple Inc.', weight: 0.6, avgDailyVolume: 1_000_000, daysToLiquidate: 1.5, liquidityCost: 0.001 },
-    ],
-    summary: { weightedAvgDaysToLiquidate: 1.5 },
+    name: 'Market Crash',
+    description: 'Severe equity sell-off',
+    shocks: { AAPL: -0.3, MSFT: -0.25 },
+    probability: 0.05,
+    horizonDays: 20,
+    syntheticDataArgs: { conditioning: { AAPL: -0.3 } },
+    ...overrides,
   };
 }
 
-// RiskLimitResponse — single row (risk.json, camelCase)
-export function makeRiskLimitResponse() {
+// StressScenarioResponse — scenarios.json, camelCase (list of scenarios)
+export function makeStressScenarioApiResponse(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'rl-1',
-    portfolioId: 'pf-1',
-    metric: 'var_95',
-    limitType: 'upper',
-    threshold: 0.05,
-    isBreached: false,
-    currentValue: 0.03,
-    lastCheckedAt: ISO,
-    createdAt: ISO,
-    updatedAt: ISO,
-  };
-}
-
-// RiskLimitListResponse — list wrapper (risk.json, camelCase)
-export function makeRiskLimitListResponse() {
-  return { items: [makeRiskLimitResponse()], breachCount: 0 };
-}
-
-// FactorExposureResponse — risk.json, camelCase (portfolio + per-asset exposures)
-export function makeFactorExposureResponse() {
-  return {
-    exposures: { momentum: 0.3, value: -0.1 },
-    assetExposures: { AAPL: { momentum: 0.4, value: -0.2 } },
+    nScenarios: 1,
+    tickers: ['AAPL', 'MSFT'],
+    scenarios: [makeStressScenarioItemApi()],
+    ...overrides,
   };
 }
 
@@ -944,7 +574,3 @@ export function makeTickerProfileResponse() {
   };
 }
 
-// RebalancingPolicyListResponse — rebalancing.json, camelCase (total + items[])
-export function makeRebalancingPolicyListResponse() {
-  return { items: [makeRebalancingPolicyDto()], total: 1 };
-}

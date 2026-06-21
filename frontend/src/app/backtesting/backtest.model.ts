@@ -98,6 +98,37 @@ export interface BacktestAsyncResponse {
   message: string;
 }
 
+/**
+ * Parameters for the high-level `BacktestService.submit()` entry point — the
+ * camelCase, UI-facing counterpart to the snake_case `BacktestApiRequest`
+ * (issue #1030, criterion 12).
+ */
+export interface BacktestSubmitParams {
+  tickers: string[];
+  startDate: string;
+  endDate: string;
+  benchmark: string;
+}
+
+export interface BacktestSubmitResponse {
+  jobId: string;
+}
+
+/** Headline KPI payload returned by `getResult()` once a run completes. */
+export interface BacktestKpiResult {
+  totalReturn: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+  informationRatio: number;
+  equityCurve: { dates: string[]; values: number[] };
+}
+
+/** Polling envelope: `status` plus the KPI payload when `status === 'completed'`. */
+export interface BacktestResultEnvelope {
+  status: 'pending' | 'running' | 'completed' | 'failed' | string;
+  result?: BacktestKpiResult;
+}
+
 export interface BacktestProgressResponse {
   job_id: string;
   status: 'pending' | 'running' | 'completed' | 'failed';

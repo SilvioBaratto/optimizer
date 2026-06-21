@@ -20,22 +20,18 @@
 
 // ── HTTP service imports (compile-time enforcement) ───────────────────────────
 
-import { AttributionService } from '../app/attribution/attribution.service';
 import { BacktestService } from '../app/backtesting/backtest.service';
 import { BuilderDriftService } from '../app/portfolio-builder/builder-drift.service';
 import { DashboardService } from '../app/dashboard/dashboard.service';
 import { DatabaseService } from '../app/settings/database.service';
-import { FactorsService } from '../app/factor-research/factors.service';
 import { JobsService } from '../app/core/services/jobs.service';
 import { MacroIntelligenceService } from '../app/macro-intelligence/macro-intelligence.service';
 import { MarketService } from '../app/core/services/market.service';
 import { OptimizationService } from '../app/optimization-studio/optimization.service';
 import { PipelineBuilderApiService } from '../app/core/services/pipeline-builder-api.service';
 import { PortfolioApiService } from '../app/core/services/portfolio-api.service';
-import { RebalancingService } from '../app/rebalancing/rebalancing.service';
 import { ReferenceIndexService } from '../app/core/services/reference-index.service';
 import { ReportsService } from '../app/core/services/reports.service';
-import { RiskService } from '../app/risk-center/risk.service';
 import { SchedulerService } from '../app/settings/scheduler.service';
 import { TickerSeedingService } from '../app/core/services/ticker-seeding.service';
 import { UniverseService } from '../app/core/services/universe.service';
@@ -50,14 +46,6 @@ interface ServiceEntry {
 }
 
 const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
-  {
-    cls: AttributionService,
-    coveredBy: [
-      'attribution.service.spec.ts',
-      'cross-page-service-field-parity.spec.ts',
-      'attribution-contracts.spec.ts',
-    ],
-  },
   {
     cls: BacktestService,
     coveredBy: [
@@ -86,14 +74,6 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     coveredBy: [
       'settings-field-parity.spec.ts',
       'settings/database.service-contract.spec.ts',
-    ],
-  },
-  {
-    cls: FactorsService,
-    coveredBy: [
-      'factors.service.spec.ts',
-      'research-service-field-parity.spec.ts',
-      'factor-research-contracts.spec.ts',
     ],
   },
   {
@@ -144,14 +124,6 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
     ],
   },
   {
-    cls: RebalancingService,
-    coveredBy: [
-      'rebalancing.service.spec.ts',
-      'cross-page-service-field-parity.spec.ts',
-      'rebalancing-contracts.spec.ts',
-    ],
-  },
-  {
     cls: ReferenceIndexService,
     coveredBy: [
       'reference-index.service.spec.ts',
@@ -164,14 +136,6 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
       'reports.service.spec.ts',
       'cross-page-service-field-parity.spec.ts',
       'reports-service-contracts.spec.ts',
-    ],
-  },
-  {
-    cls: RiskService,
-    coveredBy: [
-      'risk.service.spec.ts',
-      'cross-page-service-field-parity.spec.ts',
-      'risk-contracts.spec.ts',
     ],
   },
   {
@@ -228,8 +192,8 @@ const _EXCLUDED_UI_SERVICES = [
 
 describe('Service coverage guard — every HTTP service referenced in a parity spec (issue #968)', () => {
 
-  it('inventory has at least 20 HTTP services', () => {
-    expect(HTTP_SERVICE_INVENTORY.length).toBeGreaterThanOrEqual(20);
+  it('inventory has at least 16 HTTP services', () => {
+    expect(HTTP_SERVICE_INVENTORY.length).toBeGreaterThanOrEqual(16);
   });
 
   it('every entry has a non-empty coveredBy list', () => {

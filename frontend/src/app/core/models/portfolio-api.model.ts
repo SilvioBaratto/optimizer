@@ -24,6 +24,13 @@ export interface CreatePortfolioDto {
   benchmark_ticker?: string;
 }
 
+export interface UpdatePortfolioDto {
+  name?: string;
+  description?: string | null;
+  currency?: string;
+  benchmark_ticker?: string;
+}
+
 export interface SnapshotDto {
   id: string;
   portfolio_id: string;

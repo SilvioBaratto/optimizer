@@ -90,7 +90,7 @@ describe('PortfolioContextService', () => {
     svc.reset();
     appRef.tick();
 
-    expect(svc.activeMode()).toBe('backtest');
+    expect(svc.activeMode()).toBe('live');
     expect(svc.currentPortfolioId()).toBeNull();
     expect(svc.dateRange().preset).toBe('1Y');
     expect(svc.benchmark()).toBe('SPY');

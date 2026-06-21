@@ -335,46 +335,4 @@ describe('BacktestingComponent — ticker seeding (issue #951)', () => {
     expect(comp.tickersRaw()).toBe('SPY');
   });
 
-  // ── Criterion (d): date-range sync effect is not broken by seeding ────────────
-
-  it('when dateRange is updated on the context, startDate reflects the new range', () => {
-    ctx.setCustomRange(new Date('2024-01-15'), new Date('2024-06-30'));
-    fixture.detectChanges();
-
-    expect(comp.startDate()).toBe('2024-01-15');
-  });
-
-  it('when dateRange is updated on the context, endDate reflects the new range', () => {
-    ctx.setCustomRange(new Date('2024-01-15'), new Date('2024-06-30'));
-    fixture.detectChanges();
-
-    expect(comp.endDate()).toBe('2024-06-30');
-  });
-
-  it('when both seeding and date-range update occur, both are applied independently', () => {
-    ctx.currentPortfolioId.set('pf-1');
-    fixture.detectChanges();
-
-    http
-      .expectOne((r) => r.method === 'GET' && r.url === PORTFOLIO_LIST_URL)
-      .flush(buildPortfolioList([{ id: 'pf-1', name: 'fund-a' }]));
-    fixture.detectChanges();
-
-    http
-      .expectOne((r) => r.method === 'GET' && r.url === snapshotUrl('fund-a'))
-      .flush(buildSnapshotDto({ TSLA: 1.0 }));
-    fixture.detectChanges();
-
-    // Seed applied
-    expect(comp.tickers()).toEqual(['TSLA']);
-
-    // Date-range update after seeding
-    ctx.setCustomRange(new Date('2023-03-01'), new Date('2023-09-01'));
-    fixture.detectChanges();
-
-    expect(comp.startDate()).toBe('2023-03-01');
-    expect(comp.endDate()).toBe('2023-09-01');
-    // Seeded tickers unchanged by date-range update
-    expect(comp.tickers()).toEqual(['TSLA']);
-  });
 });

@@ -86,24 +86,6 @@ describe('BacktestingComponent — wiring smoke-tests (issue #1024)', () => {
     expect(body).not.toContain('optimizer_type');
   });
 
-  // ── Context-driven date sync ──────────────────────────────────────────────
-
-  it('when PortfolioContextService.setCustomRange is called, selectedStartDate reflects the new start', () => {
-    const ctx = TestBed.inject(PortfolioContextService);
-    ctx.setCustomRange(new Date('2023-01-15'), new Date('2023-12-31'));
-    fixture.detectChanges();
-
-    expect(comp.selectedStartDate()).toBe('2023-01-15');
-  });
-
-  it('when PortfolioContextService.setCustomRange is called, selectedEndDate reflects the new end', () => {
-    const ctx = TestBed.inject(PortfolioContextService);
-    ctx.setCustomRange(new Date('2023-01-15'), new Date('2023-12-31'));
-    fixture.detectChanges();
-
-    expect(comp.selectedEndDate()).toBe('2023-12-31');
-  });
-
   // ── startDate / endDate aliases match selectedStartDate / selectedEndDate ──
 
   it('startDate() is the same signal as selectedStartDate()', () => {

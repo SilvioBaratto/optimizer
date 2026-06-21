@@ -5,11 +5,6 @@
  * covered by earlier parity specs (settings, portfolio-builder, research).
  *
  * Domains covered:
- *   attribution:    BrinsonResponse, FactorAttributionResponse
- *   risk:           ConcentrationResponse, CorrelationResponse, LiquidityResponse,
- *                   RiskLimitListResponse, VarResponse
- *   rebalancing:    RebalanceDecideResponse, RebalancePreviewResponse,
- *                   RebalancingPolicyListResponse
  *   dashboard:      AllocationResponse, AssetClassReturnsResponse, DriftResponse,
  *                   EquityCurveResponse, MarketSnapshotResponse, PerformanceMetricsResponse
  *   macro:          MacroCalibrationResponse
@@ -25,9 +20,6 @@
 
 import { schemaOf } from './contract-parity';
 import { assertFieldParity, requiredKeys } from './contract-field-parity';
-import attributionSnapshot from './contract-snapshots/attribution.json';
-import riskSnapshot from './contract-snapshots/risk.json';
-import rebalancingSnapshot from './contract-snapshots/rebalancing.json';
 import dashboardSnapshot from './contract-snapshots/dashboard.json';
 import macroSnapshot from './contract-snapshots/macro.json';
 import marketDataSnapshot from './contract-snapshots/market_data.json';
@@ -37,303 +29,20 @@ import scenariosSnapshot from './contract-snapshots/scenarios.json';
 import {
   makeAllocationResponse,
   makeAssetClassReturnsResponse,
-  makeBrinsonResponse,
-  makeConcentrationApiResponse,
   makeDriftResponse,
   makeEquityCurveResponse,
-  makeFactorAttributionResponse,
   makeInstrumentListResponse,
-  makeLiquidityApiResponse,
   makeMacroCalibrationApiResponse,
   makeMarketSnapshotResponse,
   makePerformanceMetricsResponse,
   makePriceHistoryResponse,
-  makeRebalanceDecideResponse,
-  makeRebalancePreview,
-  makeRebalancingPolicyListResponse,
   makeReportJobCreateResponse,
-  makeRiskLimitListResponse,
   makeStressScenarioApiResponse,
   makeStressScenarioItemApi,
-  makeCorrelationApiResponse,
   makeTickerProfileResponse,
   makeUniverseScreenResponse,
   makeUniverseStatsResponse,
-  makeVarApiResponse,
 } from './domain-fixtures';
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Attribution
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('BrinsonResponse — camelCase (attribution.json, issue #968)', () => {
-  const schema = schemaOf(attributionSnapshot, 'BrinsonResponse');
-
-  it('required fields: sectors, totalAllocation, totalSelection, totalInteraction, totalActiveReturn, portfolioReturn, benchmarkReturn', () => {
-    const req = requiredKeys(schema);
-    [
-      'sectors', 'totalAllocation', 'totalSelection', 'totalInteraction',
-      'totalActiveReturn', 'portfolioReturn', 'benchmarkReturn',
-    ].forEach((k) => expect(req.has(k)).withContext(`expected '${k}' in required`).toBe(true));
-  });
-
-  it('camelCase casing: totalAllocation (not total_allocation), totalActiveReturn (not total_active_return)', () => {
-    const props = schema.properties ?? {};
-    expect('totalAllocation' in props).toBe(true);
-    expect('total_allocation' in props).toBe(false);
-    expect('totalActiveReturn' in props).toBe(true);
-    expect('total_active_return' in props).toBe(false);
-  });
-
-  it('assertFieldParity: fixture matches snapshot (schema as root for $defs)', () => {
-    expect(() => assertFieldParity(schema, makeBrinsonResponse(), schema)).not.toThrow();
-  });
-});
-
-describe('FactorAttributionResponse — camelCase (attribution.json, issue #968)', () => {
-  const schema = schemaOf(attributionSnapshot, 'FactorAttributionResponse');
-
-  it('required fields: factors, portfolioReturn, explainedReturn, residual', () => {
-    const req = requiredKeys(schema);
-    ['factors', 'portfolioReturn', 'explainedReturn', 'residual'].forEach((k) =>
-      expect(req.has(k)).withContext(`expected '${k}' in required`).toBe(true),
-    );
-  });
-
-  it('camelCase: explainedReturn (not explained_return), portfolioReturn (not portfolio_return)', () => {
-    const props = schema.properties ?? {};
-    expect('explainedReturn' in props).toBe(true);
-    expect('explained_return' in props).toBe(false);
-    expect('portfolioReturn' in props).toBe(true);
-    expect('portfolio_return' in props).toBe(false);
-  });
-
-  it('assertFieldParity: fixture matches snapshot (schema as root for $defs)', () => {
-    expect(() => assertFieldParity(schema, makeFactorAttributionResponse(), schema)).not.toThrow();
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Risk
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('VarResponse — camelCase (risk.json, issue #968)', () => {
-  const schema = schemaOf(riskSnapshot, 'VarResponse');
-
-  it('required fields: var, cvar, method, lookback, nObservations', () => {
-    const req = requiredKeys(schema);
-    ['var', 'cvar', 'method', 'lookback', 'nObservations'].forEach((k) =>
-      expect(req.has(k)).withContext(`expected '${k}'`).toBe(true),
-    );
-  });
-
-  it('camelCase: nObservations (not n_observations)', () => {
-    const props = schema.properties ?? {};
-    expect('nObservations' in props).toBe(true);
-    expect('n_observations' in props).toBe(false);
-  });
-
-  it('assertFieldParity: fixture matches snapshot', () => {
-    expect(() =>
-      assertFieldParity(schema, makeVarApiResponse(), riskSnapshot as never),
-    ).not.toThrow();
-  });
-});
-
-describe('CorrelationResponse — camelCase (risk.json, issue #968)', () => {
-  const schema = schemaOf(riskSnapshot, 'CorrelationResponse');
-
-  it('required fields: assets, matrix, clusterLabels', () => {
-    const req = requiredKeys(schema);
-    ['assets', 'matrix', 'clusterLabels'].forEach((k) =>
-      expect(req.has(k)).withContext(`expected '${k}'`).toBe(true),
-    );
-  });
-
-  it('camelCase: clusterLabels (not cluster_labels)', () => {
-    const props = schema.properties ?? {};
-    expect('clusterLabels' in props).toBe(true);
-    expect('cluster_labels' in props).toBe(false);
-  });
-
-  it('assertFieldParity: fixture matches snapshot', () => {
-    expect(() =>
-      assertFieldParity(schema, makeCorrelationApiResponse(), riskSnapshot as never),
-    ).not.toThrow();
-  });
-});
-
-describe('ConcentrationResponse — camelCase (risk.json, issue #968)', () => {
-  const schema = schemaOf(riskSnapshot, 'ConcentrationResponse');
-
-  it('required fields: assets, summary', () => {
-    const req = requiredKeys(schema);
-    ['assets', 'summary'].forEach((k) =>
-      expect(req.has(k)).withContext(`expected '${k}'`).toBe(true),
-    );
-  });
-
-  it('summary has camelCase: effectiveN (not effective_n), topNRatio (not top_n_ratio)', () => {
-    const summaryProps = schema.$defs?.['ConcentrationSummary']?.properties ?? {};
-    expect('effectiveN' in summaryProps).toBe(true);
-    expect('effective_n' in summaryProps).toBe(false);
-    expect('topNRatio' in summaryProps).toBe(true);
-    expect('top_n_ratio' in summaryProps).toBe(false);
-  });
-
-  it('assertFieldParity: fixture matches snapshot (schema as root for $defs)', () => {
-    expect(() =>
-      assertFieldParity(schema, makeConcentrationApiResponse(), schema),
-    ).not.toThrow();
-  });
-});
-
-describe('LiquidityResponse — camelCase (risk.json, issue #968)', () => {
-  const schema = schemaOf(riskSnapshot, 'LiquidityResponse');
-
-  it('required fields: assets, summary', () => {
-    const req = requiredKeys(schema);
-    ['assets', 'summary'].forEach((k) =>
-      expect(req.has(k)).withContext(`expected '${k}'`).toBe(true),
-    );
-  });
-
-  it('asset rows: camelCase avgDailyVolume (not avg_daily_volume), daysToLiquidate (not days_to_liquidate)', () => {
-    const assetProps = schema.$defs?.['LiquidityAsset']?.properties ?? {};
-    expect('avgDailyVolume' in assetProps).toBe(true);
-    expect('avg_daily_volume' in assetProps).toBe(false);
-    expect('daysToLiquidate' in assetProps).toBe(true);
-    expect('days_to_liquidate' in assetProps).toBe(false);
-  });
-
-  it('summary: camelCase weightedAvgDaysToLiquidate', () => {
-    const summaryProps = schema.$defs?.['LiquiditySummary']?.properties ?? {};
-    expect('weightedAvgDaysToLiquidate' in summaryProps).toBe(true);
-    expect('weighted_avg_days_to_liquidate' in summaryProps).toBe(false);
-  });
-
-  it('assertFieldParity: fixture matches snapshot (schema as root for $defs)', () => {
-    expect(() =>
-      assertFieldParity(schema, makeLiquidityApiResponse(), schema),
-    ).not.toThrow();
-  });
-});
-
-describe('RiskLimitListResponse — camelCase (risk.json, issue #968)', () => {
-  const schema = schemaOf(riskSnapshot, 'RiskLimitListResponse');
-
-  it('required field: breachCount', () => {
-    expect(requiredKeys(schema).has('breachCount')).toBe(true);
-  });
-
-  it('camelCase breachCount (not breach_count)', () => {
-    const props = schema.properties ?? {};
-    expect('breachCount' in props).toBe(true);
-    expect('breach_count' in props).toBe(false);
-  });
-
-  it('inner RiskLimitResponse required: id, portfolioId, metric, limitType, threshold, isBreached, createdAt, updatedAt', () => {
-    const innerReq = requiredKeys(schema.$defs?.['RiskLimitResponse'] ?? {});
-    ['id', 'portfolioId', 'metric', 'limitType', 'threshold', 'isBreached', 'createdAt', 'updatedAt'].forEach(
-      (k) => expect(innerReq.has(k)).withContext(`expected '${k}' in RiskLimitResponse required`).toBe(true),
-    );
-  });
-
-  it('assertFieldParity: fixture matches snapshot (schema as root for $defs)', () => {
-    expect(() =>
-      assertFieldParity(schema, makeRiskLimitListResponse(), schema),
-    ).not.toThrow();
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Rebalancing
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('RebalanceDecideResponse — camelCase (rebalancing.json, issue #968)', () => {
-  const schema = schemaOf(rebalancingSnapshot, 'RebalanceDecideResponse');
-
-  it('required fields: shouldRebalance, turnover, estimatedCost, tradeWeights', () => {
-    const req = requiredKeys(schema);
-    ['shouldRebalance', 'turnover', 'estimatedCost', 'tradeWeights'].forEach((k) =>
-      expect(req.has(k)).withContext(`expected '${k}'`).toBe(true),
-    );
-  });
-
-  it('camelCase: shouldRebalance (not should_rebalance), estimatedCost (not estimated_cost)', () => {
-    const props = schema.properties ?? {};
-    expect('shouldRebalance' in props).toBe(true);
-    expect('should_rebalance' in props).toBe(false);
-    expect('estimatedCost' in props).toBe(true);
-    expect('estimated_cost' in props).toBe(false);
-  });
-
-  it('assertFieldParity: fixture matches snapshot', () => {
-    expect(() =>
-      assertFieldParity(schema, makeRebalanceDecideResponse(), rebalancingSnapshot as never),
-    ).not.toThrow();
-  });
-});
-
-describe('RebalancePreviewResponse — camelCase (rebalancing.json, issue #968)', () => {
-  const schema = schemaOf(rebalancingSnapshot, 'RebalancePreviewResponse');
-
-  it('required field: portfolioName', () => {
-    expect(requiredKeys(schema).has('portfolioName')).toBe(true);
-  });
-
-  it('camelCase: portfolioName (not portfolio_name), targetWeights (not target_weights)', () => {
-    const props = schema.properties ?? {};
-    expect('portfolioName' in props).toBe(true);
-    expect('portfolio_name' in props).toBe(false);
-    expect('targetWeights' in props).toBe(true);
-    expect('target_weights' in props).toBe(false);
-  });
-
-  it('inner TradeItem required: ticker, weightDelta, side', () => {
-    const itemReq = requiredKeys(schema.$defs?.['TradeItem'] ?? {});
-    ['ticker', 'weightDelta', 'side'].forEach((k) =>
-      expect(itemReq.has(k)).withContext(`expected '${k}' in TradeItem required`).toBe(true),
-    );
-  });
-
-  it('assertFieldParity: fixture matches snapshot (schema as root for $defs)', () => {
-    expect(() =>
-      assertFieldParity(schema, makeRebalancePreview(), schema),
-    ).not.toThrow();
-  });
-});
-
-describe('RebalancingPolicyListResponse — camelCase (rebalancing.json, issue #968)', () => {
-  const schema = schemaOf(rebalancingSnapshot, 'RebalancingPolicyListResponse');
-
-  it('required field: total', () => {
-    expect(requiredKeys(schema).has('total')).toBe(true);
-  });
-
-  it('inner RebalancingPolicyResponse required: id, portfolioId, name, policyType, config, isActive, createdAt, updatedAt', () => {
-    const innerReq = requiredKeys(schema.$defs?.['RebalancingPolicyResponse'] ?? {});
-    ['id', 'portfolioId', 'name', 'policyType', 'config', 'isActive', 'createdAt', 'updatedAt'].forEach(
-      (k) => expect(innerReq.has(k)).withContext(`expected '${k}'`).toBe(true),
-    );
-  });
-
-  it('camelCase: portfolioId (not portfolio_id), policyType (not policy_type), isActive (not is_active)', () => {
-    const innerProps = schema.$defs?.['RebalancingPolicyResponse']?.properties ?? {};
-    expect('portfolioId' in innerProps).toBe(true);
-    expect('portfolio_id' in innerProps).toBe(false);
-    expect('policyType' in innerProps).toBe(true);
-    expect('policy_type' in innerProps).toBe(false);
-    expect('isActive' in innerProps).toBe(true);
-    expect('is_active' in innerProps).toBe(false);
-  });
-
-  it('assertFieldParity: fixture matches snapshot (schema as root for $defs)', () => {
-    expect(() =>
-      assertFieldParity(schema, makeRebalancingPolicyListResponse(), schema),
-    ).not.toThrow();
-  });
-});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Dashboard

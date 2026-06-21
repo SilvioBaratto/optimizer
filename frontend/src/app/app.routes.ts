@@ -19,11 +19,6 @@ export const routes: Routes = [
         title: 'Portfolio Builder',
       },
       {
-        path: 'portfolio-builder-legacy',
-        loadComponent: () => import('./pipeline-stepper/pipeline-stepper').then((m) => m.PipelineStepperComponent),
-        title: 'Portfolio Builder (Legacy)',
-      },
-      {
         path: 'optimization-studio',
         loadComponent: () => import('./optimization-studio/optimization-studio').then((m) => m.OptimizationStudioComponent),
         title: 'Optimization Studio',
@@ -35,37 +30,9 @@ export const routes: Routes = [
         canActivate: [portfolioRequiredGuard],
       },
       {
-        path: 'risk-center',
-        loadComponent: () => import('./risk-center/risk-center').then((m) => m.RiskCenterComponent),
-        title: 'Risk Center',
-        canActivate: [portfolioRequiredGuard],
-      },
-      {
-        path: 'factor-research',
-        loadComponent: () => import('./factor-research/factor-research').then((m) => m.FactorResearchComponent),
-        title: 'Factor Research',
-      },
-      {
-        path: 'rebalancing',
-        loadComponent: () => import('./rebalancing/rebalancing').then((m) => m.RebalancingComponent),
-        title: 'Rebalancing',
-        canActivate: [portfolioRequiredGuard],
-      },
-      {
-        path: 'attribution',
-        loadComponent: () => import('./attribution/attribution').then((m) => m.AttributionComponent),
-        title: 'Attribution',
-        canActivate: [portfolioRequiredGuard],
-      },
-      {
         path: 'macro-intelligence',
         loadComponent: () => import('./macro-intelligence/macro-intelligence').then((m) => m.MacroIntelligenceComponent),
         title: 'Macro Intelligence',
-      },
-      {
-        path: 'ai-control-room',
-        loadComponent: () => import('./ai-control-room/ai-control-room').then((m) => m.AiControlRoomComponent),
-        title: 'AI Control Room',
       },
       {
         path: 'settings',

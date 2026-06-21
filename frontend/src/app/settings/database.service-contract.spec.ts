@@ -26,6 +26,11 @@ import {
 } from '@angular/common/http/testing';
 
 import { DatabaseService } from './database.service';
+import { assertMethod, assertUrl, assertQueryParams } from '../../testing/contract-request.helper';
+import { makeHealthCheck, makeTableInfo, makeDatabaseStatus, makeTruncateResponse } from '../../testing/domain-fixtures';
+import { environment } from '../../environments/environment';
+
+const API = environment.apiUrl;
 
 describe('DatabaseService — contract-parity (issue #966)', () => {
   let service: DatabaseService;
@@ -192,6 +197,64 @@ describe('DatabaseService — contract-parity (issue #966)', () => {
         .flush('Server Error', { status: 500, statusText: 'Server Error' });
 
       expect(errored).toBe(true);
+    });
+  });
+
+  // ── request-shape assertions (issue #1027) ──────────────────────────────────
+
+  describe('request-shape assertions (issue #1027)', () => {
+    it('getHealth() — GET to exact URL, response matches HealthCheck keys', () => {
+      const FIXTURE = makeHealthCheck();
+      let result: Record<string, unknown> | undefined;
+      service.getHealth().subscribe((r) => (result = r as unknown as Record<string, unknown>));
+
+      const req = http.expectOne((r) => r.url === `${API}database/health`);
+      assertMethod(req, 'GET');
+      assertUrl(req, `${API}database/health`);
+      req.flush(FIXTURE);
+
+      expect(Object.keys(result ?? {})).toEqual(jasmine.arrayContaining(Object.keys(FIXTURE)));
+    });
+
+    it('getTables() — GET to exact URL, response array items match TableInfo keys', () => {
+      const ITEM = makeTableInfo();
+      let result: unknown[] | undefined;
+      service.getTables().subscribe((r) => (result = r));
+
+      const req = http.expectOne((r) => r.url === `${API}database/tables`);
+      assertMethod(req, 'GET');
+      assertUrl(req, `${API}database/tables`);
+      req.flush([ITEM]);
+
+      expect(Object.keys((result as unknown[])[0] as object)).toEqual(
+        jasmine.arrayContaining(Object.keys(ITEM)),
+      );
+    });
+
+    it('getStatus() — GET to exact URL, response matches DatabaseStatus keys', () => {
+      const FIXTURE = makeDatabaseStatus();
+      let result: Record<string, unknown> | undefined;
+      service.getStatus().subscribe((r) => (result = r as unknown as Record<string, unknown>));
+
+      const req = http.expectOne((r) => r.url === `${API}database/status`);
+      assertMethod(req, 'GET');
+      assertUrl(req, `${API}database/status`);
+      req.flush(FIXTURE);
+
+      expect(Object.keys(result ?? {})).toEqual(jasmine.arrayContaining(Object.keys(FIXTURE)));
+    });
+
+    it('truncateTable(name) — DELETE to encoded URL with confirm=true param', () => {
+      const TABLE = 'price history';
+      service.truncateTable(TABLE).subscribe();
+
+      const req = http.expectOne(
+        (r) => r.url === `${API}database/tables/${encodeURIComponent(TABLE)}`,
+      );
+      assertMethod(req, 'DELETE');
+      assertUrl(req, `${API}database/tables/${encodeURIComponent(TABLE)}`);
+      assertQueryParams(req, { confirm: 'true' });
+      req.flush(makeTruncateResponse());
     });
   });
 });

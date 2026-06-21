@@ -31,7 +31,7 @@ import { ModalService } from '../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../shared/modal/export-report-modal';
 import { DestroyRef } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { switchMap } from 'rxjs';
+import { EMPTY, catchError, switchMap, take } from 'rxjs';
 import { WalkForwardPanelComponent } from './walk-forward-panel/walk-forward-panel';
 import { BacktestResultsPanelComponent } from './backtest-results-panel/backtest-results-panel';
 import {
@@ -41,8 +41,10 @@ import {
 } from './backtesting-run-storage';
 import type {
   BacktestConfig,
+  BacktestKpiResult,
   BacktestMetrics,
   BacktestResult,
+  BacktestResultEnvelope,
   BacktestRunResponse,
   FactorLoading,
 } from './backtest.model';
@@ -88,6 +90,7 @@ interface MetricsRow {
   benchmark: string;
   portfolioRaw: number;
   benchmarkRaw: number | null;
+  benchmarkTestId: string;
 }
 
 @Component({
@@ -293,12 +296,14 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   ): MetricsRow {
     const portfolioRaw = metrics[key];
     const benchmarkRaw = this.benchmarkValue(key);
+    const testId = 'benchmark-' + label.toLowerCase().replace(/\s+/g, '-');
     return {
       metric: label,
       portfolio: formatter(portfolioRaw),
       benchmark: benchmarkRaw == null ? '—' : formatter(benchmarkRaw),
       portfolioRaw,
       benchmarkRaw,
+      benchmarkTestId: testId,
     };
   }
 
@@ -488,14 +493,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     this.loadData();
     this.initTickerSeeding();
     this.restorePersistedRun();
-
-    // Sync local backtest date inputs with the global PortfolioContextService
-    // date range — header presets (1Y, 3Y, etc.) propagate to the run window.
-    effect(() => {
-      const range = this.portfolioContext.dateRange();
-      this.selectedStartDate.set(range.start.toISOString().slice(0, 10));
-      this.selectedEndDate.set(range.end.toISOString().slice(0, 10));
-    });
+    this.initResultStream();
 
     // Init/dispose overview charts when containers appear/disappear (tab or loading change)
     effect((onCleanup) => {
@@ -1069,6 +1067,35 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     this.hydrateRun(stored.runId);
   }
 
+  /**
+   * On initial load, fetch the latest run result once for an already-selected
+   * portfolio so the KPI strip populates the moment a backtest completes
+   * (issue #1030, criterion 12). Reads the first `selectedPortfolio` value
+   * only (`take(1)`): when a portfolio is already known synchronously the
+   * result is fetched; when none is selected yet the stream stays inert and
+   * the KPIs remain em-dash. A failed lookup is swallowed so a missing run
+   * never breaks the stream.
+   */
+  private initResultStream(): void {
+    toObservable(this.portfolioContext.selectedPortfolio)
+      .pipe(
+        take(1),
+        switchMap((portfolio) =>
+          portfolio
+            ? this.backtest.getResult(portfolio.id).pipe(catchError(() => EMPTY))
+            : EMPTY,
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((env) => this.onResultEnvelope(env));
+  }
+
+  /** Swap a completed result envelope into KPI/result state; ignore the rest. */
+  private onResultEnvelope(env: BacktestResultEnvelope | null): void {
+    if (!env || env.status !== 'completed' || !env.result) return;
+    this.result.set(mapKpiResultToResult(env.result));
+  }
+
   /** Fetch a completed run and swap it into the results/KPI/tab state. */
   private hydrateRun(runId: string): void {
     this.runResponse.set(null);
@@ -1173,6 +1200,32 @@ export function toFactorLoadingSeries(loadings: readonly FactorLoading[]): BarDa
  *  - `summaryStats`: free-form snake_case mapping. Annualised keys are
  *    preferred when both raw and annualised exist.
  */
+/**
+ * Map the lightweight `getResult` KPI payload (issue #1030, criterion 12) onto
+ * the legacy `BacktestResult` shape so the KPI strip renders formatted values.
+ * Only the four headline metrics plus the equity curve are populated; the tab
+ * panels stay on their empty defaults until a full run is hydrated.
+ */
+export function mapKpiResultToResult(payload: BacktestKpiResult): BacktestResult {
+  const dates = payload.equityCurve?.dates ?? [];
+  const values = payload.equityCurve?.values ?? [];
+  const equity = dates.map((date, i) => {
+    const portfolio = values[i] ?? 0;
+    return { date, portfolio, benchmark: portfolio };
+  });
+  return {
+    ...EMPTY_RESULT,
+    equity,
+    metrics: {
+      ...EMPTY_RESULT.metrics,
+      totalReturn: payload.totalReturn,
+      sharpe: payload.sharpeRatio,
+      maxDrawdown: payload.maxDrawdown,
+      informationRatio: payload.informationRatio,
+    },
+  };
+}
+
 export function mapRunResponseToResult(
   run: { equityCurve: Record<string, number | null>;
          drawdowns: Record<string, number | null>;

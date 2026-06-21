@@ -18,15 +18,15 @@ describe('BottomTabBarComponent', () => {
     fixture.detectChanges();
   });
 
-  it('when rendered, it shows 5 routerLink navigation entries', () => {
+  it('when rendered, it shows 3 routerLink navigation entries', () => {
     const links = fixture.nativeElement.querySelectorAll('a[routerLinkActive]');
-    expect(links.length).toBe(5);
+    expect(links.length).toBe(3);
   });
 
   it('when rendered, each entry carries its accessible label', () => {
     const labels = Array.from(
       fixture.nativeElement.querySelectorAll('a[aria-label]'),
     ).map((a) => (a as HTMLElement).getAttribute('aria-label'));
-    expect(labels).toEqual(['Dashboard', 'Portfolio', 'Optimize', 'Risk', 'AI']);
+    expect(labels).toEqual(['Dashboard', 'Portfolio', 'Optimize']);
   });
 });

@@ -22,6 +22,11 @@ import {
 } from '@angular/common/http/testing';
 
 import { SchedulerService } from './scheduler.service';
+import { assertMethod, assertUrl } from '../../testing/contract-request.helper';
+import { makeSchedulerStatusResponse, makeSchedulerJobStatusDto } from '../../testing/domain-fixtures';
+import { environment } from '../../environments/environment';
+
+const API = environment.apiUrl;
 
 describe('SchedulerService — contract-parity (issue #966)', () => {
   let service: SchedulerService;
@@ -116,6 +121,42 @@ describe('SchedulerService — contract-parity (issue #966)', () => {
         .flush('Service Unavailable', { status: 503, statusText: 'Service Unavailable' });
 
       expect(errored).toBe(true);
+    });
+  });
+
+  // ── request-shape assertions (issue #1027) ──────────────────────────────────
+
+  describe('request-shape assertions (issue #1027)', () => {
+    it('getStatus() — GET to exact URL', () => {
+      service.getStatus().subscribe();
+
+      const req = http.expectOne((r) => r.url === `${API}scheduler/status`);
+      assertMethod(req, 'GET');
+      assertUrl(req, `${API}scheduler/status`);
+      req.flush(makeSchedulerStatusResponse());
+    });
+
+    it('getStatus() — response matches SchedulerStatusResponse fixture keys', () => {
+      const FIXTURE = makeSchedulerStatusResponse();
+      let result: Record<string, unknown> | undefined;
+      service.getStatus().subscribe((r) => (result = r as unknown as Record<string, unknown>));
+
+      http.expectOne((r) => r.url === `${API}scheduler/status`).flush(FIXTURE);
+
+      expect(Object.keys(result ?? {})).toEqual(jasmine.arrayContaining(Object.keys(FIXTURE)));
+    });
+
+    it('getStatus() — jobs array items match SchedulerJobStatusDto fixture keys', () => {
+      const FIXTURE = makeSchedulerStatusResponse();
+      let result: { schedulerRunning: boolean; jobs: Record<string, unknown>[] } | undefined;
+      service.getStatus().subscribe(
+        (r) => (result = r as unknown as typeof result),
+      );
+
+      http.expectOne((r) => r.url === `${API}scheduler/status`).flush(FIXTURE);
+
+      const JOB_KEYS = Object.keys(makeSchedulerJobStatusDto());
+      expect(Object.keys(result?.jobs?.[0] ?? {})).toEqual(jasmine.arrayContaining(JOB_KEYS));
     });
   });
 });

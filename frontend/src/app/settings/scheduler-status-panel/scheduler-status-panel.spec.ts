@@ -171,4 +171,46 @@ describe('SchedulerStatusPanelComponent', () => {
       expect(fx.componentInstance.schedulerRunning()).toBe(true);
     });
   });
+
+  // ── formatTimestamp branches via column format helpers (issue #1026) ───────
+  describe('formatTimestamp — column format callbacks', () => {
+    const DASH = '—';
+
+    function formatFn(
+      comp: SchedulerStatusPanelComponent,
+      columnKey: string,
+    ): (v: unknown) => string {
+      const col = comp.tableColumns.find((c) => c.key === columnKey);
+      return col!.format as (v: unknown) => string;
+    }
+
+    function createAndFlush() {
+      const fx = TestBed.createComponent(SchedulerStatusPanelComponent);
+      fx.detectChanges();
+      http.expectOne(`${API}scheduler/status`).flush({ schedulerRunning: true, jobs: [] });
+      return fx.componentInstance;
+    }
+
+    it('when next_run_time column format is called with null, it returns the dash placeholder', () => {
+      const comp = createAndFlush();
+      expect(formatFn(comp, 'next_run_time')(null)).toBe(DASH);
+    });
+
+    it('when next_run_time column format is called with empty string, it returns the dash placeholder', () => {
+      const comp = createAndFlush();
+      expect(formatFn(comp, 'next_run_time')('')).toBe(DASH);
+    });
+
+    it('when next_run_time column format is called with a valid ISO string, it returns a non-empty date', () => {
+      const comp = createAndFlush();
+      const result = formatFn(comp, 'next_run_time')('2026-04-18T07:00:00Z');
+      expect(result).not.toBe(DASH);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('when last_run_time column format is called with null, it returns the dash placeholder', () => {
+      const comp = createAndFlush();
+      expect(formatFn(comp, 'last_run_time')(null)).toBe(DASH);
+    });
+  });
 });

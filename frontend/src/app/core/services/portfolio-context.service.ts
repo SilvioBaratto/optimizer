@@ -29,7 +29,7 @@ function readStoredPortfolioId(): string | null {
 export class PortfolioContextService {
   private readonly portfolioApi = inject(PortfolioApiService);
 
-  readonly activeMode = signal<PortfolioMode>('backtest');
+  readonly activeMode = signal<PortfolioMode>('live');
   readonly currentPortfolioId = signal<string | null>(readStoredPortfolioId());
   readonly dateRange = signal<DateRange>(this.computeDateRange('1Y'));
   readonly benchmark = signal('SPY');
@@ -141,7 +141,7 @@ export class PortfolioContextService {
   }
 
   reset(): void {
-    this.activeMode.set('backtest');
+    this.activeMode.set('live');
     this.currentPortfolioId.set(null);
     this.dateRange.set(this.computeDateRange('1Y'));
     this.benchmark.set('SPY');

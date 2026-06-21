@@ -8,7 +8,6 @@ import { ModalContainerComponent } from '../modal/modal-container';
 import { GlobalSearchComponent } from '../global-search/global-search';
 import { GlobalSearchService } from '../global-search/global-search.service';
 import { BottomTabBarComponent } from '../bottom-tab-bar/bottom-tab-bar';
-import { ContextBarComponent } from '../components/context-bar/context-bar';
 import { BreakpointService } from '../../core/services/breakpoint.service';
 
 const routerTransition = trigger('routerTransition', [
@@ -18,19 +17,14 @@ const routerTransition = trigger('routerTransition', [
   ]),
 ]);
 
-// Exactly 10 routes so Cmd/Ctrl+1..9,0 map 1:1. Settings is intentionally
+// Five core routes mapped to Cmd/Ctrl+1..5. Settings is intentionally
 // omitted — it's low-frequency and still reachable from the sidebar.
 const PAGE_ROUTES = [
   '/',
   '/portfolio-builder',
   '/optimization-studio',
   '/backtesting',
-  '/risk-center',
-  '/factor-research',
-  '/rebalancing',
-  '/attribution',
   '/macro-intelligence',
-  '/ai-control-room',
 ];
 
 @Component({
@@ -43,7 +37,6 @@ const PAGE_ROUTES = [
     ModalContainerComponent,
     GlobalSearchComponent,
     BottomTabBarComponent,
-    ContextBarComponent,
   ],
   templateUrl: './layout.html',
   styleUrl: './layout.css',
@@ -82,8 +75,8 @@ export class LayoutComponent {
       return;
     }
 
-    // Cmd/Ctrl+1-9 — page navigation
-    if ((event.metaKey || event.ctrlKey) && event.key >= '1' && event.key <= '9') {
+    // Cmd/Ctrl+1-5 — page navigation
+    if ((event.metaKey || event.ctrlKey) && event.key >= '1' && event.key <= '5') {
       const index = parseInt(event.key, 10) - 1;
       if (index < PAGE_ROUTES.length) {
         event.preventDefault();

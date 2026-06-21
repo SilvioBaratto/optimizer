@@ -5,10 +5,13 @@ import {
   provideHttpClientTesting,
 } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
+import { of } from 'rxjs';
 
 import { PortfoliosPanelComponent } from './portfolios-panel';
+import { ReferenceIndexService } from '../../core/services/reference-index.service';
 import { environment } from '../../../environments/environment';
 import type { PortfolioDto } from '../../core/models/portfolio-api.model';
+import type { ReferenceIndexSeedProgress } from '../../core/services/reference-index.service';
 
 const API = environment.apiUrl;
 
@@ -159,6 +162,77 @@ describe('PortfoliosPanelComponent', () => {
 
       expect(fx.componentInstance.createError()).toBeTruthy();
       expect(fx.nativeElement.querySelector('app-page-error-banner')).not.toBeNull();
+    });
+  });
+
+  // ── loadKnownBenchmarks catch branch (issue #1026) ─────────────────────────
+  it('when GET /market/indices returns 500, the panel does not crash and loadError stays null', () => {
+    const fx = TestBed.createComponent(PortfoliosPanelComponent);
+    fx.detectChanges();
+
+    http.expectOne(`${API}market/indices`)
+      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+    http.expectOne(`${API}portfolio/`).flush({ items: [], total: 0 });
+
+    // The catchError in loadKnownBenchmarks must swallow this — no error banner
+    expect(fx.componentInstance.loadError()).toBeNull();
+    expect(fx.nativeElement.querySelector('app-page-error-banner')).toBeNull();
+  });
+
+  // ── isFormValid false branches (issue #1026) ──────────────────────────────
+  it('when name is valid but currency is not 3 characters, isFormValid is false', () => {
+    const fx = TestBed.createComponent(PortfoliosPanelComponent);
+    fx.detectChanges();
+    http.expectOne(`${API}market/indices`).flush({ indices: [] });
+    http.expectOne(`${API}portfolio/`).flush({ items: [], total: 0 });
+
+    fx.componentInstance.toggleCreate();
+    fx.componentInstance.updateField('name', 'MyPortfolio');
+    fx.componentInstance.updateField('currency', 'US'); // 2 chars → invalid
+
+    expect(fx.componentInstance.isFormValid()).toBe(false);
+    http.expectNone((r) => r.method === 'POST');
+  });
+
+  // ── Seed error branches (issue #1026) ─────────────────────────────────────
+  describe('benchmark seed flow', () => {
+    function setupForUnknownBenchmark(): ReturnType<typeof TestBed.createComponent<PortfoliosPanelComponent>> {
+      const fx = TestBed.createComponent(PortfoliosPanelComponent);
+      fx.detectChanges();
+      http.expectOne(`${API}market/indices`).flush({ indices: [] }); // empty → any ticker is unknown
+      http.expectOne(`${API}portfolio/`).flush({ items: [], total: 0 });
+      fx.componentInstance.toggleCreate();
+      fx.componentInstance.updateField('name', 'MyPortfolio');
+      fx.componentInstance.updateField('benchmark_ticker', 'XYZ'); // not in known benchmarks
+      return fx;
+    }
+
+    it('when startSeed POST returns 500, createError is set and creating is false', () => {
+      const fx = setupForUnknownBenchmark();
+      fx.componentInstance.submit();
+
+      http.expectOne(`${API}reference-indices/seed`)
+        .flush({ detail: 'service unavailable' }, { status: 500, statusText: 'Server Error' });
+
+      expect(fx.componentInstance.createError()).toBeTruthy();
+      expect(fx.componentInstance.creating()).toBe(false);
+    });
+
+    it('when seed poll emits status="failed", createError is set and creating is false', () => {
+      const fx = setupForUnknownBenchmark();
+
+      const refIndex = TestBed.inject(ReferenceIndexService);
+      const failedProgress: ReferenceIndexSeedProgress = {
+        job_id: 'j1', status: 'failed',
+        current: 0, total: 0, errors: [], result: null, error: 'Ticker not found',
+      };
+      spyOn(refIndex, 'pollUntilDone').and.returnValue(of(failedProgress));
+
+      fx.componentInstance.submit();
+      http.expectOne(`${API}reference-indices/seed`).flush({ job_id: 'j1', status: 'pending' });
+
+      expect(fx.componentInstance.createError()).toBeTruthy();
+      expect(fx.componentInstance.creating()).toBe(false);
     });
   });
 });

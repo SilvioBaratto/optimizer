@@ -27,7 +27,6 @@
 
   <!-- Main content -->
   <main id="main-content" class="xl:pl-64 h-[calc(100vh-3.5rem)] xl:h-screen flex flex-col pb-16 xl:pb-0">
-    <app-context-bar class="sticky top-0 z-20 block" />
     <div class="flex-1 overflow-y-auto">
       <div [@routerTransition]="outlet.isActivated ? outlet.activatedRoute : ''">
         <router-outlet #outlet="outlet"></router-outlet>

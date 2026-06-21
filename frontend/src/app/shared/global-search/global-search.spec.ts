@@ -36,7 +36,7 @@ describe('GlobalSearchComponent', () => {
   });
 
   it('when no query is set, all nav items are listed', () => {
-    expect(comp.filteredResults().length).toBe(11);
+    expect(comp.filteredResults().length).toBe(6);
   });
 
   it('when a query is typed, results are filtered by label', () => {
@@ -63,8 +63,8 @@ describe('GlobalSearchComponent', () => {
   });
 
   it('when a result is clicked, it navigates and closes', () => {
-    comp.selectResult({ label: 'Risk Center', route: '/risk-center', category: 'Risk & Research' });
-    expect(router.navigateByUrl).toHaveBeenCalledWith('/risk-center');
+    comp.selectResult({ label: 'Optimize', route: '/optimization-studio', category: 'Core' });
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/optimization-studio');
     expect(search.close).toHaveBeenCalled();
   });
 });

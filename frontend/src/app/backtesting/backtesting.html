@@ -130,23 +130,35 @@
 
   <!-- KPI Stat Cards -->
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-4">
-    <app-stat-card label="Total Return" [value]="displayPct(result().metrics.totalReturn)"
-      [subtitle]="benchmarkSubtitle('totalReturn')"
-      [delta]="benchmarkDelta('totalReturn')"
-      [trend]="benchmarkTrend('totalReturn')" deltaLabel="vs benchmark" />
+    <div class="relative">
+      <app-stat-card label="Total Return" [value]="displayPct(result().metrics.totalReturn)"
+        [subtitle]="benchmarkSubtitle('totalReturn')"
+        [delta]="benchmarkDelta('totalReturn')"
+        [trend]="benchmarkTrend('totalReturn')" deltaLabel="vs benchmark" />
+      <span [attr.data-testid]="'kpi-total-return'" style="display:none">{{ displayPct(result().metrics.totalReturn) }}</span>
+    </div>
 
-    <app-stat-card label="Sharpe Ratio" [value]="displayRatio(result().metrics.sharpe)"
-      subtitle="Sortino: {{ formatRatio(result().metrics.sortino) }}"
-      [delta]="benchmarkDelta('sharpe')"
-      [trend]="benchmarkTrend('sharpe')" deltaLabel="vs benchmark" />
+    <div class="relative">
+      <app-stat-card label="Sharpe Ratio" [value]="displayRatio(result().metrics.sharpe)"
+        [subtitle]="hasLoadedResult() ? 'Sortino: ' + formatRatio(result().metrics.sortino) : ''"
+        [delta]="benchmarkDelta('sharpe')"
+        [trend]="benchmarkTrend('sharpe')" deltaLabel="vs benchmark" />
+      <span [attr.data-testid]="'kpi-sharpe-ratio'" style="display:none">{{ displayRatio(result().metrics.sharpe) }}</span>
+    </div>
 
-    <app-stat-card label="Max Drawdown" [value]="displayPct(result().metrics.maxDrawdown)"
-      subtitle="Calmar: {{ formatRatio(result().metrics.calmar) }}"
-      [delta]="benchmarkDelta('maxDrawdown')"
-      [trend]="benchmarkTrend('maxDrawdown')" deltaLabel="vs benchmark" />
+    <div class="relative">
+      <app-stat-card label="Max Drawdown" [value]="displayPct(result().metrics.maxDrawdown)"
+        [subtitle]="hasLoadedResult() ? 'Calmar: ' + formatRatio(result().metrics.calmar) : ''"
+        [delta]="benchmarkDelta('maxDrawdown')"
+        [trend]="benchmarkTrend('maxDrawdown')" deltaLabel="vs benchmark" />
+      <span [attr.data-testid]="'kpi-max-drawdown'" style="display:none">{{ displayPct(result().metrics.maxDrawdown) }}</span>
+    </div>
 
-    <app-stat-card label="Information Ratio" [value]="displayRatio(result().metrics.informationRatio)"
-      subtitle="TE: {{ formatPct(result().metrics.trackingError) }}" />
+    <div class="relative">
+      <app-stat-card label="Information Ratio" [value]="displayRatio(result().metrics.informationRatio)"
+        [subtitle]="hasLoadedResult() ? 'TE: ' + formatPct(result().metrics.trackingError) : ''" />
+      <span [attr.data-testid]="'kpi-information-ratio'" style="display:none">{{ displayRatio(result().metrics.informationRatio) }}</span>
+    </div>
   </div>
 
   <!-- Tab Group -->
@@ -239,7 +251,7 @@
             <td class="py-2.5 px-4 text-right font-mono tabular-nums" [class]="signClass(row.portfolioRaw)">
               {{ row.portfolio }}
             </td>
-            <td class="py-2.5 px-4 text-right font-mono tabular-nums text-text-secondary">
+            <td [attr.data-testid]="row.benchmarkTestId" class="py-2.5 px-4 text-right font-mono tabular-nums text-text-secondary">
               @if (row.benchmarkRaw === null) {
                 <span title="Benchmark metrics unavailable for this run">N/A</span>
               } @else {
@@ -563,10 +575,12 @@
   }
 
   <!-- Walk-forward validation -->
-  <app-walk-forward-panel
-    [tickers]="tickers()"
-    [startDate]="selectedStartDate()"
-    [endDate]="selectedEndDate()" />
+  <div data-testid="walk-forward-section">
+    <app-walk-forward-panel
+      [tickers]="tickers()"
+      [startDate]="selectedStartDate()"
+      [endDate]="selectedEndDate()" />
+  </div>
 
   } <!-- end @else -->
 

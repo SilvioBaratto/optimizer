@@ -15,6 +15,7 @@ import {
   SnapshotListResponseDto,
   SyncJobResponseDto,
   SyncProgressResponseDto,
+  UpdatePortfolioDto,
 } from '../models/portfolio-api.model';
 
 function wrapError(fallback: string) {
@@ -110,6 +111,24 @@ export class PortfolioApiService {
     return this.http
       .get<BrokerAccountDto>(`${this.forName(name)}/account`)
       .pipe(catchError(wrapError(`Failed to load account for '${name}'`)));
+  }
+
+  update(name: string, payload: UpdatePortfolioDto): Observable<PortfolioDto> {
+    return this.http
+      .put<PortfolioDto>(this.forName(name), payload)
+      .pipe(
+        tap(() => { this.cachedList$ = null; }),
+        catchError(wrapError(`Failed to update portfolio '${name}'`)),
+      );
+  }
+
+  delete(name: string): Observable<void> {
+    return this.http
+      .delete<void>(this.forName(name))
+      .pipe(
+        tap(() => { this.cachedList$ = null; }),
+        catchError(wrapError(`Failed to delete portfolio '${name}'`)),
+      );
   }
 
   private forName(name: string): string {

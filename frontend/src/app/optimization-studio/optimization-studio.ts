@@ -108,15 +108,6 @@ export class OptimizationStudioComponent {
   readonly isPolling = computed(() => this.runJobId() !== null && !this.hasResult());
 
   constructor() {
-    // Sync optimization date range with the global PortfolioContextService.
-    // Header presets (1Y, 3Y, etc.) update dateRange(); here we propagate to
-    // the local startDate/endDate signals so /optimize uses the chosen window.
-    effect(() => {
-      const range = this.portfolioContext.dateRange();
-      this.startDate.set(this.toIso(range.start));
-      this.endDate.set(this.toIso(range.end));
-    });
-
     // Re-seed tickers whenever the active portfolio changes.
     // switchMap cancels the in-flight snapshot request when the portfolio
     // switches, avoiding stale data. The re-seed guard (lastSeed) prevents

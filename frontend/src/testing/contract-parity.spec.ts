@@ -4,19 +4,15 @@
 // Batch A — domains with existing fixture factories. Follow-up issues append
 // their domains below using the same `schemaOf` + `assertParity` harness.
 
-import attributionSnapshot from './contract-snapshots/attribution.json';
 import backtestSnapshot from './contract-snapshots/backtest.json';
 import dashboardSnapshot from './contract-snapshots/dashboard.json';
-import factorsSnapshot from './contract-snapshots/factors.json';
 import jobsSnapshot from './contract-snapshots/jobs.json';
 import macroSnapshot from './contract-snapshots/macro.json';
 import marketDataSnapshot from './contract-snapshots/market_data.json';
 import optimizationSnapshot from './contract-snapshots/optimization.json';
 import pipelineBuilderSnapshot from './contract-snapshots/pipeline_builder.json';
 import portfolioSnapshot from './contract-snapshots/portfolio.json';
-import rebalancingSnapshot from './contract-snapshots/rebalancing.json';
 import reportsSnapshot from './contract-snapshots/reports.json';
-import riskSnapshot from './contract-snapshots/risk.json';
 import scenariosSnapshot from './contract-snapshots/scenarios.json';
 import universeSnapshot from './contract-snapshots/universe.json';
 import viewsSnapshot from './contract-snapshots/views.json';
@@ -27,26 +23,15 @@ import {
   makeBacktestAsyncResponse,
   makeBacktestProgressResponse,
   makeBacktestRunResponse,
-  makeBrinsonResponse,
-  makeConcentrationApiResponse,
-  makeConcentrationAssetApi,
-  makeCorrelationApiResponse,
   makeCreateSessionResponse,
   makeDriftResponse,
   makeDriftResponseRich,
   makeEntropyPoolingResponse,
   makeEquityCurveResponse,
-  makeFactorAttributionResponse,
-  makeFactorCompositeResponse,
-  makeFactorExposureResponse,
-  makeFactorScoreDto,
-  makeFactorSelectResponse,
   makeGenerateViewsResponse,
   makeInstrumentListResponse,
   makeJobListResponse,
   makeJobSummary,
-  makeLiquidityApiResponse,
-  makeLiquidityMetrics,
   makeMacroCalibrationApiResponse,
   makeMarketSnapshotResponse,
   makeOpinionPoolResponse,
@@ -55,11 +40,7 @@ import {
   makePerformanceMetricsResponse,
   makePortfolioDto,
   makePriceHistoryResponse,
-  makeRebalanceDecideResponse,
-  makeRebalancePreview,
-  makeRebalancingPolicyListResponse,
   makeReportJobCreateResponse,
-  makeRiskLimitListResponse,
   makeRollingMetricsResponse,
   makeSnapshotDto,
   makeStepPollResponse,
@@ -69,31 +50,7 @@ import {
   makeTickerProfileResponse,
   makeUniverseScreenResponse,
   makeUniverseStatsResponse,
-  makeVarApiResponse,
 } from './domain-fixtures';
-
-// ── Batch D (#1029) inline fixtures ──────────────────────────────────────────
-// Used for DTOs that lack a domain-fixtures factory.
-
-const FACTOR_SCORE_LIST_FIXTURE = { items: [makeFactorScoreDto()], total: 1 };
-
-// FactorValidationReportResponse — camelCase CamelCaseModel (distinct from the
-// snake_case FactorValidateResponse used in earlier parity tasks).
-const FACTOR_VALIDATION_REPORT_FIXTURE = {
-  id: 'fvr-1',
-  factorType: 'momentum_12_1',
-  reportDate: '2026-01-01',
-  validationType: 'in_sample',
-  icMean: 0.05,
-  icStd: 0.1,
-  icir: 0.5,
-  tStat: 2.4,
-  pValue: 0.01,
-  vif: 1.2,
-  details: null,
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
-};
 
 // `assertParity` is jasmine-free (it throws) so it compiles in the production
 // build, which type-checks every non-spec file under src/. Wrap it here so each
@@ -141,67 +98,6 @@ describe('contract-parity: dashboard', () => {
     expectParity(
       schemaOf(dashboardSnapshot, 'RollingMetricsResponse'),
       makeRollingMetricsResponse(),
-    );
-  });
-});
-
-describe('contract-parity: risk', () => {
-  it('when VarResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(schemaOf(riskSnapshot, 'VarResponse'), makeVarApiResponse());
-  });
-
-  it('when ConcentrationAsset is checked, the wire fixture matches the wire row', () => {
-    expectParity(schemaOf(riskSnapshot, 'ConcentrationAsset'), makeConcentrationAssetApi());
-  });
-
-  it('when CorrelationResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(schemaOf(riskSnapshot, 'CorrelationResponse'), makeCorrelationApiResponse());
-  });
-
-  it('when LiquidityAsset is checked, fixture keys equal the wire properties', () => {
-    expectParity(schemaOf(riskSnapshot, 'LiquidityAsset'), makeLiquidityMetrics()[0]);
-  });
-
-  it('when FactorExposureResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(riskSnapshot, 'FactorExposureResponse'),
-      makeFactorExposureResponse(),
-    );
-  });
-
-  it('when RiskLimitListResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(riskSnapshot, 'RiskLimitListResponse'),
-      makeRiskLimitListResponse(),
-    );
-  });
-});
-
-describe('contract-parity: attribution', () => {
-  it('when BrinsonResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(schemaOf(attributionSnapshot, 'BrinsonResponse'), makeBrinsonResponse());
-  });
-
-  it('when FactorAttributionResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(attributionSnapshot, 'FactorAttributionResponse'),
-      makeFactorAttributionResponse(),
-    );
-  });
-});
-
-describe('contract-parity: rebalancing', () => {
-  it('when RebalanceDecideResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(rebalancingSnapshot, 'RebalanceDecideResponse'),
-      makeRebalanceDecideResponse(),
-    );
-  });
-
-  it('when RebalancePreviewResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(rebalancingSnapshot, 'RebalancePreviewResponse'),
-      makeRebalancePreview(),
     );
   });
 });
@@ -312,23 +208,6 @@ describe('contract-parity: backtest', () => {
   });
 });
 
-describe('contract-parity: factors', () => {
-  it('when FactorScoreResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(schemaOf(factorsSnapshot, 'FactorScoreResponse'), makeFactorScoreDto());
-  });
-
-  it('when FactorCompositeScoreResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(factorsSnapshot, 'FactorCompositeScoreResponse'),
-      makeFactorCompositeResponse(),
-    );
-  });
-
-  it('when FactorSelectResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(schemaOf(factorsSnapshot, 'FactorSelectResponse'), makeFactorSelectResponse());
-  });
-});
-
 describe('contract-parity: views', () => {
   it('when GenerateViewsResponse is checked, fixture keys equal the wire properties', () => {
     expectParity(schemaOf(viewsSnapshot, 'GenerateViewsResponse'), makeGenerateViewsResponse());
@@ -380,34 +259,7 @@ describe('contract-parity: pipeline_builder', () => {
 });
 
 // ── Batch D (#1029): remaining DTOs — closes out all uncovered response types ─
-// Covers: RebalancingPolicyListResponse, FactorScoreListResponse,
-// FactorValidationReportResponse, InstrumentListResponse, UniverseStatsResponse,
-// TickerProfileResponse, ConcentrationResponse, LiquidityResponse.
-
-describe('contract-parity: rebalancing (extended #1029)', () => {
-  it('when RebalancingPolicyListResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(rebalancingSnapshot, 'RebalancingPolicyListResponse'),
-      makeRebalancingPolicyListResponse(),
-    );
-  });
-});
-
-describe('contract-parity: factors (extended #1029)', () => {
-  it('when FactorScoreListResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(factorsSnapshot, 'FactorScoreListResponse'),
-      FACTOR_SCORE_LIST_FIXTURE,
-    );
-  });
-
-  it('when FactorValidationReportResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(factorsSnapshot, 'FactorValidationReportResponse'),
-      FACTOR_VALIDATION_REPORT_FIXTURE,
-    );
-  });
-});
+// Covers: InstrumentListResponse, UniverseStatsResponse, TickerProfileResponse.
 
 describe('contract-parity: universe (extended #1029)', () => {
   it('when InstrumentListResponse is checked, fixture keys equal the wire properties', () => {
@@ -434,18 +286,3 @@ describe('contract-parity: market_data (extended #1029)', () => {
   });
 });
 
-describe('contract-parity: risk (extended #1029)', () => {
-  it('when ConcentrationResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(riskSnapshot, 'ConcentrationResponse'),
-      makeConcentrationApiResponse(),
-    );
-  });
-
-  it('when LiquidityResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(riskSnapshot, 'LiquidityResponse'),
-      makeLiquidityApiResponse(),
-    );
-  });
-});

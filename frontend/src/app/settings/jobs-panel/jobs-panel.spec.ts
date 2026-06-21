@@ -477,6 +477,12 @@ describe('JobsPanelComponent', () => {
     http.expectOne((r) => r.url === JOBS_URL).flush(response());
   });
 
+  it('when status query param contains an invalid status value, the invalid value is filtered out', () => {
+    configure({ status: ['running', 'not_a_real_status'] });
+    expect(component.statusFilter()).toEqual(['running']);
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+  });
+
   it('when status, page, and a non-default pageSize are set, syncQueryParams emits all three', () => {
     configure();
     http.expectOne((r) => r.url === JOBS_URL).flush(response([], 1000));
@@ -493,5 +499,49 @@ describe('JobsPanelComponent', () => {
       jasmine.objectContaining({ status: ['running'], page: 2, pageSize: 50 }),
     );
     http.expectOne((r) => r.url === JOBS_URL).flush(response([], 1000));
+  });
+
+  // ── syncQueryParams null-collapse (issue #1026) ────────────────────────────
+  it('when all filters are cleared and page resets to 0, syncQueryParams writes null for domain, status, page, and pageSize', () => {
+    configure({ domain: ['optimize'], page: '1' });
+    http.expectOne((r) => r.url === JOBS_URL).flush(response([], 100));
+
+    const router = TestBed.inject(Router);
+    const navSpy = spyOn(router, 'navigate').and.callThrough();
+
+    // setDomainFilter([]) resets page to 0 and clears domain
+    component.setDomainFilter([]);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+
+    const [, extras] = navSpy.calls.mostRecent().args;
+    const qp = extras?.queryParams as Record<string, unknown>;
+    expect(qp?.['domain']).toBeNull();
+    expect(qp?.['status']).toBeNull();
+    expect(qp?.['page']).toBeNull();
+    expect(qp?.['pageSize']).toBeNull();
+  });
+
+  // ── formatDuration ≥60s branch (issue #1026) ──────────────────────────────
+  it('when a job duration is exactly 60 seconds, the duration cell shows "1m 0s"', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    component.jobs.set([job({ duration_seconds: 60 })]);
+    expect(component.rows()[0]['duration']).toBe('1m 0s');
+  });
+
+  it('when a job duration is 90 seconds, the duration cell shows "1m 30s"', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    component.jobs.set([job({ duration_seconds: 90 })]);
+    expect(component.rows()[0]['duration']).toBe('1m 30s');
+  });
+
+  // ── formatError failed+null branch (issue #1026) ──────────────────────────
+  it('when a failed job has no error message (null), the error cell shows the dash placeholder', () => {
+    configure();
+    http.expectOne((r) => r.url === JOBS_URL).flush(response());
+    component.jobs.set([job({ status: 'failed', error: null })]);
+    expect(component.rows()[0]['error']).toBe('—');
   });
 });

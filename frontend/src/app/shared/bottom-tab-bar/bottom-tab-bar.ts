@@ -6,15 +6,13 @@ interface BottomTab {
   label: string;
   route: string;
   exact: boolean;
-  icon: 'layout-dashboard' | 'briefcase' | 'pie-chart' | 'shield-alert' | 'cpu';
+  icon: 'layout-dashboard' | 'briefcase' | 'pie-chart';
 }
 
 const BOTTOM_TABS: BottomTab[] = [
-  { label: 'Dashboard', route: '/', exact: true, icon: 'layout-dashboard' },
-  { label: 'Portfolio', route: '/portfolio-builder', exact: false, icon: 'briefcase' },
-  { label: 'Optimize', route: '/optimization-studio', exact: false, icon: 'pie-chart' },
-  { label: 'Risk', route: '/risk-center', exact: false, icon: 'shield-alert' },
-  { label: 'AI', route: '/ai-control-room', exact: false, icon: 'cpu' },
+  { label: 'Dashboard', route: '/',                    exact: true,  icon: 'layout-dashboard' },
+  { label: 'Portfolio', route: '/portfolio-builder',   exact: false, icon: 'briefcase' },
+  { label: 'Optimize',  route: '/optimization-studio', exact: false, icon: 'pie-chart' },
 ];
 
 @Component({
