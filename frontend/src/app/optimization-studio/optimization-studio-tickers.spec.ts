@@ -46,6 +46,7 @@ function makePortfolioContextStub(portfolioName: string | null) {
     currentPortfolioId: signal<string | null>(portfolioName ? 'id-1' : null),
     currentPortfolioName: signal<string | null>(portfolioName),
     selectedPortfolio: signal<unknown>(null),
+    hasPortfolio: signal(portfolioName !== null),
     dateRange: signal({
       preset: '1Y' as const,
       start: new Date('2024-01-01'),

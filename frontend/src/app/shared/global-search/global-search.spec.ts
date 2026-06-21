@@ -63,8 +63,8 @@ describe('GlobalSearchComponent', () => {
   });
 
   it('when a result is clicked, it navigates and closes', () => {
-    comp.selectResult({ label: 'Optimize', route: '/optimization-studio', category: 'Core' });
-    expect(router.navigateByUrl).toHaveBeenCalledWith('/optimization-studio');
+    comp.selectResult({ label: 'Optimize', route: '/optimize', category: 'Core' });
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/optimize');
     expect(search.close).toHaveBeenCalled();
   });
 });

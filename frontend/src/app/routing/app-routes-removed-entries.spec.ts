@@ -7,8 +7,8 @@
  *   or pipeline-stepper/pipeline-stepper.
  *
  * Criterion 2: All kept routes preserved:
- *   '', portfolio-builder, optimization-studio, backtesting, macro-intelligence,
- *   settings, portfolio/:name, instrument/:id, dashboard→'', optimize→optimization-studio, **
+ *   '', portfolio-builder, optimize, optimization-studio, backtesting, macro-intelligence,
+ *   settings, portfolio/:name, instrument/:id, dashboard→'', optimization-studio→optimize, **
  *
  * Import assumption: routes are exported as `routes` from `../app.routes`.
  * Adjust the import if the export name differs.
@@ -79,6 +79,7 @@ describe('app.routes.ts — criterion 1: doomed route paths are absent', () => {
 const KEPT_PATHS = [
   '',
   'portfolio-builder',
+  'optimize',
   'optimization-studio',
   'backtesting',
   'macro-intelligence',
@@ -106,11 +107,11 @@ describe('app.routes.ts — criterion 2: kept routes are preserved', () => {
     expect(redirect!.redirectTo).toBe('');
   });
 
-  it('when routes are inspected, a redirect from "optimize" to "optimization-studio" is present', () => {
-    const redirect = ALL_ROUTES.find(r => r.path === 'optimize' && r.redirectTo !== undefined);
+  it('when routes are inspected, a redirect from "optimization-studio" to "optimize" is present', () => {
+    const redirect = ALL_ROUTES.find(r => r.path === 'optimization-studio' && r.redirectTo !== undefined);
     expect(redirect)
-      .withContext('Expected { path: "optimize", redirectTo: "optimization-studio" } but no such entry was found')
+      .withContext('Expected { path: "optimization-studio", redirectTo: "optimize" } but no such entry was found')
       .toBeDefined();
-    expect(redirect!.redirectTo).toBe('optimization-studio');
+    expect(redirect!.redirectTo).toBe('optimize');
   });
 });

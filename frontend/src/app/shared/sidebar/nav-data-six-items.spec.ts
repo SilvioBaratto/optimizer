@@ -10,7 +10,7 @@ describe('NAV_GROUPS — trimmed to six items (#1036)', () => {
   const EXPECTED_FLOW: { name: string; route: string }[] = [
     { name: 'Dashboard',           route: '/' },
     { name: 'Portfolio Builder',   route: '/portfolio-builder' },
-    { name: 'Optimize',            route: '/optimization-studio' },
+    { name: 'Optimize',            route: '/optimize' },
     { name: 'Backtesting',         route: '/backtesting' },
     { name: 'Macro Intelligence',  route: '/macro-intelligence' },
     { name: 'Settings',            route: '/settings' },

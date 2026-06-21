@@ -1,23 +1,12 @@
 <div class="flex-1 overflow-y-auto p-6">
-  <!-- Page Header — always visible -->
-  <app-page-header title="Optimization Studio" subtitle="Build and run portfolio optimization pipelines">
+  <!-- Page Header -->
+  <app-page-header title="Optimize" subtitle="Run portfolio optimization and review the results">
     <div actions class="flex flex-wrap items-center gap-2">
-      <div class="hidden md:flex items-center gap-2">
-        <button type="button" (click)="loadPipeline()"
-          class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors">
-          Load Pipeline
-        </button>
-        <button type="button" (click)="savePipeline()"
-          [disabled]="!hasResult() && tickers().length === 0"
-          class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:bg-surface-inset transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-          Save Pipeline
-        </button>
-        <button type="button" (click)="openReportModal()"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
-          <i-lucide name="download" />
-          Export Report
-        </button>
-      </div>
+      <button type="button" (click)="openReportModal()"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-secondary border border-border rounded-lg hover:bg-surface-inset transition-colors">
+        <i-lucide name="download" />
+        Export Report
+      </button>
     </div>
   </app-page-header>
 
@@ -70,54 +59,21 @@
         Apply weights failed: {{ err }}
       </div>
     }
-    @if (pipelineStatus(); as msg) {
-      <div class="mb-4 bg-surface-raised border border-border text-text-secondary text-sm rounded-lg p-3">
-        {{ msg }}
-      </div>
-    }
 
-    <!-- Pipeline Builder -->
-    <app-pipeline-builder [nodes]="pipelineNodes()" [activeNode]="activeNode()"
-      (nodeSelect)="onNodeSelect($event)" />
+    <!-- Method picker + constraints + Run -->
+    <div class="mt-6">
+      <app-optimizer-panel (runOptimization)="onRunPipeline($event)" />
+    </div>
 
-    <!-- Active Node Config Panel -->
-    @if (activeNode()) {
-      <div class="mt-6">
-        @switch (activeNode()) {
-          @case ('p2') { <app-preprocessing-panel /> }
-          @case ('p3') { <app-moment-panel /> }
-          @case ('p4') { <app-view-panel [tickers]="tickers()" /> }
-          @case ('p5') {
-            <app-optimizer-panel (runOptimization)="onRunPipeline($event)" />
-          }
-          @case ('p6') {
-            <app-results-panel
-              [result]="runResult()"
-              [hasResult]="hasResult()"
-              [errorMessage]="runError()"
-              (applyWeights)="onApplyWeights($event)" />
-          }
-          @default {
-            <app-results-panel
-              [result]="runResult()"
-              [hasResult]="hasResult()"
-              [errorMessage]="runError()"
-              (applyWeights)="onApplyWeights($event)" />
-          }
-        }
-      </div>
-    }
-
-    <!-- Results always visible when no node selected -->
-    @if (!activeNode()) {
-      <div class="mt-6">
-        <app-results-panel
-              [result]="runResult()"
-              [hasResult]="hasResult()"
-              [errorMessage]="runError()"
-              (applyWeights)="onApplyWeights($event)" />
-      </div>
-    }
+    <!-- Results (always visible; shows empty state before first run) -->
+    <div class="mt-6">
+      <app-results-panel
+        [result]="runResult()"
+        [hasResult]="hasResult()"
+        [errorMessage]="runError()"
+        [canSave]="canSave()"
+        (applyWeights)="onApplyWeights($event)" />
+    </div>
 
   }
 </div>

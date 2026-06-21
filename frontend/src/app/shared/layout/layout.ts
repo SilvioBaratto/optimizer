@@ -22,7 +22,7 @@ const routerTransition = trigger('routerTransition', [
 const PAGE_ROUTES = [
   '/',
   '/portfolio-builder',
-  '/optimization-studio',
+  '/optimize',
   '/backtesting',
   '/macro-intelligence',
 ];

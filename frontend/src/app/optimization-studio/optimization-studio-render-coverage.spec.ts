@@ -2,10 +2,13 @@
  * optimization-studio-render-coverage.spec.ts — issue #941
  *
  * Template-branch coverage for OptimizationStudioComponent. Mounts the template
- * and drives the three-way gate, run/apply/pipeline status banners, the polling
- * job tracker and the @switch (activeNode) cases (p2..p6 + default + no-node)
- * by setting STATE signals directly. PortfolioContextService is reset so the
- * date-range effect is deterministic.
+ * and drives the three-way gate and run/apply status banners by setting STATE
+ * signals directly. PortfolioContextService is reset so the date-range effect
+ * is deterministic.
+ *
+ * Updated for issue #1044: removed pipeline-builder, preprocessing/moment/view
+ * panel switch-case assertions, and Load/Save Pipeline button tests (those
+ * components and methods are deleted).
  */
 
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -62,8 +65,12 @@ describe('OptimizationStudioComponent — render-coverage (issue #941)', () => {
       expect(el.textContent).toContain('opt boom');
     });
 
-    it('when not loading and no error, the pipeline builder is rendered', () => {
-      expect(el.querySelector('app-pipeline-builder')).not.toBeNull();
+    it('when not loading and no error, the optimizer panel is rendered', () => {
+      expect(el.querySelector('app-optimizer-panel')).not.toBeNull();
+    });
+
+    it('when not loading and no error, the results panel is rendered', () => {
+      expect(el.querySelector('app-results-panel')).not.toBeNull();
     });
   });
 
@@ -98,58 +105,6 @@ describe('OptimizationStudioComponent — render-coverage (issue #941)', () => {
       comp.applyError.set('apply boom');
       fixture.detectChanges();
       expect(el.textContent).toContain('Apply weights failed: apply boom');
-    });
-
-    it('when pipelineStatus is set, the status message is shown', () => {
-      comp.pipelineStatus.set('Pipeline saved.');
-      fixture.detectChanges();
-      expect(el.textContent).toContain('Pipeline saved.');
-    });
-  });
-
-  describe('@switch (activeNode) cases', () => {
-    const cases = [
-      { node: 'p2', selector: 'app-preprocessing-panel' },
-      { node: 'p3', selector: 'app-moment-panel' },
-      { node: 'p4', selector: 'app-view-panel' },
-      { node: 'p5', selector: 'app-optimizer-panel' },
-      { node: 'p6', selector: 'app-results-panel' },
-      { node: 'p9', selector: 'app-results-panel' }, // @default arm
-    ];
-
-    cases.forEach(({ node, selector }) => {
-      it(`when activeNode is "${node}", ${selector} is rendered`, () => {
-        comp.activeNode.set(node);
-        fixture.detectChanges();
-        expect(el.querySelector(selector)).not.toBeNull();
-      });
-    });
-
-    it('when no node is active, the results panel is rendered', () => {
-      comp.activeNode.set(null);
-      fixture.detectChanges();
-      expect(el.querySelector('app-results-panel')).not.toBeNull();
-    });
-  });
-
-  describe('save-pipeline button enablement', () => {
-    it('is disabled when there is no result and no tickers', () => {
-      comp.tickers.set([]);
-      fixture.detectChanges();
-      const btn = Array.from(el.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('Save Pipeline'),
-      ) as HTMLButtonElement | undefined;
-      expect(btn?.disabled).toBe(true);
-    });
-
-    it('is enabled once a result exists', () => {
-      comp.runResult.set(makeOptimizationRunResponse());
-      comp.tickers.set([]);
-      fixture.detectChanges();
-      const btn = Array.from(el.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('Save Pipeline'),
-      ) as HTMLButtonElement | undefined;
-      expect(btn?.disabled).toBe(false);
     });
   });
 });

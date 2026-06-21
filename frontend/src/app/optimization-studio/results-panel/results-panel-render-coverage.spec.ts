@@ -67,14 +67,14 @@ describe('ResultsPanelComponent — render-coverage (#942)', () => {
 
   it('the stat cards reflect up/down/flat trends from the metrics', () => {
     fixture.componentRef.setInput('result', makeOptimizationRunResponse({
-      metrics: { annualized_sharpe_ratio: 1.2, max_drawdown: -0.2 }, // annual_return/vol missing → flat
+      metrics: { annualized_sharpe_ratio: 1.2, max_drawdown: -0.2 }, // sortino/vol missing → flat
     }));
     fixture.componentRef.setInput('hasResult', true);
     fixture.detectChanges();
     const cards = comp.statsCards();
     expect(cards.find((c) => c.label === 'Sharpe Ratio')?.trend).toBe('up');
     expect(cards.find((c) => c.label === 'Max Drawdown')?.trend).toBe('down');
-    expect(cards.find((c) => c.label === 'Annual Return')?.trend).toBe('flat');
+    expect(cards.find((c) => c.label === 'Sortino Ratio')?.trend).toBe('flat');
   });
 
   it('optimal and assetMarkers computeds pick the tangency and min-risk points', () => {
@@ -93,13 +93,13 @@ describe('ResultsPanelComponent — render-coverage (#942)', () => {
     expect(comp.assetMarkers()).toEqual([]);
   });
 
-  it('clicking Apply Weights emits the run weights', () => {
+  it('clicking Save Weights emits the run weights', () => {
     fixture.componentRef.setInput('result', makeOptimizationRunResponse());
     fixture.componentRef.setInput('hasResult', true);
     fixture.detectChanges();
     let emitted: Record<string, number> | undefined;
     comp.applyWeights.subscribe((w) => (emitted = w));
-    button('Apply Weights')!.click();
+    button('Save Weights')!.click();
     expect(emitted).toEqual({ AAPL: 0.6, MSFT: 0.4 });
   });
 

@@ -3,6 +3,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 
 import { BacktestResultsPanelComponent } from './backtest-results-panel';
 import type { BacktestRunResponse } from '../backtest.model';
+import { ICON_PROVIDER } from '../../icons';
 
 function makeRun(overrides: Partial<BacktestRunResponse> = {}): BacktestRunResponse {
   return {
@@ -42,7 +43,7 @@ let activeFixture: ComponentFixture<BacktestResultsPanelComponent> | null = null
 
 function createFixture(): ComponentFixture<BacktestResultsPanelComponent> {
   TestBed.configureTestingModule({
-    providers: [provideZonelessChangeDetection()],
+    providers: [provideZonelessChangeDetection(), ICON_PROVIDER],
   });
   activeFixture = TestBed.createComponent(BacktestResultsPanelComponent);
   return activeFixture;

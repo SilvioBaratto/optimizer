@@ -2,6 +2,9 @@ import { Component, input, output, computed, ChangeDetectionStrategy } from '@an
 import { StatCardComponent } from '../../shared/stat-card/stat-card';
 import { DataTableComponent, TableColumn } from '../../shared/data-table/data-table';
 import { EchartsEfficientFrontierComponent } from '../../shared/echarts-efficient-frontier/echarts-efficient-frontier';
+import { EchartsDonutComponent, type PieSegment } from '../../shared/echarts-donut/echarts-donut';
+import { EchartsBarComponent, type BarData } from '../../shared/echarts-bar/echarts-bar';
+import { tickerColorMap } from '../../shared/charts/ticker-color-map';
 import type {
   OptimizationRunResponse,
   EfficientFrontierPoint,
@@ -36,7 +39,13 @@ function formatPercent(value: unknown, digits = 2): string {
 
 @Component({
   selector: 'app-results-panel',
-  imports: [StatCardComponent, DataTableComponent, EchartsEfficientFrontierComponent],
+  imports: [
+    StatCardComponent,
+    DataTableComponent,
+    EchartsEfficientFrontierComponent,
+    EchartsDonutComponent,
+    EchartsBarComponent,
+  ],
   templateUrl: './results-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -44,6 +53,7 @@ export class ResultsPanelComponent {
   readonly result = input<OptimizationRunResponse | null>(null);
   readonly hasResult = input<boolean>(false);
   readonly errorMessage = input<string | null>(null);
+  readonly canSave = input<boolean>(true);
   readonly applyWeights = output<Record<string, number>>();
 
   exportResults(): void {
@@ -94,15 +104,35 @@ export class ResultsPanelComponent {
   readonly statsCards = computed<StatCard[]>(() => {
     const metrics = this.result()?.metrics ?? {};
     return [
-      this.buildCard(
-        'Sharpe Ratio',
-        metrics['annualized_sharpe_ratio'] ?? metrics['sharpe'],
-        'ratio',
-      ),
-      this.buildCard('Annual Return', metrics['annualized_return'], 'percent'),
+      this.buildCard('Sharpe Ratio', metrics['annualized_sharpe_ratio'] ?? metrics['sharpe'], 'ratio'),
+      this.buildCard('Sortino Ratio', metrics['annualized_sortino_ratio'], 'ratio'),
       this.buildCard('Annual Vol', metrics['annualized_volatility'], 'percent'),
       this.buildCard('Max Drawdown', metrics['max_drawdown'], 'percent'),
     ];
+  });
+
+  readonly weightDonutSegments = computed<PieSegment[]>(() => {
+    const weights = this.result()?.weights;
+    if (!weights) return [];
+    const sorted = Object.keys(weights).sort((a, b) => weights[b] - weights[a]);
+    const palette = tickerColorMap(sorted);
+    return sorted.map((ticker) => ({
+      label: ticker,
+      value: weights[ticker],
+      color: palette[ticker],
+    }));
+  });
+
+  readonly weightBarsData = computed<BarData[]>(() => {
+    const weights = this.result()?.weights;
+    if (!weights) return [];
+    const sorted = Object.keys(weights).sort((a, b) => weights[b] - weights[a]);
+    const palette = tickerColorMap(sorted);
+    return sorted.map((ticker) => ({
+      label: ticker,
+      value: weights[ticker],
+      color: palette[ticker],
+    }));
   });
 
   readonly weightsTableRows = computed<WeightRow[]>(() => {

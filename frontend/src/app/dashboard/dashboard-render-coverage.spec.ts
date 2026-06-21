@@ -263,12 +263,12 @@ describe('DashboardComponent — render-coverage (issue #909)', () => {
       expect(headings.some((t) => t.includes('Quick Actions'))).toBeTrue();
     });
 
-    it('when revealIndex >= 4, the optimization-studio routerLink anchor is present', () => {
+    it('when revealIndex >= 4, the /optimize routerLink anchor is present', () => {
       comp.revealIndex.set(4);
       fixture.detectChanges();
 
       // RouterLink renders as a plain <a> with the lowercase routerlink attribute.
-      const anchor = el.querySelector('a[routerlink="/optimization-studio"]');
+      const anchor = el.querySelector('a[routerlink="/optimize"]');
       expect(anchor).not.toBeNull();
     });
   });

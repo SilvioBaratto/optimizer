@@ -20,8 +20,6 @@ import {
   makeOpinionPoolResponse,
   makeOptimizationRunListResponse,
   makeOptimizationRunResponse,
-  makeStepPollResponse,
-  makeStepRunWireResponse,
 } from './index';
 
 type Row = Record<string, unknown>;
@@ -65,10 +63,6 @@ const objectCases: readonly ObjectCase[] = [
   objCase('makeOpinionPoolResponse', makeOpinionPoolResponse, 'poolingType', 'geometric'),
   objCase('makeEntropyPoolingResponse', makeEntropyPoolingResponse, 'mu', [0.2]),
   objCase('makeMacroCalibrationApiResponse', makeMacroCalibrationApiResponse, 'phase', 'SLOWDOWN'),
-  // makeCreateSessionResponse (single key `sessionId`) is covered by the parity
-  // spec; it cannot satisfy the generic ≥2-key objectCases assertions below.
-  objCase('makeStepPollResponse', makeStepPollResponse, 'status', 'completed'),
-  objCase('makeStepRunWireResponse', makeStepRunWireResponse, 'status', 'completed'),
   objCase('makeDriftResponseRich', makeDriftResponseRich, 'request_id', 9),
 ];
 

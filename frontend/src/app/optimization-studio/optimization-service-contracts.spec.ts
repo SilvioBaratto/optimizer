@@ -5,8 +5,11 @@
  * already near the 550-line budget): this file covers the SERVICE's HTTP methods
  * directly — method, exact interpolated URL, and body — via the #998 helper.
  *
- * Non-HTTP members (`buildOptimizeBody`, `loadPipeline`, `savePipeline`) issue no
- * request and are intentionally excluded from request-contract assertions.
+ * Issue #1044: removed contract tests for calibrateDelta, adaptFactorWeights,
+ * selectCovRegime, generateViews, opinionPool, entropyPooling — those service
+ * methods were orphaned when their panel components were deleted.
+ * Non-HTTP members (buildOptimizeBody) issue no request and are intentionally
+ * excluded from request-contract assertions.
  */
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -76,54 +79,6 @@ describe('OptimizationService — request contract parity (issue #1000)', () => 
     const req = capture(`${API}tune`);
     assertMethod(req, 'POST');
     assertUrl(req, `${API}tune`);
-    expect(req.request.body).toEqual(FWD);
-  });
-
-  it('when calibrateDelta is called, a POST to /llm-moments/calibrate-delta forwards the body', () => {
-    svc.calibrateDelta(FWD as unknown as Parameters<typeof svc.calibrateDelta>[0]).subscribe({ error: () => {} });
-    const req = capture(`${API}llm-moments/calibrate-delta`);
-    assertMethod(req, 'POST');
-    assertUrl(req, `${API}llm-moments/calibrate-delta`);
-    expect(req.request.body).toEqual(FWD);
-  });
-
-  it('when adaptFactorWeights is called, a POST to /llm-moments/adapt-factor-weights forwards the body', () => {
-    svc.adaptFactorWeights(FWD as unknown as Parameters<typeof svc.adaptFactorWeights>[0]).subscribe({ error: () => {} });
-    const req = capture(`${API}llm-moments/adapt-factor-weights`);
-    assertMethod(req, 'POST');
-    assertUrl(req, `${API}llm-moments/adapt-factor-weights`);
-    expect(req.request.body).toEqual(FWD);
-  });
-
-  it('when selectCovRegime is called, a POST to /llm-moments/select-cov-regime forwards the body', () => {
-    svc.selectCovRegime(FWD as unknown as Parameters<typeof svc.selectCovRegime>[0]).subscribe({ error: () => {} });
-    const req = capture(`${API}llm-moments/select-cov-regime`);
-    assertMethod(req, 'POST');
-    assertUrl(req, `${API}llm-moments/select-cov-regime`);
-    expect(req.request.body).toEqual(FWD);
-  });
-
-  it('when generateViews is called, a POST to /views/generate forwards the body', () => {
-    svc.generateViews(FWD as unknown as Parameters<typeof svc.generateViews>[0]).subscribe({ error: () => {} });
-    const req = capture(`${API}views/generate`);
-    assertMethod(req, 'POST');
-    assertUrl(req, `${API}views/generate`);
-    expect(req.request.body).toEqual(FWD);
-  });
-
-  it('when opinionPool is called, a POST to /views/opinion-pool forwards the body', () => {
-    svc.opinionPool(FWD as unknown as Parameters<typeof svc.opinionPool>[0]).subscribe({ error: () => {} });
-    const req = capture(`${API}views/opinion-pool`);
-    assertMethod(req, 'POST');
-    assertUrl(req, `${API}views/opinion-pool`);
-    expect(req.request.body).toEqual(FWD);
-  });
-
-  it('when entropyPooling is called, a POST to /views/entropy-pooling forwards the body', () => {
-    svc.entropyPooling(FWD as unknown as Parameters<typeof svc.entropyPooling>[0]).subscribe({ error: () => {} });
-    const req = capture(`${API}views/entropy-pooling`);
-    assertMethod(req, 'POST');
-    assertUrl(req, `${API}views/entropy-pooling`);
     expect(req.request.body).toEqual(FWD);
   });
 

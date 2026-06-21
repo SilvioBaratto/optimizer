@@ -12,7 +12,7 @@ import { ICON_PROVIDER } from '../../icons';
 const KEPT_ROUTES = [
   '/',
   '/portfolio-builder',
-  '/optimization-studio',
+  '/optimize',
   '/backtesting',
   '/macro-intelligence',
   '/settings',

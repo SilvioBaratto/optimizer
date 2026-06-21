@@ -24,7 +24,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'Dashboard',          route: '/',                   icon: 'layout-dashboard' },
       { name: 'Portfolio Builder',  route: '/portfolio-builder',  icon: 'briefcase' },
-      { name: 'Optimize',           route: '/optimization-studio', icon: 'pie-chart' },
+      { name: 'Optimize',           route: '/optimize',            icon: 'pie-chart' },
       { name: 'Backtesting',        route: '/backtesting',        icon: 'clock' },
       { name: 'Macro Intelligence', route: '/macro-intelligence', icon: 'globe' },
     ],

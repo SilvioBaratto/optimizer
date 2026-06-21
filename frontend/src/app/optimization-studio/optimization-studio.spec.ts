@@ -72,14 +72,7 @@ describe('OptimizationStudioComponent', () => {
     http.expectNone(() => true);
   });
 
-  it('when a pipeline is saved then loaded, its state round-trips via localStorage', () => {
-    comp.savePipeline();
-    expect(comp.pipelineStatus()).toBe('Pipeline saved.');
-    comp.loadPipeline();
-    expect(comp.pipelineStatus()).toContain('Pipeline loaded');
-  });
-
-  it('when optimize errors, the run error is recorded and running stops', () => {
+it('when optimize errors, the run error is recorded and running stops', () => {
     comp.onRunPipeline(RUN);
     http.expectOne(OPTIMIZE_URL).flush({ detail: 'bad' }, { status: 500, statusText: 'Server Error' });
     expect(comp.runError()).toBeTruthy();
@@ -135,13 +128,6 @@ describe('OptimizationStudioComponent', () => {
       .flush({ detail: 'bad' }, { status: 500, statusText: 'Server Error' });
     expect(comp.applyStatus()).toBe('error');
     expect(comp.applyError()).toBeTruthy();
-  });
-
-  it('onNodeSelect toggles the active node', () => {
-    comp.onNodeSelect('p2');
-    expect(comp.activeNode()).toBe('p2');
-    comp.onNodeSelect('p2');
-    expect(comp.activeNode()).toBeNull();
   });
 
   it('retry clears the run error and stops loading', () => {

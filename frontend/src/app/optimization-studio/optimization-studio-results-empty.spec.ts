@@ -263,18 +263,5 @@ describe('OptimizationStudioComponent — ticker seeding on init (no portfolio)'
     });
   });
 
-  it('when the view-panel is displayed (activeNode p4), it receives the component tickers', () => {
-    // Criterion: "[tickers]="tickers()" is bound in the template for <app-view-panel>"
-    const fixture = TestBed.createComponent(OptimizationStudioComponent);
-    fixture.detectChanges();
-
-    // Activate the View Formation panel (p4 = view panel node).
-    fixture.componentInstance.onNodeSelect('p4');
-    fixture.detectChanges();
-
-    const viewPanelEl = fixture.debugElement.query(By.css('app-view-panel'));
-    expect(viewPanelEl)
-      .withContext('Expected <app-view-panel> to be present in the DOM when p4 is active')
-      .toBeTruthy();
-  });
+  // view-panel test removed in issue #1044 (view-panel component deleted).
 });

@@ -12,7 +12,7 @@ interface BottomTab {
 const BOTTOM_TABS: BottomTab[] = [
   { label: 'Dashboard', route: '/',                    exact: true,  icon: 'layout-dashboard' },
   { label: 'Portfolio', route: '/portfolio-builder',   exact: false, icon: 'briefcase' },
-  { label: 'Optimize',  route: '/optimization-studio', exact: false, icon: 'pie-chart' },
+  { label: 'Optimize',  route: '/optimize',            exact: false, icon: 'pie-chart' },
 ];
 
 @Component({

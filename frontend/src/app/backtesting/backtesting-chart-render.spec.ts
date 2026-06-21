@@ -61,10 +61,6 @@ function makeRun(id: string) {
   };
 }
 
-function makeChartStub() {
-  return jasmine.createSpyObj('EChartsType', ['setOption', 'dispose', 'resize']);
-}
-
 describe('BacktestingComponent — chart render on job completion (issue #1024)', () => {
   let fixture: ComponentFixture<BacktestingComponent>;
   let comp: BacktestingComponent;
@@ -107,67 +103,48 @@ describe('BacktestingComponent — chart render on job completion (issue #1024)'
     expect(comp.runJobId()).toBeNull();
   });
 
-  // ── Chart effect: equity + underwater stubs receive setOption ─────────────
+  // ── Data delegation: run data flows into runResponse signal ─────────────
+  // Charts are rendered by BacktestResultsPanelComponent (slim #1051);
+  // the orchestrator exposes runResponse() for panel binding.
 
-  it('when run hydrated, equityChart stub receives setOption', () => {
-    const eq = makeChartStub();
-    const uw = makeChartStub();
-    const priv = comp as unknown as Record<string, unknown>;
-    priv['equityChart'] = eq;
-    priv['underwaterChart'] = uw;
-
+  it('when run hydrated, runResponse contains non-empty equity curve', () => {
     comp.onJobCompleted('run-chart-1');
     http.expectOne(runUrl('run-chart-1')).flush(makeRun('run-chart-1'));
     fixture.detectChanges();
 
-    expect(eq.setOption).toHaveBeenCalled();
+    const curve = comp.runResponse()?.equityCurve ?? {};
+    expect(Object.keys(curve).length).toBeGreaterThan(0);
   });
 
-  it('when run hydrated, underwaterChart stub receives setOption', () => {
-    const eq = makeChartStub();
-    const uw = makeChartStub();
-    const priv = comp as unknown as Record<string, unknown>;
-    priv['equityChart'] = eq;
-    priv['underwaterChart'] = uw;
-
+  it('when run hydrated, runResponse contains drawdown data', () => {
     comp.onJobCompleted('run-chart-2');
     http.expectOne(runUrl('run-chart-2')).flush(makeRun('run-chart-2'));
     fixture.detectChanges();
 
-    expect(uw.setOption).toHaveBeenCalled();
+    const dd = comp.runResponse()?.drawdowns ?? {};
+    expect(Object.keys(dd).length).toBeGreaterThan(0);
   });
 
-  it('when run hydrated, qqChart stub receives setOption', () => {
-    const qq = makeChartStub();
-    (comp as unknown as Record<string, unknown>)['qqChart'] = qq;
-
+  it('when run hydrated, hasLoadedResult is true and runResponse contains rolling metrics', () => {
     comp.onJobCompleted('run-chart-3');
     http.expectOne(runUrl('run-chart-3')).flush(makeRun('run-chart-3'));
     fixture.detectChanges();
 
-    expect(qq.setOption).toHaveBeenCalled();
+    expect(comp.hasLoadedResult()).toBe(true);
+    expect(comp.runResponse()?.rollingMetrics).toBeTruthy();
   });
 
-  it('when run hydrated, rolling chart stubs receive setOption on window change', () => {
-    const sharpe = makeChartStub();
-    const vol = makeChartStub();
-    const beta = makeChartStub();
-    const priv = comp as unknown as Record<string, unknown>;
-    priv['rollingSharpeChart'] = sharpe;
-    priv['rollingVolChart'] = vol;
-    priv['rollingBetaChart'] = beta;
-
+  it('when rolling window changes after hydration, hasLoadedResult remains true', () => {
     comp.onJobCompleted('run-rolling-1');
     http.expectOne(runUrl('run-rolling-1')).flush(makeRun('run-rolling-1'));
     fixture.detectChanges();
 
-    // Changing the rolling window re-triggers the rolling effect
+    expect(comp.hasLoadedResult()).toBe(true);
+
     comp.rollingWindow.set('3Y');
     fixture.detectChanges();
 
-    expect(sharpe.setOption).toHaveBeenCalled();
-    expect(vol.setOption).toHaveBeenCalled();
-    expect(beta.setOption).toHaveBeenCalled();
+    expect(comp.hasLoadedResult()).toBe(true);
   });
 
   // ── DOM: results panel appears after job completion ──────────────────────

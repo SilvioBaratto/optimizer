@@ -19,9 +19,9 @@ export const routes: Routes = [
         title: 'Portfolio Builder',
       },
       {
-        path: 'optimization-studio',
+        path: 'optimize',
         loadComponent: () => import('./optimization-studio/optimization-studio').then((m) => m.OptimizationStudioComponent),
-        title: 'Optimization Studio',
+        title: 'Optimize',
       },
       {
         path: 'backtesting',
@@ -55,8 +55,8 @@ export const routes: Routes = [
         pathMatch: 'full',
       },
       {
-        path: 'optimize',
-        redirectTo: 'optimization-studio',
+        path: 'optimization-studio',
+        redirectTo: 'optimize',
       },
       {
         path: '**',

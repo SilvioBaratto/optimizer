@@ -96,9 +96,6 @@ describe('OptimizationStudioComponent — results chain (issue #956)', () => {
   // ── Sync run path: HTTP → signal → DOM ───────────────────────────────────────
 
   it('after sync /optimize succeeds, app-results-panel is present in the DOM', () => {
-    comp.activeNode.set(null);
-    fixture.detectChanges();
-
     comp.onRunPipeline(RUN);
     http.expectOne(OPTIMIZE_URL).flush(syncRunResult());
     fixture.detectChanges();
@@ -146,9 +143,6 @@ describe('OptimizationStudioComponent — results chain (issue #956)', () => {
   // ── Async run path: POST → job → GET → DOM ───────────────────────────────────
 
   it('after async /optimize + onJobCompleted, app-results-panel is present in the DOM', () => {
-    comp.activeNode.set(null);
-    fixture.detectChanges();
-
     comp.onRunPipeline(RUN);
     http.expectOne(OPTIMIZE_URL).flush(ASYNC_RESPONSE);
     fixture.detectChanges();
@@ -181,9 +175,6 @@ describe('OptimizationStudioComponent — results chain (issue #956)', () => {
   // ── Error: results panel NOT shown, error banner IS shown ────────────────────
 
   it('after /optimize 5xx, app-results-panel is absent from the DOM', () => {
-    comp.activeNode.set(null);
-    fixture.detectChanges();
-
     comp.onRunPipeline(RUN);
     http.expectOne(OPTIMIZE_URL).flush(
       { detail: 'solver failed' },

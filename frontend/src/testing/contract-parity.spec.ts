@@ -10,7 +10,6 @@ import jobsSnapshot from './contract-snapshots/jobs.json';
 import macroSnapshot from './contract-snapshots/macro.json';
 import marketDataSnapshot from './contract-snapshots/market_data.json';
 import optimizationSnapshot from './contract-snapshots/optimization.json';
-import pipelineBuilderSnapshot from './contract-snapshots/pipeline_builder.json';
 import portfolioSnapshot from './contract-snapshots/portfolio.json';
 import reportsSnapshot from './contract-snapshots/reports.json';
 import scenariosSnapshot from './contract-snapshots/scenarios.json';
@@ -23,7 +22,6 @@ import {
   makeBacktestAsyncResponse,
   makeBacktestProgressResponse,
   makeBacktestRunResponse,
-  makeCreateSessionResponse,
   makeDriftResponse,
   makeDriftResponseRich,
   makeEntropyPoolingResponse,
@@ -43,8 +41,6 @@ import {
   makeReportJobCreateResponse,
   makeRollingMetricsResponse,
   makeSnapshotDto,
-  makeStepPollResponse,
-  makeStepRunWireResponse,
   makeStressScenarioApiResponse,
   makeStressScenarioItemApi,
   makeTickerProfileResponse,
@@ -110,6 +106,12 @@ describe('contract-parity: portfolio', () => {
   it('when SnapshotResponse is checked, fixture keys equal the wire properties', () => {
     expectParity(schemaOf(portfolioSnapshot, 'SnapshotResponse'), makeSnapshotDto());
   });
+
+  // DriftResponse: the rich portfolio drift shape (holdings/target/drift/trades/totals/
+  // diagnostics/request_id), distinct from the dashboard simple DriftResponse (entries[]).
+  it('when the portfolio rich DriftResponse is checked, fixture keys equal the wire properties', () => {
+    expectParity(schemaOf(portfolioSnapshot, 'DriftResponse'), makeDriftResponseRich());
+  });
 });
 
 // ── Batch B (#847): jobs, reports, universe, scenarios, market_data ──────────
@@ -164,8 +166,7 @@ describe('contract-parity: market_data', () => {
   });
 });
 
-// ── Batch C (#848): optimization, backtest, factors, views, macro,
-// pipeline_builder — nested/mismatched shapes + real drift fixes. ────────────
+// ── Batch C (#848): optimization, backtest, factors, views, macro ─────────────
 
 describe('contract-parity: optimization', () => {
   it('when OptimizationRunResponse is checked, fixture keys equal the wire properties', () => {
@@ -231,30 +232,6 @@ describe('contract-parity: macro', () => {
       schemaOf(macroSnapshot, 'MacroCalibrationResponse'),
       makeMacroCalibrationApiResponse(),
     );
-  });
-});
-
-describe('contract-parity: pipeline_builder', () => {
-  it('when CreateSessionResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(
-      schemaOf(pipelineBuilderSnapshot, 'CreateSessionResponse'),
-      makeCreateSessionResponse(),
-    );
-  });
-
-  it('when StepPollResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(schemaOf(pipelineBuilderSnapshot, 'StepPollResponse'), makeStepPollResponse());
-  });
-
-  it('when StepRunResponse is checked, the wire fixture matches (frontend remaps to jobId)', () => {
-    expectParity(schemaOf(pipelineBuilderSnapshot, 'StepRunResponse'), makeStepRunWireResponse());
-  });
-
-  // DriftResponse collision: pipeline_builder/builder-drift consumes the rich
-  // portfolio DriftResponse (holdings/target/drift/trades/totals/diagnostics/
-  // request_id), distinct from the dashboard simple DriftResponse (entries[]).
-  it('when the portfolio rich DriftResponse is checked, fixture keys equal the wire properties', () => {
-    expectParity(schemaOf(portfolioSnapshot, 'DriftResponse'), makeDriftResponseRich());
   });
 });
 

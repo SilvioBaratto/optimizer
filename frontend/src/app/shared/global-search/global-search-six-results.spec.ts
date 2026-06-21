@@ -61,10 +61,10 @@ describe('GlobalSearchComponent — six results after nav trim (#1036)', () => {
     expect(routes).not.toContain('/factor-research');
   });
 
-  it('when a result with route /optimization-studio is selected, router navigates to that kept route', () => {
-    const optimizeResult = comp.filteredResults().find(r => r.route === '/optimization-studio');
+  it('when a result with route /optimize is selected, router navigates to that kept route', () => {
+    const optimizeResult = comp.filteredResults().find(r => r.route === '/optimize');
     expect(optimizeResult).withContext('Optimize entry must exist in results').toBeDefined();
     comp.selectResult(optimizeResult!);
-    expect(router.navigateByUrl).toHaveBeenCalledWith('/optimization-studio');
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/optimize');
   });
 });

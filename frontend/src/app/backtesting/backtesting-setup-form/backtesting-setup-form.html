@@ -1,0 +1,70 @@
+<form [formGroup]="setupForm" class="bg-surface-raised border border-border rounded-lg px-4 py-3">
+  <div class="flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
+
+    <!-- Portfolio picker -->
+    <div class="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+      <label class="text-data-xs text-text-tertiary font-medium uppercase tracking-wide shrink-0">
+        Portfolio
+      </label>
+      <select
+        formControlName="portfolio"
+        aria-label="Portfolio selection"
+        class="bg-surface border border-border rounded px-2 py-1 text-data-sm text-text font-mono cursor-pointer hover:border-accent transition-colors focus:outline-none focus:ring-1 focus:ring-accent">
+        <option value="" disabled>— select portfolio —</option>
+        @for (p of portfolios(); track p.id) {
+          <option [value]="p.id">{{ p.name }}</option>
+        }
+      </select>
+    </div>
+
+    <span class="hidden sm:block text-border">|</span>
+
+    <!-- Period presets -->
+    <div class="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+      <label class="text-data-xs text-text-tertiary font-medium uppercase tracking-wide shrink-0">
+        Period
+      </label>
+      <div class="flex items-center gap-1 text-data-sm">
+        @for (preset of periodPresets; track preset) {
+          <button
+            type="button"
+            [class]="setupForm.get('period')?.value === preset
+              ? 'px-2 py-0.5 rounded bg-accent text-surface-raised font-medium'
+              : 'px-2 py-0.5 rounded text-text-secondary hover:text-text hover:bg-surface-inset transition-colors'"
+            (click)="setupForm.get('period')?.setValue(preset)">
+            {{ preset }}
+          </button>
+        }
+      </div>
+    </div>
+
+    <span class="hidden sm:block text-border">|</span>
+
+    <!-- Benchmark selector -->
+    <div class="flex items-center gap-2">
+      <label class="text-data-xs text-text-tertiary font-medium uppercase tracking-wide shrink-0">
+        Benchmark
+      </label>
+      <div class="relative min-w-0 flex-1">
+        <select
+          formControlName="benchmark"
+          aria-label="Benchmark selection"
+          class="appearance-none bg-surface border border-border rounded px-3 py-1 pr-7 text-data-sm text-text font-mono cursor-pointer hover:border-accent transition-colors focus:outline-none focus:ring-1 focus:ring-accent w-full">
+          @for (b of benchmarkOptions; track b.value) {
+            <option [value]="b.value">{{ b.label }}</option>
+          }
+        </select>
+      </div>
+    </div>
+
+    <!-- Run button -->
+    <button
+      type="button"
+      (click)="onRun()"
+      [disabled]="isRunning() || setupForm.invalid"
+      class="sm:ml-auto inline-flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors w-full sm:w-auto">
+      @if (isRunning()) { Running… } @else { Run Backtest }
+    </button>
+
+  </div>
+</form>

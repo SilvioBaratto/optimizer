@@ -37,10 +37,6 @@ import type {
   BacktestRunResponse,
 } from '../app/backtesting/backtest.model';
 import type { MacroCalibrationApiResponse } from '../app/core/models/macro-intelligence.model';
-import type {
-  CreateSessionResponse,
-  StepPollResponse,
-} from '../app/core/models/pipeline-builder.model';
 import type { DriftResponse as DriftResponseRich } from '../app/core/models/drift.model';
 
 const ISO = '2026-01-01T00:00:00.000Z';
@@ -309,34 +305,6 @@ export function makeMacroCalibrationApiResponse(
     blConfig: { views: [], tau: 0.05, prior_config: { mu_estimator: 'shrunk', risk_aversion: 2.5, cov_estimator: 'empirical' } },
     ...overrides,
   };
-}
-
-export function makeCreateSessionResponse(
-  overrides: Partial<CreateSessionResponse> = {},
-): CreateSessionResponse {
-  return { sessionId: 'sess-1', ...overrides };
-}
-
-export function makeStepPollResponse(
-  overrides: Partial<StepPollResponse> = {},
-): StepPollResponse {
-  return {
-    status: 'running',
-    progress: { current: 1, total: 3 },
-    result: null,
-    error: null,
-    gateReason: null,
-    ...overrides,
-  };
-}
-
-// Wire shape of StepRunResponse (AsyncJobCreateResponse, snake_case `job_id`).
-// The frontend `StepRunResponse` deliberately remaps this to camelCase `jobId`
-// at the HTTP boundary, so parity pins the wire shape the service receives.
-export function makeStepRunWireResponse(
-  overrides: Partial<{ job_id: string; status: string; message: string }> = {},
-): { job_id: string; status: string; message: string } {
-  return { job_id: 'step-job-1', status: 'pending', message: 'Step queued', ...overrides };
 }
 
 // Portfolio rich DriftResponse (drift.model.ts) — distinct from the dashboard

@@ -11,61 +11,10 @@
     </div>
   </app-page-header>
 
-  <!-- Backtest Configuration Bar -->
-  <div class="bg-surface-raised border border-border rounded-lg px-4 py-3">
-    <div class="flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
-      <!-- Tickers -->
-      <div class="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2 min-w-0 flex-1">
-        <label class="text-data-xs text-text-tertiary font-medium uppercase tracking-wide shrink-0">Tickers</label>
-        <input type="text" [value]="tickersRaw()" (input)="onTickersChange($event)"
-          aria-label="Backtest tickers (comma-separated)"
-          placeholder="AAPL, MSFT, GOOGL, AMZN, NVDA"
-          class="bg-surface border border-border rounded px-2 py-1 text-data-xs sm:text-data-sm text-text font-mono focus:outline-none focus:ring-1 focus:ring-accent min-w-0 flex-1 w-full" />
-      </div>
-
-      <span class="hidden sm:block text-border">|</span>
-
-      <!-- Date range -->
-      <div class="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
-        <label class="text-data-xs text-text-tertiary font-medium uppercase tracking-wide shrink-0">Period</label>
-        <div class="flex items-center gap-1.5 sm:gap-2 min-w-0">
-          <input type="date" [value]="selectedStartDate()" (change)="onStartDateChange($event)"
-            aria-label="Backtest start date"
-            class="bg-surface border border-border rounded px-1.5 sm:px-2 py-1 text-data-xs sm:text-data-sm text-text font-mono focus:outline-none focus:ring-1 focus:ring-accent min-w-0 flex-1" />
-          <span class="text-text-tertiary text-data-xs shrink-0">to</span>
-          <input type="date" [value]="selectedEndDate()" (change)="onEndDateChange($event)"
-            aria-label="Backtest end date"
-            class="bg-surface border border-border rounded px-1.5 sm:px-2 py-1 text-data-xs sm:text-data-sm text-text font-mono focus:outline-none focus:ring-1 focus:ring-accent min-w-0 flex-1" />
-        </div>
-      </div>
-
-      <span class="hidden sm:block text-border">|</span>
-
-      <!-- Benchmark -->
-      <div class="flex items-center gap-2">
-        <label class="text-data-xs text-text-tertiary font-medium uppercase tracking-wide shrink-0">Benchmark</label>
-        <div class="relative min-w-0 flex-1">
-          <select [value]="selectedBenchmark()" (change)="onBenchmarkChange($event)"
-            aria-label="Benchmark selection"
-            class="appearance-none bg-surface border border-border rounded px-3 py-1 pr-7 text-data-sm text-text font-mono cursor-pointer hover:border-accent transition-colors focus:outline-none focus:ring-1 focus:ring-accent w-full">
-            @for (b of benchmarks; track b.value) {
-            <option [value]="b.value">{{ b.label }}</option>
-            }
-          </select>
-          <i-lucide name="chevron-down" [size]="12" class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary" />
-        </div>
-      </div>
-
-      <!-- Run button -->
-      <button type="button"
-        (click)="onRunBacktest()"
-        [disabled]="isRunning() || tickers().length === 0"
-        class="sm:ml-auto inline-flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors w-full sm:w-auto">
-        <i-lucide name="play" />
-        @if (isRunning()) { Running… } @else { Run Backtest }
-      </button>
-    </div>
-  </div>
+  <!-- Setup form: portfolio picker + period preset + benchmark -->
+  <app-backtest-setup-form
+    [isRunning]="isRunning()"
+    (runConfig)="onSetupFormRun($event)" />
 
   <!-- Run status banners -->
   @if (runError(); as err) {
@@ -197,31 +146,6 @@
           <p class="font-mono text-data-sm text-text mt-0.5">{{ selectedBenchmark() }}</p>
         </div>
       </div>
-    </div>
-
-    <!-- Equity Curve -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-data-lg font-medium text-text">Equity Curve</h2>
-        <div class="flex items-center gap-2">
-          <button type="button" class="px-2.5 py-1 text-xs rounded transition-colors"
-            [class]="logScale() ? 'bg-accent text-white' : 'bg-surface-inset text-text-secondary hover:text-text'"
-            (click)="toggleLogScale()">
-            Log
-          </button>
-        </div>
-      </div>
-      <app-chart-toolbar>
-        <div #equityChart class="w-full" style="height: 360px;"></div>
-      </app-chart-toolbar>
-    </div>
-
-    <!-- Underwater / Drawdown Chart -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <h2 class="text-data-lg font-medium text-text mb-3">Underwater Plot</h2>
-      <app-chart-toolbar>
-        <div #underwaterChart class="w-full" style="height: 160px;"></div>
-      </app-chart-toolbar>
     </div>
 
   </div>
@@ -381,7 +305,7 @@
     <!-- Window Selector -->
     <div class="flex items-center gap-2">
       <span class="text-data-xs text-text-tertiary font-medium uppercase tracking-wide">Window:</span>
-      <div class="flex rounded overflow-hidden border border-border">
+      <div class="flex rounded overflow-hidden border border-border" data-testid="rolling-window-picker">
         <button type="button" class="px-3 py-1.5 text-data-xs transition-colors"
           [class]="rollingWindow() === '1Y' ? 'bg-accent text-white font-medium' : 'bg-surface-raised text-text-secondary hover:text-text'"
           (click)="setRollingWindow('1Y')">1Y</button>
@@ -389,33 +313,6 @@
           [class]="rollingWindow() === '3Y' ? 'bg-accent text-white font-medium' : 'bg-surface-raised text-text-secondary hover:text-text'"
           (click)="setRollingWindow('3Y')">3Y</button>
       </div>
-    </div>
-
-    <!-- Rolling Sharpe -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Rolling Sharpe Ratio (252d)
-      </h2>
-      <app-chart-toolbar>
-        <div #rollingSharpeChart class="w-full" style="height: 200px;"></div>
-      </app-chart-toolbar>
-    </div>
-
-    <!-- Rolling Volatility -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Rolling Annualized
-        Volatility (252d)</h2>
-      <app-chart-toolbar>
-        <div #rollingVolChart class="w-full" style="height: 200px;"></div>
-      </app-chart-toolbar>
-    </div>
-
-    <!-- Rolling Beta -->
-    <div class="bg-surface-raised border border-border rounded-lg p-4">
-      <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Rolling Beta vs {{
-        config().benchmark }} (252d)</h2>
-      <app-chart-toolbar>
-        <div #rollingBetaChart class="w-full" style="height: 200px;"></div>
-      </app-chart-toolbar>
     </div>
 
   </div>
@@ -484,13 +381,7 @@
         </app-chart-toolbar>
       </div>
 
-      <!-- QQ Plot -->
-      <div class="bg-surface-raised border border-border rounded-lg p-4">
-        <h2 class="text-data-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Normal QQ Plot</h2>
-        <app-chart-toolbar>
-          <div #qqChart class="w-full" style="height: 280px;"></div>
-        </app-chart-toolbar>
-      </div>
+      <!-- QQ Plot (moved to backtest-results-panel) -->
 
     </div>
   </div>

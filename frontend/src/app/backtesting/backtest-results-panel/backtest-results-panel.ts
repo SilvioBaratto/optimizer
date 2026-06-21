@@ -11,6 +11,8 @@ import {
   EchartsRollingMetricsComponent,
   type RollingMetricSeries,
 } from '../../shared/echarts-rolling-metrics/echarts-rolling-metrics';
+import { StatCardComponent } from '../../shared/stat-card/stat-card';
+import { ChartToolbarComponent } from '../../shared/chart-toolbar/chart-toolbar';
 import type { BacktestRunResponse } from '../backtest.model';
 
 interface SummaryCell {
@@ -32,89 +34,119 @@ const DRAWDOWN_SUMMARY_KEYS: ReadonlySet<string> = new Set(['max_drawdown']);
 @Component({
   selector: 'app-backtest-results-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [EchartsDrawdownComponent, EchartsLineComponent, EchartsRollingMetricsComponent],
+  imports: [
+    EchartsDrawdownComponent,
+    EchartsLineComponent,
+    EchartsRollingMetricsComponent,
+    StatCardComponent,
+    ChartToolbarComponent,
+  ],
   template: `
-    @if (loading()) {
-      <div
-        data-testid="loading"
-        class="space-y-4"
-      >
-        <div class="h-24 skeleton rounded-lg"></div>
-        <div class="h-64 skeleton rounded-lg"></div>
-        <div class="h-44 skeleton rounded-lg"></div>
-        <div class="h-64 skeleton rounded-lg"></div>
-      </div>
-    } @else if (error(); as err) {
-      <div
-        role="alert"
-        data-testid="error"
-        class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3"
-      >
-        Failed to load backtest run: {{ err }}
-      </div>
-    } @else if (run(); as r) {
-      <section
-        data-testid="panel"
-        class="space-y-4"
-        aria-label="Backtest run results"
-      >
-        <!-- Summary stats -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4">
-          <h3 class="text-sm font-semibold text-text mb-3">Summary Stats</h3>
-          @if (summaryCells().length === 0) {
-            <p class="text-sm text-text-secondary">No summary statistics.</p>
-          } @else {
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              @for (cell of summaryCells(); track cell.key) {
-                <div class="rounded-md border border-border bg-surface px-3 py-2">
-                  <div class="text-data-xs text-text-tertiary uppercase tracking-wide">
-                    {{ cell.key }}
-                  </div>
-                  <div class="text-sm font-mono text-text">{{ cell.value }}</div>
-                </div>
-              }
-            </div>
-          }
-        </div>
+    <div class="space-y-4">
+      <!-- Always-visible chart toolbar -->
+      <app-chart-toolbar />
 
-        <!-- Equity curve -->
+      <!-- Always-visible KPI summary stat-cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <app-stat-card label="Ann. Return" [value]="kpiReturn()" />
+        <app-stat-card label="Sharpe" [value]="kpiSharpe()" />
+        <app-stat-card label="Max Drawdown" [value]="kpiDrawdown()" />
+        <app-stat-card label="Calmar" [value]="kpiCalmar()" />
+      </div>
+
+      @if (loading()) {
+        <div
+          data-testid="loading"
+          class="space-y-4"
+        >
+          <div class="h-64 skeleton rounded-lg"></div>
+          <div class="h-44 skeleton rounded-lg"></div>
+          <div class="h-64 skeleton rounded-lg"></div>
+        </div>
+      } @else if (error(); as err) {
+        <div
+          role="alert"
+          data-testid="error"
+          class="bg-loss/10 border border-loss/30 text-loss text-sm rounded-lg p-3"
+        >
+          Failed to load backtest run: {{ err }}
+        </div>
+      } @else if (run(); as r) {
+        <section
+          data-testid="panel"
+          class="space-y-4"
+          aria-label="Backtest run results"
+        >
+          <!-- Equity curve -->
+          <div class="bg-surface-raised border border-border rounded-lg p-4">
+            <h3 class="text-sm font-semibold text-text mb-3">Equity Curve</h3>
+            @if (equityLabels().length === 0) {
+              <p class="text-sm text-text-secondary">No equity curve data.</p>
+            } @else {
+              <app-echarts-line
+                [labels]="equityLabels()"
+                [values]="equityValues()"
+                [areaFill]="true"
+                [yAxisLabel]="'Cumulative return'"
+              />
+            }
+          </div>
+
+          <!-- Drawdowns -->
+          <div class="bg-surface-raised border border-border rounded-lg p-4">
+            <h3 class="text-sm font-semibold text-text mb-3">Drawdowns</h3>
+            @if (drawdownPoints().length === 0) {
+              <p class="text-sm text-text-secondary">No drawdown data.</p>
+            } @else {
+              <app-echarts-drawdown [data]="drawdownPoints()" />
+            }
+          </div>
+
+          <!-- Rolling metrics -->
+          <div class="bg-surface-raised border border-border rounded-lg p-4">
+            <h3 class="text-sm font-semibold text-text mb-3">Rolling Metrics</h3>
+            <app-echarts-rolling-metrics [series]="rollingSeries()" />
+          </div>
+
+          <!-- Summary stats -->
+          <div class="bg-surface-raised border border-border rounded-lg p-4">
+            <h3 class="text-sm font-semibold text-text mb-3">Summary Stats</h3>
+            @if (summaryCells().length === 0) {
+              <p class="text-sm text-text-secondary">No summary statistics.</p>
+            } @else {
+              <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                @for (cell of summaryCells(); track cell.key) {
+                  <div class="rounded-md border border-border bg-surface px-3 py-2">
+                    <div class="text-data-xs text-text-tertiary uppercase tracking-wide">
+                      {{ cell.key }}
+                    </div>
+                    <div class="text-sm font-mono text-text">{{ cell.value }}</div>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </section>
+      } @else {
+        <!-- Empty state — equity curve label is always reachable in the panel -->
         <div class="bg-surface-raised border border-border rounded-lg p-4">
           <h3 class="text-sm font-semibold text-text mb-3">Equity Curve</h3>
-          @if (equityLabels().length === 0) {
-            <p class="text-sm text-text-secondary">No equity curve data.</p>
-          } @else {
-            <app-echarts-line
-              [labels]="equityLabels()"
-              [values]="equityValues()"
-              [areaFill]="true"
-              [yAxisLabel]="'Cumulative return'"
-            />
-          }
+          <p class="text-sm text-text-secondary">Run a backtest to see the equity curve.</p>
         </div>
-
-        <!-- Drawdowns -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4">
-          <h3 class="text-sm font-semibold text-text mb-3">Drawdowns</h3>
-          @if (drawdownPoints().length === 0) {
-            <p class="text-sm text-text-secondary">No drawdown data.</p>
-          } @else {
-            <app-echarts-drawdown [data]="drawdownPoints()" />
-          }
-        </div>
-
-        <!-- Rolling metrics -->
-        <div class="bg-surface-raised border border-border rounded-lg p-4">
-          <h3 class="text-sm font-semibold text-text mb-3">Rolling Metrics</h3>
-          <app-echarts-rolling-metrics [series]="rollingSeries()" />
-        </div>
-      </section>
-    }
+      }
+    </div>
   `,
 })
 export class BacktestResultsPanelComponent {
   readonly run = input<BacktestRunResponse | null>(null);
   readonly loading = input<boolean>(false);
   readonly error = input<string | null>(null);
+
+  // KPI stat-cards (always visible; '—' when no run data)
+  readonly kpiReturn = computed(() => this.summaryCells().find(c => c.key === 'Annualized Return')?.value ?? '—');
+  readonly kpiSharpe = computed(() => this.summaryCells().find(c => c.key === 'Annualized Sharpe')?.value ?? '—');
+  readonly kpiDrawdown = computed(() => this.summaryCells().find(c => c.key === 'Max Drawdown')?.value ?? '—');
+  readonly kpiCalmar = computed(() => this.summaryCells().find(c => c.key === 'Calmar Ratio')?.value ?? '—');
 
   readonly summaryCells = computed<SummaryCell[]>(() => {
     const stats = (this.run()?.summaryStats ?? {}) as Record<string, unknown>;

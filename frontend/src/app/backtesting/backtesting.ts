@@ -3,14 +3,9 @@ import {
   signal,
   computed,
   inject,
-  ElementRef,
-  viewChild,
-  effect,
-  OnDestroy,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
-import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 import { PageHeaderComponent } from '../shared/components/page-header/page-header';
 import { TabGroupComponent, Tab } from '../shared/components/tab-group/tab-group';
 import { StatCardComponent } from '../shared/stat-card/stat-card';
@@ -24,8 +19,7 @@ import { FormatService } from '../core/services/format.service';
 import { BacktestService } from './backtest.service';
 import { PortfolioContextService } from '../core/services/portfolio-context.service';
 import { TickerSeedingService } from '../core/services/ticker-seeding.service';
-import { readCssVar } from '../shared/charts/echarts-theme';
-import { safeChartOption } from '../shared/charts/safe-chart-option';
+import { BacktestWeightResolverService } from './backtest-weight-resolver';
 import { CHART_EXPORTABLE, type ChartExportable } from '../shared/charts/chart-export.token';
 import { ModalService } from '../shared/modal/modal.service';
 import { ExportReportModalComponent } from '../shared/modal/export-report-modal';
@@ -34,6 +28,7 @@ import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { EMPTY, catchError, switchMap, take } from 'rxjs';
 import { WalkForwardPanelComponent } from './walk-forward-panel/walk-forward-panel';
 import { BacktestResultsPanelComponent } from './backtest-results-panel/backtest-results-panel';
+import { BacktestingSetupFormComponent, type BacktestRunConfig } from './backtesting-setup-form/backtesting-setup-form';
 import {
   clearBacktestRun,
   loadBacktestRun,
@@ -50,6 +45,22 @@ import type {
 } from './backtest.model';
 
 export const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA'] as const;
+
+function periodToIsoRange(period: string): { start: string; end: string } {
+  const end = new Date();
+  const start = new Date();
+  switch (period) {
+    case '1M': start.setMonth(start.getMonth() - 1); break;
+    case '3M': start.setMonth(start.getMonth() - 3); break;
+    case '6M': start.setMonth(start.getMonth() - 6); break;
+    case 'YTD': start.setMonth(0, 1); break;
+    case '3Y': start.setFullYear(start.getFullYear() - 3); break;
+    case '5Y': start.setFullYear(start.getFullYear() - 5); break;
+    case 'Max': start.setFullYear(2000, 0, 1); break;
+    default: start.setFullYear(start.getFullYear() - 1);
+  }
+  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+}
 
 /** Order-insensitive equality check for two string arrays. */
 function arraysEqualUnordered(a: string[], b: string[]): boolean {
@@ -108,6 +119,7 @@ interface MetricsRow {
     JobProgressTrackerComponent,
     WalkForwardPanelComponent,
     BacktestResultsPanelComponent,
+    BacktestingSetupFormComponent,
   ],
   templateUrl: './backtesting.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -115,12 +127,13 @@ interface MetricsRow {
     { provide: CHART_EXPORTABLE, useExisting: BacktestingComponent },
   ],
 })
-export class BacktestingComponent implements OnDestroy, ChartExportable {
+export class BacktestingComponent implements ChartExportable {
   private readonly fmt = inject(FormatService);
   private readonly modalService = inject(ModalService);
   private readonly backtest = inject(BacktestService);
   private readonly portfolioContext = inject(PortfolioContextService);
   private readonly tickerSeeding = inject(TickerSeedingService);
+  private readonly weightResolver = inject(BacktestWeightResolverService);
   private readonly destroyRef = inject(DestroyRef);
 
   /** Tracks the last array written by the seeding pipeline for the re-seed guard. */
@@ -168,6 +181,9 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
       .map((s) => s.trim().toUpperCase())
       .filter((s) => s.length > 0),
   );
+
+  /** Ticker universe resolved from the portfolio's latest optimization snapshot. */
+  readonly resolvedTickers = signal<string[]>([...DEFAULT_TICKERS]);
 
   onTickersChange(event: Event): void {
     this.tickersRaw.set((event.target as HTMLInputElement).value);
@@ -460,135 +476,12 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     }))
   );
 
-  // ── Inline ECharts: Overview tab (always rendered first) ──────────────────
-  private readonly equityContainer = viewChild<ElementRef<HTMLElement>>('equityChart');
-  private equityChart?: EChartsType;
-  private equityRo?: ResizeObserver;
-
-  private readonly underwaterContainer = viewChild<ElementRef<HTMLElement>>('underwaterChart');
-  private underwaterChart?: EChartsType;
-  private underwaterRo?: ResizeObserver;
-
-  // ── Inline ECharts: Rolling tab (lazy init) ─────────────────────────────
-  private readonly rollingSharpeContainer = viewChild<ElementRef<HTMLElement>>('rollingSharpeChart');
-  private rollingSharpeChart?: EChartsType;
-  private rollingSharpeRo?: ResizeObserver;
-
-  private readonly rollingVolContainer = viewChild<ElementRef<HTMLElement>>('rollingVolChart');
-  private rollingVolChart?: EChartsType;
-  private rollingVolRo?: ResizeObserver;
-
-  private readonly rollingBetaContainer = viewChild<ElementRef<HTMLElement>>('rollingBetaChart');
-  private rollingBetaChart?: EChartsType;
-  private rollingBetaRo?: ResizeObserver;
-
-  // ── Inline ECharts: Distribution tab (lazy init) ────────────────────────
-  private readonly qqContainer = viewChild<ElementRef<HTMLElement>>('qqChart');
-  private qqChart?: EChartsType;
-  private qqRo?: ResizeObserver;
-
-  private echartsLoaded = false;
-
   constructor() {
     this.loadData();
     this.initTickerSeeding();
+    this.initWeightResolver();
     this.restorePersistedRun();
     this.initResultStream();
-
-    // Init/dispose overview charts when containers appear/disappear (tab or loading change)
-    effect((onCleanup) => {
-      const eqEl = this.equityContainer();
-      const uwEl = this.underwaterContainer();
-      if (eqEl && uwEl && !this.equityChart) {
-        void this.initOverviewCharts();
-      }
-      onCleanup(() => {
-        this.equityRo?.disconnect();
-        this.equityChart?.dispose();
-        this.equityChart = undefined;
-        this.equityRo = undefined;
-        this.underwaterRo?.disconnect();
-        this.underwaterChart?.dispose();
-        this.underwaterChart = undefined;
-        this.underwaterRo = undefined;
-      });
-    });
-
-    // Re-render equity chart on log scale toggle OR when result data changes.
-    effect(() => {
-      const _logScale = this.logScale();
-      const _result = this.result();
-      if (this.equityChart) {
-        this.equityChart.setOption(this.buildEquityOption());
-      }
-      if (this.underwaterChart) {
-        this.underwaterChart.setOption(this.buildUnderwaterOption());
-      }
-    });
-
-    // Re-render QQ chart on result change.
-    effect(() => {
-      const _result = this.result();
-      if (this.qqChart) {
-        this.qqChart.setOption(this.buildQQOption());
-      }
-    });
-
-    // Init/dispose rolling charts when their tab becomes active/inactive
-    effect((onCleanup) => {
-      const sharpeEl = this.rollingSharpeContainer();
-      const volEl = this.rollingVolContainer();
-      const betaEl = this.rollingBetaContainer();
-      if (sharpeEl && volEl && betaEl && !this.rollingSharpeChart) {
-        void this.initRollingCharts();
-      }
-      onCleanup(() => {
-        this.rollingSharpeRo?.disconnect();
-        this.rollingSharpeChart?.dispose();
-        this.rollingSharpeChart = undefined;
-        this.rollingSharpeRo = undefined;
-        this.rollingVolRo?.disconnect();
-        this.rollingVolChart?.dispose();
-        this.rollingVolChart = undefined;
-        this.rollingVolRo = undefined;
-        this.rollingBetaRo?.disconnect();
-        this.rollingBetaChart?.dispose();
-        this.rollingBetaChart = undefined;
-        this.rollingBetaRo = undefined;
-      });
-    });
-
-    // Init/dispose QQ chart when distribution tab becomes active/inactive
-    effect((onCleanup) => {
-      const qqEl = this.qqContainer();
-      if (qqEl && !this.qqChart) {
-        void this.initQQChart();
-      }
-      onCleanup(() => {
-        this.qqRo?.disconnect();
-        this.qqChart?.dispose();
-        this.qqChart = undefined;
-        this.qqRo = undefined;
-      });
-    });
-
-    // Update rolling charts when window changes
-    effect(() => {
-      const _window = this.rollingWindow();
-      const labels = this.rollingLabels();
-      const sharpe = this.rollingSharpeValues();
-      const vol = this.rollingVolValues();
-      const beta = this.rollingBetaValues();
-      if (this.rollingSharpeChart && labels.length > 0) {
-        this.rollingSharpeChart.setOption(this.buildRollingOption('Sharpe Ratio', labels, sharpe, '--color-chart-1'));
-      }
-      if (this.rollingVolChart && labels.length > 0) {
-        this.rollingVolChart.setOption(this.buildRollingOption('Volatility', labels, vol, '--color-chart-3', true));
-      }
-      if (this.rollingBetaChart && labels.length > 0) {
-        this.rollingBetaChart.setOption(this.buildRollingOption('Beta', labels, beta, '--color-chart-5'));
-      }
-    });
   }
 
   loadData(): void {
@@ -611,6 +504,20 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
       .subscribe((seeded) => this.applySeed(seeded));
   }
 
+  private initWeightResolver(): void {
+    toObservable(this.portfolioContext.currentPortfolioId)
+      .pipe(
+        switchMap((id) => this.weightResolver.resolve(id)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => {
+        const tickers = res.source === 'stored' && Object.keys(res.weights).length > 0
+          ? Object.keys(res.weights)
+          : [...DEFAULT_TICKERS];
+        this.resolvedTickers.set(tickers);
+      });
+  }
+
   private applySeed(seeded: string[]): void {
     const prior = this.lastSeed();
     const current = this.tickers();
@@ -622,331 +529,9 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
     }
   }
 
-  private async initOverviewCharts() {
-    await this.loadEcharts();
-    this.initChartInstance(this.equityContainer, c => { this.equityChart = c; this.equityChart.setOption(this.buildEquityOption()); }, r => this.equityRo = r);
-    this.initChartInstance(this.underwaterContainer, c => { this.underwaterChart = c; this.underwaterChart.setOption(this.buildUnderwaterOption()); }, r => this.underwaterRo = r);
-  }
-
-  private async loadEcharts() {
-    if (this.echartsLoaded) return;
-    const { use } = await import('echarts/core');
-    const { LineChart, ScatterChart } = await import('echarts/charts');
-    const { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkLineComponent } = await import('echarts/components');
-    const { CanvasRenderer } = await import('echarts/renderers');
-    use([LineChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkLineComponent, CanvasRenderer]);
-    this.echartsLoaded = true;
-  }
-
-  private async initChartInstance(
-    containerSignal: ReturnType<typeof viewChild<ElementRef<HTMLElement>>>,
-    setup: (chart: EChartsType) => void,
-    setRo: (ro: ResizeObserver) => void,
-  ) {
-    const ref = containerSignal();
-    if (!ref) return;
-    const { init } = await import('echarts/core');
-    const el = ref.nativeElement;
-    const chart = init(el, 'portfolio', { renderer: 'canvas' });
-    setup(chart);
-    const ro = new ResizeObserver(() => chart.resize());
-    ro.observe(el);
-    setRo(ro);
-  }
-
-  // ── Chart initializers (lazy, safe for @if blocks) ────────────────────────
-  private async initRollingCharts() {
-    await this.loadEcharts();
-    const labels = this.rollingLabels();
-    await this.initChartInstance(this.rollingSharpeContainer, c => { this.rollingSharpeChart = c; c.setOption(this.buildRollingOption('Sharpe Ratio', labels, this.rollingSharpeValues(), '--color-chart-1')); }, r => this.rollingSharpeRo = r);
-    await this.initChartInstance(this.rollingVolContainer, c => { this.rollingVolChart = c; c.setOption(this.buildRollingOption('Volatility', labels, this.rollingVolValues(), '--color-chart-3', true)); }, r => this.rollingVolRo = r);
-    await this.initChartInstance(this.rollingBetaContainer, c => { this.rollingBetaChart = c; c.setOption(this.buildRollingOption('Beta', labels, this.rollingBetaValues(), '--color-chart-5')); }, r => this.rollingBetaRo = r);
-
-    // Sync hover across all three rolling charts
-    if (this.rollingSharpeChart && this.rollingVolChart && this.rollingBetaChart) {
-      const { connect } = await import('echarts/core');
-      connect([this.rollingSharpeChart, this.rollingVolChart, this.rollingBetaChart]);
-    }
-  }
-
-  private async initQQChart() {
-    await this.loadEcharts();
-    this.initChartInstance(this.qqContainer, c => { this.qqChart = c; c.setOption(this.buildQQOption()); }, r => this.qqRo = r);
-  }
-
-  // ── Chart option builders ──────────────────────────────────────────────────
-  private buildEquityOption(): EChartsCoreOption {
-    const labels = this.equityLabels();
-    return safeChartOption(labels.length > 0 ? labels : null, () => this.buildEquityOptionImpl());
-  }
-
-  private buildEquityOptionImpl(): EChartsCoreOption {
-    const labels = this.equityLabels();
-    const portfolio = this.portfolioValues();
-    const benchmark = this.benchmarkValues();
-    const chart1 = readCssVar('--color-chart-1');
-    const chart7 = readCssVar('--color-chart-7');
-    const isLog = this.logScale();
-
-    return {
-      tooltip: {
-        trigger: 'axis',
-        formatter: (params: unknown) => {
-          const ps = params as Array<{ seriesName: string; value: number; axisValueLabel: string; color: string }>;
-          if (!ps.length) return '';
-          let html = `<div style="font-size:12px"><b>${ps[0].axisValueLabel}</b>`;
-          for (const p of ps) {
-            html += `<br/><span style="color:${p.color}">&#9679;</span> ${p.seriesName}: ${p.value.toFixed(2)}`;
-          }
-          return html + '</div>';
-        },
-      },
-      legend: {
-        data: ['Portfolio', 'Benchmark (SPY)'],
-        top: 0,
-        right: 0,
-      },
-      grid: {
-        left: window.innerWidth < 640 ? 40 : 55,
-        right: 16,
-        top: 28,
-        bottom: window.innerWidth < 640 ? 50 : 36,
-      },
-      xAxis: {
-        type: 'category',
-        data: labels,
-        axisLabel: {
-          formatter: (v: string) => v.slice(0, 7),
-          interval: Math.floor(labels.length / (window.innerWidth < 640 ? 3 : 6)),
-          rotate: window.innerWidth < 640 ? 30 : 0,
-          fontSize: window.innerWidth < 640 ? 10 : 12,
-        },
-      },
-      yAxis: {
-        type: isLog ? 'log' : 'value',
-        axisLabel: { formatter: (v: number) => v.toFixed(0) },
-      },
-      dataZoom: [
-        { type: 'inside', start: 0, end: 100 },
-        { type: 'slider', start: 0, end: 100, height: 18, bottom: 2 },
-      ],
-      series: [
-        {
-          name: 'Portfolio',
-          type: 'line',
-          data: portfolio,
-          symbol: 'none',
-          lineStyle: { width: 2, color: chart1 },
-          itemStyle: { color: chart1 },
-          areaStyle: { color: `${chart1}15` },
-        },
-        {
-          name: 'Benchmark (SPY)',
-          type: 'line',
-          data: benchmark,
-          symbol: 'none',
-          lineStyle: { width: 1.5, color: chart7, type: 'dashed' },
-          itemStyle: { color: chart7 },
-        },
-      ],
-    };
-  }
-
-  private buildUnderwaterOption(): EChartsCoreOption {
-    const labels = this.equityLabels();
-    return safeChartOption(labels.length > 0 ? labels : null, () => this.buildUnderwaterOptionImpl());
-  }
-
-  private buildUnderwaterOptionImpl(): EChartsCoreOption {
-    const labels = this.equityLabels();
-    const underwater = this.underwaterValues();
-    const lossColor = readCssVar('--color-loss');
-
-    return {
-      tooltip: {
-        trigger: 'axis',
-        formatter: (params: unknown) => {
-          const ps = params as Array<{ value: number; axisValueLabel: string }>;
-          if (!ps.length) return '';
-          return `${ps[0].axisValueLabel}<br/>${(ps[0].value ?? 0).toFixed(2)}%`;
-        },
-      },
-      grid: {
-        left: window.innerWidth < 640 ? 40 : 55,
-        right: 16,
-        top: 10,
-        bottom: window.innerWidth < 640 ? 44 : 30,
-      },
-      xAxis: {
-        type: 'category',
-        data: labels,
-        axisLabel: {
-          formatter: (v: string) => v.slice(0, 7),
-          interval: Math.floor(labels.length / (window.innerWidth < 640 ? 3 : 6)),
-          rotate: window.innerWidth < 640 ? 30 : 0,
-          fontSize: window.innerWidth < 640 ? 10 : 12,
-        },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: { formatter: (v: number) => `${v.toFixed(0)}%` },
-        max: 0,
-      },
-      series: [
-        {
-          name: 'Drawdown',
-          type: 'line',
-          data: underwater,
-          symbol: 'none',
-          lineStyle: { width: 1, color: lossColor },
-          itemStyle: { color: lossColor },
-          areaStyle: { color: `${lossColor}4d` },
-        },
-      ],
-    };
-  }
-
-  private buildRollingOption(
-    name: string,
-    labels: string[],
-    values: number[],
-    colorVar: string,
-    isPercent = false,
-  ): EChartsCoreOption {
-    return safeChartOption(labels.length > 0 ? labels : null, () =>
-      this.buildRollingOptionImpl(name, labels, values, colorVar, isPercent));
-  }
-
-  private buildRollingOptionImpl(
-    name: string,
-    labels: string[],
-    values: number[],
-    colorVar: string,
-    isPercent = false,
-  ): EChartsCoreOption {
-    const color = readCssVar(colorVar);
-    const borderColor = readCssVar('--color-border');
-
-    return {
-      tooltip: {
-        trigger: 'axis',
-        formatter: (params: unknown) => {
-          const ps = params as Array<{ value: number; axisValueLabel: string }>;
-          if (!ps.length) return '';
-          const v = ps[0].value ?? 0;
-          const fmt = isPercent ? `${(v * 100).toFixed(1)}%` : v.toFixed(3);
-          return `${ps[0].axisValueLabel}<br/>${name}: ${fmt}`;
-        },
-      },
-      grid: {
-        left: window.innerWidth < 640 ? 40 : 50,
-        right: 16,
-        top: 10,
-        bottom: window.innerWidth < 640 ? 44 : 30,
-      },
-      xAxis: {
-        type: 'category',
-        data: labels,
-        axisLabel: {
-          formatter: (v: string) => v.slice(0, 7),
-          interval: Math.floor(labels.length / (window.innerWidth < 640 ? 3 : 6)),
-          rotate: window.innerWidth < 640 ? 30 : 0,
-          fontSize: window.innerWidth < 640 ? 10 : 12,
-        },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: {
-          formatter: isPercent
-            ? (v: number) => `${(v * 100).toFixed(0)}%`
-            : (v: number) => v.toFixed(2),
-        },
-      },
-      series: [
-        {
-          name,
-          type: 'line',
-          data: values,
-          symbol: 'none',
-          lineStyle: { width: 1.5, color },
-          itemStyle: { color },
-          areaStyle: { color: `${color}20` },
-          markLine: {
-            silent: true,
-            symbol: 'none',
-            data: [{ yAxis: 0 }],
-            lineStyle: { color: borderColor, width: 1, type: 'dashed' },
-            label: { show: false },
-          },
-        },
-      ],
-    };
-  }
-
-  private buildQQOption(): EChartsCoreOption {
-    const { points, refLine } = this.qqPlotData();
-    return safeChartOption(points.length > 0 ? points : null, () =>
-      this.buildQQOptionImpl(points, refLine));
-  }
-
-  private buildQQOptionImpl(
-    points: [number, number][],
-    refLine: [number, number][],
-  ): EChartsCoreOption {
-    const chart1 = readCssVar('--color-chart-1');
-    const chart7 = readCssVar('--color-chart-7');
-    const textSecondary = readCssVar('--color-text-secondary');
-
-    return {
-      tooltip: {
-        trigger: 'item',
-        formatter: (params: unknown) => {
-          const p = params as { value: [number, number]; seriesName: string };
-          if (!Array.isArray(p.value)) return '';
-          return `Theoretical: ${p.value[0].toFixed(3)}%<br/>Sample: ${p.value[1].toFixed(3)}%`;
-        },
-      },
-      legend: { show: false },
-      grid: { left: 16, right: 16, top: 20, bottom: 36, containLabel: true },
-      xAxis: {
-        type: 'value',
-        name: 'Theoretical Quantile (%)',
-        nameLocation: 'middle',
-        nameGap: 28,
-        nameTextStyle: { fontSize: 11, color: textSecondary },
-        axisLabel: { fontSize: 11, formatter: (v: number) => `${v.toFixed(1)}%` },
-      },
-      yAxis: {
-        type: 'value',
-        name: 'Sample Quantile (%)',
-        nameLocation: 'middle',
-        nameGap: 45,
-        nameTextStyle: { fontSize: 11, color: textSecondary },
-        axisLabel: { fontSize: 11, formatter: (v: number) => `${v.toFixed(1)}%` },
-      },
-      series: [
-        {
-          name: 'Returns',
-          type: 'scatter',
-          data: points,
-          symbolSize: 5,
-          itemStyle: { color: chart1, opacity: 0.7 },
-        },
-        {
-          name: '45° Reference',
-          type: 'line',
-          data: refLine,
-          symbol: 'none',
-          lineStyle: { color: chart7, width: 1.5, type: 'dashed' },
-          itemStyle: { color: chart7 },
-        },
-      ],
-    };
-  }
-
-  // ── ChartExportable (delegates to equity chart) ────────────────────────────
-  getChartInstance(): EChartsType | undefined {
-    return this.equityChart;
+  // ── ChartExportable (stub — charts live in backtest-results-panel) ──────────
+  getChartInstance(): undefined {
+    return undefined;
   }
 
   onBenchmarkChange(event: Event): void {
@@ -1017,7 +602,7 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   // ── Run / progress integration ────────────────────────────────────────────
   onRunBacktest(tickers?: string[]): void {
     if (this.isRunning()) return;
-    const list = tickers && tickers.length > 0 ? tickers : this.tickers();
+    const list = tickers && tickers.length > 0 ? tickers : this.resolvedTickers();
     if (list.length === 0) {
       this.runError.set('Provide at least one ticker.');
       return;
@@ -1041,7 +626,24 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
   }
 
   onRun(): void {
-    this.onRunBacktest();
+    this.onRunBacktest(this.tickers());
+  }
+
+  onSetupFormRun(config: BacktestRunConfig): void {
+    const { start, end } = periodToIsoRange(config.period);
+    this.selectedBenchmark.set(config.benchmark);
+    this.selectedStartDate.set(start);
+    this.selectedEndDate.set(end);
+    this.weightResolver
+      .resolve(config.portfolio)
+      .pipe(take(1), takeUntilDestroyed(this.destroyRef))
+      .subscribe((res) => {
+        const tickers =
+          res.source === 'stored' && Object.keys(res.weights).length > 0
+            ? Object.keys(res.weights)
+            : this.resolvedTickers();
+        this.onRunBacktest(tickers);
+      });
   }
 
   onJobCompleted(runId?: string): void {
@@ -1155,21 +757,6 @@ export class BacktestingComponent implements OnDestroy, ChartExportable {
       });
   }
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
-  ngOnDestroy() {
-    this.equityRo?.disconnect();
-    this.equityChart?.dispose();
-    this.underwaterRo?.disconnect();
-    this.underwaterChart?.dispose();
-    this.rollingSharpeRo?.disconnect();
-    this.rollingSharpeChart?.dispose();
-    this.rollingVolRo?.disconnect();
-    this.rollingVolChart?.dispose();
-    this.rollingBetaRo?.disconnect();
-    this.rollingBetaChart?.dispose();
-    this.qqRo?.disconnect();
-    this.qqChart?.dispose();
-  }
 }
 
 // ── Pure transform: factor loadings → sorted horizontal bar data ──────────

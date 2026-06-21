@@ -262,8 +262,7 @@ describe('BacktestingComponent — render-coverage (issue #936)', () => {
       {
         tab: 'overview',
         assert: (host) => {
-          expect(host.querySelectorAll('app-chart-toolbar').length).toBeGreaterThan(0);
-          expect(host.textContent).toContain('Equity Curve');
+          expect(host.textContent).toContain('Backtest Configuration');
         },
       },
       {
@@ -285,7 +284,7 @@ describe('BacktestingComponent — render-coverage (issue #936)', () => {
       {
         tab: 'rolling',
         assert: (host) =>
-          expect(host.querySelectorAll('div[style*="200px"]').length).toBe(3),
+          expect(host.querySelector('[data-testid="rolling-window-picker"]')).not.toBeNull(),
       },
       {
         tab: 'distribution',
@@ -394,7 +393,11 @@ describe('BacktestingComponent — render-coverage (issue #936)', () => {
       comp.activeTab.set('rolling');
       fixture.detectChanges();
 
-      buttonWithText(el, '3Y')?.click();
+      const picker = el.querySelector('[data-testid="rolling-window-picker"]') as HTMLElement;
+      const btn = Array.from(picker.querySelectorAll('button')).find(
+        (b) => b.textContent?.trim() === '3Y',
+      ) as HTMLButtonElement | undefined;
+      btn?.click();
       fixture.detectChanges();
 
       expect(comp.rollingWindow()).toBe('3Y');
@@ -402,140 +405,9 @@ describe('BacktestingComponent — render-coverage (issue #936)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 7. Chart-effect branches: inject stub chart instances so the `if (this.equityChart)`
-  //    / `if (this.underwaterChart)` / `if (this.qqChart)` / rolling-chart branches
-  //    execute (they are otherwise unreachable — ECharts never inits in headless).
+  // 7. (Removed: chart-builder methods no longer exist on BacktestingComponent
+  //    after the slim refactor — issue #1051.)
   // -------------------------------------------------------------------------
-
-  describe('chart-instance effect branches (stub injection)', () => {
-    function makeChartStub() {
-      return jasmine.createSpyObj('EChartsType', ['setOption', 'dispose', 'resize']);
-    }
-
-    it('when equityChart and underwaterChart are set, result change triggers setOption on both', () => {
-      const eq = makeChartStub();
-      const uw = makeChartStub();
-      // Inject stubs into private fields — TypeScript cast bypasses access check
-      (comp as unknown as Record<string, unknown>)['equityChart'] = eq;
-      (comp as unknown as Record<string, unknown>)['underwaterChart'] = uw;
-
-      // Mutate a signal that the effect reads → effect re-runs synchronously in zoneless
-      comp.result.set(makeResult());
-      fixture.detectChanges();
-
-      expect(eq.setOption).toHaveBeenCalled();
-      expect(uw.setOption).toHaveBeenCalled();
-    });
-
-    it('when qqChart is set, result change triggers setOption on qqChart', () => {
-      const qq = makeChartStub();
-      (comp as unknown as Record<string, unknown>)['qqChart'] = qq;
-
-      comp.result.set(makeResult());
-      fixture.detectChanges();
-
-      expect(qq.setOption).toHaveBeenCalled();
-    });
-
-    it('when rolling charts are set and labels exist, window change triggers setOption on all three', () => {
-      const sharpe = makeChartStub();
-      const vol = makeChartStub();
-      const beta = makeChartStub();
-      (comp as unknown as Record<string, unknown>)['rollingSharpeChart'] = sharpe;
-      (comp as unknown as Record<string, unknown>)['rollingVolChart'] = vol;
-      (comp as unknown as Record<string, unknown>)['rollingBetaChart'] = beta;
-
-      comp.result.set(makeResult({
-        rollingMetrics: [
-          { date: '2024-06-01', sharpe: 1.0, volatility: 0.15, beta: 0.9 },
-        ],
-      }));
-      comp.rollingWindow.set('3Y');
-      fixture.detectChanges();
-
-      expect(sharpe.setOption).toHaveBeenCalled();
-      expect(vol.setOption).toHaveBeenCalled();
-      expect(beta.setOption).toHaveBeenCalled();
-    });
-
-    it('loadEcharts() already-loaded branch: calling loadEcharts again is a no-op', async () => {
-      // Set the internal flag to simulate a prior successful load.
-      // Then call loadEcharts() — the `if (this.echartsLoaded) return` path runs.
-      const priv = comp as unknown as Record<string, unknown>;
-      priv['echartsLoaded'] = true;
-      // Call the private method through the cast — covers the early-return branch.
-      await (priv['loadEcharts'] as () => Promise<void>).call(comp);
-      // No exception means the early-return branch executed without re-importing.
-      expect(priv['echartsLoaded']).toBeTrue();
-    });
-
-    it('buildEquityOption tooltip formatter returns empty string for empty params', () => {
-      comp.result.set(makeResult());
-      const priv = comp as unknown as Record<string, unknown>;
-      const option = (priv['buildEquityOption'] as () => Record<string, unknown>).call(comp);
-      const tooltip = option['tooltip'] as Record<string, unknown>;
-      const formatter = tooltip['formatter'] as (p: unknown) => string;
-      // Empty array → the `if (!ps.length) return ''` branch
-      expect(formatter([])).toBe('');
-      // Non-empty array → rest of the formatter executes
-      const result = formatter([{ seriesName: 'Portfolio', value: 100, axisValueLabel: '2024-01', color: '#f00' }]);
-      expect(result).toContain('2024-01');
-    });
-
-    it('buildUnderwaterOption tooltip formatter returns empty string for empty params', () => {
-      comp.result.set(makeResult());
-      const priv = comp as unknown as Record<string, unknown>;
-      const option = (priv['buildUnderwaterOption'] as () => Record<string, unknown>).call(comp);
-      const tooltip = option['tooltip'] as Record<string, unknown>;
-      const formatter = tooltip['formatter'] as (p: unknown) => string;
-      expect(formatter([])).toBe('');
-      const result = formatter([{ value: -5.2, axisValueLabel: '2024-01' }]);
-      expect(result).toContain('2024-01');
-    });
-
-    it('buildRollingOption tooltip formatter returns empty string for empty params', () => {
-      const priv = comp as unknown as Record<string, unknown>;
-      const option = (priv['buildRollingOption'] as (
-        name: string, labels: string[], values: number[], colorVar: string, isPercent?: boolean
-      ) => Record<string, unknown>).call(comp, 'Sharpe', ['2024-01'], [1.2], '--color-chart-1');
-      const tooltip = option['tooltip'] as Record<string, unknown>;
-      const formatter = tooltip['formatter'] as (p: unknown) => string;
-      expect(formatter([])).toBe('');
-      // isPercent=false branch
-      const r1 = formatter([{ value: 1.23, axisValueLabel: '2024-01' }]);
-      expect(r1).toContain('Sharpe');
-    });
-
-    it('buildRollingOption isPercent=true branch formats as percentage', () => {
-      const priv = comp as unknown as Record<string, unknown>;
-      const option = (priv['buildRollingOption'] as (
-        name: string, labels: string[], values: number[], colorVar: string, isPercent?: boolean
-      ) => Record<string, unknown>).call(comp, 'Volatility', ['2024-01'], [0.15], '--color-chart-3', true);
-      const tooltip = option['tooltip'] as Record<string, unknown>;
-      const formatter = tooltip['formatter'] as (p: unknown) => string;
-      const result = formatter([{ value: 0.15, axisValueLabel: '2024-01' }]);
-      expect(result).toContain('%');
-    });
-
-    it('buildQQOption tooltip formatter returns empty string when value is not an array', () => {
-      comp.result.set(makeResult({
-        returnDistribution: [
-          { binStart: -0.02, binEnd: -0.01, count: 5, frequency: 0.2 },
-          { binStart: -0.01, binEnd: 0.0, count: 10, frequency: 0.4 },
-          { binStart: 0.0, binEnd: 0.01, count: 8, frequency: 0.32 },
-        ],
-      }));
-      const priv = comp as unknown as Record<string, unknown>;
-      const option = (priv['buildQQOption'] as () => Record<string, unknown>).call(comp);
-      const tooltip = option['tooltip'] as Record<string, unknown>;
-      const formatter = tooltip['formatter'] as (p: unknown) => string;
-      // Non-array value → `if (!Array.isArray(p.value)) return ''`
-      expect(formatter({ value: 'not-array', seriesName: 'Returns' })).toBe('');
-      // Array value → rest of formatter executes
-      const r = formatter({ value: [1.23, 4.56], seriesName: 'Returns' });
-      expect(r).toContain('Theoretical');
-    });
-  });
 
   // -------------------------------------------------------------------------
   // 8. Event handlers exercised via DOM interactions
@@ -591,17 +463,9 @@ describe('BacktestingComponent — render-coverage (issue #936)', () => {
       expect(comp.tickersRaw()).toBe('AAPL, TSLA');
     });
 
-    it('Log button click calls toggleLogScale and the button class reflects state', () => {
-      comp.isLoading.set(false);
-      comp.activeTab.set('overview');
-      fixture.detectChanges();
-
-      const logBtn = Array.from(el.querySelectorAll('button')).find(
-        (b) => b.textContent?.trim() === 'Log',
-      );
-      expect(logBtn).toBeTruthy();
-      logBtn?.click();
-      fixture.detectChanges();
+    it('toggleLogScale() flips logScale from false to true', () => {
+      expect(comp.logScale()).toBeFalse();
+      comp.toggleLogScale();
       expect(comp.logScale()).toBeTrue();
     });
   });
@@ -786,16 +650,24 @@ describe('BacktestingComponent — render-coverage (issue #936)', () => {
       expect(comp.runError()).toBe(errorBefore);
     });
 
-    it('when tickersRaw is empty, sets runError without issuing HTTP', () => {
+    it('when tickersRaw is empty, onRunBacktest fires POST using resolvedTickers (DEFAULT_TICKERS)', () => {
+      const http = TestBed.inject(HttpTestingController);
       comp.tickersRaw.set('  ');
       comp.onRunBacktest();
-      expect(comp.runError()).toBe('Provide at least one ticker.');
+      // resolvedTickers defaults to DEFAULT_TICKERS → POST fires, no error
+      const req = http.expectOne((r) => r.url.includes('backtest'));
+      req.flush({ jobId: 'j', runId: 'r', status: 'pending', message: '' });
+      expect(comp.runError()).toBeNull();
     });
 
-    it('when given explicit empty tickers list, falls back to tickersRaw; with empty tickersRaw sets runError', () => {
+    it('when given explicit empty tickers list, falls back to resolvedTickers (DEFAULT_TICKERS)', () => {
+      const http = TestBed.inject(HttpTestingController);
       comp.tickersRaw.set('');
       comp.onRunBacktest([]);
-      expect(comp.runError()).toBe('Provide at least one ticker.');
+      // Explicit [] → falls back to resolvedTickers (DEFAULT_TICKERS) → POST fires
+      const req = http.expectOne((r) => r.url.includes('backtest'));
+      req.flush({ jobId: 'j', runId: 'r', status: 'pending', message: '' });
+      expect(comp.runError()).toBeNull();
     });
 
     it('when tickers are valid, fires POST and sets runJobId on success', () => {

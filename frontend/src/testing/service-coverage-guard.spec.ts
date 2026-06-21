@@ -21,14 +21,12 @@
 // ── HTTP service imports (compile-time enforcement) ───────────────────────────
 
 import { BacktestService } from '../app/backtesting/backtest.service';
-import { BuilderDriftService } from '../app/portfolio-builder/builder-drift.service';
 import { DashboardService } from '../app/dashboard/dashboard.service';
 import { DatabaseService } from '../app/settings/database.service';
 import { JobsService } from '../app/core/services/jobs.service';
 import { MacroIntelligenceService } from '../app/macro-intelligence/macro-intelligence.service';
 import { MarketService } from '../app/core/services/market.service';
 import { OptimizationService } from '../app/optimization-studio/optimization.service';
-import { PipelineBuilderApiService } from '../app/core/services/pipeline-builder-api.service';
 import { PortfolioApiService } from '../app/core/services/portfolio-api.service';
 import { ReferenceIndexService } from '../app/core/services/reference-index.service';
 import { ReportsService } from '../app/core/services/reports.service';
@@ -52,13 +50,6 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
       'backtest.service.spec.ts',
       'research-service-field-parity.spec.ts',
       'backtesting-contracts.spec.ts',
-    ],
-  },
-  {
-    cls: BuilderDriftService,
-    coveredBy: [
-      'portfolio-builder-field-parity.spec.ts',
-      'builder-drift-service-contracts.spec.ts',
     ],
   },
   {
@@ -105,14 +96,6 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
       'optimization.service.spec.ts',
       'research-service-field-parity.spec.ts',
       'optimization-service-contracts.spec.ts',
-    ],
-  },
-  {
-    cls: PipelineBuilderApiService,
-    coveredBy: [
-      'pipeline-builder-api.service.spec.ts',
-      'portfolio-builder-field-parity.spec.ts',
-      'pipeline-builder-api-service-contracts.spec.ts',
     ],
   },
   {
@@ -171,7 +154,6 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
  * Listed here so the next developer knows they are intentionally excluded.
  *
  *   BreakpointService        — window resize observer, no HTTP
- *   BuilderResultService     — in-process pipeline result state, no HTTP
  *   FormatService            — pure formatting utilities, no HTTP
  *   GlobalSearchService      — UI search state, no HTTP
  *   ModalService             — Angular CDK overlay, no HTTP
@@ -180,7 +162,6 @@ const HTTP_SERVICE_INVENTORY: ServiceEntry[] = [
  */
 const _EXCLUDED_UI_SERVICES = [
   'BreakpointService',
-  'BuilderResultService',
   'FormatService',
   'GlobalSearchService',
   'ModalService',
@@ -192,8 +173,8 @@ const _EXCLUDED_UI_SERVICES = [
 
 describe('Service coverage guard — every HTTP service referenced in a parity spec (issue #968)', () => {
 
-  it('inventory has at least 16 HTTP services', () => {
-    expect(HTTP_SERVICE_INVENTORY.length).toBeGreaterThanOrEqual(16);
+  it('inventory has at least 14 HTTP services', () => {
+    expect(HTTP_SERVICE_INVENTORY.length).toBeGreaterThanOrEqual(14);
   });
 
   it('every entry has a non-empty coveredBy list', () => {
@@ -203,12 +184,6 @@ describe('Service coverage guard — every HTTP service referenced in a parity s
       'These services are in the inventory but list no covering spec. ' +
       'Add at least one parity spec filename to their coveredBy array.',
     );
-  });
-
-  it('BuilderDriftService coveredBy list references the dedicated contract spec (issue #1029)', () => {
-    const entry = HTTP_SERVICE_INVENTORY.find(e => e.cls === BuilderDriftService);
-    expect(entry).toBeDefined();
-    expect(entry!.coveredBy).toContain('builder-drift-service-contracts.spec.ts');
   });
 
   HTTP_SERVICE_INVENTORY.forEach(({ cls, coveredBy }) => {

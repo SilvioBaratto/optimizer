@@ -420,23 +420,26 @@ describe('BacktestingComponent — /backtest contracts & error state (issue #954
       .flush(buildPortfolioList([{ id: 'pf-1', name: 'bt-portfolio' }]));
     fixture.detectChanges();
 
-    http
-      .expectOne((r) => r.method === 'GET' && r.url.includes('snapshots/latest'))
-      .flush({
-        id: 'snap-1',
-        portfolio_id: 'pf-1',
-        snapshot_date: '2026-01-01',
-        snapshot_type: 'manual',
-        weights: { TSLA: 0.6, GOOGL: 0.4 },
-        sector_mapping: null,
-        summary: null,
-        optimizer_config: null,
-        turnover: null,
-        holding_count: 2,
-        created_at: '2026-01-01T00:00:00Z',
-      });
+    // Two snapshot requests fire in parallel:
+    //   • initWeightResolver() uses portfolio ID → /portfolio/pf-1/snapshots/latest
+    //   • initTickerSeeding() uses portfolio name → /portfolio/bt-portfolio/snapshots/latest
+    const snapshotPayload = {
+      id: 'snap-1',
+      portfolio_id: 'pf-1',
+      snapshot_date: '2026-01-01',
+      snapshot_type: 'manual',
+      weights: { TSLA: 0.6, GOOGL: 0.4 },
+      sector_mapping: null,
+      summary: null,
+      optimizer_config: null,
+      turnover: null,
+      holding_count: 2,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+    http.match((r) => r.url.includes('snapshots/latest')).forEach((r) => r.flush(snapshotPayload));
     fixture.detectChanges();
 
+    // onRun() passes this.tickers() (seeded from snapshot) to onRunBacktest()
     comp.onRun();
     const req = http.expectOne(BACKTEST_URL);
     expect(req.request.body['tickers']).toEqual(jasmine.arrayContaining(['TSLA', 'GOOGL']));

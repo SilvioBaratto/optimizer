@@ -1,33 +1,49 @@
-import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { NO_ERRORS_SCHEMA, provideZonelessChangeDetection, signal } from '@angular/core';
-import { Subject, EMPTY } from 'rxjs';
+import { NO_ERRORS_SCHEMA, provideZonelessChangeDetection } from '@angular/core';
+import { of } from 'rxjs';
 
 import { PortfolioBuilderComponent } from './portfolio-builder';
-import { BUILDER_STAGES, type BuilderStage } from './models/builder-stage';
-import { JOB_POLL_TICK } from '../shared/job-progress-tracker/job-progress-tracker';
-import { PortfolioContextService } from '../core/services/portfolio-context.service';
-import { BuilderStore } from './state/builder.store';
-import { BuilderResultService } from './builder-result.service';
-import { BuilderDriftService } from './builder-drift.service';
-import { BUILDER_DRIFT_SERVICE } from './state/builder.store';
-import { PipelineBuilderApiService } from '../core/services/pipeline-builder-api.service';
+import { UniverseService } from '../core/services/universe.service';
+import { YfinanceService } from '../core/services/yfinance.service';
+import { MacroIntelligenceService } from '../macro-intelligence/macro-intelligence.service';
+import { PortfolioApiService } from '../core/services/portfolio-api.service';
 
-function configure(): void {
-  const tick = new Subject<number>();
-  TestBed.configureTestingModule({
-    providers: [
-      provideZonelessChangeDetection(),
-      provideHttpClient(),
-      provideHttpClientTesting(),
-      { provide: JOB_POLL_TICK, useValue: tick.asObservable() },
-    ],
-  });
+function makeUniverseSpy(): jasmine.SpyObj<UniverseService> {
+  const spy = jasmine.createSpyObj<UniverseService>('UniverseService', ['searchTickers']);
+  spy.searchTickers.and.returnValue(of({ items: [], total: 0, page: 1, page_size: 15 }));
+  return spy;
+}
+
+function makeYfinanceSpy(): jasmine.SpyObj<YfinanceService> {
+  const spy = jasmine.createSpyObj<YfinanceService>('YfinanceService', ['getProfile']);
+  spy.getProfile.and.returnValue(of(null));
+  return spy;
+}
+
+function makeMacroSpy(): jasmine.SpyObj<MacroIntelligenceService> {
+  const spy = jasmine.createSpyObj<MacroIntelligenceService>(
+    'MacroIntelligenceService', ['getMacroCalibration'],
+  );
+  spy.getMacroCalibration.and.returnValue(of(null));
+  return spy;
+}
+
+function makeApiSpy(): jasmine.SpyObj<PortfolioApiService> {
+  return jasmine.createSpyObj<PortfolioApiService>('PortfolioApiService', ['create']);
 }
 
 function setup(): HTMLElement {
-  configure();
+  TestBed.configureTestingModule({
+    imports: [PortfolioBuilderComponent],
+    schemas: [NO_ERRORS_SCHEMA],
+    providers: [
+      provideZonelessChangeDetection(),
+      { provide: UniverseService,          useValue: makeUniverseSpy() },
+      { provide: YfinanceService,          useValue: makeYfinanceSpy() },
+      { provide: MacroIntelligenceService, useValue: makeMacroSpy()    },
+      { provide: PortfolioApiService,      useValue: makeApiSpy()       },
+    ],
+  });
   const fixture = TestBed.createComponent(PortfolioBuilderComponent);
   fixture.detectChanges();
   return fixture.nativeElement as HTMLElement;
@@ -35,141 +51,52 @@ function setup(): HTMLElement {
 
 describe('PortfolioBuilderComponent', () => {
   it('when instantiated, component creates without error', () => {
-    configure();
-    const fixture = TestBed.createComponent(PortfolioBuilderComponent);
-    expect(fixture.componentInstance).toBeTruthy();
-  });
-
-  it('when rendered, each of the 5 [data-region] selectors resolves to a non-null element', () => {
-    const host = setup();
-    for (const region of [
-      'stage-strip',
-      'left',
-      'center',
-      'right',
-      'action-bar',
-    ]) {
-      expect(host.querySelector(`[data-region="${region}"]`)).not.toBeNull();
-    }
-  });
-
-  it('when rendered, multi-column grid container exposes responsive grid utility classes', () => {
-    const host = setup();
-    const leftPane = host.querySelector('[data-region="left"]');
-    const gridEl = leftPane?.parentElement;
-    expect(gridEl).not.toBeNull();
-    const cls = gridEl?.getAttribute('class') ?? '';
-    expect(cls).toContain('lg:grid-cols-[320px_1fr_300px]');
-    expect(cls).toContain('max-lg:grid-cols-1');
-  });
-
-  it('when rendered, app-stage-strip is mounted inside the stage-strip region', () => {
-    const host = setup();
-    const region = host.querySelector('[data-region="stage-strip"]');
-    expect(region?.querySelector('app-stage-strip')).not.toBeNull();
-  });
-
-  it('when rendered, app-inputs-pane is mounted inside the left region', () => {
-    const host = setup();
-    const region = host.querySelector('[data-region="left"]');
-    expect(region?.querySelector('app-inputs-pane')).not.toBeNull();
-  });
-
-  it('when rendered, app-canvas-pane is mounted inside the center region', () => {
-    const host = setup();
-    const region = host.querySelector('[data-region="center"]');
-    expect(region?.querySelector('app-canvas-pane')).not.toBeNull();
-  });
-
-  it('when rendered, app-analytics-pane is mounted inside the right region', () => {
-    const host = setup();
-    const region = host.querySelector('[data-region="right"]');
-    expect(region?.querySelector('app-analytics-pane')).not.toBeNull();
-  });
-
-  it('when rendered, app-action-bar is mounted inside the action-bar region', () => {
-    const host = setup();
-    const region = host.querySelector('[data-region="action-bar"]');
-    expect(region?.querySelector('app-action-bar')).not.toBeNull();
-  });
-
-  it('when stage-strip emits stageSelect, store.setStage is invoked and currentStage updates', () => {
-    configure();
-    const fixture = TestBed.createComponent(PortfolioBuilderComponent);
-    fixture.detectChanges();
-
-    const host = fixture.nativeElement as HTMLElement;
-    const buttons = Array.from(
-      host.querySelectorAll<HTMLButtonElement>('button[role="tab"]'),
-    );
-    expect(buttons.length).toBe(6);
-
-    const target: BuilderStage = 'review';
-    buttons[BUILDER_STAGES.indexOf(target)].click();
-    fixture.detectChanges();
-
-    expect(fixture.componentInstance.store.currentStage()).toBe(target);
-  });
-});
-
-describe('portfolio context name propagation', () => {
-  const mockName = signal<string | null>(null);
-  const mockId = signal<string | null>(null);
-
-  beforeEach(() => {
-    mockName.set(null);
-    mockId.set(null);
-
     TestBed.configureTestingModule({
       imports: [PortfolioBuilderComponent],
       schemas: [NO_ERRORS_SCHEMA],
       providers: [
         provideZonelessChangeDetection(),
-        provideHttpClient(),
-        provideHttpClientTesting(),
-        {
-          provide: PortfolioContextService,
-          useValue: {
-            currentPortfolioName: mockName.asReadonly(),
-            currentPortfolioId: mockId.asReadonly(),
-          },
-        },
-        {
-          provide: PipelineBuilderApiService,
-          useValue: { runStep: () => EMPTY, getArtifactUrl: () => '' },
-        },
+        { provide: UniverseService,          useValue: makeUniverseSpy() },
+        { provide: YfinanceService,          useValue: makeYfinanceSpy() },
+        { provide: MacroIntelligenceService, useValue: makeMacroSpy()    },
+        { provide: PortfolioApiService,      useValue: makeApiSpy()       },
       ],
     });
-
-    TestBed.overrideComponent(PortfolioBuilderComponent, {
-      set: {
-        providers: [
-          BuilderStore,
-          { provide: BuilderResultService, useValue: { init: () => {}, runExplicit: () => {} } },
-          { provide: BuilderDriftService, useValue: { init: () => {}, runExplicit: () => {} } },
-          { provide: BUILDER_DRIFT_SERVICE, useValue: { runExplicit: () => {} } },
-        ],
-      },
-    });
+    const fixture = TestBed.createComponent(PortfolioBuilderComponent);
+    expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('when currentPortfolioName() is "Test Portfolio", store.portfolioName() mirrors it', () => {
-    mockName.set('Test Portfolio');
-    const fixture = TestBed.createComponent(PortfolioBuilderComponent);
-    fixture.detectChanges();
-    TestBed.flushEffects();
-
-    const store = fixture.debugElement.injector.get(BuilderStore);
-    expect(store.portfolioName()).toBe('Test Portfolio');
+  it('when rendered, the search region is present in the DOM', () => {
+    const host = setup();
+    expect(host.querySelector('[data-region="search"]')).not.toBeNull();
   });
 
-  it('when currentPortfolioName() is null, store.portfolioName() is null', () => {
-    mockName.set(null);
-    const fixture = TestBed.createComponent(PortfolioBuilderComponent);
-    fixture.detectChanges();
-    TestBed.flushEffects();
+  it('when rendered, the list region is present in the DOM', () => {
+    const host = setup();
+    expect(host.querySelector('[data-region="list"]')).not.toBeNull();
+  });
 
-    const store = fixture.debugElement.injector.get(BuilderStore);
-    expect(store.portfolioName()).toBeNull();
+  it('when rendered, app-asset-search is mounted inside the search region', () => {
+    const host = setup();
+    const region = host.querySelector('[data-region="search"]');
+    expect(region?.querySelector('app-asset-search')).not.toBeNull();
+  });
+
+  it('when rendered, app-asset-list is mounted inside the list region', () => {
+    const host = setup();
+    const region = host.querySelector('[data-region="list"]');
+    expect(region?.querySelector('app-asset-list')).not.toBeNull();
+  });
+
+  it('when rendered, no BuilderStore-coupled components (app-stage-strip, app-inputs-pane, app-canvas-pane) appear in the DOM', () => {
+    const host = setup();
+    expect(host.querySelector('app-stage-strip')).toBeNull();
+    expect(host.querySelector('app-inputs-pane')).toBeNull();
+    expect(host.querySelector('app-canvas-pane')).toBeNull();
+  });
+
+  it('when rendered, no app-pipeline-stepper element is present', () => {
+    const host = setup();
+    expect(host.querySelector('app-pipeline-stepper')).toBeNull();
   });
 });
