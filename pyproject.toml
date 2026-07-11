@@ -63,7 +63,6 @@ research = ["py.typed", "templates/*.j2"]
 [tool.ruff]
 line-length = 88
 target-version = "py310"
-exclude = ["theory/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "S", "RUF", "C4", "PTH"]

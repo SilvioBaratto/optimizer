@@ -20,7 +20,6 @@ Portfolio optimizer platform with a FastAPI backend (synchronous SQLAlchemy + Po
 - **`frontend/`** — Angular 21 dashboard (standalone components, signals, Tailwind CSS v4, ECharts). Deployed at [optimizer.silviobaratto.com](https://optimizer.silviobaratto.com)
 - **`research/`** — End-to-end research scripts that exercise the full library against live DB data (e.g. `stock_selection_pipeline.py`, `portfolio.py`, `data_assembly.py`, `_backtest_plots.py`). Hosts the DB→DataFrame `data_assembly.py` glue layer used by `optimizer/`. Not a shipped package — used for internal validation and report generation
 - **`examples/`** — Self-contained runnable scripts using skfolio bundled datasets (no API keys or DB required): `quickstart.py`, `robust_optimization.py`, `regime_blending.py`, `factor_selection.py`, `full_pipeline.py`. Prefer these when demonstrating library usage
-- **`theory/`** — LaTeX/Markdown theoretical documentation (not code)
 - **`docs/`** + `mkdocs.yml` — MkDocs site published at [silviobaratto.github.io/optimizer](https://silviobaratto.github.io/optimizer). Conceptual guides and config references live here
 
 ## Build & Run Commands
