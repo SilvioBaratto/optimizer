@@ -4,9 +4,9 @@ type: software
 title: "Portfolio Optimizer"
 version: 0.1.0
 date-released: 2026-02-21
-license: BSD-3-Clause
+license: PolyForm-Noncommercial-1.0.0
 repository-code: "https://github.com/SilvioBaratto/optimizer"
-url: "https://silviobaratto.github.io/optimizer"
+url: "https://github.com/SilvioBaratto/optimizer"
 authors:
   - family-names: Baratto
     given-names: Silvio

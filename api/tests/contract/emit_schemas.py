@@ -7,11 +7,10 @@ emit camelCase property keys via their alias generator, while plain
 snake_case responses in macro/universe) have ``alias == field-name`` and so emit
 snake_case. No per-domain casing branch is needed -- the alias generator decides.
 
-The committed snapshots are the structural contract both stacks consume:
-``api/tests/contract/snapshots/`` (Python parity test) and
-``frontend/src/testing/contract-snapshots/`` (frontend parity specs).
+The committed snapshots in ``api/tests/contract/snapshots/`` are the structural
+contract consumed by the Python parity test.
 
-Run standalone to regenerate both locations::
+Run standalone to regenerate them::
 
     python api/tests/contract/emit_schemas.py
 """
@@ -61,11 +60,6 @@ from app.schemas.market_data.yfinance_data import (
 from app.schemas.optimization.optimization import (
     OptimizationRunListResponse,
     OptimizationRunResponse,
-)
-from app.schemas.pipeline_builder.pipeline_builder import (
-    CreateSessionResponse,
-    StepPollResponse,
-    StepRunResponse,
 )
 from app.schemas.portfolio.drift import (
     DriftResponse as PortfolioDriftResponse,
@@ -157,17 +151,9 @@ DOMAIN_SCHEMAS: dict[str, list[type[BaseModel]]] = {
     "scenarios": [StressScenarioResponse, StressScenarioItem],
     "reports": [ReportJobCreateResponse],
     "jobs": [JobListResponse, JobSummary],
-    "pipeline_builder": [
-        CreateSessionResponse,
-        StepPollResponse,
-        StepRunResponse,
-    ],
 }
 
 SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
-FRONTEND_SNAPSHOT_DIR = (
-    Path(__file__).parents[3] / "frontend" / "src" / "testing" / "contract-snapshots"
-)
 
 
 def schema_for(model: type[BaseModel]) -> dict:
@@ -197,8 +183,8 @@ def write_snapshots(target_dirs: list[Path]) -> None:
 
 
 def main() -> None:
-    write_snapshots([SNAPSHOT_DIR, FRONTEND_SNAPSHOT_DIR])
-    print(f"Wrote {len(DOMAIN_SCHEMAS)} snapshots to {SNAPSHOT_DIR} and {FRONTEND_SNAPSHOT_DIR}")
+    write_snapshots([SNAPSHOT_DIR])
+    print(f"Wrote {len(DOMAIN_SCHEMAS)} snapshots to {SNAPSHOT_DIR}")
 
 
 if __name__ == "__main__":

@@ -36,7 +36,6 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/SilvioBaratto/optimizer"
-Documentation = "https://silviobaratto.github.io/optimizer"
 Repository = "https://github.com/SilvioBaratto/optimizer"
 Issues = "https://github.com/SilvioBaratto/optimizer/issues"
 Changelog = "https://github.com/SilvioBaratto/optimizer/blob/main/CHANGELOG.md"
@@ -45,20 +44,13 @@ Changelog = "https://github.com/SilvioBaratto/optimizer/blob/main/CHANGELOG.md"
 test = ["pytest>=9.0.3", "pytest-cov>=7.1.0", "hypothesis>=6.151.9", "pyyaml>=6.0.3"]
 lint = ["ruff>=0.15.6", "pip-audit>=2.10.0"]
 typecheck = ["mypy>=1.19.1", "pyright[nodejs]==1.1.408"]
-docs = [
-    "mkdocs-material>=9.7.2",
-    "mkdocstrings[python]>=1.0.3",
-    "mkdocs-gen-files>=0.6.1",
-    "mkdocs-literate-nav>=0.6.3",
-]
-dev = ["portopt[test,lint,typecheck,docs]", "pre-commit>=4.5.1"]
+dev = ["portopt[test,lint,typecheck]", "pre-commit>=4.5.1"]
 
 [tool.setuptools.packages.find]
-include = ["optimizer*", "research*"]
+include = ["optimizer*"]
 
 [tool.setuptools.package-data]
 optimizer = ["py.typed"]
-research = ["py.typed", "templates/*.j2"]
 
 [tool.ruff]
 line-length = 88
@@ -76,15 +68,6 @@ ignore = ["RUF002", "RUF003"]  # allow unicode in docstrings/comments (mathemati
 # validation; the subprocess S-rules and raw-shell-snippet E501 would add
 # nothing here.
 "tests/scheduler/**" = ["N803", "N806", "S101", "S603", "S607", "E501"]
-# Boundary-gate tests intentionally invoke subprocess to verify import isolation
-# in a fresh interpreter; args are fixed literals (sys.executable + hardcoded -c).
-"tests/research/test_cycle2_boundary_gate.py" = ["N803", "N806", "S101", "S603", "S607", "E501"]
-"tests/research/test_reporting_boundaries.py" = ["N803", "N806", "S101", "S603", "S607", "E501"]
-"tests/research/test_reporting_init.py" = ["N803", "N806", "S101", "S603", "S607", "E501"]
-# CLI import isolation test spawns a fresh interpreter with fixed args (sys.executable + hardcoded -c).
-"tests/research/test_cli_imports.py" = ["N803", "N806", "S101", "S603", "S607"]
-# Pipeline regime import isolation test spawns a fresh interpreter with fixed literal args.
-"tests/research/test_pipeline_regime.py" = ["N803", "N806", "S101", "S603", "S607", "E501"]
 # Coverage-gate test spawns a fresh interpreter with fixed args (sys.executable + script path).
 "tests/test_check_branch_coverage.py" = ["S603"]
 
@@ -128,7 +111,7 @@ module = [
 disallow_subclassing_any = false
 
 [tool.ruff.lint.isort]
-known-first-party = ["optimizer", "research"]
+known-first-party = ["optimizer"]
 
 [tool.ruff.format]
 quote-style = "double"

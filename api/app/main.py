@@ -125,23 +125,6 @@ async def lifespan(app: FastAPI):
             target=_run_bootstrap, daemon=True, name="benchmark-bootstrap"
         ).start()
 
-        # Pipeline-session-store eviction daemon (issue #693). Started here so a
-        # process that only serves GET polls — never POST /sessions — still
-        # cleans up stale sessions. Failure is non-fatal: FastAPI must boot
-        # even if the eviction thread cannot be spawned.
-        try:
-            from app.services.pipeline_builder.session_store import (
-                _ensure_daemon_running,
-            )
-
-            _ensure_daemon_running()
-            logger.info("Pipeline session-store eviction daemon started")
-        except Exception:
-            logger.error(
-                "Failed to start pipeline session-store eviction daemon",
-                exc_info=True,
-            )
-
         # Start APScheduler (replaces supercronic + MacroNewsSummaryScheduler)
         scheduler = create_scheduler()
         scheduler.start()

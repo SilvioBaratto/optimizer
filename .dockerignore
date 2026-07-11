@@ -3,9 +3,6 @@
 .vscode/
 .idea/
 .claude/
-frontend/node_modules/
-frontend/.angular/
-frontend/dist/
 tests/
 *.md
 !README.md

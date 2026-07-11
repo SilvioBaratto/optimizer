@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -353,101 +352,6 @@ class TestRunFullPipelineWithSelectionFxSlicing:
                 passed_prices = call_kwargs.get("prices")
                 if passed_prices is not None:
                     assert set(passed_map.keys()) <= set(passed_prices.columns)
-
-
-@pytest.mark.skipif(not importlib.util.find_spec("typer"), reason="typer not installed")
-class TestAssembleFxRatesEmptyPriceIndex:
-    """Verify assemble_fx_rates handles empty price index gracefully."""
-
-    def test_empty_price_index_returns_empty_df(self) -> None:
-        from research.data_assembly import assemble_fx_rates
-
-        currency_map = {"LLOY.L": "GBP", "SPY": "USD"}
-        empty_index = pd.DatetimeIndex([])
-
-        result = assemble_fx_rates(
-            currency_map=currency_map,
-            base_currency="EUR",
-            price_index=empty_index,
-        )
-
-        assert isinstance(result, pd.DataFrame)
-        assert result.empty
-
-
-@pytest.mark.skipif(not importlib.util.find_spec("typer"), reason="typer not installed")
-class TestAssembleAllBaseCurrency:
-    """Verify assemble_all() threads base_currency parameter."""
-
-    @patch("research.data._orchestrator.assemble_fx_rates")
-    @patch("research.data._orchestrator.assemble_regime_data")
-    @patch("research.data._orchestrator.assemble_delisting_returns")
-    @patch("research.data._orchestrator.assemble_fundamental_history")
-    @patch("research.data._orchestrator.assemble_sentiment")
-    @patch("research.data._orchestrator.assemble_bond_observations")
-    @patch("research.data._orchestrator.assemble_te_observations")
-    @patch("research.data._orchestrator.assemble_fred_series")
-    @patch("research.data._orchestrator.assemble_macro_data")
-    @patch("research.data._orchestrator.assemble_insider_data")
-    @patch("research.data._orchestrator.assemble_analyst_data")
-    @patch("research.data._orchestrator.assemble_financial_statements")
-    @patch("research.data._orchestrator.assemble_volumes")
-    @patch("research.data._orchestrator.assemble_prices")
-    @patch("research.data._orchestrator.assemble_fundamentals")
-    def test_base_currency_passed_to_fx_rates(
-        self,
-        mock_fundamentals: MagicMock,
-        mock_prices: MagicMock,
-        mock_volumes: MagicMock,
-        mock_fin_stmts: MagicMock,
-        mock_analyst: MagicMock,
-        mock_insider: MagicMock,
-        mock_macro: MagicMock,
-        mock_fred: MagicMock,
-        mock_te: MagicMock,
-        mock_bonds: MagicMock,
-        mock_sentiment: MagicMock,
-        mock_fund_hist: MagicMock,
-        mock_delisting: MagicMock,
-        mock_regime: MagicMock,
-        mock_fx_rates: MagicMock,
-    ) -> None:
-        from research.data_assembly import assemble_all
-
-        dates = pd.bdate_range("2024-01-02", periods=10)
-        prices = pd.DataFrame(
-            {"LLOY.L": range(10), "SPY": range(10)},
-            index=dates,
-        )
-        cmap = {"LLOY.L": "GBP", "SPY": "USD"}
-
-        mock_fundamentals.return_value = (pd.DataFrame(), {}, cmap)
-        mock_prices.return_value = prices
-        mock_volumes.return_value = pd.DataFrame()
-        mock_fin_stmts.return_value = pd.DataFrame()
-        mock_analyst.return_value = pd.DataFrame()
-        mock_insider.return_value = pd.DataFrame()
-        mock_macro.return_value = pd.DataFrame()
-        mock_fred.return_value = pd.DataFrame()
-        mock_te.return_value = pd.DataFrame()
-        mock_bonds.return_value = pd.DataFrame()
-        mock_sentiment.return_value = pd.DataFrame()
-        mock_fund_hist.return_value = pd.DataFrame()
-        mock_delisting.return_value = {}
-        mock_regime.return_value = pd.DataFrame()
-        mock_fx_rates.return_value = pd.DataFrame()
-
-        mock_db = MagicMock()
-        mock_db.get_session.return_value.__enter__ = MagicMock()
-        mock_db.get_session.return_value.__exit__ = MagicMock(return_value=False)
-
-        assemble_all(mock_db, base_currency="GBP")
-
-        mock_fx_rates.assert_called_once()
-        call_kwargs = mock_fx_rates.call_args
-        assert call_kwargs.kwargs.get("base_currency") == "GBP" or (
-            call_kwargs.args and call_kwargs.args[1] == "GBP"
-        )
 
 
 class TestBenchmarkCurrencyConversion:

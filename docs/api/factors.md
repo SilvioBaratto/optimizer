@@ -1,3 +1,0 @@
-# factors
-
-::: optimizer.factors

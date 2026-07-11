@@ -1,3 +1,0 @@
-# fx
-
-::: optimizer.fx

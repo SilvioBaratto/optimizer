@@ -4,14 +4,15 @@
 [![PyPI](https://img.shields.io/pypi/v/portopt)](https://pypi.org/project/portopt/)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 [![codecov](https://codecov.io/gh/SilvioBaratto/optimizer/branch/main/graph/badge.svg)](https://codecov.io/gh/SilvioBaratto/optimizer)
-[![Docs](https://img.shields.io/badge/docs-silviobaratto.github.io%2Foptimizer-blue)](https://silviobaratto.github.io/optimizer)
-[![Live Demo](https://img.shields.io/badge/demo-optimizer.silviobaratto.com-purple)](https://optimizer.silviobaratto.com)
-![License](https://img.shields.io/badge/license-BSD--3--Clause-green)
+![License](https://img.shields.io/badge/license-PolyForm--Noncommercial--1.0.0-green)
 [![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/c47694dc-b34e-481e-8907-2766ff13d4cd.svg)](https://oosmetrics.com/repo/SilvioBaratto/optimizer)
 
-Quantitative portfolio construction and optimization platform built on [skfolio](https://skfolio.org/) and scikit-learn. Every component follows the **frozen-config + factory** pattern and composes in standard sklearn pipelines.
+Quantitative portfolio construction and optimization built on [skfolio](https://skfolio.org/) and scikit-learn. Every component follows the **frozen-config + factory** pattern and composes in standard sklearn pipelines.
 
-**[Live Dashboard](https://optimizer.silviobaratto.com)** | **[Documentation](https://silviobaratto.github.io/optimizer)** | **[PyPI](https://pypi.org/project/portopt/)**
+The repository holds two things:
+
+- **`optimizer/`** — the pure-Python library, published to PyPI as **`portopt`**. DB-agnostic, no API keys, no I/O.
+- **`api/`** — a FastAPI backend (PostgreSQL + SQLAlchemy + APScheduler + BAML) that ingests market, fundamental, and macro data and exposes the library over HTTP.
 
 ## Installation
 
@@ -19,7 +20,7 @@ Quantitative portfolio construction and optimization platform built on [skfolio]
 pip install portopt
 ```
 
-For development (tests, linting, type checking, docs):
+For development (tests, linting, type checking):
 
 ```bash
 git clone https://github.com/SilvioBaratto/optimizer.git
@@ -62,6 +63,8 @@ prices -> returns -> [preprocess -> pre-select -> optimize] -> backtest -> weigh
 
 Prices are converted to returns **outside** the pipeline (semantic change). Everything inside is a single sklearn `Pipeline` that can be cross-validated and tuned as one object.
 
+`run_full_pipeline_with_selection()` extends the same entry point with an upstream stock-selection stage: fundamentals -> investability screening -> factor computation -> standardization -> regime tilts -> composite scoring -> selection.
+
 ### Preprocessing
 
 Four sklearn-compatible transformers for return data cleaning:
@@ -81,25 +84,25 @@ All steps run inside CV folds to prevent data leakage. Pipeline parameters are e
 
 ### Moment Estimation
 
-5 expected return estimators and 11 covariance estimators with regime-aware blending:
+4 expected-return estimators and 11 covariance estimators:
 
 | Expected Returns | Covariance |
 |---|---|
-| Empirical, Shrunk (James-Stein, Bayes-Stein), Exponentially Weighted, Equilibrium (CAPM), HMM-Blended | Empirical, EW, Ledoit-Wolf, OAS, Shrunk, Denoised (RMT), Detoned, Gerber, Graphical Lasso, Implied, HMM-Blended |
+| Empirical, Shrunk (James-Stein, Bayes-Stein, Bodnar-Okhrin), Exponentially Weighted, Equilibrium (CAPM) | Empirical, EW, Ledoit-Wolf, OAS, Shrunk, Denoised (RMT), Detoned, Gerber, Graphical Lasso CV, Implied, Regime-Adjusted EW |
 
-**HMM Regime Blending**: Fits a Gaussian HMM via Baum-Welch EM, then blends per-regime moments using filtered (causal) probabilities. `HMMBlendedCovariance` uses the full law of total variance including between-regime mean dispersion.
+**Regime-adjusted EW**: short-term volatility uplift applied on top of an exponentially weighted covariance (multiplier internal to skfolio, clipped to `(0.7, 1.6)`).
 
-**Deep Markov Model** (optional, requires `torch` + `pyro`): Variational inference for state-space models with diagonal covariance.
+**Log-normal scaling**: multi-period moment projection with Jensen's inequality correction (`apply_lognormal_correction`, `scale_moments_to_horizon`).
 
-**Log-normal scaling**: Multi-period moment projection with Jensen's inequality correction.
+Separately, `build_variance_estimator()` returns 1-D `BaseVariance` estimators (`variance_`, not `covariance_`) — not interchangeable with covariance estimators inside priors.
 
 ### View Integration
 
 Three frameworks for incorporating forward-looking views:
 
-- **Black-Litterman** -- Bayesian posterior combining market equilibrium with absolute/relative views. Three uncertainty methods: He-Litterman, Idzorek confidence, empirical track record
-- **Entropy Pooling** -- 9 view types (mean, variance, correlation, skew, kurtosis, CVaR) via KL-divergence minimization
-- **Opinion Pooling** -- Linear and logarithmic combination of multiple expert priors
+- **Black-Litterman** -- Bayesian posterior combining market equilibrium with absolute/relative views. Omega from He-Litterman, Idzorek confidence, or empirical track record (`calibrate_omega_from_track_record`)
+- **Entropy Pooling** -- mean, variance, correlation, skew, kurtosis, and CVaR views via KL-divergence minimization
+- **Opinion Pooling** -- linear and logarithmic combination of multiple expert priors
 
 ### Optimization
 
@@ -107,33 +110,37 @@ Three frameworks for incorporating forward-looking views:
 
 | Category | Models |
 |---|---|
-| **Convex** | MeanRisk (4 objectives, 15 risk measures), Risk Budgeting, Maximum Diversification, Benchmark Tracker, DR-CVaR |
-| **Hierarchical** | HRP, HERC, NCO |
-| **Naive** | Equal Weighted, Inverse Volatility |
+| **Convex** | MeanRisk, Risk Budgeting, Maximum Diversification, Benchmark Tracker, DR-CVaR |
+| **Hierarchical** | HRP, HERC, NCO, Schur Complementary |
+| **Naive** | Equal Weighted, Inverse Volatility, Random |
 | **Ensemble** | Stacking Optimization |
 
-**Robust variants**: Ellipsoidal mu uncertainty sets (kappa-scaled chi-squared confidence), bootstrap covariance uncertainty, distributionally robust CVaR over Wasserstein ball, HMM-driven regime-conditional risk measure selection.
+**Robust variants**: ellipsoidal/bootstrap mu and covariance uncertainty sets (`RobustMeanRisk`), distributionally robust CVaR over a Wasserstein ball, and `RegimeBlendedMeanRisk` which consumes externally-supplied regime probabilities (the library does not fit HMMs itself).
+
+**Constraint helpers**: `build_sector_constraints()` and `build_region_linear_constraints()` emit skfolio `linear_constraints` strings for group exposure bands.
 
 Every model uses frozen `@dataclass` configs with named presets:
 
 ```python
 MeanRiskConfig.for_max_sharpe()           # maximize Sharpe ratio
 MeanRiskConfig.for_min_cvar(beta=0.95)    # minimize CVaR at 95%
-RobustConfig.for_conservative()           # kappa=2 ellipsoidal uncertainty
-DRCVaRConfig.for_moderate()               # Wasserstein ball epsilon=0.02
+RobustMeanRiskConfig.for_conservative()   # 99% uncertainty-set confidence
+DRCVaRConfig.for_moderate()               # Wasserstein ball radius
 ```
 
 ### Validation
 
 Temporal cross-validation strategies that respect the time-series nature of financial data:
 
-- **Walk-Forward** -- rolling or expanding window (quarterly, semiannual, annual presets)
+- **Walk-Forward** -- rolling or expanding window (monthly, quarterly presets)
 - **Combinatorial Purged CV** -- multiple non-overlapping test paths with purging and embargoing to prevent leakage
 - **Multiple Randomized CV** -- Monte Carlo evaluation with asset subsampling
 
+Plus covariance-forecast evaluation (offline and online).
+
 ### Scoring and Tuning
 
-19 ratio measures (Sharpe, Sortino, Calmar, CVaR ratio, ...) for model selection. Grid search and randomized search with temporal CV enforced by default. Nested parameter addressing via sklearn's double-underscore syntax:
+Ratio measures (Sharpe, Sortino, Calmar, CVaR ratio, ...) for model selection. Grid search and randomized search with temporal CV enforced by default. Nested parameter addressing via sklearn's double-underscore syntax:
 
 ```python
 param_grid = {
@@ -160,7 +167,7 @@ Complete factor research pipeline with 17 factors across 9 groups:
 
 **Validation**: Information Coefficient analysis, Newey-West t-statistics, VIF collinearity, Benjamini-Hochberg FDR correction, out-of-sample rolling block validation.
 
-**Integration**: Factor exposure constraints for MeanRisk, Black-Litterman views from factor premia, net alpha after turnover costs.
+**Integration**: factor exposure constraints for MeanRisk, Black-Litterman views from factor premia, net alpha after turnover costs.
 
 ### Synthetic Data
 
@@ -178,13 +185,17 @@ prior = build_synthetic_data(
 
 8 investability screens with hysteresis entry/exit thresholds to reduce universe turnover: market cap, 12m/3m average daily dollar volume, trading frequency, price floors (US/Europe), listing age, IPO seasoning, financial statement coverage, exchange-relative percentile.
 
+### FX
+
+Multi-currency handling: `FxPriceConverter` (sklearn transformer) converts a multi-currency price panel to a base currency (EUR/GBP/USD, optionally crossing via USD), and `decompose_fx_returns()` splits total return into stock-only and FX components.
+
 ## Design Principles
 
 **Config + Factory**: Every module uses frozen `@dataclass` configs holding only serializable primitives and enums. Factory functions create estimator instances. Configs can be serialized, logged, and swept over; non-serializable objects (estimators, arrays, callables) are passed as factory kwargs.
 
 **sklearn compatibility**: All transformers follow `BaseEstimator + TransformerMixin`. The full preprocessing + optimization chain composes in `sklearn.pipeline.Pipeline` and can be cross-validated, tuned, and serialized as one object.
 
-**skfolio foundation**: Optimization models wrap [skfolio](https://skfolio.org/) estimators. portopt adds regime blending, robust uncertainty sets, factor research, rebalancing, and universe screening on top.
+**skfolio foundation**: Optimization models wrap [skfolio](https://skfolio.org/) estimators. portopt adds robust uncertainty sets, factor research, rebalancing, universe screening, and FX on top.
 
 ## Architecture
 
@@ -193,63 +204,28 @@ optimizer/            Pure-Python library (DB-agnostic, sklearn/skfolio-based)
   pipeline/           End-to-end orchestration (prices -> validated weights)
   preprocessing/      Return data cleaning (validation, outliers, imputation)
   pre_selection/      Asset filtering pipeline (completeness, variance, correlation)
-  moments/            Expected return + covariance estimation, HMM, DMM
+  moments/            Expected return + covariance + variance estimation, prior construction
   views/              Black-Litterman, Entropy Pooling, Opinion Pooling
-  optimization/       13 optimization models + robust variants
+  optimization/       13 optimization models + robust variants + group constraints
   validation/         Walk-Forward, Combinatorial Purged CV, Randomized CV
-  scoring/            19 ratio measures for model selection
+  scoring/            Ratio measures for model selection
   tuning/             Grid/randomized search with temporal CV
   rebalancing/        Calendar, threshold, and hybrid rebalancing
   factors/            17 factors, scoring, selection, regime tilts, validation
   synthetic/          Vine copula scenario generation + stress testing
   universe/           Investability screening with hysteresis
+  distance/           Distance estimators for hierarchical optimizers
+  cluster/            Hierarchical clustering wrapper
+  uncertainty_set/    Mu / covariance uncertainty sets for robust optimization
+  linear_model/       Cross-sectional regression (factor IC)
+  online/             partial_fit-based incremental workflows
+  fx/                 Multi-currency conversion + FX return decomposition
 
-frontend/             Angular 21 dashboard (optimizer.silviobaratto.com)
-api/                  FastAPI backend (PostgreSQL, BAML, Trading 212)
-cli/                  Typer CLI (data fetching, universe management)
-tests/                Test suite (93%+ coverage)
-examples/             Self-contained runnable scripts
+api/                  FastAPI backend (PostgreSQL, SQLAlchemy, APScheduler, BAML)
+scheduler/            Shell drivers for the ingestion pipeline (fetch, refetch, smoke)
+scripts/              CI helpers (branch-coverage gate)
+tests/                Library test suite
 ```
-
-## Examples
-
-Self-contained scripts using real market data from skfolio datasets (no API keys required):
-
-| Script | Description |
-|---|---|
-| [`quickstart.py`](examples/quickstart.py) | MeanRisk optimization with walk-forward backtest |
-| [`robust_optimization.py`](examples/robust_optimization.py) | Compare robust portfolios at different kappa values |
-| [`regime_blending.py`](examples/regime_blending.py) | HMM fitting and regime-conditional moment estimation |
-| [`factor_selection.py`](examples/factor_selection.py) | Factor construction, standardization, and stock selection |
-| [`full_pipeline.py`](examples/full_pipeline.py) | End-to-end pipeline with pre-selection and rebalancing |
-
-```bash
-pip install portopt
-python examples/quickstart.py
-```
-
-## Documentation
-
-Full documentation with conceptual guides, configuration references, and code examples:
-
-**[silviobaratto.github.io/optimizer](https://silviobaratto.github.io/optimizer)**
-
-## Web Dashboard
-
-Interactive dashboard for portfolio management, optimization, and risk analysis:
-
-**[optimizer.silviobaratto.com](https://optimizer.silviobaratto.com)**
-
-Built with Angular 21, Tailwind CSS v4, and ECharts. Features include:
-- **Dashboard** -- portfolio overview with real-time performance metrics
-- **Portfolio Builder** -- construct portfolios with drag-and-drop asset selection
-- **Optimization Studio** -- configure and run optimization pipelines visually
-- **Risk Center** -- correlation matrices, factor decomposition, risk contribution analysis
-- **Factor Research** -- regime detection, TAA signals, factor validation
-- **AI Control Room** -- AI agent monitoring, decision history, and veto controls
-- **Backtesting** -- historical performance analysis with walk-forward validation
-- **Attribution** -- return and risk attribution across factors and sectors
-- **Rebalancing** -- calendar, threshold, and hybrid rebalancing management
 
 ## Development
 
@@ -264,25 +240,23 @@ ruff check optimizer/ tests/
 
 # Type check
 mypy optimizer/
+
+# Everything (lint + typecheck + test)
+make all
 ```
 
-## Frontend + API + CLI
+## Backend
 
-The project includes an Angular dashboard ([optimizer.silviobaratto.com](https://optimizer.silviobaratto.com)), a FastAPI backend, and a Typer CLI:
+The FastAPI app ingests market data (yfinance / Trading 212), fundamentals, and macro series (FRED, Trading Economics) into PostgreSQL, then serves optimization, backtest, risk, factor, and attribution endpoints under `/api/v1/`.
 
 ```bash
-# Start PostgreSQL
+# PostgreSQL (host port 54320) + Adminer (18081) + API (8005)
 docker compose up -d
 
-# Frontend
-cd frontend && npm install --legacy-peer-deps
-ng serve                          # http://localhost:4200
-
-# API
+# Or run the API directly
 cd api && pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --reload     # http://localhost:8000
-
 ```
 
 ### Environment Variables
@@ -295,6 +269,9 @@ Copy `.env.example` to `.env` and fill in your API keys:
 | `FRED_API_KEY` | Federal Reserve Economic Data |
 | `TRADING_212_API_KEY` | Trading 212 portfolio access |
 | `TRADING_ECONOMICS_API_KEY` | Trading Economics macro data |
+| `NOTIFICATION_WEBHOOK_URL` | Discord/Slack webhook for job-failure alerts (optional) |
+
+Scheduler cadence is configurable via `SCHEDULER_*` env vars — see `CLAUDE.md`.
 
 ## Disclaimer
 
@@ -316,4 +293,4 @@ By using this software, you acknowledge that you have read and understood this d
 
 ## License
 
-[BSD-3-Clause](LICENSE)
+[PolyForm Noncommercial License 1.0.0](LICENSE)

@@ -1,3 +1,0 @@
-# optimization
-
-::: optimizer.optimization

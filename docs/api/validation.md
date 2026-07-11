@@ -1,3 +1,0 @@
-# validation
-
-::: optimizer.validation

@@ -9,18 +9,10 @@ See: GitHub issue #295.
 
 from __future__ import annotations
 
-import importlib.util
-
 import numpy as np
 import pandas as pd
 import pytest
 from skfolio.preprocessing import prices_to_returns
-
-_skip_no_research = pytest.mark.skipif(
-    importlib.util.find_spec("research") is None,
-    reason="research package not available in CI",
-)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -190,122 +182,3 @@ class TestForwardReturnBoundary:
 # ---------------------------------------------------------------------------
 # 3. Integration test with build_factor_scores_history
 # ---------------------------------------------------------------------------
-
-
-@_skip_no_research
-class TestForwardReturnIntegration:
-    """End-to-end boundary verification via build_factor_scores_history."""
-
-    def test_assertion_does_not_fire(self) -> None:
-        """The runtime assertion in _factors.py must not trigger."""
-        import warnings
-
-        from optimizer.factors import FactorConstructionConfig, StandardizationConfig
-        from research.factors._history import build_factor_scores_history
-
-        rng = np.random.default_rng(42)
-        n_dates, n_tickers = 300, 5
-        dates = pd.bdate_range("2023-01-01", periods=n_dates)
-        tickers = [f"T{i}" for i in range(n_tickers)]
-
-        prices = pd.DataFrame(
-            rng.uniform(10, 100, (n_dates, n_tickers)),
-            index=dates,
-            columns=tickers,
-        ).cumsum()
-
-        volumes = pd.DataFrame(
-            rng.uniform(1e5, 1e7, (n_dates, n_tickers)),
-            index=dates,
-            columns=tickers,
-        )
-
-        fundamentals = _make_fundamentals(tickers, rng)
-        sector_mapping = dict.fromkeys(tickers, "Technology")
-
-        class MockAssembly:
-            analyst_data = pd.DataFrame()
-            insider_data = pd.DataFrame()
-
-        # Should complete without AssertionError
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = build_factor_scores_history(
-                investable_prices=prices,
-                investable_volumes=volumes,
-                investable_fundamentals=fundamentals,
-                assembly=MockAssembly(),  # type: ignore[arg-type]
-                factor_config=FactorConstructionConfig(),
-                std_config=StandardizationConfig(),
-                sector_mapping=sector_mapping,
-                rebalance_freq=63,
-                fundamental_history=None,
-            )
-
-        # Verify we got results
-        _, returns_history, health = result
-        assert health.succeeded_dates > 0
-        assert not returns_history.empty
-
-    def test_returns_history_dates_exclude_rebal_day_returns(self) -> None:
-        """For each rebal date in returns_history, verify the values
-        correspond to post-rebal returns, not the rebal-day return."""
-        import warnings
-
-        from optimizer.factors import FactorConstructionConfig, StandardizationConfig
-        from research.factors._history import build_factor_scores_history
-
-        rng = np.random.default_rng(99)
-        n_dates, n_tickers = 300, 3
-        dates = pd.bdate_range("2023-01-01", periods=n_dates)
-        tickers = [f"T{i}" for i in range(n_tickers)]
-
-        prices = pd.DataFrame(
-            rng.uniform(10, 100, (n_dates, n_tickers)),
-            index=dates,
-            columns=tickers,
-        ).cumsum()
-
-        volumes = pd.DataFrame(
-            rng.uniform(1e5, 1e7, (n_dates, n_tickers)),
-            index=dates,
-            columns=tickers,
-        )
-
-        fundamentals = _make_fundamentals(tickers, rng)
-        sector_mapping = dict.fromkeys(tickers, "Technology")
-
-        class MockAssembly:
-            analyst_data = pd.DataFrame()
-            insider_data = pd.DataFrame()
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            _, returns_history, _ = build_factor_scores_history(
-                investable_prices=prices,
-                investable_volumes=volumes,
-                investable_fundamentals=fundamentals,
-                assembly=MockAssembly(),  # type: ignore[arg-type]
-                factor_config=FactorConstructionConfig(),
-                std_config=StandardizationConfig(),
-                sector_mapping=sector_mapping,
-                rebalance_freq=63,
-                fundamental_history=None,
-            )
-
-        # Manually verify: for each rebal date in returns_history,
-        # the mean return should match the window (dt, next_dt]
-        all_returns = prices_to_returns(prices)
-        rebal_dates = list(returns_history.index)
-
-        for i, dt in enumerate(rebal_dates[:-1]):
-            next_dt = rebal_dates[i + 1]
-            mask = (all_returns.index > dt) & (all_returns.index <= next_dt)
-            expected_mean = all_returns.loc[mask, tickers].mean()
-
-            actual = returns_history.loc[dt, tickers]
-            pd.testing.assert_series_equal(
-                actual,
-                expected_mean,
-                check_names=False,
-            )

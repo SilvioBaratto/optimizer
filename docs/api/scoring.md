@@ -1,3 +1,0 @@
-# scoring
-
-::: optimizer.scoring

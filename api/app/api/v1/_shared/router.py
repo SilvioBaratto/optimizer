@@ -12,7 +12,6 @@ from app.api.v1.jobs import jobs_router, scheduler_router
 from app.api.v1.macro import macro_calibration_router, macro_regime_router
 from app.api.v1.market_data import reference_indices_router, yfinance_data_router
 from app.api.v1.optimization import optimize_router, tune_router, validate_router
-from app.api.v1.pipeline_builder import pipeline_builder_router
 from app.api.v1.portfolio import portfolio_router
 from app.api.v1.rebalancing import rebalance_policy_router, rebalance_router
 from app.api.v1.reports import reports_router
@@ -54,4 +53,3 @@ api_router.include_router(factors_router)
 api_router.include_router(risk_analytics_router)
 api_router.include_router(reports_router)
 api_router.include_router(scheduler_router)
-api_router.include_router(pipeline_builder_router)

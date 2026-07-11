@@ -102,6 +102,8 @@ cache/
 # ...but NOT the Trading212 ticker-cache source package (real code, not a build artifact)
 !api/app/services/universe/trading212/cache/
 !api/app/services/universe/trading212/cache/**
+# ...except its build artifacts, which the `**` negation above would otherwise re-include
+api/app/services/universe/trading212/cache/__pycache__/
 
 # Output files (keep structure, ignore generated files)
 optimizer/outputs/*.csv
@@ -152,6 +154,7 @@ plan/
 script.md
 linkedin.md
 cli.md
+reference/
 
 graphify-out/manifest.json    # mtime-based, breaks after git clone
 graphify-out/cost.json        # local only

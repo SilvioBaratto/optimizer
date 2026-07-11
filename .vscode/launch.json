@@ -21,17 +21,6 @@
       "jinja": true,
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal"
-    },
-    {
-      "name": "Stock Selection Pipeline",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/research/stock_selection_pipeline.py",
-      "cwd": "${workspaceFolder}",
-      "python": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
-      "envFile": "${workspaceFolder}/.env",
-      "console": "integratedTerminal",
-      "justMyCode": false
     }
   ]
 }

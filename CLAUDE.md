@@ -13,23 +13,28 @@ These must be loaded proactively, not on request. Any work involving financial d
 
 ## Project Overview
 
-Portfolio optimizer platform with a FastAPI backend (synchronous SQLAlchemy + PostgreSQL) and a `skfolio`-based optimization library published to PyPI as **`portopt`**:
+Python-only repository. Two shipped things:
 
-- **`optimizer/`** — Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based). Published as `portopt`
-- **`api/`** — FastAPI application (app factory in `api/app/main.py`, runs on port 8000)
-- **`frontend/`** — Angular 21 dashboard (standalone components, signals, Tailwind CSS v4, ECharts). Deployed at [optimizer.silviobaratto.com](https://optimizer.silviobaratto.com)
-- **`research/`** — End-to-end research scripts that exercise the full library against live DB data (e.g. `stock_selection_pipeline.py`, `portfolio.py`, `data_assembly.py`, `_backtest_plots.py`). Hosts the DB→DataFrame `data_assembly.py` glue layer used by `optimizer/`. Not a shipped package — used for internal validation and report generation
-- **`examples/`** — Self-contained runnable scripts using skfolio bundled datasets (no API keys or DB required): `quickstart.py`, `robust_optimization.py`, `regime_blending.py`, `factor_selection.py`, `full_pipeline.py`. Prefer these when demonstrating library usage
-- **`docs/`** + `mkdocs.yml` — MkDocs site published at [silviobaratto.github.io/optimizer](https://silviobaratto.github.io/optimizer). Conceptual guides and config references live here
+- **`optimizer/`** — Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based). Published to PyPI as **`portopt`**
+- **`api/`** — FastAPI application (app factory in `api/app/main.py`, runs on port 8000). Ingests market/fundamental/macro data into PostgreSQL and serves the library over `/api/v1/`
+
+Supporting directories:
+
+- **`tests/`** — library test suite (mirrors `optimizer/` submodules)
+- **`api/tests/`** — API test suite (SQLite in-memory)
+- **`scheduler/`** — shell drivers for the ingestion pipeline (`fetch.sh`, `refetch_all.sh`, `smoke.sh`)
+- **`scripts/`** — CI helpers (`check_branch_coverage.py`)
+
+There is **no frontend, no docs site, no `examples/`, no `research/`, and no `cli/`** in this repo. They were deleted in the strip (branch `refactor/strip-to-ingestion-pipeline`). If you find a reference to any of them, it is a leftover — delete it rather than reviving the dependency.
 
 ## Build & Run Commands
 
 ```bash
 # Infrastructure
-docker compose up -d              # PostgreSQL (port 54320) + Adminer (port 18081)
+docker compose up -d              # PostgreSQL (54320) + Adminer (18081) + API (8005)
 
 # Optimizer library (root)
-pip install -e ".[dev]"           # Install optimizer + dev deps (what CI uses)
+pip install -e ".[dev]"           # Install optimizer + dev deps
 pytest tests/ -v                  # All optimizer tests
 pytest tests/rebalancing/ -v      # Single module tests
 pytest -k "test_name"             # Single test by name
@@ -46,21 +51,11 @@ make coverage                     # pytest with HTML coverage in htmlcov/
 make all                          # lint + typecheck + test
 make clean                        # remove caches, coverage, egg-info
 
-# Runnable examples (no DB, no API keys — uses skfolio bundled data)
-python examples/quickstart.py
-python examples/full_pipeline.py
-
 # API
 cd api && pip install -r requirements.txt
 alembic upgrade head              # Run migrations
 uvicorn app.main:app --reload     # Start dev server on :8000
 cd api && pytest                  # API tests
-
-# Frontend
-cd frontend && npm install --legacy-peer-deps
-cd frontend && ng serve           # Dev server on :4200
-cd frontend && ng build           # Production build
-cd frontend && ng test            # Unit tests
 
 # BAML (regenerate after editing api/baml_src/)
 cd api && baml-cli generate
@@ -68,11 +63,19 @@ cd api && baml-cli generate
 
 ## CI Pipeline
 
-`.github/workflows/ci.yml` — triggers on push/PR to `main`, runs on Ubuntu with Python 3.12:
-```
-pip install -e ".[dev]"    →    ruff check optimizer/ tests/    →    mypy optimizer/    →    pytest tests/ -v --tb=short
-```
-**Important**: CI installs via `pyproject.toml` (not `requirements.txt`). Any new dependency must be added to **both** `pyproject.toml` `[project.dependencies]` and `requirements.txt`.
+`.github/workflows/ci.yml` — triggers on push/PR to `main`, Ubuntu, Python 3.12. Jobs:
+
+| Job | Steps |
+|-----|-------|
+| `lint` | `ruff check optimizer/ tests/` → `ruff format --check` → `pip-audit --strict` |
+| `typecheck` | `mypy optimizer/` |
+| `pyright` | `pyright` |
+| `test` | `pytest tests/` with `--cov=optimizer --cov-fail-under=90`, then `scripts/check_branch_coverage.py coverage.xml 0.80` |
+| `api-test` | `pytest api/tests/` with `--cov=app --cov-fail-under=80`, then the same branch-coverage gate |
+
+Other workflows: `smoke.yml` (boots db+api, drives `scheduler/smoke.sh`) and `release.yml` (on `v*` tags).
+
+**Dependencies**: the library's runtime deps live in the root `pyproject.toml` `[project.dependencies]` — CI installs via `pip install -e ".[dev]"`. The API's deps live in `api/requirements.txt`, installed separately by the `api-test` job and by `api/Dockerfile`. There is no root `requirements.txt`; add library deps to `pyproject.toml` and API deps to `api/requirements.txt`.
 
 ## Architecture
 
@@ -104,7 +107,7 @@ Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`
 | `uncertainty_set/` | `Mu/CovarianceUncertaintySetConfig` + factories for ellipsoidal / bootstrap uncertainty sets used by `RobustMeanRisk`. |
 | `linear_model/` | `CSLinearRegressionConfig` + `build_cs_linear_regression` for cross-sectional regressions and factor IC. |
 | `online/` | `partial_fit`-based incremental workflows: `run_online_predict`, `run_online_score`, `OnlineGridSearch`, `OnlineRandomizedSearch`. **Online instances are not thread-safe — one wrapper per thread.** |
-| `optimization/` | Convex / hierarchical / ensemble / robust optimizers. |
+| `optimization/` | Convex / hierarchical / ensemble / robust optimizers + sector & region constraint builders. |
 | `synthetic/` | Vine copula models + synthetic data generation. |
 | `validation/` | Walk-Forward / CPCV / MultipleRandomizedCV + covariance forecast evaluation (offline + online). |
 | `scoring/` | Ratio-measure scorers for model selection. |
@@ -126,7 +129,8 @@ Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`
 - **`pre_selection/`** — `PreSelectionConfig` + `build_preselection_pipeline()` factory assembling sklearn `Pipeline` from config (composes custom transformers with skfolio selectors: `SelectComplete`, `DropZeroVariance`, `DropCorrelated`, `SelectKExtremes`, `SelectNonDominated`, `SelectNonExpiring`)
 
 - **`moments/`** — Moment estimation and prior construction:
-  - `MomentEstimationConfig` — selects mu/cov estimators; presets: `for_equilibrium_ledoitwolf`, `for_shrunk_denoised`, `for_adaptive`
+  - `MomentEstimationConfig` — selects mu/cov estimators; presets: `for_equilibrium_ledoitwolf`, `for_shrunk_denoised`, `for_adaptive`, `for_regime_adjusted_ew`
+  - `MuEstimatorType` has 4 members (`EMPIRICAL`, `SHRUNK`, `EW`, `EQUILIBRIUM`); `CovEstimatorType` has 11. There is **no HMM-blended or Deep-Markov estimator** — those were removed
   - `build_mu_estimator()` — maps `MuEstimatorType` to skfolio `BaseMu` instances
   - `build_cov_estimator()` — maps `CovEstimatorType` to skfolio `BaseCovariance` instances
   - `build_prior()` — composes mu + cov into `EmpiricalPrior`, optionally wrapping in `TimeSeriesFactorModel`
@@ -141,7 +145,7 @@ Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`
   - `calibrate_omega_from_track_record(view_history, return_history)` — empirical diagonal Ω matrix from forecast error variance; requires ≥5 aligned observations
 
 - **`optimization/`** — Portfolio optimization models. Convex, hierarchical, ensemble, robust:
-  - `MeanRiskConfig` / `build_mean_risk()` — base convex Mean-Risk optimizer with full constraint surface
+  - `MeanRiskConfig` / `build_mean_risk()` — base convex Mean-Risk optimizer with full constraint surface. Presets include `for_min_variance`, `for_max_sharpe`, `for_max_sharpe_diversified`, `for_concentrated_sharpe`, `for_max_sharpe_sector_constrained`, `for_max_utility`, `for_min_cvar`, `for_efficient_frontier`
   - `RiskBudgetingConfig` / `build_risk_budgeting()` — Equal-Risk-Contribution (ERC) by default; supports custom risk budgets via the `for_custom_budgets({"AAPL": 0.5, ...})` preset (sum-to-1 enforced)
   - `HRPConfig` / `build_hrp()` — Hierarchical Risk Parity (recursive bisection, no matrix inversion)
   - `HERCConfig` / `build_herc()` — Hierarchical Equal Risk Contribution (cluster-level ERC)
@@ -156,14 +160,16 @@ Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`
   - `RobustMeanRiskConfig` / `build_robust_mean_risk()` — wraps `MeanRisk` with mu / covariance uncertainty-set estimators (see `uncertainty_set/`). Presets: `for_conservative` (99%), `for_moderate` (95%), `for_aggressive` (90%), `for_bootstrap_covariance`. **Fallback contract**: both uncertainty configs `None` recovers plain `MeanRisk` exactly (atol=1e-8)
   - `DRCVaRConfig` / `build_dr_cvar()` — distributionally robust CVaR over a Wasserstein ball. **Fallback contract**: `epsilon=0` short-circuits to plain `MeanRisk(CVaR)` for exact equality (skfolio's DRCVaR with radius=0 differs at ~1e-3 from `MeanRisk(CVaR)`); return type is `BaseOptimization`
   - `RegimeBlendedMeanRiskConfig` / `build_regime_blended_mean_risk()` — regime-blended mean-risk with externally-supplied regime probabilities. Composes `_ExternallyControlledRegimeCovariance` → `EmpiricalPrior` → `TimeSeriesFactorModel` → `MeanRisk`. Caller supplies `regime_probabilities` and `factor_returns` as factory kwargs; the library does NOT fit HMMs internally
+  - `build_sector_constraints()` / `build_region_linear_constraints()` (`_region_constraints.py`) — emit skfolio `linear_constraints` strings for group exposure bands. **Gotcha**: a `-` inside a group token is parsed as minus by skfolio and silently drops the constraint — sanitize tokens (hyphen → space) and only constrain groups actually present
 
 - **`synthetic/`** — Vine copula models + synthetic data generation:
   - `VineCopulaConfig` / `SyntheticDataConfig` — presets: `for_scenario_generation`, `for_stress_test`
   - Stress testing: pass `sample_args={"conditioning": {"TICKER": value}}` to `build_synthetic_data()`
 
 - **`validation/`** — Cross-validation:
-  - `WalkForwardConfig`, `CPCVConfig`, `MultipleRandomizedCVConfig` — temporal CV configs
+  - `WalkForwardConfig` (`for_monthly_rolling`, `for_quarterly_rolling`, `for_quarterly_expanding`), `CPCVConfig`, `MultipleRandomizedCVConfig`
   - `run_cross_val()` — defaults to WalkForward (quarterly rolling) when no `cv` is passed
+  - Covariance forecast evaluation (offline + online)
 
 - **`scoring/`** — `ScorerConfig` / `build_scorer()` — ratio measures for model selection
 
@@ -196,7 +202,7 @@ Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`
 - **`pipeline/`** — End-to-end orchestration:
   - `run_full_pipeline(prices, optimizer, ...)` — single entry point: prices → returns → pipeline → backtest → weights → rebalancing. Accepts `cv_config`, `previous_weights`, `rebalancing_config` (threshold or hybrid), `current_date`, `last_review_date`, `y_prices`, `sector_mapping`, `n_jobs`
   - `run_full_pipeline_with_selection(...)` — extends with upstream stock selection: fundamentals → investability screening → factor computation → standardization → regime tilts → composite scoring → stock selection → `run_full_pipeline`. When `fundamentals=None`, skips all selection and delegates directly
-  - `optimize()`, `backtest()`, `tune_and_optimize()` — lower-level composable functions
+  - `optimize()`, `backtest()`, `tune_and_optimize()`, `build_portfolio_pipeline()`, `compute_net_backtest_returns()` — lower-level composable functions
 
 - **`distance/`** — `DistanceConfig` + `build_distance` wrapping skfolio's six distance estimators (`PearsonDistance`, `KendallDistance`, `SpearmanDistance`, `CovarianceDistance`, `DistanceCorrelation`, `MutualInformation`). MI-only fields (`n_bins`, `bandwidth`) raise `ConfigurationError` on non-MI estimators; `bandwidth` is reserved (skfolio 0.20.1 does not expose it). Six `for_<name>` presets.
 
@@ -213,25 +219,6 @@ Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`
   - `FxPriceConverter` is sklearn-compatible (`BaseEstimator + TransformerMixin`) and slots into `sklearn.pipeline.Pipeline` upstream of optimization
   - `decompose_fx_returns()` / `FxReturnDecomposition` — splits total return into stock-only and FX components
   - `currency_map` and `fx_rates` are non-serialisable runtime kwargs to `build_fx_converter()`, NOT config fields
-
-### Frontend (`frontend/`)
-
-Angular 21 single-page dashboard with Tailwind CSS v4 and ECharts for data visualization. Deployed to Vercel.
-
-**Pages**: `dashboard`, `portfolio-builder`, `optimization-studio`, `risk-center`, `factor-research`, `ai-control-room`, `backtesting`, `attribution`, `rebalancing`, `settings`
-
-**Conventions**:
-- All components are standalone (Angular 21 default — do NOT set `standalone: true` in decorators)
-- Use `ChangeDetectionStrategy.OnPush` on all components
-- Use signal-based `input()` / `output()` instead of decorators, `computed()` for derived state
-- Use `inject()` instead of constructor injection
-- Use native control flow (`@if`, `@for`, `@switch`) instead of structural directives
-- Reactive forms over template-driven forms
-- Use `class` bindings instead of `ngClass`, `style` bindings instead of `ngStyle`
-- Shared reusable components in `shared/` (e.g. `echarts-heatmap`, `echarts-donut`, `tab-group`, `freshness-indicator`)
-- Services in `services/` with `providedIn: 'root'` for singletons
-- Models/interfaces in `models/`
-- `--legacy-peer-deps` required for `npm install` due to dependency conflicts
 
 ### Key conventions
 
@@ -252,30 +239,32 @@ Angular 21 single-page dashboard with Tailwind CSS v4 and ECharts for data visua
 - **`BenchmarkTracker.fit(X, y)`** — `y` is the benchmark return series. The `BenchmarkTrackerConfig` carries no benchmark field; pass at fit time
 - **Variance estimators store `variance_` (1-D), NOT `covariance_` (2-D)** — `EmpiricalVariance` / `EWVariance` / `RegimeAdjustedEWVariance` are NOT interchangeable with covariance estimators inside priors that need a full matrix
 - **`Pipeline` is rejected by `online_predict` / `OnlineGridSearch`** — skfolio routes `partial_fit` through a single estimator and cannot route through `Pipeline`. Apply pre-selection to `X` upstream before passing to online wrappers
+- **Walk-forward CV cannot vary constraints per fold** — regime-dependent sector bands are fixed for a whole run; a backtest is single-regime, not per-rebalance
 
 ### API Layer (`api/app/`)
 
 Domain-folder architecture: **Routes → Services → Repositories → Models → Schemas**
 
-Each layer is organized into 17 domain sub-folders + `_shared/` for cross-cutting utilities:
+Each layer is organized into domain sub-folders + `_shared/` for cross-cutting utilities:
 
 | Layer | Path | Domains |
 |-------|------|---------|
 | Routes | `api/app/api/v1/` | `attribution`, `backtest`, `dashboard`, `factors`, `jobs`, `macro`, `market_data`, `optimization`, `portfolio`, `rebalancing`, `reports`, `risk`, `scenarios`, `universe`, `views` |
-| Services | `api/app/services/` | `attribution`, `backtest`, `dashboard`, `factors`, `infrastructure`, `jobs`, `macro`, `market_data`, `optimization`, `portfolio`, `rebalancing`, `reports`, `risk`, `scenarios`, `universe`, `views` |
+| Services | `api/app/services/` | same as routes, plus `infrastructure` |
 | Repositories | `api/app/repositories/` | `dashboard`, `execution`, `factors`, `jobs`, `macro`, `market_data`, `portfolio`, `rebalancing`, `risk`, `universe`, `views` |
 | Models | `api/app/models/` | `auth`, `execution`, `factors`, `jobs`, `macro`, `market_data`, `portfolio`, `rebalancing`, `risk`, `universe` |
-| Schemas | `api/app/schemas/` | `attribution`, `backtest`, `dashboard`, `factors`, `jobs`, `macro`, `market_data`, `optimization`, `portfolio`, `rebalancing`, `reports`, `risk`, `scenarios`, `universe`, `views` |
+| Schemas | `api/app/schemas/` | same as routes |
 
 **Conventions**:
 - `_shared/` subdirectory in each layer holds cross-cutting code (base classes, mixins, common utilities)
 - File naming: snake_case, mirroring the domain (e.g. `services/macro/macro_service.py`)
-- All routes under `/api/v1/`. CLI client (`cli/client.py`) prepends this automatically
+- All routes under `/api/v1/`
 - Synchronous SQLAlchemy sessions (`Session`, not `AsyncSession`)
 - Repository pattern — all DB queries through typed repositories
 - BAML — LLM function definitions in `api/baml_src/`, generated client in `api/baml_client/` (do not edit generated files)
 - PostgreSQL 16 on port **54320** (not 5432). Connection: `postgresql://postgres:postgres@localhost:54320/optimizer_db`
-- Two separate `requirements.txt` and `pyproject.toml` — root for optimizer library, `api/` for FastAPI app
+- The library is configured by the root `pyproject.toml`; the API by `api/requirements.txt` + `api/pyproject.toml`
+- There was a `pipeline_builder` domain (a session-scoped portfolio wizard wrapping `research.pipeline.*`). It was removed with `research/` — do not reintroduce references to it
 
 ### Scheduler & Background Jobs
 
@@ -326,6 +315,7 @@ All three scrapers (`services/macro/scrapers/fred_scraper.py`, `services/macro/s
 
 - **`fetch.sh`** — daily pipeline: health check → fire-and-poll yfinance → macro → news → summarize → calibrate (with dependency enforcement and 409 conflict handling). `MAX_POLL_SECONDS` env var (default 21600 = 6h)
 - **`refetch_all.sh`** — full re-fetch: adds universe + fred stages. `MAX_POLL_SECONDS` default 21600
+- **`smoke.sh`** — boots against the compose stack and exercises `/health`, `/api/v1/optimize`, `/api/v1/backtest`
 
 ### Environment Variables
 
@@ -349,7 +339,6 @@ Configuration via `.env` at project root:
 - `db` — PostgreSQL 16 on host port **54320**
 - `adminer` — DB admin UI on host port **18081**
 - `api` — FastAPI on host port **8005** (port 8000 is reserved on the host). Passes all `SCHEDULER_*` and `NOTIFICATION_WEBHOOK_URL` env vars
-- `frontend` — Angular on host port **4300**
 
 ### Testing
 
@@ -363,6 +352,7 @@ Configuration via `.env` at project root:
 
 ### Linting & Type Checking
 
-- **ruff**: line-length 88, target py310, rules `E, F, I, N, W, UP`. Per-file ignores: `N803, N806` for `optimizer/` and `tests/` (sklearn `X, y` convention)
-- **mypy**: strict mode, `ignore_missing_imports = true`. Module overrides relax `disallow_subclassing_any` for sklearn/skfolio base classes. DMM module has broader relaxation for torch/pyro stubs
-- **Dependencies**: `numpy`, `pandas`, `scipy`, `scikit-learn`, `skfolio` (>= 0.20.1) are declared runtime deps in `pyproject.toml`. `hmmlearn`, `arch`, `torch`, `pyro` are NOT declared — they are pulled in transitively via `skfolio` (e.g. `arch.StationaryBootstrap` reaches the bootstrap uncertainty-set classes through skfolio). Code paths that import them directly should guard with `try/except ImportError` or declare them explicitly when reintroduced.
+- **ruff**: line-length 88, target py310, rules `E, F, I, N, W, UP, B, SIM, S, RUF, C4, PTH`. Per-file ignores: `N803, N806` for `optimizer/` and `tests/` (sklearn `X, y` convention), `S101` for tests
+- **mypy**: strict mode, `ignore_missing_imports = true`. Module overrides relax `disallow_subclassing_any` for sklearn/skfolio base classes
+- **pyright**: also run in CI (`pyright[nodejs]==1.1.408`)
+- **Dependencies**: `numpy`, `pandas`, `scipy`, `scikit-learn`, `skfolio` (>= 0.20.1), `jinja2` are declared runtime deps in `pyproject.toml`. `arch` is NOT declared — it reaches the bootstrap uncertainty-set classes transitively via skfolio. Code paths importing it directly should guard with `try/except ImportError` or declare it explicitly.
