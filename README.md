@@ -208,7 +208,6 @@ frontend/             Angular 21 dashboard (optimizer.silviobaratto.com)
 api/                  FastAPI backend (PostgreSQL, BAML, Trading 212)
 cli/                  Typer CLI (data fetching, universe management)
 tests/                Test suite (93%+ coverage)
-theory/               LaTeX/Markdown theoretical documentation
 examples/             Self-contained runnable scripts
 ```
 
