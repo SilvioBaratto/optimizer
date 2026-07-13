@@ -23,83 +23,17 @@ class LlmResponseParser:
     def __init__(self, options: DoNotUseDirectlyCallManager):
         self.__options = options
 
-    def AdaptFactorWeights(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> types.FactorWeightAdaptation:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="AdaptFactorWeights", llm_response=llm_response, mode="request")
-        return typing.cast(types.FactorWeightAdaptation, __result__)
-
-    def CalibrateDelta(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> types.DeltaCalibration:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="CalibrateDelta", llm_response=llm_response, mode="request")
-        return typing.cast(types.DeltaCalibration, __result__)
-
     def ClassifyMacroRegime(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.MacroRegimeCalibration:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ClassifyMacroRegime", llm_response=llm_response, mode="request")
         return typing.cast(types.MacroRegimeCalibration, __result__)
 
-    def DesignStressScenarios(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> typing.List["types.StressScenario"]:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="DesignStressScenarios", llm_response=llm_response, mode="request")
-        return typing.cast(typing.List["types.StressScenario"], __result__)
-
-    def GenerateExpertView(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> types.ViewOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateExpertView", llm_response=llm_response, mode="request")
-        return typing.cast(types.ViewOutput, __result__)
-
-    def GenerateMacroView(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> types.ViewOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateMacroView", llm_response=llm_response, mode="request")
-        return typing.cast(types.ViewOutput, __result__)
-
-    def GenerateMomentumView(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> types.ViewOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateMomentumView", llm_response=llm_response, mode="request")
-        return typing.cast(types.ViewOutput, __result__)
-
-    def GenerateValueView(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> types.ViewOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateValueView", llm_response=llm_response, mode="request")
-        return typing.cast(types.ViewOutput, __result__)
-
-    def GenerateViews(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> types.ViewOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateViews", llm_response=llm_response, mode="request")
-        return typing.cast(types.ViewOutput, __result__)
-
-    def ScoreNewsSentiment(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> types.NewsSentimentOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ScoreNewsSentiment", llm_response=llm_response, mode="request")
-        return typing.cast(types.NewsSentimentOutput, __result__)
-
-    def SelectCovRegime(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> types.CovRegimeSelection:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SelectCovRegime", llm_response=llm_response, mode="request")
-        return typing.cast(types.CovRegimeSelection, __result__)
-
     def SummarizeCountryNews(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.CountryNewsSummary:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeCountryNews", llm_response=llm_response, mode="request")
         return typing.cast(types.CountryNewsSummary, __result__)
-
-    def Test(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> str:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="Test", llm_response=llm_response, mode="request")
-        return typing.cast(str, __result__)
 
     
 
@@ -109,82 +43,16 @@ class LlmStreamParser:
     def __init__(self, options: DoNotUseDirectlyCallManager):
         self.__options = options
 
-    def AdaptFactorWeights(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> stream_types.FactorWeightAdaptation:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="AdaptFactorWeights", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.FactorWeightAdaptation, __result__)
-
-    def CalibrateDelta(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> stream_types.DeltaCalibration:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="CalibrateDelta", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.DeltaCalibration, __result__)
-
     def ClassifyMacroRegime(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> stream_types.MacroRegimeCalibration:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ClassifyMacroRegime", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.MacroRegimeCalibration, __result__)
 
-    def DesignStressScenarios(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> typing.List["stream_types.StressScenario"]:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="DesignStressScenarios", llm_response=llm_response, mode="stream")
-        return typing.cast(typing.List["stream_types.StressScenario"], __result__)
-
-    def GenerateExpertView(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> stream_types.ViewOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateExpertView", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.ViewOutput, __result__)
-
-    def GenerateMacroView(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> stream_types.ViewOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateMacroView", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.ViewOutput, __result__)
-
-    def GenerateMomentumView(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> stream_types.ViewOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateMomentumView", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.ViewOutput, __result__)
-
-    def GenerateValueView(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> stream_types.ViewOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateValueView", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.ViewOutput, __result__)
-
-    def GenerateViews(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> stream_types.ViewOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateViews", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.ViewOutput, __result__)
-
-    def ScoreNewsSentiment(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> stream_types.NewsSentimentOutput:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ScoreNewsSentiment", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.NewsSentimentOutput, __result__)
-
-    def SelectCovRegime(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> stream_types.CovRegimeSelection:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SelectCovRegime", llm_response=llm_response, mode="stream")
-        return typing.cast(stream_types.CovRegimeSelection, __result__)
-
     def SummarizeCountryNews(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> stream_types.CountryNewsSummary:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeCountryNews", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.CountryNewsSummary, __result__)
-
-    def Test(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> str:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="Test", llm_response=llm_response, mode="stream")
-        return typing.cast(str, __result__)
 
     

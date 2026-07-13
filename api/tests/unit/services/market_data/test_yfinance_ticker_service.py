@@ -103,7 +103,9 @@ class TestFetchDividends:
         type(ticker).dividends = property(
             lambda self: (_ for _ in ()).throw(RuntimeError("boom"))
         )
-        client = CorporateActionsClient(cache=cache, rate_limiter=rl, circuit_breaker=cb)
+        client = CorporateActionsClient(
+            cache=cache, rate_limiter=rl, circuit_breaker=cb
+        )
         assert client.fetch_dividends("AAPL", max_retries=1) is None
 
 
@@ -122,7 +124,9 @@ class TestFetchSplits:
         type(ticker).splits = property(
             lambda self: (_ for _ in ()).throw(RuntimeError("boom"))
         )
-        client = CorporateActionsClient(cache=cache, rate_limiter=rl, circuit_breaker=cb)
+        client = CorporateActionsClient(
+            cache=cache, rate_limiter=rl, circuit_breaker=cb
+        )
         assert client.fetch_splits("AAPL", max_retries=1) is None
 
 
@@ -141,7 +145,9 @@ class TestFetchActions:
         type(ticker).actions = property(
             lambda self: (_ for _ in ()).throw(RuntimeError("err"))
         )
-        client = CorporateActionsClient(cache=cache, rate_limiter=rl, circuit_breaker=cb)
+        client = CorporateActionsClient(
+            cache=cache, rate_limiter=rl, circuit_breaker=cb
+        )
         assert client.fetch_actions("AAPL", max_retries=1) is None
 
 
@@ -160,7 +166,9 @@ class TestFetchCapitalGains:
         type(ticker).capital_gains = property(
             lambda self: (_ for _ in ()).throw(RuntimeError("err"))
         )
-        client = CorporateActionsClient(cache=cache, rate_limiter=rl, circuit_breaker=cb)
+        client = CorporateActionsClient(
+            cache=cache, rate_limiter=rl, circuit_breaker=cb
+        )
         assert client.fetch_capital_gains("AAPL", max_retries=1) is None
 
 

@@ -462,7 +462,9 @@ class TestGetFinancialStatements:
         self._seed_stmt(db_session, inst, "balance_sheet", "annual")
 
         repo = _repo(db_session)
-        result = repo.get_financial_statements(inst.id, statement_type="income_statement")
+        result = repo.get_financial_statements(
+            inst.id, statement_type="income_statement"
+        )
 
         assert all(r.statement_type == "income_statement" for r in result)
         assert len(result) == 1
@@ -472,7 +474,11 @@ class TestGetFinancialStatements:
         inst = _instrument(db_session, ex)
         self._seed_stmt(db_session, inst, "income_statement", "annual")
         self._seed_stmt(
-            db_session, inst, "income_statement", "quarterly", period_date=date(2024, 3, 31)
+            db_session,
+            inst,
+            "income_statement",
+            "quarterly",
+            period_date=date(2024, 3, 31),
         )
 
         repo = _repo(db_session)
@@ -560,7 +566,9 @@ class TestGetRecommendations:
         repo = _repo(db_session)
         assert list(repo.get_recommendations(uuid.uuid4())) == []
 
-    def test_recommendations_returned_ordered_by_period(self, db_session: Session) -> None:
+    def test_recommendations_returned_ordered_by_period(
+        self, db_session: Session
+    ) -> None:
         ex = _exchange(db_session)
         inst = _instrument(db_session, ex)
         for period in ["0m", "-1m", "-2m"]:
@@ -884,13 +892,9 @@ class TestGetInstrumentsWithYfinanceTicker:
     ) -> None:
         ex = _exchange(db_session)
         # null yfinance_ticker
-        null_inst = _instrument(
-            db_session, ex, ticker="NULL1", yfinance_ticker=None
-        )
+        null_inst = _instrument(db_session, ex, ticker="NULL1", yfinance_ticker=None)
         # empty-string yfinance_ticker
-        empty_inst = _instrument(
-            db_session, ex, ticker="EMPTY1", yfinance_ticker=""
-        )
+        empty_inst = _instrument(db_session, ex, ticker="EMPTY1", yfinance_ticker="")
         db_session.flush()
 
         repo = _repo(db_session)
@@ -1018,9 +1022,7 @@ class TestUpsertEmptyInputGuards:
 class TestUpsertProfilePreprocessing:
     """Cover the exDividendDate int/float vs other branch in upsert_profile."""
 
-    def _call(
-        self, db_session: Session, info: dict
-    ) -> tuple[list, YFinanceRepository]:
+    def _call(self, db_session: Session, info: dict) -> tuple[list, YFinanceRepository]:
         repo = _repo(db_session)
         captured: list = []
 
@@ -1100,8 +1102,15 @@ class TestUpsertPriceHistoryPreprocessing:
     def test_timestamp_index_converted_to_date(self, db_session: Session) -> None:
         # isinstance(dt, pd.Timestamp | datetime) == True branch
         df = pd.DataFrame(
-            {"Open": [100.0], "High": [110.0], "Low": [90.0], "Close": [105.0],
-             "Volume": [1_000_000], "Dividends": [0.0], "Stock Splits": [0.0]},
+            {
+                "Open": [100.0],
+                "High": [110.0],
+                "Low": [90.0],
+                "Close": [105.0],
+                "Volume": [1_000_000],
+                "Dividends": [0.0],
+                "Stock Splits": [0.0],
+            },
             index=[pd.Timestamp("2024-06-01")],
         )
         rows = self._call(db_session, df)
@@ -1111,8 +1120,15 @@ class TestUpsertPriceHistoryPreprocessing:
     def test_plain_date_index_passes_through(self, db_session: Session) -> None:
         # not Timestamp/datetime — plain date object falls through
         df = pd.DataFrame(
-            {"Open": [200.0], "High": [210.0], "Low": [195.0], "Close": [205.0],
-             "Volume": [500_000], "Dividends": [0.0], "Stock Splits": [0.0]},
+            {
+                "Open": [200.0],
+                "High": [210.0],
+                "Low": [195.0],
+                "Close": [205.0],
+                "Volume": [500_000],
+                "Dividends": [0.0],
+                "Stock Splits": [0.0],
+            },
             index=[date(2024, 7, 4)],
         )
         rows = self._call(db_session, df)
@@ -1121,10 +1137,15 @@ class TestUpsertPriceHistoryPreprocessing:
 
     def test_multiple_rows_all_processed(self, db_session: Session) -> None:
         df = pd.DataFrame(
-            {"Open": [100.0, 101.0], "High": [110.0, 111.0],
-             "Low": [90.0, 91.0], "Close": [105.0, 106.0],
-             "Volume": [1_000_000, 1_100_000],
-             "Dividends": [0.0, 0.25], "Stock Splits": [0.0, 0.0]},
+            {
+                "Open": [100.0, 101.0],
+                "High": [110.0, 111.0],
+                "Low": [90.0, 91.0],
+                "Close": [105.0, 106.0],
+                "Volume": [1_000_000, 1_100_000],
+                "Dividends": [0.0, 0.25],
+                "Stock Splits": [0.0, 0.0],
+            },
             index=pd.date_range("2024-01-01", periods=2),
         )
         rows = self._call(db_session, df)
@@ -1132,8 +1153,17 @@ class TestUpsertPriceHistoryPreprocessing:
         assert rows[1]["dividends"] == pytest.approx(0.25)
 
     def test_empty_dataframe_produces_no_rows(self, db_session: Session) -> None:
-        df = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume",
-                                   "Dividends", "Stock Splits"])
+        df = pd.DataFrame(
+            columns=[
+                "Open",
+                "High",
+                "Low",
+                "Close",
+                "Volume",
+                "Dividends",
+                "Stock Splits",
+            ]
+        )
         rows = self._call(db_session, df)
         assert rows == []
 
@@ -1183,9 +1213,7 @@ class TestUpsertFinancialStatementsPreprocessing:
         rows = self._call(db_session, df)
         assert rows == []
 
-    def test_mixed_columns_only_valid_dates_included(
-        self, db_session: Session
-    ) -> None:
+    def test_mixed_columns_only_valid_dates_included(self, db_session: Session) -> None:
         # One valid Timestamp col + one invalid string col
         df = pd.DataFrame(
             {
@@ -1214,7 +1242,8 @@ class TestUpsertFinancialStatementsPreprocessing:
             index=[pd.Timestamp("2024-12-31")],
         ).T
         rows = self._call(
-            db_session, df,
+            db_session,
+            df,
             statement_type="balance_sheet",
             period_type="quarterly",
         )
@@ -1335,31 +1364,47 @@ class TestUpsertRecommendationsPreprocessing:
         return captured
 
     def test_valid_period_row_included(self, db_session: Session) -> None:
-        df = pd.DataFrame({
-            "period": ["0m"],
-            "strongBuy": [10], "buy": [5], "hold": [3], "sell": [1], "strongSell": [0],
-        })
+        df = pd.DataFrame(
+            {
+                "period": ["0m"],
+                "strongBuy": [10],
+                "buy": [5],
+                "hold": [3],
+                "sell": [1],
+                "strongSell": [0],
+            }
+        )
         rows = self._call(db_session, df)
         assert len(rows) == 1
         assert rows[0]["period"] == "0m"
 
     def test_empty_period_row_skipped(self, db_session: Session) -> None:
         # not period branch: period is None/empty
-        df = pd.DataFrame({
-            "period": [None, "0m"],
-            "strongBuy": [5, 10], "buy": [2, 5], "hold": [1, 3],
-            "sell": [0, 1], "strongSell": [0, 0],
-        })
+        df = pd.DataFrame(
+            {
+                "period": [None, "0m"],
+                "strongBuy": [5, 10],
+                "buy": [2, 5],
+                "hold": [1, 3],
+                "sell": [0, 1],
+                "strongSell": [0, 0],
+            }
+        )
         rows = self._call(db_session, df)
         assert len(rows) == 1
         assert rows[0]["period"] == "0m"
 
     def test_all_periods_empty_produces_no_rows(self, db_session: Session) -> None:
-        df = pd.DataFrame({
-            "period": [None, None],
-            "strongBuy": [0, 0], "buy": [0, 0], "hold": [0, 0],
-            "sell": [0, 0], "strongSell": [0, 0],
-        })
+        df = pd.DataFrame(
+            {
+                "period": [None, None],
+                "strongBuy": [0, 0],
+                "buy": [0, 0],
+                "hold": [0, 0],
+                "sell": [0, 0],
+                "strongSell": [0, 0],
+            }
+        )
         rows = self._call(db_session, df)
         assert rows == []
 
@@ -1379,8 +1424,13 @@ class TestUpsertPriceTargetsPreprocessing:
             return len(rows)
 
         repo._upsert = fake_upsert  # type: ignore[method-assign]
-        targets = {"current": 180.0, "low": 150.0, "high": 220.0,
-                   "mean": 190.0, "median": 185.0}
+        targets = {
+            "current": 180.0,
+            "low": 150.0,
+            "high": 220.0,
+            "mean": 190.0,
+            "median": 185.0,
+        }
         repo.upsert_price_targets(uuid.uuid4(), targets)
         assert len(captured) == 1
         assert captured[0]["current"] == pytest.approx(180.0)
@@ -1419,32 +1469,38 @@ class TestUpsertInstitutionalHoldersPreprocessing:
         return captured
 
     def test_valid_holder_included(self, db_session: Session) -> None:
-        df = pd.DataFrame({
-            "Holder": ["Vanguard"],
-            "Date Reported": [pd.Timestamp("2024-03-31")],
-            "Shares": [50_000_000],
-            "Value": [8_500_000_000],
-            "pctHeld": [0.035],
-        })
+        df = pd.DataFrame(
+            {
+                "Holder": ["Vanguard"],
+                "Date Reported": [pd.Timestamp("2024-03-31")],
+                "Shares": [50_000_000],
+                "Value": [8_500_000_000],
+                "pctHeld": [0.035],
+            }
+        )
         rows = self._call(db_session, df)
         assert len(rows) == 1
         assert rows[0]["holder_name"] == "Vanguard"
 
     def test_none_holder_name_skipped(self, db_session: Session) -> None:
         # not name branch
-        df = pd.DataFrame({
-            "Holder": [None, "BlackRock"],
-            "Date Reported": [None, pd.Timestamp("2024-03-31")],
-            "Shares": [0, 40_000_000],
-            "Value": [0, 7_000_000_000],
-            "pctHeld": [0.0, 0.028],
-        })
+        df = pd.DataFrame(
+            {
+                "Holder": [None, "BlackRock"],
+                "Date Reported": [None, pd.Timestamp("2024-03-31")],
+                "Shares": [0, 40_000_000],
+                "Value": [0, 7_000_000_000],
+                "pctHeld": [0.0, 0.028],
+            }
+        )
         rows = self._call(db_session, df)
         assert len(rows) == 1
         assert rows[0]["holder_name"] == "BlackRock"
 
     def test_empty_dataframe_no_rows(self, db_session: Session) -> None:
-        df = pd.DataFrame(columns=["Holder", "Date Reported", "Shares", "Value", "pctHeld"])
+        df = pd.DataFrame(
+            columns=["Holder", "Date Reported", "Shares", "Value", "pctHeld"]
+        )
         rows = self._call(db_session, df)
         assert rows == []
 
@@ -1468,24 +1524,28 @@ class TestUpsertMutualFundHoldersPreprocessing:
         return captured
 
     def test_valid_fund_included(self, db_session: Session) -> None:
-        df = pd.DataFrame({
-            "Holder": ["Fidelity 500"],
-            "Date Reported": [pd.Timestamp("2024-03-31")],
-            "Shares": [10_000_000],
-            "Value": [1_800_000_000],
-            "pctHeld": [0.007],
-        })
+        df = pd.DataFrame(
+            {
+                "Holder": ["Fidelity 500"],
+                "Date Reported": [pd.Timestamp("2024-03-31")],
+                "Shares": [10_000_000],
+                "Value": [1_800_000_000],
+                "pctHeld": [0.007],
+            }
+        )
         rows = self._call(db_session, df)
         assert len(rows) == 1
 
     def test_none_fund_name_skipped(self, db_session: Session) -> None:
-        df = pd.DataFrame({
-            "Holder": [None],
-            "Date Reported": [None],
-            "Shares": [0],
-            "Value": [0],
-            "pctHeld": [0.0],
-        })
+        df = pd.DataFrame(
+            {
+                "Holder": [None],
+                "Date Reported": [None],
+                "Shares": [0],
+                "Value": [0],
+                "pctHeld": [0.0],
+            }
+        )
         rows = self._call(db_session, df)
         assert rows == []
 
@@ -1510,16 +1570,18 @@ class TestUpsertInsiderTransactionsPreprocessing:
 
     def test_transaction_column_used_when_present(self, db_session: Session) -> None:
         # tx_type truthy from "Transaction" column — Text fallback not reached
-        df = pd.DataFrame({
-            "Insider": ["Alice CEO"],
-            "Transaction": ["Buy"],
-            "Text": ["Bought shares."],
-            "Position": ["CEO"],
-            "Shares": [1000],
-            "Value": [150_000],
-            "Start Date": [pd.Timestamp("2024-01-10")],
-            "Ownership": ["D"],
-        })
+        df = pd.DataFrame(
+            {
+                "Insider": ["Alice CEO"],
+                "Transaction": ["Buy"],
+                "Text": ["Bought shares."],
+                "Position": ["CEO"],
+                "Shares": [1000],
+                "Value": [150_000],
+                "Start Date": [pd.Timestamp("2024-01-10")],
+                "Ownership": ["D"],
+            }
+        )
         rows = self._call(db_session, df)
         assert len(rows) == 1
         assert rows[0]["transaction_type"] == "Buy"
@@ -1528,32 +1590,36 @@ class TestUpsertInsiderTransactionsPreprocessing:
         self, db_session: Session
     ) -> None:
         # tx_type falsy → falls back to "Text" column (yfinance 1.3.0 path)
-        df = pd.DataFrame({
-            "Insider": ["Bob CFO"],
-            "Transaction": [""],
-            "Text": ["Sale at price 290.00 per share."],
-            "Position": ["CFO"],
-            "Shares": [500],
-            "Value": [145_000],
-            "Start Date": [pd.Timestamp("2024-02-20")],
-            "Ownership": ["D"],
-        })
+        df = pd.DataFrame(
+            {
+                "Insider": ["Bob CFO"],
+                "Transaction": [""],
+                "Text": ["Sale at price 290.00 per share."],
+                "Position": ["CFO"],
+                "Shares": [500],
+                "Value": [145_000],
+                "Start Date": [pd.Timestamp("2024-02-20")],
+                "Ownership": ["D"],
+            }
+        )
         rows = self._call(db_session, df)
         assert len(rows) == 1
         assert rows[0]["transaction_type"] == "Sale at price 290.00 per share."
 
     def test_both_name_and_tx_empty_row_skipped(self, db_session: Session) -> None:
         # not name or not tx_type → continue
-        df = pd.DataFrame({
-            "Insider": [None],
-            "Transaction": [""],
-            "Text": [None],
-            "Position": [None],
-            "Shares": [0],
-            "Value": [0],
-            "Start Date": [None],
-            "Ownership": [None],
-        })
+        df = pd.DataFrame(
+            {
+                "Insider": [None],
+                "Transaction": [""],
+                "Text": [None],
+                "Position": [None],
+                "Shares": [0],
+                "Value": [0],
+                "Start Date": [None],
+                "Ownership": [None],
+            }
+        )
         rows = self._call(db_session, df)
         assert rows == []
 
@@ -1561,16 +1627,18 @@ class TestUpsertInsiderTransactionsPreprocessing:
         self, db_session: Session
     ) -> None:
         # name set, tx_type empty, Text also None → skip
-        df = pd.DataFrame({
-            "Insider": ["Carol COO"],
-            "Transaction": [None],
-            "Text": [None],
-            "Position": ["COO"],
-            "Shares": [100],
-            "Value": [20_000],
-            "Start Date": [pd.Timestamp("2024-03-01")],
-            "Ownership": ["D"],
-        })
+        df = pd.DataFrame(
+            {
+                "Insider": ["Carol COO"],
+                "Transaction": [None],
+                "Text": [None],
+                "Position": ["COO"],
+                "Shares": [100],
+                "Value": [20_000],
+                "Start Date": [pd.Timestamp("2024-03-01")],
+                "Ownership": ["D"],
+            }
+        )
         rows = self._call(db_session, df)
         assert rows == []
 
@@ -1578,16 +1646,18 @@ class TestUpsertInsiderTransactionsPreprocessing:
         # Same insider_name + start_date + transaction_type → last row wins
         inst_id = uuid.uuid4()
         d = pd.Timestamp("2024-01-10")
-        df = pd.DataFrame({
-            "Insider": ["Alice CEO", "Alice CEO"],
-            "Transaction": ["Buy", "Buy"],
-            "Text": ["", ""],
-            "Position": ["CEO", "CEO"],
-            "Shares": [1000, 2000],
-            "Value": [150_000, 300_000],
-            "Start Date": [d, d],
-            "Ownership": ["D", "D"],
-        })
+        df = pd.DataFrame(
+            {
+                "Insider": ["Alice CEO", "Alice CEO"],
+                "Transaction": ["Buy", "Buy"],
+                "Text": ["", ""],
+                "Position": ["CEO", "CEO"],
+                "Shares": [1000, 2000],
+                "Value": [150_000, 300_000],
+                "Start Date": [d, d],
+                "Ownership": ["D", "D"],
+            }
+        )
         repo = _repo(db_session)
         captured: list = []
 
@@ -1602,37 +1672,42 @@ class TestUpsertInsiderTransactionsPreprocessing:
         assert len(captured) == 1
         assert captured[0]["shares"] == 2000
 
-    def test_sentinel_date_used_when_start_date_none(
-        self, db_session: Session
-    ) -> None:
+    def test_sentinel_date_used_when_start_date_none(self, db_session: Session) -> None:
         from app.repositories.market_data.yfinance_repository import _SENTINEL_DATE
 
-        df = pd.DataFrame({
-            "Insider": ["Dave Director"],
-            "Transaction": ["Grant"],
-            "Text": [""],
-            "Position": ["Director"],
-            "Shares": [500],
-            "Value": [50_000],
-            "Start Date": [None],  # _safe_date returns None → sentinel used
-            "Ownership": ["D"],
-        })
+        df = pd.DataFrame(
+            {
+                "Insider": ["Dave Director"],
+                "Transaction": ["Grant"],
+                "Text": [""],
+                "Position": ["Director"],
+                "Shares": [500],
+                "Value": [50_000],
+                "Start Date": [None],  # _safe_date returns None → sentinel used
+                "Ownership": ["D"],
+            }
+        )
         rows = self._call(db_session, df)
         assert len(rows) == 1
         assert rows[0]["start_date"] == _SENTINEL_DATE
 
     def test_mixed_valid_and_invalid_rows(self, db_session: Session) -> None:
-        df = pd.DataFrame({
-            "Insider": ["Alice CEO", None, "Bob CFO"],
-            "Transaction": ["Buy", "Sell", ""],
-            "Text": ["", "", "Sale at price 100."],
-            "Position": ["CEO", None, "CFO"],
-            "Shares": [1000, 500, 200],
-            "Value": [150_000, 50_000, 20_000],
-            "Start Date": [pd.Timestamp("2024-01-10"), pd.Timestamp("2024-01-11"),
-                           pd.Timestamp("2024-01-12")],
-            "Ownership": ["D", "D", "D"],
-        })
+        df = pd.DataFrame(
+            {
+                "Insider": ["Alice CEO", None, "Bob CFO"],
+                "Transaction": ["Buy", "Sell", ""],
+                "Text": ["", "", "Sale at price 100."],
+                "Position": ["CEO", None, "CFO"],
+                "Shares": [1000, 500, 200],
+                "Value": [150_000, 50_000, 20_000],
+                "Start Date": [
+                    pd.Timestamp("2024-01-10"),
+                    pd.Timestamp("2024-01-11"),
+                    pd.Timestamp("2024-01-12"),
+                ],
+                "Ownership": ["D", "D", "D"],
+            }
+        )
         rows = self._call(db_session, df)
         # Alice: valid (Transaction="Buy"); None: skipped; Bob: Text fallback
         assert len(rows) == 2
@@ -1740,9 +1815,7 @@ class TestUpsertNewsPreprocessing:
         rows = self._call(db_session, inst.id, [article])
         assert rows[0]["link"] == "https://preview.example.com/1"
 
-    def test_pub_date_iso_string_parsed_tz_stripped(
-        self, db_session: Session
-    ) -> None:
+    def test_pub_date_iso_string_parsed_tz_stripped(self, db_session: Session) -> None:
         # pubDate ISO 8601 with timezone → tz stripped
         ex = _exchange(db_session, name="NewsEx6")
         inst = _instrument(db_session, ex, ticker="N6", yfinance_ticker="N6")

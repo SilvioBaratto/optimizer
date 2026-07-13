@@ -24,7 +24,9 @@ class TestWebhookErrorIsLogged:
             patch("httpx.post", side_effect=httpx.ConnectError("refused")),
             caplog.at_level(logging.WARNING),
         ):
-            notify_failure("https://example.com/hook", "yfinance_fetch", "job-1", "boom")
+            notify_failure(
+                "https://example.com/hook", "yfinance_fetch", "job-1", "boom"
+            )
 
         assert any(
             "Failed to send webhook notification" in r.message for r in caplog.records

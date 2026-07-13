@@ -187,10 +187,10 @@ class TestGetTableInfoMock:
         # Two tables: first exists, second does not.
         mock_session = MagicMock(spec=Session)
         mock_session.execute.return_value.scalar.side_effect = [
-            True,   # _table_exists for instruments
-            5,      # _row_count
-            4096,   # _size_bytes
-            "4 kB", # _size_pretty
+            True,  # _table_exists for instruments
+            5,  # _row_count
+            4096,  # _size_bytes
+            "4 kB",  # _size_pretty
             False,  # _table_exists for ticker_profiles (missing)
         ]
         repo = DatabaseAdminRepository(mock_session)

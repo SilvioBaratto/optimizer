@@ -6,12 +6,11 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from baml_client.types import BusinessCyclePhase, MacroRegimeCalibration
 
 if TYPE_CHECKING:
-    from app.services.macro.macro_calibration import CalibrationResult
+    pass
 
 # ---------------------------------------------------------------------------
 # Helpers — mock BAML responses
@@ -272,72 +271,6 @@ class TestClassifyMacroRegime:
 
 
 # ---------------------------------------------------------------------------
-# Service layer — build_bl_config_from_calibration
-# ---------------------------------------------------------------------------
-
-
-class TestBuildBlConfig:
-    def _make_result(self, delta: float = 3.0, tau: float = 0.025) -> CalibrationResult:
-        from app.services.macro.macro_calibration import CalibrationResult
-
-        return CalibrationResult(
-            phase=BusinessCyclePhase.LATE_EXPANSION,
-            delta=delta,
-            tau=tau,
-            confidence=0.75,
-            rationale="Test.",
-            macro_summary="Test summary.",
-        )
-
-    def test_tau_in_config(self) -> None:
-        from app.services.macro.macro_calibration import (
-            build_bl_config_from_calibration,
-        )
-
-        cfg = build_bl_config_from_calibration(self._make_result(tau=0.01))
-        assert cfg["tau"] == pytest.approx(0.01)
-
-    def test_risk_aversion_in_prior_config(self) -> None:
-        from app.services.macro.macro_calibration import (
-            build_bl_config_from_calibration,
-        )
-
-        cfg = build_bl_config_from_calibration(self._make_result(delta=3.5))
-        assert cfg["prior_config"]["risk_aversion"] == pytest.approx(3.5)
-
-    def test_mu_estimator_is_equilibrium(self) -> None:
-        from app.services.macro.macro_calibration import (
-            build_bl_config_from_calibration,
-        )
-
-        cfg = build_bl_config_from_calibration(self._make_result())
-        assert cfg["prior_config"]["mu_estimator"] == "equilibrium"
-
-    def test_compatible_with_black_litterman_config(self) -> None:
-        """tau and risk_aversion wire correctly into optimizer config classes."""
-        from app.services.macro.macro_calibration import (
-            build_bl_config_from_calibration,
-        )
-        from optimizer.moments._config import MomentEstimationConfig, MuEstimatorType
-        from optimizer.views._config import BlackLittermanConfig
-
-        result = self._make_result(delta=3.5, tau=0.01)
-        cfg = build_bl_config_from_calibration(result, views=("AAPL == 0.02",))
-
-        prior_cfg = MomentEstimationConfig(
-            mu_estimator=MuEstimatorType.EQUILIBRIUM,
-            risk_aversion=cfg["prior_config"]["risk_aversion"],
-        )
-        bl_config = BlackLittermanConfig(
-            views=tuple(cfg["views"]),
-            tau=cfg["tau"],
-            prior_config=prior_cfg,
-        )
-        assert bl_config.tau == pytest.approx(0.01)
-        assert bl_config.prior_config.risk_aversion == pytest.approx(3.5)
-
-
-# ---------------------------------------------------------------------------
 # Service layer — phase enum has exactly 4 values
 # ---------------------------------------------------------------------------
 
@@ -354,148 +287,6 @@ class TestBusinessCyclePhaseEnum:
             "LATE_EXPANSION",
             "RECESSION",
         }
-
-
-# ---------------------------------------------------------------------------
-# API endpoint — GET /api/v1/views/macro-calibration
-# ---------------------------------------------------------------------------
-
-URL = "/api/v1/views/macro-calibration"
-_CLASSIFY = "app.api.v1.macro.macro_calibration.classify_macro_regime"
-
-
-class TestMacroCalibrationEndpoint:
-    def _make_service_result(
-        self,
-        phase: BusinessCyclePhase = BusinessCyclePhase.MID_EXPANSION,
-        delta: float = 2.75,
-        tau: float = 0.025,
-    ) -> CalibrationResult:
-        from app.services.macro.macro_calibration import CalibrationResult
-
-        return CalibrationResult(
-            phase=phase,
-            delta=delta,
-            tau=tau,
-            confidence=0.80,
-            rationale="Test rationale.",
-            macro_summary="GDP: 2.5%, PMI: 55.",
-        )
-
-    def test_successful_response(self, client: TestClient) -> None:
-        mock_result = self._make_service_result()
-
-        with patch(_CLASSIFY, return_value=mock_result):
-            resp = client.get(URL, params={"macro_text": "GDP strong, PMI 55."})
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["phase"] == "MID_EXPANSION"
-        assert data["delta"] == pytest.approx(2.75)
-        assert data["tau"] == pytest.approx(0.025)
-        assert 0.0 <= data["confidence"] <= 1.0
-        assert "rationale" in data
-        assert "blConfig" in data
-
-    def test_delta_in_valid_range(self, client: TestClient) -> None:
-        mock_result = self._make_service_result(delta=5.0)
-
-        with patch(_CLASSIFY, return_value=mock_result):
-            resp = client.get(URL, params={"macro_text": "Recession indicators."})
-
-        data = resp.json()
-        assert 1.0 <= data["delta"] <= 10.0
-
-    def test_tau_in_valid_range(self, client: TestClient) -> None:
-        mock_result = self._make_service_result(tau=0.01)
-
-        with patch(_CLASSIFY, return_value=mock_result):
-            resp = client.get(URL, params={"macro_text": "Late expansion."})
-
-        data = resp.json()
-        assert 0.001 <= data["tau"] <= 0.1
-
-    def test_bl_config_contains_tau_and_risk_aversion(self, client: TestClient) -> None:
-        mock_result = self._make_service_result(delta=3.5, tau=0.01)
-
-        with patch(_CLASSIFY, return_value=mock_result):
-            resp = client.get(URL, params={"macro_text": "Late expansion."})
-
-        bl = resp.json()["blConfig"]
-        assert "tau" in bl
-        assert "prior_config" in bl
-        assert "risk_aversion" in bl["prior_config"]
-
-    def test_bl_config_risk_aversion_matches_delta(self, client: TestClient) -> None:
-        mock_result = self._make_service_result(delta=4.2, tau=0.05)
-
-        with patch(_CLASSIFY, return_value=mock_result):
-            resp = client.get(URL, params={"macro_text": "Recession onset."})
-
-        data = resp.json()
-        assert data["blConfig"]["prior_config"]["risk_aversion"] == pytest.approx(
-            data["delta"]
-        )
-        assert data["blConfig"]["tau"] == pytest.approx(data["tau"])
-
-    def test_no_db_data_returns_422(self, client: TestClient) -> None:
-        with patch(_CLASSIFY, side_effect=ValueError("No macro data found")):
-            resp = client.get(URL)
-
-        assert resp.status_code == 422
-
-    def test_llm_error_returns_502(self, client: TestClient) -> None:
-        with patch(_CLASSIFY, side_effect=RuntimeError("LLM timeout")):
-            resp = client.get(URL, params={"macro_text": "Some macro text."})
-
-        assert resp.status_code == 502
-
-    def test_default_country_is_usa(self, client: TestClient) -> None:
-        mock_result = self._make_service_result()
-        captured: dict = {}
-
-        def _capture(
-            session, country="USA", macro_summary_override=None, force_refresh=False
-        ):
-            captured["country"] = country
-            return mock_result
-
-        with patch(_CLASSIFY, side_effect=_capture):
-            resp = client.get(URL, params={"macro_text": "GDP: 2.5%."})
-
-        assert resp.status_code == 200
-        assert captured["country"] == "USA"
-
-    def test_custom_country_passed_through(self, client: TestClient) -> None:
-        mock_result = self._make_service_result()
-        captured: dict = {}
-
-        def _capture(
-            session,
-            country="United States",
-            macro_summary_override=None,
-            force_refresh=False,
-        ):
-            captured["country"] = country
-            return mock_result
-
-        with patch(_CLASSIFY, side_effect=_capture):
-            resp = client.get(
-                URL, params={"country": "Germany", "macro_text": "PMI 54."}
-            )
-
-        assert resp.status_code == 200
-        assert captured["country"] == "Germany"
-
-    def test_all_four_phases_produce_valid_response(self, client: TestClient) -> None:
-        for phase in BusinessCyclePhase:
-            mock_result = self._make_service_result(phase=phase)
-
-            with patch(_CLASSIFY, return_value=mock_result):
-                resp = client.get(URL, params={"macro_text": "Test."})
-
-            assert resp.status_code == 200
-            assert resp.json()["phase"] == phase.value
 
 
 # ---------------------------------------------------------------------------

@@ -226,8 +226,13 @@ class TestCreateFromDict:
     def test_when_dict_valid_then_row_created(self, db_session: Session) -> None:
         repo = _make_repo(db_session)
         row = repo.create_from_dict(
-            {"id": uuid.uuid4(), "job_type": "from_dict", "status": "pending",
-             "current": 0, "total": 0}
+            {
+                "id": uuid.uuid4(),
+                "job_type": "from_dict",
+                "status": "pending",
+                "current": 0,
+                "total": 0,
+            }
         )
         assert row.job_type == "from_dict"
 
@@ -292,9 +297,7 @@ class TestDelete:
 
 
 class TestCountAndExists:
-    def test_count_zero_then_increments_after_insert(
-        self, db_session: Session
-    ) -> None:
+    def test_count_zero_then_increments_after_insert(self, db_session: Session) -> None:
         repo = _make_repo(db_session)
         before = repo.count()
         _seed_job(db_session, "count_job")
@@ -310,16 +313,12 @@ class TestCountAndExists:
     def test_exists_by_field_true(self, db_session: Session) -> None:
         _seed_job(db_session, "ebf_present_unique_xyz")
         assert (
-            _make_repo(db_session).exists_by_field(
-                "job_type", "ebf_present_unique_xyz"
-            )
+            _make_repo(db_session).exists_by_field("job_type", "ebf_present_unique_xyz")
             is True
         )
 
     def test_exists_by_field_false(self, db_session: Session) -> None:
         assert (
-            _make_repo(db_session).exists_by_field(
-                "job_type", "no_such_type_ebf_xyz"
-            )
+            _make_repo(db_session).exists_by_field("job_type", "no_such_type_ebf_xyz")
             is False
         )

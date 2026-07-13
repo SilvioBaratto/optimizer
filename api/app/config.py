@@ -1,4 +1,4 @@
-"""Application configuration using Pydantic Settings v2"""
+"""Ingestion-daemon configuration using Pydantic Settings v2."""
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,11 +12,8 @@ class Settings(BaseSettings):
     )
 
     # Project Information
-    project_name: str = "FastAPI Template"
+    project_name: str = "Optimizer Ingestion Daemon"
     version: str = "1.0.0"
-
-    # API Configuration
-    api_v1_str: str = "/api/v1"
 
     # Database Configuration - Local PostgreSQL via Docker
     database_url: str = Field(
@@ -32,39 +29,16 @@ class Settings(BaseSettings):
     database_pool_pre_ping: bool = Field(default=True)
     database_echo: bool = Field(default=False)
     database_pool_reset_on_return: str = Field(default="rollback")
-    cache_ttl_default: int = Field(default=300)
-    cache_ttl_users: int = Field(default=600)
-    cache_ttl_leagues: int = Field(default=1800)
-
-    # CORS
-    cors_origins: str = Field(default="http://localhost:4200,http://localhost:4300")
-
-    @property
-    def cors_origins_list(self) -> list[str]:
-        """Get CORS origins as a list"""
-        if not self.cors_origins or self.cors_origins.strip() == "":
-            return [
-                "http://localhost:4200",
-                "http://localhost:4300",
-                "http://127.0.0.1:4200",
-            ]
-        return [
-            origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
-        ]
-
-    # Security (optional for production)
-
-    # Rate Limiting
-    rate_limit_requests: int = Field(default=100)
-    rate_limit_window: int = Field(default=60)
 
     # Logging
     log_level: str = Field(default="INFO")
     log_format: str = Field(default="json")
 
-    # Monitoring
+    # Monitoring — the worker serves Prometheus metrics on this port, and the
+    # container healthcheck probes the same endpoint. Disabling metrics
+    # therefore also removes the healthcheck target.
     enable_metrics: bool = Field(default=True)
-    metrics_path: str = Field(default="/metrics")
+    metrics_port: int = Field(default=9000, alias="METRICS_PORT")
 
     # Trading212 API
     trading_212_api_key: str = Field(default="", alias="TRADING_212_API_KEY")
@@ -75,10 +49,6 @@ class Settings(BaseSettings):
     fred_api_key: str = Field(default="", alias="FRED_API_KEY")
 
     # Benchmarks / reference indices
-    default_benchmark_ticker: str = Field(
-        default="SPY",
-        alias="DEFAULT_BENCHMARK_TICKER",
-    )
     benchmark_tickers: list[str] = Field(
         default=[
             "SPY",
@@ -129,6 +99,15 @@ class Settings(BaseSettings):
         default="0 14 * * *",
         alias="SCHEDULER_MIDDAY_NEWS_CRON",
     )
+    scheduler_universe_build_cron: str = Field(
+        default="0 2 * * 0",
+        alias="SCHEDULER_UNIVERSE_BUILD_CRON",
+        description=(
+            "Trading 212 universe rebuild. Must precede "
+            "SCHEDULER_WEEKLY_REFETCH_CRON so the yfinance rebuild fetches the "
+            "fresh instrument set."
+        ),
+    )
     scheduler_weekly_refetch_cron: str = Field(
         default="0 3 * * 0",
         alias="SCHEDULER_WEEKLY_REFETCH_CRON",
@@ -178,25 +157,11 @@ class Settings(BaseSettings):
         ),
     )
 
-    # Portfolio drift — stale-price freshness threshold (issue #794, used by #795)
-    stale_price_threshold_hours: int = Field(
-        default=48,
-        alias="STALE_PRICE_THRESHOLD_HOURS",
-        description=(
-            "Age (hours) past which a position's last-tick timestamp is "
-            "considered stale and triggers a STALE_PRICE diagnostic flag."
-        ),
-    )
-
     # Notifications
     notification_webhook_url: str | None = Field(
         default=None,
         alias="NOTIFICATION_WEBHOOK_URL",
     )
-
-    # Performance
-    connection_timeout: int = Field(default=10)
-    read_timeout: int = Field(default=30)
 
     # Environment detection helpers
     debug: bool = Field(default=False)
@@ -211,16 +176,6 @@ class Settings(BaseSettings):
     def is_development(self) -> bool:
         """Check if running in development"""
         return self.environment == "development" or self.debug
-
-    @property
-    def is_staging(self) -> bool:
-        """Check if running in staging"""
-        return self.environment == "staging"
-
-    @property
-    def is_production_like(self) -> bool:
-        """Check if running in production or staging mode"""
-        return self.environment in ("production", "staging")
 
 
 # Create global settings instance

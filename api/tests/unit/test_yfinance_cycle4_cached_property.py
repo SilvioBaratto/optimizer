@@ -26,14 +26,7 @@ _SUBCLIENT_NAMES: tuple[str, ...] = (
     "holders",
     "corporate_actions",
     "metadata",
-    "funds",
-    "market",
-    "sectors",
     "search",
-    "screener",
-    "calendars",
-    "streaming",
-    "async_streaming",
 )
 
 _PATCH_TARGETS: dict[str, str] = {
@@ -47,18 +40,7 @@ _PATCH_TARGETS: dict[str, str] = {
         ".CorporateActionsClient.__init__"
     ),
     "metadata": "app.services.market_data.yfinance.ticker.metadata.MetadataClient.__init__",
-    "funds": "app.services.market_data.yfinance.ticker.funds.FundsClient.__init__",
-    "market": "app.services.market_data.yfinance.market.market.MarketClient.__init__",
-    "sectors": (
-        "app.services.market_data.yfinance.market.sector_industry.SectorIndustryClient.__init__"
-    ),
     "search": "app.services.market_data.yfinance.market.search.SearchClient.__init__",
-    "screener": "app.services.market_data.yfinance.market.screener.ScreenerClient.__init__",
-    "calendars": "app.services.market_data.yfinance.market.calendars.CalendarsClient.__init__",
-    "streaming": "app.services.market_data.yfinance.market.streaming.StreamingClient.__init__",
-    "async_streaming": (
-        "app.services.market_data.yfinance.market.streaming.AsyncStreamingClient.__init__"
-    ),
 }
 
 _THREAD_COUNT: int = 50

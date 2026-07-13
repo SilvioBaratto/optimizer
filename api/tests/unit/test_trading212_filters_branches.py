@@ -336,7 +336,9 @@ class TestHistoricalDataFilterBranches:
         mock_client.fetch_history.side_effect = RuntimeError("rate limit exceeded")
         f = HistoricalDataFilter(config=CFG, _yf_client=mock_client)
 
-        with patch("app.services.universe.trading212.filters.historical_data.time.sleep"):
+        with patch(
+            "app.services.universe.trading212.filters.historical_data.time.sleep"
+        ):
             has_cov, days = f._check_historical_data("AAPL", max_retries=3)
 
         assert has_cov is False
@@ -385,7 +387,9 @@ class TestHistoricalDataFilterBranches:
             RuntimeError("timeout"),
         ]
         f = HistoricalDataFilter(config=CFG, _yf_client=mock_client)
-        with patch("app.services.universe.trading212.filters.historical_data.time.sleep"):
+        with patch(
+            "app.services.universe.trading212.filters.historical_data.time.sleep"
+        ):
             has_cov, days = f._check_historical_data("AAPL", max_retries=3)
         assert has_cov is False
 

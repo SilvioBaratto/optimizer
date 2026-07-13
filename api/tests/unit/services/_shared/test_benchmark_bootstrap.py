@@ -3,7 +3,7 @@
 NOTE on AC: the criterion 'mocked client/prices -> DataFrame of expected shape'
 does not match this module — ``bootstrap_benchmarks`` returns a diagnostic
 *dict* (``checked``/``seeded``/``up_to_date``/``errors``), not a DataFrame.
-These tests assert the real summary contract.  ``DashboardRepository`` and
+These tests assert the real summary contract.  ``YFinanceRepository`` and
 ``seed_reference_indices`` are patched at the import site; the session factory
 is a stub context manager.  No DB / yfinance.
 """
@@ -20,7 +20,7 @@ from app.services._shared._benchmark_bootstrap import (
     bootstrap_benchmarks,
 )
 
-_REPO = "app.services._shared._benchmark_bootstrap.DashboardRepository"
+_REPO = "app.services._shared._benchmark_bootstrap.YFinanceRepository"
 _SEED = "app.services._shared._benchmark_bootstrap.seed_reference_indices"
 _TODAY = date(2024, 6, 10)
 

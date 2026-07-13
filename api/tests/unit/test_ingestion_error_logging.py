@@ -23,9 +23,7 @@ def test_when_article_pub_time_is_unparseable_then_none_is_returned_and_logged(
     with caplog.at_level(logging.DEBUG):
         result = _parse_article_date("definitely-not-a-date")
     assert result is None
-    assert any(
-        "Unparseable article pub_time" in r.getMessage() for r in caplog.records
-    )
+    assert any("Unparseable article pub_time" in r.getMessage() for r in caplog.records)
 
 
 def test_when_fred_observation_date_is_malformed_then_row_is_skipped_and_logged(
@@ -54,9 +52,7 @@ def test_when_ilsole_real_indicators_parse_raises_then_none_and_logged(
         with caplog.at_level(logging.WARNING):
             result = scraper.get_real_indicators("USA")
     assert result is None
-    assert any(
-        "real-indicators parse failed" in r.getMessage() for r in caplog.records
-    )
+    assert any("real-indicators parse failed" in r.getMessage() for r in caplog.records)
 
 
 def test_when_ilsole_forecasts_parse_raises_then_none_and_logged(caplog) -> None:

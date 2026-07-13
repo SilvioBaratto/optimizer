@@ -1,13 +1,13 @@
-"""
-Synchronous database management for FastAPI with local PostgreSQL.
+"""Synchronous database management for the ingestion daemon.
 
-This module provides:
-- Synchronous SQLAlchemy engine with psycopg2 driver
-- Connection pooling for local PostgreSQL
-- Health check functionality with timeout protection
-- Session management utilities
-- Error handling and automatic recovery
-- Environment-based configuration
+- SQLAlchemy engine with the psycopg2 driver and a QueuePool
+- Health check with a 30-second result cache
+- ``get_session`` context manager: rollback on error, invalidate on
+  disconnect, always close
+- Lazy init — the first ``get_session`` initializes if startup did not
+
+The scheduler's job services and every service function open sessions through
+``database_manager.get_session``; nothing here is request-scoped.
 """
 
 import logging
@@ -198,50 +198,6 @@ class DatabaseManager:
             logger.error(f"Database health check failed: {e}")
             return False
 
-    def get_detailed_status(self) -> dict[str, Any]:
-        """
-        Get detailed database status information for monitoring.
-
-        Returns:
-            Dict with connection pool status, health, and configuration info
-        """
-        status: dict[str, Any] = {
-            "initialized": self._is_initialized,
-            "engine_created": self._engine is not None,
-            "pool_class": (
-                self._engine.pool.__class__.__name__ if self._engine else None
-            ),
-            "healthy": False,
-            "last_health_check": self._last_health_check,
-            "configuration": {
-                "pool_size": settings.database_pool_size,
-                "max_overflow": settings.database_max_overflow,
-                "pool_timeout": settings.database_pool_timeout,
-                "pool_recycle": settings.database_pool_recycle,
-                "environment": settings.environment,
-            },
-        }
-
-        if self._engine and hasattr(self._engine.pool, "status"):
-            try:
-                # pool.status() returns a formatted string
-                pool_status_str = self._engine.pool.status()
-
-                # Access pool attributes directly (they're properties, not methods)
-                pool_info = {
-                    "status_string": pool_status_str,
-                }
-
-                status["pool_status"] = pool_info
-            except Exception as e:
-                logger.debug(f"Could not get pool status: {e}")
-                status["pool_status"] = "unavailable"
-
-        # Perform health check
-        status["healthy"] = self.health_check()
-
-        return status
-
     @contextmanager
     def get_session(self) -> Generator[Session, None, None]:
         """
@@ -411,112 +367,10 @@ def close_db() -> None:
         logger.error(f"Error closing database connections: {e}")
 
 
-def get_db() -> Generator[Session, None, None]:
-    """
-    FastAPI dependency for database sessions.
-
-    This function provides database sessions to FastAPI route handlers
-    with automatic cleanup and error handling.
-
-    Usage:
-        @app.get("/users")
-        def get_users(db: Session = Depends(get_db)):
-            return db.query(User).all()
-
-    Yields:
-        Session: SQLAlchemy database session
-    """
-    with database_manager.get_session() as session:
-        yield session
-
-
-def get_db_status() -> dict[str, Any]:
-    """
-    Get comprehensive database status information.
-
-    Returns:
-        Dict containing database health, configuration, and pool status
-    """
-    return database_manager.get_detailed_status()
-
-
-# Utility functions for common database operations
-
-
-def execute_raw_sql(sql: str, parameters: dict[str, Any] | None = None) -> Any:
-    """
-    Execute raw SQL with parameter binding.
-
-    Args:
-        sql: SQL query string
-        parameters: Optional parameters for the query
-
-    Returns:
-        Query result
-
-    Raises:
-        RuntimeError: If database is not initialized
-        SQLAlchemyError: For database errors
-    """
-    with database_manager.get_session() as session:
-        if parameters:
-            result = session.execute(text(sql), parameters)
-        else:
-            result = session.execute(text(sql))
-
-        session.commit()
-        return result
-
-
-def test_database_connection() -> bool:
-    """
-    Test database connectivity.
-
-    Returns:
-        bool: True if connection is successful, False otherwise
-    """
-    try:
-        return database_manager.health_check()
-    except Exception as e:
-        logger.error(f"Database connection test failed: {e}")
-        return False
-
-
-# Context manager for manual transaction management
-@contextmanager
-def database_transaction() -> Generator[Session, None, None]:
-    """
-    Context manager for explicit transaction handling.
-
-    Usage:
-        with database_transaction() as session:
-            user = User(name="John")
-            session.add(user)
-            # Transaction automatically committed on success
-            # or rolled back on exception
-
-    Yields:
-        Session: Database session with explicit transaction control
-    """
-    with database_manager.get_session() as session:
-        try:
-            session.begin()
-            yield session
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-
-
 # Export commonly used items
 __all__ = [
     "DatabaseManager",
     "close_db",
     "database_manager",
-    "database_transaction",
-    "execute_raw_sql",
-    "get_db",
-    "get_db_status",
     "init_db",
-    "test_database_connection",
 ]

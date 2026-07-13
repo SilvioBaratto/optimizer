@@ -1,20 +1,29 @@
-"""Unified APScheduler service replacing supercronic + MacroNewsSummaryScheduler.
+"""APScheduler wiring for the ingestion daemon.
 
-Provides configurable scheduled jobs:
+Scheduled jobs:
   1. **daily_pipeline** (CronTrigger, default 07:00 UTC) — sequential data
-     pipeline: yfinance → macro → news → summarize → calibrate.
+     pipeline: ref-indices → yfinance → macro → news → summarize → calibrate.
   2. **midday_news** (CronTrigger, default 14:00 UTC) — news fetch + summarize
      only (catch afternoon market news).
-  3. **weekly_refetch** (CronTrigger, default Sunday 03:00 UTC) — full yfinance
+  3. **universe_build** (CronTrigger, default Sunday 02:00 UTC) — Trading 212
+     instrument-universe rebuild. Runs *before* ``weekly_refetch`` so the
+     yfinance rebuild sees the fresh instrument set.
+  4. **weekly_refetch** (CronTrigger, default Sunday 03:00 UTC) — full yfinance
      + macro rebuild.
-  4. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — FRED
+  5. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — FRED
      economic data.
-  5. **news_refresh** (IntervalTrigger, default every 30 min) — incremental
+  6. **news_refresh** (IntervalTrigger, default every 30 min) — incremental
      news re-summarization for countries with new articles.
+  7. **orphan_reaper** (IntervalTrigger) — fails jobs whose worker died without
+     a terminal status, so a wedged run does not block its type forever.
 
 All cron schedules are configurable via environment variables.
 Jobs are persisted in PostgreSQL via ``SQLAlchemyJobStore`` so misfired runs
-(e.g. API was down at 07:00) execute at next startup within the grace window.
+(e.g. the worker was down at 07:00) execute at next startup within the grace
+window.
+
+Every job body here is also reachable from the CLI (``python -m app.cli``) for
+manual runs.
 """
 
 from __future__ import annotations
@@ -25,7 +34,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -90,6 +99,11 @@ _ref_index_jobs = BackgroundJobService(
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
+_universe_jobs = BackgroundJobService(
+    job_type="universe_build",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -98,25 +112,14 @@ _ref_index_jobs = BackgroundJobService(
 
 
 def _resolve_benchmark_tickers() -> list[str]:
-    """Return union of ``settings.benchmark_tickers`` + active portfolio benchmarks.
+    """Return the configured benchmark tickers.
 
-    Mirrors ``GET /reference-indices/configured`` so the scheduler refreshes
-    every benchmark a real portfolio depends on, not just the operator list.
+    Override with the ``BENCHMARK_TICKERS`` env var (comma-separated).
     """
-    from app.repositories.portfolio.portfolio_repository import PortfolioRepository
-
-    try:
-        with database_manager.get_session() as session:
-            repo = PortfolioRepository(session)
-            portfolio_tickers = repo.get_distinct_benchmark_tickers()
-    except Exception:
-        logger.exception("reference_index_refresh: portfolio benchmark lookup failed")
-        portfolio_tickers = []
-
-    return sorted({*settings.benchmark_tickers, *portfolio_tickers})
+    return sorted(set(settings.benchmark_tickers))
 
 
-def _refresh_reference_indices(
+def refresh_reference_indices(
     label: str,
     *,
     period: str = "5y",
@@ -208,13 +211,13 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
         job_id = job_svc.create_job()
     except JobAlreadyRunningError as exc:
         logger.warning(
-            "daily_pipeline: %s skipped — already running (job %s)",
+            "%s: skipped — already running (job %s)",
             label,
             exc.existing_job_id,
         )
         return False
 
-    logger.info("daily_pipeline: %s started (job %s)", label, job_id)
+    logger.info("%s: started (job %s)", label, job_id)
     job_svc.update_job(job_id, status="running")
 
     # _run_step executes ``fn`` synchronously in the scheduler thread and
@@ -223,8 +226,6 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
     # ``last_heartbeat_at`` (only the heartbeat thread does), so without
     # this any step running longer than the orphan-reaper timeout (300s)
     # is falsely reaped mid-run — e.g. the multi-minute yfinance fetch.
-    # Run the same heartbeat companion the route path uses for the
-    # duration of ``fn``.
     cadence = job_svc._heartbeat_cadence
     hb_stop = threading.Event()
     heartbeat = threading.Thread(
@@ -241,7 +242,7 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
         job = job_svc.get_job(job_id) or {}
         if job.get("status") != "completed":
             logger.warning(
-                "daily_pipeline: %s returned without calling on_progress(status='completed')"
+                "%s: returned without calling on_progress(status='completed')"
                 " (status=%s) — marking completed defensively",
                 label,
                 job.get("status"),
@@ -251,10 +252,10 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
                 status="completed",
                 finished_at=datetime.now(timezone.utc).isoformat(),
             )
-        logger.info("daily_pipeline: %s completed", label)
+        logger.info("%s: completed", label)
         return True
     except Exception:
-        logger.exception("daily_pipeline: %s raised an exception", label)
+        logger.exception("%s: raised an exception", label)
         job_svc.update_job(
             job_id,
             status="failed",
@@ -266,70 +267,147 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
         heartbeat.join(timeout=2 * cadence)
 
 
-def run_daily_pipeline() -> None:
-    """Sequential pipeline: ref-indices → yfinance → macro → news → summarize → calibrate."""
-    logger.info("daily_pipeline: starting")
+# ---------------------------------------------------------------------------
+# Individual steps
+#
+# Each returns True only when the step completed. They are the unit both the
+# scheduled pipelines below and the CLI (``python -m app.cli``) compose, so a
+# manual run takes the identical job-slot / heartbeat / progress path.
+# ---------------------------------------------------------------------------
 
-    from app.schemas.macro.macro_regime import (
-        MacroFetchRequest,
-        MacroNewsFetchRequest,
-        MacroNewsSummarizeRequest,
-    )
+
+def run_yfinance_step(
+    *,
+    mode: Literal["incremental", "full"] = "incremental",
+    period: str = "5y",
+    workers: int | None = None,
+) -> bool:
+    """Fetch prices, fundamentals, holders, and news for every instrument."""
     from app.schemas.market_data.yfinance_data import YFinanceFetchRequest
-    from app.services.macro.scrapers import PORTFOLIO_COUNTRIES
     from app.services.market_data.yfinance import get_yfinance_client
 
-    # Step 0: reference-index refresh (incremental) — non-blocking on failure
-    _refresh_reference_indices("daily_pipeline", mode="incremental")
+    if workers is None:
+        workers = settings.yfinance_fetch_workers
+    workers = max(1, min(workers, 16))
 
-    # Step 1: yfinance — use configurable parallel workers (default 4)
-    _yf_workers = max(1, min(settings.yfinance_fetch_workers, 16))
-    yf_ok = _run_step(
+    return _run_step(
         "yfinance",
         _yfinance_jobs,
         run_bulk_yfinance_fetch,
-        YFinanceFetchRequest(mode="incremental", workers=_yf_workers),
+        YFinanceFetchRequest(mode=mode, period=period, workers=workers),
         get_yfinance_client(),
     )
 
-    # Step 2: macro (independent — always runs)
-    _run_step("macro", _macro_jobs, run_bulk_macro_fetch, MacroFetchRequest())
 
-    # Step 3: news (gated on yfinance)
-    if yf_ok:
-        news_ok = _run_step(
-            "news",
-            _news_fetch_jobs,
-            run_macro_news_fetch,
-            MacroNewsFetchRequest(),
-        )
-    else:
+def run_macro_step() -> bool:
+    """Scrape Il Sole 24 Ore + Trading Economics into bond yields / indicators."""
+    from app.schemas.macro.macro_regime import MacroFetchRequest
+
+    return _run_step("macro", _macro_jobs, run_bulk_macro_fetch, MacroFetchRequest())
+
+
+def run_fred_step(*, incremental: bool = True) -> bool:
+    """Fetch FRED economic series."""
+    from app.schemas.macro.macro_regime import FredFetchRequest
+
+    return _run_step(
+        "fred",
+        _fred_jobs,
+        run_bulk_fred_fetch,
+        FredFetchRequest(incremental=incremental),
+    )
+
+
+def run_news_step() -> bool:
+    """Fetch macro news articles into ``macro_news``."""
+    from app.schemas.macro.macro_regime import MacroNewsFetchRequest
+
+    return _run_step(
+        "news",
+        _news_fetch_jobs,
+        run_macro_news_fetch,
+        MacroNewsFetchRequest(),
+    )
+
+
+def run_summarize_step(*, force_refresh: bool = True) -> bool:
+    """LLM-summarize macro news per country."""
+    from app.schemas.macro.macro_regime import MacroNewsSummarizeRequest
+
+    return _run_step(
+        "summarize",
+        _summarize_jobs,
+        run_news_summarize,
+        MacroNewsSummarizeRequest(force_refresh=force_refresh),
+    )
+
+
+def run_calibrate_step() -> bool:
+    """LLM-calibrate the macro regime (delta / tau) per country."""
+    from app.services.macro.scrapers import PORTFOLIO_COUNTRIES
+
+    return _run_step(
+        "calibrate",
+        _calibrate_jobs,
+        run_bulk_calibrate,
+        list(PORTFOLIO_COUNTRIES),
+        True,
+    )
+
+
+def run_universe_step() -> bool:
+    """Rebuild the Trading 212 instrument universe.
+
+    A missing ``TRADING_212_API_KEY`` is a configuration state, not a failure:
+    the step logs, returns ``False``, and never claims a job slot.
+    """
+    from app.schemas.universe.trading212 import UniverseBuildRequest
+    from app.services.universe.universe_build_service import (
+        Trading212NotConfiguredError,
+        build_trading212_client,
+    )
+    from app.services.universe.universe_build_service import (
+        run_universe_build as _build,
+    )
+
+    try:
+        client = build_trading212_client()
+    except Trading212NotConfiguredError as exc:
+        logger.warning("universe: skipped — %s", exc)
+        return False
+
+    return _run_step("universe", _universe_jobs, _build, UniverseBuildRequest(), client)
+
+
+# ---------------------------------------------------------------------------
+# Daily pipeline
+# ---------------------------------------------------------------------------
+
+
+def run_daily_pipeline() -> None:
+    """Sequential pipeline: ref-indices → yfinance → macro → news → summarize → calibrate.
+
+    News, summarize, and calibrate form a dependency chain: each consumes what
+    the previous one wrote, so a failure upstream skips the rest rather than
+    summarizing stale articles or calibrating off a stale summary. Macro is
+    independent of yfinance and always runs.
+    """
+    logger.info("daily_pipeline: starting")
+
+    refresh_reference_indices("daily_pipeline", mode="incremental")
+
+    yf_ok = run_yfinance_step(mode="incremental")
+
+    run_macro_step()
+
+    if not yf_ok:
         logger.warning("daily_pipeline: news skipped — yfinance did not complete")
-        news_ok = False
-
-    # Step 4: summarize (gated on news)
-    if news_ok:
-        summarize_ok = _run_step(
-            "summarize",
-            _summarize_jobs,
-            run_news_summarize,
-            MacroNewsSummarizeRequest(force_refresh=True),
-        )
-    else:
+    elif not run_news_step():
         logger.warning("daily_pipeline: summarize skipped — news did not complete")
-        summarize_ok = False
-
-    # Step 5: calibrate (gated on summarize)
-    if summarize_ok:
-        _run_step(
-            "calibrate",
-            _calibrate_jobs,
-            run_bulk_calibrate,
-            list(PORTFOLIO_COUNTRIES),
-            True,
-        )
-    else:
+    elif not run_summarize_step():
         logger.warning("daily_pipeline: calibrate skipped — summarize did not complete")
+    else:
+        run_calibrate_step()
 
     logger.info("daily_pipeline: finished")
 
@@ -343,25 +421,8 @@ def run_midday_news_refresh() -> None:
     """News fetch + summarize — catches afternoon market news."""
     logger.info("midday_news: starting")
 
-    from app.schemas.macro.macro_regime import (
-        MacroNewsFetchRequest,
-        MacroNewsSummarizeRequest,
-    )
-
-    news_ok = _run_step(
-        "news",
-        _news_fetch_jobs,
-        run_macro_news_fetch,
-        MacroNewsFetchRequest(),
-    )
-
-    if news_ok:
-        _run_step(
-            "summarize",
-            _summarize_jobs,
-            run_news_summarize,
-            MacroNewsSummarizeRequest(force_refresh=True),
-        )
+    if run_news_step():
+        run_summarize_step()
     else:
         logger.warning("midday_news: summarize skipped — news did not complete")
 
@@ -377,26 +438,29 @@ def run_weekly_refetch() -> None:
     """Full yfinance + macro data rebuild (no news/summarize/calibrate)."""
     logger.info("weekly_refetch: starting")
 
-    from app.schemas.macro.macro_regime import MacroFetchRequest
-    from app.schemas.market_data.yfinance_data import YFinanceFetchRequest
-    from app.services.market_data.yfinance import get_yfinance_client
-
-    # Full yfinance re-download
-    _run_step(
-        "yfinance",
-        _yfinance_jobs,
-        run_bulk_yfinance_fetch,
-        YFinanceFetchRequest(mode="full", period="5y"),
-        get_yfinance_client(),
-    )
-
-    # Full macro re-fetch (independent of yfinance outcome)
-    _run_step("macro", _macro_jobs, run_bulk_macro_fetch, MacroFetchRequest())
+    run_yfinance_step(mode="full", period="5y", workers=settings.yfinance_fetch_workers)
+    run_macro_step()
 
     # Reference-index full 5y rebuild — keep benchmarks aligned with universe cadence
-    _refresh_reference_indices("weekly_refetch", period="5y", mode="full")
+    refresh_reference_indices("weekly_refetch", period="5y", mode="full")
 
     logger.info("weekly_refetch: finished")
+
+
+# ---------------------------------------------------------------------------
+# Weekly universe build
+# ---------------------------------------------------------------------------
+
+
+def run_universe_build() -> None:
+    """Weekly Trading 212 instrument-universe rebuild.
+
+    Scheduled ahead of ``weekly_refetch`` so the yfinance rebuild fetches the
+    fresh instrument set rather than last week's.
+    """
+    logger.info("universe_build: starting")
+    run_universe_step()
+    logger.info("universe_build: finished")
 
 
 # ---------------------------------------------------------------------------
@@ -407,16 +471,7 @@ def run_weekly_refetch() -> None:
 def run_fred_monthly() -> None:
     """Monthly FRED economic data fetch."""
     logger.info("fred_monthly: starting")
-
-    from app.schemas.macro.macro_regime import FredFetchRequest
-
-    _run_step(
-        "fred",
-        _fred_jobs,
-        run_bulk_fred_fetch,
-        FredFetchRequest(incremental=True),
-    )
-
+    run_fred_step(incremental=True)
     logger.info("fred_monthly: finished")
 
 
@@ -501,7 +556,7 @@ def run_orphan_reaper() -> None:
     """Reap background jobs whose worker died without a terminal status.
 
     Orphan reconciliation otherwise runs only at process startup
-    (``app.main.lifespan``), so a job that hangs while the process stays
+    (``app.worker.main``), so a job that hangs while the process stays
     alive (dead daemon thread, wedged network socket) is never reaped and
     blocks future runs of its type via ``JobAlreadyRunningError``. This
     periodic tick closes that gap without requiring a restart.
@@ -564,6 +619,16 @@ def _build_schedule_registry() -> list[ScheduleDefinition]:
             func=run_midday_news_refresh,
             trigger=CronTrigger.from_crontab(
                 settings.scheduler_midday_news_cron,
+                timezone="UTC",
+            ),
+            misfire_grace_time=grace,
+        ),
+        ScheduleDefinition(
+            job_id="universe_build",
+            name="Weekly Trading 212 universe rebuild",
+            func=run_universe_build,
+            trigger=CronTrigger.from_crontab(
+                settings.scheduler_universe_build_cron,
                 timezone="UTC",
             ),
             misfire_grace_time=grace,

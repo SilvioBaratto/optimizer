@@ -235,7 +235,7 @@ def classify_macro_regime(
         if not macro_summary:
             raise ValueError(
                 f"No macro data found in DB for country '{country}'. "
-                "Fetch macro data first via POST /api/v1/macro-data/fetch."
+                "Fetch macro data first: python -m app.cli macro"
             )
 
     # ── Call LLM ──
@@ -345,38 +345,3 @@ def run_bulk_calibrate(
         result=result_dict,
     )
     return result_dict
-
-
-def build_bl_config_from_calibration(
-    result: CalibrationResult,
-    views: tuple[str, ...] = (),
-) -> dict:
-    """Return a dict of kwargs that can construct a ``BlackLittermanConfig``.
-
-    This wires the calibrated (delta, tau) back into the optimizer config layer.
-    The caller can do::
-
-        from optimizer.views._config import BlackLittermanConfig
-        from optimizer.moments._config import MomentEstimationConfig, MuEstimatorType
-
-        prior_cfg = MomentEstimationConfig(
-            mu_estimator=MuEstimatorType.EQUILIBRIUM,
-            risk_aversion=result.delta,   # δ from LLM
-        )
-        config = BlackLittermanConfig(
-            views=views,
-            tau=result.tau,               # τ from LLM
-            prior_config=prior_cfg,
-        )
-
-    Returns a plain dict so the response is JSON-serialisable.
-    """
-    return {
-        "views": list(views),
-        "tau": result.tau,
-        "prior_config": {
-            "mu_estimator": "equilibrium",
-            "risk_aversion": result.delta,
-            "cov_estimator": "ledoit_wolf",
-        },
-    }

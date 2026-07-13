@@ -2,6 +2,13 @@
 // Classifies the current business cycle phase from macro indicators and
 // returns calibrated Black-Litterman δ (risk aversion) and τ (uncertainty scaling).
 
+enum BusinessCyclePhase {
+  EARLY_EXPANSION
+  MID_EXPANSION
+  LATE_EXPANSION
+  RECESSION
+}
+
 class MacroRegimeCalibration {
   phase BusinessCyclePhase @description("Classified business cycle phase.")
   delta float @description("Black-Litterman risk aversion scalar. Range [1.0, 10.0]. Higher = more conservative equilibrium prior.")

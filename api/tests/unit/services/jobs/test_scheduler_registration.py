@@ -1,6 +1,6 @@
 """Scheduler registration tests (issue #824).
 
-Asserts ``create_scheduler()`` registers exactly the 6 expected job ids with
+Asserts ``create_scheduler()`` registers exactly the 7 expected job ids with
 the expected trigger types, without starting the scheduler or invoking any
 registered function (no live fetch).  The DB engine is mocked non-None and the
 SQLAlchemy jobstore is swapped for an in-memory one so no real database is
@@ -21,7 +21,13 @@ from app.services.jobs.scheduler import create_scheduler
 _DM = "app.services.jobs.scheduler.database_manager"
 _JOBSTORE = "app.services.jobs.scheduler.SQLAlchemyJobStore"
 
-_CRON_JOBS = {"daily_pipeline", "midday_news", "weekly_refetch", "fred_monthly"}
+_CRON_JOBS = {
+    "daily_pipeline",
+    "midday_news",
+    "universe_build",
+    "weekly_refetch",
+    "fred_monthly",
+}
 _INTERVAL_JOBS = {"news_refresh", "orphan_reaper"}
 _ALL_JOBS = _CRON_JOBS | _INTERVAL_JOBS
 

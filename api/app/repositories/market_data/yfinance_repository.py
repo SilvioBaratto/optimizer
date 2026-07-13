@@ -798,3 +798,32 @@ class YFinanceRepository(RepositoryBase):
             .options(joinedload(Instrument.exchange))
             .where(Instrument.yfinance_ticker == yfinance_ticker)
         ).scalar_one_or_none()
+
+    def get_benchmark_coverage(
+        self,
+        tickers: list[str],
+    ) -> dict[str, tuple[int, date | None]]:
+        """Return ``{ticker: (price_row_count, latest_price_date)}``.
+
+        Tickers without an instrument row (or with zero prices) come back as
+        ``(0, None)``. Drives the startup bootstrap and the scheduler's
+        reference-index refresh, which re-seed anything missing or stale.
+        """
+        if not tickers:
+            return {}
+
+        stmt = (
+            select(
+                Instrument.yfinance_ticker,
+                func.count(PriceHistory.id).label("price_rows"),
+                func.max(PriceHistory.date).label("latest"),
+            )
+            .outerjoin(PriceHistory, PriceHistory.instrument_id == Instrument.id)
+            .where(Instrument.yfinance_ticker.in_(tickers))
+            .group_by(Instrument.yfinance_ticker)
+        )
+        rows = self.session.execute(stmt).all()
+        coverage: dict[str, tuple[int, date | None]] = dict.fromkeys(tickers, (0, None))
+        for ticker, count, latest in rows:
+            coverage[ticker] = (int(count or 0), latest)
+        return coverage

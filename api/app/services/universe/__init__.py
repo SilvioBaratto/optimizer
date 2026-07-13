@@ -1,5 +1,5 @@
-"""Universe Services."""
+"""Universe services.
 
-from app.services.universe.universe_screening_service import run_universe_screen
-
-__all__ = ["run_universe_screen"]
+Trading 212 instrument-universe build. Import from
+``app.services.universe.trading212`` directly.
+"""

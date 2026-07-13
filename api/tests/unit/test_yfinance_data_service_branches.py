@@ -175,7 +175,9 @@ class TestTimedMethod:
     def test_when_request_timeout_set_delegates_to_call_with_timeout(self) -> None:
         repo = _make_repo()
         yf_client = _make_yf_client_silent()
-        service = YFinanceDataService(repo=repo, yf_client=yf_client, request_timeout=30.0)
+        service = YFinanceDataService(
+            repo=repo, yf_client=yf_client, request_timeout=30.0
+        )
 
         captured: list[Any] = []
 
@@ -198,7 +200,9 @@ class TestTimedMethod:
     def test_when_request_timeout_none_calls_fn_directly(self) -> None:
         repo = _make_repo()
         yf_client = _make_yf_client_silent()
-        service = YFinanceDataService(repo=repo, yf_client=yf_client, request_timeout=None)
+        service = YFinanceDataService(
+            repo=repo, yf_client=yf_client, request_timeout=None
+        )
 
         with patch(
             "app.services.market_data.yfinance_data_service.call_with_timeout"

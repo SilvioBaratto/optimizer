@@ -7,15 +7,7 @@ from .infrastructure import (
     is_rate_limit_error,
     retry_with_backoff,
 )
-from .market import (
-    AsyncStreamingClient,
-    CalendarsClient,
-    MarketClient,
-    ScreenerClient,
-    SearchClient,
-    SectorIndustryClient,
-    StreamingClient,
-)
+from .market import SearchClient
 from .news import (
     ArticleResult,
     ArticleScraper,
@@ -27,79 +19,57 @@ from .news import (
 from .protocols import (
     AnalysisClientProtocol,
     ArticleScraperProtocol,
-    AsyncStreamingClientProtocol,
     CacheProtocol,
-    CalendarsClientProtocol,
     CircuitBreakerProtocol,
     CorporateActionsClientProtocol,
     FinancialsClientProtocol,
-    FundsClientProtocol,
     HoldersClientProtocol,
-    MarketClientProtocol,
     MetadataClientProtocol,
     RateLimiterProtocol,
-    ScreenerClientProtocol,
     SearchClientProtocol,
-    SectorIndustryClientProtocol,
-    StreamingClientProtocol,
     YFinanceClientProtocol,
 )
 from .ticker import (
     AnalysisClient,
     CorporateActionsClient,
     FinancialsClient,
-    FundsClient,
     HoldersClient,
     MetadataClient,
 )
 
 __all__ = [
+    # Sub-clients (ticker-based)
     "AnalysisClient",
     "AnalysisClientProtocol",
     "ArticleResult",
     "ArticleScraper",
     # Protocols
     "ArticleScraperProtocol",
-    "AsyncStreamingClient",
-    "AsyncStreamingClientProtocol",
     # Base
     "BaseClient",
     "CacheProtocol",
-    "CalendarsClient",
-    "CalendarsClientProtocol",
     "CircuitBreaker",
     "CircuitBreakerProtocol",
     "CorporateActionsClient",
     "CorporateActionsClientProtocol",
     "CountryNewsFetcher",
-    # Sub-clients (ticker-based)
     "FinancialsClient",
     "FinancialsClientProtocol",
-    "FundsClient",
-    "FundsClientProtocol",
     "HoldersClient",
     "HoldersClientProtocol",
     # Implementations
     "LRUCache",
     "MacroNewsFetcher",
     "MacroTheme",
-    # Sub-clients (module-level)
-    "MarketClient",
-    "MarketClientProtocol",
     "MetadataClient",
     "MetadataClientProtocol",
     # News/Articles
     "NewsClient",
     "RateLimiter",
     "RateLimiterProtocol",
-    "ScreenerClient",
-    "ScreenerClientProtocol",
+    # Sub-clients (module-level)
     "SearchClient",
     "SearchClientProtocol",
-    "SectorIndustryClient",
-    "SectorIndustryClientProtocol",
-    "StreamingClient",
-    "StreamingClientProtocol",
     # Core client
     "YFinanceClient",
     "YFinanceClientProtocol",

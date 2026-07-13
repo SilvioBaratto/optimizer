@@ -95,9 +95,7 @@ class TestEnsureTablesExistFallback:
 
 
 class TestCreate:
-    def test_when_no_extra_kwargs_then_extra_is_none(
-        self, db_session: Session
-    ) -> None:
+    def test_when_no_extra_kwargs_then_extra_is_none(self, db_session: Session) -> None:
         repo = _new_repo(db_session)
         row = repo.create("create_no_extra")
         db_session.flush()
@@ -359,9 +357,7 @@ class TestIsAnyRunning:
         assert running is True
         assert job_id_str == str(jid)
 
-    def test_when_running_job_exists_returns_true(
-        self, db_session: Session
-    ) -> None:
+    def test_when_running_job_exists_returns_true(self, db_session: Session) -> None:
         jid = _pending(db_session, "is_any_running_status")
         repo = _new_repo(db_session)
         repo.update(jid, status="running")
@@ -370,9 +366,7 @@ class TestIsAnyRunning:
         running, _ = repo.is_any_running("is_any_running_status")
         assert running is True
 
-    def test_when_only_completed_jobs_returns_false(
-        self, db_session: Session
-    ) -> None:
+    def test_when_only_completed_jobs_returns_false(self, db_session: Session) -> None:
         jid = _pending(db_session, "is_any_completed_only")
         repo = _new_repo(db_session)
         repo.update(jid, status="completed", finished_at=datetime.now(timezone.utc))

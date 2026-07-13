@@ -29,7 +29,7 @@ from tests._fixtures.universe import seed_universe
 # ---------------------------------------------------------------------------
 
 _NOW = datetime(2024, 6, 10, 12, 0, 0, tzinfo=timezone.utc)
-_CUTOFF = datetime(2024, 6, 9, 0, 0, 0, tzinfo=timezone.utc)   # 1 day before _NOW
+_CUTOFF = datetime(2024, 6, 9, 0, 0, 0, tzinfo=timezone.utc)  # 1 day before _NOW
 _BEFORE_CUTOFF = datetime(2024, 6, 8, 0, 0, 0, tzinfo=timezone.utc)
 
 
@@ -38,9 +38,7 @@ def _seed_instrument(session: Session, ticker: str):
     return seed.instrument
 
 
-def _seed_profile(
-    session: Session, instrument, sector: str
-) -> TickerProfile:
+def _seed_profile(session: Session, instrument, sector: str) -> TickerProfile:
     return add_and_flush(
         session,
         TickerProfile(
@@ -115,12 +113,11 @@ class TestGetInstrumentIdByTicker:
 
 
 class TestGetRecentNews:
-    def test_when_no_rows_after_cutoff_returns_empty(
-        self, db_session: Session
-    ) -> None:
+    def test_when_no_rows_after_cutoff_returns_empty(self, db_session: Session) -> None:
         inst = _seed_instrument(db_session, "MSFT")
         _seed_ticker_news(
-            db_session, inst,
+            db_session,
+            inst,
             title="Old news",
             publish_time=_BEFORE_CUTOFF,
             news_uuid="old-uuid-1",
@@ -134,13 +131,15 @@ class TestGetRecentNews:
     ) -> None:
         inst = _seed_instrument(db_session, "GOOG")
         early = _seed_ticker_news(
-            db_session, inst,
+            db_session,
+            inst,
             title="Early news",
             publish_time=datetime(2024, 6, 9, 6, 0, 0, tzinfo=timezone.utc),
             news_uuid="uuid-early",
         )
         late = _seed_ticker_news(
-            db_session, inst,
+            db_session,
+            inst,
             title="Late news",
             publish_time=datetime(2024, 6, 9, 18, 0, 0, tzinfo=timezone.utc),
             news_uuid="uuid-late",
@@ -239,9 +238,7 @@ class TestMacroNewsFallbackStrategyA:
 
 
 class TestMacroNewsFallbackStrategyB:
-    def test_when_no_direct_match_sector_etf_used(
-        self, db_session: Session
-    ) -> None:
+    def test_when_no_direct_match_sector_etf_used(self, db_session: Session) -> None:
         # XLK maps to "Technology" in _ETF_TO_SECTOR
         inst = _seed_instrument(db_session, "CRM")
         _seed_profile(db_session, inst, sector="Technology")
@@ -335,9 +332,7 @@ class TestMacroNewsFallbackStrategyC:
         assert len(result) == 1
         assert result[0].id == title_match.id
 
-    def test_when_ticker_in_full_content_returns_row(
-        self, db_session: Session
-    ) -> None:
+    def test_when_ticker_in_full_content_returns_row(self, db_session: Session) -> None:
         _seed_instrument(db_session, "RBLX")
         content_match = _seed_macro_news(
             db_session,
@@ -352,9 +347,7 @@ class TestMacroNewsFallbackStrategyC:
         assert len(result) == 1
         assert result[0].id == content_match.id
 
-    def test_when_no_strategy_matches_returns_empty(
-        self, db_session: Session
-    ) -> None:
+    def test_when_no_strategy_matches_returns_empty(self, db_session: Session) -> None:
         _seed_instrument(db_session, "ZZZZ")
         # Seed an unrelated macro news row
         _seed_macro_news(
@@ -368,9 +361,7 @@ class TestMacroNewsFallbackStrategyC:
         result = list(repo.get_macro_news_fallback("ZZZZ", _CUTOFF))
         assert result == []
 
-    def test_when_text_match_before_cutoff_excluded(
-        self, db_session: Session
-    ) -> None:
+    def test_when_text_match_before_cutoff_excluded(self, db_session: Session) -> None:
         _seed_instrument(db_session, "DDOG")
         _seed_macro_news(
             db_session,

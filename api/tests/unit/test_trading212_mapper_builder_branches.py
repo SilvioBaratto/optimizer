@@ -185,9 +185,7 @@ class TestVerifyTickerRateLimitRetry:
             _yf_client=mock_yf,
             max_retries=3,
         )
-        with patch(
-            "app.services.universe.trading212.ticker_mapper.time.sleep"
-        ):
+        with patch("app.services.universe.trading212.ticker_mapper.time.sleep"):
             result = mapper._verify_ticker("AAPL")
         assert result is False
         assert mock_yf.fetch_info.call_count == 3
@@ -555,7 +553,9 @@ class TestBuilderFetchFilterDataNonMapperPath:
     ) -> None:
         repo = _FakeRepo()
         # Use a plain MagicMock (not YFinanceTickerMapper) so isinstance check fails
-        mapper = MagicMock(spec=[])  # spec=[] ensures it's not an instance of YFinanceTickerMapper
+        mapper = MagicMock(
+            spec=[]
+        )  # spec=[] ensures it's not an instance of YFinanceTickerMapper
 
         mapper.discover = MagicMock(return_value="AAPL")
         mock_client = MagicMock()
@@ -571,9 +571,7 @@ class TestBuilderFetchFilterDataNonMapperPath:
             max_workers=1,
         )
         # YFinanceClient is a local import inside _fetch_filter_data — patch at source
-        with patch(
-            "app.services.market_data.yfinance.YFinanceClient"
-        ) as mock_yf_cls:
+        with patch("app.services.market_data.yfinance.YFinanceClient") as mock_yf_cls:
             mock_yf_cls.get_instance.return_value = mock_client
             builder.build()
 

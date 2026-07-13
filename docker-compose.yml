@@ -33,13 +33,15 @@ services:
     networks:
       - optimizer_network
 
-  # FastAPI Application
-  api:
-    image: optimizer-api:latest
+  # Ingestion daemon — APScheduler in-process, no HTTP API.
+  # Manual runs: docker compose exec scheduler python -m app.cli <command>
+  scheduler:
+    image: optimizer-scheduler:latest
     build:
       context: .
       dockerfile: api/Dockerfile
-    container_name: optimizer_api
+    container_name: optimizer_scheduler
+    command: ["python", "-m", "app.worker"]
     env_file:
       - .env
     environment:
@@ -49,8 +51,8 @@ services:
       DB_USER: postgres
       OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
     ports:
-      - "8005:8000"
-      - "65110:8000"
+      # Prometheus metrics only — no API is served
+      - "9000:9000"
     depends_on:
       db:
         condition: service_healthy
@@ -58,7 +60,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/metrics').read()"]
       interval: 30s
       timeout: 10s
       start_period: 60s

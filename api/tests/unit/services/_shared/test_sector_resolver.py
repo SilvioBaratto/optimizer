@@ -45,9 +45,7 @@ class TestResolveSectorMap:
 
     def test_when_snapshot_entry_empty_then_falls_through_to_profile(self) -> None:
         session = _profile_rows(("AAPL", "Technology"))
-        result = resolve_sector_map(
-            session, ["AAPL"], snapshot_mapping={"AAPL": ""}
-        )
+        result = resolve_sector_map(session, ["AAPL"], snapshot_mapping={"AAPL": ""})
         assert result == {"AAPL": "Technology"}
 
     def test_when_result_then_covers_every_input_ticker(self) -> None:

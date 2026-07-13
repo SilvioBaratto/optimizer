@@ -82,36 +82,6 @@ class BamlAsyncClient:
     def parse_stream(self):
       return self.__llm_stream_parser
 
-    async def AdaptFactorWeights(self, macro_indicators: str,factor_groups: typing.List[str],
-        baml_options: BamlCallOptions = {},
-    ) -> types.FactorWeightAdaptation:
-        # Check if on_tick is provided
-        if 'on_tick' in baml_options:
-            # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.AdaptFactorWeights(macro_indicators=macro_indicators,factor_groups=factor_groups,
-                baml_options=baml_options)
-            return await __stream__.get_final_response()
-        else:
-            # Original non-streaming code
-            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="AdaptFactorWeights", args={
-                "macro_indicators": macro_indicators,"factor_groups": factor_groups,
-            })
-            return typing.cast(types.FactorWeightAdaptation, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def CalibrateDelta(self, macro_text: str,
-        baml_options: BamlCallOptions = {},
-    ) -> types.DeltaCalibration:
-        # Check if on_tick is provided
-        if 'on_tick' in baml_options:
-            # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.CalibrateDelta(macro_text=macro_text,
-                baml_options=baml_options)
-            return await __stream__.get_final_response()
-        else:
-            # Original non-streaming code
-            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="CalibrateDelta", args={
-                "macro_text": macro_text,
-            })
-            return typing.cast(types.DeltaCalibration, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def ClassifyMacroRegime(self, macro_summary: str,
         baml_options: BamlCallOptions = {},
     ) -> types.MacroRegimeCalibration:
@@ -127,126 +97,6 @@ class BamlAsyncClient:
                 "macro_summary": macro_summary,
             })
             return typing.cast(types.MacroRegimeCalibration, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
-        baml_options: BamlCallOptions = {},
-    ) -> typing.List["types.StressScenario"]:
-        # Check if on_tick is provided
-        if 'on_tick' in baml_options:
-            # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.DesignStressScenarios(tickers=tickers,macro_context=macro_context,n_scenarios=n_scenarios,
-                baml_options=baml_options)
-            return await __stream__.get_final_response()
-        else:
-            # Original non-streaming code
-            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="DesignStressScenarios", args={
-                "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
-            })
-            return typing.cast(typing.List["types.StressScenario"], __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,
-        baml_options: BamlCallOptions = {},
-    ) -> types.ViewOutput:
-        # Check if on_tick is provided
-        if 'on_tick' in baml_options:
-            # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.GenerateExpertView(assets=assets,persona=persona,
-                baml_options=baml_options)
-            return await __stream__.get_final_response()
-        else:
-            # Original non-streaming code
-            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="GenerateExpertView", args={
-                "assets": assets,"persona": persona,
-            })
-            return typing.cast(types.ViewOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def GenerateMacroView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> types.ViewOutput:
-        # Check if on_tick is provided
-        if 'on_tick' in baml_options:
-            # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.GenerateMacroView(assets=assets,
-                baml_options=baml_options)
-            return await __stream__.get_final_response()
-        else:
-            # Original non-streaming code
-            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="GenerateMacroView", args={
-                "assets": assets,
-            })
-            return typing.cast(types.ViewOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def GenerateMomentumView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> types.ViewOutput:
-        # Check if on_tick is provided
-        if 'on_tick' in baml_options:
-            # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.GenerateMomentumView(assets=assets,
-                baml_options=baml_options)
-            return await __stream__.get_final_response()
-        else:
-            # Original non-streaming code
-            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="GenerateMomentumView", args={
-                "assets": assets,
-            })
-            return typing.cast(types.ViewOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def GenerateValueView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> types.ViewOutput:
-        # Check if on_tick is provided
-        if 'on_tick' in baml_options:
-            # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.GenerateValueView(assets=assets,
-                baml_options=baml_options)
-            return await __stream__.get_final_response()
-        else:
-            # Original non-streaming code
-            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="GenerateValueView", args={
-                "assets": assets,
-            })
-            return typing.cast(types.ViewOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def GenerateViews(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> types.ViewOutput:
-        # Check if on_tick is provided
-        if 'on_tick' in baml_options:
-            # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.GenerateViews(assets=assets,
-                baml_options=baml_options)
-            return await __stream__.get_final_response()
-        else:
-            # Original non-streaming code
-            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="GenerateViews", args={
-                "assets": assets,
-            })
-            return typing.cast(types.ViewOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def ScoreNewsSentiment(self, ticker: str,articles: typing.List["types.NewsArticle"],
-        baml_options: BamlCallOptions = {},
-    ) -> types.NewsSentimentOutput:
-        # Check if on_tick is provided
-        if 'on_tick' in baml_options:
-            # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.ScoreNewsSentiment(ticker=ticker,articles=articles,
-                baml_options=baml_options)
-            return await __stream__.get_final_response()
-        else:
-            # Original non-streaming code
-            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="ScoreNewsSentiment", args={
-                "ticker": ticker,"articles": articles,
-            })
-            return typing.cast(types.NewsSentimentOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def SelectCovRegime(self, news_headlines: typing.List[str],avg_sentiment_score: float,realized_vol_30d: float,
-        baml_options: BamlCallOptions = {},
-    ) -> types.CovRegimeSelection:
-        # Check if on_tick is provided
-        if 'on_tick' in baml_options:
-            # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.SelectCovRegime(news_headlines=news_headlines,avg_sentiment_score=avg_sentiment_score,realized_vol_30d=realized_vol_30d,
-                baml_options=baml_options)
-            return await __stream__.get_final_response()
-        else:
-            # Original non-streaming code
-            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="SelectCovRegime", args={
-                "news_headlines": news_headlines,"avg_sentiment_score": avg_sentiment_score,"realized_vol_30d": realized_vol_30d,
-            })
-            return typing.cast(types.CovRegimeSelection, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def SummarizeCountryNews(self, country: str,news_text: str,
         baml_options: BamlCallOptions = {},
     ) -> types.CountryNewsSummary:
@@ -262,21 +112,6 @@ class BamlAsyncClient:
                 "country": country,"news_text": news_text,
             })
             return typing.cast(types.CountryNewsSummary, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def Test(self, 
-        baml_options: BamlCallOptions = {},
-    ) -> str:
-        # Check if on_tick is provided
-        if 'on_tick' in baml_options:
-            # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.Test(
-                baml_options=baml_options)
-            return await __stream__.get_final_response()
-        else:
-            # Original non-streaming code
-            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="Test", args={
-                
-            })
-            return typing.cast(str, __result__.cast_to(types, types, stream_types, False, __runtime__))
     
 
 
@@ -286,30 +121,6 @@ class BamlStreamClient:
     def __init__(self, options: DoNotUseDirectlyCallManager):
         self.__options = options
 
-    def AdaptFactorWeights(self, macro_indicators: str,factor_groups: typing.List[str],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlStream[stream_types.FactorWeightAdaptation, types.FactorWeightAdaptation]:
-        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="AdaptFactorWeights", args={
-            "macro_indicators": macro_indicators,"factor_groups": factor_groups,
-        })
-        return baml_py.BamlStream[stream_types.FactorWeightAdaptation, types.FactorWeightAdaptation](
-          __result__,
-          lambda x: typing.cast(stream_types.FactorWeightAdaptation, x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(types.FactorWeightAdaptation, x.cast_to(types, types, stream_types, False, __runtime__)),
-          __ctx__,
-        )
-    def CalibrateDelta(self, macro_text: str,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlStream[stream_types.DeltaCalibration, types.DeltaCalibration]:
-        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="CalibrateDelta", args={
-            "macro_text": macro_text,
-        })
-        return baml_py.BamlStream[stream_types.DeltaCalibration, types.DeltaCalibration](
-          __result__,
-          lambda x: typing.cast(stream_types.DeltaCalibration, x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(types.DeltaCalibration, x.cast_to(types, types, stream_types, False, __runtime__)),
-          __ctx__,
-        )
     def ClassifyMacroRegime(self, macro_summary: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[stream_types.MacroRegimeCalibration, types.MacroRegimeCalibration]:
@@ -320,102 +131,6 @@ class BamlStreamClient:
           __result__,
           lambda x: typing.cast(stream_types.MacroRegimeCalibration, x.cast_to(types, types, stream_types, True, __runtime__)),
           lambda x: typing.cast(types.MacroRegimeCalibration, x.cast_to(types, types, stream_types, False, __runtime__)),
-          __ctx__,
-        )
-    def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlStream[typing.List["stream_types.StressScenario"], typing.List["types.StressScenario"]]:
-        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="DesignStressScenarios", args={
-            "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
-        })
-        return baml_py.BamlStream[typing.List["stream_types.StressScenario"], typing.List["types.StressScenario"]](
-          __result__,
-          lambda x: typing.cast(typing.List["stream_types.StressScenario"], x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(typing.List["types.StressScenario"], x.cast_to(types, types, stream_types, False, __runtime__)),
-          __ctx__,
-        )
-    def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlStream[stream_types.ViewOutput, types.ViewOutput]:
-        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="GenerateExpertView", args={
-            "assets": assets,"persona": persona,
-        })
-        return baml_py.BamlStream[stream_types.ViewOutput, types.ViewOutput](
-          __result__,
-          lambda x: typing.cast(stream_types.ViewOutput, x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(types.ViewOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
-          __ctx__,
-        )
-    def GenerateMacroView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlStream[stream_types.ViewOutput, types.ViewOutput]:
-        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="GenerateMacroView", args={
-            "assets": assets,
-        })
-        return baml_py.BamlStream[stream_types.ViewOutput, types.ViewOutput](
-          __result__,
-          lambda x: typing.cast(stream_types.ViewOutput, x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(types.ViewOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
-          __ctx__,
-        )
-    def GenerateMomentumView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlStream[stream_types.ViewOutput, types.ViewOutput]:
-        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="GenerateMomentumView", args={
-            "assets": assets,
-        })
-        return baml_py.BamlStream[stream_types.ViewOutput, types.ViewOutput](
-          __result__,
-          lambda x: typing.cast(stream_types.ViewOutput, x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(types.ViewOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
-          __ctx__,
-        )
-    def GenerateValueView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlStream[stream_types.ViewOutput, types.ViewOutput]:
-        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="GenerateValueView", args={
-            "assets": assets,
-        })
-        return baml_py.BamlStream[stream_types.ViewOutput, types.ViewOutput](
-          __result__,
-          lambda x: typing.cast(stream_types.ViewOutput, x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(types.ViewOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
-          __ctx__,
-        )
-    def GenerateViews(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlStream[stream_types.ViewOutput, types.ViewOutput]:
-        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="GenerateViews", args={
-            "assets": assets,
-        })
-        return baml_py.BamlStream[stream_types.ViewOutput, types.ViewOutput](
-          __result__,
-          lambda x: typing.cast(stream_types.ViewOutput, x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(types.ViewOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
-          __ctx__,
-        )
-    def ScoreNewsSentiment(self, ticker: str,articles: typing.List["types.NewsArticle"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlStream[stream_types.NewsSentimentOutput, types.NewsSentimentOutput]:
-        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="ScoreNewsSentiment", args={
-            "ticker": ticker,"articles": articles,
-        })
-        return baml_py.BamlStream[stream_types.NewsSentimentOutput, types.NewsSentimentOutput](
-          __result__,
-          lambda x: typing.cast(stream_types.NewsSentimentOutput, x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(types.NewsSentimentOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
-          __ctx__,
-        )
-    def SelectCovRegime(self, news_headlines: typing.List[str],avg_sentiment_score: float,realized_vol_30d: float,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlStream[stream_types.CovRegimeSelection, types.CovRegimeSelection]:
-        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="SelectCovRegime", args={
-            "news_headlines": news_headlines,"avg_sentiment_score": avg_sentiment_score,"realized_vol_30d": realized_vol_30d,
-        })
-        return baml_py.BamlStream[stream_types.CovRegimeSelection, types.CovRegimeSelection](
-          __result__,
-          lambda x: typing.cast(stream_types.CovRegimeSelection, x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(types.CovRegimeSelection, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
     def SummarizeCountryNews(self, country: str,news_text: str,
@@ -430,18 +145,6 @@ class BamlStreamClient:
           lambda x: typing.cast(types.CountryNewsSummary, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def Test(self, 
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.BamlStream[str, str]:
-        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="Test", args={
-            
-        })
-        return baml_py.BamlStream[str, str](
-          __result__,
-          lambda x: typing.cast(str, x.cast_to(types, types, stream_types, True, __runtime__)),
-          lambda x: typing.cast(str, x.cast_to(types, types, stream_types, False, __runtime__)),
-          __ctx__,
-        )
     
 
 class BamlHttpRequestClient:
@@ -450,20 +153,6 @@ class BamlHttpRequestClient:
     def __init__(self, options: DoNotUseDirectlyCallManager):
         self.__options = options
 
-    async def AdaptFactorWeights(self, macro_indicators: str,factor_groups: typing.List[str],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="AdaptFactorWeights", args={
-            "macro_indicators": macro_indicators,"factor_groups": factor_groups,
-        }, mode="request")
-        return __result__
-    async def CalibrateDelta(self, macro_text: str,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="CalibrateDelta", args={
-            "macro_text": macro_text,
-        }, mode="request")
-        return __result__
     async def ClassifyMacroRegime(self, macro_summary: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
@@ -471,74 +160,11 @@ class BamlHttpRequestClient:
             "macro_summary": macro_summary,
         }, mode="request")
         return __result__
-    async def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="DesignStressScenarios", args={
-            "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
-        }, mode="request")
-        return __result__
-    async def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateExpertView", args={
-            "assets": assets,"persona": persona,
-        }, mode="request")
-        return __result__
-    async def GenerateMacroView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateMacroView", args={
-            "assets": assets,
-        }, mode="request")
-        return __result__
-    async def GenerateMomentumView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateMomentumView", args={
-            "assets": assets,
-        }, mode="request")
-        return __result__
-    async def GenerateValueView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateValueView", args={
-            "assets": assets,
-        }, mode="request")
-        return __result__
-    async def GenerateViews(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateViews", args={
-            "assets": assets,
-        }, mode="request")
-        return __result__
-    async def ScoreNewsSentiment(self, ticker: str,articles: typing.List["types.NewsArticle"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ScoreNewsSentiment", args={
-            "ticker": ticker,"articles": articles,
-        }, mode="request")
-        return __result__
-    async def SelectCovRegime(self, news_headlines: typing.List[str],avg_sentiment_score: float,realized_vol_30d: float,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SelectCovRegime", args={
-            "news_headlines": news_headlines,"avg_sentiment_score": avg_sentiment_score,"realized_vol_30d": realized_vol_30d,
-        }, mode="request")
-        return __result__
     async def SummarizeCountryNews(self, country: str,news_text: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeCountryNews", args={
             "country": country,"news_text": news_text,
-        }, mode="request")
-        return __result__
-    async def Test(self, 
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="Test", args={
-            
         }, mode="request")
         return __result__
     
@@ -549,20 +175,6 @@ class BamlHttpStreamRequestClient:
     def __init__(self, options: DoNotUseDirectlyCallManager):
         self.__options = options
 
-    async def AdaptFactorWeights(self, macro_indicators: str,factor_groups: typing.List[str],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="AdaptFactorWeights", args={
-            "macro_indicators": macro_indicators,"factor_groups": factor_groups,
-        }, mode="stream")
-        return __result__
-    async def CalibrateDelta(self, macro_text: str,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="CalibrateDelta", args={
-            "macro_text": macro_text,
-        }, mode="stream")
-        return __result__
     async def ClassifyMacroRegime(self, macro_summary: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
@@ -570,74 +182,11 @@ class BamlHttpStreamRequestClient:
             "macro_summary": macro_summary,
         }, mode="stream")
         return __result__
-    async def DesignStressScenarios(self, tickers: typing.List[str],macro_context: str,n_scenarios: int,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="DesignStressScenarios", args={
-            "tickers": tickers,"macro_context": macro_context,"n_scenarios": n_scenarios,
-        }, mode="stream")
-        return __result__
-    async def GenerateExpertView(self, assets: typing.List["types.AssetFactorData"],persona: types.ExpertPersona,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateExpertView", args={
-            "assets": assets,"persona": persona,
-        }, mode="stream")
-        return __result__
-    async def GenerateMacroView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateMacroView", args={
-            "assets": assets,
-        }, mode="stream")
-        return __result__
-    async def GenerateMomentumView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateMomentumView", args={
-            "assets": assets,
-        }, mode="stream")
-        return __result__
-    async def GenerateValueView(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateValueView", args={
-            "assets": assets,
-        }, mode="stream")
-        return __result__
-    async def GenerateViews(self, assets: typing.List["types.AssetFactorData"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateViews", args={
-            "assets": assets,
-        }, mode="stream")
-        return __result__
-    async def ScoreNewsSentiment(self, ticker: str,articles: typing.List["types.NewsArticle"],
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ScoreNewsSentiment", args={
-            "ticker": ticker,"articles": articles,
-        }, mode="stream")
-        return __result__
-    async def SelectCovRegime(self, news_headlines: typing.List[str],avg_sentiment_score: float,realized_vol_30d: float,
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SelectCovRegime", args={
-            "news_headlines": news_headlines,"avg_sentiment_score": avg_sentiment_score,"realized_vol_30d": realized_vol_30d,
-        }, mode="stream")
-        return __result__
     async def SummarizeCountryNews(self, country: str,news_text: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeCountryNews", args={
             "country": country,"news_text": news_text,
-        }, mode="stream")
-        return __result__
-    async def Test(self, 
-        baml_options: BamlCallOptions = {},
-    ) -> baml_py.baml_py.HTTPRequest:
-        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="Test", args={
-            
         }, mode="stream")
         return __result__
     

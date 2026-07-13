@@ -1,13 +1,12 @@
 """Startup-time bootstrap for reference-index benchmarks.
 
 Ensures every ticker listed in ``settings.benchmark_tickers`` has an
-:class:`~app.models.universe.Instrument` row and recent price history before
-dashboard / equity-curve / attribution endpoints are served.
+:class:`~app.models.universe.Instrument` row and recent price history.
 
-Runs synchronously inside the FastAPI lifespan (after ``init_db`` and the DB
-health check, before scheduler start). On a fresh database this incurs a
-~30-second yfinance fetch for the full benchmark set; on subsequent restarts
-the delta is empty and the helper returns immediately.
+Runs in a daemon thread at worker startup (after ``init_db``, alongside
+scheduler start). On a fresh database this incurs a ~30-second yfinance fetch
+for the full benchmark set; on subsequent restarts the delta is empty and the
+helper returns immediately.
 
 Failures are logged and swallowed — startup must never abort because yfinance
 is rate-limited or a single ticker is delisted.
@@ -22,7 +21,7 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.repositories.dashboard.dashboard_repository import DashboardRepository
+from app.repositories.market_data.yfinance_repository import YFinanceRepository
 from app.services.market_data.reference_index_seeder import seed_reference_indices
 from app.services.market_data.yfinance import YFinanceClient
 
@@ -90,7 +89,7 @@ def bootstrap_benchmarks(
 
     try:
         with session_factory() as session:
-            repo = DashboardRepository(session)
+            repo = YFinanceRepository(session)
             coverage = repo.get_benchmark_coverage(tickers)
     except Exception as exc:
         # Surfaced, not swallowed: logged with traceback and recorded in

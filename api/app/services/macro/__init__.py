@@ -2,7 +2,6 @@
 
 from app.services.macro.macro_calibration import (
     CalibrationResult,
-    build_bl_config_from_calibration,
     classify_macro_regime,
     run_bulk_calibrate,
 )
@@ -21,7 +20,6 @@ __all__ = [
     "CalibrationResult",
     "CountrySummaryResult",
     "MacroRegimeService",
-    "build_bl_config_from_calibration",
     "classify_macro_regime",
     "run_bulk_calibrate",
     "run_bulk_fred_fetch",

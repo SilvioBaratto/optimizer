@@ -91,9 +91,7 @@ class TestRunStep:
         # Defensive path: update_job must have been called with status="completed"
         found = any(
             kw.get("status") == "completed"
-            for _, kw in [
-                (c.args, c.kwargs) for c in job_svc.update_job.call_args_list
-            ]
+            for _, kw in [(c.args, c.kwargs) for c in job_svc.update_job.call_args_list]
         )
         assert found
 
@@ -117,6 +115,7 @@ class TestRunStep:
 # ---------------------------------------------------------------------------
 # TestRunDailyPipeline
 # ---------------------------------------------------------------------------
+
 
 def _make_step_side_effect(returns: dict[str, bool]):
     """Return a side_effect callable for _run_step that maps label → bool."""
@@ -172,9 +171,7 @@ class TestRunDailyPipeline:
 
         with ExitStack() as stack:
             mock_step = stack.enter_context(patch(f"{M}._run_step"))
-            mock_refresh = stack.enter_context(
-                patch(f"{M}._refresh_reference_indices")
-            )
+            mock_refresh = stack.enter_context(patch(f"{M}.refresh_reference_indices"))
             stack.enter_context(
                 patch(
                     "app.services.market_data.yfinance.get_yfinance_client",
@@ -277,9 +274,7 @@ class TestRunWeeklyRefetch:
     def test_when_called_then_yfinance_and_macro_run_and_refresh_called_once(self):
         with ExitStack() as stack:
             mock_step = stack.enter_context(patch(f"{M}._run_step"))
-            mock_refresh = stack.enter_context(
-                patch(f"{M}._refresh_reference_indices")
-            )
+            mock_refresh = stack.enter_context(patch(f"{M}.refresh_reference_indices"))
             stack.enter_context(
                 patch(
                     "app.services.market_data.yfinance.get_yfinance_client",
@@ -373,9 +368,9 @@ class TestRefreshReferenceIndices:
         with ExitStack() as stack:
             mock_resolve, _, mock_ref_jobs = self._patch_all(stack, tickers=[])
 
-            from app.services.jobs.scheduler import _refresh_reference_indices
+            from app.services.jobs.scheduler import refresh_reference_indices
 
-            result = _refresh_reference_indices("test")
+            result = refresh_reference_indices("test")
 
         assert result is False
         mock_ref_jobs.create_job.assert_not_called()
@@ -387,9 +382,9 @@ class TestRefreshReferenceIndices:
             err.existing_job_id = "j9"
             mock_ref_jobs.create_job.side_effect = err
 
-            from app.services.jobs.scheduler import _refresh_reference_indices
+            from app.services.jobs.scheduler import refresh_reference_indices
 
-            result = _refresh_reference_indices("test")
+            result = refresh_reference_indices("test")
 
         assert result is False
 
@@ -398,9 +393,9 @@ class TestRefreshReferenceIndices:
             _, mock_seed, mock_ref_jobs = self._patch_all(stack)
             mock_ref_jobs.get_job.return_value = {"status": "completed"}
 
-            from app.services.jobs.scheduler import _refresh_reference_indices
+            from app.services.jobs.scheduler import refresh_reference_indices
 
-            result = _refresh_reference_indices("test")
+            result = refresh_reference_indices("test")
 
         assert result is True
         mock_seed.assert_called_once()
@@ -410,9 +405,9 @@ class TestRefreshReferenceIndices:
             _, _, mock_ref_jobs = self._patch_all(stack)
             mock_ref_jobs.get_job.return_value = {"status": "running"}
 
-            from app.services.jobs.scheduler import _refresh_reference_indices
+            from app.services.jobs.scheduler import refresh_reference_indices
 
-            result = _refresh_reference_indices("test")
+            result = refresh_reference_indices("test")
 
         assert result is True
         found = any(
@@ -427,9 +422,9 @@ class TestRefreshReferenceIndices:
                 stack, seed_side_effect=Exception("network error")
             )
 
-            from app.services.jobs.scheduler import _refresh_reference_indices
+            from app.services.jobs.scheduler import refresh_reference_indices
 
-            result = _refresh_reference_indices("test")
+            result = refresh_reference_indices("test")
 
         assert result is False
         failed_calls = [
@@ -446,44 +441,25 @@ class TestRefreshReferenceIndices:
 
 
 class TestResolveBenchmarkTickers:
-    def test_when_db_ok_then_returns_sorted_union(self):
-        mock_dm = MagicMock()
-        mock_session = MagicMock()
-        mock_dm.get_session.return_value.__enter__ = MagicMock(
-            return_value=mock_session
-        )
-        mock_dm.get_session.return_value.__exit__ = MagicMock(return_value=False)
+    """Benchmarks come from settings alone — the resolver touches no database."""
 
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.get_distinct_benchmark_tickers.return_value = ["SPY"]
+    def test_returns_configured_tickers_sorted_and_deduped(self):
+        from app.services.jobs.scheduler import _resolve_benchmark_tickers
 
-        with ExitStack() as stack:
-            stack.enter_context(patch(f"{M}.database_manager", mock_dm))
-            stack.enter_context(
-                patch(
-                    "app.repositories.portfolio.portfolio_repository.PortfolioRepository",
-                    return_value=mock_repo_instance,
-                )
-            )
+        result = _resolve_benchmark_tickers()
 
-            from app.services.jobs.scheduler import _resolve_benchmark_tickers
-
-            result = _resolve_benchmark_tickers()
-
-        assert "SPY" in result
+        assert result == sorted(set(settings.benchmark_tickers))
         assert result == sorted(result)
+        assert len(result) == len(set(result))
 
-    def test_when_db_raises_then_returns_sorted_default_tickers(self):
-        mock_dm = MagicMock()
-        mock_dm.get_session.side_effect = Exception("db down")
+    def test_reflects_overridden_settings(self, monkeypatch):
+        from app.services.jobs import scheduler as sched
 
-        with patch(f"{M}.database_manager", mock_dm):
-            from app.services.jobs.scheduler import _resolve_benchmark_tickers
+        monkeypatch.setattr(
+            sched.settings, "benchmark_tickers", ["QQQ", "SPY", "SPY"], raising=False
+        )
 
-            result = _resolve_benchmark_tickers()
-
-        expected = sorted(set(settings.benchmark_tickers))
-        assert result == expected
+        assert sched._resolve_benchmark_tickers() == ["QQQ", "SPY"]
 
 
 # ---------------------------------------------------------------------------
@@ -589,9 +565,7 @@ class TestRunNewsRefresh:
 
     def test_when_db_raises_then_exception_is_swallowed(self):
         with ExitStack() as stack:
-            self._patch_all(
-                stack, db_side_effect=Exception("boom")
-            )
+            self._patch_all(stack, db_side_effect=Exception("boom"))
 
             from app.services.jobs.scheduler import run_news_refresh
 
@@ -683,3 +657,55 @@ class TestRunOrphanReaper:
         with ExitStack() as stack:
             # Must not raise
             self._run(stack, db_side_effect=Exception("db gone"))
+
+
+class TestRunUniverseStep:
+    """The universe build heads the pipeline — every later step iterates `instruments`."""
+
+    _SVC = "app.services.universe.universe_build_service"
+
+    def test_when_api_key_missing_then_skips_without_claiming_a_job(self):
+        """No key is a config state, not a failure — claiming a slot would wedge the type."""
+        from app.services.universe.universe_build_service import (
+            Trading212NotConfiguredError,
+        )
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    f"{self._SVC}.build_trading212_client",
+                    side_effect=Trading212NotConfiguredError("no key"),
+                )
+            )
+            run_step = stack.enter_context(patch(f"{M}._run_step"))
+
+            from app.services.jobs.scheduler import run_universe_step
+
+            assert run_universe_step() is False
+
+        run_step.assert_not_called()
+
+    def test_when_api_key_present_then_runs_the_build_step(self):
+        client = MagicMock()
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(f"{self._SVC}.build_trading212_client", return_value=client)
+            )
+            run_step = stack.enter_context(patch(f"{M}._run_step", return_value=True))
+
+            from app.services.jobs.scheduler import run_universe_step
+
+            assert run_universe_step() is True
+
+        args = run_step.call_args.args
+        assert args[0] == "universe"
+        assert args[-1] is client
+
+    def test_run_universe_build_job_delegates_to_the_step(self):
+        with patch(f"{M}.run_universe_step", return_value=True) as step:
+            from app.services.jobs.scheduler import run_universe_build
+
+            run_universe_build()
+
+        step.assert_called_once()

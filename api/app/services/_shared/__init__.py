@@ -1,13 +1,15 @@
 """Shared Services.
 
 Cross-cutting service helpers and utilities.
+
+``bootstrap_benchmarks`` is deliberately NOT re-exported here. It lives in
+``_benchmark_bootstrap``, which imports ``market_data.reference_index_seeder``,
+which imports back into this package for ``ProgressCallback`` — re-exporting it
+would make that cycle load-bearing on import order. Import it from its module:
+
+    from app.services._shared._benchmark_bootstrap import bootstrap_benchmarks
 """
 
-# Import order matters: _benchmark_bootstrap → reference_index_seeder →
-# yfinance_data_service → needs ProgressCallback from _progress and
-# has_sufficient_history from trading_calendar.  Load those before
-# _benchmark_bootstrap so the symbols exist when the transitive import runs.
-# ruff: noqa: I001
 from app.services._shared._json_safe import safe_float
 from app.services._shared._price_fetcher import fetch_close_prices
 from app.services._shared._progress import (
@@ -27,18 +29,12 @@ from app.services._shared.trading_calendar import (
     has_sufficient_history,
     parse_period_years,
 )
-from app.services._shared._benchmark_bootstrap import (
-    SessionFactory,
-    bootstrap_benchmarks,
-)
 
 __all__ = [
     "EXCHANGE_NAME_TO_MIC",
     "UNCLASSIFIED",
     "ProgressCallback",
-    "SessionFactory",
     "_noop",
-    "bootstrap_benchmarks",
     "fetch_close_prices",
     "get_expected_trading_sessions",
     "has_sufficient_history",

@@ -118,6 +118,12 @@ source = ["app"]
 omit = [
     '*/__init__.py',
     '*/alembic/*',
+    # Protocol declarations: every member is a `...` stub with no runtime body.
+    # coverage still emits a branch arc per stub, so these files report ~50%
+    # branch coverage no matter what — an unreachable floor that drags the
+    # real number down. There is nothing here to execute.
+    '*/protocols/interfaces.py',
+    'app/services/universe/trading212/protocols.py',
 ]
 
 [tool.coverage.report]
@@ -127,4 +133,5 @@ exclude_lines = [
     'if TYPE_CHECKING:',
     '@(abc\.)?abstractmethod',
     'raise NotImplementedError',
+    '^\s*\.\.\.$',
 ]

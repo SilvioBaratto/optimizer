@@ -227,9 +227,7 @@ class TestMarkDelisted:
         seed = seed_universe(db_session, ticker="DELME")
         repo = _repo(db_session)
 
-        result = repo.mark_delisted(
-            "DELME", seed.exchange.id, date(2024, 6, 1), -0.30
-        )
+        result = repo.mark_delisted("DELME", seed.exchange.id, date(2024, 6, 1), -0.30)
 
         assert result is True
         db_session.refresh(seed.instrument)

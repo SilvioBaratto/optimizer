@@ -71,7 +71,9 @@ def _eio(country: str, date: _D) -> EconomicIndicatorObservation:
     )
 
 
-def _tei(country: str, key: str, value: float | None = 3.5) -> TradingEconomicsIndicator:
+def _tei(
+    country: str, key: str, value: float | None = 3.5
+) -> TradingEconomicsIndicator:
     return TradingEconomicsIndicator(country=country, indicator_key=key, value=value)
 
 
@@ -87,8 +89,12 @@ def _teo(
     )
 
 
-def _byo(country: str, maturity: str, date: _D, yv: float | None = 3.0) -> BondYieldObservation:
-    return BondYieldObservation(country=country, maturity=maturity, date=date, yield_value=yv)
+def _byo(
+    country: str, maturity: str, date: _D, yv: float | None = 3.0
+) -> BondYieldObservation:
+    return BondYieldObservation(
+        country=country, maturity=maturity, date=date, yield_value=yv
+    )
 
 
 def _fred(series: str, date: _D, value: float | None = 0.5) -> FredObservation:
@@ -161,7 +167,9 @@ class TestUpsertEmptyInputGuards:
         self, db_session: Session
     ) -> None:
         repo = MacroRegimeRepository(db_session)
-        assert repo.upsert_economic_indicator_observation("USA", _D(2026, 1, 1), {}) == 0
+        assert (
+            repo.upsert_economic_indicator_observation("USA", _D(2026, 1, 1), {}) == 0
+        )
 
     def test_upsert_te_indicators_empty_dict_returns_zero(
         self, db_session: Session
@@ -259,14 +267,18 @@ class TestGetEconomicIndicators:
         countries = {r.country for r in results}
         assert countries == {"USA", "Germany"}
 
-    def test_when_country_filter_returns_only_matching(self, db_session: Session) -> None:
+    def test_when_country_filter_returns_only_matching(
+        self, db_session: Session
+    ) -> None:
         _flush(db_session, _ei("USA"), _ei("Germany"))
         repo = MacroRegimeRepository(db_session)
         results = repo.get_economic_indicators(country="USA")
         assert all(r.country == "USA" for r in results)
         assert len(results) == 1
 
-    def test_when_country_filter_no_match_returns_empty(self, db_session: Session) -> None:
+    def test_when_country_filter_no_match_returns_empty(
+        self, db_session: Session
+    ) -> None:
         _flush(db_session, _ei("USA"))
         repo = MacroRegimeRepository(db_session)
         assert list(repo.get_economic_indicators(country="France")) == []
@@ -294,7 +306,12 @@ class TestGetEconomicIndicatorObservations:
         assert list(repo.get_economic_indicator_observations()) == []
 
     def test_no_filters_returns_all(self, db_session: Session) -> None:
-        _flush(db_session, _eio("USA", self._D1), _eio("USA", self._D2), _eio("EU", self._D1))
+        _flush(
+            db_session,
+            _eio("USA", self._D1),
+            _eio("USA", self._D2),
+            _eio("EU", self._D1),
+        )
         repo = MacroRegimeRepository(db_session)
         assert len(repo.get_economic_indicator_observations()) == 3
 
@@ -305,21 +322,36 @@ class TestGetEconomicIndicatorObservations:
         assert all(r.country == "EU" for r in results)
 
     def test_start_date_filter(self, db_session: Session) -> None:
-        _flush(db_session, _eio("USA", self._D1), _eio("USA", self._D2), _eio("USA", self._D3))
+        _flush(
+            db_session,
+            _eio("USA", self._D1),
+            _eio("USA", self._D2),
+            _eio("USA", self._D3),
+        )
         repo = MacroRegimeRepository(db_session)
         results = repo.get_economic_indicator_observations(start_date=self._D2)
         assert all(r.date >= self._D2 for r in results)
         assert len(results) == 2
 
     def test_end_date_filter(self, db_session: Session) -> None:
-        _flush(db_session, _eio("USA", self._D1), _eio("USA", self._D2), _eio("USA", self._D3))
+        _flush(
+            db_session,
+            _eio("USA", self._D1),
+            _eio("USA", self._D2),
+            _eio("USA", self._D3),
+        )
         repo = MacroRegimeRepository(db_session)
         results = repo.get_economic_indicator_observations(end_date=self._D2)
         assert all(r.date <= self._D2 for r in results)
         assert len(results) == 2
 
     def test_start_and_end_date_filter(self, db_session: Session) -> None:
-        _flush(db_session, _eio("USA", self._D1), _eio("USA", self._D2), _eio("USA", self._D3))
+        _flush(
+            db_session,
+            _eio("USA", self._D1),
+            _eio("USA", self._D2),
+            _eio("USA", self._D3),
+        )
         repo = MacroRegimeRepository(db_session)
         results = repo.get_economic_indicator_observations(
             start_date=self._D1, end_date=self._D2
@@ -934,7 +966,9 @@ class TestUpsertRegimeClassification:
         assert row is not None
         assert row.regime_classification == "expansion"
 
-    def test_inserted_row_has_placeholder_baml_values(self, db_session: Session) -> None:
+    def test_inserted_row_has_placeholder_baml_values(
+        self, db_session: Session
+    ) -> None:
         repo = MacroRegimeRepository(db_session)
         repo.upsert_regime_classification("USA", "slowdown")
         db_session.flush()
@@ -958,7 +992,9 @@ class TestUpsertRegimeClassification:
         assert existing.phase == "mid"
         assert existing.delta == 1.5
 
-    def test_overwrites_classification_on_second_call(self, db_session: Session) -> None:
+    def test_overwrites_classification_on_second_call(
+        self, db_session: Session
+    ) -> None:
         repo = MacroRegimeRepository(db_session)
         repo.upsert_regime_classification("USA", "recovery")
         db_session.flush()
@@ -1008,7 +1044,11 @@ class TestGetCountrySummary:
     def test_has_all_three_keys(self, db_session: Session) -> None:
         repo = MacroRegimeRepository(db_session)
         summary = repo.get_country_summary("X")
-        assert set(summary.keys()) == {"economic_indicators", "te_indicators", "bond_yields"}
+        assert set(summary.keys()) == {
+            "economic_indicators",
+            "te_indicators",
+            "bond_yields",
+        }
 
 
 # ===========================================================================

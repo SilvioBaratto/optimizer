@@ -35,17 +35,12 @@ class TestLivenessSettings:
         assert s.scheduler_orphan_heartbeat_timeout_seconds == 120
 
 
-class TestLifespanForwardsTimeout:
-    @pytest.mark.asyncio
-    async def test_when_lifespan_runs_then_reconcile_called_with_settings_timeout(
-        self,
-    ) -> None:
-        """main.py forwards settings.scheduler_orphan_heartbeat_timeout_seconds."""
+class TestWorkerForwardsTimeout:
+    def test_when_worker_reconciles_then_settings_timeout_is_forwarded(self) -> None:
+        """app.worker forwards settings.scheduler_orphan_heartbeat_timeout_seconds."""
         from contextlib import contextmanager
 
-        from fastapi import FastAPI
-
-        from app import main as main_module
+        from app import worker as worker_module
 
         repo_instance = MagicMock()
         repo_instance.reconcile_orphans.return_value = 0
@@ -55,66 +50,46 @@ class TestLifespanForwardsTimeout:
         def fake_get_session():
             yield fake_session
 
-        scheduler_mock = MagicMock()
-
-        # Reset the per-process sentinel so reconcile actually fires.
-        main_module._reconciled_this_process = False
-
         with (
-            patch.object(main_module, "init_db"),
             patch.object(
-                main_module.database_manager, "health_check", return_value=True
-            ),
-            patch.object(
-                main_module.database_manager,
+                worker_module.database_manager,
                 "get_session",
                 side_effect=fake_get_session,
-            ),
-            patch.object(main_module, "create_scheduler", return_value=scheduler_mock),
-            patch(
-                "app.services._shared._benchmark_bootstrap.bootstrap_benchmarks",
-                return_value=None,
             ),
             patch(
                 "app.repositories.jobs.background_job_repository.BackgroundJobRepository",
                 return_value=repo_instance,
             ),
         ):
-            app = FastAPI()
-            async with main_module.lifespan(app):
-                pass
+            worker_module._reconcile_orphans()
 
         call = repo_instance.reconcile_orphans.call_args
-        # Settings default is 300; lifespan must forward it explicitly.
+        # Settings default is 300; the worker must forward it explicitly.
         assert call.kwargs.get("heartbeat_timeout_seconds") == 300
 
 
-class TestRouteServicesAdoptCadence:
+class TestJobServicesAdoptCadence:
     """Module-level BackgroundJobService instances pick up the cadence setting."""
 
-    def test_yfinance_service_cadence_matches_settings(self) -> None:
-        from app.api.v1.market_data.yfinance_data import _job_service
+    @pytest.mark.parametrize(
+        "attr",
+        [
+            "_yfinance_jobs",
+            "_macro_jobs",
+            "_news_fetch_jobs",
+            "_summarize_jobs",
+            "_calibrate_jobs",
+            "_fred_jobs",
+            "_ref_index_jobs",
+            "_universe_jobs",
+        ],
+    )
+    def test_job_service_cadence_matches_settings(self, attr: str) -> None:
         from app.config import settings
+        from app.services.jobs import scheduler
 
+        job_service = getattr(scheduler, attr)
         assert (
-            _job_service._heartbeat_cadence
-            == settings.scheduler_heartbeat_cadence_seconds
-        )
-
-    def test_macro_regime_service_cadence_matches_settings(self) -> None:
-        from app.api.v1.macro.macro_regime import _job_service
-        from app.config import settings
-
-        assert (
-            _job_service._heartbeat_cadence
-            == settings.scheduler_heartbeat_cadence_seconds
-        )
-
-    def test_scheduler_yfinance_jobs_cadence_matches_settings(self) -> None:
-        from app.config import settings
-        from app.services.jobs.scheduler import _yfinance_jobs
-
-        assert (
-            _yfinance_jobs._heartbeat_cadence
+            job_service._heartbeat_cadence
             == settings.scheduler_heartbeat_cadence_seconds
         )

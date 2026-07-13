@@ -354,12 +354,8 @@ class TestFilterPipelineImpl:
 
     def test_short_circuit_second_filter_not_called_when_first_fails(self) -> None:
         pipeline = FilterPipelineImpl()
-        f1 = _FakeFilter(
-            name="Filter1", filter=MagicMock(return_value=(False, "x"))
-        )
-        f2 = _FakeFilter(
-            name="Filter2", filter=MagicMock(return_value=(True, "ok"))
-        )
+        f1 = _FakeFilter(name="Filter1", filter=MagicMock(return_value=(False, "x")))
+        f2 = _FakeFilter(name="Filter2", filter=MagicMock(return_value=(True, "ok")))
         pipeline.add_filter(f1)  # type: ignore[arg-type]
         pipeline.add_filter(f2)  # type: ignore[arg-type]
 

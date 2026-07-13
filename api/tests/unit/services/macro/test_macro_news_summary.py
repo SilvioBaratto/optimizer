@@ -85,9 +85,7 @@ class TestValidateLlmOutputEdgeCases:
         "label",
         ["BULLISH", "BEARISH", "NEUTRAL", "MIXED"],
     )
-    def test_when_valid_sentiment_label_then_passed_through(
-        self, label: str
-    ) -> None:
+    def test_when_valid_sentiment_label_then_passed_through(self, label: str) -> None:
         raw = _fake_llm_output(sentiment_value=label)
         result = _validate_llm_output(raw)
         assert result["sentiment"] == label
@@ -287,9 +285,7 @@ class TestRunNewsSummarize:
         mock_session = MagicMock()
 
         with (
-            patch(
-                "app.database.database_manager"
-            ) as mock_db,
+            patch("app.database.database_manager") as mock_db,
             patch(
                 "app.services.macro.macro_news_summary.generate_country_summaries",
                 return_value=fake_results,
@@ -325,9 +321,7 @@ class TestRunNewsSummarize:
         mock_session = MagicMock()
 
         with (
-            patch(
-                "app.database.database_manager"
-            ) as mock_db,
+            patch("app.database.database_manager") as mock_db,
             patch(
                 "app.services.macro.macro_news_summary.generate_country_summaries",
                 return_value=fake_results,
@@ -373,9 +367,7 @@ class TestRunNewsSummarize:
         mock_session = MagicMock()
 
         with (
-            patch(
-                "app.database.database_manager"
-            ) as mock_db,
+            patch("app.database.database_manager") as mock_db,
             patch(
                 "app.services.macro.macro_news_summary.generate_country_summaries",
                 return_value=fake_results,
@@ -422,9 +414,7 @@ class TestRunNewsSummarize:
         mock_session = MagicMock()
 
         with (
-            patch(
-                "app.database.database_manager"
-            ) as mock_db,
+            patch("app.database.database_manager") as mock_db,
             patch(
                 "app.services.macro.macro_news_summary.generate_country_summaries",
                 return_value=fake_results,

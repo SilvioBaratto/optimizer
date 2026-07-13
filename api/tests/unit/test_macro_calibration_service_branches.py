@@ -137,7 +137,9 @@ class TestBuildMacroSummaryForecastRows:
         from app.services.macro.macro_calibration import _build_macro_summary
 
         repo = _make_repo(
-            indicators=[_make_indicator(gdp_growth_6m=2.0, inflation_6m=2.5, earnings_12m=7.0)],
+            indicators=[
+                _make_indicator(gdp_growth_6m=2.0, inflation_6m=2.5, earnings_12m=7.0)
+            ],
             te_rows=[_make_te_row()],
         )
         result = _build_macro_summary(repo, "USA")
@@ -173,7 +175,9 @@ class TestBuildMacroSummaryTETable:
     def test_when_te_value_is_none_then_row_skipped(self) -> None:
         from app.services.macro.macro_calibration import _build_macro_summary
 
-        repo = _make_repo(te_rows=[_make_te_row(indicator_key="manufacturing_pmi", value=None)])
+        repo = _make_repo(
+            te_rows=[_make_te_row(indicator_key="manufacturing_pmi", value=None)]
+        )
         result = _build_macro_summary(repo, "USA")
         assert "### Economic Indicators" not in result
 
@@ -301,7 +305,9 @@ class TestClassifyMacroRegimeCacheBranch:
                 "app.services.macro.macro_calibration.MacroRegimeRepository",
                 return_value=mock_repo,
             ),
-            patch("app.services.macro.macro_calibration.b.ClassifyMacroRegime") as mock_llm,
+            patch(
+                "app.services.macro.macro_calibration.b.ClassifyMacroRegime"
+            ) as mock_llm,
         ):
             result = classify_macro_regime(mock_session, country="USA")
 
@@ -390,9 +396,7 @@ class TestClassifyMacroRegimeUpsert:
                 return_value=mock_raw,
             ),
         ):
-            classify_macro_regime(
-                mock_session, macro_summary_override=self._SUMMARY
-            )
+            classify_macro_regime(mock_session, macro_summary_override=self._SUMMARY)
 
         mock_repo.upsert_macro_calibration.assert_not_called()
 
@@ -585,49 +589,3 @@ class TestRunBulkCalibrate:
 
         assert result["countries_processed"] == 0
         assert result["error_count"] == 0
-
-
-# ---------------------------------------------------------------------------
-# build_bl_config_from_calibration — views kwarg branch
-# ---------------------------------------------------------------------------
-
-
-class TestBuildBlConfigViews:
-    def _make_result(self) -> object:
-        from app.services.macro.macro_calibration import CalibrationResult
-
-        return CalibrationResult(
-            phase=BusinessCyclePhase.MID_EXPANSION,
-            delta=2.75,
-            tau=0.025,
-            confidence=0.80,
-            rationale="Test.",
-            macro_summary="Test summary.",
-        )
-
-    def test_when_views_provided_then_views_list_in_config(self) -> None:
-        from app.services.macro.macro_calibration import (
-            build_bl_config_from_calibration,
-        )
-
-        result = self._make_result()
-        cfg = build_bl_config_from_calibration(result, views=("AAPL == 0.02", "MSFT == -0.01"))  # type: ignore[arg-type]
-        assert cfg["views"] == ["AAPL == 0.02", "MSFT == -0.01"]
-
-    def test_when_no_views_then_empty_list(self) -> None:
-        from app.services.macro.macro_calibration import (
-            build_bl_config_from_calibration,
-        )
-
-        result = self._make_result()
-        cfg = build_bl_config_from_calibration(result)
-        assert cfg["views"] == []
-
-    def test_cov_estimator_is_ledoit_wolf(self) -> None:
-        from app.services.macro.macro_calibration import (
-            build_bl_config_from_calibration,
-        )
-
-        result = self._make_result()
-        cfg = build_bl_config_from_calibration(result)
-        assert cfg["prior_config"]["cov_estimator"] == "ledoit_wolf"

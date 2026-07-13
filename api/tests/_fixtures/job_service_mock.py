@@ -1,11 +1,11 @@
-"""Reusable mock for module-level ``BackgroundJobService`` instances (issue #806).
+"""Reusable mock for module-level ``BackgroundJobService`` instances.
 
-``BackgroundJobService`` is instantiated at module level in route files
-(e.g. ``_job_service``, ``_factor_job_service``) and uses
-``database_manager.get_session`` — bypassing FastAPI DI and the SQLite test
-session.  Tests must therefore patch the **live instance's methods**, not the
-class.  This helper patches ``create_job`` / ``get_job`` / ``start_background``
-on a dotted instance path so route tests stop re-deriving patch targets.
+``BackgroundJobService`` is instantiated at module level in
+``app.services.jobs.scheduler`` (``_yfinance_jobs``, ``_macro_jobs``, …) and opens
+its own sessions via ``database_manager.get_session`` — so it bypasses the SQLite
+test session entirely. Tests must patch the **live instance's methods**, not the
+class. This helper patches ``create_job`` / ``get_job`` / ``start_background`` on a
+dotted instance path so tests stop re-deriving patch targets.
 """
 
 from __future__ import annotations

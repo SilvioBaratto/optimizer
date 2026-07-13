@@ -12,16 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /venv
 ENV PATH=/venv/bin:$PATH
 
-# Install API dependencies before copying app code (layer cache)
+# Install dependencies before copying app code (layer cache)
 COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install optimizer library as a regular package (source lands in site-packages)
-COPY pyproject.toml README.md ./
-COPY optimizer/ optimizer/
-RUN pip install --no-cache-dir .
-
-# Copy API source and regenerate BAML client from baml_src/
+# Copy source and regenerate the BAML client from baml_src/
 COPY api/ api/
 WORKDIR /build/api
 RUN baml-cli generate
@@ -38,15 +33,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN useradd -m -u 1000 appuser
 
-# Virtualenv (includes all packages + scripts: uvicorn, alembic, baml-cli)
+# Virtualenv (includes all packages + scripts: alembic, baml-cli)
 COPY --from=builder /venv /venv
 
-# Application code with generated baml_client already in place
+# Application code with the generated baml_client already in place
 COPY --from=builder /build/api/ ./api/
-
-# ``app/services/pipeline_builder/steps.py`` resolves ``parents[4]`` to
-# ``/app`` and requires ``research/__init__.py`` to be present there.
-COPY research/ ./research/
 
 COPY api/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh \
@@ -57,10 +48,11 @@ ENV PATH=/venv/bin:$PATH
 USER appuser
 WORKDIR /app/api
 
-EXPOSE 8000
+# Prometheus metrics — also the healthcheck target
+EXPOSE 9000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:9000/metrics').read()"
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "app.worker"]

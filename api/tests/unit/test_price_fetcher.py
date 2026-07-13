@@ -194,56 +194,6 @@ class TestFetchClosePricesEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# attribution_service — uses YFinanceRepository (not raw SQL)
-# ---------------------------------------------------------------------------
-
-
-class TestAttributionServiceUsesRepository:
-    """_fetch_ticker_returns must not use raw session.execute(select(Instrument))."""
-
-    def test_uses_repository_not_raw_sql(self) -> None:
-        """Repository get_instrument_by_yfinance_ticker called, not session.execute."""
-        from app.services.attribution.attribution_service import _fetch_ticker_returns
-
-        repo = MagicMock()
-        inst = MagicMock()
-        inst.id = "inst-1"
-        repo.get_instrument_by_yfinance_ticker.return_value = inst
-
-        rows = [
-            _make_row(date(2024, 1, 2), 100.0),
-            _make_row(date(2024, 1, 5), 110.0),
-        ]
-        repo.get_price_history.return_value = rows
-
-        session = MagicMock()
-
-        with _patch_repo_attribution(repo):
-            result = _fetch_ticker_returns(
-                session, ["AAPL"], date(2024, 1, 2), date(2024, 1, 5)
-            )
-
-        repo.get_instrument_by_yfinance_ticker.assert_called_once_with("AAPL")
-        # session.execute must NOT be called for instrument lookup
-        session.execute.assert_not_called()
-        assert result["AAPL"] == pytest.approx(0.1)
-
-    def test_missing_ticker_skipped(self) -> None:
-        from app.services.attribution.attribution_service import _fetch_ticker_returns
-
-        repo = MagicMock()
-        repo.get_instrument_by_yfinance_ticker.return_value = None
-        session = MagicMock()
-
-        with _patch_repo_attribution(repo):
-            result = _fetch_ticker_returns(
-                session, ["UNKNOWN"], date(2024, 1, 2), date(2024, 1, 5)
-            )
-
-        assert result == {}
-
-
-# ---------------------------------------------------------------------------
 # Patch helpers
 # ---------------------------------------------------------------------------
 
@@ -253,14 +203,5 @@ def _patch_repo(repo: MagicMock):
 
     return patch(
         "app.services._shared._price_fetcher.YFinanceRepository",
-        return_value=repo,
-    )
-
-
-def _patch_repo_attribution(repo: MagicMock):
-    from unittest.mock import patch
-
-    return patch(
-        "app.services.attribution.attribution_service.YFinanceRepository",
         return_value=repo,
     )

@@ -167,7 +167,9 @@ class TestTimed:
 
         repo = _minimal_repo()
         yf_client = _minimal_yf_client()
-        service = YFinanceDataService(repo=repo, yf_client=yf_client, request_timeout=5.0)
+        service = YFinanceDataService(
+            repo=repo, yf_client=yf_client, request_timeout=5.0
+        )
 
         sentinel = object()
         fn = lambda: sentinel  # noqa: E731
@@ -613,9 +615,7 @@ class TestSerialBulkFetch:
             patch(
                 "app.services.market_data.yfinance_data_service.YFinanceRepository"
             ) as MockRepo,
-            patch(
-                "app.services.market_data.yfinance_data_service.YFinanceDataService"
-            ),
+            patch("app.services.market_data.yfinance_data_service.YFinanceDataService"),
             patch("app.config.settings") as mock_settings,
         ):
             db_mgr.get_session.return_value = self._fake_session_ctx(session)
@@ -655,7 +655,9 @@ class TestSerialBulkFetch:
         ):
             db_mgr.get_session.return_value = self._fake_session_ctx(session)
             mock_repo_inst = MockRepo.return_value
-            mock_repo_inst.get_instruments_with_yfinance_ticker.return_value = [good_inst]
+            mock_repo_inst.get_instruments_with_yfinance_ticker.return_value = [
+                good_inst
+            ]
             mock_svc_inst = MockSvc.return_value
             mock_svc_inst.fetch_and_store.side_effect = RuntimeError("crash")
             mock_settings.yfinance_request_timeout_seconds = 30
@@ -891,9 +893,7 @@ class TestReferenceIndexSeederInstrumentCreation:
         ):
             db_mgr.get_session.return_value = _fake_session_ctx(session)
 
-            result = mod.seed_reference_indices(
-                ["SPY", "QQQ"], yf_client=MagicMock()
-            )
+            result = mod.seed_reference_indices(["SPY", "QQQ"], yf_client=MagicMock())
 
         session.rollback.assert_called()
         assert len(result.errors) >= 1

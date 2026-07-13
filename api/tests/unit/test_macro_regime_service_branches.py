@@ -327,7 +327,9 @@ class TestFetchMacroNews:
 
     # Both are imported lazily inside the method body; patch at their source module.
     _YF_CLIENT_PATCH = "app.services.market_data.yfinance.get_yfinance_client"
-    _FETCHER_PATCH = "app.services.market_data.yfinance.news.macro_news.MacroNewsFetcher"
+    _FETCHER_PATCH = (
+        "app.services.market_data.yfinance.news.macro_news.MacroNewsFetcher"
+    )
 
     def _mock_yf_client(self) -> MagicMock:
         client = MagicMock()

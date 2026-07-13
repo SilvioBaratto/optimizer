@@ -2,7 +2,7 @@
 Test Suite
 ==========
 
-This package contains all tests for the FastAPI application.
+This package contains all tests for the ingestion daemon.
 
 Test Structure
 --------------
