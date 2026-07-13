@@ -16,22 +16,24 @@ These must be loaded proactively, not on request. Any work involving financial d
 Python-only repository. Two shipped things:
 
 - **`optimizer/`** — Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based). Published to PyPI as **`portopt`**
-- **`api/`** — FastAPI application (app factory in `api/app/main.py`, runs on port 8000). Ingests market/fundamental/macro data into PostgreSQL and serves the library over `/api/v1/`
+- **`api/`** — Headless **ingestion daemon**. APScheduler in-process, no HTTP API. Fetches market / fundamental / macro data into PostgreSQL on a schedule. Entrypoint `api/app/worker.py`; manual runs via `api/app/cli.py`
+
+The two do not depend on each other. `api/` does **not** import `optimizer`, and the API image carries no sklearn/skfolio/scipy stack.
 
 Supporting directories:
 
-- **`tests/`** — library test suite (mirrors `optimizer/` submodules)
-- **`api/tests/`** — API test suite (SQLite in-memory)
-- **`scheduler/`** — shell drivers for the ingestion pipeline (`fetch.sh`, `refetch_all.sh`, `smoke.sh`)
+- **`tests/`** — library test suite (mirrors `optimizer/` submodules) + `tests/scheduler/` (shell-wrapper contract)
+- **`api/tests/`** — daemon test suite (SQLite in-memory)
+- **`scheduler/`** — thin shell wrappers over the CLI (`fetch.sh`, `refetch_all.sh`)
 - **`scripts/`** — CI helpers (`check_branch_coverage.py`)
 
-There is **no frontend, no docs site, no `examples/`, no `research/`, and no `cli/`** in this repo. They were deleted in the strip (branch `refactor/strip-to-ingestion-pipeline`). If you find a reference to any of them, it is a leftover — delete it rather than reviving the dependency.
+There is **no frontend, no docs site, no `examples/`, no `research/`, no `cli/`, and no HTTP API**. They were deleted in the strip (branch `refactor/strip-to-ingestion-pipeline`). If you find a reference to any of them — a route, a `TestClient`, `uvicorn`, `app.main`, `/api/v1/` — it is a leftover; delete it rather than reviving the dependency.
 
 ## Build & Run Commands
 
 ```bash
 # Infrastructure
-docker compose up -d              # PostgreSQL (54320) + Adminer (18081) + API (8005)
+docker compose up -d              # PostgreSQL (54320) + Adminer (18081) + scheduler (metrics 9000)
 
 # Optimizer library (root)
 pip install -e ".[dev]"           # Install optimizer + dev deps
@@ -51,11 +53,17 @@ make coverage                     # pytest with HTML coverage in htmlcov/
 make all                          # lint + typecheck + test
 make clean                        # remove caches, coverage, egg-info
 
-# API
+# Ingestion daemon
 cd api && pip install -r requirements.txt
 alembic upgrade head              # Run migrations
-uvicorn app.main:app --reload     # Start dev server on :8000
-cd api && pytest                  # API tests
+python -m app.worker              # Run the daemon (blocks; SIGTERM to stop)
+cd api && pytest                  # Daemon tests
+
+# Manual ingestion runs (same job-slot / heartbeat path as the scheduler)
+docker compose exec scheduler python -m app.cli daily
+docker compose exec scheduler python -m app.cli refetch-all
+docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
+# also: universe | macro | fred | news | summarize | calibrate | reference-indices
 
 # BAML (regenerate after editing api/baml_src/)
 cd api && baml-cli generate
@@ -69,11 +77,11 @@ cd api && baml-cli generate
 |-----|-------|
 | `lint` | `ruff check optimizer/ tests/` → `ruff format --check` → `pip-audit --strict` |
 | `typecheck` | `mypy optimizer/` |
-| `pyright` | `pyright` |
+| `pyright` | `pyright` (scoped to `optimizer/` only) |
 | `test` | `pytest tests/` with `--cov=optimizer --cov-fail-under=90`, then `scripts/check_branch_coverage.py coverage.xml 0.80` |
 | `api-test` | `pytest api/tests/` with `--cov=app --cov-fail-under=80`, then the same branch-coverage gate |
 
-Other workflows: `smoke.yml` (boots db+api, drives `scheduler/smoke.sh`) and `release.yml` (on `v*` tags).
+Other workflows: `release.yml` (on `v*` tags). There is no `smoke.yml` — it drove `/optimize` and `/backtest`, which no longer exist.
 
 **Dependencies**: the library's runtime deps live in the root `pyproject.toml` `[project.dependencies]` — CI installs via `pip install -e ".[dev]"`. The API's deps live in `api/requirements.txt`, installed separately by the `api-test` job and by `api/Dockerfile`. There is no root `requirements.txt`; add library deps to `pyproject.toml` and API deps to `api/requirements.txt`.
 
@@ -241,114 +249,173 @@ Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`
 - **`Pipeline` is rejected by `online_predict` / `OnlineGridSearch`** — skfolio routes `partial_fit` through a single estimator and cannot route through `Pipeline`. Apply pre-selection to `X` upstream before passing to online wrappers
 - **Walk-forward CV cannot vary constraints per fold** — regime-dependent sector bands are fixed for a whole run; a backtest is single-regime, not per-rebalance
 
-### API Layer (`api/app/`)
+### Ingestion Daemon (`api/app/`)
 
-Domain-folder architecture: **Routes → Services → Repositories → Models → Schemas**
-
-Each layer is organized into domain sub-folders + `_shared/` for cross-cutting utilities:
+Headless. **No HTTP API, no FastAPI, no routes.** Layering is
+**Scheduler/CLI → Services → Repositories → Models**, with `_shared/` in each layer
+for cross-cutting code.
 
 | Layer | Path | Domains |
 |-------|------|---------|
-| Routes | `api/app/api/v1/` | `attribution`, `backtest`, `dashboard`, `factors`, `jobs`, `macro`, `market_data`, `optimization`, `portfolio`, `rebalancing`, `reports`, `risk`, `scenarios`, `universe`, `views` |
-| Services | `api/app/services/` | same as routes, plus `infrastructure` |
-| Repositories | `api/app/repositories/` | `dashboard`, `execution`, `factors`, `jobs`, `macro`, `market_data`, `portfolio`, `rebalancing`, `risk`, `universe`, `views` |
-| Models | `api/app/models/` | `auth`, `execution`, `factors`, `jobs`, `macro`, `market_data`, `portfolio`, `rebalancing`, `risk`, `universe` |
-| Schemas | `api/app/schemas/` | same as routes |
+| Entrypoints | `api/app/` | `worker.py` (daemon), `cli.py` (manual runs) |
+| Services | `api/app/services/` | `jobs`, `macro`, `market_data`, `universe`, `infrastructure`, `_shared` |
+| Repositories | `api/app/repositories/` | `jobs`, `macro`, `market_data`, `universe`, `_shared` |
+| Models | `api/app/models/` | `jobs`, `macro`, `market_data`, `universe`, `_shared` |
+| Schemas | `api/app/schemas/` | `jobs`, `macro`, `market_data`, `universe`, `_shared` |
+
+With the HTTP layer gone, schemas are no longer request/response bodies — they are the
+typed argument objects the scheduler and CLI pass into service functions
+(`YFinanceFetchRequest`, `MacroFetchRequest`, `UniverseBuildRequest`) plus the progress
+payloads those services report back. `app/schemas/__init__.py` deliberately re-exports
+nothing; import from the domain module.
 
 **Conventions**:
-- `_shared/` subdirectory in each layer holds cross-cutting code (base classes, mixins, common utilities)
-- File naming: snake_case, mirroring the domain (e.g. `services/macro/macro_service.py`)
-- All routes under `/api/v1/`
-- Synchronous SQLAlchemy sessions (`Session`, not `AsyncSession`)
+- Synchronous SQLAlchemy sessions (`Session`, not `AsyncSession`). Everything opens its own session via `database_manager.get_session` — there is no request scope
 - Repository pattern — all DB queries through typed repositories
-- BAML — LLM function definitions in `api/baml_src/`, generated client in `api/baml_client/` (do not edit generated files)
+- BAML — LLM function definitions in `api/baml_src/`, generated client in `api/baml_client/` (do not edit generated files). Only two functions survive: `SummarizeCountryNews` and `ClassifyMacroRegime`
 - PostgreSQL 16 on port **54320** (not 5432). Connection: `postgresql://postgres:postgres@localhost:54320/optimizer_db`
-- The library is configured by the root `pyproject.toml`; the API by `api/requirements.txt` + `api/pyproject.toml`
-- There was a `pipeline_builder` domain (a session-scoped portfolio wizard wrapping `research.pipeline.*`). It was removed with `research/` — do not reintroduce references to it
+- The library is configured by the root `pyproject.toml`; the daemon by `api/requirements.txt` + `api/pyproject.toml`
+- **Do not reintroduce `optimizer` as an API dependency.** The daemon ingests; it does not optimize
+
+**Import-cycle gotcha**: `app/services/_shared/__init__.py` must NOT re-export `bootstrap_benchmarks`. `_benchmark_bootstrap` imports `market_data.reference_index_seeder`, which imports back into `_shared` for `ProgressCallback` — re-exporting makes that cycle load-bearing on import order. Import it from the module: `from app.services._shared._benchmark_bootstrap import bootstrap_benchmarks`.
 
 ### Scheduler & Background Jobs
 
-APScheduler runs inside the FastAPI process (started in lifespan), with a `SQLAlchemyJobStore` so misfired runs execute at next startup within a configurable grace window.
+APScheduler runs in-process inside `app/worker.py`, with a `SQLAlchemyJobStore` so misfired
+runs execute at next startup within a configurable grace window.
 
-**Five scheduled jobs** (all configurable via `SCHEDULER_*` env vars):
+**Seven scheduled jobs** (cron schedules configurable via `SCHEDULER_*` env vars):
 
 | Job | Trigger | Default | Description |
 |-----|---------|---------|-------------|
-| `daily_pipeline` | Cron | `0 7 * * *` | Sequential: yfinance → macro → news → summarize → calibrate |
+| `daily_pipeline` | Cron | `0 7 * * *` | Sequential: ref-indices → yfinance → macro → news → summarize → calibrate |
 | `midday_news` | Cron | `0 14 * * *` | Afternoon news + summarize refresh |
+| `universe_build` | Cron | `0 2 * * 0` | Trading 212 instrument-universe rebuild |
 | `weekly_refetch` | Cron | `0 3 * * 0` | Full yfinance + macro rebuild (5-year history) |
 | `fred_monthly` | Cron | `0 8 1 * *` | FRED economic data fetch |
 | `news_refresh` | Interval | Every 30 min | Incremental news re-summarization |
+| `orphan_reaper` | Interval | Every 300s | Fails jobs whose worker died without a terminal status |
 
-**BackgroundJobService** (`api/app/services/jobs/background_job.py`) — instantiated once per job domain (e.g. `macro_fetch`, `fred_fetch`, `yfinance_fetch`) at module level in route files:
+`universe_build` is scheduled **before** `weekly_refetch` on purpose: every other step
+iterates the `instruments` table, so a stale universe silently caps what yfinance fetches.
+
+**Composable steps**: `scheduler.py` exposes one public function per step
+(`run_yfinance_step`, `run_macro_step`, `run_fred_step`, `run_news_step`,
+`run_summarize_step`, `run_calibrate_step`, `run_universe_step`,
+`refresh_reference_indices`). Each returns `True` only on completion. The scheduled
+pipelines and the CLI both compose these, so a manual run takes the identical
+job-slot / heartbeat / progress path. **Add new work as a step, not as a CLI-only branch.**
+
+**BackgroundJobService** (`api/app/services/jobs/background_job.py`) — one instance per job
+domain, at module level in `scheduler.py`:
 - `create_job()` — atomically claims a slot; raises `JobAlreadyRunningError` if one is already pending/running
-- `get_job(job_id)` → dict — returns job state for polling endpoints
-- `update_job(job_id, **kwargs)` — updates status, progress, errors
-- `start_background(target, args)` — launches worker in daemon thread
+- `get_job(job_id)` → dict; `update_job(job_id, **kwargs)` — status, progress, errors
+- `start_background(target, args)` — daemon thread + heartbeat companion
 
-**Route pattern for async work** (used in `macro/macro_regime.py`, `market_data/yfinance_data.py`, `macro/macro_calibration.py`, `universe/trading212.py`):
-1. Module-level `_job_service = BackgroundJobService(job_type="...", session_factory=database_manager.get_session)`
-2. POST endpoint → `create_job()` → `start_background(wrapper_fn)` → return `202 + job_id`
-3. Wrapper function: set `status="running"` → call service function with `on_progress=make_progress(job_id, svc)` → catch errors → set `status="completed"` or `"failed"`
-4. GET endpoint → `get_job(job_id)` → return progress
+**Gotcha — synchronous steps need an explicit heartbeat.** Only the heartbeat thread stamps
+`last_heartbeat_at`; `update_job` never does. A step run synchronously in the scheduler
+thread (i.e. not via `start_background`) and outliving `SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS`
+(300s) gets falsely reaped mid-run and flips to `failed` while still working — both the
+yfinance fetch and the reference-index seed exceed that. `scheduler._heartbeat()` is the
+shared context manager for this; `_run_step` and `refresh_reference_indices` both use it.
+**Any new synchronous step must wrap its work in it.**
 
-**Progress callback**: `make_progress(job_id, job_svc)` in `api/app/services/_shared/_progress.py` returns a closure forwarding kwargs to `update_job`. Service functions accept `on_progress=` to report `current=`, `total=`, `current_country=`, etc.
+**Gotcha — the reaper is host-scoped.** `reconcile_orphans` fails any active row whose
+`worker_host != socket.gethostname()`. Two containers pointed at the same database will
+reap each other's jobs. Run exactly one daemon per DB.
 
-**Persistence**: `background_jobs` table (UUID PK, `job_type` + `status` composite index, JSONB `extra`/`result`/`errors` columns). Model uses `JSON().with_variant(JSONB, "postgresql")` for SQLite test compatibility.
+**Progress callback**: `make_progress(job_id, job_svc)` in `app/services/_shared/_progress.py`
+returns a closure forwarding kwargs to `update_job`. Service functions accept `on_progress=`
+to report `current=`, `total=`, `current_country=`, etc.
 
-**Observability**:
-- Prometheus metrics (`api/app/metrics.py`): counters `jobs_started_total`, `jobs_completed_total`, `jobs_failed_total`; histogram `job_duration_seconds`; gauge `jobs_in_progress` — all labeled by `domain`. Exposed at `/metrics`
-- Webhook notifications (`api/app/services/_shared/notifications.py`): Discord/Slack-compatible POST on job failure when `NOTIFICATION_WEBHOOK_URL` is set
-- Read-only jobs API: `GET /api/v1/jobs` (domain/status filtering, pagination), `GET /api/v1/jobs/{job_id}`
+**Persistence**: `background_jobs` table (UUID PK, `job_type` + `status` composite index,
+JSONB `extra`/`result`/`errors`). Model uses `JSON().with_variant(JSONB, "postgresql")` for
+SQLite test compatibility.
+
+**Observability** — logs, the `background_jobs` table, and Prometheus. There is no job-polling
+endpoint:
+- Prometheus (`api/app/metrics.py`): counters `jobs_started_total`, `jobs_completed_total`, `jobs_failed_total`; histogram `job_duration_seconds`; gauge `jobs_in_progress` — all labeled by `domain`. Served by `prometheus_client.start_http_server` on `METRICS_PORT` (default 9000); `worker.py` imports `app.metrics` eagerly so the families exist before the first job runs
+- Webhook (`app/services/_shared/notifications.py`): Discord/Slack-compatible POST on job failure when `NOTIFICATION_WEBHOOK_URL` is set
 
 ### Shared Infrastructure (`api/app/services/infrastructure/`)
 
-Generalized resilience primitives extracted from yfinance, re-exported as shims in `api/app/services/market_data/yfinance/infrastructure/`:
+Generalized resilience primitives, re-exported as shims in
+`api/app/services/market_data/yfinance/infrastructure/`:
 - **`CircuitBreaker`** — exponential backoff (2^attempt), max_attempts safety limit, service-name in errors
 - **`RateLimiter`** — thread-safe per-key delay enforcement (default 0.1s)
 - **`retry_with_backoff()`** — retry with full-jitter exponential backoff, transient error detection
 - **`LRUCache`** — in-memory TTL cache
 
-All three scrapers (`services/macro/scrapers/fred_scraper.py`, `services/macro/scrapers/ilsole_scraper.py`, `services/macro/scrapers/tradingeconomics_scraper.py`) instantiate module-level `CircuitBreaker` + `RateLimiter` from the shared package.
+All three scrapers (`services/macro/scrapers/{fred,ilsole,tradingeconomics}_scraper.py`)
+instantiate module-level `CircuitBreaker` + `RateLimiter` from the shared package.
+
+**Gotcha**: transient-error detection (`TRANSIENT_NETWORK_INDICATORS` in
+`infrastructure/retry.py`) is a **case-sensitive substring match**. `"Too Many Requests"`
+trips the breaker; `"too many requests"` does not.
+
+**yfinance client surface** (`services/market_data/yfinance/`): the facade exposes only what
+ingestion uses — `financials`, `analysis`, `holders`, `corporate_actions`, `metadata`,
+`search`, plus `fetch_info` / `fetch_history` / `bulk_download` / `fetch_prices_dataframe`.
+The `market`, `sectors`, `screener`, `calendars`, `streaming`, and `funds` sub-clients were
+deleted — they wrote nothing to the database.
 
 ### Shell Scripts (`scheduler/`)
 
-- **`fetch.sh`** — daily pipeline: health check → fire-and-poll yfinance → macro → news → summarize → calibrate (with dependency enforcement and 409 conflict handling). `MAX_POLL_SECONDS` env var (default 21600 = 6h)
-- **`refetch_all.sh`** — full re-fetch: adds universe + fred stages. `MAX_POLL_SECONDS` default 21600
-- **`smoke.sh`** — boots against the compose stack and exercises `/health`, `/api/v1/optimize`, `/api/v1/backtest`
+Thin wrappers over the CLI; step order and gating live in `scheduler.py`, not in the scripts.
+Both accept `RUNNER=docker` (default, `docker compose exec`) or `RUNNER=local`.
+
+- **`fetch.sh`** → `python -m app.cli daily`
+- **`refetch_all.sh`** → `python -m app.cli refetch-all` (universe → yfinance+macro 5y → FRED)
+
+`smoke.sh` was deleted with the endpoints it drove.
 
 ### Environment Variables
 
 Configuration via `.env` at project root:
 - `DATABASE_URL` — PostgreSQL connection string
-- `TRADING_212_API_KEY` — Trading 212 API access
+- `TRADING_212_API_KEY` — Trading 212 API access. **Absent ⇒ `universe_build` skips without claiming a job slot** (a config state, not a failure)
 - `FRED_API_KEY` — Federal Reserve Economic Data
 - `TRADING_ECONOMICS_API_KEY` — Trading Economics data
+- `OLLAMA_BASE_URL` / `OLLAMA_MODEL` — BAML LLM client (news summarize + macro calibrate)
 - `NOTIFICATION_WEBHOOK_URL` — Discord/Slack webhook for failure alerts (optional)
+- `METRICS_PORT` — Prometheus port (default `9000`); also the container healthcheck target
+- `BENCHMARK_TICKERS` — comma-separated reference indices (default: SPY,QQQ,IWM,EFA,EEM,AGG,VGK,VWO,TLT,GLD,URTH,VBINX)
 - `SCHEDULER_DAILY_PIPELINE_CRON` — 5-field cron (default `0 7 * * *`)
 - `SCHEDULER_MIDDAY_NEWS_CRON` — (default `0 14 * * *`)
+- `SCHEDULER_UNIVERSE_BUILD_CRON` — (default `0 2 * * 0`) — must precede the weekly refetch
 - `SCHEDULER_WEEKLY_REFETCH_CRON` — (default `0 3 * * 0`)
 - `SCHEDULER_FRED_MONTHLY_CRON` — (default `0 8 1 * *`)
 - `SCHEDULER_NEWS_REFRESH_INTERVAL_MIN` — minutes (default `30`)
 - `SCHEDULER_MISFIRE_GRACE_TIME_SECONDS` — (default `3600`)
-- `SCHEDULER_HEARTBEAT_CADENCE_SECONDS` — background-job worker heartbeat cadence (default `30`)
+- `SCHEDULER_HEARTBEAT_CADENCE_SECONDS` — worker heartbeat cadence (default `30`)
 - `SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS` — orphan reaper staleness threshold (default `300`)
+- `YFINANCE_FETCH_WORKERS` — parallel fetch workers, 1-16 (default `4`)
 
 ### Docker Compose
 
 - `db` — PostgreSQL 16 on host port **54320**
 - `adminer` — DB admin UI on host port **18081**
-- `api` — FastAPI on host port **8005** (port 8000 is reserved on the host). Passes all `SCHEDULER_*` and `NOTIFICATION_WEBHOOK_URL` env vars
+- `scheduler` — the daemon (`python -m app.worker`). No API port; publishes **9000** for Prometheus, which is also the healthcheck target
+
+### Database
+
+~28 tables, all ingestion. The portfolio / execution / factor / risk / rebalancing /
+api_keys tables (17 of them) were dropped by migration `d1e2f3a4b5c6`, which is
+**destructive and one-way** — its `downgrade()` raises. Restore from a pre-upgrade dump
+rather than downgrading.
 
 ### Testing
 
-**API tests** (`api/tests/`) use **SQLite in-memory** with `StaticPool`:
+**Daemon tests** (`api/tests/`) use **SQLite in-memory** with `StaticPool`:
 - SAVEPOINT pattern (`session.begin_nested()`) so `session.commit()` in app code is rolled back between tests
-- `client` fixture overrides FastAPI `get_db` dependency to inject the test session
+- There is **no `client` fixture** — no HTTP layer. Tests drive service, repository, and scheduler functions directly
+- `patched_session_factory` points `database_manager.get_session` at the test session, for code that opens its own session rather than receiving one
 
-**Gotcha — BackgroundJobService in tests**: The service uses `database_manager.get_session` (bypasses FastAPI DI), so it does NOT use the test SQLite session. Tests that trigger background job creation/polling must mock `create_job`, `get_job`, and `start_background` on the module-level service instance (e.g. `patch("app.api.v1.macro.macro_regime._summarize_job_service.create_job", ...)`).
+**Gotcha — JSONB columns**: `BackgroundJob` uses `JSON().with_variant(JSONB, "postgresql")` so SQLite tests can create the table. Do NOT use raw `JSONB` in new models that need test coverage.
 
-**Gotcha — JSONB columns**: The `BackgroundJob` model uses `JSON().with_variant(JSONB, "postgresql")` so SQLite tests can create the table. Do NOT use raw `JSONB` type in new models that need test coverage.
+**Gotcha — coverage floors**: CI enforces line ≥ 80% *and* branch ≥ 0.80 on `app/`. Protocol
+stub files are omitted in `api/pyproject.toml` — every member is a `...` body, so coverage
+emits an unreachable branch arc per stub.
 
 ### Linting & Type Checking
 
