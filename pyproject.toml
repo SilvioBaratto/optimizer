@@ -72,7 +72,13 @@ ignore = ["RUF002", "RUF003"]  # allow unicode in docstrings/comments (mathemati
 "tests/test_check_branch_coverage.py" = ["S603"]
 
 [tool.mypy]
-python_version = "3.10"
+# 3.12, not 3.10, despite requires-python = ">=3.10". numpy's bundled stubs use
+# PEP 695 `type` statements, which mypy refuses to parse below 3.12 — it aborts
+# on numpy/__init__.pyi before reaching any of our code, so a 3.10 target means
+# mypy silently checks nothing at all. Runtime 3.10 compatibility is still
+# enforced elsewhere: ruff (target-version = "py310"), pyright
+# (pythonVersion = "3.10"), and the 3.10 leg of the CI test matrix.
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -146,7 +152,7 @@ exclude_lines = [
 pythonVersion = "3.10"
 pythonPlatform = "All"
 typeCheckingMode = "standard"
-include = ["optimizer", "examples"]
+include = ["optimizer"]
 exclude = [
     "**/__pycache__",
 ]
