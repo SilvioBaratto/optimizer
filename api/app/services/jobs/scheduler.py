@@ -31,7 +31,8 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -119,6 +120,36 @@ def _resolve_benchmark_tickers() -> list[str]:
     return sorted(set(settings.benchmark_tickers))
 
 
+@contextmanager
+def _heartbeat(
+    job_svc: BackgroundJobService, job_id: str, label: str
+) -> Iterator[None]:
+    """Run the heartbeat companion for a job executed in the scheduler thread.
+
+    Steps invoked here run synchronously rather than through
+    ``start_background``, so no heartbeat thread exists for them. Only the
+    heartbeat thread stamps ``last_heartbeat_at`` — ``update_job`` never does —
+    so without this any step outliving the orphan-reaper timeout (300s) is
+    falsely reaped mid-run and its row flips to ``failed`` while the work is
+    still going. Both the multi-minute yfinance fetch and the reference-index
+    seed exceed that.
+    """
+    cadence = job_svc._heartbeat_cadence
+    stop = threading.Event()
+    thread = threading.Thread(
+        target=job_svc._run_heartbeat,
+        args=(uuid.UUID(job_id), stop, cadence),
+        daemon=True,
+        name=f"hb:sched:{label}:{job_id[:8]}",
+    )
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=2 * cadence)
+
+
 def refresh_reference_indices(
     label: str,
     *,
@@ -167,11 +198,12 @@ def refresh_reference_indices(
 
     on_progress = make_progress(job_id, _ref_index_jobs)
     try:
-        seed_reference_indices(
-            tickers,
-            get_yfinance_client(),
-            on_progress=on_progress,
-        )
+        with _heartbeat(_ref_index_jobs, job_id, "refidx"):
+            seed_reference_indices(
+                tickers,
+                get_yfinance_client(),
+                on_progress=on_progress,
+            )
         job = _ref_index_jobs.get_job(job_id) or {}
         if job.get("status") != "completed":
             _ref_index_jobs.update_job(
@@ -220,25 +252,10 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
     logger.info("%s: started (job %s)", label, job_id)
     job_svc.update_job(job_id, status="running")
 
-    # _run_step executes ``fn`` synchronously in the scheduler thread and
-    # does NOT go through ``start_background``, so no heartbeat companion
-    # exists. ``make_progress``/``update_job`` never stamps
-    # ``last_heartbeat_at`` (only the heartbeat thread does), so without
-    # this any step running longer than the orphan-reaper timeout (300s)
-    # is falsely reaped mid-run — e.g. the multi-minute yfinance fetch.
-    cadence = job_svc._heartbeat_cadence
-    hb_stop = threading.Event()
-    heartbeat = threading.Thread(
-        target=job_svc._run_heartbeat,
-        args=(uuid.UUID(job_id), hb_stop, cadence),
-        daemon=True,
-        name=f"hb:sched:{label}:{job_id[:8]}",
-    )
-    heartbeat.start()
-
     on_progress = make_progress(job_id, job_svc)
     try:
-        fn(*args, on_progress=on_progress)
+        with _heartbeat(job_svc, job_id, label):
+            fn(*args, on_progress=on_progress)
         job = job_svc.get_job(job_id) or {}
         if job.get("status") != "completed":
             logger.warning(
@@ -262,9 +279,6 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
         return False
-    finally:
-        hb_stop.set()
-        heartbeat.join(timeout=2 * cadence)
 
 
 # ---------------------------------------------------------------------------

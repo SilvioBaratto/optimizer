@@ -6,6 +6,7 @@ All external collaborators are patched with MagicMock.
 
 from __future__ import annotations
 
+import threading
 from contextlib import ExitStack
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -359,8 +360,10 @@ class TestRefreshReferenceIndices:
             )
         )
         mock_ref_jobs = MagicMock()
-        mock_ref_jobs.create_job.return_value = "job-1"
+        # Must be a real UUID string: the heartbeat companion parses it.
+        mock_ref_jobs.create_job.return_value = "33333333-3333-3333-3333-333333333333"
         mock_ref_jobs.get_job.return_value = {"status": "completed"}
+        mock_ref_jobs._heartbeat_cadence = 0.01
         stack.enter_context(patch(f"{M}._ref_index_jobs", mock_ref_jobs))
         return mock_resolve, mock_seed, mock_ref_jobs
 
@@ -709,3 +712,77 @@ class TestRunUniverseStep:
             run_universe_build()
 
         step.assert_called_once()
+
+
+class TestHeartbeatCompanion:
+    """Synchronous steps must heartbeat, or the orphan reaper eats them mid-run.
+
+    ``_run_step`` and ``refresh_reference_indices`` execute in the scheduler
+    thread rather than through ``start_background``, so no heartbeat thread
+    comes for free. Only the heartbeat stamps ``last_heartbeat_at`` —
+    ``update_job`` never does — so a step outliving the reaper timeout (300s)
+    gets flipped to ``failed`` while it is still working. Both the yfinance
+    fetch and the reference-index seed routinely exceed that. Observed in a
+    live run: reference_index_seed reaped at 5/12 tickers.
+    """
+
+    @staticmethod
+    def _blocking_heartbeat(_job_id, stop_event, _cadence):
+        """Stand-in for the real loop: stays alive until the caller stops it."""
+        stop_event.wait(timeout=5)
+
+    def _job_svc(self, job_id: str) -> MagicMock:
+        svc = MagicMock()
+        svc.create_job.return_value = job_id
+        svc.get_job.return_value = {"status": "completed"}
+        svc._heartbeat_cadence = 0.01
+        svc._run_heartbeat.side_effect = self._blocking_heartbeat
+        return svc
+
+    @staticmethod
+    def _hb_threads() -> list[str]:
+        return [t.name for t in threading.enumerate() if t.name.startswith("hb:sched:")]
+
+    def test_run_step_heartbeats_for_the_duration_of_the_step(self):
+        job_svc = self._job_svc("11111111-1111-1111-1111-111111111111")
+        seen: list[list[str]] = []
+
+        def fn(*_args, on_progress=None):
+            seen.append(self._hb_threads())
+
+        from app.services.jobs.scheduler import _run_step
+
+        assert _run_step("yfinance", job_svc, fn) is True
+
+        assert seen and seen[0], "no heartbeat thread ran alongside the step"
+        job_svc._run_heartbeat.assert_called_once()
+        assert not self._hb_threads(), "heartbeat outlived the step"
+
+    def test_refresh_reference_indices_heartbeats_for_the_duration_of_the_seed(self):
+        seen: list[list[str]] = []
+
+        def _seed(_tickers, _client, on_progress=None):
+            seen.append(self._hb_threads())
+
+        jobs = self._job_svc("22222222-2222-2222-2222-222222222222")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{M}._ref_index_jobs", jobs))
+            stack.enter_context(
+                patch(
+                    "app.services.market_data.reference_index_seeder"
+                    ".seed_reference_indices",
+                    _seed,
+                )
+            )
+            stack.enter_context(
+                patch("app.services.market_data.yfinance.get_yfinance_client")
+            )
+
+            from app.services.jobs.scheduler import refresh_reference_indices
+
+            assert refresh_reference_indices("test") is True
+
+        assert seen and seen[0], "reference-index seed ran with no heartbeat"
+        jobs._run_heartbeat.assert_called_once()
+        assert not self._hb_threads(), "heartbeat outlived the seed"
