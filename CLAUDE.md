@@ -375,8 +375,10 @@ Configuration via `.env` at project root:
 - `DATABASE_URL` — PostgreSQL connection string
 - `TRADING_212_API_KEY` — Trading 212 API access. **Absent ⇒ `universe_build` skips without claiming a job slot** (a config state, not a failure)
 - `FRED_API_KEY` — Federal Reserve Economic Data
-- `TRADING_ECONOMICS_API_KEY` — Trading Economics data
-- `OLLAMA_BASE_URL` / `OLLAMA_MODEL` — BAML LLM client (news summarize + macro calibrate)
+- `OLLAMA_BASE_URL` / `OLLAMA_MODEL` / `OLLAMA_API_KEY` — BAML LLM client (news summarize + macro calibrate). Read by BAML directly from `baml_src/clients.baml`, so they are deliberately absent from `app/config.py`
+
+Il Sole 24 Ore and Trading Economics are scraped from HTML — **neither takes an API key**. (`TRADING_ECONOMICS_API_KEY` appeared in the old docs and `.env.example` but nothing ever read it.)
+
 - `NOTIFICATION_WEBHOOK_URL` — Discord/Slack webhook for failure alerts (optional)
 - `METRICS_PORT` — Prometheus port (default `9000`); also the container healthcheck target
 - `BENCHMARK_TICKERS` — comma-separated reference indices (default: SPY,QQQ,IWM,EFA,EEM,AGG,VGK,VWO,TLT,GLD,URTH,VBINX)

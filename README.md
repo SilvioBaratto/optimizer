@@ -12,7 +12,9 @@ Quantitative portfolio construction and optimization built on [skfolio](https://
 The repository holds two things:
 
 - **`optimizer/`** — the pure-Python library, published to PyPI as **`portopt`**. DB-agnostic, no API keys, no I/O.
-- **`api/`** — a FastAPI backend (PostgreSQL + SQLAlchemy + APScheduler + BAML) that ingests market, fundamental, and macro data and exposes the library over HTTP.
+- **`api/`** — a headless ingestion daemon (PostgreSQL + SQLAlchemy + APScheduler + BAML) that fetches market, fundamental, and macro data into the database on a schedule. No HTTP API.
+
+The two are independent: `api/` does not import `optimizer`, and the daemon image carries none of the sklearn/skfolio stack.
 
 ## Installation
 
@@ -221,8 +223,8 @@ optimizer/            Pure-Python library (DB-agnostic, sklearn/skfolio-based)
   online/             partial_fit-based incremental workflows
   fx/                 Multi-currency conversion + FX return decomposition
 
-api/                  FastAPI backend (PostgreSQL, SQLAlchemy, APScheduler, BAML)
-scheduler/            Shell drivers for the ingestion pipeline (fetch, refetch, smoke)
+api/                  Ingestion daemon (PostgreSQL, SQLAlchemy, APScheduler, BAML)
+scheduler/            Shell wrappers over the daemon CLI (fetch, refetch)
 scripts/              CI helpers (branch-coverage gate)
 tests/                Library test suite
 ```
@@ -245,32 +247,58 @@ mypy optimizer/
 make all
 ```
 
-## Backend
+## Ingestion daemon
 
-The FastAPI app ingests market data (yfinance / Trading 212), fundamentals, and macro series (FRED, Trading Economics) into PostgreSQL, then serves optimization, backtest, risk, factor, and attribution endpoints under `/api/v1/`.
+`api/` fetches market data (yfinance / Trading 212), fundamentals, and macro series
+(FRED, Il Sole 24 Ore, Trading Economics) into PostgreSQL on a schedule. APScheduler runs
+in-process; there is no HTTP API. Job metrics are exposed to Prometheus, which is also the
+container healthcheck target.
 
 ```bash
-# PostgreSQL (host port 54320) + Adminer (18081) + API (8005)
+# PostgreSQL (host port 54320) + Adminer (18081) + scheduler (metrics 9000)
 docker compose up -d
+docker compose logs -f scheduler
 
-# Or run the API directly
+# Or run the daemon directly
 cd api && pip install -r requirements.txt
 alembic upgrade head
-uvicorn app.main:app --reload     # http://localhost:8000
+python -m app.worker              # blocks until SIGTERM
 ```
+
+Seven scheduled jobs: `daily_pipeline` (07:00), `midday_news` (14:00), `universe_build`
+(Sun 02:00), `weekly_refetch` (Sun 03:00), `fred_monthly`, `news_refresh` (30 min), and
+`orphan_reaper`. Cadence is configurable via `SCHEDULER_*` env vars.
+
+Any step can be run by hand through the same job-slot and heartbeat path the scheduler
+uses — so a manual run is refused rather than double-fetching if the scheduler is already
+running that step:
+
+```bash
+docker compose exec scheduler python -m app.cli daily
+docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
+# also: refetch-all | universe | macro | fred | news | summarize | calibrate |
+#       reference-indices
+```
+
+Run **exactly one daemon per database**: the orphan reaper fails any active job whose
+worker host is not its own, so two instances will reap each other's jobs.
+
+See `api/README.md` for the full picture.
 
 ### Environment Variables
 
-Copy `.env.example` to `.env` and fill in your API keys:
+Copy `api/.env.example` to `.env` and fill in your keys:
 
 | Variable | Description |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `FRED_API_KEY` | Federal Reserve Economic Data |
-| `TRADING_212_API_KEY` | Trading 212 portfolio access |
-| `TRADING_ECONOMICS_API_KEY` | Trading Economics macro data |
+| `TRADING_212_API_KEY` / `TRADING_212_SECRET_KEY` / `TRADING_212_MODE` | Trading 212 instrument universe. Absent ⇒ `universe_build` skips |
+| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | BAML LLM client — news summarization and macro-regime calibration |
+| `METRICS_PORT` | Prometheus port (default `9000`) |
 | `NOTIFICATION_WEBHOOK_URL` | Discord/Slack webhook for job-failure alerts (optional) |
 
+Il Sole 24 Ore and Trading Economics are scraped from HTML and need no key.
 Scheduler cadence is configurable via `SCHEDULER_*` env vars — see `CLAUDE.md`.
 
 ## Disclaimer
