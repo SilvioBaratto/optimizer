@@ -88,9 +88,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-      # api/app imports the root optimizer library (`from optimizer...`), so the
-      # editable root install must precede the api requirements.
-      - run: pip install -e .
+      # The ingestion daemon does NOT import the optimizer library. Installing
+      # only api/requirements.txt keeps that decoupling enforced: if anything
+      # under api/app grows a `from optimizer ...` import, this job fails.
       - run: pip install -r api/requirements.txt
       # --cov-report=xml:coverage.xml writes api/coverage.xml (the `cd api`
       # scope only covers this step). --cov-fail-under=80 is the fast blended
