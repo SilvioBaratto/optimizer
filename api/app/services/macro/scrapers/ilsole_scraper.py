@@ -105,7 +105,16 @@ class IlSoleScraper:
         self.session = requests.Session()
         self.session.headers.update(
             {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                # Pin the encoding rather than inherit requests' default, which
+                # silently becomes "gzip, deflate, br" as soon as brotli is
+                # importable anywhere on sys.path. No brotli decoder ships with
+                # this image, so a "br" response body would arrive undecodable,
+                # every parse would match 0 rows, and the circuit breaker would
+                # latch open — exactly the failure that froze the Trading
+                # Economics table for 16 days (see tradingeconomics_scraper).
+                # gzip/deflate are decoded by requests natively.
+                "Accept-Encoding": "gzip, deflate",
             }
         )
 
