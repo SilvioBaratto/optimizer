@@ -136,8 +136,11 @@ node_modules/
 frontend/dist/
 frontend/.angular/
 
-# Claude Code
-.claude/
+# Claude Code — local config stays out of git (settings.local.json, worktrees),
+# but project skills are shared with the team and must be tracked.
+.claude/*
+!.claude/skills/
+.claude/skills/**/evals/
 
 # Playwright MCP
 .playwright-mcp/
