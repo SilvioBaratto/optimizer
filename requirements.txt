@@ -36,6 +36,7 @@ pybind11==3.0.4
 
 # Skfolio
 skfolio==0.20.1
+hmmlearn==0.3.3
 
 # Templating (research report renderer)
 jinja2==3.1.6

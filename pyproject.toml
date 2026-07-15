@@ -32,6 +32,7 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "skfolio>=0.20.1",
     "jinja2>=3.1.6",
+    "hmmlearn>=0.3.3",
 ]
 
 [project.urls]
