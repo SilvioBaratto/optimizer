@@ -230,6 +230,30 @@ class YFinanceRepository(RepositoryBase):
         stmt = select(TickerProfile).where(TickerProfile.instrument_id == instrument_id)
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def get_sectors_by_yfinance_ticker(self, tickers: Sequence[str]) -> dict[str, str]:
+        """Return ``{yfinance_ticker: sector}`` for the given tickers.
+
+        Joins ``TickerProfile`` to ``Instrument`` on ``instrument_id`` and keys the
+        result by ``Instrument.yfinance_ticker``. Rows whose sector is NULL/empty are
+        omitted, so a caller can treat "absent" uniformly as unknown.
+
+        Lives here rather than in the calling service: the query spans two ORM models,
+        and a service building it would have to import those models directly — a core
+        file reaching past the repository into the persistence layer.
+        """
+        if not tickers:
+            return {}
+        stmt = (
+            select(Instrument.yfinance_ticker, TickerProfile.sector)
+            .join(TickerProfile, TickerProfile.instrument_id == Instrument.id)
+            .where(Instrument.yfinance_ticker.in_(list(tickers)))
+        )
+        return {
+            row.yfinance_ticker: row.sector
+            for row in self.session.execute(stmt).all()
+            if row.sector
+        }
+
     # ------------------------------------------------------------------
     # Price History
     # ------------------------------------------------------------------

@@ -22,11 +22,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.market_data.yfinance_data import TickerProfile
-from app.models.universe.universe import Instrument
+from app.repositories.market_data.yfinance_repository import YFinanceRepository
 
 UNCLASSIFIED = "Unclassified"
 
