@@ -67,13 +67,4 @@ def _fetch_from_profiles(
     tickers: list[str],
 ) -> dict[str, str]:
     """Join ``TickerProfile`` via ``Instrument.yfinance_ticker`` — skip NULL sectors."""
-    stmt = (
-        select(Instrument.yfinance_ticker, TickerProfile.sector)
-        .join(TickerProfile, TickerProfile.instrument_id == Instrument.id)
-        .where(Instrument.yfinance_ticker.in_(tickers))
-    )
-    return {
-        row.yfinance_ticker: row.sector
-        for row in session.execute(stmt).all()
-        if row.sector
-    }
+    return YFinanceRepository(session).get_sectors_by_yfinance_ticker(tickers)
