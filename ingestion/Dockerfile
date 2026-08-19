@@ -13,12 +13,12 @@ RUN python -m venv /venv
 ENV PATH=/venv/bin:$PATH
 
 # Install dependencies before copying app code (layer cache)
-COPY api/requirements.txt .
+COPY ingestion/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source and regenerate the BAML client from baml_src/
-COPY api/ api/
-WORKDIR /build/api
+COPY ingestion/ ingestion/
+WORKDIR /build/ingestion
 RUN baml-cli generate
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
@@ -37,16 +37,16 @@ RUN useradd -m -u 1000 appuser
 COPY --from=builder /venv /venv
 
 # Application code with the generated baml_client already in place
-COPY --from=builder /build/api/ ./api/
+COPY --from=builder /build/ingestion/ ./ingestion/
 
-COPY api/entrypoint.sh /entrypoint.sh
+COPY ingestion/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh \
     && chown -R appuser:appuser /app /entrypoint.sh
 
 ENV PATH=/venv/bin:$PATH
 
 USER appuser
-WORKDIR /app/api
+WORKDIR /app/ingestion
 
 # Prometheus metrics — also the healthcheck target
 EXPOSE 9000

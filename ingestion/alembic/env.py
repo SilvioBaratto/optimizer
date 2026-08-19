@@ -15,7 +15,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Ensure the api/ directory is on sys.path so "app" package is importable.
+# Ensure the ingestion/ directory is on sys.path so "app" package is importable.
 sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
 
 # Import app settings (loads .env via pydantic-settings) and use as single

@@ -12,9 +12,9 @@ Quantitative portfolio construction and optimization built on [skfolio](https://
 The repository holds two things:
 
 - **`optimizer/`** — the pure-Python library, published to PyPI as **`portopt`**. DB-agnostic, no API keys, no I/O.
-- **`api/`** — a headless ingestion daemon (PostgreSQL + SQLAlchemy + APScheduler + BAML) that fetches market, fundamental, and macro data into the database on a schedule. No HTTP API.
+- **`ingestion/`** — a headless ingestion daemon (PostgreSQL + SQLAlchemy + APScheduler + BAML) that fetches market, fundamental, and macro data into the database on a schedule. No HTTP API.
 
-The two are independent: `api/` does not import `optimizer`, and the daemon image carries none of the sklearn/skfolio stack.
+The two are independent: `ingestion/` does not import `optimizer`, and the daemon image carries none of the sklearn/skfolio stack.
 
 ## Installation
 
@@ -223,7 +223,7 @@ optimizer/            Pure-Python library (DB-agnostic, sklearn/skfolio-based)
   online/             partial_fit-based incremental workflows
   fx/                 Multi-currency conversion + FX return decomposition
 
-api/                  Ingestion daemon (PostgreSQL, SQLAlchemy, APScheduler, BAML)
+ingestion/            Ingestion daemon (PostgreSQL, SQLAlchemy, APScheduler, BAML)
 scheduler/            Shell wrappers over the daemon CLI (fetch, refetch)
 scripts/              CI helpers (branch-coverage gate)
 tests/                Library test suite
@@ -249,7 +249,7 @@ make all
 
 ## Ingestion daemon
 
-`api/` fetches market data (yfinance / Trading 212), fundamentals, and macro series
+`ingestion/` fetches market data (yfinance / Trading 212), fundamentals, and macro series
 (FRED, Il Sole 24 Ore, Trading Economics) into PostgreSQL on a schedule. APScheduler runs
 in-process; there is no HTTP API. Job metrics are exposed to Prometheus, which is also the
 container healthcheck target.
@@ -260,7 +260,7 @@ docker compose up -d
 docker compose logs -f scheduler
 
 # Or run the daemon directly
-cd api && pip install -r requirements.txt
+cd ingestion && pip install -r requirements.txt
 alembic upgrade head
 python -m app.worker              # blocks until SIGTERM
 ```
@@ -283,11 +283,11 @@ docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
 Run **exactly one daemon per database**: the orphan reaper fails any active job whose
 worker host is not its own, so two instances will reap each other's jobs.
 
-See `api/README.md` for the full picture.
+See `ingestion/README.md` for the full picture.
 
 ### Environment Variables
 
-Copy `api/.env.example` to `.env` and fill in your keys:
+Copy `ingestion/.env.example` to `.env` and fill in your keys:
 
 | Variable | Description |
 |---|---|

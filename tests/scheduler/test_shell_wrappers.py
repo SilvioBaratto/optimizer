@@ -26,7 +26,7 @@ FETCH = SCHEDULER_DIR / "fetch.sh"
 REFETCH = SCHEDULER_DIR / "refetch_all.sh"
 SCRIPTS = [FETCH, REFETCH]
 
-# Subcommands registered on the Typer app in api/app/cli.py.
+# Subcommands registered on the Typer app in ingestion/app/cli.py.
 CLI_COMMANDS = {
     "daily",
     "refetch-all",

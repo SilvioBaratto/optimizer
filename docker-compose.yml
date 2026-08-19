@@ -39,7 +39,7 @@ services:
     image: optimizer-scheduler:latest
     build:
       context: .
-      dockerfile: api/Dockerfile
+      dockerfile: ingestion/Dockerfile
     container_name: optimizer_scheduler
     command: ["python", "-m", "app.worker"]
     env_file:

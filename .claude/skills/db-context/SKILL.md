@@ -3,8 +3,8 @@ name: db-context
 description: >
   Complete knowledge of the optimizer PostgreSQL database: 28 ingestion tables, schema,
   relationships, live row counts, query patterns, and conventions. Load this skill proactively
-  whenever working with database models (api/app/models/), repositories (api/app/repositories/),
-  Alembic migrations (api/alembic/), SQL queries, or any code that reads from or writes to the
+  whenever working with database models (ingestion/app/models/), repositories (ingestion/app/repositories/),
+  Alembic migrations (ingestion/alembic/), SQL queries, or any code that reads from or writes to the
   database. Also load when discussing table structure, data contents, schema design, or debugging
   data issues. This skill eliminates the need to read model files for schema questions.
 ---
@@ -14,7 +14,7 @@ description: >
 PostgreSQL 16 (Alpine) in Docker on host port **54320**.
 Connection: `postgresql://postgres:postgres@localhost:54320/optimizer_db`
 
-**Every table here is ingestion.** The database is written by the headless daemon in `api/`
+**Every table here is ingestion.** The database is written by the headless daemon in `ingestion/`
 (`app/worker.py` on a schedule, `app/cli.py` by hand) and by nothing else. There is no HTTP API
 and no portfolio/optimization/backtest state — migration `d1e2f3a4b5c6` dropped those 17 tables,
 and it is one-way (its `downgrade()` raises). If you find a reference to `portfolios`,
@@ -23,7 +23,7 @@ and it is one-way (its `downgrade()` raises). If you find a reference to `portfo
 rather than reviving the table.
 
 Verified against the live database on 2026-07-11 (migration head `d1e2f3a4b5c6`). If models have
-changed since, re-read `api/app/models/__init__.py`.
+changed since, re-read `ingestion/app/models/__init__.py`.
 
 - Column-by-column schema → `references/full-schema.md`
 - Live volumes, FRED series, indicator lists → `references/data-inventory.md`
@@ -123,7 +123,7 @@ lifecycle and eager-loads).
 
 ## 3. Base Model Pattern
 
-All models inherit `BaseModel` from `api/app/models/_shared/base.py`:
+All models inherit `BaseModel` from `ingestion/app/models/_shared/base.py`:
 
 ```python
 class Base(DeclarativeBase):
@@ -220,12 +220,12 @@ larger values than the defaults above.
 ## 6. Migration Conventions
 
 ```bash
-cd api && alembic upgrade head        # apply
-cd api && alembic current             # show version
-cd api && alembic revision --autogenerate -m "add_foo_table"
+cd ingestion && alembic upgrade head        # apply
+cd ingestion && alembic current             # show version
+cd ingestion && alembic revision --autogenerate -m "add_foo_table"
 ```
 
-- **40 migrations** in `api/alembic/versions/`; current head **`d1e2f3a4b5c6`** (drop non-ingestion tables)
+- **40 migrations** in `ingestion/alembic/versions/`; current head **`d1e2f3a4b5c6`** (drop non-ingestion tables)
 - **`d1e2f3a4b5c6` is destructive and one-way** — its `downgrade()` raises rather than recreate 17
   empty tables whose rows and owning code are both gone. To go back, restore a pre-upgrade dump
 - All FKs use `ondelete="CASCADE"`; all timestamps get `server_default=sa.func.now()`
@@ -270,11 +270,11 @@ select(BackgroundJob).where(BackgroundJob.job_type == "yfinance_fetch").order_by
 
 ## 8. Adding a New Table
 
-1. **Model**: class in `api/app/models/<domain>/<file>.py` inheriting `BaseModel`
+1. **Model**: class in `ingestion/app/models/<domain>/<file>.py` inheriting `BaseModel`
 2. **UniqueConstraint**: in `__table_args__`, explicit `name="uq_<table>_<cols>"` — the upsert path needs it
 3. **Indexes**: `Index("ix_<table>_<col>", "<col>")` in `__table_args__`
-4. **Register**: import in `api/app/models/__init__.py` and add to `__all__` (Alembic autogenerate reads `Base.metadata`)
-5. **Repository**: in `api/app/repositories/<domain>/` extending `RepositoryBase`
+4. **Register**: import in `ingestion/app/models/__init__.py` and add to `__all__` (Alembic autogenerate reads `Base.metadata`)
+5. **Repository**: in `ingestion/app/repositories/<domain>/` extending `RepositoryBase`
 6. **Migration**: `alembic revision --autogenerate` → review types/constraints/indexes before applying
 7. **SQLite compat**: if the table needs JSONB, use `JSON().with_variant(JSONB, "postgresql")` or the test suite cannot create it
 
@@ -312,13 +312,13 @@ select(BackgroundJob).where(BackgroundJob.job_type == "yfinance_fetch").order_by
 ## File Locations
 
 ```
-Models:       api/app/models/{_shared,universe,market_data,macro,jobs}/
-__init__:     api/app/models/__init__.py (imports + __all__ — Alembic reads Base.metadata from here)
-Repositories: api/app/repositories/{_shared,universe,market_data,macro,jobs}/
-Database:     api/app/database.py (DatabaseManager, get_session, pool config)
-Config:       api/app/config.py (Settings, DATABASE_URL)
-Migrations:   api/alembic/versions/ (40 files, head d1e2f3a4b5c6)
-Alembic env:  api/alembic/env.py
-Writers:      api/app/services/{market_data,macro,universe}/  ← the only code that writes
+Models:       ingestion/app/models/{_shared,universe,market_data,macro,jobs}/
+__init__:     ingestion/app/models/__init__.py (imports + __all__ — Alembic reads Base.metadata from here)
+Repositories: ingestion/app/repositories/{_shared,universe,market_data,macro,jobs}/
+Database:     ingestion/app/database.py (DatabaseManager, get_session, pool config)
+Config:       ingestion/app/config.py (Settings, DATABASE_URL)
+Migrations:   ingestion/alembic/versions/ (40 files, head d1e2f3a4b5c6)
+Alembic env:  ingestion/alembic/env.py
+Writers:      ingestion/app/services/{market_data,macro,universe}/  ← the only code that writes
 Docker:       docker-compose.yml (db on 54320, scheduler on 9000)
 ```

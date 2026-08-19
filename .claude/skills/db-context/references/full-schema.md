@@ -15,7 +15,7 @@ Verified against the live database on 2026-07-11 (head `d1e2f3a4b5c6`).
 ## Core Domain
 
 ### exchanges
-**Model**: `Exchange` in `api/app/models/universe.py`
+**Model**: `Exchange` in `ingestion/app/models/universe.py`
 **Unique**: name (column-level `unique=True`)
 
 | Column | Type | Nullable | Notes |
@@ -28,7 +28,7 @@ Verified against the live database on 2026-07-11 (head `d1e2f3a4b5c6`).
 ---
 
 ### instruments
-**Model**: `Instrument` in `api/app/models/universe.py`
+**Model**: `Instrument` in `ingestion/app/models/universe.py`
 **Unique**: `uq_instrument_ticker_exchange` ON (ticker, exchange_id)
 **Indexes**: ix_instrument_exchange_id, ix_instrument_isin, ix_instrument_yfinance_ticker, ticker (column-level), delisted_at (column-level)
 
@@ -52,7 +52,7 @@ Verified against the live database on 2026-07-11 (head `d1e2f3a4b5c6`).
 ## yfinance Market Data
 
 ### ticker_profiles
-**Model**: `TickerProfile` in `api/app/models/yfinance_data.py`
+**Model**: `TickerProfile` in `ingestion/app/models/yfinance_data.py`
 **Unique**: `uq_ticker_profile_instrument` ON (instrument_id) — **1:1 relationship**
 **Indexes**: ix_ticker_profiles_sector, ix_ticker_profiles_industry, ix_ticker_profiles_country
 
@@ -144,7 +144,7 @@ Verified against the live database on 2026-07-11 (head `d1e2f3a4b5c6`).
 ---
 
 ### price_history
-**Model**: `PriceHistory` in `api/app/models/yfinance_data.py`
+**Model**: `PriceHistory` in `ingestion/app/models/yfinance_data.py`
 **Unique**: `uq_price_history_instrument_date` ON (instrument_id, date)
 **Indexes**: ix_price_history_instrument_id, ix_price_history_date
 
@@ -163,7 +163,7 @@ Verified against the live database on 2026-07-11 (head `d1e2f3a4b5c6`).
 ---
 
 ### financial_statements
-**Model**: `FinancialStatement` in `api/app/models/yfinance_data.py`
+**Model**: `FinancialStatement` in `ingestion/app/models/yfinance_data.py`
 **Unique**: `uq_financial_statement_row` ON (instrument_id, statement_type, period_type, period_date, line_item)
 **Indexes**: ix_financial_statements_instrument_id, ix_financial_statements_type_period, ix_financial_statements_period_date
 
@@ -180,7 +180,7 @@ Verified against the live database on 2026-07-11 (head `d1e2f3a4b5c6`).
 ---
 
 ### dividends
-**Model**: `Dividend` in `api/app/models/yfinance_data.py`
+**Model**: `Dividend` in `ingestion/app/models/yfinance_data.py`
 **Unique**: `uq_dividend_instrument_date` ON (instrument_id, date)
 **Indexes**: ix_dividends_instrument_id
 
@@ -193,7 +193,7 @@ Verified against the live database on 2026-07-11 (head `d1e2f3a4b5c6`).
 ---
 
 ### stock_splits
-**Model**: `StockSplit` in `api/app/models/yfinance_data.py`
+**Model**: `StockSplit` in `ingestion/app/models/yfinance_data.py`
 **Unique**: `uq_stock_split_instrument_date` ON (instrument_id, date)
 **Indexes**: ix_stock_splits_instrument_id
 
@@ -206,7 +206,7 @@ Verified against the live database on 2026-07-11 (head `d1e2f3a4b5c6`).
 ---
 
 ### analyst_recommendations
-**Model**: `AnalystRecommendation` in `api/app/models/yfinance_data.py`
+**Model**: `AnalystRecommendation` in `ingestion/app/models/yfinance_data.py`
 **Unique**: `uq_analyst_rec_instrument_period` ON (instrument_id, period)
 **Indexes**: ix_analyst_recommendations_instrument_id
 
@@ -223,7 +223,7 @@ Verified against the live database on 2026-07-11 (head `d1e2f3a4b5c6`).
 ---
 
 ### analyst_price_targets
-**Model**: `AnalystPriceTarget` in `api/app/models/yfinance_data.py`
+**Model**: `AnalystPriceTarget` in `ingestion/app/models/yfinance_data.py`
 **Unique**: `uq_analyst_pt_instrument` ON (instrument_id) — **1:1**
 **Indexes**: ix_analyst_price_targets_instrument_id
 
@@ -239,7 +239,7 @@ Verified against the live database on 2026-07-11 (head `d1e2f3a4b5c6`).
 ---
 
 ### institutional_holders
-**Model**: `InstitutionalHolder` in `api/app/models/yfinance_data.py`
+**Model**: `InstitutionalHolder` in `ingestion/app/models/yfinance_data.py`
 **Unique**: `uq_inst_holder_instrument_name` ON (instrument_id, holder_name)
 **Indexes**: ix_institutional_holders_instrument_id
 
@@ -255,7 +255,7 @@ Verified against the live database on 2026-07-11 (head `d1e2f3a4b5c6`).
 ---
 
 ### mutual_fund_holders
-**Model**: `MutualFundHolder` in `api/app/models/yfinance_data.py`
+**Model**: `MutualFundHolder` in `ingestion/app/models/yfinance_data.py`
 **Unique**: `uq_mutual_fund_holder_instrument_name` ON (instrument_id, holder_name)
 **Indexes**: ix_mutual_fund_holders_instrument_id
 
@@ -264,7 +264,7 @@ Same column structure as institutional_holders.
 ---
 
 ### insider_transactions
-**Model**: `InsiderTransaction` in `api/app/models/yfinance_data.py`
+**Model**: `InsiderTransaction` in `ingestion/app/models/yfinance_data.py`
 **Unique**: `uq_insider_tx_row` ON (instrument_id, insider_name, start_date, transaction_type)
 **Indexes**: ix_insider_transactions_instrument_id, ix_insider_transactions_start_date
 
@@ -282,7 +282,7 @@ Same column structure as institutional_holders.
 ---
 
 ### ticker_news
-**Model**: `TickerNews` in `api/app/models/yfinance_data.py`
+**Model**: `TickerNews` in `ingestion/app/models/yfinance_data.py`
 **Unique**: `uq_ticker_news_instrument_uuid` ON (instrument_id, news_uuid)
 **Indexes**: ix_ticker_news_instrument_id, ix_ticker_news_publish_time
 
@@ -303,7 +303,7 @@ Same column structure as institutional_holders.
 ## Macro Regime Domain
 
 ### economic_indicators
-**Model**: `EconomicIndicator` in `api/app/models/macro_regime.py`
+**Model**: `EconomicIndicator` in `ingestion/app/models/macro_regime.py`
 **Unique**: `uq_economic_indicator_country` ON (country)
 **Indexes**: ix_economic_indicators_country
 
@@ -323,7 +323,7 @@ Same column structure as institutional_holders.
 ---
 
 ### economic_indicator_observations
-**Model**: `EconomicIndicatorObservation` in `api/app/models/macro_regime.py`
+**Model**: `EconomicIndicatorObservation` in `ingestion/app/models/macro_regime.py`
 **Unique**: `uq_econ_obs_country_date` ON (country, date)
 **Indexes**: ix_econ_observations_country, ix_econ_observations_date
 
@@ -332,7 +332,7 @@ Same columns as economic_indicators plus `date` (Date, NOT NULL). One row per (c
 ---
 
 ### trading_economics_indicators
-**Model**: `TradingEconomicsIndicator` in `api/app/models/macro_regime.py`
+**Model**: `TradingEconomicsIndicator` in `ingestion/app/models/macro_regime.py`
 **Unique**: `uq_te_indicator_country_key` ON (country, indicator_key)
 **Indexes**: ix_trading_economics_indicators_country
 
@@ -349,7 +349,7 @@ Same columns as economic_indicators plus `date` (Date, NOT NULL). One row per (c
 ---
 
 ### trading_economics_observations
-**Model**: `TradingEconomicsObservation` in `api/app/models/macro_regime.py`
+**Model**: `TradingEconomicsObservation` in `ingestion/app/models/macro_regime.py`
 **Unique**: `uq_te_obs_country_key_date` ON (country, indicator_key, date)
 **Indexes**: ix_te_observations_country, ix_te_observations_date, ix_te_obs_country_key_date (composite)
 
@@ -363,7 +363,7 @@ Same columns as economic_indicators plus `date` (Date, NOT NULL). One row per (c
 ---
 
 ### bond_yields
-**Model**: `BondYield` in `api/app/models/macro_regime.py`
+**Model**: `BondYield` in `ingestion/app/models/macro_regime.py`
 **Unique**: `uq_bond_yield_country_maturity` ON (country, maturity)
 **Indexes**: ix_bond_yields_country
 
@@ -380,7 +380,7 @@ Same columns as economic_indicators plus `date` (Date, NOT NULL). One row per (c
 ---
 
 ### bond_yield_observations
-**Model**: `BondYieldObservation` in `api/app/models/macro_regime.py`
+**Model**: `BondYieldObservation` in `ingestion/app/models/macro_regime.py`
 **Unique**: `uq_bond_obs_country_mat_date` ON (country, maturity, date)
 **Indexes**: ix_bond_observations_country, ix_bond_observations_date, ix_bond_obs_country_maturity_date (composite)
 
@@ -394,7 +394,7 @@ Same columns as economic_indicators plus `date` (Date, NOT NULL). One row per (c
 ---
 
 ### fred_observations
-**Model**: `FredObservation` in `api/app/models/macro_regime.py`
+**Model**: `FredObservation` in `ingestion/app/models/macro_regime.py`
 **Unique**: `uq_fred_observation_series_date` ON (series_id, date)
 **Indexes**: ix_fred_observations_series_id, ix_fred_observations_date
 
@@ -407,7 +407,7 @@ Same columns as economic_indicators plus `date` (Date, NOT NULL). One row per (c
 ---
 
 ### macro_news
-**Model**: `MacroNews` in `api/app/models/macro_regime.py`
+**Model**: `MacroNews` in `ingestion/app/models/macro_regime.py`
 **Unique**: `uq_macro_news_id` ON (news_id)
 **Indexes**: ix_macro_news_publish_time
 
@@ -429,7 +429,7 @@ Same columns as economic_indicators plus `date` (Date, NOT NULL). One row per (c
 ---
 
 ### macro_news_themes
-**Model**: `MacroNewsTheme` in `api/app/models/macro_regime.py`
+**Model**: `MacroNewsTheme` in `ingestion/app/models/macro_regime.py`
 **Unique**: `uq_macro_news_theme` ON (news_id, theme)
 **Indexes**: ix_macro_news_themes_news_id, ix_macro_news_themes_theme
 
@@ -441,7 +441,7 @@ Same columns as economic_indicators plus `date` (Date, NOT NULL). One row per (c
 ---
 
 ### macro_news_summaries
-**Model**: `MacroNewsSummary` in `api/app/models/macro_regime.py`
+**Model**: `MacroNewsSummary` in `ingestion/app/models/macro_regime.py`
 **Unique**: `uq_macro_news_summary_country_date` ON (country, summary_date)
 **Indexes**: ix_macro_news_summaries_country, ix_macro_news_summaries_summary_date
 
@@ -458,7 +458,7 @@ Same columns as economic_indicators plus `date` (Date, NOT NULL). One row per (c
 ---
 
 ### macro_calibrations
-**Model**: `MacroCalibration` in `api/app/models/macro_regime.py`
+**Model**: `MacroCalibration` in `ingestion/app/models/macro_regime.py`
 **Unique**: `uq_macro_calibration_country` ON (country)
 **Indexes**: ix_macro_calibrations_country
 
@@ -477,7 +477,7 @@ Same columns as economic_indicators plus `date` (Date, NOT NULL). One row per (c
 ## Operations Domain
 
 ### background_jobs
-**Model**: `BackgroundJob` in `api/app/models/background_job.py`
+**Model**: `BackgroundJob` in `ingestion/app/models/background_job.py`
 **Indexes**: ix_background_jobs_type_status (composite), job_type (column-level)
 
 | Column | Type | Nullable | Default | Notes |
@@ -498,7 +498,7 @@ Same columns as economic_indicators plus `date` (Date, NOT NULL). One row per (c
 ---
 
 ### background_job_errors
-**Model**: `BackgroundJobError` in `api/app/models/background_job.py`
+**Model**: `BackgroundJobError` in `ingestion/app/models/background_job.py`
 **Unique**: `uq_bg_job_error_index` ON (job_id, error_index)
 **Indexes**: ix_background_job_errors_job_id
 

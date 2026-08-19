@@ -2,23 +2,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "API",
+      "name": "Ingestion Daemon",
       "type": "debugpy",
       "request": "launch",
-      "module": "uvicorn",
-      "cwd": "${workspaceFolder}/api",
-      "args": [
-        "app.main:app",
-        "--reload",
-        "--port",
-        "8001",
-        "--host",
-        "0.0.0.0",
-        "--log-level",
-        "debug"
-      ],
+      "module": "app.worker",
+      "cwd": "${workspaceFolder}/ingestion",
       "python": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
-      "jinja": true,
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal"
     }

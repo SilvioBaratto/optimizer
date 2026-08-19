@@ -22,7 +22,7 @@ case "$RUNNER" in
         exec docker compose exec -T "$SERVICE" python -m app.cli refetch-all
         ;;
     local)
-        cd "$(dirname "$0")/../api"
+        cd "$(dirname "$0")/../ingestion"
         exec python -m app.cli refetch-all
         ;;
     *)

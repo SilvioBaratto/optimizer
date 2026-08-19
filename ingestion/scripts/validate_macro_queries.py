@@ -11,9 +11,9 @@ to catch upstream search-indexing regressions early.
 
 Usage (from repo root):
 
-    python api/scripts/validate_macro_queries.py
-    python api/scripts/validate_macro_queries.py --json         # machine-readable
-    python api/scripts/validate_macro_queries.py --min-recent 2 # stricter
+    python ingestion/scripts/validate_macro_queries.py
+    python ingestion/scripts/validate_macro_queries.py --json         # machine-readable
+    python ingestion/scripts/validate_macro_queries.py --min-recent 2 # stricter
 
 The script never hits the database and makes only read-only calls to the
 live yfinance search endpoint, so it is safe to run ad hoc.
@@ -28,10 +28,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-# Add repo root + api/ to sys.path so ``app.services.*`` imports work when
-# the script is invoked directly (without installing the api package).
+# Add repo root + ingestion/ to sys.path so ``app.services.*`` imports work
+# when the script is invoked directly (without installing the ingestion package).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_REPO_ROOT / "api"))
+sys.path.insert(0, str(_REPO_ROOT / "ingestion"))
 
 import yfinance as yf
 from dateutil import parser as dateutil_parser

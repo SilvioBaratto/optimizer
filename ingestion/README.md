@@ -104,7 +104,7 @@ baml_src/          LLM functions (SummarizeCountryNews, ClassifyMacroRegime)
 ## Tests
 
 ```bash
-pytest                                              # in api/
+pytest                                              # in ingestion/
 pytest --cov=app --cov-branch --cov-fail-under=80   # CI gate (line ≥80% and branch ≥0.80)
 ```
 

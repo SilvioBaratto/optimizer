@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
-name = "optimizer-api"
+name = "optimizer-ingestion"
 version = "0.1.0"
-description = "Optimizer Platform API and CLI"
+description = "Optimizer Platform ingestion daemon and CLI"
 requires-python = ">=3.10"
 
 dependencies = [
@@ -15,7 +15,7 @@ dependencies = [
 
 # Test-only dependencies. pytest-cov is declared here (NOT in runtime
 # dependencies) so the coverage tooling is explicit in pyproject.toml as well
-# as api/requirements.txt. Pins mirror the Testing block of api/requirements.txt.
+# as ingestion/requirements.txt. Pins mirror the Testing block of ingestion/requirements.txt.
 [project.optional-dependencies]
 test = [
     "pytest==9.0.3",
@@ -108,8 +108,8 @@ module = [
 ignore_missing_imports = true
 ignore_errors = true
 
-# Coverage measured with `cd api` as cwd via `--cov=app`. source=["app"] keeps
-# alembic/ (api/alembic/, outside app/) out of scope; the omit list is explicit
+# Coverage measured with `cd ingestion` as cwd via `--cov=app`. source=["app"] keeps
+# alembic/ (ingestion/alembic/, outside app/) out of scope; the omit list is explicit
 # so the intent survives any future cwd/source change. No --cov-fail-under here
 # — the floor lands in the final CI-gate issue, keeping local runs flag-free.
 [tool.coverage.run]

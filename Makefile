@@ -29,4 +29,4 @@ clean:
 	find . -type d -name '*.egg-info' -exec rm -rf {} +
 
 contract-snapshots:
-	python api/tests/contract/emit_schemas.py
+	python ingestion/tests/contract/emit_schemas.py

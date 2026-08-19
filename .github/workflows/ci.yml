@@ -80,7 +80,7 @@ jobs:
           file: ./coverage.xml
           fail_ci_if_error: false
 
-  api-test:
+  ingestion-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -89,15 +89,16 @@ jobs:
           python-version: "3.12"
           cache: "pip"
       # The ingestion daemon does NOT import the optimizer library. Installing
-      # only api/requirements.txt keeps that decoupling enforced: if anything
-      # under api/app grows a `from optimizer ...` import, this job fails.
-      - run: pip install -r api/requirements.txt
-      # --cov-report=xml:coverage.xml writes api/coverage.xml (the `cd api`
-      # scope only covers this step). --cov-fail-under=80 is the fast blended
-      # first gate; the floor lives in CI, not pyproject, so local pytest stays
-      # flag-free.
-      - run: cd api && pytest tests/ -v --tb=short --cov=app --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
+      # only ingestion/requirements.txt keeps that decoupling enforced: if
+      # anything under ingestion/app grows a `from optimizer ...` import, this
+      # job fails.
+      - run: pip install -r ingestion/requirements.txt
+      # --cov-report=xml:coverage.xml writes ingestion/coverage.xml (the
+      # `cd ingestion` scope only covers this step). --cov-fail-under=80 is the
+      # fast blended first gate; the floor lives in CI, not pyproject, so local
+      # pytest stays flag-free.
+      - run: cd ingestion && pytest tests/ -v --tb=short --cov=app --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
       # Branch-aware, per-metric floor: fails if line-rate OR branch-rate < 0.80,
       # so a branch regression cannot hide behind high statement coverage.
-      # Mirrors the optimizer `test` job. Reads api/coverage.xml from repo root.
-      - run: python scripts/check_branch_coverage.py api/coverage.xml 0.80
+      # Mirrors the optimizer `test` job. Reads ingestion/coverage.xml from repo root.
+      - run: python scripts/check_branch_coverage.py ingestion/coverage.xml 0.80

@@ -3,7 +3,7 @@
 Online instances are NOT thread-safe. ``partial_fit`` accumulates
 mutable state across calls and ``OnlineGridSearch`` mutates the
 wrapped estimator in place. Callers running scheduled jobs in
-multiple daemon threads (e.g. via ``optimizer/api/`` background
+multiple daemon threads (e.g. via ``optimizer/ingestion/`` background
 services) MUST construct one instance per thread.
 
 The ``GridSearchConfig`` / ``RandomizedSearchConfig`` defaults are

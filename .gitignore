@@ -100,10 +100,10 @@ volumes/
 .cache/
 cache/
 # ...but NOT the Trading212 ticker-cache source package (real code, not a build artifact)
-!api/app/services/universe/trading212/cache/
-!api/app/services/universe/trading212/cache/**
+!ingestion/app/services/universe/trading212/cache/
+!ingestion/app/services/universe/trading212/cache/**
 # ...except its build artifacts, which the `**` negation above would otherwise re-include
-api/app/services/universe/trading212/cache/__pycache__/
+ingestion/app/services/universe/trading212/cache/__pycache__/
 
 # Output files (keep structure, ignore generated files)
 optimizer/outputs/*.csv

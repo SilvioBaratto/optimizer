@@ -19,7 +19,7 @@ refresh.
 | `SMOKE` | — | 5 |
 
 **`SMOKE` is not a real exchange.** `SM1`–`SM5` are fixture rows from
-`api/tests/fixtures/smoke_prices.sql`, left behind by the deleted smoke-test suite. Exclude them
+`ingestion/tests/fixtures/smoke_prices.sql`, left behind by the deleted smoke-test suite. Exclude them
 from any universe query, and do not treat them as tradable instruments.
 
 ### Countries tracked (4)
@@ -106,7 +106,7 @@ scraped. They are regenerated, never hand-corrected.
 | `A191RL1Q225SBEA` | 316 | 1947-04 → 2026-01 | Real GDP growth (quarterly) |
 | `JHGDPBRINDX` | 233 | 1967-10 → 2025-10 | GDP-based recession index |
 
-The `FRED_SERIES` dict in `api/app/services/macro/scrapers/fred_scraper.py` is the source of
+The `FRED_SERIES` dict in `ingestion/app/services/macro/scrapers/fred_scraper.py` is the source of
 truth for which series are fetched — not this table.
 
 ---
@@ -116,7 +116,7 @@ truth for which series are fetched — not this table.
 Latest values in `trading_economics_indicators`; history in `trading_economics_observations`
 (2,208 rows). Indicator keys are lowercase snake_case (`manufacturing_pmi`, `unemployment_rate`,
 `gdp_growth_rate`, …). The subset actually fed to the regime-calibration LLM is
-`_KEY_TE_INDICATORS` in `api/app/services/macro/macro_calibration.py`.
+`_KEY_TE_INDICATORS` in `ingestion/app/services/macro/macro_calibration.py`.
 
 Trading Economics and Il Sole 24 Ore are **scraped from HTML and take no API key**.
 
