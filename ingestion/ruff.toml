@@ -2,23 +2,27 @@ extend = "../pyproject.toml"
 extend-exclude = ["baml_client"]
 
 [lint]
-# Ignore rules that are intentional FastAPI/SQLAlchemy/test patterns
-# or that conflict with the project's established conventions.
+# Ignore rules that are intentional SQLAlchemy/test patterns, or that
+# conflict with the project's established conventions.
 extend-ignore = [
-    # FastAPI dependency injection uses Depends()/Query() in function defaults
-    # by design — this is the documented pattern for FastAPI DI.
+    # B008 (function-call-in-default-argument) is retained pending review: the
+    # daemon is headless and has no route-handler dependency injection left to
+    # justify it, but removing the rule can surface unrelated call-in-default
+    # lint failures elsewhere that are out of scope for this change.
     "B008",
     # SQLAlchemy ORM models use mutable class-level defaults
     # (e.g. relationship(), Column()) which are handled by SA's descriptor protocol.
     "RUF012",
-    # Line-length: api code has longer docstrings and error messages; 88 is
-    # already the configured maximum but legacy lines exceed it.
+    # Line-length: ingestion code has longer docstrings and error messages;
+    # 88 is already the configured maximum but legacy lines exceed it.
     "E501",
-    # Unicode characters in strings: api code uses mathematical notation and
-    # locale-specific content in responses and docstrings.
+    # Unicode characters in strings: ingestion code uses mathematical notation
+    # and locale-specific content in scraped data and docstrings.
     "RUF001",
-    # Module-level imports after code: FastAPI app factories (lifespan, routers)
-    # require conditional/deferred imports in some places.
+    # E402 (module-level-import-not-at-top-of-file) is retained pending
+    # review: the daemon has no app-factory-style conditional imports left to
+    # justify it, but removing the rule can surface unrelated import-order
+    # failures elsewhere that are out of scope for this change.
     "E402",
     # Suspicious bind-all-interfaces: 0.0.0.0 binding is correct for Docker.
     "S104",

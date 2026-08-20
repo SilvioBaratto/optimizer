@@ -9,7 +9,6 @@ description = "Optimizer Platform ingestion daemon and CLI"
 requires-python = ">=3.10"
 
 dependencies = [
-    "fastapi>=0.136.0",
     "httpx>=0.28.1",
 ]
 
@@ -34,10 +33,10 @@ warn_unused_configs = true
 # that are installed but lack py.typed marker or stub packages.
 disallow_untyped_calls = false
 
-# FastAPI endpoints, SQLAlchemy models, and third-party integrations (requests,
-# reportlab, dateutil, APScheduler) use patterns incompatible with full strict
-# mode. The settings below enable the checks that add real value while disabling
-# those that produce only noise against legitimate patterns in this codebase.
+# SQLAlchemy models and third-party integrations (requests, reportlab,
+# dateutil, APScheduler) use patterns incompatible with full strict mode. The
+# settings below enable the checks that add real value while disabling those
+# that produce only noise against legitimate patterns in this codebase.
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 check_untyped_defs = true

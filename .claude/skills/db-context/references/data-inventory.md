@@ -18,9 +18,10 @@ refresh.
 | Euronext Paris | 58 | 65 |
 | `SMOKE` | — | 5 |
 
-**`SMOKE` is not a real exchange.** `SM1`–`SM5` are fixture rows from
-`ingestion/tests/fixtures/smoke_prices.sql`, left behind by the deleted smoke-test suite. Exclude them
-from any universe query, and do not treat them as tradable instruments.
+**`SMOKE` is not a real exchange.** `SM1`–`SM5` are fixture rows left behind by
+the deleted smoke-test suite; the seed fixture that created them has since
+been deleted along with the suite. Exclude them from any universe query, and
+do not treat them as tradable instruments.
 
 ### Countries tracked (4)
 USA, France, Germany, UK — for Trading Economics, Il Sole 24 Ore, bond yields, macro news,

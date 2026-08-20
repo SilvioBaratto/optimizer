@@ -112,8 +112,8 @@ MACRO_TICKERS: dict[str, list[MacroTheme]] = {
 # natural-language concept search.  Multi-word descriptive queries like
 # ``"eurozone economy recession growth"`` silently return zero results.
 # Every query below has been validated against live yfinance to return
-# at least one recent, trusted article.  Rewrites must be revalidated via
-# ``api/scripts/validate_macro_queries.py`` before shipping.
+# at least one recent, trusted article.  Rewrites must be revalidated
+# against live yfinance before shipping.
 MACRO_SEARCH_QUERIES: dict[str, list[MacroTheme]] = {
     # --- USA ---
     "Federal Reserve interest rate decision": [

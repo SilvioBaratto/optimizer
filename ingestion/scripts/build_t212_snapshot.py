@@ -1,17 +1,18 @@
 """One-off: pull live T212 positions, FX-normalize, write a portfolio_snapshots row.
 
-Run: docker compose exec api python scripts/build_t212_snapshot.py
+Run: docker compose exec scheduler python scripts/build_t212_snapshot.py
 """
 
 from __future__ import annotations
 
 from datetime import date
 
-from app.database import database_manager
 from app.repositories.portfolio.portfolio_repository import PortfolioRepository
 from app.services.portfolio.t212_position_normalizer.normalizer_service import (
     normalize_live_positions,
 )
+
+from app.database import database_manager
 from app.services.universe.trading212.client import Trading212Client
 
 PORTFOLIO_NAME = "t212"
@@ -58,11 +59,15 @@ def main() -> None:
         session.commit()
 
         print(f"Snapshot {snap.id} created for '{PORTFOLIO_NAME}'")
-        print(f"  base={result.base_currency} positions={len(weights)} "
-              f"recon_ok={result.reconciliation_ok} "
-              f"delta_pct={result.reconciliation_delta_pct}")
-        print(f"  unmapped={result.unmapped_count} fx_missing={result.fx_missing_count} "
-              f"stale={result.stale_price_count} dropped={result.dropped_raw_tickers}")
+        print(
+            f"  base={result.base_currency} positions={len(weights)} "
+            f"recon_ok={result.reconciliation_ok} "
+            f"delta_pct={result.reconciliation_delta_pct}"
+        )
+        print(
+            f"  unmapped={result.unmapped_count} fx_missing={result.fx_missing_count} "
+            f"stale={result.stale_price_count} dropped={result.dropped_raw_tickers}"
+        )
         for t, w in sorted(weights.items(), key=lambda kv: kv[1], reverse=True):
             print(f"    {t:<12} {w:.4f}")
 

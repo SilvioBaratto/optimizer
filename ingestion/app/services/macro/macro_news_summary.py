@@ -69,8 +69,7 @@ TICKER_COUNTRY_MAP: dict[str, str] = {
 
 # 11 queries from MACRO_SEARCH_QUERIES mapped to countries.
 # Keys must exactly match MACRO_SEARCH_QUERIES in
-# api/app/services/yfinance/news/macro_news.py; run
-# api/scripts/validate_macro_queries.py after any change.
+# app/services/market_data/yfinance/news/macro_news.py.
 # "European Central Bank rate" is the single eurozone query that returns
 # content from yfinance search; it maps to both Germany and France.
 QUERY_COUNTRY_MAP: dict[str, list[str]] = {

@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 > **The `portopt` library API is unchanged.** Everything below concerns the
-> repository's `api/` service and its tooling. If you install `portopt` from
-> PyPI, nothing here affects you.
+> repository's ingestion service (`ingestion/`, formerly `api/`) and its
+> tooling. If you install `portopt` from PyPI, nothing here affects you.
 
 ### Added
 
@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (metrics) is published instead
 - Type-check target raised to Python 3.12 (see Fixed). Runtime 3.10 support is
   unchanged, still enforced by ruff, pyright, and the 3.10 CI matrix leg
+- **api**: renamed to **`ingestion/`** — the folder is a schedule-driven worker,
+  not an HTTP service, so the name now describes the domain rather than a
+  removed transport layer. Docker (`ingestion/Dockerfile`), CI (job renamed
+  `api-test` → `ingestion-test`), the `scheduler/*.sh` wrappers, and the docs
+  were all updated to match; no code paths changed
 
 ### Removed
 

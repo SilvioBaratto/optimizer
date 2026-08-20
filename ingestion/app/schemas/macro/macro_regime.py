@@ -264,7 +264,8 @@ class CountryMacroSummary(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Macro calibration response (from api/v1/macro_calibration.py)
+# Macro calibration response — typed argument/result for the macro
+# calibration service (there is no HTTP route; the daemon is headless).
 # ---------------------------------------------------------------------------
 
 
