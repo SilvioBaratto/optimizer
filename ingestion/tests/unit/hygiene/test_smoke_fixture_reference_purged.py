@@ -34,6 +34,11 @@ def _iter_repo_files() -> Iterator[str]:
     for rel in tracked:
         if rel == _SELF_RELATIVE:
             continue
+        # The whole hygiene package asserts *absence* by construction — its
+        # sibling guards (e.g. test_smoke_fixture_deleted.py) must quote the
+        # very filename this guard forbids, so they are not live references.
+        if "hygiene" in Path(rel).parts:
+            continue
         yield rel
 
 

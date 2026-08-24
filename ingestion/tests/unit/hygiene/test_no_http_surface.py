@@ -151,7 +151,9 @@ def find_http_violations(root: Path) -> list[str]:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        relative_path = str(path.resolve().relative_to(root))
+        # Normalise to POSIX separators so the allowlist (which uses "/"
+        # suffixes) matches on Windows, where relative_to yields "\".
+        relative_path = path.resolve().relative_to(root).as_posix()
         offending.extend(_scan_text_for_markers(relative_path, text))
     return offending
 
