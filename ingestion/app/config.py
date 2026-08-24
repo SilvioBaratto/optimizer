@@ -135,6 +135,40 @@ class Settings(BaseSettings):
         default=300,
         alias="SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS",
     )
+    scheduler_orphan_strategy: str = Field(
+        default="fail",
+        alias="SCHEDULER_ORPHAN_STRATEGY",
+        description=(
+            "How the orphan reaper handles a dead-worker job (R3/§5.3). "
+            "'fail' marks it failed (the next cron re-runs it). 'reclaim' "
+            "additionally re-dispatches the step immediately (at-least-once "
+            "self-healing). Keep 'fail' until the idempotent-upsert audit is "
+            "signed off — reclaiming a non-idempotent job duplicates rows."
+        ),
+    )
+    scheduler_orphan_max_reclaim_attempts: int = Field(
+        default=3,
+        ge=1,
+        alias="SCHEDULER_ORPHAN_MAX_RECLAIM_ATTEMPTS",
+        description=(
+            "Cap on RECLAIM re-dispatches for one job lineage, so a job whose "
+            "worker keeps dying is not re-dispatched forever."
+        ),
+    )
+
+    @field_validator("scheduler_orphan_strategy", mode="before")
+    @classmethod
+    def _normalize_orphan_strategy(cls, v: object) -> object:
+        """Accept case-insensitive 'fail'/'reclaim'; reject anything else."""
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            if normalized not in ("fail", "reclaim"):
+                raise ValueError(
+                    "SCHEDULER_ORPHAN_STRATEGY must be 'fail' or 'reclaim'"
+                )
+            return normalized
+        return v
+
     scheduler_shutdown_drain_timeout_seconds: int = Field(
         default=30,
         alias="SCHEDULER_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",

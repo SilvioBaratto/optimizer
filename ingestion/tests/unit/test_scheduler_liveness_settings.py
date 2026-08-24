@@ -35,6 +35,31 @@ class TestLivenessSettings:
         assert s.scheduler_orphan_heartbeat_timeout_seconds == 120
 
 
+class TestOrphanStrategySettings:
+    """R3/§5.3 — SCHEDULER_ORPHAN_STRATEGY gates the reclaim behaviour."""
+
+    def test_defaults_to_fail(self) -> None:
+        assert Settings().scheduler_orphan_strategy == "fail"
+
+    def test_reclaim_accepted_case_insensitive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SCHEDULER_ORPHAN_STRATEGY", "RECLAIM")
+        assert Settings().scheduler_orphan_strategy == "reclaim"
+
+    def test_invalid_strategy_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pydantic import ValidationError
+
+        monkeypatch.setenv("SCHEDULER_ORPHAN_STRATEGY", "bogus")
+        with pytest.raises(ValidationError):
+            Settings()
+
+    def test_max_reclaim_attempts_default_three(self) -> None:
+        assert Settings().scheduler_orphan_max_reclaim_attempts == 3
+
+
 class TestWorkerForwardsTimeout:
     def test_when_worker_reconciles_then_settings_timeout_is_forwarded(self) -> None:
         """app.worker forwards settings.scheduler_orphan_heartbeat_timeout_seconds."""

@@ -367,7 +367,7 @@ class TestSchedulerWorkerSettings:
 
         captured: list[Any] = []
 
-        def _fake_run_step(label, job_svc, fn, *args):
+        def _fake_run_step(label, job_svc, fn, *args, **kwargs):
             if label == "yfinance":
                 captured.extend(args)
             return True
@@ -393,7 +393,7 @@ class TestSchedulerWorkerSettings:
 
         captured: list[Any] = []
 
-        def _fake_run_step(label, job_svc, fn, *args):
+        def _fake_run_step(label, job_svc, fn, *args, **kwargs):
             if label == "yfinance":
                 captured.extend(args)
             return True
@@ -417,7 +417,7 @@ class TestSchedulerWorkerSettings:
 
         captured: list[Any] = []
 
-        def _fake_run_step(label, job_svc, fn, *args):
+        def _fake_run_step(label, job_svc, fn, *args, **kwargs):
             if label == "yfinance":
                 captured.extend(args)
             return True

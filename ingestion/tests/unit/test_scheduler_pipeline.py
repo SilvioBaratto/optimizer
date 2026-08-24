@@ -7,7 +7,7 @@ All external collaborators are patched with MagicMock.
 from __future__ import annotations
 
 import threading
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
@@ -786,3 +786,102 @@ class TestHeartbeatCompanion:
         assert seen and seen[0], "reference-index seed ran with no heartbeat"
         jobs._run_heartbeat.assert_called_once()
         assert not self._hb_threads(), "heartbeat outlived the seed"
+
+
+# ---------------------------------------------------------------------------
+# TestOrphanReaperStrategy — R3/§5.3 fail vs reclaim + re-dispatch cap
+# ---------------------------------------------------------------------------
+
+
+class TestOrphanReaperStrategy:
+    """run_orphan_reaper branches on SCHEDULER_ORPHAN_STRATEGY; reclaim re-runs."""
+
+    _REPO = "app.repositories.jobs.background_job_repository.BackgroundJobRepository"
+
+    def _run_reaper_with(self, strategy, repo):
+        from app.services.jobs import scheduler as sched
+
+        @contextmanager
+        def _sess():
+            yield MagicMock()
+
+        with (
+            patch.object(sched.settings, "scheduler_orphan_strategy", strategy),
+            patch.object(sched.database_manager, "get_session", side_effect=_sess),
+            patch(self._REPO, return_value=repo),
+            patch.object(sched, "_redispatch_reclaimed") as redispatch,
+        ):
+            sched.run_orphan_reaper()
+        return redispatch
+
+    def test_fail_strategy_reconciles_and_does_not_redispatch(self):
+        repo = MagicMock()
+        repo.reconcile_orphans.return_value = 1
+
+        redispatch = self._run_reaper_with("fail", repo)
+
+        repo.reconcile_orphans.assert_called_once()
+        repo.reclaim_orphans.assert_not_called()
+        redispatch.assert_not_called()
+
+    def test_reclaim_strategy_reclaims_and_redispatches(self):
+        repo = MagicMock()
+        reclaimed = [{"job_type": "yfinance_fetch", "attempt": 0}]
+        repo.reclaim_orphans.return_value = reclaimed
+
+        redispatch = self._run_reaper_with("reclaim", repo)
+
+        repo.reclaim_orphans.assert_called_once()
+        repo.reconcile_orphans.assert_not_called()
+        redispatch.assert_called_once_with(reclaimed)
+
+    @staticmethod
+    def _sync_thread(target=None, args=(), **_kw):
+        """A Thread double whose .start() runs the target inline."""
+        m = MagicMock()
+        m.start.side_effect = lambda: target(*args)
+        return m
+
+    def test_redispatch_below_cap_runs_with_next_attempt(self):
+        from app.services.jobs import scheduler as sched
+
+        calls: list[int] = []
+        with (
+            patch.object(sched.settings, "scheduler_orphan_max_reclaim_attempts", 3),
+            patch.dict(
+                sched._RECLAIM_DISPATCH,
+                {"yfinance_fetch": lambda a: calls.append(a)},
+                clear=False,
+            ),
+            patch.object(sched.threading, "Thread", side_effect=self._sync_thread),
+        ):
+            sched._redispatch_reclaimed([{"job_type": "yfinance_fetch", "attempt": 0}])
+
+        assert calls == [1]  # attempt + 1
+
+    def test_redispatch_skips_when_over_cap(self):
+        from app.services.jobs import scheduler as sched
+
+        calls: list[int] = []
+        with (
+            patch.object(sched.settings, "scheduler_orphan_max_reclaim_attempts", 2),
+            patch.dict(
+                sched._RECLAIM_DISPATCH,
+                {"yfinance_fetch": lambda a: calls.append(a)},
+                clear=False,
+            ),
+            patch.object(sched.threading, "Thread", side_effect=self._sync_thread),
+        ):
+            # attempt 2 -> next 3 > max 2 -> skip
+            sched._redispatch_reclaimed([{"job_type": "yfinance_fetch", "attempt": 2}])
+
+        assert calls == []
+
+    def test_redispatch_skips_unknown_job_type(self):
+        from app.services.jobs import scheduler as sched
+
+        with patch.object(
+            sched.threading, "Thread", side_effect=self._sync_thread
+        ):
+            # No dispatcher for this type: no thread, no raise.
+            sched._redispatch_reclaimed([{"job_type": "mystery", "attempt": 0}])

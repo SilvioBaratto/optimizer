@@ -421,6 +421,54 @@ class TestReconcileOrphans:
         assert row.finished_at.replace(tzinfo=timezone.utc) == finished
 
 
+class TestReclaimOrphans:
+    """R3/§5.3 — reclaim_orphans fails stale orphans and returns them to re-run."""
+
+    def test_reclaims_stale_and_returns_job_type_and_attempt(
+        self, db_session: Session
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("yfinance_fetch", attempt=1)
+        assert jid is not None
+        _make_stale(repo, jid, db_session)
+
+        reclaimed = repo.reclaim_orphans("orphan retry")
+
+        assert reclaimed == [{"job_type": "yfinance_fetch", "attempt": 1}]
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == "failed"
+
+    def test_fresh_lease_is_not_reclaimed(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("macro_fetch")
+        assert jid is not None
+        db_session.flush()
+
+        assert repo.reclaim_orphans("orphan") == []
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == "pending"
+
+    def test_claim_or_create_stores_attempt(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("fred_fetch", attempt=2)
+        assert jid is not None
+        row = repo.get(jid)
+        assert row is not None
+        assert row.attempt == 2
+
+    def test_claim_or_create_defaults_attempt_to_zero(
+        self, db_session: Session
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("fred_fetch")
+        assert jid is not None
+        row = repo.get(jid)
+        assert row is not None
+        assert row.attempt == 0
+
+
 class TestLivenessPredicate:
     """T2.1 / §5.3 — lease-based liveness: only a stale heartbeat reaps a claim.
 

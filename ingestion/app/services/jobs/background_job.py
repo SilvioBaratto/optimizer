@@ -57,12 +57,14 @@ class BackgroundJobService:
     # Public interface (backwards-compatible)
     # ------------------------------------------------------------------
 
-    def _execute_create_job(self, session: Any, extra: dict[str, Any]) -> None:
+    def _execute_create_job(
+        self, session: Any, extra: dict[str, Any], attempt: int = 0
+    ) -> None:
         """Execute job creation logic within a session context."""
         repo = BackgroundJobRepository(session)
         # Periodic cleanup of old rows
         repo.cleanup_expired(self._ttl_seconds)
-        new_id = repo.claim_or_create(self._job_type, **extra)
+        new_id = repo.claim_or_create(self._job_type, attempt=attempt, **extra)
         if new_id is None:
             # A job is already running — find its id for the error
             _, existing_id = repo.is_any_running(self._job_type)
@@ -112,10 +114,12 @@ class BackgroundJobService:
 
         return safe_cm()
 
-    def create_job(self, **initial_data: Any) -> str:
+    def create_job(self, attempt: int = 0, **initial_data: Any) -> str:
         """Atomically create a job if none is active for this job type.
 
-        Returns the new job ID as a string.
+        Returns the new job ID as a string. ``attempt`` records the reclaim
+        generation (R3/§5.3); the orphan reaper passes ``prev + 1`` when it
+        re-dispatches a dead-worker job.
 
         Raises:
             JobAlreadyRunningError: If a pending/running job already exists.
@@ -141,17 +145,17 @@ class BackgroundJobService:
                     potential_session, "execute"
                 ):
                     with potential_session as session:
-                        self._execute_create_job(session, extra)
+                        self._execute_create_job(session, extra, attempt)
                         return self._get_or_raise_conflict()
                 else:
                     # Got the actual session
                     session = potential_session
-                    self._execute_create_job(session, extra)
+                    self._execute_create_job(session, extra, attempt)
                     return self._get_or_raise_conflict()
         else:
             # session_or_cm is already a session, not a context manager
             session = session_or_cm
-            self._execute_create_job(session, extra)
+            self._execute_create_job(session, extra, attempt)
             return self._get_or_raise_conflict()
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:

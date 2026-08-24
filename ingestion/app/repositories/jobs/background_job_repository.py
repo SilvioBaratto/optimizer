@@ -222,13 +222,16 @@ class BackgroundJobRepository(RepositoryBase):
     def claim_or_create(
         self,
         job_type: str,
+        attempt: int = 0,
         **initial_extra: Any,
     ) -> uuid.UUID | None:
         """Atomically create a job only if none is already active.
 
         Stamps ``worker_pid``, ``worker_host`` and ``last_heartbeat_at`` so
         the liveness-aware reaper can distinguish a live worker from a dead
-        one. Dialect-agnostic: works on PostgreSQL and SQLite (tests).
+        one. ``attempt`` records the reclaim-retry generation (R3/§5.3) — 0 for
+        a normal job, ``prev + 1`` when the reaper re-dispatches an orphan.
+        Dialect-agnostic: works on PostgreSQL and SQLite (tests).
         """
         self._ensure_tables_exist()
         new_id = uuid.uuid4()
@@ -257,6 +260,7 @@ class BackgroundJobRepository(RepositoryBase):
             literal(now, type_=tbl.c.last_heartbeat_at.type).label(
                 "last_heartbeat_at",
             ),
+            literal(attempt, type_=tbl.c.attempt.type).label("attempt"),
             literal(now, type_=tbl.c.created_at.type).label("created_at"),
             literal(now, type_=tbl.c.updated_at.type).label("updated_at"),
         ).where(~conflict_exists)
@@ -273,6 +277,7 @@ class BackgroundJobRepository(RepositoryBase):
                 "worker_pid",
                 "worker_host",
                 "last_heartbeat_at",
+                "attempt",
                 "created_at",
                 "updated_at",
             ],
@@ -396,3 +401,49 @@ class BackgroundJobRepository(RepositoryBase):
         result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
         self.session.flush()
         return result.rowcount or 0
+
+    def reclaim_orphans(
+        self,
+        error_msg: str,
+        heartbeat_timeout_seconds: int = _DEFAULT_HEARTBEAT_TIMEOUT_SECONDS,
+    ) -> list[dict[str, Any]]:
+        """Fail lease-expired orphans and return them for re-dispatch (R3/§5.3).
+
+        Same lease-staleness rule as :meth:`reconcile_orphans`, but returns one
+        entry per reclaimed job — ``{"job_type": ..., "attempt": ...}`` — so the
+        scheduler can immediately re-run the step (capped by ``attempt``). The
+        orphan row itself is marked failed (freeing the job slot); the
+        re-dispatched run is a NEW job carrying ``attempt + 1``.
+
+        Note: the SELECT and the UPDATE re-apply the same predicate, but a
+        heartbeat landing between them could leave a returned job un-failed. The
+        one-daemon-per-DB invariant makes that window negligible; a spurious
+        re-dispatch is still safe because fetch writes are idempotent (§5.4).
+        Caller owns the commit.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            seconds=heartbeat_timeout_seconds,
+        )
+        stale = or_(
+            BackgroundJob.last_heartbeat_at.is_(None),
+            BackgroundJob.last_heartbeat_at < cutoff,
+        )
+        rows = self.session.execute(
+            select(BackgroundJob.job_type, BackgroundJob.attempt).where(
+                BackgroundJob.status.in_(_ACTIVE_STATUSES),
+                stale,
+            )
+        ).all()
+        reclaimed = [{"job_type": r.job_type, "attempt": r.attempt} for r in rows]
+        if reclaimed:
+            self.session.execute(
+                update(BackgroundJob)
+                .where(BackgroundJob.status.in_(_ACTIVE_STATUSES), stale)
+                .values(
+                    status="failed",
+                    error=error_msg,
+                    finished_at=func.now(),
+                )
+            )
+            self.session.flush()
+        return reclaimed

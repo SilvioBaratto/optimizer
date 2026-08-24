@@ -72,6 +72,10 @@ class BackgroundJob(BaseModel):
         DateTime(timezone=True),
         nullable=True,
     )
+    # Reclaim-retry counter (R3/§5.3): how many times the orphan reaper has
+    # re-dispatched this job's lineage. 0 for normal jobs; the reaper caps
+    # re-dispatch at SCHEDULER_ORPHAN_MAX_RECLAIM_ATTEMPTS.
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
     # Relationships
     error_entries: Mapped[list[BackgroundJobError]] = relationship(

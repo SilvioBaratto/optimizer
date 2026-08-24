@@ -155,6 +155,7 @@ def refresh_reference_indices(
     *,
     period: str = "5y",
     mode: str = "incremental",
+    attempt: int = 0,
 ) -> bool:
     """Run ``seed_reference_indices`` as a tracked background job.
 
@@ -178,7 +179,7 @@ def refresh_reference_indices(
         return False
 
     try:
-        job_id = _ref_index_jobs.create_job(current_ticker="")
+        job_id = _ref_index_jobs.create_job(current_ticker="", attempt=attempt)
     except JobAlreadyRunningError as exc:
         logger.warning(
             "%s: reference_index_refresh skipped — already running (job %s)",
@@ -228,7 +229,13 @@ def refresh_reference_indices(
 # ---------------------------------------------------------------------------
 
 
-def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
+def _run_step(
+    label: str,
+    job_svc: BackgroundJobService,
+    fn,
+    *args,
+    attempt: int = 0,
+) -> bool:
     """Run a single pipeline step synchronously.
 
     The service function ``fn`` must accept ``on_progress`` as a keyword
@@ -237,10 +244,13 @@ def _run_step(label: str, job_svc: BackgroundJobService, fn, *args) -> bool:
     ``on_progress(status='completed')``, the job is marked completed
     defensively so downstream steps are not silently skipped.
 
+    ``attempt`` records the reclaim generation (R3/§5.3); it is 0 on the normal
+    cron/CLI path and ``prev + 1`` when the orphan reaper re-dispatches.
+
     Returns ``True`` if the step completed, ``False`` on skip or failure.
     """
     try:
-        job_id = job_svc.create_job()
+        job_id = job_svc.create_job(attempt=attempt)
     except JobAlreadyRunningError as exc:
         logger.warning(
             "%s: skipped — already running (job %s)",
@@ -295,6 +305,7 @@ def run_yfinance_step(
     mode: Literal["incremental", "full"] = "incremental",
     period: str = "5y",
     workers: int | None = None,
+    attempt: int = 0,
 ) -> bool:
     """Fetch prices, fundamentals, holders, and news for every instrument."""
     from app.schemas.market_data.yfinance_data import YFinanceFetchRequest
@@ -310,17 +321,24 @@ def run_yfinance_step(
         run_bulk_yfinance_fetch,
         YFinanceFetchRequest(mode=mode, period=period, workers=workers),
         get_yfinance_client(),
+        attempt=attempt,
     )
 
 
-def run_macro_step() -> bool:
+def run_macro_step(*, attempt: int = 0) -> bool:
     """Scrape Il Sole 24 Ore + Trading Economics into bond yields / indicators."""
     from app.schemas.macro.macro_regime import MacroFetchRequest
 
-    return _run_step("macro", _macro_jobs, run_bulk_macro_fetch, MacroFetchRequest())
+    return _run_step(
+        "macro",
+        _macro_jobs,
+        run_bulk_macro_fetch,
+        MacroFetchRequest(),
+        attempt=attempt,
+    )
 
 
-def run_fred_step(*, incremental: bool = True) -> bool:
+def run_fred_step(*, incremental: bool = True, attempt: int = 0) -> bool:
     """Fetch FRED economic series."""
     from app.schemas.macro.macro_regime import FredFetchRequest
 
@@ -329,10 +347,11 @@ def run_fred_step(*, incremental: bool = True) -> bool:
         _fred_jobs,
         run_bulk_fred_fetch,
         FredFetchRequest(incremental=incremental),
+        attempt=attempt,
     )
 
 
-def run_news_step() -> bool:
+def run_news_step(*, attempt: int = 0) -> bool:
     """Fetch macro news articles into ``macro_news``."""
     from app.schemas.macro.macro_regime import MacroNewsFetchRequest
 
@@ -341,10 +360,11 @@ def run_news_step() -> bool:
         _news_fetch_jobs,
         run_macro_news_fetch,
         MacroNewsFetchRequest(),
+        attempt=attempt,
     )
 
 
-def run_summarize_step(*, force_refresh: bool = True) -> bool:
+def run_summarize_step(*, force_refresh: bool = True, attempt: int = 0) -> bool:
     """LLM-summarize macro news per country."""
     from app.schemas.macro.macro_regime import MacroNewsSummarizeRequest
 
@@ -353,10 +373,11 @@ def run_summarize_step(*, force_refresh: bool = True) -> bool:
         _summarize_jobs,
         run_news_summarize,
         MacroNewsSummarizeRequest(force_refresh=force_refresh),
+        attempt=attempt,
     )
 
 
-def run_calibrate_step() -> bool:
+def run_calibrate_step(*, attempt: int = 0) -> bool:
     """LLM-calibrate the macro regime (delta / tau) per country."""
     from app.services.macro.scrapers import PORTFOLIO_COUNTRIES
 
@@ -366,10 +387,11 @@ def run_calibrate_step() -> bool:
         run_bulk_calibrate,
         list(PORTFOLIO_COUNTRIES),
         True,
+        attempt=attempt,
     )
 
 
-def run_universe_step() -> bool:
+def run_universe_step(*, attempt: int = 0) -> bool:
     """Rebuild the Trading 212 instrument universe.
 
     A missing ``TRADING_212_API_KEY`` is a configuration state, not a failure:
@@ -390,7 +412,14 @@ def run_universe_step() -> bool:
         logger.warning("universe: skipped — %s", exc)
         return False
 
-    return _run_step("universe", _universe_jobs, _build, UniverseBuildRequest(), client)
+    return _run_step(
+        "universe",
+        _universe_jobs,
+        _build,
+        UniverseBuildRequest(),
+        client,
+        attempt=attempt,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -566,30 +595,106 @@ def _get_last_refresh_time(session) -> datetime:
     return row
 
 
+# job_type -> re-dispatch thunk for the RECLAIM strategy (R3/§5.3). Each re-runs
+# the step's default (incremental / idempotent) variant, tagged with the retry
+# attempt. A weekly-full orphan re-runs as incremental here; the next weekly cron
+# reconciles, and idempotent upserts (§5.4) make the partial re-run safe.
+_RECLAIM_DISPATCH: dict[str, Callable[[int], bool]] = {
+    "yfinance_fetch": lambda a: run_yfinance_step(attempt=a),
+    "macro_fetch": lambda a: run_macro_step(attempt=a),
+    "fred_fetch": lambda a: run_fred_step(attempt=a),
+    "macro_news_fetch": lambda a: run_news_step(attempt=a),
+    "news_summarize": lambda a: run_summarize_step(attempt=a),
+    "macro_calibrate": lambda a: run_calibrate_step(attempt=a),
+    "universe_build": lambda a: run_universe_step(attempt=a),
+    "reference_index_seed": lambda a: refresh_reference_indices(
+        "orphan_reclaim", attempt=a
+    ),
+}
+
+
+def _redispatch_reclaimed(reclaimed: list[dict[str, Any]]) -> None:
+    """Re-run each reclaimed orphan's step in a daemon thread, capped by attempt.
+
+    The cap (``SCHEDULER_ORPHAN_MAX_RECLAIM_ATTEMPTS``) stops a job whose worker
+    keeps dying from being re-dispatched forever. Each re-dispatch runs off the
+    reaper thread so a multi-minute fetch does not block the next reaper tick.
+    """
+    max_attempts = settings.scheduler_orphan_max_reclaim_attempts
+    for entry in reclaimed:
+        job_type = entry["job_type"]
+        next_attempt = int(entry["attempt"]) + 1
+        thunk = _RECLAIM_DISPATCH.get(job_type)
+        if thunk is None:
+            logger.warning(
+                "orphan_reaper: no reclaim dispatcher for %r — left failed",
+                job_type,
+            )
+            continue
+        if next_attempt > max_attempts:
+            logger.error(
+                "orphan_reaper: %s hit max reclaim attempts (%d) — giving up",
+                job_type,
+                max_attempts,
+            )
+            continue
+        logger.warning(
+            "orphan_reaper: re-dispatching %s (reclaim attempt %d/%d)",
+            job_type,
+            next_attempt,
+            max_attempts,
+        )
+        threading.Thread(
+            target=thunk,
+            args=(next_attempt,),
+            daemon=True,
+            name=f"reclaim:{job_type}",
+        ).start()
+
+
 def run_orphan_reaper() -> None:
     """Reap background jobs whose worker died without a terminal status.
 
     Orphan reconciliation otherwise runs only at process startup
-    (``app.worker.main``), so a job that hangs while the process stays
-    alive (dead daemon thread, wedged network socket) is never reaped and
-    blocks future runs of its type via ``JobAlreadyRunningError``. This
-    periodic tick closes that gap without requiring a restart.
+    (``app.worker.main``), so a job that hangs while the process stays alive
+    (dead daemon thread, wedged network socket) is never reaped and blocks
+    future runs of its type via ``JobAlreadyRunningError``. This periodic tick
+    closes that gap without requiring a restart.
+
+    R3/§5.3 — behaviour depends on ``SCHEDULER_ORPHAN_STRATEGY``:
+    - ``fail`` (default): mark stale orphans failed; the next cron re-runs them.
+    - ``reclaim``: mark them failed *and* immediately re-dispatch the step
+      (at-least-once self-healing), capped by attempt. Safe only because every
+      fetch write is an idempotent upsert (§5.4) — that ordering is the C1 gate.
     """
     try:
         from app.repositories.jobs.background_job_repository import (
             BackgroundJobRepository,
         )
 
-        with database_manager.get_session() as session:
-            n = BackgroundJobRepository(session).reconcile_orphans(
-                "orphaned — heartbeat stale, reaped by periodic reaper",
-                heartbeat_timeout_seconds=(
-                    settings.scheduler_orphan_heartbeat_timeout_seconds
-                ),
-            )
-            session.commit()
-        if n:
-            logger.warning("orphan_reaper: reaped %d stale job(s)", n)
+        timeout = settings.scheduler_orphan_heartbeat_timeout_seconds
+
+        if settings.scheduler_orphan_strategy == "reclaim":
+            with database_manager.get_session() as session:
+                reclaimed = BackgroundJobRepository(session).reclaim_orphans(
+                    "orphaned — reclaimed for retry by periodic reaper",
+                    heartbeat_timeout_seconds=timeout,
+                )
+                session.commit()
+            if reclaimed:
+                logger.warning(
+                    "orphan_reaper: reclaimed %d stale job(s)", len(reclaimed)
+                )
+                _redispatch_reclaimed(reclaimed)
+        else:
+            with database_manager.get_session() as session:
+                n = BackgroundJobRepository(session).reconcile_orphans(
+                    "orphaned — heartbeat stale, reaped by periodic reaper",
+                    heartbeat_timeout_seconds=timeout,
+                )
+                session.commit()
+            if n:
+                logger.warning("orphan_reaper: reaped %d stale job(s)", n)
     except Exception:
         logger.exception("orphan_reaper: tick failed (non-fatal)")
 
