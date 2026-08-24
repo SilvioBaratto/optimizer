@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import logging
+import os
 import signal
 import threading
 from types import FrameType
@@ -118,6 +119,59 @@ def _install_signal_handlers() -> None:
     signal.signal(signal.SIGINT, _handle)
 
 
+def _force_exit() -> None:  # pragma: no cover - terminates the process
+    """Last-resort hard exit when a stuck job outlives the drain window."""
+    os._exit(1)
+
+
+def _drain_and_shutdown(scheduler: object, drain_timeout_seconds: int) -> bool:
+    """Stop claiming new jobs, then drain in-flight work within a time bound.
+
+    ARCHITECTURE.md §5.5: intercept SIGTERM → stop claiming new jobs → drain and
+    commit in-flight work → exit, with a time-bounded drain and a forced-exit
+    fallback so a stuck worker cannot hang forever.
+
+    ``scheduler.pause()`` stops new triggers from firing (no new claims), then
+    ``scheduler.shutdown(wait=True)`` blocks until running jobs finish. That call
+    has no timeout of its own, so it runs in a helper thread we join with a
+    deadline. Returns ``True`` if in-flight work drained cleanly, ``False`` if
+    the deadline elapsed first (the caller then force-exits). Abandoned work is
+    safe to re-run — every fetch write is an idempotent upsert (§5.4).
+    """
+    try:
+        scheduler.pause()  # type: ignore[attr-defined]
+    except Exception as exc:
+        logger.warning("scheduler.pause() failed during shutdown: %s", exc)
+
+    drained = threading.Event()
+
+    def _shutdown_scheduler() -> None:
+        try:
+            scheduler.shutdown(wait=True)  # type: ignore[attr-defined]
+        except Exception as exc:
+            logger.warning("scheduler.shutdown(wait=True) raised: %s", exc)
+        finally:
+            drained.set()
+
+    threading.Thread(
+        target=_shutdown_scheduler, daemon=True, name="scheduler-drain"
+    ).start()
+
+    if drained.wait(timeout=drain_timeout_seconds):
+        logger.info("In-flight jobs drained cleanly")
+        return True
+
+    logger.warning(
+        "Drain timeout (%ds) exceeded — forcing shutdown, in-flight work abandoned",
+        drain_timeout_seconds,
+    )
+    try:
+        scheduler.shutdown(wait=False)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    return False
+
+
 def main() -> None:
     """Run the ingestion daemon until a shutdown signal arrives."""
     _configure_logging()
@@ -152,9 +206,17 @@ def main() -> None:
     _shutdown.wait()
 
     logger.info("Shutting down %s...", settings.project_name)
-    scheduler.shutdown(wait=False)
-    close_db()
-    logger.info("Shutdown complete")
+    drained = _drain_and_shutdown(
+        scheduler, settings.scheduler_shutdown_drain_timeout_seconds
+    )
+    if drained:
+        close_db()
+        logger.info("Shutdown complete")
+    else:
+        # A step outlived the drain window. Force a hard exit rather than hang;
+        # skip close_db, since the stuck job may still hold a pooled connection.
+        logger.warning("Shutdown forced after drain timeout")
+        _force_exit()
 
 
 if __name__ == "__main__":

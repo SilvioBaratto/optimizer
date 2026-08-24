@@ -135,6 +135,18 @@ class Settings(BaseSettings):
         default=300,
         alias="SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS",
     )
+    scheduler_shutdown_drain_timeout_seconds: int = Field(
+        default=30,
+        alias="SCHEDULER_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",
+        description=(
+            "On SIGTERM the daemon stops claiming new jobs and waits up to this "
+            "many seconds for in-flight steps to finish before a forced exit. "
+            "Abandoned work is safe to re-run (fetch writes are idempotent "
+            "upserts). Size the container stop_grace_period / "
+            "terminationGracePeriodSeconds above this value so Docker/K8s does "
+            "not SIGKILL mid-drain; raise both to drain long fetches cleanly."
+        ),
+    )
 
     # yfinance fetch settings
     yfinance_request_timeout_seconds: int = Field(

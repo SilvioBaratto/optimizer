@@ -42,6 +42,11 @@ services:
       dockerfile: ingestion/Dockerfile
     container_name: optimizer_scheduler
     command: ["python", "-m", "app.worker"]
+    # Sized above SCHEDULER_SHUTDOWN_DRAIN_TIMEOUT_SECONDS (default 30s) so the
+    # daemon's in-process drain + forced-exit completes before Docker SIGKILLs
+    # it (compose default is only 10s). Raise both together to drain long
+    # fetches cleanly. See app/worker.py::_drain_and_shutdown (§5.5).
+    stop_grace_period: 60s
     env_file:
       - .env
     environment:

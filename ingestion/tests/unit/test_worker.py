@@ -13,6 +13,7 @@ minutes and must not delay the first scheduled run).
 
 from __future__ import annotations
 
+import threading
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -60,12 +61,15 @@ def _preset_shutdown():
 
 class TestStartup:
     def test_starts_scheduler_and_shuts_it_down(self) -> None:
-        with _patched() as m:
+        with _patched() as m, patch.object(worker_module, "_force_exit") as fx:
             worker_module.main()
 
         m.scheduler.start.assert_called_once()
-        m.scheduler.shutdown.assert_called_once_with(wait=False)
+        # §5.5 hardened shutdown: pause (stop claiming) then drain (wait=True).
+        m.scheduler.pause.assert_called_once()
+        m.scheduler.shutdown.assert_called_once_with(wait=True)
         m.close.assert_called_once()
+        fx.assert_not_called()
 
     def test_serves_metrics_before_touching_the_database(self) -> None:
         """The healthcheck probes /metrics — it must answer during a slow DB connect."""
@@ -200,9 +204,53 @@ class TestBootstrapBenchmarks:
         ):
             worker_module._bootstrap_benchmarks_async()
 
-            import threading
-
             for t in threading.enumerate():
                 if t.name == "benchmark-bootstrap":
                     t.join(timeout=5)
                     assert not t.is_alive()
+
+
+class TestGracefulShutdown:
+    """§5.5 — SIGTERM stops new claims, drains in-flight, force-exits if stuck."""
+
+    def test_drains_cleanly_then_closes_db(self) -> None:
+        scheduler = MagicMock()  # shutdown(wait=True) returns instantly
+        order: list[str] = []
+        scheduler.pause.side_effect = lambda: order.append("pause")
+        scheduler.shutdown.side_effect = lambda **_k: order.append("shutdown")
+
+        with _patched(scheduler=scheduler) as m, patch.object(
+            worker_module, "_force_exit"
+        ) as fx:
+            worker_module.main()
+
+        assert order == ["pause", "shutdown"]  # stop claiming, then drain
+        scheduler.shutdown.assert_called_once_with(wait=True)
+        m.close.assert_called_once()
+        fx.assert_not_called()
+
+    def test_force_exits_when_drain_times_out(self) -> None:
+        # A stuck in-flight job: shutdown(wait=True) blocks past the deadline.
+        block = threading.Event()
+
+        def _blocking_shutdown(wait: bool = True) -> None:
+            if wait:
+                block.wait(timeout=5)
+
+        scheduler = MagicMock()
+        scheduler.shutdown.side_effect = _blocking_shutdown
+
+        with (
+            _patched(scheduler=scheduler) as m,
+            patch.object(
+                worker_module.settings,
+                "scheduler_shutdown_drain_timeout_seconds",
+                0.05,
+            ),
+            patch.object(worker_module, "_force_exit") as fx,
+        ):
+            worker_module.main()
+
+        fx.assert_called_once()
+        m.close.assert_not_called()  # skipped on the forced path
+        block.set()  # release the daemon drain thread
