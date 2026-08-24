@@ -708,20 +708,30 @@ class MacroRegimeRepository(RepositoryBase):
         exists for the country yet, inserts a row with neutral placeholder
         values for the BAML columns so the BAML calibrator can later
         update them.
+
+        T1.2 / ARCHITECTURE.md §5.4: written as an idempotent
+        ``INSERT ... ON CONFLICT DO UPDATE`` on ``uq_macro_calibration_country``
+        (via :meth:`_upsert`) rather than a read-then-mutate, so an
+        at-least-once re-run (the reaper's reclaim path) converges to one row
+        without racing the unique constraint. Only ``regime_classification``
+        (and ``updated_at``) are in the conflict update set, so BAML columns on
+        an existing row are left untouched; the placeholder BAML values in the
+        INSERT payload are used only when the row is created fresh.
         """
-        existing = self.get_macro_calibration(country)
-        if existing is not None:
-            existing.regime_classification = regime
-            return
-        self.session.add(
-            MacroCalibration(
-                country=country,
-                phase="",
-                delta=0.0,
-                tau=0.0,
-                confidence=0.0,
-                regime_classification=regime,
-            )
+        row: dict[str, Any] = {
+            "id": uuid.uuid4(),
+            "country": country,
+            "phase": "",
+            "delta": 0.0,
+            "tau": 0.0,
+            "confidence": 0.0,
+            "regime_classification": regime,
+        }
+        self._upsert(
+            MacroCalibration,
+            [row],
+            constraint_name="uq_macro_calibration_country",
+            update_columns=["regime_classification", "updated_at"],
         )
 
     # ------------------------------------------------------------------

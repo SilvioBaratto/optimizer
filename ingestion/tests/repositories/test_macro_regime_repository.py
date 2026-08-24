@@ -81,3 +81,23 @@ class TestUpsertRegimeClassification:
         eu = _row(db_session, "EU")
         assert us is not None and us.regime_classification == "expansion"
         assert eu is not None and eu.regime_classification == "recession"
+
+    def test_when_called_repeatedly_then_exactly_one_row_persists(
+        self, db_session: Session
+    ) -> None:
+        """R1/§5.4 (T1.2): the write must converge to a single row on re-run
+        via INSERT ... ON CONFLICT DO UPDATE on uq_macro_calibration_country,
+        never a duplicate — the at-least-once reclaim contract.
+        """
+        repo = MacroRegimeRepository(db_session)
+        for regime in ("expansion", "slowdown", "recession"):
+            repo.upsert_regime_classification(country="US", regime=regime)
+            db_session.flush()
+
+        rows = (
+            db_session.query(MacroCalibration)
+            .filter(MacroCalibration.country == "US")
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].regime_classification == "recession"
