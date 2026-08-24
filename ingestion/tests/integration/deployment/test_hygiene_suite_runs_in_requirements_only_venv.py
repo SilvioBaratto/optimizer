@@ -1,7 +1,8 @@
 """Integration test proving the migrations-reversible hygiene guard runs to
-green using only the packages declared in ``ingestion/requirements.txt`` —
-no dev-only extra (``pytest``, ``hypothesis``, etc.) may be silently relied
-upon from the outer/dev environment (issue #11, scope-1).
+green using only the packages the daemon declares in
+``ingestion/pyproject.toml`` (its runtime deps + the ``[test]`` extra) — no
+dev-only extra may be silently relied upon from the outer/dev environment
+(issue #11, scope-1).
 
 Source-blind by construction: drives a real subprocess (the fresh venv's
 own ``pytest``) against the real guard file. No implementation module is
@@ -11,16 +12,15 @@ fresh venv, exactly as the criterion states. Reuses the session-scoped
 expensive venv build is shared with the sibling deployment-verification
 tests rather than rebuilt per module.
 
-Ambiguity resolution: the criterion says "a Python environment built from
-``ingestion/requirements.txt`` alone can run ... pytest ... to green". Read
-literally, ``pytest`` itself (and, transitively, anything the guard file
-imports — e.g. ``hypothesis``, per the sibling scope-2 criterion) must be
-installable from that one file. The assertion below checks the concrete
-subprocess return code: if ``pytest`` is absent from the venv, invoking
-``python -m pytest`` exits non-zero ("No module named pytest"), so the test
-cannot pass vacuously either way — it fails exactly when the environment is
-incomplete, and only turns green once the guard is genuinely runnable from
-``requirements.txt`` alone.
+Ambiguity resolution: the criterion says a Python environment built from
+the daemon's declared dependencies alone can run ... pytest ... to green.
+``pytest`` itself lives in the ``[test]`` extra, so it is installable from
+``pyproject.toml`` alone. The assertion below checks the concrete subprocess
+return code: if ``pytest`` is absent from the venv, invoking ``python -m
+pytest`` exits non-zero ("No module named pytest"), so the test cannot pass
+vacuously either way — it fails exactly when the environment is incomplete,
+and only turns green once the guard is genuinely runnable from
+``pyproject.toml`` alone.
 """
 
 from __future__ import annotations

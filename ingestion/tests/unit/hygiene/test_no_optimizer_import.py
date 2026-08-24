@@ -26,7 +26,7 @@ from tests.unit.hygiene._shared_scan import _iter_python_files
 
 _INGESTION_ROOT = Path(__file__).resolve().parents[3]
 _APP_ROOT = _INGESTION_ROOT / "app"
-_REQUIREMENTS_FILE = _INGESTION_ROOT / "requirements.txt"
+_PYPROJECT_FILE = _INGESTION_ROOT / "pyproject.toml"
 _SELF = Path(__file__).resolve()
 
 _OPTIMIZER_IMPORT_PATTERN = re.compile(
@@ -58,17 +58,18 @@ def find_optimizer_import_violations(root: Path) -> list[str]:
     return offending
 
 
-def find_forbidden_stack_dependencies(requirements_text: str) -> list[str]:
-    """Return which sklearn-stack packages a requirements file declares.
+def find_forbidden_stack_dependencies(dependencies_text: str) -> list[str]:
+    """Return which sklearn-stack packages a dependency manifest declares.
 
     Args:
-        requirements_text: Raw contents of a ``requirements.txt``.
+        dependencies_text: Raw contents of a dependency manifest (the daemon's
+            ``pyproject.toml``).
 
     Returns:
         The subset of ``scikit-learn``/``skfolio``/``scipy`` present, empty
-        when the file declares none of them.
+        when the manifest declares none of them.
     """
-    lowered = requirements_text.lower()
+    lowered = dependencies_text.lower()
     return [pkg for pkg in _FORBIDDEN_STACK_PACKAGES if pkg in lowered]
 
 
@@ -78,8 +79,8 @@ def test_when_ingestion_app_is_scanned_then_no_optimizer_import_is_found():
 
 
 @pytest.mark.criterion("global-6")
-def test_when_ingestion_requirements_is_read_then_no_sklearn_stack_dependency_is_declared():
-    content = _REQUIREMENTS_FILE.read_text(encoding="utf-8")
+def test_when_ingestion_pyproject_is_read_then_no_sklearn_stack_dependency_is_declared():
+    content = _PYPROJECT_FILE.read_text(encoding="utf-8")
     assert find_forbidden_stack_dependencies(content) == []
 
 

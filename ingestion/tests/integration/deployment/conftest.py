@@ -31,7 +31,6 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _INGESTION_ROOT = _REPO_ROOT / "ingestion"
-_REQUIREMENTS = _INGESTION_ROOT / "requirements.txt"
 
 _HEALTH_POLL_INTERVAL_SECONDS = 3
 _HEALTH_POLL_TIMEOUT_SECONDS = 180
@@ -76,7 +75,8 @@ def _venv_python(venv_dir: Path) -> Path:
 
 @pytest.fixture(scope="session")
 def fresh_ingestion_venv(request: pytest.FixtureRequest, tmp_path_factory):
-    """Build one virtualenv with only ``ingestion/requirements.txt`` installed.
+    """Build one virtualenv with the daemon installed from its
+    ``ingestion/pyproject.toml`` (runtime deps + the ``[test]`` extra).
 
     Session-scoped: scope-1 ("pip install succeeds, fastapi absent") and
     scope-2 ("that same venv imports app.worker") both name the *same*
@@ -97,7 +97,7 @@ def fresh_ingestion_venv(request: pytest.FixtureRequest, tmp_path_factory):
     python_bin = _venv_python(venv_dir)
 
     install_result = subprocess.run(  # noqa: S603
-        [str(python_bin), "-m", "pip", "install", "-r", str(_REQUIREMENTS)],
+        [str(python_bin), "-m", "pip", "install", f"{_INGESTION_ROOT}[test]"],
         capture_output=True,
         text=True,
         timeout=900,

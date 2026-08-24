@@ -16,7 +16,7 @@ docker compose logs -f scheduler
 Locally:
 
 ```bash
-pip install -r requirements.txt
+pip install -e ".[test]"
 alembic upgrade head
 python -m app.worker          # blocks until SIGTERM/SIGINT
 ```

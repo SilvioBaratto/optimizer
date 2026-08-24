@@ -1,9 +1,9 @@
-"""Example test for scope-1: a fresh venv installs ``requirements.txt``
-without pulling in ``fastapi``.
+"""Example test for scope-1: a fresh venv installs the daemon from
+``ingestion/pyproject.toml`` without pulling in ``fastapi``.
 
 Source-blind by construction: exercises the real ``pip`` CLI inside a real,
-disposable virtualenv against the real ``ingestion/requirements.txt`` — no
-mock of pip, no assumption about what the file currently contains.
+disposable virtualenv against the real ``ingestion/pyproject.toml`` — no
+mock of pip, no assumption about what the manifest currently declares.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+requires = ["setuptools==84.0.0", "wheel==0.48.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "optimizer-ingestion"
@@ -9,17 +9,42 @@ description = "Optimizer Platform ingestion daemon and CLI"
 requires-python = ">=3.10"
 
 dependencies = [
-    "httpx>=0.28.1",
+    # Configuration
+    "python-dotenv==1.2.3",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.15.0",
+    # Database
+    "SQLAlchemy==2.0.52",
+    "psycopg2-binary==2.9.12",
+    "alembic==1.19.1",
+    # AI/ML — BAML drives the news-summary and macro-regime-calibration steps
+    "baml-py==0.226.1",
+    # Financial Data
+    "exchange_calendars==4.13.2",
+    "yfinance==1.6.0",
+    "numpy==2.5.2",
+    "pandas==3.0.5",
+    # HTTP & Web Scraping
+    "httpx==0.28.1",
+    "beautifulsoup4==4.15.0",
+    "requests==2.34.2",
+    # Scheduling
+    "APScheduler==3.11.3",
+    # Monitoring
+    "prometheus-client==0.26.0",
+    # CLI
+    "typer==0.27.1",
 ]
 
 # Test-only dependencies. pytest-cov is declared here (NOT in runtime
-# dependencies) so the coverage tooling is explicit in pyproject.toml as well
-# as ingestion/requirements.txt. Pins mirror the Testing block of ingestion/requirements.txt.
+# dependencies) so the coverage tooling is explicit in pyproject.toml. This is
+# the single source of truth for the daemon's deps — ingestion/requirements.txt
+# has been removed.
 [project.optional-dependencies]
 test = [
-    "pytest==9.0.3",
-    "pytest-asyncio==1.3.0",
-    "pytest-cov==6.0.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
 ]
 
 [tool.setuptools.packages.find]

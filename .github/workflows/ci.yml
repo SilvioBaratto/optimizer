@@ -89,10 +89,10 @@ jobs:
           python-version: "3.12"
           cache: "pip"
       # The ingestion daemon does NOT import the optimizer library. Installing
-      # only ingestion/requirements.txt keeps that decoupling enforced: if
-      # anything under ingestion/app grows a `from optimizer ...` import, this
-      # job fails.
-      - run: pip install -r ingestion/requirements.txt
+      # only ingestion/pyproject.toml (its own deps + the [test] extra) keeps
+      # that decoupling enforced: if anything under ingestion/app grows a
+      # `from optimizer ...` import, this job fails.
+      - run: pip install -e "./ingestion[test]"
       # --cov-report=xml:coverage.xml writes ingestion/coverage.xml (the
       # `cd ingestion` scope only covers this step). --cov-fail-under=80 is the
       # fast blended first gate; the floor lives in CI, not pyproject, so local

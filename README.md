@@ -260,7 +260,7 @@ docker compose up -d
 docker compose logs -f scheduler
 
 # Or run the daemon directly
-cd ingestion && pip install -r requirements.txt
+cd ingestion && pip install -e ".[test]"
 alembic upgrade head
 python -m app.worker              # blocks until SIGTERM
 ```

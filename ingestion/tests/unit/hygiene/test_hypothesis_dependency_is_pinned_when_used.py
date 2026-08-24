@@ -1,9 +1,9 @@
 """Guard: ``hypothesis`` is either unused anywhere under ``ingestion/tests``,
-or declared with an exact-pinned version in ``ingestion/requirements.txt``
+or declared with an exact-pinned version in ``ingestion/pyproject.toml``
 (issue #11, scope-2).
 
 Source-blind by construction: scans raw tracked-file text for the
-``hypothesis`` import marker and for a pinned requirements-file entry. No
+``hypothesis`` import marker and for a pinned dependency entry. No
 implementation module is imported.
 
 Ambiguity resolution: "pinned version" is read as an exact pin (``==``)
@@ -23,13 +23,15 @@ import pytest
 
 _INGESTION_ROOT = Path(__file__).resolve().parents[3]
 _TESTS_ROOT = _INGESTION_ROOT / "tests"
-_REQUIREMENTS_FILE = _INGESTION_ROOT / "requirements.txt"
+_PYPROJECT_FILE = _INGESTION_ROOT / "pyproject.toml"
 _SELF = Path(__file__).resolve()
 
 _HYPOTHESIS_IMPORT_PATTERN = re.compile(
     r"^\s*(from hypothesis\b|import hypothesis\b)", re.MULTILINE
 )
-_HYPOTHESIS_PIN_PATTERN = re.compile(r"^hypothesis==\S+", re.MULTILINE)
+# Un-anchored: matches a ``hypothesis==<version>`` token wherever it appears —
+# a bare requirements line or a quoted ``pyproject.toml`` dependency entry.
+_HYPOTHESIS_PIN_PATTERN = re.compile(r"hypothesis==\S+")
 _EXCLUDE_DIR_PARTS = {"__pycache__"}
 
 
@@ -62,37 +64,39 @@ def find_hypothesis_usages(root: Path) -> list[str]:
     return usages
 
 
-def is_hypothesis_pinned(requirements_text: str) -> bool:
-    """Return whether ``requirements_text`` declares an exact-pinned hypothesis.
+def is_hypothesis_pinned(manifest_text: str) -> bool:
+    """Return whether ``manifest_text`` declares an exact-pinned hypothesis.
 
     Args:
-        requirements_text: Raw contents of a ``requirements.txt``.
+        manifest_text: Raw contents of a dependency manifest (the daemon's
+            ``pyproject.toml``, or a bare requirements line in the unit tests).
 
     Returns:
-        True when a ``hypothesis==<version>`` line is present.
+        True when a ``hypothesis==<version>`` token is present.
     """
-    return bool(_HYPOTHESIS_PIN_PATTERN.search(requirements_text))
+    return bool(_HYPOTHESIS_PIN_PATTERN.search(manifest_text))
 
 
 @pytest.mark.criterion("scope-2")
-def test_when_hypothesis_is_used_under_tests_then_it_is_pinned_in_requirements():
+def test_when_hypothesis_is_used_under_tests_then_it_is_pinned_in_pyproject():
     usages = find_hypothesis_usages(_TESTS_ROOT)
     if not usages:
         pytest.skip("hypothesis is not used anywhere under ingestion/tests")
 
-    content = _REQUIREMENTS_FILE.read_text(encoding="utf-8")
+    content = _PYPROJECT_FILE.read_text(encoding="utf-8")
     assert is_hypothesis_pinned(content), (
-        f"hypothesis used in {usages} but not pinned (==) in requirements.txt"
+        f"hypothesis used in {usages} but not pinned (==) in pyproject.toml"
     )
 
 
 @pytest.mark.criterion("scope-2")
-def test_when_requirements_pins_hypothesis_then_the_pin_is_detected():
+def test_when_manifest_pins_hypothesis_then_the_pin_is_detected():
     assert is_hypothesis_pinned("hypothesis==6.100.0\n") is True
+    assert is_hypothesis_pinned('    "hypothesis==6.100.0",\n') is True
 
 
 @pytest.mark.criterion("scope-2")
-def test_when_requirements_declares_hypothesis_without_exact_pin_then_it_is_not_detected():
+def test_when_manifest_declares_hypothesis_without_exact_pin_then_it_is_not_detected():
     assert is_hypothesis_pinned("hypothesis>=6.0\n") is False
     assert is_hypothesis_pinned("hypothesis\n") is False
 

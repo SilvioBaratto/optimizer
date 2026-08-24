@@ -54,7 +54,7 @@ make all                          # lint + typecheck + test
 make clean                        # remove caches, coverage, egg-info
 
 # Ingestion daemon
-cd ingestion && pip install -r requirements.txt
+cd ingestion && pip install -e ".[test]"
 alembic upgrade head              # Run migrations
 python -m app.worker              # Run the daemon (blocks; SIGTERM to stop)
 cd ingestion && pytest            # Daemon tests
@@ -83,7 +83,7 @@ cd ingestion && baml-cli generate
 
 Other workflows: `release.yml` (on `v*` tags). There is no `smoke.yml` — it drove `/optimize` and `/backtest`, which no longer exist.
 
-**Dependencies**: the library's runtime deps live in the root `pyproject.toml` `[project.dependencies]` — CI installs via `pip install -e ".[dev]"`. The ingestion daemon's deps live in `ingestion/requirements.txt`, installed separately by the `ingestion-test` job and by `ingestion/Dockerfile`. There is no root `requirements.txt`; add library deps to `pyproject.toml` and daemon deps to `ingestion/requirements.txt`.
+**Dependencies**: the library's runtime deps live in the root `pyproject.toml` `[project.dependencies]` — CI installs via `pip install -e ".[dev]"`. The ingestion daemon's deps live in `ingestion/pyproject.toml` (`[project.dependencies]` + the `[test]` extra), installed separately by the `ingestion-test` job (`pip install -e "./ingestion[test]"`) and by `ingestion/Dockerfile` (`pip install .`, runtime-only). There is no `requirements.txt` anywhere; add library deps to the root `pyproject.toml` and daemon deps to `ingestion/pyproject.toml`.
 
 ## Architecture
 
@@ -274,7 +274,7 @@ nothing; import from the domain module.
 - Repository pattern — all DB queries through typed repositories
 - BAML — LLM function definitions in `ingestion/baml_src/`, generated client in `ingestion/baml_client/` (do not edit generated files). Only two functions survive: `SummarizeCountryNews` and `ClassifyMacroRegime`
 - PostgreSQL 16 on port **54320** (not 5432). Connection: `postgresql://postgres:postgres@localhost:54320/optimizer_db`
-- The library is configured by the root `pyproject.toml`; the daemon by `ingestion/requirements.txt` + `ingestion/pyproject.toml`
+- The library is configured by the root `pyproject.toml`; the daemon by `ingestion/pyproject.toml`
 - **Do not reintroduce `optimizer` as an ingestion dependency.** The daemon ingests; it does not optimize
 
 **Import-cycle gotcha**: `app/services/_shared/__init__.py` must NOT re-export `bootstrap_benchmarks`. `_benchmark_bootstrap` imports `market_data.reference_index_seeder`, which imports back into `_shared` for `ProgressCallback` — re-exporting makes that cycle load-bearing on import order. Import it from the module: `from app.services._shared._benchmark_bootstrap import bootstrap_benchmarks`.

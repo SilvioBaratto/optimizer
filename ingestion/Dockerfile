@@ -12,13 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /venv
 ENV PATH=/venv/bin:$PATH
 
-# Install dependencies before copying app code (layer cache)
-COPY ingestion/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy source and regenerate the BAML client from baml_src/
+# Copy source and install the daemon's runtime deps from pyproject.toml.
+# Installing `.` (no [test] extra) keeps pytest/pytest-cov out of the runtime
+# image; deps now have a single source of truth (ingestion/pyproject.toml).
 COPY ingestion/ ingestion/
 WORKDIR /build/ingestion
+RUN pip install --no-cache-dir .
+
+# Regenerate the BAML client from baml_src/ (baml-cli ships with baml-py)
 RUN baml-cli generate
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────

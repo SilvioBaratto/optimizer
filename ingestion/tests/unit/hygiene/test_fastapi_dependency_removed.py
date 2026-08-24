@@ -1,6 +1,7 @@
 """Example tests for issue #2: drop the leftover ``fastapi`` dependency
-declaration from ``ingestion/pyproject.toml`` and confirm
-``ingestion/requirements.txt`` was already clean.
+declaration from ``ingestion/pyproject.toml``. (``ingestion/requirements.txt``
+has since been removed — ``pyproject.toml`` is the daemon's single source of
+truth for dependencies.)
 
 Source-blind by construction: every assertion reads the tracked file's raw
 text. No implementation module is imported or exercised.
@@ -31,10 +32,4 @@ def test_when_ingestion_pyproject_is_read_then_fastapi_dependency_is_absent():
 @pytest.mark.criterion("scope-1")
 def test_when_ingestion_pyproject_is_read_then_httpx_dependency_remains():
     content = _read("ingestion/pyproject.toml")
-    assert "httpx>=0.28.1" in content
-
-
-@pytest.mark.criterion("scope-4")
-def test_when_ingestion_requirements_txt_is_read_then_fastapi_entry_is_absent():
-    content = _read("ingestion/requirements.txt")
-    assert "fastapi" not in content.lower()
+    assert "httpx==0.28.1" in content

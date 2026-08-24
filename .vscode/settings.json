@@ -14,5 +14,7 @@
         "PYTHONPATH": "${workspaceFolder}/ingestion"
     },
     "terminal.integrated.cwd": "${workspaceFolder}",
-    "cSpell.enabled": false
+    "cSpell.enabled": false,
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda"
 }

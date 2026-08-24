@@ -198,8 +198,9 @@ def test_when_any_number_of_well_formed_revisions_are_scanned_then_none_are_repo
     """Cover 0..5 well-formed revisions, including the empty-directory case.
 
     Replaces a prior ``hypothesis`` ``@given`` property: the CI job installs
-    only ``ingestion/requirements.txt``, which does not declare ``hypothesis``,
-    so collecting a module-level ``from hypothesis import given`` raised
+    only ``ingestion/pyproject.toml`` (deps + the ``[test]`` extra), which
+    does not declare ``hypothesis``, so collecting a module-level
+    ``from hypothesis import given`` raised
     ``ModuleNotFoundError`` and failed the whole ``ingestion-test`` job before
     a single test ran. ``_well_formed_revision_text`` is a hardcoded template
     whose ``downgrade()`` is a ``raise`` by construction, so the property added
