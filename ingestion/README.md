@@ -31,7 +31,7 @@ python -m app.worker          # blocks until SIGTERM/SIGINT
 | `weekly_refetch` | `0 3 * * 0` | full yfinance + macro rebuild (5y) |
 | `fred_monthly` | `0 8 1 * *` | FRED economic series |
 | `news_refresh` | every 30 min | incremental re-summarization |
-| `orphan_reaper` | every 300s | fails jobs whose worker died |
+| `orphan_reaper` | every 300s | fails (or reclaims) jobs whose heartbeat lease expired |
 
 News, summarize, and calibrate form a dependency chain — each consumes what the previous one
 wrote, so a failure upstream skips the rest rather than summarizing stale articles.
@@ -75,13 +75,49 @@ Set `NOTIFICATION_WEBHOOK_URL` for a Discord/Slack POST on job failure.
 
 ## Operational notes
 
-- **Run exactly one daemon per database.** The orphan reaper fails any active job whose
-  `worker_host` differs from its own hostname, so two containers on one DB will reap each
-  other's jobs.
+- **Run exactly one daemon per database.** APScheduler 3.x forbids sharing a job store
+  between schedulers, so one process owns the cron triggers. This is the correct standard
+  mitigation, not a defect — see *Scaling* below for the sanctioned multi-replica path.
+- **Liveness is a heartbeat lease.** A running job renews `last_heartbeat_at` every
+  `SCHEDULER_HEARTBEAT_CADENCE_SECONDS` (30s); the orphan reaper only touches a claim once the
+  lease TTL (`SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS`, 300s = 10× cadence) elapses with no
+  renewal. It is the renewal — not a flat timeout — that keeps a long synchronous step (the
+  multi-minute yfinance fetch, the reference-index seed) from being falsely reaped. Host and
+  PID are no longer part of the decision, so the daemon is portable (Windows/macOS dev) and
+  two daemons never reap each other's live jobs.
+- **Orphan strategy — `SCHEDULER_ORPHAN_STRATEGY` (`fail` | `reclaim`, default `fail`).**
+  `fail` marks a dead-worker job failed; the next cron re-runs it. `reclaim` additionally
+  re-dispatches the step immediately (at-least-once self-healing), capped by
+  `SCHEDULER_ORPHAN_MAX_RECLAIM_ATTEMPTS` (default 3). **Only enable `reclaim` once every
+  fetch write is an idempotent upsert** — re-running a non-idempotent job duplicates rows.
+- **Clean shutdown.** On SIGTERM the daemon stops claiming new jobs and drains in-flight work
+  for up to `SCHEDULER_SHUTDOWN_DRAIN_TIMEOUT_SECONDS` (30s), then force-exits. Size the
+  container `stop_grace_period` / `terminationGracePeriodSeconds` above that (compose ships
+  `60s`; the compose default is only 10s) so the drain is not SIGKILLed mid-write. Raise both
+  together to drain long fetches cleanly.
 - **`TRADING_212_API_KEY` absent** ⇒ `universe_build` skips without claiming a job slot. That
   is a configuration state, not a failure — but nothing will refresh `instruments`.
 - **Migration `d1e2f3a4b5c6` is one-way.** It drops the 17 non-ingestion tables and its
   `downgrade()` raises. Restore from a dump taken before the upgrade.
+
+## Scaling
+
+One daemon per database is the design now. The workload is a few dozen long-running jobs a
+day (a yfinance fetch over thousands of tickers, a reference-index seed); the cost is network
+latency to the sources, which a bigger scheduler does not remove — so a distributed task
+queue would add operational weight for no gain.
+
+If fetch wall-clock time ever exceeds the daily window, the sanctioned path is **leader
+election with a PostgreSQL advisory lock** (`pg_try_advisory_xact_lock`): replicas compete,
+only the lock-holder fires the cron triggers, the rest stay hot standby or fetch-only
+workers. It reuses the existing Postgres — no Redis, no Redlock. Not built; documented so the
+next person does not re-derive it.
+
+> **Deployment caveat:** PgBouncer *transaction* pooling breaks session-level advisory locks.
+> Use the transaction-scoped variant of the lock.
+
+APScheduler 4.x sanctions multi-scheduler job stores explicitly, but was pre-release at this
+project's cutoff — **do not plan a scale-out on 4.x without re-validating this section.**
 
 ## Layout
 
