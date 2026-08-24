@@ -11,7 +11,6 @@ import os
 import socket
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
 
 from sqlalchemy.orm import Session
 
@@ -422,45 +421,64 @@ class TestReconcileOrphans:
         assert row.finished_at.replace(tzinfo=timezone.utc) == finished
 
 
-_REPO_MODULE = "app.repositories.jobs.background_job_repository"
-
-
 class TestLivenessPredicate:
-    """Issue #586 — four-condition liveness predicate for reconcile_orphans."""
+    """T2.1 / §5.3 — lease-based liveness: only a stale heartbeat reaps a claim.
 
-    def test_reconcile_skips_live_pid_same_host(self, db_session: Session) -> None:
+    Host and PID no longer participate (they false-reaped across a host/
+    container change and were inert off Linux). A fresh lease is never reaped,
+    regardless of which host/PID holds it.
+    """
+
+    def test_reconcile_skips_fresh_lease(self, db_session: Session) -> None:
         repo = BackgroundJobRepository(db_session)
-        jid = repo.claim_or_create("liveness_skip_live_pid")
+        jid = repo.claim_or_create("liveness_fresh")  # stamps a fresh heartbeat
         assert jid is not None
         db_session.flush()
 
-        with (
-            patch(f"{_REPO_MODULE}.sys.platform", "linux"),
-            patch(f"{_REPO_MODULE}.os.path.exists", return_value=True),
-        ):
-            count = repo.reconcile_orphans("orphan")
+        count = repo.reconcile_orphans("orphan")
 
         assert count == 0
         row = repo.get(jid)
         assert row is not None
         assert row.status == "pending"
 
-    def test_reconcile_marks_dead_pid_same_host(self, db_session: Session) -> None:
+    def test_reconcile_ignores_dead_pid_when_lease_fresh(
+        self, db_session: Session
+    ) -> None:
+        # A dead PID no longer triggers reaping; only lease expiry does. A
+        # worker that died less than a TTL ago keeps its claim until the lease
+        # lapses — then the stale-heartbeat path reaps it.
         repo = BackgroundJobRepository(db_session)
-        jid = repo.claim_or_create("liveness_dead_pid")
+        jid = repo.claim_or_create("liveness_dead_pid_fresh_lease")
         assert jid is not None
+        repo.update(jid, worker_pid=2147483000)  # a PID that is not running
         db_session.flush()
 
-        with (
-            patch(f"{_REPO_MODULE}.sys.platform", "linux"),
-            patch(f"{_REPO_MODULE}.os.path.exists", return_value=False),
-        ):
-            count = repo.reconcile_orphans("orphan")
+        count = repo.reconcile_orphans("orphan")
 
-        assert count == 1
+        assert count == 0
         row = repo.get(jid)
         assert row is not None
-        assert row.status == "failed"
+        assert row.status == "pending"
+
+    def test_reconcile_ignores_other_host_when_lease_fresh(
+        self, db_session: Session
+    ) -> None:
+        # Host-scope removed: a fresh-lease row is never reaped regardless of
+        # which host claimed it — two daemons on one DB no longer reap each
+        # other's live jobs (single-daemon remains the design; this is safety).
+        repo = BackgroundJobRepository(db_session)
+        jid = repo.claim_or_create("liveness_other_host")
+        assert jid is not None
+        repo.update(jid, worker_host="OTHER_HOST_NAME")
+        db_session.flush()
+
+        count = repo.reconcile_orphans("orphan")
+
+        assert count == 0
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == "pending"
 
     def test_reconcile_marks_stale_heartbeat(self, db_session: Session) -> None:
         repo = BackgroundJobRepository(db_session)
@@ -475,13 +493,18 @@ class TestLivenessPredicate:
         assert row is not None
         assert row.status == "failed"
 
-    def test_reconcile_marks_cross_host_orphan(self, db_session: Session) -> None:
+    def test_reconcile_marks_stale_lease_on_any_host(
+        self, db_session: Session
+    ) -> None:
+        # Even a row from another host is reaped once its lease goes stale —
+        # liveness is purely the heartbeat, independent of host/PID.
         repo = BackgroundJobRepository(db_session)
-        jid = repo.claim_or_create("liveness_cross_host")
+        jid = repo.claim_or_create("liveness_stale_other_host")
         assert jid is not None
-        db_session.flush()
+        repo.update(jid, worker_host="OTHER_HOST_NAME")
+        _make_stale(repo, jid, db_session)
 
-        count = repo.reconcile_orphans("orphan", current_host="OTHER_HOST_NAME")
+        count = repo.reconcile_orphans("orphan")
 
         assert count == 1
         row = repo.get(jid)

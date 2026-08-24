@@ -3,7 +3,6 @@
 import logging
 import os
 import socket
-import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -354,39 +353,39 @@ class BackgroundJobRepository(RepositoryBase):
     def reconcile_orphans(
         self,
         error_msg: str,
-        current_host: str | None = None,
         heartbeat_timeout_seconds: int = _DEFAULT_HEARTBEAT_TIMEOUT_SECONDS,
     ) -> int:
-        """Mark genuinely dead pending/running rows as failed.
+        """Fail pending/running rows whose heartbeat lease has expired.
 
-        Spec 12.3.3 — a row is failed iff ANY of:
-        - ``worker_host`` IS NULL (pre-migration row)
-        - ``worker_host`` != *current_host* (cross-host orphan)
-        - ``last_heartbeat_at`` IS NULL or older than *heartbeat_timeout_seconds*
-        - same-host row whose ``worker_pid`` is no longer present in ``/proc``
+        T2.1 / ARCHITECTURE.md §5.3: liveness is a **heartbeat lease**, not a
+        host/PID identity check. A worker renews ``last_heartbeat_at`` every
+        ``SCHEDULER_HEARTBEAT_CADENCE_SECONDS`` (default 30s); the reaper only
+        touches a claim once the lease TTL (``heartbeat_timeout_seconds``, a
+        multiple of the cadence — default 300s = 10x) has elapsed with no
+        renewal. It is the lease *renewal* that protects long synchronous steps
+        (the multi-minute yfinance fetch and reference-index seed) from being
+        falsely reaped while still alive.
 
-        Caller still owns the commit. Returns the affected rowcount.
+        Host-scope and the Linux-``/proc`` PID probe were removed deliberately:
+        they false-reaped across a container/host change and were inert on
+        Windows/macOS. ``worker_host`` / ``worker_pid`` are still recorded by
+        :meth:`claim_or_create` for observability — just no longer used to reap.
+
+        A row is failed iff it is still (pending, running) AND its lease is
+        stale: ``last_heartbeat_at`` is NULL or older than the TTL. Caller owns
+        the commit. Returns the affected rowcount.
         """
-        host = current_host or socket.gethostname()
         cutoff = datetime.now(timezone.utc) - timedelta(
             seconds=heartbeat_timeout_seconds,
         )
-        dead_pid_ids = self._get_dead_pid_ids(host)
-
-        orphan = [
-            BackgroundJob.worker_host.is_(None),
-            BackgroundJob.worker_host != host,
-            BackgroundJob.last_heartbeat_at.is_(None),
-            BackgroundJob.last_heartbeat_at < cutoff,
-        ]
-        if dead_pid_ids:
-            orphan.append(BackgroundJob.id.in_(dead_pid_ids))
-
         stmt = (
             update(BackgroundJob)
             .where(
                 BackgroundJob.status.in_(_ACTIVE_STATUSES),
-                or_(*orphan),
+                or_(
+                    BackgroundJob.last_heartbeat_at.is_(None),
+                    BackgroundJob.last_heartbeat_at < cutoff,
+                ),
             )
             .values(
                 status="failed",
@@ -394,27 +393,6 @@ class BackgroundJobRepository(RepositoryBase):
                 finished_at=func.now(),
             )
         )
-        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]  # type: ignore[assignment]
+        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
         self.session.flush()
         return result.rowcount or 0
-
-    def _get_dead_pid_ids(self, current_host: str) -> list[uuid.UUID]:
-        """Return ids of same-host active rows whose PID is missing in /proc.
-
-        Linux-only — ``/proc`` does not exist on darwin (macOS dev) or
-        Windows. On non-Linux platforms the empty list is returned and the
-        caller falls back to host/heartbeat predicates alone.
-        """
-        if not sys.platform.startswith("linux"):
-            return []
-        stmt = select(BackgroundJob.id, BackgroundJob.worker_pid).where(
-            BackgroundJob.status.in_(_ACTIVE_STATUSES),
-            BackgroundJob.worker_host == current_host,
-            BackgroundJob.worker_pid.is_not(None),
-        )
-        rows = self.session.execute(stmt).all()
-        return [
-            row.id
-            for row in rows
-            if not os.path.exists(f"/proc/{row.worker_pid}")  # noqa: PTH110
-        ]
