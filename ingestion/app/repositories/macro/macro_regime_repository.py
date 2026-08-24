@@ -502,6 +502,16 @@ class MacroRegimeRepository(RepositoryBase):
 
         Extracts ``themes`` from each row dict, upserts the MacroNews rows,
         then manages MacroNewsTheme child rows for each article.
+
+        T1.4 / ARCHITECTURE.md §5.4: parent rows use ``INSERT ... ON CONFLICT
+        DO UPDATE`` on ``uq_macro_news_id``. The theme children are replaced
+        (clear-then-re-add) rather than upserted on ``uq_macro_news_theme``,
+        deliberately: a re-run must converge to *exactly* the current theme set,
+        and a bare per-theme upsert would leave stale themes behind when an
+        article's classification changes. The clear+re-add runs inside the
+        caller's single transaction (atomic — a crash rolls back both halves),
+        and the one-daemon-per-DB invariant precludes a concurrent writer, so
+        the sequence is idempotent on re-run and convergent on a changed set.
         """
         # Extract themes before upsert (themes is no longer a column)
         themes_by_news_id: dict[str, list[str]] = {}
