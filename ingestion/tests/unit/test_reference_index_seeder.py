@@ -83,8 +83,12 @@ class TestSeedReferenceIndicesProgressOrdering:
         total_idx = _index_of_first_call_with(spy, "total")
         assert spy.call_args_list[total_idx].kwargs["total"] == 2
 
-    def test_when_nyse_missing_no_total_only_call_emitted(self) -> None:
-        """Failed NYSE lookup must not emit a misleading total sentinel."""
+    def test_when_nyse_missing_it_is_created_and_seeding_proceeds(self) -> None:
+        """On a cold DB the seeder creates NYSE and proceeds (not a failure).
+
+        Reference indices are seeded independently of the T212 universe, so a
+        missing NYSE row must be created, not treated as a fatal precondition.
+        """
         spy = MagicMock()
         session = _build_session_with_nyse(nyse_id=None)
         repo, service = _build_repo_and_service()
@@ -100,7 +104,11 @@ class TestSeedReferenceIndicesProgressOrdering:
                 ["SPY", "QQQ"], yf_client=MagicMock(), on_progress=spy
             )
 
-        total_only_calls = [
-            c for c in spy.call_args_list if set(c.kwargs.keys()) == {"total"}
+        # An NYSE Exchange was created…
+        added_names = [
+            getattr(c.args[0], "name", None) for c in session.add.call_args_list
         ]
-        assert total_only_calls == []
+        assert "NYSE" in added_names
+        # …and seeding proceeded normally: the total sentinel was emitted.
+        total_idx = _index_of_first_call_with(spy, "total")
+        assert spy.call_args_list[total_idx].kwargs["total"] == 2

@@ -78,21 +78,16 @@ def seed_reference_indices(
         ).scalar_one_or_none()
 
         if nyse_id is None:
-            logger.error("NYSE exchange row not found; cannot seed reference indices")
-            all_errors.append("NYSE exchange row not found in database")
-            on_progress(
-                status="failed",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-                errors=all_errors,
-                result={
-                    "tickers_processed": result.tickers_processed,
-                    "instruments_created": result.instruments_created,
-                    "instruments_already_present": result.instruments_already_present,
-                    "counts": result.counts,
-                    "error_count": len(all_errors),
-                },
-            )
-            return result
+            # Reference indices are seeded independently of the T212 universe (the
+            # docstring's "separate, explicit operation"), so on a cold DB the
+            # NYSE exchange they attach to may not exist yet. Create it rather
+            # than failing — otherwise a fresh deploy seeds no benchmarks until
+            # the first universe build happens to create an NYSE row.
+            nyse = Exchange(name="NYSE")
+            session.add(nyse)
+            session.flush()
+            nyse_id = nyse.id
+            logger.info("Created NYSE exchange row for reference-index seeding")
 
         on_progress(total=len(tickers))
 
