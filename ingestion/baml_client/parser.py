@@ -55,4 +55,4 @@ class LlmStreamParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeCountryNews", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.CountryNewsSummary, __result__)
 
-    
+    

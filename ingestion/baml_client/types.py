@@ -71,3 +71,14 @@ class MacroRegimeCalibration(BaseModel):
 # #########################################################################
 # Generated type aliases (0)
 # #########################################################################
+
+
+# #########################################################################
+# Model rebuilds (2)
+# #########################################################################
+# Resolve string forward references now that every model above is defined so
+# class declaration order never breaks Pydantic construction (issue #793).
+# Recursive models are intentionally omitted (Pydantic resolves those lazily;
+# eagerly rebuilding them can recurse).
+CountryNewsSummary.model_rebuild()
+MacroRegimeCalibration.model_rebuild()
