@@ -1,0 +1,5 @@
+# Force LF for shell scripts regardless of core.autocrlf. Windows checkouts
+# otherwise get CRLF, and a `#!/bin/bash\r` shebang breaks in a Linux container
+# ("exec /entrypoint.sh: no such file or directory").
+*.sh text eol=lf
+entrypoint.sh text eol=lf
