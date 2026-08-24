@@ -355,90 +355,52 @@ class BackgroundJobRepository(RepositoryBase):
                 return 0
             raise
 
-    def reconcile_orphans(
-        self,
-        error_msg: str,
-        heartbeat_timeout_seconds: int = _DEFAULT_HEARTBEAT_TIMEOUT_SECONDS,
-    ) -> int:
-        """Fail pending/running rows whose heartbeat lease has expired.
-
-        T2.1 / ARCHITECTURE.md §5.3: liveness is a **heartbeat lease**, not a
-        host/PID identity check. A worker renews ``last_heartbeat_at`` every
-        ``SCHEDULER_HEARTBEAT_CADENCE_SECONDS`` (default 30s); the reaper only
-        touches a claim once the lease TTL (``heartbeat_timeout_seconds``, a
-        multiple of the cadence — default 300s = 10x) has elapsed with no
-        renewal. It is the lease *renewal* that protects long synchronous steps
-        (the multi-minute yfinance fetch and reference-index seed) from being
-        falsely reaped while still alive.
-
-        Host-scope and the Linux-``/proc`` PID probe were removed deliberately:
-        they false-reaped across a container/host change and were inert on
-        Windows/macOS. ``worker_host`` / ``worker_pid`` are still recorded by
-        :meth:`claim_or_create` for observability — just no longer used to reap.
-
-        A row is failed iff it is still (pending, running) AND its lease is
-        stale: ``last_heartbeat_at`` is NULL or older than the TTL. Caller owns
-        the commit. Returns the affected rowcount.
-        """
-        cutoff = datetime.now(timezone.utc) - timedelta(
-            seconds=heartbeat_timeout_seconds,
-        )
-        stmt = (
-            update(BackgroundJob)
-            .where(
-                BackgroundJob.status.in_(_ACTIVE_STATUSES),
-                or_(
-                    BackgroundJob.last_heartbeat_at.is_(None),
-                    BackgroundJob.last_heartbeat_at < cutoff,
-                ),
-            )
-            .values(
-                status="failed",
-                error=error_msg,
-                finished_at=func.now(),
-            )
-        )
-        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
-        self.session.flush()
-        return result.rowcount or 0
-
-    def reclaim_orphans(
+    def reap_orphans(
         self,
         error_msg: str,
         heartbeat_timeout_seconds: int = _DEFAULT_HEARTBEAT_TIMEOUT_SECONDS,
     ) -> list[dict[str, Any]]:
-        """Fail lease-expired orphans and return them for re-dispatch (R3/§5.3).
+        """Fail lease-expired pending/running rows; return one entry per row.
 
-        Same lease-staleness rule as :meth:`reconcile_orphans`, but returns one
-        entry per reclaimed job — ``{"job_type": ..., "attempt": ...}`` — so the
-        scheduler can immediately re-run the step (capped by ``attempt``). The
-        orphan row itself is marked failed (freeing the job slot); the
-        re-dispatched run is a NEW job carrying ``attempt + 1``.
+        T2.1 / ARCHITECTURE.md §5.3: liveness is a **heartbeat lease**, not a
+        host/PID identity check. A worker renews ``last_heartbeat_at`` every
+        ``SCHEDULER_HEARTBEAT_CADENCE_SECONDS`` (default 30s); a claim is reaped
+        only once the lease TTL (``heartbeat_timeout_seconds``, a multiple of the
+        cadence — default 300s = 10x) has elapsed with no renewal. It is the
+        lease *renewal* that protects long synchronous steps (the multi-minute
+        yfinance fetch, the reference-index seed) from being falsely reaped while
+        alive. Host-scope and the Linux-``/proc`` PID probe were removed: they
+        false-reaped across a container/host change and were inert off Linux
+        (``worker_host`` / ``worker_pid`` are still recorded for observability).
 
-        Note: the SELECT and the UPDATE re-apply the same predicate, but a
-        heartbeat landing between them could leave a returned job un-failed. The
-        one-daemon-per-DB invariant makes that window negligible; a spurious
-        re-dispatch is still safe because fetch writes are idempotent (§5.4).
-        Caller owns the commit.
+        Returns ``{"job_type": ..., "attempt": ...}`` per reaped row so the
+        caller can emit terminal metrics and (under RECLAIM) re-dispatch the
+        step. The single source of the reap rule — :meth:`reconcile_orphans`
+        wraps this for callers that need only a count.
+
+        Note: SELECT then UPDATE re-apply the same predicate; a heartbeat landing
+        between them could leave a returned row un-failed. The one-daemon-per-DB
+        invariant makes that window negligible, and a spurious re-dispatch is
+        safe because fetch writes are idempotent (§5.4). Caller owns the commit.
         """
         cutoff = datetime.now(timezone.utc) - timedelta(
             seconds=heartbeat_timeout_seconds,
         )
-        stale = or_(
-            BackgroundJob.last_heartbeat_at.is_(None),
-            BackgroundJob.last_heartbeat_at < cutoff,
+        stale_active = (
+            BackgroundJob.status.in_(_ACTIVE_STATUSES),
+            or_(
+                BackgroundJob.last_heartbeat_at.is_(None),
+                BackgroundJob.last_heartbeat_at < cutoff,
+            ),
         )
         rows = self.session.execute(
-            select(BackgroundJob.job_type, BackgroundJob.attempt).where(
-                BackgroundJob.status.in_(_ACTIVE_STATUSES),
-                stale,
-            )
+            select(BackgroundJob.job_type, BackgroundJob.attempt).where(*stale_active)
         ).all()
-        reclaimed = [{"job_type": r.job_type, "attempt": r.attempt} for r in rows]
-        if reclaimed:
+        reaped = [{"job_type": r.job_type, "attempt": r.attempt} for r in rows]
+        if reaped:
             self.session.execute(
                 update(BackgroundJob)
-                .where(BackgroundJob.status.in_(_ACTIVE_STATUSES), stale)
+                .where(*stale_active)
                 .values(
                     status="failed",
                     error=error_msg,
@@ -446,4 +408,17 @@ class BackgroundJobRepository(RepositoryBase):
                 )
             )
             self.session.flush()
-        return reclaimed
+        return reaped
+
+    def reconcile_orphans(
+        self,
+        error_msg: str,
+        heartbeat_timeout_seconds: int = _DEFAULT_HEARTBEAT_TIMEOUT_SECONDS,
+    ) -> int:
+        """Fail lease-expired orphans; return the count.
+
+        Thin wrapper over :meth:`reap_orphans` for the startup path
+        (``app.worker._reconcile_orphans``), which needs only a count and emits
+        no metrics (this process's ``jobs_in_progress`` gauge is 0 at boot).
+        """
+        return len(self.reap_orphans(error_msg, heartbeat_timeout_seconds))

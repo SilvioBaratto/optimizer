@@ -127,25 +127,31 @@ class TestOrphanReaper:
         dm.get_session.return_value.__enter__.return_value = session
         return session
 
-    def test_when_run_then_reconcile_orphans_invoked_and_committed(self) -> None:
-        from app.services.jobs.scheduler import run_orphan_reaper
+    def test_when_run_then_reap_orphans_invoked_and_committed(self) -> None:
+        from app.services.jobs import scheduler as sched
 
-        with patch(_SCHED_DM) as dm, patch(_REAPER_REPO) as MockRepo:
+        with (
+            patch(_SCHED_DM) as dm,
+            patch(_REAPER_REPO) as MockRepo,
+            patch.object(sched, "_emit_reap_metrics"),
+        ):
             session = self._patch_session(dm)
-            MockRepo.return_value.reconcile_orphans.return_value = 2
-            run_orphan_reaper()
+            MockRepo.return_value.reap_orphans.return_value = [
+                {"job_type": "macro_fetch", "attempt": 0}
+            ]
+            sched.run_orphan_reaper()
 
-        call = MockRepo.return_value.reconcile_orphans.call_args
+        call = MockRepo.return_value.reap_orphans.call_args
         assert "heartbeat stale" in call.args[0]
         assert call.kwargs["heartbeat_timeout_seconds"] == (
             settings.scheduler_orphan_heartbeat_timeout_seconds
         )
         session.commit.assert_called_once()
 
-    def test_when_reconcile_raises_then_swallowed_non_fatal(self) -> None:
+    def test_when_reap_raises_then_swallowed_non_fatal(self) -> None:
         from app.services.jobs.scheduler import run_orphan_reaper
 
         with patch(_SCHED_DM) as dm, patch(_REAPER_REPO) as MockRepo:
             self._patch_session(dm)
-            MockRepo.return_value.reconcile_orphans.side_effect = RuntimeError("boom")
+            MockRepo.return_value.reap_orphans.side_effect = RuntimeError("boom")
             run_orphan_reaper()  # must NOT raise

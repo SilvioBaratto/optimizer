@@ -612,11 +612,11 @@ class TestGetLastRefreshTime:
 
 
 class TestRunOrphanReaper:
-    def _run(self, stack, *, reconcile_return=0, db_side_effect=None):
+    def _run(self, stack, *, reaped=None, db_side_effect=None):
         mock_dm = MagicMock()
         mock_session = MagicMock()
         mock_repo = MagicMock()
-        mock_repo.reconcile_orphans.return_value = reconcile_return
+        mock_repo.reap_orphans.return_value = reaped or []
 
         if db_side_effect:
             mock_dm.get_session.side_effect = db_side_effect
@@ -635,6 +635,9 @@ class TestRunOrphanReaper:
                 mock_repo_cls,
             )
         )
+        # Default strategy is 'fail'; stub metrics so a reaped list doesn't touch
+        # the real Prometheus collectors.
+        stack.enter_context(patch(f"{M}._emit_reap_metrics"))
 
         from app.services.jobs.scheduler import run_orphan_reaper
 
@@ -644,16 +647,18 @@ class TestRunOrphanReaper:
 
     def test_when_orphans_reaped_then_commit_called(self):
         with ExitStack() as stack:
-            mock_session, mock_repo = self._run(stack, reconcile_return=2)
+            mock_session, mock_repo = self._run(
+                stack, reaped=[{"job_type": "macro_fetch", "attempt": 0}]
+            )
 
-        mock_repo.reconcile_orphans.assert_called_once()
+        mock_repo.reap_orphans.assert_called_once()
         mock_session.commit.assert_called_once()
 
     def test_when_no_orphans_then_commit_still_called(self):
         with ExitStack() as stack:
-            mock_session, mock_repo = self._run(stack, reconcile_return=0)
+            mock_session, mock_repo = self._run(stack, reaped=[])
 
-        mock_repo.reconcile_orphans.assert_called_once()
+        mock_repo.reap_orphans.assert_called_once()
         mock_session.commit.assert_called_once()
 
     def test_when_db_raises_then_exception_is_swallowed(self):
@@ -794,94 +799,130 @@ class TestHeartbeatCompanion:
 
 
 class TestOrphanReaperStrategy:
-    """run_orphan_reaper branches on SCHEDULER_ORPHAN_STRATEGY; reclaim re-runs."""
+    """run_orphan_reaper reaps via reap_orphans; reclaim re-dispatches + metrics."""
 
     _REPO = "app.repositories.jobs.background_job_repository.BackgroundJobRepository"
 
-    def _run_reaper_with(self, strategy, repo):
+    def _run_reaper_with(self, strategy, reaped):
         from app.services.jobs import scheduler as sched
 
         @contextmanager
         def _sess():
             yield MagicMock()
 
+        repo = MagicMock()
+        repo.reap_orphans.return_value = reaped
         with (
             patch.object(sched.settings, "scheduler_orphan_strategy", strategy),
             patch.object(sched.database_manager, "get_session", side_effect=_sess),
             patch(self._REPO, return_value=repo),
             patch.object(sched, "_redispatch_reclaimed") as redispatch,
+            patch.object(sched, "_emit_reap_metrics") as emit,
         ):
             sched.run_orphan_reaper()
-        return redispatch
+        return repo, redispatch, emit
 
-    def test_fail_strategy_reconciles_and_does_not_redispatch(self):
-        repo = MagicMock()
-        repo.reconcile_orphans.return_value = 1
+    def test_fail_strategy_reaps_and_emits_but_does_not_redispatch(self):
+        reaped = [{"job_type": "yfinance_fetch", "attempt": 0}]
+        repo, redispatch, emit = self._run_reaper_with("fail", reaped)
 
-        redispatch = self._run_reaper_with("fail", repo)
-
-        repo.reconcile_orphans.assert_called_once()
-        repo.reclaim_orphans.assert_not_called()
+        repo.reap_orphans.assert_called_once()
+        emit.assert_called_once_with(reaped)
         redispatch.assert_not_called()
 
-    def test_reclaim_strategy_reclaims_and_redispatches(self):
-        repo = MagicMock()
-        reclaimed = [{"job_type": "yfinance_fetch", "attempt": 0}]
-        repo.reclaim_orphans.return_value = reclaimed
+    def test_reclaim_strategy_reaps_emits_and_redispatches(self):
+        reaped = [{"job_type": "yfinance_fetch", "attempt": 0}]
+        repo, redispatch, emit = self._run_reaper_with("reclaim", reaped)
 
-        redispatch = self._run_reaper_with("reclaim", repo)
+        repo.reap_orphans.assert_called_once()
+        emit.assert_called_once_with(reaped)
+        redispatch.assert_called_once_with(reaped)
 
-        repo.reclaim_orphans.assert_called_once()
-        repo.reconcile_orphans.assert_not_called()
-        redispatch.assert_called_once_with(reclaimed)
+    def test_no_orphans_skips_emit_and_redispatch(self):
+        repo, redispatch, emit = self._run_reaper_with("reclaim", [])
 
-    @staticmethod
-    def _sync_thread(target=None, args=(), **_kw):
-        """A Thread double whose .start() runs the target inline."""
-        m = MagicMock()
-        m.start.side_effect = lambda: target(*args)
-        return m
+        repo.reap_orphans.assert_called_once()
+        emit.assert_not_called()
+        redispatch.assert_not_called()
 
-    def test_redispatch_below_cap_runs_with_next_attempt(self):
+    # --- _redispatch_reclaimed submits capped scheduler one-shot jobs ---
+
+    def test_redispatch_below_cap_submits_job_with_next_attempt(self):
         from app.services.jobs import scheduler as sched
 
-        calls: list[int] = []
         with (
             patch.object(sched.settings, "scheduler_orphan_max_reclaim_attempts", 3),
-            patch.dict(
-                sched._RECLAIM_DISPATCH,
-                {"yfinance_fetch": lambda a: calls.append(a)},
-                clear=False,
-            ),
-            patch.object(sched.threading, "Thread", side_effect=self._sync_thread),
+            patch.object(sched, "_scheduler", MagicMock()) as sch,
         ):
             sched._redispatch_reclaimed([{"job_type": "yfinance_fetch", "attempt": 0}])
 
-        assert calls == [1]  # attempt + 1
+        sch.add_job.assert_called_once()
+        kw = sch.add_job.call_args.kwargs
+        assert kw["kwargs"] == {"job_type": "yfinance_fetch", "attempt": 1}
 
     def test_redispatch_skips_when_over_cap(self):
         from app.services.jobs import scheduler as sched
 
-        calls: list[int] = []
         with (
             patch.object(sched.settings, "scheduler_orphan_max_reclaim_attempts", 2),
-            patch.dict(
-                sched._RECLAIM_DISPATCH,
-                {"yfinance_fetch": lambda a: calls.append(a)},
-                clear=False,
-            ),
-            patch.object(sched.threading, "Thread", side_effect=self._sync_thread),
+            patch.object(sched, "_scheduler", MagicMock()) as sch,
         ):
             # attempt 2 -> next 3 > max 2 -> skip
             sched._redispatch_reclaimed([{"job_type": "yfinance_fetch", "attempt": 2}])
 
-        assert calls == []
+        sch.add_job.assert_not_called()
 
     def test_redispatch_skips_unknown_job_type(self):
         from app.services.jobs import scheduler as sched
 
-        with patch.object(
-            sched.threading, "Thread", side_effect=self._sync_thread
-        ):
-            # No dispatcher for this type: no thread, no raise.
+        with patch.object(sched, "_scheduler", MagicMock()) as sch:
             sched._redispatch_reclaimed([{"job_type": "mystery", "attempt": 0}])
+
+        sch.add_job.assert_not_called()
+
+    def test_redispatch_without_bound_scheduler_is_noop(self):
+        from app.services.jobs import scheduler as sched
+
+        with patch.object(sched, "_scheduler", None):
+            # No scheduler bound (e.g. before create_scheduler) — must not raise.
+            sched._redispatch_reclaimed([{"job_type": "yfinance_fetch", "attempt": 0}])
+
+    # --- _run_reclaim maps job_type -> step ---
+
+    def test_run_reclaim_dispatches_normal_step(self):
+        from app.services.jobs import scheduler as sched
+
+        # _run_reclaim resolves the step via the _RECLAIM_STEP dict (references
+        # captured at import), so patch the dict entry, not the module attr.
+        step = MagicMock(return_value=True)
+        with patch.dict(sched._RECLAIM_STEP, {"yfinance_fetch": step}):
+            sched._run_reclaim("yfinance_fetch", 2)
+
+        step.assert_called_once_with(attempt=2)
+
+    def test_run_reclaim_reference_index_uses_refresh(self):
+        from app.services.jobs import scheduler as sched
+
+        with patch.object(sched, "refresh_reference_indices") as refresh:
+            sched._run_reclaim("reference_index_seed", 1)
+
+        refresh.assert_called_once_with("orphan_reclaim", attempt=1)
+
+    # --- _emit_reap_metrics records the terminal transition ---
+
+    def test_emit_reap_metrics_decrements_gauge_and_increments_failures(self):
+        from app.services.jobs import scheduler as sched
+
+        gauge = MagicMock()
+        counter = MagicMock()
+        with (
+            patch.object(sched.settings, "enable_metrics", True),
+            patch("app.metrics.jobs_in_progress", gauge),
+            patch("app.metrics.jobs_failed_total", counter),
+        ):
+            sched._emit_reap_metrics([{"job_type": "macro_fetch", "attempt": 0}])
+
+        gauge.labels.assert_called_once_with(domain="macro_fetch")
+        gauge.labels.return_value.dec.assert_called_once()
+        counter.labels.assert_called_once_with(domain="macro_fetch")
+        counter.labels.return_value.inc.assert_called_once()

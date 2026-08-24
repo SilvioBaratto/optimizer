@@ -421,10 +421,10 @@ class TestReconcileOrphans:
         assert row.finished_at.replace(tzinfo=timezone.utc) == finished
 
 
-class TestReclaimOrphans:
-    """R3/§5.3 — reclaim_orphans fails stale orphans and returns them to re-run."""
+class TestReapOrphans:
+    """R3/§5.3 — reap_orphans fails stale orphans and returns them to re-run."""
 
-    def test_reclaims_stale_and_returns_job_type_and_attempt(
+    def test_reaps_stale_and_returns_job_type_and_attempt(
         self, db_session: Session
     ) -> None:
         repo = BackgroundJobRepository(db_session)
@@ -432,20 +432,20 @@ class TestReclaimOrphans:
         assert jid is not None
         _make_stale(repo, jid, db_session)
 
-        reclaimed = repo.reclaim_orphans("orphan retry")
+        reaped = repo.reap_orphans("orphan retry")
 
-        assert reclaimed == [{"job_type": "yfinance_fetch", "attempt": 1}]
+        assert reaped == [{"job_type": "yfinance_fetch", "attempt": 1}]
         row = repo.get(jid)
         assert row is not None
         assert row.status == "failed"
 
-    def test_fresh_lease_is_not_reclaimed(self, db_session: Session) -> None:
+    def test_fresh_lease_is_not_reaped(self, db_session: Session) -> None:
         repo = BackgroundJobRepository(db_session)
         jid = repo.claim_or_create("macro_fetch")
         assert jid is not None
         db_session.flush()
 
-        assert repo.reclaim_orphans("orphan") == []
+        assert repo.reap_orphans("orphan") == []
         row = repo.get(jid)
         assert row is not None
         assert row.status == "pending"

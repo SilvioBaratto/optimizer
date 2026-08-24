@@ -59,8 +59,14 @@ class BackgroundJobService:
 
     def _execute_create_job(
         self, session: Any, extra: dict[str, Any], attempt: int = 0
-    ) -> None:
-        """Execute job creation logic within a session context."""
+    ) -> tuple[str | None, str | None]:
+        """Claim a job slot; return ``(new_job_id, conflict_id)``.
+
+        Returns the result rather than stashing it on ``self``: this service is
+        a module-level singleton and, under the RECLAIM re-dispatch path, a
+        reaper thread can call ``create_job`` concurrently with the scheduler's
+        own executor thread. Instance attributes would race; locals do not.
+        """
         repo = BackgroundJobRepository(session)
         # Periodic cleanup of old rows
         repo.cleanup_expired(self._ttl_seconds)
@@ -69,19 +75,19 @@ class BackgroundJobService:
             # A job is already running — find its id for the error
             _, existing_id = repo.is_any_running(self._job_type)
             session.commit()
-            # Capture for raising outside session context
-            self._conflict_id = existing_id or "unknown"
-        else:
-            session.commit()
-            self._job_id = str(new_id)
-            self._emit_started(self._job_id)
+            return None, (existing_id or "unknown")
+        session.commit()
+        job_id = str(new_id)
+        self._emit_started(job_id)
+        return job_id, None
 
-    def _get_or_raise_conflict(self) -> str:
-        """Return job ID or raise conflict error."""
-        if hasattr(self, "_job_id") and self._job_id:
-            return self._job_id
-        if hasattr(self, "_conflict_id"):
-            raise JobAlreadyRunningError(self._conflict_id)
+    @staticmethod
+    def _resolve(job_id: str | None, conflict_id: str | None) -> str:
+        """Return the new job id, or raise the conflict — from locals only."""
+        if job_id:
+            return job_id
+        if conflict_id is not None:
+            raise JobAlreadyRunningError(conflict_id)
         raise RuntimeError("Unexpected state in create_job")
 
     def _get_session_context_manager(self) -> Any:
@@ -145,18 +151,21 @@ class BackgroundJobService:
                     potential_session, "execute"
                 ):
                     with potential_session as session:
-                        self._execute_create_job(session, extra, attempt)
-                        return self._get_or_raise_conflict()
+                        return self._resolve(
+                            *self._execute_create_job(session, extra, attempt)
+                        )
                 else:
                     # Got the actual session
                     session = potential_session
-                    self._execute_create_job(session, extra, attempt)
-                    return self._get_or_raise_conflict()
+                    return self._resolve(
+                        *self._execute_create_job(session, extra, attempt)
+                    )
         else:
             # session_or_cm is already a session, not a context manager
             session = session_or_cm
-            self._execute_create_job(session, extra, attempt)
-            return self._get_or_raise_conflict()
+            return self._resolve(
+                *self._execute_create_job(session, extra, attempt)
+            )
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         """Return a dict representation of the job, or ``None``.

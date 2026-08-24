@@ -6,9 +6,9 @@ This locks each hop of that chain:
 
     run_*_step(attempt) -> _run_step(attempt) -> create_job(attempt) -> row.attempt
 
-Other reclaim pieces are covered elsewhere: reclaim_orphans returns job_type +
-attempt (test_background_job_repository), and _redispatch_reclaimed calls the
-thunk with attempt+1 and honours the cap (test_scheduler_pipeline).
+Other reclaim pieces are covered elsewhere: reap_orphans returns job_type +
+attempt (test_background_job_repository), and _redispatch_reclaimed submits a
+scheduler one-shot job with attempt+1 and honours the cap (test_scheduler_pipeline).
 """
 
 from __future__ import annotations
@@ -165,11 +165,11 @@ class TestReclaimEndToEndAttempt:
     def test_stale_orphan_redispatches_with_incremented_attempt(
         self, db_session
     ) -> None:
-        """reclaim_orphans + _redispatch_reclaimed hand attempt+1 to the thunk.
+        """reap_orphans + _redispatch_reclaimed submit attempt+1 to the scheduler.
 
         Drives the two reclaim collaborators directly (not run_orphan_reaper,
         which commits and would escape the SAVEPOINT test isolation).
-        reclaim_orphans only flushes, so the row is rolled back on teardown.
+        reap_orphans only flushes, so the row is rolled back on teardown.
         """
         from datetime import datetime, timedelta, timezone
 
@@ -192,29 +192,21 @@ class TestReclaimEndToEndAttempt:
         db_session.flush()
         repo = BackgroundJobRepository(db_session)
 
-        reclaimed = repo.reclaim_orphans("orphan retry")
-        assert reclaimed == [{"job_type": "yfinance_fetch", "attempt": 1}]
-
-        seen: list[int] = []
-
-        def _sync_thread(target=None, args=(), **_kw):
-            m = MagicMock()
-            m.start.side_effect = lambda: target(*args)
-            return m
+        reaped = repo.reap_orphans("orphan retry")
+        assert reaped == [{"job_type": "yfinance_fetch", "attempt": 1}]
 
         with (
             patch.object(sched.settings, "scheduler_orphan_max_reclaim_attempts", 3),
-            patch.dict(
-                sched._RECLAIM_DISPATCH,
-                {"yfinance_fetch": lambda a: seen.append(a)},
-                clear=False,
-            ),
-            patch.object(sched.threading, "Thread", side_effect=_sync_thread),
+            patch.object(sched, "_scheduler", MagicMock()) as sch,
         ):
-            sched._redispatch_reclaimed(reclaimed)
+            sched._redispatch_reclaimed(reaped)
 
         # Orphan failed (slot freed) and re-dispatched at attempt 1 + 1 = 2.
-        assert seen == [2]
+        sch.add_job.assert_called_once()
+        assert sch.add_job.call_args.kwargs["kwargs"] == {
+            "job_type": "yfinance_fetch",
+            "attempt": 2,
+        }
         row = repo.get(orphan_id)
         assert row is not None
         assert row.status == "failed"

@@ -106,6 +106,10 @@ _universe_jobs = BackgroundJobService(
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
+# The live scheduler, bound by create_scheduler(). The RECLAIM reaper submits
+# one-shot re-dispatch jobs through it so they run in the drained executor pool.
+_scheduler: BackgroundScheduler | None = None
+
 
 # ---------------------------------------------------------------------------
 # Reference-index refresh helpers
@@ -595,37 +599,60 @@ def _get_last_refresh_time(session) -> datetime:
     return row
 
 
-# job_type -> re-dispatch thunk for the RECLAIM strategy (R3/§5.3). Each re-runs
-# the step's default (incremental / idempotent) variant, tagged with the retry
-# attempt. A weekly-full orphan re-runs as incremental here; the next weekly cron
-# reconciles, and idempotent upserts (§5.4) make the partial re-run safe.
-_RECLAIM_DISPATCH: dict[str, Callable[[int], bool]] = {
-    "yfinance_fetch": lambda a: run_yfinance_step(attempt=a),
-    "macro_fetch": lambda a: run_macro_step(attempt=a),
-    "fred_fetch": lambda a: run_fred_step(attempt=a),
-    "macro_news_fetch": lambda a: run_news_step(attempt=a),
-    "news_summarize": lambda a: run_summarize_step(attempt=a),
-    "macro_calibrate": lambda a: run_calibrate_step(attempt=a),
-    "universe_build": lambda a: run_universe_step(attempt=a),
-    "reference_index_seed": lambda a: refresh_reference_indices(
-        "orphan_reclaim", attempt=a
-    ),
+# job_type -> step function for the RECLAIM strategy (R3/§5.3). Module-level
+# names (not lambdas) so a re-dispatch job is picklable for the SQLAlchemy job
+# store. Each re-runs the step's default (incremental / idempotent) variant; a
+# weekly-full orphan re-runs as incremental, the next weekly cron reconciles,
+# and idempotent upserts (§5.4) make the partial re-run safe.
+_RECLAIM_STEP: dict[str, Callable[..., bool]] = {
+    "yfinance_fetch": run_yfinance_step,
+    "macro_fetch": run_macro_step,
+    "fred_fetch": run_fred_step,
+    "macro_news_fetch": run_news_step,
+    "news_summarize": run_summarize_step,
+    "macro_calibrate": run_calibrate_step,
+    "universe_build": run_universe_step,
 }
 
 
-def _redispatch_reclaimed(reclaimed: list[dict[str, Any]]) -> None:
-    """Re-run each reclaimed orphan's step in a daemon thread, capped by attempt.
+def _reclaim_dispatchable(job_type: str) -> bool:
+    return job_type == "reference_index_seed" or job_type in _RECLAIM_STEP
 
-    The cap (``SCHEDULER_ORPHAN_MAX_RECLAIM_ATTEMPTS``) stops a job whose worker
-    keeps dying from being re-dispatched forever. Each re-dispatch runs off the
-    reaper thread so a multi-minute fetch does not block the next reaper tick.
+
+def _run_reclaim(job_type: str, attempt: int) -> None:
+    """One-shot re-dispatch target for a reclaimed orphan.
+
+    Module-level so the SQLAlchemy job store can pickle it. Runs the step for
+    ``job_type`` tagged with the retry ``attempt``.
     """
+    if job_type == "reference_index_seed":
+        refresh_reference_indices("orphan_reclaim", attempt=attempt)
+        return
+    step = _RECLAIM_STEP.get(job_type)
+    if step is not None:
+        step(attempt=attempt)
+
+
+def _redispatch_reclaimed(reaped: list[dict[str, Any]]) -> None:
+    """Re-run each reaped orphan's step as a scheduler one-shot job, capped.
+
+    Submitting through the scheduler (not a bare thread) puts the re-dispatch in
+    the same executor pool the shutdown drain waits on — so a reclaim in flight
+    at SIGTERM is drained rather than silently abandoned. The cap
+    (``SCHEDULER_ORPHAN_MAX_RECLAIM_ATTEMPTS``) stops a job whose worker keeps
+    dying from being re-dispatched forever.
+    """
+    if _scheduler is None:
+        logger.warning(
+            "orphan_reaper: no scheduler bound — cannot re-dispatch %d job(s)",
+            len(reaped),
+        )
+        return
     max_attempts = settings.scheduler_orphan_max_reclaim_attempts
-    for entry in reclaimed:
+    for entry in reaped:
         job_type = entry["job_type"]
         next_attempt = int(entry["attempt"]) + 1
-        thunk = _RECLAIM_DISPATCH.get(job_type)
-        if thunk is None:
+        if not _reclaim_dispatchable(job_type):
             logger.warning(
                 "orphan_reaper: no reclaim dispatcher for %r — left failed",
                 job_type,
@@ -644,12 +671,35 @@ def _redispatch_reclaimed(reclaimed: list[dict[str, Any]]) -> None:
             next_attempt,
             max_attempts,
         )
-        threading.Thread(
-            target=thunk,
-            args=(next_attempt,),
-            daemon=True,
-            name=f"reclaim:{job_type}",
-        ).start()
+        _scheduler.add_job(
+            _run_reclaim,
+            "date",
+            kwargs={"job_type": job_type, "attempt": next_attempt},
+            id=f"reclaim:{job_type}:{next_attempt}",
+            replace_existing=True,
+            misfire_grace_time=settings.scheduler_misfire_grace_time_seconds,
+        )
+
+
+def _emit_reap_metrics(reaped: list[dict[str, Any]]) -> None:
+    """Emit the terminal transition metrics for reaped orphans (§5.3).
+
+    The reaper fails rows with a Core bulk UPDATE, bypassing BackgroundJobService
+    — so it must emit what ``update_job`` would: decrement ``jobs_in_progress``
+    and increment ``jobs_failed_total`` per domain, otherwise the gauge drifts up
+    by one per reaped job. Startup reaping does NOT call this (this process's
+    gauge is 0 at boot). A row created by a *previous* process and reaped here is
+    a rare exception that can nudge the gauge below its true value — acceptable
+    for an observability signal that resets on restart.
+    """
+    if not settings.enable_metrics:
+        return
+    from app import metrics
+
+    for entry in reaped:
+        domain = entry["job_type"]
+        metrics.jobs_in_progress.labels(domain=domain).dec()
+        metrics.jobs_failed_total.labels(domain=domain).inc()
 
 
 def run_orphan_reaper() -> None:
@@ -663,38 +713,34 @@ def run_orphan_reaper() -> None:
 
     R3/§5.3 — behaviour depends on ``SCHEDULER_ORPHAN_STRATEGY``:
     - ``fail`` (default): mark stale orphans failed; the next cron re-runs them.
-    - ``reclaim``: mark them failed *and* immediately re-dispatch the step
-      (at-least-once self-healing), capped by attempt. Safe only because every
-      fetch write is an idempotent upsert (§5.4) — that ordering is the C1 gate.
+    - ``reclaim``: mark them failed *and* re-dispatch the step as a scheduler
+      one-shot job (at-least-once self-healing), capped by attempt. Safe only
+      because every fetch write is an idempotent upsert (§5.4) — the C1 gate.
     """
     try:
         from app.repositories.jobs.background_job_repository import (
             BackgroundJobRepository,
         )
 
-        timeout = settings.scheduler_orphan_heartbeat_timeout_seconds
-
-        if settings.scheduler_orphan_strategy == "reclaim":
-            with database_manager.get_session() as session:
-                reclaimed = BackgroundJobRepository(session).reclaim_orphans(
-                    "orphaned — reclaimed for retry by periodic reaper",
-                    heartbeat_timeout_seconds=timeout,
-                )
-                session.commit()
-            if reclaimed:
-                logger.warning(
-                    "orphan_reaper: reclaimed %d stale job(s)", len(reclaimed)
-                )
-                _redispatch_reclaimed(reclaimed)
-        else:
-            with database_manager.get_session() as session:
-                n = BackgroundJobRepository(session).reconcile_orphans(
-                    "orphaned — heartbeat stale, reaped by periodic reaper",
-                    heartbeat_timeout_seconds=timeout,
-                )
-                session.commit()
-            if n:
-                logger.warning("orphan_reaper: reaped %d stale job(s)", n)
+        reclaim = settings.scheduler_orphan_strategy == "reclaim"
+        msg = (
+            "orphaned — reclaimed for retry by periodic reaper"
+            if reclaim
+            else "orphaned — heartbeat stale, reaped by periodic reaper"
+        )
+        with database_manager.get_session() as session:
+            reaped = BackgroundJobRepository(session).reap_orphans(
+                msg,
+                heartbeat_timeout_seconds=(
+                    settings.scheduler_orphan_heartbeat_timeout_seconds
+                ),
+            )
+            session.commit()
+        if reaped:
+            logger.warning("orphan_reaper: reaped %d stale job(s)", len(reaped))
+            _emit_reap_metrics(reaped)
+            if reclaim:
+                _redispatch_reclaimed(reaped)
     except Exception:
         logger.exception("orphan_reaper: tick failed (non-fatal)")
 
@@ -833,5 +879,10 @@ def create_scheduler() -> BackgroundScheduler:
             misfire_grace_time=entry.misfire_grace_time,
             coalesce=entry.coalesce,
         )
+
+    # Bind the live scheduler so the RECLAIM reaper can submit one-shot
+    # re-dispatch jobs into this executor (see _redispatch_reclaimed).
+    global _scheduler
+    _scheduler = scheduler
 
     return scheduler

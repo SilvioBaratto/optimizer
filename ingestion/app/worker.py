@@ -120,8 +120,14 @@ def _install_signal_handlers() -> None:
 
 
 def _force_exit() -> None:  # pragma: no cover - terminates the process
-    """Last-resort hard exit when a stuck job outlives the drain window."""
-    os._exit(1)
+    """Hard-exit when a step outlives the drain window.
+
+    Exit 0, not non-zero: the shutdown was *requested* (SIGTERM) and the
+    abandoned in-flight work is safe to re-run (idempotent upserts, §5.4), so a
+    drain timeout is a degraded-but-expected outcome, not a crash — a non-zero
+    code would misclassify a normal deploy-during-fetch to exit-code alerting.
+    """
+    os._exit(0)
 
 
 def _drain_and_shutdown(scheduler: object, drain_timeout_seconds: int) -> bool:
@@ -161,14 +167,13 @@ def _drain_and_shutdown(scheduler: object, drain_timeout_seconds: int) -> bool:
         logger.info("In-flight jobs drained cleanly")
         return True
 
+    # No second scheduler.shutdown(wait=False) here: the helper thread already
+    # called shutdown(wait=True), which set the scheduler to STOPPED, so a second
+    # call only raises SchedulerNotRunningError. The caller hard-exits instead.
     logger.warning(
         "Drain timeout (%ds) exceeded — forcing shutdown, in-flight work abandoned",
         drain_timeout_seconds,
     )
-    try:
-        scheduler.shutdown(wait=False)  # type: ignore[attr-defined]
-    except Exception:
-        pass
     return False
 
 

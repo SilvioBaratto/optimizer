@@ -129,10 +129,12 @@ class Settings(BaseSettings):
     # reaper marks a row failed.
     scheduler_heartbeat_cadence_seconds: int = Field(
         default=30,
+        ge=1,
         alias="SCHEDULER_HEARTBEAT_CADENCE_SECONDS",
     )
     scheduler_orphan_heartbeat_timeout_seconds: int = Field(
         default=300,
+        ge=1,
         alias="SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS",
     )
     scheduler_orphan_strategy: str = Field(
@@ -171,6 +173,7 @@ class Settings(BaseSettings):
 
     scheduler_shutdown_drain_timeout_seconds: int = Field(
         default=30,
+        ge=1,
         alias="SCHEDULER_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",
         description=(
             "On SIGTERM the daemon stops claiming new jobs and waits up to this "
