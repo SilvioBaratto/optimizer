@@ -1,15 +1,165 @@
 {
+  // Local debugging for the ingestion daemon. Prereqs:
+  //   1. docker compose up -d db      (Postgres on localhost:54320; keep the scheduler container STOPPED)
+  //   2. VS Code → "Python: Select Interpreter" → the conda "optimizer" env
+  // Each config runs against the Docker DB via the host; set breakpoints and F5.
+  // `python` resolves to the selected interpreter so this works on macOS + Windows.
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Ingestion Daemon",
+      "name": "CLI: reference-indices",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["reference-indices"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: yfinance (incremental)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["yfinance", "--mode", "incremental"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: yfinance (full 5y)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["yfinance", "--mode", "full", "--period", "5y"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: universe (Trading 212)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["universe"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: macro (scrapers)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["macro"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: fred",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["fred"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: news",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["news"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: summarize (LLM)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["summarize"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: calibrate (LLM)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["calibrate"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: daily (full pipeline)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["daily"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: refetch-all (universe + yfinance 5y + fred)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["refetch-all"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Ingestion Daemon (worker)",
       "type": "debugpy",
       "request": "launch",
       "module": "app.worker",
       "cwd": "${workspaceFolder}/ingestion",
-      "python": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
+      "python": "${command:python.interpreterPath}",
       "envFile": "${workspaceFolder}/.env",
-      "console": "integratedTerminal"
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
     }
   ]
 }
