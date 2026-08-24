@@ -84,6 +84,20 @@ class TestSaveExchange:
 
         assert ex1.id == ex2.id
 
+    def test_when_called_repeatedly_then_one_row_and_latest_t212_id(self, db_session):
+        """R1/§5.4 (T1.3): repeated saves converge to a single row via
+        INSERT ... ON CONFLICT DO UPDATE on exchanges.name — id stable,
+        latest t212_id reflected, no duplicate."""
+        repo = _repo(db_session)
+        first = repo.save_exchange({"name": "XETRA", "id": 1})
+        first_id = first.id
+
+        again = repo.save_exchange({"name": "XETRA", "id": 2})
+
+        assert repo.get_exchange_count() == 1
+        assert again.id == first_id
+        assert again.t212_id == 2
+
 
 # ---------------------------------------------------------------------------
 # get_exchange_count / get_instrument_count — lines 141-148

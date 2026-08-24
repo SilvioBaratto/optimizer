@@ -34,12 +34,26 @@ class RepositoryBase:
         self,
         model: type,
         rows: list[dict[str, Any]],
-        constraint_name: str,
+        constraint_name: str | None = None,
         update_columns: list[str] | None = None,
+        index_elements: list[str] | None = None,
     ) -> int:
-        """Insert rows with ON CONFLICT DO UPDATE. Returns count of rows processed."""
+        """Insert rows with ON CONFLICT DO UPDATE. Returns count of rows processed.
+
+        The conflict target is one of, exactly:
+        - ``constraint_name`` — a named unique constraint (e.g.
+          ``uq_macro_calibration_country``), or
+        - ``index_elements`` — the column name(s) of a unique index, for
+          column-level ``unique=True`` columns that carry no named constraint
+          (e.g. ``exchanges.name``).
+        """
         if not rows:
             return 0
+
+        if (constraint_name is None) == (index_elements is None):
+            raise ValueError(
+                "_upsert requires exactly one of constraint_name / index_elements"
+            )
 
         tbl = _get_table(model)  # type: ignore[arg-type]
         stmt = pg_insert(tbl).values(rows)
@@ -63,10 +77,16 @@ class RepositoryBase:
         if "updated_at" in update_dict:
             update_dict["updated_at"] = func.now()
 
-        stmt = stmt.on_conflict_do_update(
-            constraint=constraint_name,
-            set_=update_dict,
-        )
+        if constraint_name is not None:
+            stmt = stmt.on_conflict_do_update(
+                constraint=constraint_name,
+                set_=update_dict,
+            )
+        else:
+            stmt = stmt.on_conflict_do_update(
+                index_elements=index_elements,
+                set_=update_dict,
+            )
 
         self.session.execute(stmt)
         return len(rows)

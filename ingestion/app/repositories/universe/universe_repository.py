@@ -22,21 +22,34 @@ class UniverseRepository(RepositoryBase):
         super().__init__(session)
 
     def save_exchange(self, exchange_data: dict[str, Any]) -> Exchange:
+        """Insert or update an exchange by name, returning the persisted row.
+
+        T1.2 / ARCHITECTURE.md §5.4: written as an idempotent
+        ``INSERT ... ON CONFLICT DO UPDATE`` on the unique ``exchanges.name``
+        column (``index_elements=["name"]``, since the column carries a
+        column-level ``unique=True`` with no named constraint) rather than a
+        SELECT-then-INSERT, so an at-least-once re-run converges to one row
+        without racing the unique index. Only ``t212_id`` (and ``updated_at``)
+        are in the conflict update set, preserving the row's id.
+        """
         name = exchange_data.get("name", "")
         t212_id = exchange_data.get("id")
 
-        stmt = select(Exchange).where(Exchange.name == name)
-        existing = self.session.execute(stmt).scalar_one_or_none()
-
-        if existing:
-            existing.t212_id = t212_id
-            self.session.flush()
-            return existing
-
-        exchange = Exchange(name=name, t212_id=t212_id)
-        self.session.add(exchange)
+        self._upsert(
+            Exchange,
+            [{"id": uuid_mod.uuid4(), "name": name, "t212_id": t212_id}],
+            index_elements=["name"],
+            update_columns=["t212_id", "updated_at"],
+        )
         self.session.flush()
-        return exchange
+
+        # populate_existing refreshes an already-identity-mapped row so the
+        # returned object reflects the just-upserted t212_id, not a stale value.
+        return self.session.execute(
+            select(Exchange)
+            .where(Exchange.name == name)
+            .execution_options(populate_existing=True)
+        ).scalar_one()
 
     def save_instruments_batch(
         self, instruments_data: list[dict[str, Any]], exchange_id: Any
