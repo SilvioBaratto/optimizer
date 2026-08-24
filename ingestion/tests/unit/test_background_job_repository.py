@@ -541,9 +541,7 @@ class TestLivenessPredicate:
         assert row is not None
         assert row.status == "failed"
 
-    def test_reconcile_marks_stale_lease_on_any_host(
-        self, db_session: Session
-    ) -> None:
+    def test_reconcile_marks_stale_lease_on_any_host(self, db_session: Session) -> None:
         # Even a row from another host is reaped once its lease goes stale —
         # liveness is purely the heartbeat, independent of host/PID.
         repo = BackgroundJobRepository(db_session)

@@ -32,7 +32,7 @@ _SENTINEL = object()
 def _make_article(
     title: str | None = "Test Article",
     publisher: str | None = "Reuters",
-    publish_time: datetime | None | object = _SENTINEL,
+    publish_time: datetime | object | None = _SENTINEL,
     source_ticker: str | None = None,
     source_query: str | None = None,
     snippet: str | None = "Article snippet text.",

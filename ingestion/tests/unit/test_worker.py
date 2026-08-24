@@ -219,9 +219,10 @@ class TestGracefulShutdown:
         scheduler.pause.side_effect = lambda: order.append("pause")
         scheduler.shutdown.side_effect = lambda **_k: order.append("shutdown")
 
-        with _patched(scheduler=scheduler) as m, patch.object(
-            worker_module, "_force_exit"
-        ) as fx:
+        with (
+            _patched(scheduler=scheduler) as m,
+            patch.object(worker_module, "_force_exit") as fx,
+        ):
             worker_module.main()
 
         assert order == ["pause", "shutdown"]  # stop claiming, then drain

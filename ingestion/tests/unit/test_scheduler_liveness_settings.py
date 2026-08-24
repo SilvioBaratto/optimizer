@@ -47,9 +47,7 @@ class TestOrphanStrategySettings:
         monkeypatch.setenv("SCHEDULER_ORPHAN_STRATEGY", "RECLAIM")
         assert Settings().scheduler_orphan_strategy == "reclaim"
 
-    def test_invalid_strategy_rejected(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_invalid_strategy_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from pydantic import ValidationError
 
         monkeypatch.setenv("SCHEDULER_ORPHAN_STRATEGY", "bogus")

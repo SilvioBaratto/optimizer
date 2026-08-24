@@ -24,7 +24,7 @@ from app.services.macro.macro_regime_service import (
 
 
 def _build_service(
-    ilsole_forecasts: dict | None | Exception = None,
+    ilsole_forecasts: dict | Exception | None = None,
     te_response: dict | Exception | None = None,
 ) -> tuple[MacroRegimeService, MagicMock]:
     """Return (service, mock_repo) with pre-wired scraper behaviours."""

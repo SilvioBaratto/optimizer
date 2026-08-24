@@ -116,9 +116,7 @@ def _themes_of(session: Session, news_id: str) -> set[str]:
     # DB rows are correct — a fresh reader (as in production) sees them.
     parent = session.query(MacroNews).filter(MacroNews.news_id == news_id).one()
     themes = (
-        session.query(MacroNewsTheme)
-        .filter(MacroNewsTheme.news_id == parent.id)
-        .all()
+        session.query(MacroNewsTheme).filter(MacroNewsTheme.news_id == parent.id).all()
     )
     return {t.theme for t in themes}
 

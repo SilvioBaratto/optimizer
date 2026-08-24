@@ -27,7 +27,7 @@ def test_when_default_test_run_collects_then_deployment_dir_is_absent():
     the flat `path::test` listing regardless of `addopts`, matching what the criterion's
     `--collect-only -q` is actually checking for.
     """
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(
         [sys.executable, "-m", "pytest", "tests/", "--collect-only", "-qq"],
         cwd=INGESTION_ROOT,
         capture_output=True,

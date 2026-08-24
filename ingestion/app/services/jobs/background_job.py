@@ -163,9 +163,7 @@ class BackgroundJobService:
         else:
             # session_or_cm is already a session, not a context manager
             session = session_or_cm
-            return self._resolve(
-                *self._execute_create_job(session, extra, attempt)
-            )
+            return self._resolve(*self._execute_create_job(session, extra, attempt))
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         """Return a dict representation of the job, or ``None``.
