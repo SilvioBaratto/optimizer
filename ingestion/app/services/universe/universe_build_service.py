@@ -24,7 +24,6 @@ from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.filters import (
     AUMFilter,
     DataCoverageFilter,
-    ETFLiquidityFilter,
     FilterPipelineImpl,
     HistoricalDataFilter,
     LiquidityFilter,
@@ -89,11 +88,13 @@ def run_universe_build(
         pipeline.add_filter(DataCoverageFilter(config=config))
         pipeline.add_filter(HistoricalDataFilter(config=config))
 
-        # ETFs run their own screen (equity metrics don't apply): AUM +
-        # liquidity + the same ≥750-trading-day history bar.
+        # ETFs run their own screen (equity metrics don't apply). AUM is the
+        # size gate (known -> ≥floor, unknown -> pass, since Yahoo omits it for
+        # many UCITS listings) plus the same ≥750-trading-day history bar.
+        # No exchange-volume gate: UCITS ETFs trade OTC, so exchange volume
+        # massively understates liquidity and would drop legitimate funds.
         etf_pipeline = FilterPipelineImpl()
         etf_pipeline.add_filter(AUMFilter(config=config))
-        etf_pipeline.add_filter(ETFLiquidityFilter(config=config))
         etf_pipeline.add_filter(HistoricalDataFilter(config=config))
 
     def _forward(p: BuildProgress) -> None:

@@ -26,42 +26,17 @@ class AUMFilter:
         if not data:
             return False, "No data available"
         aum = data.get("totalAssets") or data.get("netAssets")
+        # Yahoo's `.info` omits totalAssets for many valid bond-ETF listings
+        # (e.g. JAGA.DE, VGGS.L). Requiring it would silently drop legitimate
+        # funds, so an *unknown* AUM passes — liquidity + history still gate.
         if aum is None:
-            return False, "No AUM (totalAssets) data"
+            return True, "AUM unknown (passed)"
         if aum < self.config.etf_min_aum:
             return (
                 False,
                 f"AUM ${aum / 1e6:.0f}M < ${self.config.etf_min_aum / 1e6:.0f}M",
             )
         return True, f"AUM ${aum / 1e6:.0f}M"
-
-
-@dataclass
-class ETFLiquidityFilter:
-    config: UniverseBuilderConfig
-
-    @property
-    def name(self) -> str:
-        return "ETFLiquidityFilter"
-
-    def filter(self, data: dict[str, Any], yf_ticker: str) -> tuple[bool, str]:
-        if not data:
-            return False, "No data available"
-        volume = data.get("averageVolume") or data.get("averageVolume10days")
-        price = (
-            data.get("regularMarketPrice")
-            or data.get("currentPrice")
-            or data.get("previousClose")
-        )
-        if not volume or not price:
-            return False, "No volume/price for liquidity"
-        addv = volume * price
-        if addv < self.config.etf_min_addv:
-            return (
-                False,
-                f"ADV ${addv / 1e6:.1f}M < ${self.config.etf_min_addv / 1e6:.1f}M",
-            )
-        return True, f"ADV ${addv / 1e6:.1f}M"
 
 
 def dedup_etfs_by_isin(

@@ -14,7 +14,6 @@ from app.services.universe.trading212.builder import UniverseBuilder
 from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.filters.etf_screen import (
     AUMFilter,
-    ETFLiquidityFilter,
     dedup_etfs_by_isin,
 )
 
@@ -30,23 +29,10 @@ class TestAUMFilter:
         ok, reason = AUMFilter(CFG).filter({"totalAssets": 5e7}, "X")
         assert ok is False and "AUM" in reason
 
-    def test_rejects_missing_aum(self) -> None:
-        ok, _ = AUMFilter(CFG).filter({"foo": 1}, "X")
-        assert ok is False
-
-
-class TestETFLiquidityFilter:
-    def test_passes_above_floor(self) -> None:
-        ok, _ = ETFLiquidityFilter(CFG).filter(
-            {"averageVolume": 1_000_000, "regularMarketPrice": 100.0}, "X"
-        )
-        assert ok is True
-
-    def test_rejects_thin_volume(self) -> None:
-        ok, _ = ETFLiquidityFilter(CFG).filter(
-            {"averageVolume": 100, "regularMarketPrice": 1.0}, "X"
-        )
-        assert ok is False
+    def test_passes_when_aum_unknown(self) -> None:
+        # Yahoo omits totalAssets for many valid bond ETFs — unknown must pass.
+        ok, reason = AUMFilter(CFG).filter({"foo": 1}, "X")
+        assert ok is True and "unknown" in reason
 
 
 class TestDedup:

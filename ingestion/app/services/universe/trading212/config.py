@@ -212,7 +212,6 @@ class UniverseBuilderConfig:
         "NYSE",
     )
     etf_min_aum: float = 100_000_000.0
-    etf_min_addv: float = 1_000_000.0  # min average daily $ volume
 
     def to_dict(self) -> dict:
         return {
