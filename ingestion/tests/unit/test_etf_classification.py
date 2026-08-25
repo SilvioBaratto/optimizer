@@ -48,12 +48,17 @@ class TestMultiAsset:
             "SPDR Morningstar Multi-Asset Global Infrastructure (Dist)",
             "Amundi Multi-Asset Portfolio Dist",
             "IncomeShares 60-30-10 Multi-Asset Balanced (Dist)",
+            "Some 60/40 Allocation Fund",
         ],
     )
     def test_multi_asset(self, name: str) -> None:
         assert classify_instrument(name, "ETF") == Classification(
             "multi_asset", None, None
         )
+
+    def test_ucits_concentration_cap_name_is_not_multi_asset(self) -> None:
+        # "20/35" is a UCITS concentration cap (equity ETF), not a 60/40 split.
+        assert classify_instrument("UBS MSCI Switzerland 20/35 (Acc)", "ETF") is None
 
 
 class TestFixedIncomeSubclass:

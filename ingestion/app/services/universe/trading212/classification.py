@@ -37,10 +37,16 @@ _LEVERAGED_INVERSE = re.compile(
     re.I,
 )
 
-# Single-fund allocation products (checked before bond markers).
+# Single-fund allocation products (checked before bond markers). The numeric
+# form matches only equity/bond split ratios that sum to ~100 (60/40, 80/20 …)
+# or an explicit triple (60-30-10); a bare "\d{2}/\d{2}" is deliberately NOT
+# used because UCITS concentration-cap names like "MSCI Switzerland 20/35"
+# (an equity ETF) would false-match.
 _MULTI_ASSET = re.compile(
     r"life\s*strategy|multi[\s-]?asset|allocation|\bbalanced\b"
-    r"|\b\d{2}/\d{2}\b|\b\d{2}-\d{2}-\d{2}\b",
+    r"|\b(?:90/10|80/20|75/25|70/30|65/35|60/40|55/45|50/50"
+    r"|45/55|40/60|35/65|30/70|25/75|20/80|10/90)\b"
+    r"|\b\d{2}-\d{2}-\d{2}\b",
     re.I,
 )
 
