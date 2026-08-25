@@ -70,6 +70,8 @@ class YFinanceClientProtocol(Protocol):
         *,
         auto_adjust: bool = True,
         back_adjust: bool = False,
+        # repair requires scikit-learn (yfinance uses DBSCAN). See
+        # YFinanceClient.fetch_history for the dependency rationale.
         repair: bool = True,
         actions: bool = False,
         prepost: bool = False,

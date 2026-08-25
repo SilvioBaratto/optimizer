@@ -151,6 +151,12 @@ class YFinanceClient:
         *,
         auto_adjust: bool = True,
         back_adjust: bool = False,
+        # repair=True fixes bad Yahoo prices, but yfinance's repair path
+        # (_reconstruct_intervals_batch) imports sklearn (DBSCAN). scikit-learn
+        # is therefore a hard runtime dependency of ingestion — without it any
+        # ticker that triggers reconstruction raises ModuleNotFoundError -> empty
+        # result -> the universe filter silently drops a live stock (~22% of
+        # names, disproportionately non-US). See scripts/debug_universe_scale.py.
         repair: bool = True,
         actions: bool = False,
         prepost: bool = False,

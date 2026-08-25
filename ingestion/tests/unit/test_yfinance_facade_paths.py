@@ -143,6 +143,21 @@ class TestFetchHistory:
 
         assert ticker.history.call_args.kwargs["period"] == "1y"
 
+    def test_repair_is_enabled_by_default(self, client: YFinanceClient) -> None:
+        """Price repair fixes bad Yahoo prints; it must stay on by default.
+        It requires scikit-learn (yfinance uses DBSCAN) — with repair on and
+        sklearn missing, any ticker yfinance tries to reconstruct raises
+        ModuleNotFoundError -> empty result -> the universe filter silently drops
+        a live stock (~22% of names). The dependency itself is guarded by
+        test_price_history_repair_dependency.py."""
+        ticker = MagicMock()
+        ticker.history.return_value = _hist(20)
+
+        with patch.object(client, "get_ticker", return_value=ticker):
+            client.fetch_history("SU.PA", min_rows=1)
+
+        assert ticker.history.call_args.kwargs["repair"] is True
+
 
 class TestFetchPriceAndBenchmark:
     def test_when_stock_history_missing_then_all_none(
