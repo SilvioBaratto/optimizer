@@ -22,7 +22,9 @@ from app.services.universe.trading212.cache.ticker_cache import TickerMappingCac
 from app.services.universe.trading212.client import Trading212Client
 from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.filters import (
+    AUMFilter,
     DataCoverageFilter,
+    ETFLiquidityFilter,
     FilterPipelineImpl,
     HistoricalDataFilter,
     LiquidityFilter,
@@ -79,12 +81,20 @@ def run_universe_build(
     cache = TickerMappingCache()
 
     pipeline = FilterPipelineImpl()
+    etf_pipeline: FilterPipelineImpl | None = None
     if not request.skip_filters:
         pipeline.add_filter(MarketCapFilter(config=config))
         pipeline.add_filter(PriceFilter(config=config))
         pipeline.add_filter(LiquidityFilter(config=config))
         pipeline.add_filter(DataCoverageFilter(config=config))
         pipeline.add_filter(HistoricalDataFilter(config=config))
+
+        # ETFs run their own screen (equity metrics don't apply): AUM +
+        # liquidity + the same ≥750-trading-day history bar.
+        etf_pipeline = FilterPipelineImpl()
+        etf_pipeline.add_filter(AUMFilter(config=config))
+        etf_pipeline.add_filter(ETFLiquidityFilter(config=config))
+        etf_pipeline.add_filter(HistoricalDataFilter(config=config))
 
     def _forward(p: BuildProgress) -> None:
         on_progress(
@@ -100,6 +110,7 @@ def run_universe_build(
             api_client=client,
             ticker_mapper=YFinanceTickerMapper(config=config, cache=cache),
             filter_pipeline=pipeline,
+            etf_filter_pipeline=etf_pipeline,
             repository=UniverseRepository(session),
             max_workers=request.max_workers,
             skip_filters=request.skip_filters,

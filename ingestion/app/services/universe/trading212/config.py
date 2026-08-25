@@ -171,7 +171,8 @@ class UniverseBuilderConfig:
         }
     )
 
-    # Yahoo Finance suffix mapping by exchange
+    # Yahoo Finance suffix mapping by exchange. The first five are the stock
+    # exchanges; the last three are ETF-only venues (broader UCITS set).
     yahoo_suffix_map: dict[str, str] = field(
         default_factory=lambda: {
             "NYSE": "",
@@ -179,8 +180,39 @@ class UniverseBuilderConfig:
             "London Stock Exchange": ".L",
             "Euronext Paris": ".PA",
             "Deutsche Börse Xetra": ".DE",
+            "Borsa Italiana": ".MI",
+            "Euronext Amsterdam": ".AS",
+            "SIX Swiss Exchange": ".SW",
         }
     )
+
+    # ETF universe: broader UCITS-friendly exchange set (the 5 stock exchanges
+    # plus Milan / Amsterdam / SIX, where many bond & multi-asset UCITS ETFs
+    # list) + the institutional screen thresholds.
+    etf_exchanges: tuple[str, ...] = (
+        "NYSE",
+        "NASDAQ",
+        "Deutsche Börse Xetra",
+        "Euronext Paris",
+        "London Stock Exchange",
+        "Borsa Italiana",
+        "Euronext Amsterdam",
+        "SIX Swiss Exchange",
+    )
+    # Share-class / cross-listing dedup: keep the single listing per ISIN on the
+    # most-preferred exchange (largest/most-liquid UCITS venues first).
+    etf_exchange_preference: tuple[str, ...] = (
+        "Deutsche Börse Xetra",
+        "London Stock Exchange",
+        "Euronext Amsterdam",
+        "Euronext Paris",
+        "Borsa Italiana",
+        "SIX Swiss Exchange",
+        "NASDAQ",
+        "NYSE",
+    )
+    etf_min_aum: float = 100_000_000.0
+    etf_min_addv: float = 1_000_000.0  # min average daily $ volume
 
     def to_dict(self) -> dict:
         return {
@@ -202,6 +234,9 @@ class UniverseBuilderConfig:
             exchanges = self.country_to_exchanges.get(country, ())
             allowed.update(exchanges)
         return allowed
+
+    def get_etf_allowed_exchanges(self) -> set[str]:
+        return set(self.etf_exchanges)
 
     def is_exchange_allowed(self, exchange_name: str) -> bool:
         return exchange_name in self.get_allowed_exchanges()

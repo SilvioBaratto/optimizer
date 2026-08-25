@@ -69,6 +69,9 @@ class UniverseRepository(RepositoryBase):
                     "instrument_type": data.get("type"),
                     "currency_code": data.get("currencyCode"),
                     "yfinance_ticker": data.get("yfinanceTicker"),
+                    "asset_class": data.get("assetClass", "equity"),
+                    "fi_subclass": data.get("fiSubclass"),
+                    "duration_bucket": data.get("durationBucket"),
                     "exchange_id": exchange_id,
                 }
             )
@@ -83,6 +86,9 @@ class UniverseRepository(RepositoryBase):
                 "instrument_type": stmt.excluded.instrument_type,
                 "currency_code": stmt.excluded.currency_code,
                 "yfinance_ticker": stmt.excluded.yfinance_ticker,
+                "asset_class": stmt.excluded.asset_class,
+                "fi_subclass": stmt.excluded.fi_subclass,
+                "duration_bucket": stmt.excluded.duration_bucket,
                 # Re-activating an instrument clears its delisting status.
                 "delisted_at": None,
                 "delisting_return": None,
