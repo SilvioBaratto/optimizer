@@ -22,6 +22,11 @@ dependencies = [
     # Financial Data
     "exchange_calendars==4.13.2",
     "yfinance==1.6.0",
+    # Required by yfinance price-repair (repair=True): its bad-print
+    # reconstruction imports sklearn.cluster.DBSCAN. Without it, repair raises
+    # ModuleNotFoundError on ~22% of tickers -> empty history -> the universe
+    # filter silently drops live stocks. (Pulls scipy transitively.)
+    "scikit-learn==1.9.0",
     "numpy==2.5.2",
     "pandas==3.0.5",
     # HTTP & Web Scraping

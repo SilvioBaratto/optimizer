@@ -352,3 +352,38 @@ class TestClearAll:
         _make_instrument(db_session, ex, "T2")
         result = _repo(db_session).clear_all()
         assert result == (1, 2)
+
+
+class TestGetActiveTickersTypeScope:
+    """Regression (review-critical): the two-pass build must reconcile delisting
+    per instrument_type, or the ETF pass mass-delists stocks on shared exchanges."""
+
+    def test_scopes_by_instrument_type(self, db_session) -> None:
+        from app.models.universe.universe import Instrument
+        from app.repositories.universe.universe_repository import UniverseRepository
+
+        repo = UniverseRepository(db_session)
+        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        db_session.add_all(
+            [
+                Instrument(
+                    ticker="AAPL_US",
+                    short_name="AAPL",
+                    exchange_id=ex.id,
+                    instrument_type="STOCK",
+                    asset_class="equity",
+                ),
+                Instrument(
+                    ticker="AGG_US",
+                    short_name="AGG",
+                    exchange_id=ex.id,
+                    instrument_type="ETF",
+                    asset_class="fixed_income",
+                ),
+            ]
+        )
+        db_session.flush()
+
+        assert repo.get_active_tickers(ex.id, instrument_type="ETF") == {"AGG_US"}
+        assert repo.get_active_tickers(ex.id, instrument_type="STOCK") == {"AAPL_US"}
+        assert repo.get_active_tickers(ex.id) == {"AAPL_US", "AGG_US"}

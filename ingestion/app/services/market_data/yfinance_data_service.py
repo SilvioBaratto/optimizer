@@ -19,6 +19,9 @@ from uuid import UUID
 
 import pandas as pd
 
+from app.repositories.market_data.etf_metadata_repository import (
+    ETFMetadataRepository,
+)
 from app.repositories.market_data.yfinance_repository import YFinanceRepository
 from app.services._shared import ProgressCallback, _noop, has_sufficient_history
 from app.services.market_data.yfinance import YFinanceClient
@@ -86,6 +89,7 @@ class StalenessThresholds:
     institutional_holders_hours: int = 24
     mutualfund_holders_hours: int = 24
     insider_transactions_hours: int = 24
+    etf_metadata_hours: int = 168  # 7 days
     # news: always fetched (no threshold)
     # prices: always fetched (date-ranged)
     price_overlap_days: int = 5
@@ -141,6 +145,7 @@ class YFinanceDataService:
         thresholds: StalenessThresholds | None = None,
         exchange_name: str | None = None,
         currency_code: str | None = None,
+        asset_class: str | None = None,
     ) -> dict[str, Any]:
         """Fetch all data categories for a single ticker and store.
 
@@ -155,6 +160,8 @@ class YFinanceDataService:
             currency_code: Instrument listing currency (e.g. "GBX").
                 Converted to major-unit (e.g. "GBP") before storing on
                 financial statement rows.
+            asset_class: Instrument asset class. When "fixed_income" or
+                "multi_asset" (i.e. an ETF), the ETF fund-metadata branch runs.
 
         Returns dict with counts per category, list of errors, and skipped categories.
         """
@@ -736,7 +743,89 @@ class YFinanceDataService:
             errors.append(f"news: {e}")
             logger.warning("Failed news for %s: %s", yfinance_ticker, e)
 
+        # --- ETF fund metadata (fixed_income / multi_asset instruments only) ---
+        if asset_class in ("fixed_income", "multi_asset"):
+            self._fetch_etf_metadata(
+                instrument_id,
+                yfinance_ticker,
+                mode,
+                thresholds,
+                now,
+                counts,
+                errors,
+                skipped,
+            )
+
         return {"counts": counts, "errors": errors, "skipped": skipped}
+
+    def _fetch_etf_metadata(
+        self,
+        instrument_id: UUID,
+        yfinance_ticker: str,
+        mode: str,
+        thresholds: StalenessThresholds,
+        now: datetime,
+        counts: dict[str, int],
+        errors: list[str],
+        skipped: list[str],
+    ) -> None:
+        """Fetch + store ETF fund metadata (profile, asset-class split, holdings,
+        sector weights) via the funds sub-client. Staleness-gated in incremental
+        mode; best-effort (a non-fund simply yields nothing)."""
+        etf_repo = ETFMetadataRepository(self.repo.session)
+        if mode == "incremental":
+            existing = etf_repo.get_metadata(instrument_id)
+            if existing is not None and _is_fresh(
+                existing.updated_at, thresholds.etf_metadata_hours, now
+            ):
+                skipped.append("etf_metadata")
+                return
+
+        try:
+            as_of = now.date()
+            profile = self._timed(
+                lambda: self.yf_client.funds.fetch_fund_profile(yfinance_ticker)
+            )
+            if profile:
+                etf_repo.upsert_metadata(
+                    instrument_id,
+                    aum=profile.get("aum"),
+                    nav=profile.get("nav"),
+                    fund_family=profile.get("fund_family"),
+                    legal_type=profile.get("legal_type"),
+                    expense_ratio=profile.get("expense_ratio"),
+                    base_currency=profile.get("base_currency"),
+                    as_of=as_of,
+                )
+                counts["etf_metadata"] = 1
+
+            fdata = self._timed(
+                lambda: self.yf_client.funds.fetch_funds_data(yfinance_ticker)
+            )
+            if fdata:
+                ac = fdata.get("asset_classes") or {}
+                etf_repo.upsert_asset_classes(
+                    instrument_id,
+                    as_of,
+                    stock_pct=ac.get("stockPosition"),
+                    bond_pct=ac.get("bondPosition"),
+                    cash_pct=ac.get("cashPosition"),
+                    other_pct=ac.get("otherPosition"),
+                )
+                counts["etf_asset_classes"] = 1
+                holdings = fdata.get("top_holdings") or []
+                if holdings:
+                    counts["etf_holdings"] = etf_repo.upsert_holdings(
+                        instrument_id, as_of, holdings
+                    )
+                sectors = fdata.get("sector_weightings") or {}
+                if sectors:
+                    counts["etf_sector_weights"] = etf_repo.upsert_sector_weights(
+                        instrument_id, as_of, sectors
+                    )
+        except Exception as e:
+            errors.append(f"etf_metadata: {e}")
+            logger.warning("Failed ETF metadata for %s: %s", yfinance_ticker, e)
 
 
 # ---------------------------------------------------------------------------
@@ -806,6 +895,7 @@ def run_bulk_yfinance_fetch(
                     mode=request.mode,
                     exchange_name=instrument.exchange_name,
                     currency_code=instrument.currency_code,
+                    asset_class=getattr(instrument, "asset_class", None),
                 )
 
                 for k, v in result["counts"].items():
@@ -851,6 +941,7 @@ class _InstrumentSpec:
     yfinance_ticker: str
     exchange_name: str | None
     currency_code: str | None
+    asset_class: str | None = None
 
 
 def _load_instrument_specs(database_manager: Any) -> list[_InstrumentSpec]:
@@ -863,6 +954,7 @@ def _load_instrument_specs(database_manager: Any) -> list[_InstrumentSpec]:
                 yfinance_ticker=inst.yfinance_ticker or "",
                 exchange_name=inst.exchange_name,
                 currency_code=inst.currency_code,
+                asset_class=getattr(inst, "asset_class", None),
             )
             for inst in repo.get_instruments_with_yfinance_ticker()
         ]
@@ -889,6 +981,7 @@ def _fetch_one_ticker(
                 mode=request.mode,
                 exchange_name=spec.exchange_name,
                 currency_code=spec.currency_code,
+                asset_class=spec.asset_class,
             )
             session.commit()
             return result

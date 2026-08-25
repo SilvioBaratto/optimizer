@@ -1,5 +1,11 @@
 """Market Data models."""
 
+from app.models.market_data.etf_metadata import (
+    ETFAssetClass,
+    ETFHolding,
+    ETFMetadata,
+    ETFSectorWeight,
+)
 from app.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
@@ -18,6 +24,10 @@ __all__ = [
     "AnalystPriceTarget",
     "AnalystRecommendation",
     "Dividend",
+    "ETFAssetClass",
+    "ETFHolding",
+    "ETFMetadata",
+    "ETFSectorWeight",
     "FinancialStatement",
     "InsiderTransaction",
     "InstitutionalHolder",

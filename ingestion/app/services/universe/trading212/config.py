@@ -52,10 +52,11 @@ class UniverseBuilderConfig:
     All thresholds and parameters for the UniverseBuilder are externalized here.
     """
 
-    # Market Cap Thresholds
+    # Market Cap Thresholds. Segmentation uses large_cap_threshold and
+    # small_cap_threshold only (>= large -> large, >= small -> mid, else small);
+    # there is deliberately no separate mid-cap threshold.
     min_market_cap: float = 100_000_000
     small_cap_threshold: float = 2_000_000_000
-    mid_cap_threshold: float = 10_000_000_000
     large_cap_threshold: float = 10_000_000_000
 
     # Price Filters
@@ -170,7 +171,8 @@ class UniverseBuilderConfig:
         }
     )
 
-    # Yahoo Finance suffix mapping by exchange
+    # Yahoo Finance suffix mapping by exchange. The first five are the stock
+    # exchanges; the last three are ETF-only venues (broader UCITS set).
     yahoo_suffix_map: dict[str, str] = field(
         default_factory=lambda: {
             "NYSE": "",
@@ -178,6 +180,56 @@ class UniverseBuilderConfig:
             "London Stock Exchange": ".L",
             "Euronext Paris": ".PA",
             "Deutsche Börse Xetra": ".DE",
+            "Borsa Italiana": ".MI",
+            "Euronext Amsterdam": ".AS",
+            "SIX Swiss Exchange": ".SW",
+        }
+    )
+
+    # ETF universe: broader UCITS-friendly exchange set (the 5 stock exchanges
+    # plus Milan / Amsterdam / SIX, where many bond & multi-asset UCITS ETFs
+    # list) + the institutional screen thresholds.
+    etf_exchanges: tuple[str, ...] = (
+        "NYSE",
+        "NASDAQ",
+        "Deutsche Börse Xetra",
+        "Euronext Paris",
+        "London Stock Exchange",
+        "Borsa Italiana",
+        "Euronext Amsterdam",
+        "SIX Swiss Exchange",
+    )
+    # Share-class / cross-listing dedup: keep the single listing per ISIN on the
+    # most-preferred exchange (largest/most-liquid UCITS venues first).
+    etf_exchange_preference: tuple[str, ...] = (
+        "Deutsche Börse Xetra",
+        "London Stock Exchange",
+        "Euronext Amsterdam",
+        "Euronext Paris",
+        "Borsa Italiana",
+        "SIX Swiss Exchange",
+        "NASDAQ",
+        "NYSE",
+    )
+    etf_min_aum: float = 100_000_000.0  # in EUR (the base currency of the floor)
+    # Approximate FX (EUR per 1 unit of the fund's reported currency) used to
+    # normalize yfinance totalAssets to EUR before the AUM floor. A reference
+    # table, not live rates — the AUM floor is a soft gate, so ~few-% drift is
+    # immaterial; an unmapped currency is treated as EUR (rate 1.0). ``currency``
+    # from yfinance info is used as the AUM-currency proxy.
+    etf_aum_fx_to_eur: dict[str, float] = field(
+        default_factory=lambda: {
+            "EUR": 1.0,
+            "USD": 0.92,
+            "GBP": 1.17,
+            "GBX": 0.0117,
+            "GBp": 0.0117,
+            "CHF": 1.04,
+            "CAD": 0.68,
+            "SEK": 0.088,
+            "NOK": 0.086,
+            "DKK": 0.134,
+            "JPY": 0.0061,
         }
     )
 
@@ -185,7 +237,6 @@ class UniverseBuilderConfig:
         return {
             "min_market_cap": self.min_market_cap,
             "small_cap_threshold": self.small_cap_threshold,
-            "mid_cap_threshold": self.mid_cap_threshold,
             "large_cap_threshold": self.large_cap_threshold,
             "min_price": self.min_price,
             "max_price": self.max_price,
@@ -202,6 +253,9 @@ class UniverseBuilderConfig:
             exchanges = self.country_to_exchanges.get(country, ())
             allowed.update(exchanges)
         return allowed
+
+    def get_etf_allowed_exchanges(self) -> set[str]:
+        return set(self.etf_exchanges)
 
     def is_exchange_allowed(self, exchange_name: str) -> bool:
         return exchange_name in self.get_allowed_exchanges()

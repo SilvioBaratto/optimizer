@@ -18,7 +18,7 @@ Python-only repository. Two shipped things:
 - **`optimizer/`** — Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based). Published to PyPI as **`portopt`**
 - **`ingestion/`** — Headless **ingestion daemon**. APScheduler in-process, no HTTP API. Fetches market / fundamental / macro data into PostgreSQL on a schedule. Entrypoint `ingestion/app/worker.py`; manual runs via `ingestion/app/cli.py`
 
-The two do not depend on each other. `ingestion/` does **not** import `optimizer`, and the ingestion image carries no sklearn/skfolio/scipy stack.
+The two do not depend on each other. `ingestion/` does **not** import `optimizer` and carries no `skfolio`/portfolio-optimization stack. It **does** ship `scikit-learn` (with `scipy` transitively): yfinance's price-repair path (`repair=True`) imports `sklearn.cluster.DBSCAN`, so without it ~22% of tickers return empty history and get silently dropped from the universe. sklearn here is a data-layer dep, not an optimization one — the boundary the daemon protects is *no optimization*, guarded by `ingestion/tests/unit/hygiene/test_no_optimizer_import.py`.
 
 Supporting directories:
 

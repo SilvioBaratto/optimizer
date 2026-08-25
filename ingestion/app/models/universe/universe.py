@@ -12,6 +12,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models._shared import BaseModel
 
 if TYPE_CHECKING:
+    from app.models.market_data.etf_metadata import (
+        ETFAssetClass,
+        ETFHolding,
+        ETFMetadata,
+        ETFSectorWeight,
+    )
     from app.models.market_data.yfinance_data import (
         AnalystPriceTarget,
         AnalystRecommendation,
@@ -63,6 +69,15 @@ class Instrument(BaseModel):
     currency_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     yfinance_ticker: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # Asset-class taxonomy (see services/universe/trading212/enums.py). Stored as
+    # strings like instrument_type. asset_class is non-null (STOCK ⇒ "equity");
+    # fi_subclass/duration_bucket are populated only for fixed_income.
+    asset_class: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="equity"
+    )
+    fi_subclass: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    duration_bucket: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     # Survivorship-bias correction: populated when an instrument drops out of
     # the active Trading 212 universe.
     delisted_at: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -105,6 +120,20 @@ class Instrument(BaseModel):
         back_populates="instrument", passive_deletes=True
     )
     news: Mapped[list[TickerNews]] = relationship(
+        back_populates="instrument", passive_deletes=True
+    )
+
+    # ETF fund metadata (populated only for ETF instruments)
+    etf_metadata: Mapped[list[ETFMetadata]] = relationship(
+        back_populates="instrument", passive_deletes=True
+    )
+    etf_asset_classes: Mapped[list[ETFAssetClass]] = relationship(
+        back_populates="instrument", passive_deletes=True
+    )
+    etf_holdings: Mapped[list[ETFHolding]] = relationship(
+        back_populates="instrument", passive_deletes=True
+    )
+    etf_sector_weights: Mapped[list[ETFSectorWeight]] = relationship(
         back_populates="instrument", passive_deletes=True
     )
 
