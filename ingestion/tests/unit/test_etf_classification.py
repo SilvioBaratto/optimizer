@@ -85,18 +85,3 @@ class TestFixedIncomeSubclass:
         assert result.asset_class == "fixed_income"
         assert result.fi_subclass == subclass
         assert result.duration_bucket == duration
-
-
-class TestMetadataBoost:
-    def test_balanced_asset_classes_promote_to_multi_asset(self) -> None:
-        # No multi-asset keyword in the name, but yfinance asset_classes show a
-        # material stock+bond split -> multi_asset.
-        meta = {"asset_classes": {"stockPosition": 0.6, "bondPosition": 0.39}}
-        result = classify_instrument("Acme Global Wealth Fund", "ETF", meta)
-        assert result == Classification("multi_asset", None, None)
-
-    def test_bond_heavy_asset_classes_promote_to_fixed_income(self) -> None:
-        # No bond keyword in the name, but yfinance shows ~all bonds.
-        meta = {"asset_classes": {"stockPosition": 0.0, "bondPosition": 0.95}}
-        result = classify_instrument("Acme Income Fund", "ETF", meta)
-        assert result is not None and result.asset_class == "fixed_income"

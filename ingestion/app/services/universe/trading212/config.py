@@ -211,7 +211,27 @@ class UniverseBuilderConfig:
         "NASDAQ",
         "NYSE",
     )
-    etf_min_aum: float = 100_000_000.0
+    etf_min_aum: float = 100_000_000.0  # in EUR (the base currency of the floor)
+    # Approximate FX (EUR per 1 unit of the fund's reported currency) used to
+    # normalize yfinance totalAssets to EUR before the AUM floor. A reference
+    # table, not live rates — the AUM floor is a soft gate, so ~few-% drift is
+    # immaterial; an unmapped currency is treated as EUR (rate 1.0). ``currency``
+    # from yfinance info is used as the AUM-currency proxy.
+    etf_aum_fx_to_eur: dict[str, float] = field(
+        default_factory=lambda: {
+            "EUR": 1.0,
+            "USD": 0.92,
+            "GBP": 1.17,
+            "GBX": 0.0117,
+            "GBp": 0.0117,
+            "CHF": 1.04,
+            "CAD": 0.68,
+            "SEK": 0.088,
+            "NOK": 0.086,
+            "DKK": 0.134,
+            "JPY": 0.0061,
+        }
+    )
 
     def to_dict(self) -> dict:
         return {

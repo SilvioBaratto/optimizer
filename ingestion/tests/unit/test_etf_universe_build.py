@@ -43,6 +43,18 @@ class TestAUMFilter:
         ok, _ = AUMFilter(CFG).filter({}, "X")
         assert ok is False
 
+    def test_gbp_aum_normalized_to_eur_passes(self) -> None:
+        # £90M is below the raw floor but 90M * 1.17 = €105M -> passes.
+        ok, reason = AUMFilter(CFG).filter(
+            {"totalAssets": 90e6, "currency": "GBP"}, "X"
+        )
+        assert ok is True and "€105M" in reason
+
+    def test_usd_aum_normalized_to_eur_can_reject(self) -> None:
+        # $100M would pass raw, but 100M * 0.92 = €92M < €100M -> rejects.
+        ok, _ = AUMFilter(CFG).filter({"totalAssets": 100e6, "currency": "USD"}, "X")
+        assert ok is False
+
 
 class TestDedup:
     def test_keeps_preferred_exchange_per_isin(self) -> None:

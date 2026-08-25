@@ -32,12 +32,17 @@ class AUMFilter:
         # funds, so an *unknown* AUM passes — the ≥750-day history bar still gates.
         if aum is None:
             return True, "AUM unknown (passed)"
-        if aum < self.config.etf_min_aum:
+        # Normalize the fund's reported AUM to EUR (the floor's currency) using
+        # the config FX reference table; an unmapped currency is treated as EUR.
+        currency = data.get("currency")
+        rate = self.config.etf_aum_fx_to_eur.get(currency, 1.0) if currency else 1.0
+        eur_aum = aum * rate
+        if eur_aum < self.config.etf_min_aum:
             return (
                 False,
-                f"AUM ${aum / 1e6:.0f}M < ${self.config.etf_min_aum / 1e6:.0f}M",
+                f"AUM €{eur_aum / 1e6:.0f}M < €{self.config.etf_min_aum / 1e6:.0f}M",
             )
-        return True, f"AUM ${aum / 1e6:.0f}M"
+        return True, f"AUM €{eur_aum / 1e6:.0f}M"
 
 
 def dedup_etfs_by_isin(

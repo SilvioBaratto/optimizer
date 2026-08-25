@@ -1,5 +1,4 @@
-"""Classify an instrument into the asset-class taxonomy from its name (and,
-optionally, yfinance fund metadata).
+"""Classify an instrument into the asset-class taxonomy from its name.
 
 STOCK ⇒ equity. ETFs are classified as multi_asset (single-fund allocation),
 fixed_income (bond funds, with a sub-class + duration bucket), or rejected
@@ -14,7 +13,7 @@ government → corporate → aggregate (the catch-all for broad/mixed bond funds
 from __future__ import annotations
 
 import re
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 from app.services.universe.trading212.enums import (
     AssetClass,
@@ -99,37 +98,14 @@ def _fi_subclass(name: str) -> str:
     return FiSubclass.AGGREGATE.value  # broad/mixed bond fund
 
 
-# Metadata heuristics (used when a caller supplies yfinance funds_data): a fund
-# with material stock AND bond weight is multi-asset; a bond-dominant fund is
-# fixed income. NOTE: the universe builder classifies from the name only, so
-# these paths fire only for callers that pass yf_metadata.
-_MULTI_ASSET_MIN_LEG = 0.15  # min stock and bond weight to call it multi-asset
-_FIXED_INCOME_MIN_BOND = 0.70  # bond weight above which a fund is fixed income
-
-
-def _looks_multi_asset(meta: dict[str, Any] | None) -> bool:
-    if not meta:
-        return False
-    ac = meta.get("asset_classes") or {}
-    stock = float(ac.get("stockPosition") or 0.0)
-    bond = float(ac.get("bondPosition") or 0.0)
-    return stock >= _MULTI_ASSET_MIN_LEG and bond >= _MULTI_ASSET_MIN_LEG
-
-
-def _looks_fixed_income(meta: dict[str, Any] | None) -> bool:
-    if not meta:
-        return False
-    ac = meta.get("asset_classes") or {}
-    return float(ac.get("bondPosition") or 0.0) >= _FIXED_INCOME_MIN_BOND
-
-
 def classify_instrument(
     name: str | None,
     instrument_type: str | None,
-    yf_metadata: dict[str, Any] | None = None,
 ) -> Classification | None:
-    """Return the asset-class tags, or ``None`` if the instrument is rejected
-    (equity/thematic ETF, or a non-STOCK/non-ETF type)."""
+    """Return the asset-class tags from the instrument NAME, or ``None`` if the
+    instrument is rejected (equity/thematic/leveraged ETF, or a non-STOCK/non-ETF
+    type). Classification is name-only: the universe builder resolves it before
+    any yfinance fetch, so there is no funds_data to consult."""
     itype = (instrument_type or "").upper()
     if itype == "STOCK":
         return Classification(AssetClass.EQUITY.value, None, None)
@@ -140,10 +116,10 @@ def classify_instrument(
     if _LEVERAGED_INVERSE.search(name):
         return None  # daily-reset leveraged/inverse product — not investable
 
-    if _MULTI_ASSET.search(name) or _looks_multi_asset(yf_metadata):
+    if _MULTI_ASSET.search(name):
         return Classification(AssetClass.MULTI_ASSET.value, None, None)
 
-    if _BOND_MARKER.search(name) or _looks_fixed_income(yf_metadata):
+    if _BOND_MARKER.search(name):
         return Classification(
             AssetClass.FIXED_INCOME.value, _fi_subclass(name), _duration(name)
         )
