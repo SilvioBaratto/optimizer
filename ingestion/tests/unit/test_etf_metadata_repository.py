@@ -105,6 +105,20 @@ def test_holdings_upsert_is_idempotent(db_session) -> None:
     assert db_session.query(ETFHolding).filter_by(instrument_id=inst.id).count() == 2
 
 
+def test_reads_return_none_when_absent(db_session) -> None:
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+    assert repo.get_metadata(inst.id) is None
+    assert repo.get_asset_classes(inst.id) is None
+
+
+def test_empty_holdings_and_sectors_return_zero(db_session) -> None:
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+    assert repo.upsert_holdings(inst.id, _AS_OF, []) == 0
+    assert repo.upsert_sector_weights(inst.id, _AS_OF, {}) == 0
+
+
 def test_sector_weights_upsert_is_idempotent(db_session) -> None:
     repo = ETFMetadataRepository(db_session)
     inst = _instrument(db_session)

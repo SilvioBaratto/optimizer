@@ -115,6 +115,26 @@ def test_incremental_skips_when_metadata_is_fresh(db_session) -> None:
     yf.funds.fetch_fund_profile.assert_not_called()
 
 
+def test_dispatch_calls_etf_branch_only_for_funds(db_session) -> None:
+    """fetch_and_store runs the ETF metadata branch for fixed_income /
+    multi_asset instruments, and skips it for equity."""
+    from unittest.mock import patch
+
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.fetch_info.return_value = None
+    yf.fetch_history.return_value = None
+    svc = _service(db_session, yf)
+
+    with patch.object(svc, "_fetch_etf_metadata") as branch:
+        svc.fetch_and_store(inst.id, "JAGA.DE", mode="full", asset_class="equity")
+        assert branch.call_count == 0
+        svc.fetch_and_store(inst.id, "JAGA.DE", mode="full", asset_class="fixed_income")
+        assert branch.call_count == 1
+        svc.fetch_and_store(inst.id, "V60A.DE", mode="full", asset_class="multi_asset")
+        assert branch.call_count == 2
+
+
 def test_none_profile_and_funds_data_is_safe(db_session) -> None:
     inst = _fi_instrument(db_session)
     yf = MagicMock()

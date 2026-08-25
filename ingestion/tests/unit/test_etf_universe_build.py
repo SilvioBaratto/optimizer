@@ -1,9 +1,9 @@
 """T4 — ETF screen + builder branch.
 
 The equity screens don't apply to funds, so ETFs run their own pipeline
-(AUM + liquidity + history) and are deduped to one listing per ISIN. The builder
-tags every instrument with its asset class and routes ETFs through the ETF
-pipeline while the STOCK path is unchanged.
+(AUM + history) and are deduped to one listing per ISIN. The builder tags every
+instrument with its asset class and routes ETFs through the ETF pipeline while
+the STOCK path is unchanged.
 """
 
 from __future__ import annotations
@@ -33,6 +33,14 @@ class TestAUMFilter:
         # Yahoo omits totalAssets for many valid bond ETFs — unknown must pass.
         ok, reason = AUMFilter(CFG).filter({"foo": 1}, "X")
         assert ok is True and "unknown" in reason
+
+    def test_falls_back_to_net_assets(self) -> None:
+        ok, _ = AUMFilter(CFG).filter({"netAssets": 2e8}, "X")
+        assert ok is True
+
+    def test_rejects_empty_data(self) -> None:
+        ok, _ = AUMFilter(CFG).filter({}, "X")
+        assert ok is False
 
 
 class TestDedup:
@@ -166,3 +174,84 @@ class TestProcessSingleInstrumentTagging:
         assert data is not None
         assert data["assetClass"] == "equity"
         stock_pipeline.apply.assert_called_once()
+
+
+class TestBuildEndToEnd:
+    def test_build_processes_stocks_and_etfs_tagged(self) -> None:
+        """Full build(): stocks saved equity, FI ETFs saved fixed_income, equity
+        ETFs excluded, each type through its own pipeline."""
+        exchanges = [
+            {"name": "NASDAQ", "workingSchedules": [{"id": 1}]},
+            {"name": "Deutsche Börse Xetra", "workingSchedules": [{"id": 2}]},
+        ]
+        instruments = [
+            {
+                "type": "STOCK",
+                "name": "Apple",
+                "shortName": "AAPL",
+                "ticker": "AAPL_US",
+                "workingScheduleId": 1,
+            },
+            {
+                "type": "ETF",
+                "name": "JPMorgan Global Aggregate Bond",
+                "shortName": "JAGA",
+                "ticker": "JAGA",
+                "isin": "IE9",
+                "workingScheduleId": 2,
+            },
+            # equity ETF -> excluded by the classifier
+            {
+                "type": "ETF",
+                "name": "Vanguard FTSE All-World",
+                "shortName": "VWCE",
+                "ticker": "VWCE",
+                "isin": "IE8",
+                "workingScheduleId": 2,
+            },
+        ]
+        api = MagicMock()
+        api.get_exchanges.return_value = exchanges
+        api.get_instruments.return_value = instruments
+
+        saved: list[dict] = []
+        repo = MagicMock()
+        ex_dto = MagicMock()
+        ex_dto.id = "x"
+        repo.save_exchange.return_value = ex_dto
+        repo.get_active_tickers.return_value = set()
+        repo.save_instruments_batch.side_effect = lambda processed, exchange_id: (
+            saved.extend(processed) or len(processed)
+        )
+
+        stock_pipe, etf_pipe = MagicMock(), MagicMock()
+        stock_pipe.apply.return_value = (True, "ok")
+        stock_pipe.get_summary.return_value = {}
+        etf_pipe.apply.return_value = (True, "ok")
+        etf_pipe.get_summary.return_value = {}
+
+        mapper = MagicMock()
+        mapper.discover.side_effect = lambda short_name, exchange: short_name
+
+        b = UniverseBuilder(
+            config=CFG,
+            api_client=api,
+            ticker_mapper=mapper,
+            filter_pipeline=stock_pipe,
+            etf_filter_pipeline=etf_pipe,
+            repository=repo,
+        )
+        with patch.object(
+            b,
+            "_fetch_filter_data",
+            return_value={"marketCap": 1e12, "totalAssets": 1e9},
+        ):
+            result = b.build()
+
+        by_ac = {d["ticker"]: d["assetClass"] for d in saved}
+        assert by_ac.get("AAPL_US") == "equity"
+        assert by_ac.get("JAGA") == "fixed_income"
+        assert "VWCE" not in by_ac  # equity ETF excluded
+        assert result.instruments_saved == 2
+        stock_pipe.apply.assert_called()  # stock routed to stock pipeline
+        etf_pipe.apply.assert_called()  # ETF routed to ETF pipeline

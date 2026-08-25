@@ -65,6 +65,12 @@ class TestFetchFundsData:
         with patch.object(client, "_get_ticker", return_value=ticker):
             assert client.fetch_funds_data("AAPL") is None
 
+    def test_none_funds_data_returns_none(self, client: FundsClient) -> None:
+        ticker = MagicMock()
+        ticker.funds_data = None
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            assert client.fetch_funds_data("AAPL") is None
+
     def test_raising_funds_data_is_swallowed_to_none(self, client: FundsClient) -> None:
         ticker = MagicMock()
         type(ticker).funds_data = property(
