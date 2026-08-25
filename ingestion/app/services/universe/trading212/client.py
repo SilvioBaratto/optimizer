@@ -31,7 +31,14 @@ class Trading212Client:
         return {"Authorization": f"Basic {credentials}"}
 
     # ------------------------------------------------------------------
-    # Metadata endpoints (existing)
+    # Metadata endpoints — the ONLY Trading 212 surface the ingestion
+    # daemon uses. The account / portfolio / order-history / dividend-history
+    # endpoints were removed: the daemon ingests market data, it does not
+    # trade (see CLAUDE.md and docs/api.md). Several of those paths were also
+    # stale vs the current API (e.g. /equity/portfolio -> /equity/positions,
+    # /history/dividends -> /equity/history/dividends) and their cursor
+    # pagination assumed `nextPageCursor` where the API now returns
+    # `nextPagePath` — dead code that would have broken if ever revived.
     # ------------------------------------------------------------------
 
     def get_exchanges(self) -> list[dict[str, Any]]:
@@ -41,87 +48,7 @@ class Trading212Client:
         return self._fetch_json("/api/v0/equity/metadata/instruments")
 
     # ------------------------------------------------------------------
-    # Account endpoints
-    # ------------------------------------------------------------------
-
-    def get_account_cash(self) -> dict[str, Any]:
-        """GET /api/v0/equity/account/cash → {blocked, free, invested, pieCash, result, total}"""
-        return self._get("/api/v0/equity/account/cash")
-
-    def get_account_info(self) -> dict[str, Any]:
-        """GET /api/v0/equity/account/info → {currencyCode, id}"""
-        return self._get("/api/v0/equity/account/info")
-
-    # ------------------------------------------------------------------
-    # Portfolio endpoints
-    # ------------------------------------------------------------------
-
-    def get_portfolio_positions(self) -> list[dict[str, Any]]:
-        """GET /api/v0/equity/portfolio → list of open positions."""
-        return self._get("/api/v0/equity/portfolio")
-
-    # ------------------------------------------------------------------
-    # Order history (cursor-paginated)
-    # ------------------------------------------------------------------
-
-    def get_order_history(
-        self,
-        *,
-        cursor: int | None = None,
-        ticker: str | None = None,
-        limit: int = 50,
-    ) -> dict[str, Any]:
-        """GET /api/v0/equity/history/orders → {items, nextPageCursor}"""
-        params: dict[str, Any] = {"limit": limit}
-        if cursor is not None:
-            params["cursor"] = cursor
-        if ticker is not None:
-            params["ticker"] = ticker
-        return self._get("/api/v0/equity/history/orders", params=params)
-
-    def get_all_order_history(
-        self,
-        *,
-        ticker: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Fetch all pages of order history."""
-        return self._get_paginated(
-            "/api/v0/equity/history/orders",
-            ticker=ticker,
-        )
-
-    # ------------------------------------------------------------------
-    # Dividend history (cursor-paginated)
-    # ------------------------------------------------------------------
-
-    def get_dividend_history(
-        self,
-        *,
-        cursor: int | None = None,
-        ticker: str | None = None,
-        limit: int = 50,
-    ) -> dict[str, Any]:
-        """GET /api/v0/history/dividends → {items, nextPageCursor}"""
-        params: dict[str, Any] = {"limit": limit}
-        if cursor is not None:
-            params["cursor"] = cursor
-        if ticker is not None:
-            params["ticker"] = ticker
-        return self._get("/api/v0/history/dividends", params=params)
-
-    def get_all_dividend_history(
-        self,
-        *,
-        ticker: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Fetch all pages of dividend history."""
-        return self._get_paginated(
-            "/api/v0/history/dividends",
-            ticker=ticker,
-        )
-
-    # ------------------------------------------------------------------
-    # Internal HTTP helpers
+    # Internal HTTP helper
     # ------------------------------------------------------------------
 
     def _get(
@@ -173,50 +100,8 @@ class Trading212Client:
             f"Failed to fetch {path} after {self.max_retries} attempts"
         ) from last_error
 
-    MAX_PAGES = 1000
-
-    def _get_paginated(
-        self,
-        path: str,
-        *,
-        ticker: str | None = None,
-        limit: int = 50,
-    ) -> list[dict[str, Any]]:
-        """Auto-paginate a cursor-based endpoint. Returns all items.
-
-        Raises RuntimeError if more than MAX_PAGES pages are consumed, which
-        protects the background sync thread from looping indefinitely on a
-        malformed API response with a persistent cursor.
-        """
-        all_items: list[dict[str, Any]] = []
-        cursor: int | None = None
-
-        for page_num in range(1, self.MAX_PAGES + 2):
-            if page_num > self.MAX_PAGES:
-                raise RuntimeError(
-                    f"_get_paginated exceeded {self.MAX_PAGES} pages for "
-                    f"{path!r} — possible runaway cursor from malformed API response"
-                )
-
-            params: dict[str, Any] = {"limit": limit}
-            if cursor is not None:
-                params["cursor"] = cursor
-            if ticker is not None:
-                params["ticker"] = ticker
-
-            page = self._get(path, params=params)
-            items = page.get("items", [])
-            all_items.extend(items)
-
-            next_cursor = page.get("nextPageCursor")
-            if not next_cursor or not items:
-                break
-            cursor = next_cursor
-
-        return all_items
-
     def _fetch_json(self, path: str) -> list[dict[str, Any]]:
-        """Legacy method — delegates to _get for backwards compatibility."""
+        """Fetch a JSON array from a metadata endpoint (via ``_get``)."""
         return self._get(path)
 
     @classmethod

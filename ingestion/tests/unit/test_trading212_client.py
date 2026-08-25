@@ -1,4 +1,10 @@
-"""Unit tests for Trading212Client — all HTTP calls mocked via requests."""
+"""Unit tests for Trading212Client — all HTTP calls mocked via requests.
+
+The client's surface is intentionally tiny: the two metadata endpoints the
+ingestion daemon actually uses, plus the shared ``_get`` retry helper and the
+``from_settings`` factory. The account / portfolio / order / dividend methods
+were removed (daemon ingests, does not trade), so their tests are gone too.
+"""
 
 from __future__ import annotations
 
@@ -73,6 +79,27 @@ class TestTrading212ClientInit:
     def test_default_max_retries(self):
         c = Trading212Client(api_key="k", api_secret="s")
         assert c.max_retries == 5
+
+
+# ---------------------------------------------------------------------------
+# Metadata endpoints — the live surface
+# ---------------------------------------------------------------------------
+
+
+class TestMetadataEndpoints:
+    @patch.object(Trading212Client, "_get")
+    def test_get_exchanges_calls_correct_endpoint(self, mock_get):
+        mock_get.return_value = [{"id": 1, "name": "NASDAQ"}]
+        c = _make_client()
+        assert c.get_exchanges() == [{"id": 1, "name": "NASDAQ"}]
+        mock_get.assert_called_once_with("/api/v0/equity/metadata/exchanges")
+
+    @patch.object(Trading212Client, "_get")
+    def test_get_instruments_calls_correct_endpoint(self, mock_get):
+        mock_get.return_value = [{"ticker": "AAPL_US_EQ", "type": "STOCK"}]
+        c = _make_client()
+        assert c.get_instruments() == [{"ticker": "AAPL_US_EQ", "type": "STOCK"}]
+        mock_get.assert_called_once_with("/api/v0/equity/metadata/instruments")
 
 
 # ---------------------------------------------------------------------------
@@ -155,295 +182,17 @@ def _raise(err):
 
 
 # ---------------------------------------------------------------------------
-# _fetch_json backward compat
+# _fetch_json
 # ---------------------------------------------------------------------------
 
 
-class TestFetchJsonBackwardCompat:
+class TestFetchJson:
     @patch.object(Trading212Client, "_get", return_value=[{"id": 1}])
     def test_delegates_to_get(self, mock_get):
         c = _make_client()
         result = c._fetch_json("/path")
         mock_get.assert_called_once_with("/path")
         assert result == [{"id": 1}]
-
-
-# ---------------------------------------------------------------------------
-# _get_paginated
-# ---------------------------------------------------------------------------
-
-
-class TestGetPaginated:
-    @patch.object(Trading212Client, "_get")
-    def test_single_page_no_cursor(self, mock_get):
-        mock_get.return_value = {"items": [{"a": 1}], "nextPageCursor": None}
-        c = _make_client()
-        assert c._get_paginated("/p") == [{"a": 1}]
-        assert mock_get.call_count == 1
-
-    @patch.object(Trading212Client, "_get")
-    def test_multi_page_follows_cursor(self, mock_get):
-        mock_get.side_effect = [
-            {"items": [{"a": 1}], "nextPageCursor": 42},
-            {"items": [{"b": 2}], "nextPageCursor": None},
-        ]
-        c = _make_client()
-        assert c._get_paginated("/p") == [{"a": 1}, {"b": 2}]
-        assert mock_get.call_count == 2
-
-    @patch.object(Trading212Client, "_get")
-    def test_stops_on_empty_items(self, mock_get):
-        mock_get.return_value = {"items": [], "nextPageCursor": 99}
-        c = _make_client()
-        assert c._get_paginated("/p") == []
-
-    @patch.object(Trading212Client, "_get")
-    def test_passes_ticker_to_every_page(self, mock_get):
-        mock_get.side_effect = [
-            {"items": [{"a": 1}], "nextPageCursor": 10},
-            {"items": [{"b": 2}], "nextPageCursor": None},
-        ]
-        c = _make_client()
-        c._get_paginated("/p", ticker="AAPL_US_EQ")
-        for call in mock_get.call_args_list:
-            assert call.kwargs["params"]["ticker"] == "AAPL_US_EQ"
-
-    @patch.object(Trading212Client, "_get")
-    def test_custom_limit_forwarded(self, mock_get):
-        mock_get.return_value = {"items": [], "nextPageCursor": None}
-        c = _make_client()
-        c._get_paginated("/p", limit=10)
-        assert mock_get.call_args.kwargs["params"]["limit"] == 10
-
-    @patch.object(Trading212Client, "_get")
-    def test_cursor_passed_to_second_page(self, mock_get):
-        mock_get.side_effect = [
-            {"items": [{"a": 1}], "nextPageCursor": 77},
-            {"items": [], "nextPageCursor": None},
-        ]
-        c = _make_client()
-        c._get_paginated("/p")
-        second_call_params = mock_get.call_args_list[1].kwargs["params"]
-        assert second_call_params["cursor"] == 77
-
-
-# ---------------------------------------------------------------------------
-# Account endpoints
-# ---------------------------------------------------------------------------
-
-
-class TestGetAccountCash:
-    @patch.object(Trading212Client, "_get")
-    def test_returns_cash_dict(self, mock_get):
-        data = {
-            "blocked": 0.0,
-            "free": 1000.0,
-            "invested": 5000.0,
-            "pieCash": 0.0,
-            "result": 200.0,
-            "total": 6200.0,
-        }
-        mock_get.return_value = data
-        c = _make_client()
-        assert c.get_account_cash() == data
-
-    @patch.object(Trading212Client, "_get")
-    def test_calls_correct_endpoint(self, mock_get):
-        mock_get.return_value = {}
-        c = _make_client()
-        c.get_account_cash()
-        mock_get.assert_called_once_with("/api/v0/equity/account/cash")
-
-
-class TestGetAccountInfo:
-    @patch.object(Trading212Client, "_get")
-    def test_returns_info_dict(self, mock_get):
-        data = {"currencyCode": "GBP", "id": 12345}
-        mock_get.return_value = data
-        c = _make_client()
-        assert c.get_account_info() == data
-
-    @patch.object(Trading212Client, "_get")
-    def test_calls_correct_endpoint(self, mock_get):
-        mock_get.return_value = {}
-        c = _make_client()
-        c.get_account_info()
-        mock_get.assert_called_once_with("/api/v0/equity/account/info")
-
-
-# ---------------------------------------------------------------------------
-# Portfolio
-# ---------------------------------------------------------------------------
-
-
-class TestGetPortfolioPositions:
-    @patch.object(Trading212Client, "_get")
-    def test_returns_position_list(self, mock_get):
-        data = [{"ticker": "AAPL_US_EQ", "quantity": 10, "averagePrice": 150.0}]
-        mock_get.return_value = data
-        c = _make_client()
-        assert c.get_portfolio_positions() == data
-
-    @patch.object(Trading212Client, "_get")
-    def test_calls_correct_endpoint(self, mock_get):
-        mock_get.return_value = []
-        c = _make_client()
-        c.get_portfolio_positions()
-        mock_get.assert_called_once_with("/api/v0/equity/portfolio")
-
-
-# ---------------------------------------------------------------------------
-# Order history
-# ---------------------------------------------------------------------------
-
-
-class TestGetOrderHistory:
-    @patch.object(Trading212Client, "_get")
-    def test_returns_page_dict(self, mock_get):
-        data = {"items": [{"id": 1}], "nextPageCursor": None}
-        mock_get.return_value = data
-        c = _make_client()
-        assert c.get_order_history() == data
-
-    @patch.object(Trading212Client, "_get")
-    def test_default_limit_is_50(self, mock_get):
-        mock_get.return_value = {"items": [], "nextPageCursor": None}
-        c = _make_client()
-        c.get_order_history()
-        params = mock_get.call_args.kwargs["params"]
-        assert params["limit"] == 50
-
-    @patch.object(Trading212Client, "_get")
-    def test_cursor_included_when_provided(self, mock_get):
-        mock_get.return_value = {"items": [], "nextPageCursor": None}
-        c = _make_client()
-        c.get_order_history(cursor=42)
-        params = mock_get.call_args.kwargs["params"]
-        assert params["cursor"] == 42
-
-    @patch.object(Trading212Client, "_get")
-    def test_ticker_included_when_provided(self, mock_get):
-        mock_get.return_value = {"items": [], "nextPageCursor": None}
-        c = _make_client()
-        c.get_order_history(ticker="AAPL_US_EQ")
-        params = mock_get.call_args.kwargs["params"]
-        assert params["ticker"] == "AAPL_US_EQ"
-
-    @patch.object(Trading212Client, "_get")
-    def test_cursor_omitted_when_none(self, mock_get):
-        mock_get.return_value = {"items": [], "nextPageCursor": None}
-        c = _make_client()
-        c.get_order_history()
-        params = mock_get.call_args.kwargs["params"]
-        assert "cursor" not in params
-
-    @patch.object(Trading212Client, "_get")
-    def test_calls_correct_endpoint(self, mock_get):
-        mock_get.return_value = {"items": [], "nextPageCursor": None}
-        c = _make_client()
-        c.get_order_history()
-        assert mock_get.call_args.args[0] == "/api/v0/equity/history/orders"
-
-
-class TestGetAllOrderHistory:
-    @patch.object(Trading212Client, "_get_paginated")
-    def test_delegates_to_get_paginated(self, mock_pag):
-        mock_pag.return_value = []
-        c = _make_client()
-        c.get_all_order_history()
-        mock_pag.assert_called_once_with(
-            "/api/v0/equity/history/orders",
-            ticker=None,
-        )
-
-    @patch.object(Trading212Client, "_get_paginated")
-    def test_returns_flat_list(self, mock_pag):
-        mock_pag.return_value = [{"id": 1}, {"id": 2}]
-        c = _make_client()
-        assert c.get_all_order_history() == [{"id": 1}, {"id": 2}]
-
-    @patch.object(Trading212Client, "_get_paginated")
-    def test_ticker_forwarded(self, mock_pag):
-        mock_pag.return_value = []
-        c = _make_client()
-        c.get_all_order_history(ticker="MSFT_US_EQ")
-        mock_pag.assert_called_once_with(
-            "/api/v0/equity/history/orders",
-            ticker="MSFT_US_EQ",
-        )
-
-
-# ---------------------------------------------------------------------------
-# Dividend history
-# ---------------------------------------------------------------------------
-
-
-class TestGetDividendHistory:
-    @patch.object(Trading212Client, "_get")
-    def test_returns_page_dict(self, mock_get):
-        data = {"items": [{"amount": 1.5}], "nextPageCursor": None}
-        mock_get.return_value = data
-        c = _make_client()
-        assert c.get_dividend_history() == data
-
-    @patch.object(Trading212Client, "_get")
-    def test_default_limit_is_50(self, mock_get):
-        mock_get.return_value = {"items": [], "nextPageCursor": None}
-        c = _make_client()
-        c.get_dividend_history()
-        params = mock_get.call_args.kwargs["params"]
-        assert params["limit"] == 50
-
-    @patch.object(Trading212Client, "_get")
-    def test_cursor_included_when_provided(self, mock_get):
-        mock_get.return_value = {"items": [], "nextPageCursor": None}
-        c = _make_client()
-        c.get_dividend_history(cursor=99)
-        params = mock_get.call_args.kwargs["params"]
-        assert params["cursor"] == 99
-
-    @patch.object(Trading212Client, "_get")
-    def test_ticker_included_when_provided(self, mock_get):
-        mock_get.return_value = {"items": [], "nextPageCursor": None}
-        c = _make_client()
-        c.get_dividend_history(ticker="AAPL_US_EQ")
-        params = mock_get.call_args.kwargs["params"]
-        assert params["ticker"] == "AAPL_US_EQ"
-
-    @patch.object(Trading212Client, "_get")
-    def test_calls_correct_endpoint(self, mock_get):
-        mock_get.return_value = {"items": [], "nextPageCursor": None}
-        c = _make_client()
-        c.get_dividend_history()
-        assert mock_get.call_args.args[0] == "/api/v0/history/dividends"
-
-
-class TestGetAllDividendHistory:
-    @patch.object(Trading212Client, "_get_paginated")
-    def test_delegates_to_get_paginated(self, mock_pag):
-        mock_pag.return_value = []
-        c = _make_client()
-        c.get_all_dividend_history()
-        mock_pag.assert_called_once_with(
-            "/api/v0/history/dividends",
-            ticker=None,
-        )
-
-    @patch.object(Trading212Client, "_get_paginated")
-    def test_returns_flat_list(self, mock_pag):
-        mock_pag.return_value = [{"amount": 1.5}, {"amount": 2.0}]
-        c = _make_client()
-        assert c.get_all_dividend_history() == [{"amount": 1.5}, {"amount": 2.0}]
-
-    @patch.object(Trading212Client, "_get_paginated")
-    def test_ticker_forwarded(self, mock_pag):
-        mock_pag.return_value = []
-        c = _make_client()
-        c.get_all_dividend_history(ticker="VOD_L_EQ")
-        mock_pag.assert_called_once_with(
-            "/api/v0/history/dividends",
-            ticker="VOD_L_EQ",
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -470,6 +219,7 @@ class TestFromSettings:
         mock_settings.trading_212_api_key = "key123"
         mock_settings.trading_212_mode = "demo"
         client = Trading212Client.from_settings()
+        assert client is not None
         assert client.base_url == "https://demo.trading212.com"
 
     @patch("app.services.universe.trading212.client.settings")
@@ -477,4 +227,5 @@ class TestFromSettings:
         mock_settings.trading_212_api_key = "key123"
         mock_settings.trading_212_mode = "live"
         client = Trading212Client.from_settings(mode="demo")
+        assert client is not None
         assert client.base_url == "https://demo.trading212.com"

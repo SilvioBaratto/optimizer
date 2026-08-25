@@ -52,10 +52,11 @@ class UniverseBuilderConfig:
     All thresholds and parameters for the UniverseBuilder are externalized here.
     """
 
-    # Market Cap Thresholds
+    # Market Cap Thresholds. Segmentation uses large_cap_threshold and
+    # small_cap_threshold only (>= large -> large, >= small -> mid, else small);
+    # there is deliberately no separate mid-cap threshold.
     min_market_cap: float = 100_000_000
     small_cap_threshold: float = 2_000_000_000
-    mid_cap_threshold: float = 10_000_000_000
     large_cap_threshold: float = 10_000_000_000
 
     # Price Filters
@@ -185,7 +186,6 @@ class UniverseBuilderConfig:
         return {
             "min_market_cap": self.min_market_cap,
             "small_cap_threshold": self.small_cap_threshold,
-            "mid_cap_threshold": self.mid_cap_threshold,
             "large_cap_threshold": self.large_cap_threshold,
             "min_price": self.min_price,
             "max_price": self.max_price,
