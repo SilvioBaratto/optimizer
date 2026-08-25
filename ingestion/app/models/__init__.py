@@ -9,6 +9,12 @@ from app.models.macro.macro_regime import (
     MacroNewsTheme,
     TradingEconomicsIndicator,
 )
+from app.models.market_data.etf_metadata import (
+    ETFAssetClass,
+    ETFHolding,
+    ETFMetadata,
+    ETFSectorWeight,
+)
 from app.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
@@ -33,6 +39,10 @@ __all__ = [
     "BaseModel",
     "BondYield",
     "Dividend",
+    "ETFAssetClass",
+    "ETFHolding",
+    "ETFMetadata",
+    "ETFSectorWeight",
     "EconomicIndicator",
     "Exchange",
     "FinancialStatement",
