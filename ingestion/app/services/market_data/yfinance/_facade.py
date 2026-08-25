@@ -8,6 +8,7 @@ import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
 
+from .funds import FundsClient
 from .infrastructure import (
     CircuitBreaker,
     LRUCache,
@@ -488,6 +489,10 @@ class YFinanceClient:
     @cached_property
     def search(self) -> SearchClient:
         return SearchClient(**self._module_sub_client_kwargs())
+
+    @cached_property
+    def funds(self) -> FundsClient:
+        return FundsClient(**self._ticker_sub_client_kwargs())
 
 
 def get_yfinance_client(
