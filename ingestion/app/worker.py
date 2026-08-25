@@ -7,10 +7,7 @@ Boots the process that owns the scheduled data pipeline:
 2. ``init_db()`` — build the engine and session factory.
 3. Reap orphan background jobs left behind by a crashed process, so a job that
    died mid-run does not block its type forever via ``JobAlreadyRunningError``.
-4. Bootstrap reference-index benchmarks in a daemon thread — a cold database
-   needs a multi-minute yfinance fetch, and blocking startup on it would delay
-   the first scheduled run.
-5. Start APScheduler and block until SIGTERM / SIGINT.
+4. Start APScheduler and block until SIGTERM / SIGINT.
 
 There is no HTTP API. Manual runs go through ``python -m app.cli``; job
 progress is readable from the ``background_jobs`` table and the logs.
@@ -88,26 +85,6 @@ def _reconcile_orphans() -> None:
         logger.info("Reconciled %d orphan job(s) on startup", n)
     except Exception as exc:
         logger.warning("Orphan reconciliation failed: %s", exc)
-
-
-def _bootstrap_benchmarks_async() -> None:
-    """Seed missing/stale reference indices in a daemon thread."""
-
-    def _run() -> None:
-        try:
-            from app.services._shared._benchmark_bootstrap import bootstrap_benchmarks
-            from app.services.market_data.yfinance import get_yfinance_client
-
-            bootstrap_benchmarks(
-                database_manager.get_session,
-                get_yfinance_client(),
-                tickers=settings.benchmark_tickers,
-                stale_days=settings.scheduler_benchmark_stale_days,
-            )
-        except Exception as exc:
-            logger.warning("Benchmark bootstrap failed (continuing): %s", exc)
-
-    threading.Thread(target=_run, daemon=True, name="benchmark-bootstrap").start()
 
 
 def _install_signal_handlers() -> None:
@@ -192,7 +169,6 @@ def main() -> None:
         logger.warning("Database health check failed — continuing startup")
 
     _reconcile_orphans()
-    _bootstrap_benchmarks_async()
 
     scheduler = create_scheduler()
     scheduler.start()

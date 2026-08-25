@@ -103,7 +103,6 @@ class TestJobServicesAdoptCadence:
             "_summarize_jobs",
             "_calibrate_jobs",
             "_fred_jobs",
-            "_ref_index_jobs",
             "_universe_jobs",
         ],
     )

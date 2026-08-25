@@ -14,7 +14,6 @@ already running that step.
     python -m app.cli news
     python -m app.cli summarize
     python -m app.cli calibrate
-    python -m app.cli reference-indices
 
 Single-step commands exit non-zero when the step did not complete, so shell
 drivers can gate on them. The composite commands (``daily``, ``refetch-all``)
@@ -173,18 +172,6 @@ def calibrate() -> None:
     from app.services.jobs.scheduler import run_calibrate_step
 
     _exit(run_calibrate_step())
-
-
-@app.command(name="reference-indices")
-def reference_indices(
-    period: str = typer.Option("5y", help="Lookback window."),
-    mode: FetchMode = typer.Option(FetchMode.INCREMENTAL, help="Refresh mode."),
-) -> None:
-    """Seed benchmark ETF price history (settings.benchmark_tickers)."""
-    _boot()
-    from app.services.jobs.scheduler import refresh_reference_indices
-
-    _exit(refresh_reference_indices("cli", period=period, mode=mode.value))
 
 
 if __name__ == "__main__":

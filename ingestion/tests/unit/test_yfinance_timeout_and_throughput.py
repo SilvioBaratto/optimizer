@@ -374,7 +374,6 @@ class TestSchedulerWorkerSettings:
 
         with (
             patch.object(sched_module, "_run_step", side_effect=_fake_run_step),
-            patch.object(sched_module, "refresh_reference_indices", return_value=True),
             patch.object(sched_module.settings, "yfinance_fetch_workers", 4),
             patch(
                 "app.services.market_data.yfinance.get_yfinance_client",
@@ -400,7 +399,6 @@ class TestSchedulerWorkerSettings:
 
         with (
             patch.object(sched_module, "_run_step", side_effect=_fake_run_step),
-            patch.object(sched_module, "refresh_reference_indices", return_value=True),
             patch.object(sched_module.settings, "yfinance_fetch_workers", 1),
             patch(
                 "app.services.market_data.yfinance.get_yfinance_client",
@@ -424,7 +422,6 @@ class TestSchedulerWorkerSettings:
 
         with (
             patch.object(sched_module, "_run_step", side_effect=_fake_run_step),
-            patch.object(sched_module, "refresh_reference_indices", return_value=True),
             patch.object(sched_module.settings, "yfinance_fetch_workers", 99),
             patch(
                 "app.services.market_data.yfinance.get_yfinance_client",

@@ -34,7 +34,6 @@ def _patched(**overrides):
         patch.object(worker_module, "init_db") as init,
         patch.object(worker_module, "close_db") as close,
         patch.object(worker_module, "_reconcile_orphans") as reconcile,
-        patch.object(worker_module, "_bootstrap_benchmarks_async") as bootstrap,
         patch.object(worker_module, "_install_signal_handlers"),
         patch.object(worker_module, "create_scheduler", return_value=scheduler),
         patch.object(
@@ -46,7 +45,6 @@ def _patched(**overrides):
             init=init,
             close=close,
             reconcile=reconcile,
-            bootstrap=bootstrap,
             scheduler=scheduler,
         )
 
@@ -92,12 +90,6 @@ class TestStartup:
             worker_module.main()
 
         assert order == ["reconcile", "scheduler"]
-
-    def test_bootstrap_is_kicked_off(self) -> None:
-        with _patched() as m:
-            worker_module.main()
-
-        m.bootstrap.assert_called_once()
 
     def test_continues_when_health_check_fails(self) -> None:
         """A red health check is logged, not fatal — the DB may still come up."""
@@ -190,24 +182,6 @@ class TestSignalHandling:
             worker_module._install_signal_handlers()
 
         assert worker_module.signal.SIGINT in captured
-
-
-class TestBootstrapBenchmarks:
-    def test_runs_off_thread_and_swallows_failure(self) -> None:
-        """A cold benchmark fetch takes minutes; it must not block or kill startup."""
-        with (
-            patch(
-                "app.services._shared._benchmark_bootstrap.bootstrap_benchmarks",
-                side_effect=RuntimeError("yfinance down"),
-            ),
-            patch("app.services.market_data.yfinance.get_yfinance_client"),
-        ):
-            worker_module._bootstrap_benchmarks_async()
-
-            for t in threading.enumerate():
-                if t.name == "benchmark-bootstrap":
-                    t.join(timeout=5)
-                    assert not t.is_alive()
 
 
 class TestGracefulShutdown:

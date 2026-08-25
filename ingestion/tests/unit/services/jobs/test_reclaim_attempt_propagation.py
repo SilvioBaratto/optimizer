@@ -129,32 +129,6 @@ class TestStepWrappersForwardAttempt:
 
         assert run_step.call_args.kwargs["attempt"] == 4
 
-    def test_refresh_reference_indices_forwards_attempt_to_create_job(self) -> None:
-        from app.services.jobs import scheduler as sched
-
-        with (
-            patch.object(
-                sched._ref_index_jobs, "create_job", return_value=_VALID_JOB_ID
-            ) as create,
-            patch.object(sched._ref_index_jobs, "update_job"),
-            patch.object(
-                sched._ref_index_jobs,
-                "get_job",
-                return_value={"status": "completed"},
-            ),
-            patch.object(sched, "_heartbeat"),
-            patch(
-                "app.services.market_data.reference_index_seeder.seed_reference_indices"
-            ),
-            patch(
-                "app.services.market_data.yfinance.get_yfinance_client",
-                return_value=MagicMock(),
-            ),
-        ):
-            sched.refresh_reference_indices("orphan_reclaim", attempt=6)
-
-        assert create.call_args.kwargs["attempt"] == 6
-
 
 # ---------------------------------------------------------------------------
 # End-to-end glue: a stale orphan carries attempt+1 into its re-dispatch

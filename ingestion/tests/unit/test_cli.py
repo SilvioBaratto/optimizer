@@ -133,18 +133,6 @@ class TestFlagOptions:
         assert fn.call_args.kwargs == {"force_refresh": False}
 
 
-class TestReferenceIndices:
-    def test_forwards_period_and_mode(self) -> None:
-        with patch(f"{SCHED}.refresh_reference_indices", return_value=True) as fn:
-            result = runner.invoke(
-                app, ["reference-indices", "--period", "1y", "--mode", "full"]
-            )
-
-        assert result.exit_code == 0
-        assert fn.call_args.args == ("cli",)
-        assert fn.call_args.kwargs == {"period": "1y", "mode": "full"}
-
-
 class TestCompositeCommands:
     def test_daily_runs_the_daily_pipeline(self) -> None:
         with patch(f"{SCHED}.run_daily_pipeline") as fn:

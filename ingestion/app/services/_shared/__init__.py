@@ -1,13 +1,6 @@
 """Shared Services.
 
 Cross-cutting service helpers and utilities.
-
-``bootstrap_benchmarks`` is deliberately NOT re-exported here. It lives in
-``_benchmark_bootstrap``, which imports ``market_data.reference_index_seeder``,
-which imports back into this package for ``ProgressCallback`` — re-exporting it
-would make that cycle load-bearing on import order. Import it from its module:
-
-    from app.services._shared._benchmark_bootstrap import bootstrap_benchmarks
 """
 
 from app.services._shared._json_safe import safe_float

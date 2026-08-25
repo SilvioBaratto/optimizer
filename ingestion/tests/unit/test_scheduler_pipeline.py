@@ -13,7 +13,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.config import settings
 from app.services.jobs.background_job import JobAlreadyRunningError
 
 # Module under test (imported as a string to avoid side-effects at collection time)
@@ -172,7 +171,6 @@ class TestRunDailyPipeline:
 
         with ExitStack() as stack:
             mock_step = stack.enter_context(patch(f"{M}._run_step"))
-            mock_refresh = stack.enter_context(patch(f"{M}.refresh_reference_indices"))
             stack.enter_context(
                 patch(
                     "app.services.market_data.yfinance.get_yfinance_client",
@@ -220,8 +218,6 @@ class TestRunDailyPipeline:
             assert label not in called_labels, (
                 f"Label '{label}' should be absent but was called"
             )
-
-        mock_refresh.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -272,10 +268,9 @@ class TestRunMiddayNewsRefresh:
 
 
 class TestRunWeeklyRefetch:
-    def test_when_called_then_yfinance_and_macro_run_and_refresh_called_once(self):
+    def test_when_called_then_yfinance_and_macro_run(self):
         with ExitStack() as stack:
             mock_step = stack.enter_context(patch(f"{M}._run_step"))
-            mock_refresh = stack.enter_context(patch(f"{M}.refresh_reference_indices"))
             stack.enter_context(
                 patch(
                     "app.services.market_data.yfinance.get_yfinance_client",
@@ -303,7 +298,6 @@ class TestRunWeeklyRefetch:
         labels = {c.args[0] for c in mock_step.call_args_list}
         assert "yfinance" in labels
         assert "macro" in labels
-        mock_refresh.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -329,140 +323,6 @@ class TestRunFredMonthly:
 
         labels = {c.args[0] for c in mock_step.call_args_list}
         assert "fred" in labels
-
-
-# ---------------------------------------------------------------------------
-# TestRefreshReferenceIndices
-# ---------------------------------------------------------------------------
-
-
-class TestRefreshReferenceIndices:
-    def _patch_all(self, stack, *, tickers=None, seed_side_effect=None):
-        """Enter all necessary patches; returns (mock_resolve, mock_seed, mock_ref_jobs).
-
-        Pass ``tickers=[]`` explicitly to test the no-tickers branch; omit to
-        default to ``["SPY"]``.
-        """
-        resolved = ["SPY"] if tickers is None else tickers
-        mock_resolve = stack.enter_context(
-            patch(f"{M}._resolve_benchmark_tickers", return_value=resolved)
-        )
-        mock_seed = stack.enter_context(
-            patch(
-                "app.services.market_data.reference_index_seeder.seed_reference_indices",
-                side_effect=seed_side_effect,
-            )
-        )
-        stack.enter_context(
-            patch(
-                "app.services.market_data.yfinance.get_yfinance_client",
-                return_value=MagicMock(),
-            )
-        )
-        mock_ref_jobs = MagicMock()
-        # Must be a real UUID string: the heartbeat companion parses it.
-        mock_ref_jobs.create_job.return_value = "33333333-3333-3333-3333-333333333333"
-        mock_ref_jobs.get_job.return_value = {"status": "completed"}
-        mock_ref_jobs._heartbeat_cadence = 0.01
-        stack.enter_context(patch(f"{M}._ref_index_jobs", mock_ref_jobs))
-        return mock_resolve, mock_seed, mock_ref_jobs
-
-    def test_when_no_tickers_then_returns_false_and_create_job_not_called(self):
-        with ExitStack() as stack:
-            mock_resolve, _, mock_ref_jobs = self._patch_all(stack, tickers=[])
-
-            from app.services.jobs.scheduler import refresh_reference_indices
-
-            result = refresh_reference_indices("test")
-
-        assert result is False
-        mock_ref_jobs.create_job.assert_not_called()
-
-    def test_when_already_running_then_returns_false(self):
-        with ExitStack() as stack:
-            mock_resolve, _, mock_ref_jobs = self._patch_all(stack)
-            err = JobAlreadyRunningError("j9")
-            err.existing_job_id = "j9"
-            mock_ref_jobs.create_job.side_effect = err
-
-            from app.services.jobs.scheduler import refresh_reference_indices
-
-            result = refresh_reference_indices("test")
-
-        assert result is False
-
-    def test_when_success_then_returns_true(self):
-        with ExitStack() as stack:
-            _, mock_seed, mock_ref_jobs = self._patch_all(stack)
-            mock_ref_jobs.get_job.return_value = {"status": "completed"}
-
-            from app.services.jobs.scheduler import refresh_reference_indices
-
-            result = refresh_reference_indices("test")
-
-        assert result is True
-        mock_seed.assert_called_once()
-
-    def test_when_success_but_status_not_completed_then_defensive_update_called(self):
-        with ExitStack() as stack:
-            _, _, mock_ref_jobs = self._patch_all(stack)
-            mock_ref_jobs.get_job.return_value = {"status": "running"}
-
-            from app.services.jobs.scheduler import refresh_reference_indices
-
-            result = refresh_reference_indices("test")
-
-        assert result is True
-        found = any(
-            c.kwargs.get("status") == "completed"
-            for c in mock_ref_jobs.update_job.call_args_list
-        )
-        assert found
-
-    def test_when_seed_raises_then_returns_false_and_status_failed(self):
-        with ExitStack() as stack:
-            _, _, mock_ref_jobs = self._patch_all(
-                stack, seed_side_effect=Exception("network error")
-            )
-
-            from app.services.jobs.scheduler import refresh_reference_indices
-
-            result = refresh_reference_indices("test")
-
-        assert result is False
-        failed_calls = [
-            c
-            for c in mock_ref_jobs.update_job.call_args_list
-            if c.kwargs.get("status") == "failed"
-        ]
-        assert failed_calls
-
-
-# ---------------------------------------------------------------------------
-# TestResolveBenchmarkTickers
-# ---------------------------------------------------------------------------
-
-
-class TestResolveBenchmarkTickers:
-    """Benchmarks come from settings alone — the resolver touches no database."""
-
-    def test_returns_configured_tickers_sorted_and_deduped(self):
-        from app.services.jobs.scheduler import _resolve_benchmark_tickers
-
-        result = _resolve_benchmark_tickers()
-
-        assert result == sorted(set(settings.benchmark_tickers))
-        assert result == sorted(result)
-        assert len(result) == len(set(result))
-
-    def test_reflects_overridden_settings(self, monkeypatch):
-        from app.services.jobs import scheduler as sched
-
-        monkeypatch.setattr(
-            sched.settings, "benchmark_tickers", ["QQQ", "SPY", "SPY"], raising=False
-        )
-
-        assert sched._resolve_benchmark_tickers() == ["QQQ", "SPY"]
 
 
 # ---------------------------------------------------------------------------
@@ -763,35 +623,6 @@ class TestHeartbeatCompanion:
         job_svc._run_heartbeat.assert_called_once()
         assert not self._hb_threads(), "heartbeat outlived the step"
 
-    def test_refresh_reference_indices_heartbeats_for_the_duration_of_the_seed(self):
-        seen: list[list[str]] = []
-
-        def _seed(_tickers, _client, on_progress=None):
-            seen.append(self._hb_threads())
-
-        jobs = self._job_svc("22222222-2222-2222-2222-222222222222")
-
-        with ExitStack() as stack:
-            stack.enter_context(patch(f"{M}._ref_index_jobs", jobs))
-            stack.enter_context(
-                patch(
-                    "app.services.market_data.reference_index_seeder"
-                    ".seed_reference_indices",
-                    _seed,
-                )
-            )
-            stack.enter_context(
-                patch("app.services.market_data.yfinance.get_yfinance_client")
-            )
-
-            from app.services.jobs.scheduler import refresh_reference_indices
-
-            assert refresh_reference_indices("test") is True
-
-        assert seen and seen[0], "reference-index seed ran with no heartbeat"
-        jobs._run_heartbeat.assert_called_once()
-        assert not self._hb_threads(), "heartbeat outlived the seed"
-
 
 # ---------------------------------------------------------------------------
 # TestOrphanReaperStrategy — R3/§5.3 fail vs reclaim + re-dispatch cap
@@ -899,14 +730,6 @@ class TestOrphanReaperStrategy:
             sched._run_reclaim("yfinance_fetch", 2)
 
         step.assert_called_once_with(attempt=2)
-
-    def test_run_reclaim_reference_index_uses_refresh(self):
-        from app.services.jobs import scheduler as sched
-
-        with patch.object(sched, "refresh_reference_indices") as refresh:
-            sched._run_reclaim("reference_index_seed", 1)
-
-        refresh.assert_called_once_with("orphan_reclaim", attempt=1)
 
     # --- _emit_reap_metrics records the terminal transition ---
 

@@ -95,11 +95,6 @@ _fred_jobs = BackgroundJobService(
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
-_ref_index_jobs = BackgroundJobService(
-    job_type="reference_index_seed",
-    session_factory=database_manager.get_session,
-    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
-)
 _universe_jobs = BackgroundJobService(
     job_type="universe_build",
     session_factory=database_manager.get_session,
@@ -112,16 +107,8 @@ _scheduler: BackgroundScheduler | None = None
 
 
 # ---------------------------------------------------------------------------
-# Reference-index refresh helpers
+# Job heartbeat helper
 # ---------------------------------------------------------------------------
-
-
-def _resolve_benchmark_tickers() -> list[str]:
-    """Return the configured benchmark tickers.
-
-    Override with the ``BENCHMARK_TICKERS`` env var (comma-separated).
-    """
-    return sorted(set(settings.benchmark_tickers))
 
 
 @contextmanager
@@ -152,80 +139,6 @@ def _heartbeat(
     finally:
         stop.set()
         thread.join(timeout=2 * cadence)
-
-
-def refresh_reference_indices(
-    label: str,
-    *,
-    period: str = "5y",
-    mode: str = "incremental",
-    attempt: int = 0,
-) -> bool:
-    """Run ``seed_reference_indices`` as a tracked background job.
-
-    Args:
-        label: Log-prefix label (e.g. ``"daily_pipeline"``).
-        period: yfinance lookback window (``"5y"`` for full rebuilds).
-        mode: ``"incremental"`` (default) or ``"full"`` — currently the seeder
-            always uses incremental fetch_and_store under the hood, but ``mode``
-            is forwarded for future expansion / observability.
-
-    Returns ``True`` on success, ``False`` on skip or failure.
-    """
-    from app.services.market_data.reference_index_seeder import seed_reference_indices
-    from app.services.market_data.yfinance import get_yfinance_client
-
-    tickers = _resolve_benchmark_tickers()
-    if not tickers:
-        logger.info(
-            "%s: reference_index_refresh skipped — no benchmarks configured", label
-        )
-        return False
-
-    try:
-        job_id = _ref_index_jobs.create_job(current_ticker="", attempt=attempt)
-    except JobAlreadyRunningError as exc:
-        logger.warning(
-            "%s: reference_index_refresh skipped — already running (job %s)",
-            label,
-            exc.existing_job_id,
-        )
-        return False
-
-    logger.info(
-        "%s: reference_index_refresh started (job %s, %d tickers, mode=%s)",
-        label,
-        job_id,
-        len(tickers),
-        mode,
-    )
-    _ref_index_jobs.update_job(job_id, status="running")
-
-    on_progress = make_progress(job_id, _ref_index_jobs)
-    try:
-        with _heartbeat(_ref_index_jobs, job_id, "refidx"):
-            seed_reference_indices(
-                tickers,
-                get_yfinance_client(),
-                on_progress=on_progress,
-            )
-        job = _ref_index_jobs.get_job(job_id) or {}
-        if job.get("status") != "completed":
-            _ref_index_jobs.update_job(
-                job_id,
-                status="completed",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-            )
-        logger.info("%s: reference_index_refresh completed (period=%s)", label, period)
-        return True
-    except Exception:
-        logger.exception("%s: reference_index_refresh raised", label)
-        _ref_index_jobs.update_job(
-            job_id,
-            status="failed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -441,8 +354,6 @@ def run_daily_pipeline() -> None:
     """
     logger.info("daily_pipeline: starting")
 
-    refresh_reference_indices("daily_pipeline", mode="incremental")
-
     yf_ok = run_yfinance_step(mode="incremental")
 
     run_macro_step()
@@ -487,9 +398,6 @@ def run_weekly_refetch() -> None:
 
     run_yfinance_step(mode="full", period="5y", workers=settings.yfinance_fetch_workers)
     run_macro_step()
-
-    # Reference-index full 5y rebuild — keep benchmarks aligned with universe cadence
-    refresh_reference_indices("weekly_refetch", period="5y", mode="full")
 
     logger.info("weekly_refetch: finished")
 
@@ -616,7 +524,7 @@ _RECLAIM_STEP: dict[str, Callable[..., bool]] = {
 
 
 def _reclaim_dispatchable(job_type: str) -> bool:
-    return job_type == "reference_index_seed" or job_type in _RECLAIM_STEP
+    return job_type in _RECLAIM_STEP
 
 
 def _run_reclaim(job_type: str, attempt: int) -> None:
@@ -625,9 +533,6 @@ def _run_reclaim(job_type: str, attempt: int) -> None:
     Module-level so the SQLAlchemy job store can pickle it. Runs the step for
     ``job_type`` tagged with the retry ``attempt``.
     """
-    if job_type == "reference_index_seed":
-        refresh_reference_indices("orphan_reclaim", attempt=attempt)
-        return
     step = _RECLAIM_STEP.get(job_type)
     if step is not None:
         step(attempt=attempt)
