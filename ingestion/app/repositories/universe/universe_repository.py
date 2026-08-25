@@ -134,13 +134,25 @@ class UniverseRepository(RepositoryBase):
         self.session.flush()
         return bool(result.rowcount)
 
-    def get_active_tickers(self, exchange_id: Any) -> set[str]:
-        """Return the set of non-delisted tickers for an exchange."""
-        rows = self.session.execute(
+    def get_active_tickers(
+        self, exchange_id: Any, instrument_type: str | None = None
+    ) -> set[str]:
+        """Return the set of non-delisted tickers for an exchange.
+
+        ``instrument_type`` scopes the result (e.g. "STOCK" or "ETF"). The
+        universe build processes stocks and ETFs in separate passes over
+        exchanges that overlap (Xetra/LSE/Paris are in both sets), so delisting
+        reconciliation MUST be scoped by type — otherwise the ETF pass would see
+        the stock tickers the stock pass just flushed and mark them delisted.
+        """
+        stmt = (
             select(Instrument.ticker)
             .where(Instrument.exchange_id == exchange_id)
             .where(Instrument.delisted_at.is_(None))
-        ).all()
+        )
+        if instrument_type is not None:
+            stmt = stmt.where(Instrument.instrument_type == instrument_type)
+        rows = self.session.execute(stmt).all()
         return {r[0] for r in rows}
 
     def clear_all(self) -> tuple[int, int]:

@@ -63,7 +63,8 @@ _FI_SUBCLASS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"high[\s-]?yield|\bhy\b", re.I), FiSubclass.HIGH_YIELD.value),
     (
         re.compile(
-            r"treasur|\bgilt|\bbund\b|sovereign|government|\bgovt?\b|\bbtp\b", re.I
+            r"treasur|\bgilt|\bbund\b|sovereign|government|\bgov(t|ies)?\b|\bbtp\b",
+            re.I,
         ),
         FiSubclass.GOVERNMENT.value,
     ),
@@ -98,20 +99,28 @@ def _fi_subclass(name: str) -> str:
     return FiSubclass.AGGREGATE.value  # broad/mixed bond fund
 
 
+# Metadata heuristics (used when a caller supplies yfinance funds_data): a fund
+# with material stock AND bond weight is multi-asset; a bond-dominant fund is
+# fixed income. NOTE: the universe builder classifies from the name only, so
+# these paths fire only for callers that pass yf_metadata.
+_MULTI_ASSET_MIN_LEG = 0.15  # min stock and bond weight to call it multi-asset
+_FIXED_INCOME_MIN_BOND = 0.70  # bond weight above which a fund is fixed income
+
+
 def _looks_multi_asset(meta: dict[str, Any] | None) -> bool:
     if not meta:
         return False
     ac = meta.get("asset_classes") or {}
     stock = float(ac.get("stockPosition") or 0.0)
     bond = float(ac.get("bondPosition") or 0.0)
-    return stock >= 0.15 and bond >= 0.15
+    return stock >= _MULTI_ASSET_MIN_LEG and bond >= _MULTI_ASSET_MIN_LEG
 
 
 def _looks_fixed_income(meta: dict[str, Any] | None) -> bool:
     if not meta:
         return False
     ac = meta.get("asset_classes") or {}
-    return float(ac.get("bondPosition") or 0.0) >= 0.7
+    return float(ac.get("bondPosition") or 0.0) >= _FIXED_INCOME_MIN_BOND
 
 
 def classify_instrument(

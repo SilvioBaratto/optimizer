@@ -84,13 +84,18 @@ class UniverseBuilder:
             len(insts) for _, insts in exchange_etfs
         )
 
-        # Process stocks, then ETFs (through their own pipeline)
+        # Process stocks, then ETFs (through their own pipeline). Delisting
+        # reconciliation is scoped per instrument_type so the two passes over
+        # shared exchanges don't mark each other's instruments delisted.
         exchanges_saved, instruments_saved, total_processed = self._process_exchanges(
-            exchange_stocks, total
+            exchange_stocks, total, instrument_type="STOCK"
         )
         if exchange_etfs:
             ex_e, inst_e, proc_e = self._process_exchanges(
-                exchange_etfs, total, current_offset=total_processed
+                exchange_etfs,
+                total,
+                current_offset=total_processed,
+                instrument_type="ETF",
             )
             exchanges_saved += ex_e
             instruments_saved += inst_e
@@ -181,7 +186,13 @@ class UniverseBuilder:
 
         for ex in exchanges:
             name = ex.get("name")
-            if not name or name not in allowed:
+            if not name:
+                continue
+            # Honour the debug-mode exchange restriction, else the ETF exchange set.
+            if self.only_exchanges is not None:
+                if name not in self.only_exchanges:
+                    continue
+            elif name not in allowed:
                 continue
             ex_by_name[name] = ex
             for schedule in ex.get("workingSchedules", []):
@@ -204,6 +215,7 @@ class UniverseBuilder:
         exchange_stocks: list[tuple[dict[str, Any], list[dict[str, Any]]]],
         total_stocks: int,
         current_offset: int = 0,
+        instrument_type: str | None = None,
     ) -> tuple[int, int, int]:
         total_exchanges_saved = 0
         total_instruments_saved = 0
@@ -214,10 +226,15 @@ class UniverseBuilder:
             exchange_dto = self.repository.save_exchange(ex_data)
             total_exchanges_saved += 1
 
-            # Snapshot active tickers before processing (for delisting detection)
+            # Snapshot active tickers before processing (for delisting detection).
+            # Scoped by instrument_type: the stock and ETF passes reconcile their
+            # own kind, so the ETF pass never marks a stock delisted (or v.v.) on
+            # an exchange shared by both.
             tickers_before: set[str] = set()
             if hasattr(self.repository, "get_active_tickers"):
-                tickers_before = self.repository.get_active_tickers(exchange_dto.id)
+                tickers_before = self.repository.get_active_tickers(
+                    exchange_dto.id, instrument_type=instrument_type
+                )
 
             # Process instruments concurrently
             processed = self._process_instruments(

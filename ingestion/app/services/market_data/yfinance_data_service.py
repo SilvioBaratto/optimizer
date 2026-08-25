@@ -160,6 +160,8 @@ class YFinanceDataService:
             currency_code: Instrument listing currency (e.g. "GBX").
                 Converted to major-unit (e.g. "GBP") before storing on
                 financial statement rows.
+            asset_class: Instrument asset class. When "fixed_income" or
+                "multi_asset" (i.e. an ETF), the ETF fund-metadata branch runs.
 
         Returns dict with counts per category, list of errors, and skipped categories.
         """
@@ -781,7 +783,9 @@ class YFinanceDataService:
 
         try:
             as_of = now.date()
-            profile = self.yf_client.funds.fetch_fund_profile(yfinance_ticker)
+            profile = self._timed(
+                lambda: self.yf_client.funds.fetch_fund_profile(yfinance_ticker)
+            )
             if profile:
                 etf_repo.upsert_metadata(
                     instrument_id,
@@ -795,7 +799,9 @@ class YFinanceDataService:
                 )
                 counts["etf_metadata"] = 1
 
-            fdata = self.yf_client.funds.fetch_funds_data(yfinance_ticker)
+            fdata = self._timed(
+                lambda: self.yf_client.funds.fetch_funds_data(yfinance_ticker)
+            )
             if fdata:
                 ac = fdata.get("asset_classes") or {}
                 etf_repo.upsert_asset_classes(

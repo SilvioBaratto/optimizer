@@ -119,6 +119,25 @@ def test_empty_holdings_and_sectors_return_zero(db_session) -> None:
     assert repo.upsert_sector_weights(inst.id, _AS_OF, {}) == 0
 
 
+def test_holdings_dedup_duplicate_symbols_in_one_batch(db_session) -> None:
+    # yfinance can repeat a symbol; a batch ON CONFLICT touching the same key
+    # twice would raise on PostgreSQL. Dedup keeps the last, count reflects it.
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+    n = repo.upsert_holdings(
+        inst.id,
+        _AS_OF,
+        [
+            {"symbol": "UST", "name": "A", "weight": 0.1},
+            {"symbol": "UST", "name": "B", "weight": 0.2},
+        ],
+    )
+    db_session.flush()
+    assert n == 1
+    row = db_session.query(ETFHolding).filter_by(instrument_id=inst.id).one()
+    assert float(row.weight) == 0.2
+
+
 def test_sector_weights_upsert_is_idempotent(db_session) -> None:
     repo = ETFMetadataRepository(db_session)
     inst = _instrument(db_session)

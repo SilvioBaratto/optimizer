@@ -1,9 +1,10 @@
-"""ETF-specific screen: AUM + liquidity filters, and share-class/cross-listing
-dedup.
+"""ETF-specific screen: the AUM size filter, and share-class/cross-listing dedup.
 
-The equity screens (market cap, P/E, ROE …) do not apply to funds, so ETFs run
-a dedicated pipeline: minimum AUM, minimum average daily dollar volume, and the
-shared HistoricalDataFilter for the ≥750-trading-day history bar.
+The equity screens (market cap, P/E, ROE …) do not apply to funds, so ETFs run a
+dedicated pipeline: the AUM size gate (below) plus the shared HistoricalDataFilter
+for the ≥750-trading-day history bar. There is deliberately NO exchange-volume /
+liquidity gate — UCITS ETFs trade OTC, so exchange volume massively understates
+liquidity and would drop legitimate multi-billion-euro funds.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ class AUMFilter:
         aum = data.get("totalAssets") or data.get("netAssets")
         # Yahoo's `.info` omits totalAssets for many valid bond-ETF listings
         # (e.g. JAGA.DE, VGGS.L). Requiring it would silently drop legitimate
-        # funds, so an *unknown* AUM passes — liquidity + history still gate.
+        # funds, so an *unknown* AUM passes — the ≥750-day history bar still gates.
         if aum is None:
             return True, "AUM unknown (passed)"
         if aum < self.config.etf_min_aum:

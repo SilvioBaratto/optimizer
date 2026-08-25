@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from app.services.universe.trading212.builder import UniverseBuilder
 from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.services.universe.trading212.filters import FilterPipelineImpl
 from app.services.universe.trading212.filters.etf_screen import (
     AUMFilter,
     dedup_etfs_by_isin,
@@ -255,3 +256,79 @@ class TestBuildEndToEnd:
         assert result.instruments_saved == 2
         stock_pipe.apply.assert_called()  # stock routed to stock pipeline
         etf_pipe.apply.assert_called()  # ETF routed to ETF pipeline
+
+    def test_etf_pass_does_not_delist_stocks_on_shared_exchange(self) -> None:
+        """Review-critical regression: NASDAQ carries both a stock and a bond ETF;
+        the type-scoped delisting reconciliation must not mark the stock delisted
+        during the ETF pass."""
+
+        class _FakeRepo:
+            def __init__(self) -> None:
+                self.store: dict[tuple, set] = {}
+                self.delisted: list[str] = []
+
+            def save_exchange(self, ex_data):
+                m = MagicMock()
+                m.id = ex_data["name"]
+                return m
+
+            def get_active_tickers(self, exchange_id, instrument_type=None):
+                if instrument_type is None:
+                    out: set = set()
+                    for (e, _t), v in self.store.items():
+                        if e == exchange_id:
+                            out |= v
+                    return out
+                return set(self.store.get((exchange_id, instrument_type), set()))
+
+            def save_instruments_batch(self, processed, exchange_id):
+                for d in processed:
+                    self.store.setdefault((exchange_id, d.get("type")), set()).add(
+                        d.get("ticker", "")
+                    )
+                return len(processed)
+
+            def mark_delisted(self, ticker, exchange_id, delisted_at):
+                self.delisted.append(ticker)
+                for v in self.store.values():
+                    v.discard(ticker)
+                return True
+
+        exchanges = [{"name": "NASDAQ", "workingSchedules": [{"id": 1}]}]
+        instruments = [
+            {
+                "type": "STOCK",
+                "name": "Apple",
+                "shortName": "AAPL",
+                "ticker": "AAPL_US",
+                "workingScheduleId": 1,
+            },
+            {
+                "type": "ETF",
+                "name": "iShares Core Aggregate Bond",
+                "shortName": "AGG",
+                "ticker": "AGG_US",
+                "isin": "US1",
+                "workingScheduleId": 1,
+            },
+        ]
+        api = MagicMock()
+        api.get_exchanges.return_value = exchanges
+        api.get_instruments.return_value = instruments
+        mapper = MagicMock()
+        mapper.discover.side_effect = lambda short_name, exchange: short_name
+        repo = _FakeRepo()
+
+        b = UniverseBuilder(
+            config=CFG,
+            api_client=api,
+            ticker_mapper=mapper,
+            filter_pipeline=FilterPipelineImpl(),
+            etf_filter_pipeline=FilterPipelineImpl(),
+            repository=repo,
+            skip_filters=True,
+        )
+        b.build()
+
+        assert "AAPL_US" not in repo.delisted  # stock survived the ETF pass
+        assert repo.store[("NASDAQ", "STOCK")] == {"AAPL_US"}

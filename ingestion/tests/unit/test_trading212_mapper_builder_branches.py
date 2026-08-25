@@ -58,7 +58,9 @@ class _FakeRepo:
         self.save_batch_calls.append((instruments_data, exchange_id))
         return len(instruments_data)
 
-    def get_active_tickers(self, exchange_id: Any) -> set[str]:
+    def get_active_tickers(
+        self, exchange_id: Any, instrument_type: str | None = None
+    ) -> set[str]:
         return set()
 
     def mark_delisted(self, **kwargs: Any) -> bool:
@@ -384,9 +386,9 @@ class TestBuilderGetActiveTickersPath:
         original = repo.get_active_tickers
         call_count = {"n": 0}
 
-        def _tracking(exchange_id: Any) -> set[str]:
+        def _tracking(exchange_id: Any, instrument_type: str | None = None) -> set[str]:
             call_count["n"] += 1
-            return original(exchange_id)
+            return original(exchange_id, instrument_type)
 
         repo.get_active_tickers = _tracking  # type: ignore[assignment]
 
@@ -444,7 +446,9 @@ class TestBuilderDelistingDetection:
         repo = _FakeRepo()
 
         # get_active_tickers returns an old ticker that won't be in the new response
-        def get_active_tickers(exchange_id: Any) -> set[str]:
+        def get_active_tickers(
+            exchange_id: Any, instrument_type: str | None = None
+        ) -> set[str]:
             return {"OLD_TICKER"}
 
         repo.get_active_tickers = get_active_tickers  # type: ignore[assignment]

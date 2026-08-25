@@ -103,18 +103,24 @@ class ETFMetadataRepository(RepositoryBase):
         as_of: dt.date,
         holdings: list[dict[str, Any]],
     ) -> int:
-        rows = [
-            {
+        # Dedup by holding_symbol within the batch: yfinance can repeat a symbol
+        # (e.g. two share classes), and a multi-row ON CONFLICT that touches the
+        # same natural key twice raises a PostgreSQL cardinality violation. Last
+        # occurrence wins.
+        by_symbol: dict[str, dict[str, Any]] = {}
+        for h in holdings:
+            symbol = h.get("symbol")
+            if not symbol:
+                continue
+            by_symbol[symbol] = {
                 "id": uuid.uuid4(),
                 "instrument_id": instrument_id,
                 "as_of": as_of,
-                "holding_symbol": h["symbol"],
+                "holding_symbol": symbol,
                 "holding_name": h.get("name"),
                 "weight": h.get("weight"),
             }
-            for h in holdings
-            if h.get("symbol")
-        ]
+        rows = list(by_symbol.values())
         if not rows:
             return 0
         self._upsert(

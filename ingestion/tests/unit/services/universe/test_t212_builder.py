@@ -70,7 +70,9 @@ class _FakeRepo:
         self.save_batch_calls.append((instruments_data, exchange_id))
         return len(instruments_data)
 
-    def get_active_tickers(self, exchange_id: Any) -> set[str]:
+    def get_active_tickers(
+        self, exchange_id: Any, instrument_type: str | None = None
+    ) -> set[str]:
         return set()
 
     def mark_delisted(self, **kwargs: Any) -> bool:
