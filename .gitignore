@@ -1,6 +1,9 @@
 # Portfolio Optimizer - Root .gitignore
 # ============================================================
 
+# Cloned sibling repo (do not commit)
+optimizer-theory/
+
 # ═══════════════════════════════════════════════════════════
 # ENVIRONMENT FILES (NEVER COMMIT SECRETS)
 # ═══════════════════════════════════════════════════════════
@@ -152,8 +155,11 @@ frontend/.angular/
 ideas/
 
 # Local planning & task tracking
+docs/
 todo/
 plan/
+/SPEC.md
+/tasks/
 script.md
 linkedin.md
 cli.md
@@ -165,3 +171,9 @@ graphify-out/cache/         # optional: commit for speed, skip to keep repo smal
 
 idea/
 graphify-out/
+
+# Machine-local CA bundle for corporate TLS inspection (yfinance/curl_cffi)
+.certs/
+
+# temp debug-repro cache (T212 universe)
+ingestion/scripts/.t212_universe_cache.json

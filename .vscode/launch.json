@@ -7,6 +7,32 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "DEBUG: historical filter repro",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "scripts.debug_historical_filter",
+      "args": ["--workers", "8", "--mode", "both"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "DEBUG: universe scale repro",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "scripts.debug_universe_scale",
+      "args": ["--limit", "500", "--workers", "20"],
+      "cwd": "${workspaceFolder}/ingestion",
+      "python": "${command:python.interpreterPath}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
       "name": "CLI: reference-indices",
       "type": "debugpy",
       "request": "launch",
