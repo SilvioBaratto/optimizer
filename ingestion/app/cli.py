@@ -29,6 +29,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import logging
+import os
 from enum import Enum
 
 import typer
@@ -172,6 +173,51 @@ def calibrate() -> None:
     from app.services.jobs.scheduler import run_calibrate_step
 
     _exit(run_calibrate_step())
+
+
+@app.command()
+def setup(
+    non_interactive: bool = typer.Option(
+        False,
+        "--non-interactive",
+        help="Run without prompts (CI); requires the flags below + PORTOPT_PASSPHRASE.",
+    ),
+    llm_provider: str | None = typer.Option(
+        None, "--llm-provider", help="Cloud LLM provider: openai or anthropic."
+    ),
+    llm_key: str | None = typer.Option(None, "--llm-key", help="Cloud LLM API key."),
+    t212_key: str | None = typer.Option(None, "--t212-key", help="Trading212 API key."),
+    t212_secret: str | None = typer.Option(
+        None, "--t212-secret", help="Trading212 secret key."
+    ),
+    fred_key: str | None = typer.Option(None, "--fred-key", help="FRED API key."),
+) -> None:
+    """Install wizard: verify Docker, validate keys live, encrypt secrets, migrate the DB."""
+    logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
+    from app.setup import docker_bootstrap, wizard
+    from app.setup.prompts import QuestionaryPrompter
+    from app.setup.validators import ValidationNetworkError
+
+    try:
+        if non_interactive:
+            wizard.run_setup_noninteractive(
+                passphrase=os.getenv("PORTOPT_PASSPHRASE"),
+                llm_provider=llm_provider,
+                llm_key=llm_key,
+                t212_key=t212_key,
+                t212_secret=t212_secret,
+                fred_key=fred_key,
+            )
+        else:
+            wizard.run_setup_interactive(QuestionaryPrompter())
+    except (
+        wizard.SetupError,
+        docker_bootstrap.DockerError,
+        ValidationNetworkError,
+    ) as exc:
+        typer.echo(f"Setup failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo("Setup complete. Run `portopt start` to launch the daemon.")
 
 
 if __name__ == "__main__":

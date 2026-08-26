@@ -31,6 +31,79 @@ def _no_db():
         yield
 
 
+class TestSetupCommand:
+    """`portopt setup` wires flags to the wizard and maps failures to exit 1."""
+
+    def test_non_interactive_wires_flags(self) -> None:
+        with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
+            result = runner.invoke(
+                app,
+                [
+                    "setup",
+                    "--non-interactive",
+                    "--llm-provider",
+                    "openai",
+                    "--llm-key",
+                    "sk-x",
+                    "--t212-key",
+                    "tk",
+                    "--t212-secret",
+                    "ts",
+                    "--fred-key",
+                    "fk",
+                ],
+            )
+        assert result.exit_code == 0
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs["llm_provider"] == "openai"
+        assert kwargs["llm_key"] == "sk-x"
+        assert kwargs["t212_key"] == "tk"
+        assert kwargs["t212_secret"] == "ts"  # noqa: S105 - test value, not a secret
+        assert kwargs["fred_key"] == "fk"
+
+    def test_non_interactive_failure_exits_nonzero(self) -> None:
+        from app.setup.wizard import SetupError
+
+        with patch(
+            "app.setup.wizard.run_setup_noninteractive",
+            side_effect=SetupError("bad key"),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "setup",
+                    "--non-interactive",
+                    "--llm-provider",
+                    "openai",
+                    "--llm-key",
+                    "x",
+                ],
+            )
+        assert result.exit_code == 1
+
+    def test_interactive_invokes_wizard(self) -> None:
+        with (
+            patch("app.setup.wizard.run_setup_interactive") as mock_run,
+            patch("app.setup.prompts.QuestionaryPrompter"),
+        ):
+            result = runner.invoke(app, ["setup"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once()
+
+    def test_docker_down_exits_nonzero(self) -> None:
+        from app.setup.docker_bootstrap import DockerError
+
+        with (
+            patch(
+                "app.setup.wizard.run_setup_interactive",
+                side_effect=DockerError("daemon down"),
+            ),
+            patch("app.setup.prompts.QuestionaryPrompter"),
+        ):
+            result = runner.invoke(app, ["setup"])
+        assert result.exit_code == 1
+
+
 class TestSingleStepCommands:
     @pytest.mark.parametrize(
         ("command", "step"),
