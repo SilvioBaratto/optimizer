@@ -3,7 +3,7 @@ requires = ["setuptools==84.0.0", "wheel==0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "portopt"
+name = "portopt-core"
 version = "0.1.0"
 description = "Portfolio optimization library built on skfolio and scikit-learn"
 readme = "README.md"
@@ -44,7 +44,7 @@ Changelog = "https://github.com/SilvioBaratto/optimizer/blob/main/CHANGELOG.md"
 test = ["pytest==9.1.1", "pytest-cov==7.1.0", "hypothesis==6.165.10", "pyyaml==6.0.3"]
 lint = ["ruff==0.16.4", "pip-audit==2.10.1"]
 typecheck = ["mypy==2.3.1", "pyright[nodejs]==1.1.411"]
-dev = ["portopt[test,lint,typecheck]", "pre-commit==4.6.2"]
+dev = ["portopt-core[test,lint,typecheck]", "pre-commit==4.6.2"]
 
 [tool.setuptools.packages.find]
 include = ["optimizer*"]

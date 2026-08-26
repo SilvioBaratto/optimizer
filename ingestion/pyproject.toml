@@ -3,7 +3,7 @@ requires = ["setuptools==84.0.0", "wheel==0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "optimizer-ingestion"
+name = "portopt"
 version = "0.1.0"
 description = "Optimizer Platform ingestion daemon and CLI"
 requires-python = ">=3.10"
@@ -39,6 +39,10 @@ dependencies = [
     "prometheus-client==0.26.0",
     # CLI
     "typer==0.27.1",
+    # Install wizard (portopt setup): interactive prompts, rich output, encrypted secret store
+    "questionary==2.1.1",
+    "rich==15.0.0",
+    "cryptography==45.0.7",
 ]
 
 # Test-only dependencies. pytest-cov is declared here (NOT in runtime
@@ -51,6 +55,11 @@ test = [
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
 ]
+
+# The ingestion daemon ships the unified `portopt` CLI (setup wizard + manual
+# ingestion triggers). `app.cli:app` is the callable Typer instance.
+[project.scripts]
+portopt = "app.cli:app"
 
 [tool.setuptools.packages.find]
 include = ["app*"]
