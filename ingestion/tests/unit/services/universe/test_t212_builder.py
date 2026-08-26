@@ -268,6 +268,29 @@ class TestUniverseBuilderExchangeFiltering:
         assert result.exchanges_saved == 0
         assert result.instruments_saved == 0
 
+    def test_stock_on_newly_mapped_exchange_is_admitted(self) -> None:
+        """Scope = suffix-mapped exchanges: Toronto (.TO) is now in scope."""
+        repo = _FakeRepo()
+        mapper = MagicMock()
+        mapper.discover.return_value = "SHOP.TO"
+        toronto = {
+            "name": "Toronto Stock Exchange",
+            "workingSchedules": [{"id": 7}],
+        }
+        inst = {
+            "ticker": "SHOP_CA",
+            "type": "STOCK",
+            "shortName": "SHOP",
+            "name": "Shopify",
+            "workingScheduleId": 7,
+        }
+        api = _make_api_client(exchanges=[toronto], instruments=[inst])
+        builder = _make_builder(api_client=api, ticker_mapper=mapper, repo=repo)
+
+        result = builder.build()
+
+        assert result.instruments_saved == 1
+
     def test_only_exchanges_override_filters_to_listed_exchange(self) -> None:
         repo = _FakeRepo()
         mapper = MagicMock()

@@ -2,8 +2,10 @@
 Universe Builder Configuration — exchange coverage, ticker mapping, and ETF dedup.
 
 Ingestion applies no investability filtering, so this config carries no size /
-price / liquidity / history thresholds — only the exchange sets to discover, the
-Yahoo suffix map used to resolve tickers, and the ISIN-dedup exchange preference.
+price / liquidity / history thresholds. The universe scope is exactly the set of
+exchanges in ``yahoo_suffix_map`` — an instrument is discoverable iff its exchange
+has a Yahoo suffix here (so every persisted row can resolve a real yfinance
+ticker). Unmapped venues (e.g. OTC Markets) are skipped entirely.
 """
 
 from dataclasses import dataclass, field
@@ -13,51 +15,31 @@ from dataclasses import dataclass, field
 class UniverseBuilderConfig:
     """Configuration for universe discovery from the Trading 212 API."""
 
-    # Portfolio countries and their Trading 212 stock exchanges.
-    portfolio_countries: tuple[str, ...] = (
-        "USA",
-        "Germany",
-        "France",
-        "UK",
-    )
-    country_to_exchanges: dict[str, tuple[str, ...]] = field(
-        default_factory=lambda: {
-            "USA": ("NYSE", "NASDAQ"),
-            "Germany": ("Deutsche Börse Xetra",),
-            "France": ("Euronext Paris",),
-            "UK": ("London Stock Exchange",),
-        }
-    )
-
-    # Yahoo Finance suffix mapping by exchange. The first five are the stock
-    # exchanges; the last three are ETF-only venues (broader UCITS set).
+    # Yahoo Finance suffix mapping by exchange. This IS the universe scope: only
+    # instruments on these exchanges are discovered (both stocks and ETFs). A
+    # ``""`` suffix means the bare symbol is the Yahoo ticker (US venues).
     yahoo_suffix_map: dict[str, str] = field(
         default_factory=lambda: {
             "NYSE": "",
             "NASDAQ": "",
             "London Stock Exchange": ".L",
+            "London Stock Exchange AIM": ".L",
             "Euronext Paris": ".PA",
-            "Deutsche Börse Xetra": ".DE",
-            "Borsa Italiana": ".MI",
             "Euronext Amsterdam": ".AS",
+            "Euronext Brussels": ".BR",
+            "Euronext Lisbon": ".LS",
+            "Deutsche Börse Xetra": ".DE",
+            "Gettex": ".DE",
+            "Borsa Italiana": ".MI",
+            "Bolsa de Madrid": ".MC",
             "SIX Swiss Exchange": ".SW",
+            "Wiener Börse": ".VI",
+            "Toronto Stock Exchange": ".TO",
         }
     )
 
-    # ETF universe: broader UCITS-friendly exchange set (the 5 stock exchanges
-    # plus Milan / Amsterdam / SIX, where many bond & multi-asset UCITS ETFs list).
-    etf_exchanges: tuple[str, ...] = (
-        "NYSE",
-        "NASDAQ",
-        "Deutsche Börse Xetra",
-        "Euronext Paris",
-        "London Stock Exchange",
-        "Borsa Italiana",
-        "Euronext Amsterdam",
-        "SIX Swiss Exchange",
-    )
-    # Share-class / cross-listing dedup: keep the single listing per ISIN on the
-    # most-preferred exchange (largest/most-liquid UCITS venues first).
+    # Share-class / cross-listing dedup (ETFs): keep the single listing per ISIN
+    # on the most-preferred exchange (largest/most-liquid UCITS venues first).
     etf_exchange_preference: tuple[str, ...] = (
         "Deutsche Börse Xetra",
         "London Stock Exchange",
@@ -70,16 +52,14 @@ class UniverseBuilderConfig:
     )
 
     def get_allowed_exchanges(self) -> set[str]:
-        allowed: set[str] = set()
-        for country in self.portfolio_countries:
-            allowed.update(self.country_to_exchanges.get(country, ()))
-        return allowed
+        """The universe scope: every exchange with a Yahoo suffix mapping."""
+        return set(self.yahoo_suffix_map)
 
     def get_etf_allowed_exchanges(self) -> set[str]:
-        return set(self.etf_exchanges)
+        return set(self.yahoo_suffix_map)
 
     def is_exchange_allowed(self, exchange_name: str) -> bool:
-        return exchange_name in self.get_allowed_exchanges()
+        return exchange_name in self.yahoo_suffix_map
 
     def get_yahoo_suffix(self, exchange_name: str) -> str | None:
         return self.yahoo_suffix_map.get(exchange_name)
