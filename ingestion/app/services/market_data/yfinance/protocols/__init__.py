@@ -10,6 +10,7 @@ from .interfaces import (
     HoldersClientProtocol,
     MetadataClientProtocol,
     RateLimiterProtocol,
+    ScreenerClientProtocol,
     SearchClientProtocol,
     YFinanceClientProtocol,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "HoldersClientProtocol",
     "MetadataClientProtocol",
     "RateLimiterProtocol",
+    "ScreenerClientProtocol",
     "SearchClientProtocol",
     "YFinanceClientProtocol",
 ]

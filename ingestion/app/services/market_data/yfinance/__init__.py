@@ -26,9 +26,11 @@ from .protocols import (
     HoldersClientProtocol,
     MetadataClientProtocol,
     RateLimiterProtocol,
+    ScreenerClientProtocol,
     SearchClientProtocol,
     YFinanceClientProtocol,
 )
+from .screener import ScreenerClient
 from .ticker import (
     AnalysisClient,
     CorporateActionsClient,
@@ -67,6 +69,8 @@ __all__ = [
     "NewsClient",
     "RateLimiter",
     "RateLimiterProtocol",
+    "ScreenerClient",
+    "ScreenerClientProtocol",
     # Sub-clients (module-level)
     "SearchClient",
     "SearchClientProtocol",

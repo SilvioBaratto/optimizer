@@ -18,6 +18,7 @@ from .infrastructure import (
 )
 from .market import SearchClient
 from .protocols import CacheProtocol, CircuitBreakerProtocol, RateLimiterProtocol
+from .screener import ScreenerClient
 from .ticker import (
     AnalysisClient,
     CorporateActionsClient,
@@ -60,20 +61,18 @@ class YFinanceClient:
                     )
         return cls._instance
 
+    # Exactly the registered @cached_property sub-client names. reset_instance
+    # pops each from __dict__; stale entries for deleted sub-clients (market,
+    # sectors, calendars, streaming, async_streaming) were removed.
     _CACHED_SUBCLIENT_NAMES: tuple[str, ...] = (
         "financials",
         "analysis",
         "holders",
         "corporate_actions",
         "metadata",
-        "funds",
-        "market",
-        "sectors",
         "search",
+        "funds",
         "screener",
-        "calendars",
-        "streaming",
-        "async_streaming",
     )
 
     @classmethod
@@ -493,6 +492,10 @@ class YFinanceClient:
     @cached_property
     def funds(self) -> FundsClient:
         return FundsClient(**self._ticker_sub_client_kwargs())
+
+    @cached_property
+    def screener(self) -> ScreenerClient:
+        return ScreenerClient(**self._module_sub_client_kwargs())
 
 
 def get_yfinance_client(

@@ -271,9 +271,6 @@ class MetadataClientProtocol(Protocol):
 
 
 @runtime_checkable
-@runtime_checkable
-@runtime_checkable
-@runtime_checkable
 class SearchClientProtocol(Protocol):
     def search(
         self,
@@ -293,3 +290,26 @@ class SearchClientProtocol(Protocol):
         count: int = 25,
         max_retries: int | None = None,
     ) -> list[dict[str, Any]] | None: ...
+
+
+@runtime_checkable
+class ScreenerClientProtocol(Protocol):
+    def screen(
+        self,
+        query: Any,
+        *,
+        size: int = 25,
+        offset: int = 0,
+        sort_field: str | None = None,
+        sort_asc: bool = True,
+        max_retries: int | None = None,
+    ) -> dict[str, Any] | None: ...
+
+    def screen_predefined(
+        self,
+        name: str,
+        *,
+        size: int = 25,
+        offset: int = 0,
+        max_retries: int | None = None,
+    ) -> dict[str, Any] | None: ...

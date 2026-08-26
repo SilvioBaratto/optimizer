@@ -27,6 +27,7 @@ _SUBCLIENT_NAMES: tuple[str, ...] = (
     "corporate_actions",
     "metadata",
     "search",
+    "screener",
 )
 
 _PATCH_TARGETS: dict[str, str] = {
@@ -41,6 +42,10 @@ _PATCH_TARGETS: dict[str, str] = {
     ),
     "metadata": "app.services.market_data.yfinance.ticker.metadata.MetadataClient.__init__",
     "search": "app.services.market_data.yfinance.market.search.SearchClient.__init__",
+    "screener": (
+        "app.services.market_data.yfinance.screener.screener_client"
+        ".ScreenerClient.__init__"
+    ),
 }
 
 _THREAD_COUNT: int = 50
