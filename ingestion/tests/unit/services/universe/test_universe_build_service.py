@@ -15,8 +15,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.schemas.universe.trading212 import UniverseBuildRequest
+from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.universe_build_service import (
     Trading212NotConfiguredError,
+    _build_pipelines,
     build_trading212_client,
     run_universe_build,
 )
@@ -179,3 +181,30 @@ class TestRunUniverseBuild:
         completed = [c for c in seen if c.get("status") == "completed"]
         assert len(completed) == 1
         assert completed[0]["errors"] == ["boom"]
+
+
+class TestBuildPipelines:
+    """The composition seam: stock vs ETF filter pipelines built from config."""
+
+    def test_equity_pipeline_filter_order(self) -> None:
+        equity, _ = _build_pipelines(UniverseBuilderConfig(), skip_filters=False)
+        assert [f.name for f in equity.get_filters()] == [
+            "MarketCapFilter",
+            "PriceFilter",
+            "LiquidityFilter",
+            "DataCoverageFilter",
+            "HistoricalDataFilter",
+        ]
+
+    def test_etf_pipeline_filter_order(self) -> None:
+        _, etf = _build_pipelines(UniverseBuilderConfig(), skip_filters=False)
+        assert etf is not None
+        assert [f.name for f in etf.get_filters()] == [
+            "AUMFilter",
+            "HistoricalDataFilter",
+        ]
+
+    def test_skip_filters_yields_empty_equity_and_no_etf(self) -> None:
+        equity, etf = _build_pipelines(UniverseBuilderConfig(), skip_filters=True)
+        assert equity.get_filters() == []
+        assert etf is None

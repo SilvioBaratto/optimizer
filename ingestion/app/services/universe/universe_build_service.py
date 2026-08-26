@@ -58,6 +58,39 @@ def build_trading212_client() -> Trading212Client:
     )
 
 
+def _build_pipelines(
+    config: UniverseBuilderConfig, skip_filters: bool
+) -> tuple[FilterPipelineImpl, FilterPipelineImpl | None]:
+    """Compose the equity and ETF filter pipelines.
+
+    Stocks run the full institutional metric set; ETFs run a separate pipeline
+    because equity metrics (market cap, financial ratios) don't apply to funds.
+
+    Returns ``(equity_pipeline, etf_pipeline)``. When ``skip_filters`` is set the
+    equity pipeline is empty and ``etf_pipeline`` is ``None``.
+    """
+    pipeline = FilterPipelineImpl()
+    if skip_filters:
+        return pipeline, None
+
+    pipeline.add_filter(MarketCapFilter(config=config))
+    pipeline.add_filter(PriceFilter(config=config))
+    pipeline.add_filter(LiquidityFilter(config=config))
+    pipeline.add_filter(DataCoverageFilter(config=config))
+    pipeline.add_filter(HistoricalDataFilter(config=config))
+
+    # ETFs run their own screen (equity metrics don't apply). AUM is the
+    # size gate (known -> ≥floor, unknown -> pass, since Yahoo omits it for
+    # many UCITS listings) plus the same ≥750-trading-day history bar.
+    # No exchange-volume gate: UCITS ETFs trade OTC, so exchange volume
+    # massively understates liquidity and would drop legitimate funds.
+    etf_pipeline = FilterPipelineImpl()
+    etf_pipeline.add_filter(AUMFilter(config=config))
+    etf_pipeline.add_filter(HistoricalDataFilter(config=config))
+
+    return pipeline, etf_pipeline
+
+
 def run_universe_build(
     request: UniverseBuildRequest,
     client: Trading212Client,
@@ -79,23 +112,7 @@ def run_universe_build(
     config = UniverseBuilderConfig()
     cache = TickerMappingCache()
 
-    pipeline = FilterPipelineImpl()
-    etf_pipeline: FilterPipelineImpl | None = None
-    if not request.skip_filters:
-        pipeline.add_filter(MarketCapFilter(config=config))
-        pipeline.add_filter(PriceFilter(config=config))
-        pipeline.add_filter(LiquidityFilter(config=config))
-        pipeline.add_filter(DataCoverageFilter(config=config))
-        pipeline.add_filter(HistoricalDataFilter(config=config))
-
-        # ETFs run their own screen (equity metrics don't apply). AUM is the
-        # size gate (known -> ≥floor, unknown -> pass, since Yahoo omits it for
-        # many UCITS listings) plus the same ≥750-trading-day history bar.
-        # No exchange-volume gate: UCITS ETFs trade OTC, so exchange volume
-        # massively understates liquidity and would drop legitimate funds.
-        etf_pipeline = FilterPipelineImpl()
-        etf_pipeline.add_filter(AUMFilter(config=config))
-        etf_pipeline.add_filter(HistoricalDataFilter(config=config))
+    pipeline, etf_pipeline = _build_pipelines(config, request.skip_filters)
 
     def _forward(p: BuildProgress) -> None:
         on_progress(
