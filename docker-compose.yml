@@ -55,6 +55,15 @@ services:
       DB_PORT: "5432"
       DB_USER: postgres
       OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
+    # Secrets are mounted read-only at /run/secrets/<name>; app.config reads them
+    # (see PORTOPT_SECRETS_DIR). `portopt start` renders ./secrets/<name> from the
+    # encrypted store before `docker compose up`; the files are git-ignored.
+    secrets:
+      - trading_212_api_key
+      - trading_212_secret_key
+      - fred_api_key
+      - openai_api_key
+      - anthropic_api_key
     ports:
       # Prometheus metrics only — no API is served
       - "9000:9000"
@@ -78,3 +87,17 @@ volumes:
 
 networks:
   optimizer_network:
+
+# File-based secrets rendered by `portopt start` from ~/.portopt/secrets.enc into
+# ./secrets/<name> (git-ignored). Docker mounts each at /run/secrets/<name>.
+secrets:
+  trading_212_api_key:
+    file: ./secrets/trading_212_api_key
+  trading_212_secret_key:
+    file: ./secrets/trading_212_secret_key
+  fred_api_key:
+    file: ./secrets/fred_api_key
+  openai_api_key:
+    file: ./secrets/openai_api_key
+  anthropic_api_key:
+    file: ./secrets/anthropic_api_key

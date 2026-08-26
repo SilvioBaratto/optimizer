@@ -1,7 +1,21 @@
 """Ingestion-daemon configuration using Pydantic Settings v2."""
 
-from pydantic import Field, field_validator
+import os
+from pathlib import Path
+
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Secret fields overridden by mounted Docker-compose secret files at runtime.
+# The container mounts each at ``$PORTOPT_SECRETS_DIR/<field>`` (default
+# ``/run/secrets``); a present file wins over env/.env and is stripped.
+_SECRET_FILE_FIELDS = (
+    "trading_212_api_key",
+    "trading_212_secret_key",
+    "fred_api_key",
+    "openai_api_key",
+    "anthropic_api_key",
+)
 
 
 class Settings(BaseSettings):
@@ -47,6 +61,29 @@ class Settings(BaseSettings):
 
     # FRED API
     fred_api_key: str = Field(default="", alias="FRED_API_KEY")
+
+    # LLM provider — cloud-only (openai or anthropic); local models are not
+    # supported. Keys/models flow into BAML at call time via a ClientRegistry.
+    llm_provider: str = Field(default="openai", alias="LLM_PROVIDER")
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    anthropic_model: str = Field(
+        default="claude-3-5-sonnet-latest", alias="ANTHROPIC_MODEL"
+    )
+
+    @field_validator("llm_provider", mode="before")
+    @classmethod
+    def _normalize_llm_provider(cls, v: object) -> object:
+        """Accept case-insensitive 'openai'/'anthropic'; reject local/unknown."""
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            if normalized not in ("openai", "anthropic"):
+                raise ValueError(
+                    "LLM_PROVIDER must be 'openai' or 'anthropic' (cloud only)"
+                )
+            return normalized
+        return v
 
     # Scheduler — cron expressions (5-field: min hour dom month dow)
     scheduler_daily_pipeline_cron: str = Field(
@@ -173,6 +210,22 @@ class Settings(BaseSettings):
     # Environment detection helpers
     debug: bool = Field(default=False)
     environment: str = Field(default="development")
+
+    @model_validator(mode="after")
+    def _apply_docker_secret_files(self) -> "Settings":
+        """Override secret fields from mounted Docker-compose secret files.
+
+        In the container each secret is mounted at ``$PORTOPT_SECRETS_DIR/<field>``
+        (default ``/run/secrets``). A present file wins over env/.env (the compose
+        secret is source of truth), value stripped. Missing files leave the
+        env/default value, so an unset secret stays "" (T212-absent skip intact).
+        """
+        secrets_dir = Path(os.getenv("PORTOPT_SECRETS_DIR", "/run/secrets"))
+        for field in _SECRET_FILE_FIELDS:
+            secret_path = secrets_dir / field
+            if secret_path.is_file():
+                setattr(self, field, secret_path.read_text(encoding="utf-8").strip())
+        return self
 
     @property
     def is_production(self) -> bool:
