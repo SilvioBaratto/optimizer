@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 from app.services._shared import ProgressCallback, _noop
+from app.services.macro._baml_client import llm_call_options
 from baml_client import b
 from baml_client.types import BusinessCyclePhase, MacroRegimeCalibration
 
@@ -239,7 +240,9 @@ def classify_macro_regime(
             )
 
     # ── Call LLM ──
-    raw: MacroRegimeCalibration = b.ClassifyMacroRegime(macro_summary=macro_summary)
+    raw: MacroRegimeCalibration = b.ClassifyMacroRegime(
+        macro_summary=macro_summary, baml_options=llm_call_options()
+    )
 
     delta = _clamp_delta(raw.delta)
     tau = _clamp_tau(raw.tau)

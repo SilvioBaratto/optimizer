@@ -54,7 +54,6 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       DB_USER: postgres
-      OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
     # Secrets are mounted read-only at /run/secrets/<name>; app.config reads them
     # (see PORTOPT_SECRETS_DIR). `portopt start` renders ./secrets/<name> from the
     # encrypted store before `docker compose up`; the files are git-ignored.

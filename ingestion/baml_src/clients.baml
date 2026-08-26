@@ -1,14 +1,13 @@
 // ============================================================
-// Single client — Ollama local inference (gemma4:12b-mlx)
-// Set OLLAMA_MODEL=gemma4:12b-mlx in .env
+// Compile-time default client (cloud OpenAI). At runtime the primary client is
+// overridden per call via a ClientRegistry built from LLM_PROVIDER — see
+// app/services/macro/_baml_client.py. Local/Ollama inference is not supported.
 // ============================================================
 client<llm> Model {
-  provider "openai-generic"
+  provider "openai"
   options {
-    base_url          env.OLLAMA_BASE_URL
-    api_key           env.OLLAMA_API_KEY
-    model             env.OLLAMA_MODEL
-    timeout_ms        300000
+    model             env.OPENAI_MODEL
+    api_key           env.OPENAI_API_KEY
     temperature       0
     max_tokens        1500
   }

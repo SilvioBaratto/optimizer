@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.models.macro.macro_regime import MacroNews
 from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 from app.services._shared import ProgressCallback, _noop
+from app.services.macro._baml_client import llm_call_options
 from baml_client import b
 from baml_client.types import CountryNewsSummary
 
@@ -248,6 +249,7 @@ def _summarize_country(
     raw: CountryNewsSummary = b.SummarizeCountryNews(
         country=country,
         news_text=news_text,
+        baml_options=llm_call_options(),
     )
     validated = _validate_llm_output(raw)
 
