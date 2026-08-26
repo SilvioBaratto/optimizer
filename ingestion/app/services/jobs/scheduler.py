@@ -309,32 +309,22 @@ def run_calibrate_step(*, attempt: int = 0) -> bool:
 
 
 def run_universe_step(*, attempt: int = 0) -> bool:
-    """Rebuild the Trading 212 instrument universe.
+    """Rebuild the instrument universe from the yfinance Screener.
 
-    A missing ``TRADING_212_API_KEY`` is a configuration state, not a failure:
-    the step logs, returns ``False``, and never claims a job slot.
+    Runs unconditionally — Trading 212 is no longer required. When Trading 212 is
+    configured, a follow-on annotation step maps T212 tickers onto the built
+    universe (it does not source it).
     """
     from app.schemas.universe.trading212 import UniverseBuildRequest
     from app.services.universe.universe_build_service import (
-        Trading212NotConfiguredError,
-        build_trading212_client,
-    )
-    from app.services.universe.universe_build_service import (
         run_universe_build as _build,
     )
-
-    try:
-        client = build_trading212_client()
-    except Trading212NotConfiguredError as exc:
-        logger.warning("universe: skipped — %s", exc)
-        return False
 
     return _run_step(
         "universe",
         _universe_jobs,
         _build,
         UniverseBuildRequest(),
-        client,
         attempt=attempt,
     )
 

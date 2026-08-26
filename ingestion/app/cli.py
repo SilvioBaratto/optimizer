@@ -92,7 +92,7 @@ def refetch_all() -> None:
 
 @app.command()
 def universe() -> None:
-    """Rebuild the Trading 212 instrument universe (exchanges + instruments)."""
+    """Rebuild the instrument universe from the yfinance Screener (exchanges + instruments)."""
     _boot()
     from app.services.jobs.scheduler import run_universe_step
 

@@ -530,36 +530,22 @@ class TestRunOrphanReaper:
 class TestRunUniverseStep:
     """The universe build heads the pipeline — every later step iterates `instruments`."""
 
-    _SVC = "app.services.universe.universe_build_service"
-
-    def test_when_api_key_missing_then_skips_without_claiming_a_job(self):
-        """No key is a config state, not a failure — claiming a slot would wedge the type."""
-        from app.services.universe.universe_build_service import (
-            Trading212NotConfiguredError,
-        )
-
+    def test_runs_regardless_of_trading212(self):
+        """yfinance now sources the universe — the step runs with no T212 key, no skip."""
         with ExitStack() as stack:
-            stack.enter_context(
-                patch(
-                    f"{self._SVC}.build_trading212_client",
-                    side_effect=Trading212NotConfiguredError("no key"),
-                )
-            )
-            run_step = stack.enter_context(patch(f"{M}._run_step"))
+            run_step = stack.enter_context(patch(f"{M}._run_step", return_value=True))
 
             from app.services.jobs.scheduler import run_universe_step
 
-            assert run_universe_step() is False
+            assert run_universe_step() is True
 
-        run_step.assert_not_called()
+        run_step.assert_called_once()
 
-    def test_when_api_key_present_then_runs_the_build_step(self):
-        client = MagicMock()
+    def test_delegates_to_build_without_a_trading212_client(self):
+        from app.schemas.universe.trading212 import UniverseBuildRequest
+        from app.services.universe.universe_build_service import run_universe_build
 
         with ExitStack() as stack:
-            stack.enter_context(
-                patch(f"{self._SVC}.build_trading212_client", return_value=client)
-            )
             run_step = stack.enter_context(patch(f"{M}._run_step", return_value=True))
 
             from app.services.jobs.scheduler import run_universe_step
@@ -568,7 +554,8 @@ class TestRunUniverseStep:
 
         args = run_step.call_args.args
         assert args[0] == "universe"
-        assert args[-1] is client
+        assert args[2] is run_universe_build  # the build fn
+        assert isinstance(args[-1], UniverseBuildRequest)  # only the request; no client
 
     def test_run_universe_build_job_delegates_to_the_step(self):
         with patch(f"{M}.run_universe_step", return_value=True) as step:

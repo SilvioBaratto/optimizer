@@ -1,8 +1,9 @@
-"""Trading 212 universe build, driven by the scheduler and the CLI.
+"""Instrument-universe build, driven by the scheduler and the CLI.
 
-Discovers the tradable instrument universe from the Trading 212 API, maps each
-instrument to a yfinance ticker, runs it through the quality filter pipeline,
-and persists the survivors to ``exchanges`` / ``instruments``.
+Discovers the tradable instrument universe from the yfinance Screener
+(:class:`YFinanceUniverseSource`) and persists it to ``exchanges`` /
+``instruments``. Trading 212 is no longer the source; when configured, it is
+mapped onto the built universe by a separate follow-on annotation step.
 
 Every other ingestion step iterates the ``instruments`` table, so this is the
 head of the pipeline — a stale universe silently caps what yfinance fetches.
@@ -17,11 +18,14 @@ from app.database import database_manager
 from app.repositories.universe.universe_repository import UniverseRepository
 from app.schemas.universe.trading212 import UniverseBuildRequest
 from app.services._shared import ProgressCallback, _noop
+from app.services.market_data.yfinance import get_yfinance_client
 from app.services.universe.trading212.builder import BuildProgress, UniverseBuilder
-from app.services.universe.trading212.cache.ticker_cache import TickerMappingCache
 from app.services.universe.trading212.client import Trading212Client
 from app.services.universe.trading212.config import UniverseBuilderConfig
-from app.services.universe.trading212.ticker_mapper import YFinanceTickerMapper
+from app.services.universe.yfinance_source import (
+    PassThroughTickerMapper,
+    YFinanceUniverseSource,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,18 +55,18 @@ def build_trading212_client() -> Trading212Client:
 
 def run_universe_build(
     request: UniverseBuildRequest,
-    client: Trading212Client,
     *,
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
-    """Discover, map, and persist the Trading 212 instrument universe.
+    """Discover and persist the instrument universe from the yfinance Screener.
 
-    No investability filtering: every classified + mapped STOCK/ETF is admitted
-    (screening is a downstream fund-layer concern).
+    Trading 212 is no longer the source — instruments come from ``yf.screen``
+    (see :class:`YFinanceUniverseSource`). No investability filtering: every
+    classified STOCK/ETF is admitted (screening is a downstream fund-layer
+    concern). ISIN is not populated here (D14).
 
     Args:
         request: ``UniverseBuildRequest`` with ``exchanges``, ``max_workers``.
-        client: Configured Trading 212 client (see :func:`build_trading212_client`).
         on_progress: Optional callback for progress updates.
 
     Returns:
@@ -70,7 +74,9 @@ def run_universe_build(
         ``total_processed``, ``filter_stats``, and ``errors``.
     """
     config = UniverseBuilderConfig()
-    cache = TickerMappingCache()
+    source = YFinanceUniverseSource(
+        screener=get_yfinance_client().screener, config=config
+    )
 
     def _forward(p: BuildProgress) -> None:
         on_progress(
@@ -83,8 +89,8 @@ def run_universe_build(
     with database_manager.get_session() as session:
         builder = UniverseBuilder(
             config=config,
-            api_client=client,
-            ticker_mapper=YFinanceTickerMapper(config=config, cache=cache),
+            api_client=source,
+            ticker_mapper=PassThroughTickerMapper(),
             repository=UniverseRepository(session),
             max_workers=request.max_workers,
             only_exchanges=request.exchanges,

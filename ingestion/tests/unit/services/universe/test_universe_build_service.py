@@ -48,8 +48,8 @@ def _patched(builder_cls: MagicMock, session: MagicMock):
         patch(f"{M}.database_manager", dm),
         patch(f"{M}.UniverseBuilder", builder_cls),
         patch(f"{M}.UniverseRepository"),
-        patch(f"{M}.YFinanceTickerMapper"),
-        patch(f"{M}.TickerMappingCache"),
+        patch(f"{M}.YFinanceUniverseSource"),
+        patch(f"{M}.get_yfinance_client"),
     ):
         yield
 
@@ -83,7 +83,7 @@ class TestRunUniverseBuild:
         session = MagicMock()
 
         with _patched(builder_cls, session):
-            summary = run_universe_build(UniverseBuildRequest(), MagicMock())
+            summary = run_universe_build(UniverseBuildRequest())
 
         assert summary == {
             "exchanges_saved": 2,
@@ -99,7 +99,7 @@ class TestRunUniverseBuild:
         session = MagicMock()
 
         with _patched(builder_cls, session):
-            run_universe_build(UniverseBuildRequest(), MagicMock())
+            run_universe_build(UniverseBuildRequest())
 
         session.commit.assert_called_once()
 
@@ -109,7 +109,7 @@ class TestRunUniverseBuild:
         builder_cls.return_value.build.return_value = _make_result()
 
         with _patched(builder_cls, MagicMock()):
-            run_universe_build(UniverseBuildRequest(), MagicMock())
+            run_universe_build(UniverseBuildRequest())
 
         kwargs = builder_cls.call_args.kwargs
         assert "filter_pipeline" not in kwargs
@@ -121,9 +121,7 @@ class TestRunUniverseBuild:
         builder_cls.return_value.build.return_value = _make_result()
 
         with _patched(builder_cls, MagicMock()):
-            run_universe_build(
-                UniverseBuildRequest(exchanges=["NYSE"], max_workers=7), MagicMock()
-            )
+            run_universe_build(UniverseBuildRequest(exchanges=["NYSE"], max_workers=7))
 
         kwargs = builder_cls.call_args.kwargs
         assert kwargs["only_exchanges"] == ["NYSE"]
@@ -140,7 +138,6 @@ class TestRunUniverseBuild:
         with _patched(builder_cls, MagicMock()):
             run_universe_build(
                 UniverseBuildRequest(),
-                MagicMock(),
                 on_progress=lambda **kw: seen.append(kw),
             )
             forward = builder_cls.call_args.kwargs["progress_callback"]
@@ -166,7 +163,6 @@ class TestRunUniverseBuild:
         with _patched(builder_cls, MagicMock()):
             run_universe_build(
                 UniverseBuildRequest(),
-                MagicMock(),
                 on_progress=lambda **kw: seen.append(kw),
             )
 
