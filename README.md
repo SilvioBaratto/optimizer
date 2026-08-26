@@ -11,15 +11,32 @@ Quantitative portfolio construction and optimization built on [skfolio](https://
 
 The repository holds two things:
 
-- **`optimizer/`** — the pure-Python library, published to PyPI as **`portopt`**. DB-agnostic, no API keys, no I/O.
-- **`ingestion/`** — a headless ingestion daemon (PostgreSQL + SQLAlchemy + APScheduler + BAML) that fetches market, fundamental, and macro data into the database on a schedule. No HTTP API.
+- **`optimizer/`** — the pure-Python optimization library, published to PyPI as **`portopt-core`** (import package `optimizer`). DB-agnostic, no API keys, no I/O.
+- **`ingestion/`** — the **`portopt`** app: a yfinance-centric ingestion daemon (PostgreSQL + SQLAlchemy + APScheduler + BAML) plus a `uv`-installable CLI and install wizard. No HTTP API.
 
 The two are independent: `ingestion/` does not import `optimizer`, and the daemon image carries none of the sklearn/skfolio stack.
 
 ## Installation
 
+The **`portopt` CLI** (ingestion daemon + install wizard) installs via [uv](https://docs.astral.sh/uv/):
+
 ```bash
-pip install portopt
+# mac/linux
+curl -LsSf https://raw.githubusercontent.com/SilvioBaratto/optimizer/main/install.sh | bash
+# windows
+powershell -c "irm https://raw.githubusercontent.com/SilvioBaratto/optimizer/main/install.ps1 | iex"
+```
+
+The bootstrap installs `uv` (if missing), runs `uv tool install portopt`, and launches
+`portopt setup` — an interactive wizard that verifies Docker, validates your API keys,
+encrypts your secrets (`~/.portopt/secrets.enc`), and migrates the database. A cloud LLM
+provider (OpenAI or Anthropic) is **mandatory**. Re-run any time with `portopt setup`; manage
+the stack with `portopt start` / `portopt stop` / `portopt status`.
+
+The optimization **library** is a separate distribution, `portopt-core` (import package `optimizer`):
+
+```bash
+pip install portopt-core
 ```
 
 For development (tests, linting, type checking):
@@ -249,10 +266,12 @@ make all
 
 ## Ingestion daemon
 
-`ingestion/` fetches market data (yfinance / Trading 212), fundamentals, and macro series
-(FRED, Il Sole 24 Ore, Trading Economics) into PostgreSQL on a schedule. APScheduler runs
-in-process; there is no HTTP API. Job metrics are exposed to Prometheus, which is also the
-container healthcheck target.
+`ingestion/` is **yfinance-centric**: it builds its instrument universe from the yfinance
+Screener and fetches market data, fundamentals, and macro series (FRED, Il Sole 24 Ore,
+Trading Economics) into PostgreSQL on a schedule. APScheduler runs in-process; there is no
+HTTP API. Job metrics are exposed to Prometheus, which is also the container healthcheck
+target. Trading 212 is an optional add-on — when configured, its tickers are mapped onto the
+yfinance universe *after* the build (it no longer sources it).
 
 ```bash
 # PostgreSQL (host port 54320) + Adminer (18081) + scheduler (metrics 9000)
@@ -287,14 +306,15 @@ See `ingestion/README.md` for the full picture.
 
 ### Environment Variables
 
-Copy `ingestion/.env.example` to `.env` and fill in your keys:
+`portopt setup` collects and encrypts these; for CI / manual runs the daemon also reads them
+from the environment (and Docker-compose `secrets:` at `/run/secrets/*`):
 
 | Variable | Description |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `FRED_API_KEY` | Federal Reserve Economic Data |
-| `TRADING_212_API_KEY` / `TRADING_212_SECRET_KEY` / `TRADING_212_MODE` | Trading 212 instrument universe. Absent ⇒ `universe_build` skips |
-| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | BAML LLM client — news summarization and macro-regime calibration |
+| `LLM_PROVIDER` + `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` (+ `OPENAI_MODEL` / `ANTHROPIC_MODEL`) | Cloud LLM (**mandatory**) — BAML news summarization + macro-regime calibration. Local models are not supported |
+| `TRADING_212_API_KEY` / `TRADING_212_SECRET_KEY` / `TRADING_212_MODE` | Optional Trading 212 add-on — mapped onto the yfinance universe after the build |
 | `METRICS_PORT` | Prometheus port (default `9000`) |
 | `NOTIFICATION_WEBHOOK_URL` | Discord/Slack webhook for job-failure alerts (optional) |
 
