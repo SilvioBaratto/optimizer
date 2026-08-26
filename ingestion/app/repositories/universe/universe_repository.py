@@ -155,6 +155,33 @@ class UniverseRepository(RepositoryBase):
         rows = self.session.execute(stmt).all()
         return {r[0] for r in rows}
 
+    def set_t212_ticker(
+        self, *, ticker: str, exchange_id: Any, t212_ticker: str
+    ) -> bool:
+        """Attach a Trading 212 ticker to a yfinance-sourced instrument (D14).
+
+        Matched by ``(ticker, exchange_id)`` — the unique key. Returns ``True``
+        if a row was updated, ``False`` if none matched.
+        """
+        result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
+            update(Instrument)
+            .where(Instrument.ticker == ticker)
+            .where(Instrument.exchange_id == exchange_id)
+            .values(t212_ticker=t212_ticker)
+        )
+        self.session.flush()
+        return bool(result.rowcount)
+
+    def get_active_instruments(self) -> Sequence[Instrument]:
+        """All non-delisted instruments (used by the T212 annotation step)."""
+        return (
+            self.session.execute(
+                select(Instrument).where(Instrument.delisted_at.is_(None))
+            )
+            .scalars()
+            .all()
+        )
+
     def clear_all(self) -> tuple[int, int]:
         inst_count = self.session.execute(
             select(func.count()).select_from(Instrument)

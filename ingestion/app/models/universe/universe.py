@@ -68,6 +68,9 @@ class Instrument(BaseModel):
     instrument_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     currency_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     yfinance_ticker: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Optional Trading 212 ticker, populated by the T212 annotation step (D14).
+    # yfinance is the source of truth; this is a convenience cross-reference.
+    t212_ticker: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Asset-class taxonomy (see services/universe/trading212/enums.py). Stored as
     # strings like instrument_type. asset_class is non-null (STOCK ⇒ "equity");
