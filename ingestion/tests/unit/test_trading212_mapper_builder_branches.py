@@ -87,14 +87,6 @@ def _make_api_client(
     return client
 
 
-def _mapper_with_info(info: Any) -> YFinanceTickerMapper:
-    mock_yf = MagicMock()
-    mock_yf.fetch_info.return_value = info
-    return YFinanceTickerMapper(
-        config=CFG, cache=TickerMappingCache(), _yf_client=mock_yf
-    )
-
-
 # ===========================================================================
 # YFinanceTickerMapper — uncovered branches
 # ===========================================================================
@@ -230,51 +222,6 @@ class TestVerifyTickerRateLimitRetry:
             result = mapper._verify_ticker("AAPL")
         assert result is False
         assert mock_yf.fetch_info.call_count == 2
-
-
-class TestFetchBasicDataBranches:
-    """Covers: ticker_mapper.py lines 123-124, 163-184."""
-
-    def test_when_info_short_retries_then_returns_none_after_exhaustion(self) -> None:
-        # info has < 10 fields every time → retries, then None
-        mapper = _mapper_with_info({"a": 1})
-        with patch("app.services.universe.trading212.ticker_mapper.time.sleep"):
-            result = mapper.fetch_basic_data("AAPL", max_retries=3)
-        assert result is None
-        assert mapper.yf_client.fetch_info.call_count == 3
-
-    def test_when_rate_limit_on_all_fetch_basic_data_retries_returns_none(self) -> None:
-        mock_yf = MagicMock()
-        mock_yf.fetch_info.side_effect = RuntimeError("rate limit exceeded")
-        mapper = YFinanceTickerMapper(
-            config=CFG, cache=TickerMappingCache(), _yf_client=mock_yf
-        )
-        with patch("app.services.universe.trading212.ticker_mapper.time.sleep"):
-            result = mapper.fetch_basic_data("AAPL", max_retries=3)
-        assert result is None
-        assert mock_yf.fetch_info.call_count == 3
-
-    def test_when_generic_error_on_first_attempt_retries_then_none(self) -> None:
-        mock_yf = MagicMock()
-        mock_yf.fetch_info.side_effect = RuntimeError("connection refused")
-        mapper = YFinanceTickerMapper(
-            config=CFG, cache=TickerMappingCache(), _yf_client=mock_yf
-        )
-        with patch("app.services.universe.trading212.ticker_mapper.time.sleep"):
-            result = mapper.fetch_basic_data("AAPL", max_retries=2)
-        assert result is None
-        assert mock_yf.fetch_info.call_count == 2
-
-    def test_when_info_short_on_last_retry_returns_none(self) -> None:
-        # First attempt returns short dict; second also short → returns None
-        mock_yf = MagicMock()
-        mock_yf.fetch_info.return_value = {"x": 1}
-        mapper = YFinanceTickerMapper(
-            config=CFG, cache=TickerMappingCache(), _yf_client=mock_yf
-        )
-        with patch("app.services.universe.trading212.ticker_mapper.time.sleep"):
-            result = mapper.fetch_basic_data("AAPL", max_retries=1)
-        assert result is None
 
 
 # ===========================================================================

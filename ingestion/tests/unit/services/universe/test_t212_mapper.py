@@ -198,30 +198,3 @@ class TestYFinanceTickerMapperVerifyTicker:
         ) as mock_cls:
             mapper._verify_ticker("AAPL")
         mock_cls.get_instance.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# fetch_basic_data
-# ---------------------------------------------------------------------------
-
-
-class TestYFinanceTickerMapperFetchBasicData:
-    def test_when_info_has_enough_keys_then_returns_mapped_dict(self) -> None:
-        rich_info: dict[str, Any] = {f"field{i}": i for i in range(15)}
-        rich_info["marketCap"] = 5_000_000_000
-        rich_info["currentPrice"] = 150.0
-        mapper = _mapper_with_info(rich_info)
-
-        result = mapper.fetch_basic_data("AAPL", max_retries=1)
-
-        assert result is not None
-        assert result["marketCap"] == 5_000_000_000
-        assert result["currentPrice"] == 150.0
-
-    def test_when_info_has_fewer_than_10_fields_then_none(self) -> None:
-        mapper = _mapper_with_info({"marketCap": 1, "a": 2})
-        assert mapper.fetch_basic_data("AAPL", max_retries=1) is None
-
-    def test_when_info_is_none_then_none(self) -> None:
-        mapper = _mapper_with_info(None)
-        assert mapper.fetch_basic_data("AAPL", max_retries=1) is None

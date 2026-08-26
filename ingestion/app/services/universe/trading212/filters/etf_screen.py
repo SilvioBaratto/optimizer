@@ -1,13 +1,11 @@
-"""ETF-specific screen helpers: share-class / cross-listing dedup.
+"""ETF-specific helper: share-class / cross-listing dedup.
 
-The equity screens (market cap, P/E, ROE …) do not apply to funds, so ETFs run a
-dedicated pipeline whose only gate is the shared HistoricalDataFilter (the
-≥750-trading-day history bar); classification (leveraged/inverse/unclassifiable
-rejected) happens upstream in the builder. Investability — liquidity, ADDV,
-price — is deliberately NOT screened here: it is a downstream fund-layer concern
+Ingestion applies no investability filtering. ETFs are admitted on classification
+(leveraged/inverse/unclassifiable rejected upstream in the builder) alone; the one
+transform kept here is ISIN dedup, which collapses cross-listings of the same fund
+to a single listing (noise-reduction, not investability). Investability —
+liquidity, ADDV, price, history — is a downstream fund-layer concern
 (optimizer/universe), computed on the price panel at portfolio construction.
-Trading 212 exposes no AUM and Yahoo omits it for most UCITS listings, so an
-ingestion-side size/liquidity gate can't be applied reliably anyway.
 """
 
 from __future__ import annotations
