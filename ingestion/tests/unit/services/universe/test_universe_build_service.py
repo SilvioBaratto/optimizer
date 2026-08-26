@@ -18,7 +18,6 @@ from app.schemas.universe.trading212 import UniverseBuildRequest
 from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.universe_build_service import (
     Trading212NotConfiguredError,
-    _build_pipelines,
     build_trading212_client,
     run_universe_build,
 )
@@ -104,25 +103,18 @@ class TestRunUniverseBuild:
 
         session.commit.assert_called_once()
 
-    def test_when_skip_filters_then_no_filters_registered(self) -> None:
+    def test_builder_is_wired_without_any_filter_pipeline(self) -> None:
+        """Ingestion is filter-free: the builder takes no filter pipeline."""
         builder_cls = MagicMock()
         builder_cls.return_value.build.return_value = _make_result()
 
         with _patched(builder_cls, MagicMock()):
-            run_universe_build(UniverseBuildRequest(skip_filters=True), MagicMock())
+            run_universe_build(UniverseBuildRequest(), MagicMock())
 
-        pipeline = builder_cls.call_args.kwargs["filter_pipeline"]
-        assert pipeline._filters == []
-
-    def test_when_filters_enabled_then_five_filters_registered(self) -> None:
-        builder_cls = MagicMock()
-        builder_cls.return_value.build.return_value = _make_result()
-
-        with _patched(builder_cls, MagicMock()):
-            run_universe_build(UniverseBuildRequest(skip_filters=False), MagicMock())
-
-        pipeline = builder_cls.call_args.kwargs["filter_pipeline"]
-        assert len(pipeline._filters) == 5
+        kwargs = builder_cls.call_args.kwargs
+        assert "filter_pipeline" not in kwargs
+        assert "etf_filter_pipeline" not in kwargs
+        assert "skip_filters" not in kwargs
 
     def test_forwards_request_options_to_builder(self) -> None:
         builder_cls = MagicMock()
@@ -181,32 +173,6 @@ class TestRunUniverseBuild:
         completed = [c for c in seen if c.get("status") == "completed"]
         assert len(completed) == 1
         assert completed[0]["errors"] == ["boom"]
-
-
-class TestBuildPipelines:
-    """The composition seam: stock vs ETF filter pipelines built from config."""
-
-    def test_equity_pipeline_filter_order(self) -> None:
-        equity, _ = _build_pipelines(UniverseBuilderConfig(), skip_filters=False)
-        assert [f.name for f in equity.get_filters()] == [
-            "MarketCapFilter",
-            "PriceFilter",
-            "LiquidityFilter",
-            "DataCoverageFilter",
-            "HistoricalDataFilter",
-        ]
-
-    def test_etf_pipeline_is_history_only(self) -> None:
-        """ETFs are admitted on classification (upstream) + price history only.
-        Investability (ADDV/liquidity) is a downstream fund-layer concern — no AUM."""
-        _, etf = _build_pipelines(UniverseBuilderConfig(), skip_filters=False)
-        assert etf is not None
-        assert [f.name for f in etf.get_filters()] == ["HistoricalDataFilter"]
-
-    def test_skip_filters_yields_empty_equity_and_no_etf(self) -> None:
-        equity, etf = _build_pipelines(UniverseBuilderConfig(), skip_filters=True)
-        assert equity.get_filters() == []
-        assert etf is None
 
 
 class TestAUMScreenRemoved:

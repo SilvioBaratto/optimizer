@@ -17,11 +17,7 @@ class UniverseBuildRequest(BaseModel):
 
     exchanges: list[str] | None = Field(
         default=None,
-        description="Filter to specific exchanges (e.g. ['NYSE', 'NASDAQ']). None = all configured.",
-    )
-    skip_filters: bool = Field(
-        default=False,
-        description="Skip quality filters and include all discovered instruments.",
+        description="Restrict to specific exchanges (e.g. ['NYSE', 'NASDAQ']). None = all configured.",
     )
     max_workers: int = Field(
         default=20,

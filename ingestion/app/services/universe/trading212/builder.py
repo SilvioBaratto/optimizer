@@ -9,12 +9,10 @@ from app.services.universe.trading212.classification import classify_instrument
 from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.filters.etf_screen import dedup_etfs_by_isin
 from app.services.universe.trading212.protocols import (
-    FilterPipeline,
     TickerMapper,
     Trading212ApiClient,
     UniverseRepository,
 )
-from app.services.universe.trading212.ticker_mapper import YFinanceTickerMapper
 
 
 @dataclass
@@ -45,12 +43,9 @@ class UniverseBuilder:
     config: UniverseBuilderConfig
     api_client: Trading212ApiClient
     ticker_mapper: TickerMapper
-    filter_pipeline: FilterPipeline
     repository: UniverseRepository
-    etf_filter_pipeline: FilterPipeline | None = None
     max_workers: int = 20
     batch_size: int = 50
-    skip_filters: bool = False
     only_exchanges: list[str] | None = None
     progress_callback: ProgressCallback | None = None
     _schedule_to_exchange: dict[int, dict[str, Any]] = field(
@@ -71,22 +66,19 @@ class UniverseBuilder:
         # Build mappings
         self._build_schedule_mappings(exchanges, instruments)
 
-        # Filter exchanges and prepare for processing (stocks + FI/MA ETFs)
+        # Prepare for processing (stocks + FI/MA ETFs). No investability
+        # filtering: every classified + mapped instrument is admitted.
         exchange_stocks = self._prepare_exchange_stocks(exchanges)
-        exchange_etfs = (
-            self._prepare_exchange_etfs(exchanges)
-            if self.etf_filter_pipeline is not None
-            else []
-        )
+        exchange_etfs = self._prepare_exchange_etfs(exchanges)
 
         # Calculate totals
         total = sum(len(insts) for _, insts in exchange_stocks) + sum(
             len(insts) for _, insts in exchange_etfs
         )
 
-        # Process stocks, then ETFs (through their own pipeline). Delisting
-        # reconciliation is scoped per instrument_type so the two passes over
-        # shared exchanges don't mark each other's instruments delisted.
+        # Process stocks, then ETFs. Delisting reconciliation is scoped per
+        # instrument_type so the two passes over shared exchanges don't mark
+        # each other's instruments delisted.
         exchanges_saved, instruments_saved, total_processed = self._process_exchanges(
             exchange_stocks, total, instrument_type="STOCK"
         )
@@ -101,15 +93,11 @@ class UniverseBuilder:
             instruments_saved += inst_e
             total_processed += proc_e
 
-        filter_stats = dict(self.filter_pipeline.get_summary())
-        if self.etf_filter_pipeline is not None:
-            filter_stats.update(self.etf_filter_pipeline.get_summary())
-
         return BuildResult(
             exchanges_saved=exchanges_saved,
             instruments_saved=instruments_saved,
             total_processed=total_processed,
-            filter_stats=filter_stats,
+            filter_stats={},
             errors=self._errors.copy(),
         )
 
@@ -386,43 +374,12 @@ class UniverseBuilder:
 
             instrument_data["yfinanceTicker"] = yf_ticker
 
-            # Skip filtering if requested
-            if self.skip_filters:
-                return instrument_data, "skipped", "Filters skipped"
-
-            # Fetch data for filtering
-            basic_data = self._fetch_filter_data(yf_ticker)
-            if not basic_data:
-                return None, "failed", "Failed to fetch yfinance data"
-
-            # Apply the type-appropriate filter pipeline (ETF vs equity)
-            pipeline = self._pipeline_for(instrument.get("type"))
-            passed, reason = pipeline.apply(basic_data, yf_ticker)
-
-            if not passed:
-                return None, "failed", reason
-
-            return instrument_data, "passed", reason
+            # No investability filtering — a classified, mapped instrument is
+            # admitted as-is. Screening (liquidity/price/history) is a downstream
+            # fund-layer concern computed on the price panel.
+            return instrument_data, "passed", "Admitted (no filtering)"
 
         except Exception as e:
             # Error is returned as the reason tuple, not swallowed: the caller
             # appends it to self._errors (→ BuildResult.errors) for the row.
             return None, "error", str(e)
-
-    def _pipeline_for(self, instrument_type: str | None) -> FilterPipeline:
-        """ETFs run the ETF screen; everything else runs the equity pipeline."""
-        if instrument_type == "ETF" and self.etf_filter_pipeline is not None:
-            return self.etf_filter_pipeline
-        return self.filter_pipeline
-
-    def _fetch_filter_data(self, yf_ticker: str) -> dict[str, Any] | None:
-        if isinstance(self.ticker_mapper, YFinanceTickerMapper):
-            return self.ticker_mapper.fetch_basic_data(yf_ticker)
-
-        from app.services.market_data.yfinance import YFinanceClient
-
-        client = YFinanceClient.get_instance()
-        return client.fetch_info(yf_ticker)
-
-    def get_filter_stats(self) -> dict[str, dict[str, int]]:
-        return self.filter_pipeline.get_summary()

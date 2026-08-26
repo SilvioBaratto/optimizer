@@ -87,13 +87,6 @@ def _make_api_client(
     return client
 
 
-def _make_filter_pipeline(apply_return: tuple[bool, str] = (True, "ok")) -> MagicMock:
-    pipeline = MagicMock()
-    pipeline.apply.return_value = apply_return
-    pipeline.get_summary.return_value = {}
-    return pipeline
-
-
 def _mapper_with_info(info: Any) -> YFinanceTickerMapper:
     mock_yf = MagicMock()
     mock_yf.fetch_info.return_value = info
@@ -298,7 +291,6 @@ class TestBuilderFetchMetadata:
             config=CFG,
             api_client=api_client,
             ticker_mapper=MagicMock(),
-            filter_pipeline=_make_filter_pipeline(),
             repository=_FakeRepo(),
         )
         exchanges, instruments = builder.fetch_metadata()
@@ -315,7 +307,6 @@ class TestBuilderGetExchangeStocks:
             config=CFG,
             api_client=api_client,
             ticker_mapper=MagicMock(),
-            filter_pipeline=_make_filter_pipeline(),
             repository=_FakeRepo(),
         )
         exchange_stocks = builder.get_exchange_stocks(
@@ -347,9 +338,7 @@ class TestBuilderExchangeNoName:
             config=CFG,
             api_client=api_client,
             ticker_mapper=MagicMock(),
-            filter_pipeline=_make_filter_pipeline(),
             repository=repo,
-            skip_filters=True,
             max_workers=1,
         )
         result = builder.build()
@@ -367,9 +356,7 @@ class TestBuilderOnlyExchangesSkipPath:
             config=CFG,
             api_client=_make_api_client(),
             ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
             repository=repo,
-            skip_filters=True,
             only_exchanges=["NASDAQ"],  # NYSE is not included
             max_workers=1,
         )
@@ -398,9 +385,7 @@ class TestBuilderGetActiveTickersPath:
             config=CFG,
             api_client=_make_api_client(),
             ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
             repository=repo,
-            skip_filters=True,
             max_workers=1,
         )
         builder.build()
@@ -429,9 +414,7 @@ class TestBuilderMarkDelistedSkipWhenMethodAbsent:
             config=CFG,
             api_client=_make_api_client(),
             ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
             repository=repo,  # type: ignore[arg-type]
-            skip_filters=True,
             max_workers=1,
         )
         # Must not raise even though repo has no mark_delisted
@@ -460,9 +443,7 @@ class TestBuilderDelistingDetection:
             config=CFG,
             api_client=_make_api_client(),  # only _AAPL_INSTRUMENT
             ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
             repository=repo,
-            skip_filters=True,
             max_workers=1,
         )
         builder.build()
@@ -492,9 +473,7 @@ class TestBuilderProcessInstrumentsException:
             config=CFG,
             api_client=_make_api_client(),
             ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
             repository=repo,
-            skip_filters=True,
             max_workers=1,
             progress_callback=lambda p: progress_calls.append(p),
         )
@@ -530,9 +509,7 @@ class TestBuilderProcessSingleInstrumentExceptionPath:
             config=CFG,
             api_client=_make_api_client(),
             ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
             repository=repo,
-            skip_filters=True,
             max_workers=1,
         )
         # Call directly to inspect return value
@@ -542,59 +519,3 @@ class TestBuilderProcessSingleInstrumentExceptionPath:
         assert result_data is None
         assert status == "error"
         assert "bad symbol" in reason
-
-
-class TestBuilderFetchFilterDataNonMapperPath:
-    """Covers: builder.py lines 332-335 — _fetch_filter_data uses YFinanceClient.get_instance()
-    when ticker_mapper is NOT a YFinanceTickerMapper instance.
-
-    YFinanceClient is imported *locally* inside _fetch_filter_data (not at module
-    top-level), so we patch it at its source module path.
-    """
-
-    def test_when_mapper_is_plain_mock_fetch_filter_data_uses_yfinance_singleton(
-        self,
-    ) -> None:
-        repo = _FakeRepo()
-        # Use a plain MagicMock (not YFinanceTickerMapper) so isinstance check fails
-        mapper = MagicMock(
-            spec=[]
-        )  # spec=[] ensures it's not an instance of YFinanceTickerMapper
-
-        mapper.discover = MagicMock(return_value="AAPL")
-        mock_client = MagicMock()
-        mock_client.fetch_info.return_value = {"marketCap": 5e9}
-
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=_make_api_client(),
-            ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
-            repository=repo,
-            skip_filters=False,
-            max_workers=1,
-        )
-        # YFinanceClient is a local import inside _fetch_filter_data — patch at source
-        with patch("app.services.market_data.yfinance.YFinanceClient") as mock_yf_cls:
-            mock_yf_cls.get_instance.return_value = mock_client
-            builder.build()
-
-        mock_yf_cls.get_instance.assert_called()
-
-
-class TestBuilderGetFilterStats:
-    """Covers: builder.py line 338 — get_filter_stats() delegates to pipeline."""
-
-    def test_get_filter_stats_delegates_to_pipeline(self) -> None:
-        pipeline = _make_filter_pipeline()
-        pipeline.get_summary.return_value = {"SomeFilter": {"passed": 5, "failed": 2}}
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=_make_api_client(),
-            ticker_mapper=MagicMock(),
-            filter_pipeline=pipeline,
-            repository=_FakeRepo(),
-        )
-        stats = builder.get_filter_stats()
-        assert stats == {"SomeFilter": {"passed": 5, "failed": 2}}
-        pipeline.get_summary.assert_called_once()

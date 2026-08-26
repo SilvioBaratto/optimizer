@@ -8,11 +8,10 @@ through the ETF pipeline while the STOCK path is unchanged.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from app.services.universe.trading212.builder import UniverseBuilder
 from app.services.universe.trading212.config import UniverseBuilderConfig
-from app.services.universe.trading212.filters import FilterPipelineImpl
 from app.services.universe.trading212.filters.etf_screen import dedup_etfs_by_isin
 
 CFG = UniverseBuilderConfig()
@@ -42,8 +41,6 @@ def _builder(**kw) -> UniverseBuilder:
         config=CFG,
         api_client=MagicMock(),
         ticker_mapper=MagicMock(),
-        filter_pipeline=MagicMock(),
-        etf_filter_pipeline=MagicMock(),
         repository=MagicMock(),
         **kw,
     )
@@ -107,13 +104,8 @@ class TestPrepareExchangeETFs:
 
 
 class TestProcessSingleInstrumentTagging:
-    def test_etf_is_tagged_and_routed_to_etf_pipeline(self) -> None:
-        etf_pipeline = MagicMock()
-        etf_pipeline.apply.return_value = (True, "ok")
-        stock_pipeline = MagicMock()
+    def test_etf_is_tagged_fixed_income(self) -> None:
         b = _builder()
-        b.filter_pipeline = stock_pipeline
-        b.etf_filter_pipeline = etf_pipeline
         b.ticker_mapper.discover.return_value = "JAGA.DE"
 
         inst = {
@@ -123,32 +115,23 @@ class TestProcessSingleInstrumentTagging:
             "isin": "IE9",
             "currencyCode": "EUR",
         }
-        with patch.object(b, "_fetch_filter_data", return_value={"totalAssets": 1e9}):
-            data, status, _ = b._process_single_instrument(inst, "Deutsche Börse Xetra")
+        data, status, _ = b._process_single_instrument(inst, "Deutsche Börse Xetra")
 
         assert status == "passed"
         assert data is not None
         assert data["assetClass"] == "fixed_income"
         assert data["fiSubclass"] == "aggregate"
-        etf_pipeline.apply.assert_called_once()
-        stock_pipeline.apply.assert_not_called()
 
-    def test_stock_is_tagged_equity_and_uses_stock_pipeline(self) -> None:
-        stock_pipeline = MagicMock()
-        stock_pipeline.apply.return_value = (True, "ok")
+    def test_stock_is_tagged_equity(self) -> None:
         b = _builder()
-        b.filter_pipeline = stock_pipeline
-        b.etf_filter_pipeline = MagicMock()
         b.ticker_mapper.discover.return_value = "AAPL"
 
         inst = {"type": "STOCK", "name": "Apple Inc", "shortName": "AAPL"}
-        with patch.object(b, "_fetch_filter_data", return_value={"marketCap": 1e12}):
-            data, status, _ = b._process_single_instrument(inst, "NASDAQ")
+        data, status, _ = b._process_single_instrument(inst, "NASDAQ")
 
         assert status == "passed"
         assert data is not None
         assert data["assetClass"] == "equity"
-        stock_pipeline.apply.assert_called_once()
 
 
 class TestBuildEndToEnd:
@@ -199,12 +182,6 @@ class TestBuildEndToEnd:
             saved.extend(processed) or len(processed)
         )
 
-        stock_pipe, etf_pipe = MagicMock(), MagicMock()
-        stock_pipe.apply.return_value = (True, "ok")
-        stock_pipe.get_summary.return_value = {}
-        etf_pipe.apply.return_value = (True, "ok")
-        etf_pipe.get_summary.return_value = {}
-
         mapper = MagicMock()
         mapper.discover.side_effect = lambda short_name, exchange: short_name
 
@@ -212,24 +189,15 @@ class TestBuildEndToEnd:
             config=CFG,
             api_client=api,
             ticker_mapper=mapper,
-            filter_pipeline=stock_pipe,
-            etf_filter_pipeline=etf_pipe,
             repository=repo,
         )
-        with patch.object(
-            b,
-            "_fetch_filter_data",
-            return_value={"marketCap": 1e12, "totalAssets": 1e9},
-        ):
-            result = b.build()
+        result = b.build()
 
         by_ac = {d["ticker"]: d["assetClass"] for d in saved}
         assert by_ac.get("AAPL_US") == "equity"
         assert by_ac.get("JAGA") == "fixed_income"
-        assert "VWCE" not in by_ac  # equity ETF excluded
+        assert "VWCE" not in by_ac  # equity ETF excluded by classification
         assert result.instruments_saved == 2
-        stock_pipe.apply.assert_called()  # stock routed to stock pipeline
-        etf_pipe.apply.assert_called()  # ETF routed to ETF pipeline
 
     def test_etf_pass_does_not_delist_stocks_on_shared_exchange(self) -> None:
         """Review-critical regression: NASDAQ carries both a stock and a bond ETF;
@@ -297,10 +265,7 @@ class TestBuildEndToEnd:
             config=CFG,
             api_client=api,
             ticker_mapper=mapper,
-            filter_pipeline=FilterPipelineImpl(),
-            etf_filter_pipeline=FilterPipelineImpl(),
             repository=repo,
-            skip_filters=True,
         )
         b.build()
 

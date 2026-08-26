@@ -21,14 +21,6 @@ from app.services.universe.trading212.builder import BuildProgress, UniverseBuil
 from app.services.universe.trading212.cache.ticker_cache import TickerMappingCache
 from app.services.universe.trading212.client import Trading212Client
 from app.services.universe.trading212.config import UniverseBuilderConfig
-from app.services.universe.trading212.filters import (
-    DataCoverageFilter,
-    FilterPipelineImpl,
-    HistoricalDataFilter,
-    LiquidityFilter,
-    MarketCapFilter,
-    PriceFilter,
-)
 from app.services.universe.trading212.ticker_mapper import YFinanceTickerMapper
 
 logger = logging.getLogger(__name__)
@@ -57,50 +49,19 @@ def build_trading212_client() -> Trading212Client:
     )
 
 
-def _build_pipelines(
-    config: UniverseBuilderConfig, skip_filters: bool
-) -> tuple[FilterPipelineImpl, FilterPipelineImpl | None]:
-    """Compose the equity and ETF filter pipelines.
-
-    Stocks run the full institutional metric set; ETFs run a separate pipeline
-    because equity metrics (market cap, financial ratios) don't apply to funds.
-
-    Returns ``(equity_pipeline, etf_pipeline)``. When ``skip_filters`` is set the
-    equity pipeline is empty and ``etf_pipeline`` is ``None``.
-    """
-    pipeline = FilterPipelineImpl()
-    if skip_filters:
-        return pipeline, None
-
-    pipeline.add_filter(MarketCapFilter(config=config))
-    pipeline.add_filter(PriceFilter(config=config))
-    pipeline.add_filter(LiquidityFilter(config=config))
-    pipeline.add_filter(DataCoverageFilter(config=config))
-    pipeline.add_filter(HistoricalDataFilter(config=config))
-
-    # ETFs run their own screen (equity metrics don't apply). Admission is
-    # classification (leveraged/inverse/unclassifiable rejected upstream in the
-    # builder) + the ≥750-trading-day history bar. Investability — liquidity,
-    # ADDV, price — is a downstream fund-layer concern (optimizer/universe), not
-    # an ingestion gate: Trading 212 exposes no AUM and Yahoo omits it for most
-    # UCITS listings, so an ingestion-side size screen can't be applied reliably.
-    etf_pipeline = FilterPipelineImpl()
-    etf_pipeline.add_filter(HistoricalDataFilter(config=config))
-
-    return pipeline, etf_pipeline
-
-
 def run_universe_build(
     request: UniverseBuildRequest,
     client: Trading212Client,
     *,
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
-    """Discover, filter, and persist the Trading 212 instrument universe.
+    """Discover, map, and persist the Trading 212 instrument universe.
+
+    No investability filtering: every classified + mapped STOCK/ETF is admitted
+    (screening is a downstream fund-layer concern).
 
     Args:
-        request: ``UniverseBuildRequest`` with ``exchanges``, ``skip_filters``,
-            ``max_workers``.
+        request: ``UniverseBuildRequest`` with ``exchanges``, ``max_workers``.
         client: Configured Trading 212 client (see :func:`build_trading212_client`).
         on_progress: Optional callback for progress updates.
 
@@ -110,8 +71,6 @@ def run_universe_build(
     """
     config = UniverseBuilderConfig()
     cache = TickerMappingCache()
-
-    pipeline, etf_pipeline = _build_pipelines(config, request.skip_filters)
 
     def _forward(p: BuildProgress) -> None:
         on_progress(
@@ -126,11 +85,8 @@ def run_universe_build(
             config=config,
             api_client=client,
             ticker_mapper=YFinanceTickerMapper(config=config, cache=cache),
-            filter_pipeline=pipeline,
-            etf_filter_pipeline=etf_pipeline,
             repository=UniverseRepository(session),
             max_workers=request.max_workers,
-            skip_filters=request.skip_filters,
             only_exchanges=request.exchanges,
             progress_callback=_forward,
         )

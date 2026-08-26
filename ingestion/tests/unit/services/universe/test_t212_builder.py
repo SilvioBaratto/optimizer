@@ -3,11 +3,11 @@
 All external I/O is mocked:
 - Trading212ApiClient  → MagicMock
 - UniverseRepository   → plain fake class (avoids optional-method edge-cases)
-- YFinanceClient       → injected via _yf_client field (no singleton)
-- TickerMappingCache   → real instance (in-memory, no network)
+- TickerMapper         → MagicMock
 
-No real network calls, no time.sleep paths hit.  YFinanceTickerMapper unit
-tests live in ``test_t212_mapper.py`` (split for the 500-line cap).
+No real network calls. There is no investability filtering: every classified +
+mapped STOCK/ETF is admitted. YFinanceTickerMapper unit tests live in
+``test_t212_mapper.py``.
 """
 
 from __future__ import annotations
@@ -20,9 +20,7 @@ from app.services.universe.trading212.builder import (
     BuildResult,
     UniverseBuilder,
 )
-from app.services.universe.trading212.cache.ticker_cache import TickerMappingCache
 from app.services.universe.trading212.config import UniverseBuilderConfig
-from app.services.universe.trading212.ticker_mapper import YFinanceTickerMapper
 
 # ---------------------------------------------------------------------------
 # Shared test data
@@ -103,41 +101,36 @@ def _make_api_client(
     return client
 
 
-def _make_filter_pipeline(apply_return: tuple[bool, str] = (True, "ok")) -> MagicMock:
-    pipeline = MagicMock()
-    pipeline.apply.return_value = apply_return
-    pipeline.get_summary.return_value = {}
-    return pipeline
+def _make_builder(
+    *,
+    api_client: Any | None = None,
+    ticker_mapper: Any,
+    repo: _FakeRepo,
+    progress_cb: Any | None = None,
+    only_exchanges: list[str] | None = None,
+) -> UniverseBuilder:
+    return UniverseBuilder(
+        config=CFG,
+        api_client=api_client or _make_api_client(),
+        ticker_mapper=ticker_mapper,
+        repository=repo,
+        max_workers=1,
+        only_exchanges=only_exchanges,
+        progress_callback=progress_cb,
+    )
 
 
 # ---------------------------------------------------------------------------
-# UniverseBuilder.build() — skip_filters=True (happy path)
+# UniverseBuilder.build() — no-filter admission (happy path)
 # ---------------------------------------------------------------------------
 
 
-class TestUniverseBuilderBuildSkipFilters:
-    def _builder(
-        self,
-        ticker_mapper: Any,
-        repo: _FakeRepo,
-        progress_cb: MagicMock | None = None,
-    ) -> UniverseBuilder:
-        return UniverseBuilder(
-            config=CFG,
-            api_client=_make_api_client(),
-            ticker_mapper=ticker_mapper,
-            filter_pipeline=_make_filter_pipeline(),
-            repository=repo,
-            skip_filters=True,
-            max_workers=1,
-            progress_callback=progress_cb,
-        )
-
+class TestUniverseBuilderBuild:
     def test_when_discovery_succeeds_then_exchange_saved_once(self) -> None:
         repo = _FakeRepo()
         mapper = MagicMock()
         mapper.discover.return_value = "AAPL"
-        builder = self._builder(mapper, repo)
+        builder = _make_builder(ticker_mapper=mapper, repo=repo)
 
         result = builder.build()
 
@@ -151,7 +144,7 @@ class TestUniverseBuilderBuildSkipFilters:
         repo = _FakeRepo()
         mapper = MagicMock()
         mapper.discover.return_value = "AAPL"
-        builder = self._builder(mapper, repo)
+        builder = _make_builder(ticker_mapper=mapper, repo=repo)
 
         result = builder.build()
 
@@ -161,12 +154,31 @@ class TestUniverseBuilderBuildSkipFilters:
         assert saved_instrument["yfinanceTicker"] == "AAPL"
         assert saved_instrument["ticker"] == "AAPL_US"
 
+    def test_admits_instrument_without_any_filtering(self) -> None:
+        """No .info fetch, no pipeline: a classified + mapped instrument is
+        admitted regardless of size/price/liquidity/history. Pre-refactor this
+        path fetched fundamentals and applied the filter pipeline."""
+        repo = _FakeRepo()
+        mapper = MagicMock()
+        mapper.discover.return_value = "AAPL"
+        # A mapper with no fetch_basic_data at all still yields a saved row —
+        # the build never fetches fundamentals for filtering.
+        del mapper.fetch_basic_data
+        builder = _make_builder(ticker_mapper=mapper, repo=repo)
+
+        result = builder.build()
+
+        assert result.instruments_saved == 1
+        assert result.filter_stats == {}
+
     def test_when_discovery_succeeds_then_progress_callback_fired(self) -> None:
         repo = _FakeRepo()
         mapper = MagicMock()
         mapper.discover.return_value = "AAPL"
         progress_cb = MagicMock()
-        builder = self._builder(mapper, repo, progress_cb)
+        builder = _make_builder(
+            ticker_mapper=mapper, repo=repo, progress_cb=progress_cb
+        )
 
         builder.build()
 
@@ -178,7 +190,7 @@ class TestUniverseBuilderBuildSkipFilters:
         repo = _FakeRepo()
         mapper = MagicMock()
         mapper.discover.return_value = "AAPL"
-        builder = self._builder(mapper, repo)
+        builder = _make_builder(ticker_mapper=mapper, repo=repo)
 
         result = builder.build()
 
@@ -189,15 +201,7 @@ class TestUniverseBuilderBuildSkipFilters:
         mapper = MagicMock()
         mapper.discover.return_value = "AAPL"
         api_client = _make_api_client()
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=api_client,
-            ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
-            repository=repo,
-            skip_filters=True,
-            max_workers=1,
-        )
+        builder = _make_builder(api_client=api_client, ticker_mapper=mapper, repo=repo)
 
         builder.build()
 
@@ -206,7 +210,7 @@ class TestUniverseBuilderBuildSkipFilters:
 
 
 # ---------------------------------------------------------------------------
-# UniverseBuilder.build() — discover returns None
+# UniverseBuilder.build() — discover returns None (T1: still dropped; T4 flips)
 # ---------------------------------------------------------------------------
 
 
@@ -215,16 +219,8 @@ class TestUniverseBuilderDiscoverNone:
         repo = _FakeRepo()
         mapper = MagicMock()
         mapper.discover.return_value = None
+        builder = _make_builder(ticker_mapper=mapper, repo=repo)
 
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=_make_api_client(),
-            ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
-            repository=repo,
-            skip_filters=True,
-            max_workers=1,
-        )
         result = builder.build()
 
         assert len(repo.save_batch_calls) == 0
@@ -234,162 +230,15 @@ class TestUniverseBuilderDiscoverNone:
         repo = _FakeRepo()
         mapper = MagicMock()
         mapper.discover.return_value = None
+        builder = _make_builder(ticker_mapper=mapper, repo=repo)
 
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=_make_api_client(),
-            ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
-            repository=repo,
-            skip_filters=True,
-            max_workers=1,
-        )
         result = builder.build()
 
         assert result.exchanges_saved == 1
 
 
 # ---------------------------------------------------------------------------
-# UniverseBuilder.build() — filter path (skip_filters=False)
-# ---------------------------------------------------------------------------
-
-
-class TestUniverseBuilderFilterPath:
-    def test_when_filter_rejects_then_save_batch_not_called(self) -> None:
-        repo = _FakeRepo()
-
-        # Use a real YFinanceTickerMapper with mocked out network methods
-        mock_yf_client = MagicMock()
-        mapper = YFinanceTickerMapper(
-            config=CFG,
-            cache=TickerMappingCache(),
-            _yf_client=mock_yf_client,
-        )
-        mapper.discover = MagicMock(return_value="AAPL")  # type: ignore[method-assign]
-        mapper.fetch_basic_data = MagicMock(  # type: ignore[method-assign]
-            return_value={"marketCap": 1}
-        )
-
-        pipeline = _make_filter_pipeline(apply_return=(False, "too small"))
-
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=_make_api_client(),
-            ticker_mapper=mapper,
-            filter_pipeline=pipeline,
-            repository=repo,
-            skip_filters=False,
-            max_workers=1,
-        )
-        result = builder.build()
-
-        pipeline.apply.assert_called_once()
-        assert len(repo.save_batch_calls) == 0
-        assert result.instruments_saved == 0
-
-    def test_when_filter_passes_then_instrument_saved(self) -> None:
-        repo = _FakeRepo()
-
-        mock_yf_client = MagicMock()
-        mapper = YFinanceTickerMapper(
-            config=CFG,
-            cache=TickerMappingCache(),
-            _yf_client=mock_yf_client,
-        )
-        mapper.discover = MagicMock(return_value="AAPL")  # type: ignore[method-assign]
-        mapper.fetch_basic_data = MagicMock(  # type: ignore[method-assign]
-            return_value={"marketCap": 5_000_000_000, "currentPrice": 150.0}
-        )
-
-        pipeline = _make_filter_pipeline(apply_return=(True, "ok"))
-
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=_make_api_client(),
-            ticker_mapper=mapper,
-            filter_pipeline=pipeline,
-            repository=repo,
-            skip_filters=False,
-            max_workers=1,
-        )
-        result = builder.build()
-
-        pipeline.apply.assert_called_once()
-        assert result.instruments_saved == 1
-
-    def test_fetch_basic_data_called_instead_of_yfinance_singleton(self) -> None:
-        """When ticker_mapper is YFinanceTickerMapper, fetch_basic_data is used.
-
-        The YFinanceClient singleton import inside _fetch_filter_data is a
-        *local* import (inside the else branch), so it is never reached when
-        the isinstance check succeeds.  We verify this by asserting that the
-        injected mock_yf_client.fetch_info is never called directly by the
-        builder (only fetch_basic_data is), and that fetch_basic_data itself
-        was called with the discovered ticker.
-        """
-        repo = _FakeRepo()
-
-        mock_yf_client = MagicMock()
-        mapper = YFinanceTickerMapper(
-            config=CFG,
-            cache=TickerMappingCache(),
-            _yf_client=mock_yf_client,
-        )
-        mapper.discover = MagicMock(return_value="AAPL")  # type: ignore[method-assign]
-        fetch_spy = MagicMock(return_value={"marketCap": 5_000_000_000})
-        mapper.fetch_basic_data = fetch_spy  # type: ignore[method-assign]
-
-        pipeline = _make_filter_pipeline(apply_return=(True, "ok"))
-
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=_make_api_client(),
-            ticker_mapper=mapper,
-            filter_pipeline=pipeline,
-            repository=repo,
-            skip_filters=False,
-            max_workers=1,
-        )
-        builder.build()
-
-        # fetch_basic_data (not the singleton) was called with the right ticker
-        fetch_spy.assert_called_once_with("AAPL")
-        # The injected yf client's fetch_info is never called by the builder path
-        mock_yf_client.fetch_info.assert_not_called()
-
-    def test_when_fetch_basic_data_returns_none_then_instrument_not_saved(
-        self,
-    ) -> None:
-        repo = _FakeRepo()
-
-        mock_yf_client = MagicMock()
-        mapper = YFinanceTickerMapper(
-            config=CFG,
-            cache=TickerMappingCache(),
-            _yf_client=mock_yf_client,
-        )
-        mapper.discover = MagicMock(return_value="AAPL")  # type: ignore[method-assign]
-        mapper.fetch_basic_data = MagicMock(return_value=None)  # type: ignore[method-assign]
-
-        pipeline = _make_filter_pipeline()
-
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=_make_api_client(),
-            ticker_mapper=mapper,
-            filter_pipeline=pipeline,
-            repository=repo,
-            skip_filters=False,
-            max_workers=1,
-        )
-        result = builder.build()
-
-        pipeline.apply.assert_not_called()
-        assert result.instruments_saved == 0
-
-
-# ---------------------------------------------------------------------------
-# UniverseBuilder — exchange filtering
+# UniverseBuilder — exchange scoping (T1: still restricted; T3 opens it up)
 # ---------------------------------------------------------------------------
 
 
@@ -412,16 +261,8 @@ class TestUniverseBuilderExchangeFiltering:
         api_client = _make_api_client(
             exchanges=[unknown_exchange], instruments=[instrument]
         )
+        builder = _make_builder(api_client=api_client, ticker_mapper=mapper, repo=repo)
 
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=api_client,
-            ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
-            repository=repo,
-            skip_filters=True,
-            max_workers=1,
-        )
         result = builder.build()
 
         assert result.exchanges_saved == 0
@@ -431,45 +272,31 @@ class TestUniverseBuilderExchangeFiltering:
         repo = _FakeRepo()
         mapper = MagicMock()
         mapper.discover.return_value = "AAPL"
-        api_client = _make_api_client()
-
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=api_client,
-            ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
-            repository=repo,
-            skip_filters=True,
-            only_exchanges=["NYSE"],
-            max_workers=1,
+        builder = _make_builder(
+            ticker_mapper=mapper, repo=repo, only_exchanges=["NYSE"]
         )
+
         result = builder.build()
 
         assert result.exchanges_saved == 1
 
-    def test_non_stock_type_instruments_are_excluded(self) -> None:
+    def test_equity_etf_is_rejected_by_classification(self) -> None:
         repo = _FakeRepo()
         mapper = MagicMock()
-        mapper.discover.return_value = "ETF"
+        mapper.discover.return_value = "SPY"
 
+        # SPY is an equity ETF → classify_instrument returns None → dropped
+        # (classification integrity, not investability filtering).
         etf_instrument = {
             "ticker": "SPY_US",
             "type": "ETF",
             "shortName": "SPY",
+            "name": "SPDR S&P 500 ETF Trust",
             "workingScheduleId": 1,
         }
         api_client = _make_api_client(instruments=[etf_instrument])
+        builder = _make_builder(api_client=api_client, ticker_mapper=mapper, repo=repo)
 
-        builder = UniverseBuilder(
-            config=CFG,
-            api_client=api_client,
-            ticker_mapper=mapper,
-            filter_pipeline=_make_filter_pipeline(),
-            repository=repo,
-            skip_filters=True,
-            max_workers=1,
-        )
         result = builder.build()
 
-        # ETF excluded → no exchange_stocks → exchanges_saved=0
         assert result.instruments_saved == 0
