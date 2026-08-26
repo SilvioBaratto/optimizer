@@ -104,6 +104,50 @@ class TestSetupCommand:
         assert result.exit_code == 1
 
 
+class TestLifecycleCommands:
+    """`portopt start/stop/status` wire to lifecycle and map health to exit codes."""
+
+    def test_start_with_env_passphrase(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PORTOPT_PASSPHRASE", "pw")
+        with patch("app.setup.lifecycle.run_start") as mock_run:
+            result = runner.invoke(app, ["start"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once_with("pw")
+
+    def test_start_failure_exits_nonzero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PORTOPT_PASSPHRASE", "pw")
+        from app.setup.secret_store import InvalidPassphraseError
+
+        with patch(
+            "app.setup.lifecycle.run_start",
+            side_effect=InvalidPassphraseError("wrong"),
+        ):
+            result = runner.invoke(app, ["start"])
+        assert result.exit_code == 1
+
+    def test_stop_invokes_lifecycle(self) -> None:
+        with patch("app.setup.lifecycle.run_stop") as mock_run:
+            result = runner.invoke(app, ["stop"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once()
+
+    def test_status_all_ok_exits_zero(self) -> None:
+        with patch(
+            "app.setup.lifecycle.run_status",
+            return_value={"docker": True, "db": True, "scheduler": True},
+        ):
+            result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+
+    def test_status_degraded_exits_nonzero(self) -> None:
+        with patch(
+            "app.setup.lifecycle.run_status",
+            return_value={"docker": True, "db": False, "scheduler": False},
+        ):
+            result = runner.invoke(app, ["status"])
+        assert result.exit_code == 1
+
+
 class TestSingleStepCommands:
     @pytest.mark.parametrize(
         ("command", "step"),

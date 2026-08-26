@@ -220,5 +220,52 @@ def setup(
     typer.echo("Setup complete. Run `portopt start` to launch the daemon.")
 
 
+@app.command()
+def start() -> None:
+    """Decrypt secrets, mount them as compose secrets, and launch the stack."""
+    logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
+    from app.setup import lifecycle
+    from app.setup.docker_bootstrap import DockerError
+    from app.setup.secret_store import SecretStoreError
+
+    passphrase = os.getenv("PORTOPT_PASSPHRASE")
+    if not passphrase:
+        from app.setup.prompts import QuestionaryPrompter
+
+        passphrase = QuestionaryPrompter().password("Master passphrase:")
+
+    try:
+        lifecycle.run_start(passphrase)
+    except (lifecycle.LifecycleError, DockerError, SecretStoreError) as exc:
+        typer.echo(f"Start failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo("portopt is running.")
+
+
+@app.command()
+def stop() -> None:
+    """Stop the stack and remove the rendered plaintext secret files."""
+    from app.setup import lifecycle
+    from app.setup.docker_bootstrap import DockerError
+
+    try:
+        lifecycle.run_stop()
+    except DockerError as exc:
+        typer.echo(f"Stop failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo("portopt stopped.")
+
+
+@app.command()
+def status() -> None:
+    """Report Docker + service health (exit non-zero if anything is down)."""
+    from app.setup import lifecycle
+
+    report = lifecycle.run_status()
+    for name, ok in report.items():
+        typer.echo(f"{name}: {'ok' if ok else 'down'}")
+    _exit(all(report.values()))
+
+
 if __name__ == "__main__":
     app()

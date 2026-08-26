@@ -81,3 +81,57 @@ def test_migrate_failure_raises(mock_run: MagicMock) -> None:
     mock_run.return_value = _cp(1, "bad migration")
     with pytest.raises(db.DockerError):
         db.migrate()
+
+
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_compose_up_runs_all_services(mock_run: MagicMock) -> None:
+    mock_run.return_value = _cp(0)
+    db.compose_up()
+    assert mock_run.call_args[0][0] == ["docker", "compose", "up", "-d"]
+
+
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_compose_up_failure_raises(mock_run: MagicMock) -> None:
+    mock_run.return_value = _cp(1, "boom")
+    with pytest.raises(db.DockerError):
+        db.compose_up()
+
+
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_compose_down_runs(mock_run: MagicMock) -> None:
+    mock_run.return_value = _cp(0)
+    db.compose_down()
+    assert mock_run.call_args[0][0] == ["docker", "compose", "down"]
+
+
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_compose_down_failure_raises(mock_run: MagicMock) -> None:
+    mock_run.return_value = _cp(1, "boom")
+    with pytest.raises(db.DockerError):
+        db.compose_down()
+
+
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_running_services_parses_lines(mock_run: MagicMock) -> None:
+    result = _cp(0)
+    result.stdout = "db\nscheduler\n"
+    mock_run.return_value = result
+    assert db.running_services() == {"db", "scheduler"}
+
+
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_running_services_empty_on_error(mock_run: MagicMock) -> None:
+    mock_run.return_value = _cp(1, "boom")
+    assert db.running_services() == set()
+
+
+@patch("app.setup.docker_bootstrap.shutil.which", return_value="/usr/bin/docker")
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_docker_available_true(mock_run: MagicMock, _which: MagicMock) -> None:
+    mock_run.return_value = _cp(0)
+    assert db.docker_available() is True
+
+
+@patch("app.setup.docker_bootstrap.shutil.which", return_value=None)
+def test_docker_available_false(_which: MagicMock) -> None:
+    assert db.docker_available() is False

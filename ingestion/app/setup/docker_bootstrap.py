@@ -59,3 +59,36 @@ def migrate() -> None:
     result = _run(["alembic", "upgrade", "head"])
     if result.returncode != 0:
         raise DockerError(f"`alembic upgrade head` failed:\n{result.stderr}")
+
+
+def compose_up() -> None:
+    """Bring up all services in the background (`portopt start`)."""
+    result = _run(["docker", "compose", "up", "-d"])
+    if result.returncode != 0:
+        raise DockerError(f"`docker compose up` failed:\n{result.stderr}")
+
+
+def compose_down() -> None:
+    """Stop and remove all services (`portopt stop`)."""
+    result = _run(["docker", "compose", "down"])
+    if result.returncode != 0:
+        raise DockerError(f"`docker compose down` failed:\n{result.stderr}")
+
+
+def running_services() -> set[str]:
+    """Return the set of compose services currently running (empty on error)."""
+    result = _run(
+        ["docker", "compose", "ps", "--services", "--filter", "status=running"]
+    )
+    if result.returncode != 0:
+        return set()
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def docker_available() -> bool:
+    """True if Docker + the compose plugin are usable (never raises)."""
+    try:
+        check_docker()
+    except DockerError:
+        return False
+    return True
