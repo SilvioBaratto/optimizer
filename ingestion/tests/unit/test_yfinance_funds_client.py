@@ -103,9 +103,7 @@ class TestFetchFundProfile:
         assert out["expense_ratio"] == 0.0025
         assert out["base_currency"] == "EUR"
 
-    def test_expense_ratio_prefers_net_expense_ratio(
-        self, client: FundsClient
-    ) -> None:
+    def test_expense_ratio_prefers_net_expense_ratio(self, client: FundsClient) -> None:
         """netExpenseRatio is the key Yahoo actually populates for ETFs (SPY/AGG);
         the legacy mutual-fund keys are fallbacks and must not shadow it."""
         ticker = MagicMock()
