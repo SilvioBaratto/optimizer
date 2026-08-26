@@ -1,48 +1,18 @@
-"""ETF-specific screen: the AUM size filter, and share-class/cross-listing dedup.
+"""ETF-specific screen helpers: share-class / cross-listing dedup.
 
 The equity screens (market cap, P/E, ROE …) do not apply to funds, so ETFs run a
-dedicated pipeline: the AUM size gate (below) plus the shared HistoricalDataFilter
-for the ≥750-trading-day history bar. There is deliberately NO exchange-volume /
-liquidity gate — UCITS ETFs trade OTC, so exchange volume massively understates
-liquidity and would drop legitimate multi-billion-euro funds.
+dedicated pipeline whose only gate is the shared HistoricalDataFilter (the
+≥750-trading-day history bar); classification (leveraged/inverse/unclassifiable
+rejected) happens upstream in the builder. Investability — liquidity, ADDV,
+price — is deliberately NOT screened here: it is a downstream fund-layer concern
+(optimizer/universe), computed on the price panel at portfolio construction.
+Trading 212 exposes no AUM and Yahoo omits it for most UCITS listings, so an
+ingestion-side size/liquidity gate can't be applied reliably anyway.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
-
-from app.services.universe.trading212.config import UniverseBuilderConfig
-
-
-@dataclass
-class AUMFilter:
-    config: UniverseBuilderConfig
-
-    @property
-    def name(self) -> str:
-        return "AUMFilter"
-
-    def filter(self, data: dict[str, Any], yf_ticker: str) -> tuple[bool, str]:
-        if not data:
-            return False, "No data available"
-        aum = data.get("totalAssets") or data.get("netAssets")
-        # Yahoo's `.info` omits totalAssets for many valid bond-ETF listings
-        # (e.g. JAGA.DE, VGGS.L). Requiring it would silently drop legitimate
-        # funds, so an *unknown* AUM passes — the ≥750-day history bar still gates.
-        if aum is None:
-            return True, "AUM unknown (passed)"
-        # Normalize the fund's reported AUM to EUR (the floor's currency) using
-        # the config FX reference table; an unmapped currency is treated as EUR.
-        currency = data.get("currency")
-        rate = self.config.etf_aum_fx_to_eur.get(currency, 1.0) if currency else 1.0
-        eur_aum = aum * rate
-        if eur_aum < self.config.etf_min_aum:
-            return (
-                False,
-                f"AUM €{eur_aum / 1e6:.0f}M < €{self.config.etf_min_aum / 1e6:.0f}M",
-            )
-        return True, f"AUM €{eur_aum / 1e6:.0f}M"
 
 
 def dedup_etfs_by_isin(

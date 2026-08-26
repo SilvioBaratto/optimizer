@@ -22,7 +22,6 @@ from app.services.universe.trading212.cache.ticker_cache import TickerMappingCac
 from app.services.universe.trading212.client import Trading212Client
 from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.filters import (
-    AUMFilter,
     DataCoverageFilter,
     FilterPipelineImpl,
     HistoricalDataFilter,
@@ -79,13 +78,13 @@ def _build_pipelines(
     pipeline.add_filter(DataCoverageFilter(config=config))
     pipeline.add_filter(HistoricalDataFilter(config=config))
 
-    # ETFs run their own screen (equity metrics don't apply). AUM is the
-    # size gate (known -> ≥floor, unknown -> pass, since Yahoo omits it for
-    # many UCITS listings) plus the same ≥750-trading-day history bar.
-    # No exchange-volume gate: UCITS ETFs trade OTC, so exchange volume
-    # massively understates liquidity and would drop legitimate funds.
+    # ETFs run their own screen (equity metrics don't apply). Admission is
+    # classification (leveraged/inverse/unclassifiable rejected upstream in the
+    # builder) + the ≥750-trading-day history bar. Investability — liquidity,
+    # ADDV, price — is a downstream fund-layer concern (optimizer/universe), not
+    # an ingestion gate: Trading 212 exposes no AUM and Yahoo omits it for most
+    # UCITS listings, so an ingestion-side size screen can't be applied reliably.
     etf_pipeline = FilterPipelineImpl()
-    etf_pipeline.add_filter(AUMFilter(config=config))
     etf_pipeline.add_filter(HistoricalDataFilter(config=config))
 
     return pipeline, etf_pipeline

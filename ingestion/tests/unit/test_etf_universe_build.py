@@ -1,9 +1,9 @@
 """T4 — ETF screen + builder branch.
 
 The equity screens don't apply to funds, so ETFs run their own pipeline
-(AUM + history) and are deduped to one listing per ISIN. The builder tags every
-instrument with its asset class and routes ETFs through the ETF pipeline while
-the STOCK path is unchanged.
+(classification upstream + the history bar) and are deduped to one listing per
+ISIN. The builder tags every instrument with its asset class and routes ETFs
+through the ETF pipeline while the STOCK path is unchanged.
 """
 
 from __future__ import annotations
@@ -13,47 +13,9 @@ from unittest.mock import MagicMock, patch
 from app.services.universe.trading212.builder import UniverseBuilder
 from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.filters import FilterPipelineImpl
-from app.services.universe.trading212.filters.etf_screen import (
-    AUMFilter,
-    dedup_etfs_by_isin,
-)
+from app.services.universe.trading212.filters.etf_screen import dedup_etfs_by_isin
 
 CFG = UniverseBuilderConfig()
-
-
-class TestAUMFilter:
-    def test_passes_above_floor(self) -> None:
-        ok, _ = AUMFilter(CFG).filter({"totalAssets": 2e8}, "X")
-        assert ok is True
-
-    def test_rejects_below_floor(self) -> None:
-        ok, reason = AUMFilter(CFG).filter({"totalAssets": 5e7}, "X")
-        assert ok is False and "AUM" in reason
-
-    def test_passes_when_aum_unknown(self) -> None:
-        # Yahoo omits totalAssets for many valid bond ETFs — unknown must pass.
-        ok, reason = AUMFilter(CFG).filter({"foo": 1}, "X")
-        assert ok is True and "unknown" in reason
-
-    def test_falls_back_to_net_assets(self) -> None:
-        ok, _ = AUMFilter(CFG).filter({"netAssets": 2e8}, "X")
-        assert ok is True
-
-    def test_rejects_empty_data(self) -> None:
-        ok, _ = AUMFilter(CFG).filter({}, "X")
-        assert ok is False
-
-    def test_gbp_aum_normalized_to_eur_passes(self) -> None:
-        # £90M is below the raw floor but 90M * 1.17 = €105M -> passes.
-        ok, reason = AUMFilter(CFG).filter(
-            {"totalAssets": 90e6, "currency": "GBP"}, "X"
-        )
-        assert ok is True and "€105M" in reason
-
-    def test_usd_aum_normalized_to_eur_can_reject(self) -> None:
-        # $100M would pass raw, but 100M * 0.92 = €92M < €100M -> rejects.
-        ok, _ = AUMFilter(CFG).filter({"totalAssets": 100e6, "currency": "USD"}, "X")
-        assert ok is False
 
 
 class TestDedup:

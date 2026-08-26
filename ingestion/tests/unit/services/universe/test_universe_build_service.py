@@ -196,15 +196,28 @@ class TestBuildPipelines:
             "HistoricalDataFilter",
         ]
 
-    def test_etf_pipeline_filter_order(self) -> None:
+    def test_etf_pipeline_is_history_only(self) -> None:
+        """ETFs are admitted on classification (upstream) + price history only.
+        Investability (ADDV/liquidity) is a downstream fund-layer concern — no AUM."""
         _, etf = _build_pipelines(UniverseBuilderConfig(), skip_filters=False)
         assert etf is not None
-        assert [f.name for f in etf.get_filters()] == [
-            "AUMFilter",
-            "HistoricalDataFilter",
-        ]
+        assert [f.name for f in etf.get_filters()] == ["HistoricalDataFilter"]
 
     def test_skip_filters_yields_empty_equity_and_no_etf(self) -> None:
         equity, etf = _build_pipelines(UniverseBuilderConfig(), skip_filters=True)
         assert equity.get_filters() == []
         assert etf is None
+
+
+class TestAUMScreenRemoved:
+    """The ETF AUM screen was removed — no class, no config surface, no export."""
+
+    def test_aum_filter_is_not_importable(self) -> None:
+        import app.services.universe.trading212.filters as filters
+
+        assert not hasattr(filters, "AUMFilter")
+
+    def test_config_has_no_aum_fields(self) -> None:
+        config = UniverseBuilderConfig()
+        assert not hasattr(config, "etf_min_aum")
+        assert not hasattr(config, "etf_aum_fx_to_eur")
