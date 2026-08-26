@@ -103,6 +103,31 @@ class TestFetchFundProfile:
         assert out["expense_ratio"] == 0.0025
         assert out["base_currency"] == "EUR"
 
+    def test_expense_ratio_prefers_net_expense_ratio(
+        self, client: FundsClient
+    ) -> None:
+        """netExpenseRatio is the key Yahoo actually populates for ETFs (SPY/AGG);
+        the legacy mutual-fund keys are fallbacks and must not shadow it."""
+        ticker = MagicMock()
+        ticker.info = {"navPrice": 1.0, "netExpenseRatio": 0.0945}
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("SPY")
+
+        assert out is not None
+        assert out["expense_ratio"] == 0.0945
+
+    def test_aum_falls_back_to_net_assets(self, client: FundsClient) -> None:
+        """Some UCITS listings expose netAssets but not totalAssets."""
+        ticker = MagicMock()
+        ticker.info = {"navPrice": 1.0, "netAssets": 1_045_968_830.0}
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("V60A.DE")
+
+        assert out is not None
+        assert out["aum"] == 1_045_968_830.0
+
     def test_empty_info_returns_none(self, client: FundsClient) -> None:
         ticker = MagicMock()
         ticker.info = {}

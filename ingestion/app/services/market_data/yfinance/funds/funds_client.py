@@ -45,12 +45,19 @@ class FundsClient(BaseClient):
         def _action() -> dict[str, Any] | None:
             info = self._get_ticker(symbol).info or {}
             profile = {
-                "aum": info.get("totalAssets"),
+                # Yahoo omits totalAssets for many UCITS ETFs; netAssets is the
+                # same figure under a second key when present.
+                "aum": info.get("totalAssets") or info.get("netAssets"),
                 "nav": info.get("navPrice"),
                 "fund_family": info.get("fundFamily"),
                 "legal_type": info.get("legalType"),
+                # netExpenseRatio is the key Yahoo actually populates for ETFs
+                # (US-listed carry it; UCITS listings mostly do not). The other
+                # two are legacy mutual-fund keys kept as fallbacks.
                 "expense_ratio": (
-                    info.get("annualReportExpenseRatio") or info.get("expenseRatio")
+                    info.get("netExpenseRatio")
+                    or info.get("annualReportExpenseRatio")
+                    or info.get("expenseRatio")
                 ),
                 "base_currency": info.get("currency"),
             }
