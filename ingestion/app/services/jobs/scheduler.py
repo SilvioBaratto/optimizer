@@ -100,6 +100,11 @@ _universe_jobs = BackgroundJobService(
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
+_universe_annotate_jobs = BackgroundJobService(
+    job_type="t212_annotate",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
 
 # The live scheduler, bound by create_scheduler(). The RECLAIM reaper submits
 # one-shot re-dispatch jobs through it so they run in the drained executor pool.
@@ -329,6 +334,32 @@ def run_universe_step(*, attempt: int = 0) -> bool:
     )
 
 
+def run_t212_annotate_step(*, attempt: int = 0) -> bool:
+    """Map Trading 212 tickers onto the yfinance universe (follow-on to the build).
+
+    Trading 212 is an add-on — a missing key is a config state, not a failure:
+    the step logs, returns ``False``, and never claims a job slot.
+    """
+    from app.services.universe.t212_annotate import run_t212_annotate
+    from app.services.universe.universe_build_service import (
+        Trading212NotConfiguredError,
+        build_trading212_client,
+    )
+
+    try:
+        build_trading212_client()
+    except Trading212NotConfiguredError as exc:
+        logger.info("t212_annotate: skipped — %s", exc)
+        return False
+
+    return _run_step(
+        "t212_annotate",
+        _universe_annotate_jobs,
+        run_t212_annotate,
+        attempt=attempt,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Daily pipeline
 # ---------------------------------------------------------------------------
@@ -398,13 +429,15 @@ def run_weekly_refetch() -> None:
 
 
 def run_universe_build() -> None:
-    """Weekly Trading 212 instrument-universe rebuild.
+    """Weekly instrument-universe rebuild from the yfinance Screener.
 
     Scheduled ahead of ``weekly_refetch`` so the yfinance rebuild fetches the
-    fresh instrument set rather than last week's.
+    fresh instrument set rather than last week's. When Trading 212 is configured,
+    its tickers are mapped onto the freshly built universe afterwards.
     """
     logger.info("universe_build: starting")
     run_universe_step()
+    run_t212_annotate_step()
     logger.info("universe_build: finished")
 
 

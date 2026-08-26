@@ -557,13 +557,60 @@ class TestRunUniverseStep:
         assert args[2] is run_universe_build  # the build fn
         assert isinstance(args[-1], UniverseBuildRequest)  # only the request; no client
 
-    def test_run_universe_build_job_delegates_to_the_step(self):
-        with patch(f"{M}.run_universe_step", return_value=True) as step:
+    def test_run_universe_build_job_runs_build_then_annotate(self):
+        with (
+            patch(f"{M}.run_universe_step", return_value=True) as step,
+            patch(f"{M}.run_t212_annotate_step", return_value=False) as annotate,
+        ):
             from app.services.jobs.scheduler import run_universe_build
 
             run_universe_build()
 
         step.assert_called_once()
+        annotate.assert_called_once()
+
+
+class TestT212AnnotateStep:
+    """T212 mapping is a follow-on — it skips without a slot when unconfigured."""
+
+    _SVC = "app.services.universe.universe_build_service"
+
+    def test_skips_without_claiming_when_not_configured(self):
+        from app.services.universe.universe_build_service import (
+            Trading212NotConfiguredError,
+        )
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    f"{self._SVC}.build_trading212_client",
+                    side_effect=Trading212NotConfiguredError("no key"),
+                )
+            )
+            run_step = stack.enter_context(patch(f"{M}._run_step"))
+
+            from app.services.jobs.scheduler import run_t212_annotate_step
+
+            assert run_t212_annotate_step() is False
+
+        run_step.assert_not_called()
+
+    def test_runs_the_annotate_step_when_configured(self):
+        from app.services.universe import t212_annotate
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(f"{self._SVC}.build_trading212_client", return_value=MagicMock())
+            )
+            run_step = stack.enter_context(patch(f"{M}._run_step", return_value=True))
+
+            from app.services.jobs.scheduler import run_t212_annotate_step
+
+            assert run_t212_annotate_step() is True
+
+        args = run_step.call_args.args
+        assert args[0] == "t212_annotate"
+        assert args[2] is t212_annotate.run_t212_annotate
 
 
 class TestHeartbeatCompanion:
