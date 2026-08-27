@@ -40,22 +40,36 @@ class ScreenerClient:
         *,
         size: int = 25,
         offset: int = 0,
+        count: int | None = None,
         sort_field: str | None = None,
         sort_asc: bool = True,
         max_retries: int | None = None,
     ) -> dict[str, Any] | None:
         """Run one screen. ``query`` is an ``EquityQuery``/``FundQuery``/``ETFQuery``
-        or a predefined-screen name. ``size`` is capped at 250; page with ``offset``."""
+        or a predefined-screen name.
+
+        yfinance sizes **custom** ``*Query`` objects via ``size=`` (default 100, max 250)
+        and **predefined** name strings via ``count=`` (default 25, max 250). Pass
+        ``count`` for a predefined name (see :meth:`screen_predefined`); otherwise ``size``
+        is used. Page with ``offset``.
+        """
         retries = max_retries if max_retries is not None else self.default_max_retries
-        capped = min(size, MAX_SIZE)
 
         def _action() -> dict[str, Any] | None:
             self.circuit_breaker.check()
             self.rate_limiter.acquire("screener")
+            if count is not None:
+                return yf.screen(
+                    query,
+                    offset=offset,
+                    count=min(count, MAX_SIZE),
+                    sortField=sort_field,
+                    sortAsc=sort_asc,
+                )
             return yf.screen(
                 query,
                 offset=offset,
-                size=capped,
+                size=min(size, MAX_SIZE),
                 sortField=sort_field,
                 sortAsc=sort_asc,
             )
@@ -73,11 +87,14 @@ class ScreenerClient:
         self,
         name: str,
         *,
-        size: int = 25,
+        count: int = 25,
         offset: int = 0,
         max_retries: int | None = None,
     ) -> dict[str, Any] | None:
-        """Run a predefined screen by name (see ``yf.PREDEFINED_SCREENER_QUERIES``)."""
+        """Run a predefined screen by name (see ``yf.PREDEFINED_SCREENER_QUERIES``).
+
+        Predefined screens are sized via ``count`` (default 25, max 250), not ``size``.
+        """
         if name not in yf.PREDEFINED_SCREENER_QUERIES:
             logger.error(
                 "Unknown predefined screen '%s'. Valid: %s",
@@ -85,4 +102,4 @@ class ScreenerClient:
                 list(yf.PREDEFINED_SCREENER_QUERIES),
             )
             return None
-        return self.screen(name, size=size, offset=offset, max_retries=max_retries)
+        return self.screen(name, count=count, offset=offset, max_retries=max_retries)
