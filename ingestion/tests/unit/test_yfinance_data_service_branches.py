@@ -96,6 +96,35 @@ def _make_yf_client_silent() -> MagicMock:
     return yf_client
 
 
+class TestValuationEpsStalenessGate:
+    """valuation/eps_trend/eps_revisions are staleness-gated on the shared
+    financial_statements table (financials_updated_at) — no longer refetched every run."""
+
+    def test_skipped_when_financials_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"financials_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "valuation_measures" in result["skipped"]
+        assert "eps_trend" in result["skipped"]
+        assert "eps_revisions" in result["skipped"]
+        yf.metadata.fetch_valuation_measures.assert_not_called()
+        yf.analysis.fetch_eps_trend.assert_not_called()
+        yf.analysis.fetch_eps_revisions.assert_not_called()
+
+    def test_fetched_when_financials_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"financials_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        _run(repo, yf, mode="incremental")
+        yf.metadata.fetch_valuation_measures.assert_called_once()
+        yf.analysis.fetch_eps_trend.assert_called_once()
+        yf.analysis.fetch_eps_revisions.assert_called_once()
+
+
 def _run(
     repo: MagicMock,
     yf_client: MagicMock,
