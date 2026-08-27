@@ -22,7 +22,16 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
 MIGRATION_FILENAME = "x4y5z6a7b8c9_seed_reference_indices.py"
-MIGRATION_DIR = Path(__file__).parent / ".." / ".." / "alembic" / "versions"
+MIGRATION_DIR = (
+    Path(__file__).parent
+    / ".."
+    / ".."
+    / ".."
+    / "packages"
+    / "portopt-db"
+    / "alembic"
+    / "versions"
+)
 MIGRATION_PATH = str((MIGRATION_DIR / MIGRATION_FILENAME).resolve())
 
 EXPECTED_REVISION = "x4y5z6a7b8c9"

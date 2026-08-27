@@ -24,7 +24,16 @@ MIGRATION_FILENAME = (
     "y5z6a7b8c9d0_add_factor_scores_execution_runs_"
     "risk_limits_rebalancing_policies_tables.py"
 )
-MIGRATION_DIR = Path(__file__).parent / ".." / ".." / "alembic" / "versions"
+MIGRATION_DIR = (
+    Path(__file__).parent
+    / ".."
+    / ".."
+    / ".."
+    / "packages"
+    / "portopt-db"
+    / "alembic"
+    / "versions"
+)
 MIGRATION_PATH = str((MIGRATION_DIR / MIGRATION_FILENAME).resolve())
 EXPECTED_REVISION = "y5z6a7b8c9d0"
 EXPECTED_DOWN_REVISION = "x4y5z6a7b8c9"

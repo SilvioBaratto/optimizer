@@ -44,9 +44,14 @@ RUN useradd -m -u 1000 appuser
 # Virtualenv (includes all runtime packages + scripts: alembic, baml-cli)
 COPY --from=builder /venv /venv
 
-# Application source (alembic.ini + alembic/ + generated baml_client + entrypoint
-# live outside the installed `app` package, so the source tree is still needed).
+# Application source (generated baml_client + entrypoint live outside the
+# installed `app` package, so the source tree is still needed).
 COPY --from=builder /build/ingestion/ ./ingestion/
+
+# The Alembic tree lives in portopt-db (single migration owner) and sits outside
+# the installed package, so ship it explicitly; entrypoint migrates from here.
+COPY --from=builder /build/packages/portopt-db/alembic /app/portopt-db/alembic
+COPY --from=builder /build/packages/portopt-db/alembic.ini /app/portopt-db/alembic.ini
 
 COPY ingestion/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh \

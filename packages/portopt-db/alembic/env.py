@@ -1,6 +1,5 @@
-import sys
+import os
 from logging.config import fileConfig
-from pathlib import Path
 
 from sqlalchemy import engine_from_config, pool
 
@@ -15,17 +14,16 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Ensure the ingestion/ directory is on sys.path so "app" package is importable.
-sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+# The URL is injected via the DATABASE_URL environment variable (the consumer —
+# ingestion, a future fund/, or a CI/dev shell — sets it). portopt_db does not
+# import any application settings. Falls back to the alembic.ini default for a
+# local dev run with no env set.
+_db_url = os.getenv("DATABASE_URL")
+if _db_url:
+    config.set_main_option("sqlalchemy.url", _db_url)
 
-# Import app settings (loads .env via pydantic-settings) and use as single
-# source of truth for the database URL.
-from app.config import settings
-
-config.set_main_option("sqlalchemy.url", settings.database_url)
-
-# Import Base *after* all model modules have been registered via
-# portopt_db.models.__init__, so Base.metadata contains every table.
+# Importing the models package registers every model on Base.metadata, so
+# autogenerate/upgrade see the complete schema.
 from portopt_db.models import Base
 
 target_metadata = Base.metadata

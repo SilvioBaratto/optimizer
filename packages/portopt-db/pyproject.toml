@@ -36,6 +36,9 @@ portopt_db = ["py.typed"]
 line-length = 88
 # py310 syntax target (matches the root config); runtime floor is >=3.12.
 target-version = "py310"
+# Alembic migrations are mechanical / auto-generated — not linted (E501 long
+# op.* lines, S608 string SQL in data migrations, E402 env.py late imports).
+extend-exclude = ["alembic"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "S", "RUF", "C4", "PTH"]
