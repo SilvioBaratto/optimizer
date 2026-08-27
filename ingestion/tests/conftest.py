@@ -9,11 +9,15 @@ from collections.abc import Generator
 from unittest.mock import MagicMock
 
 import pytest
+
+# Import via the models aggregator (not portopt_db.base) so every model module
+# is registered on Base.metadata before create_all — mirrors the old
+# app.models package-import side effect.
+from portopt_db.models import Base
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models._shared import Base
 from tests._fixtures import seed_macro, seed_market_data, seed_universe
 
 # Test database URL - use SQLite for fast tests

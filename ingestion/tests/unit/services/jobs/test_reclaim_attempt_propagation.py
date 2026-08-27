@@ -147,7 +147,8 @@ class TestReclaimEndToEndAttempt:
         """
         from datetime import datetime, timedelta, timezone
 
-        from app.models.jobs.background_job import BackgroundJob
+        from portopt_db.models.jobs.background_job import BackgroundJob
+
         from app.services.jobs import scheduler as sched
 
         # Insert a running orphan directly (attempt=1, stale lease).

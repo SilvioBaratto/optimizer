@@ -17,10 +17,9 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
+from portopt_db.models.market_data.yfinance_data import TickerProfile
+from portopt_db.models.universe.universe import Exchange, Instrument
 from sqlalchemy.orm import Session
-
-from app.models.market_data.yfinance_data import TickerProfile
-from app.models.universe.universe import Exchange, Instrument
 
 
 @pytest.fixture

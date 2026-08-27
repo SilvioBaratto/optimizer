@@ -1,24 +1,24 @@
 """Market Data models."""
 
-from app.models.market_data.calendars import (
+from portopt_db.models.market_data.calendars import (
     EarningsCalendar,
     EconomicEventCalendar,
     IpoCalendar,
     SplitCalendar,
 )
-from app.models.market_data.etf_metadata import (
+from portopt_db.models.market_data.etf_metadata import (
     ETFAssetClass,
     ETFHolding,
     ETFMetadata,
     ETFSectorWeight,
 )
-from app.models.market_data.market_structure import (
+from portopt_db.models.market_data.market_structure import (
     SectorIndustry,
     SectorSnapshot,
     SectorTopCompany,
 )
-from app.models.market_data.market_summary import MarketSummary
-from app.models.market_data.yfinance_data import (
+from portopt_db.models.market_data.market_summary import MarketSummary
+from portopt_db.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
     Dividend,

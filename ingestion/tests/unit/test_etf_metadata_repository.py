@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import datetime as dt
 
-from app.models.market_data.etf_metadata import (
+from portopt_db.models.market_data.etf_metadata import (
     ETFAssetClass,
     ETFHolding,
     ETFMetadata,
     ETFSectorWeight,
 )
-from app.models.universe.universe import Exchange, Instrument
+from portopt_db.models.universe.universe import Exchange, Instrument
+
 from app.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
 )

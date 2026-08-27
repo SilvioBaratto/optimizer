@@ -5,12 +5,12 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
+from portopt_db.models.macro.macro_regime import MacroNews
+from portopt_db.models.market_data.yfinance_data import TickerNews, TickerProfile
+from portopt_db.models.universe.universe import Instrument
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models.macro.macro_regime import MacroNews
-from app.models.market_data.yfinance_data import TickerNews, TickerProfile
-from app.models.universe.universe import Instrument
 from app.repositories._shared import RepositoryBase
 
 logger = logging.getLogger(__name__)

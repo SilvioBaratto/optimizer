@@ -1,6 +1,6 @@
 """Macro models."""
 
-from app.models.macro.macro_regime import (
+from portopt_db.models.macro.macro_regime import (
     BondYield,
     EconomicIndicator,
     MacroCalibration,

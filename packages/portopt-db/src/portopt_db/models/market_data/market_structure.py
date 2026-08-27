@@ -21,7 +21,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models._shared import BaseModel
+from portopt_db.base import BaseModel
 
 
 class SectorSnapshot(BaseModel):

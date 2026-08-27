@@ -1,7 +1,6 @@
 """SQLAlchemy declarative Base + shared mixins for the portopt database.
 
-Single source of the ORM registry: every model in ``portopt_db.models`` (and,
-during the extraction, the not-yet-moved ``app.models`` re-exporting from here)
+Single source of the ORM registry: every model in ``portopt_db.models``
 inherits this ``Base`` so ``Base.metadata`` holds one complete schema.
 """
 

@@ -43,16 +43,16 @@ class TestBackgroundJobLivenessColumns:
 
 class TestBackgroundJobModelMappedAttributes:
     def test_when_model_inspected_then_worker_pid_attribute_present(self):
-        from app.models.jobs.background_job import BackgroundJob
+        from portopt_db.models.jobs.background_job import BackgroundJob
 
         assert hasattr(BackgroundJob, "worker_pid")
 
     def test_when_model_inspected_then_worker_host_attribute_present(self):
-        from app.models.jobs.background_job import BackgroundJob
+        from portopt_db.models.jobs.background_job import BackgroundJob
 
         assert hasattr(BackgroundJob, "worker_host")
 
     def test_when_model_inspected_then_last_heartbeat_at_attribute_present(self):
-        from app.models.jobs.background_job import BackgroundJob
+        from portopt_db.models.jobs.background_job import BackgroundJob
 
         assert hasattr(BackgroundJob, "last_heartbeat_at")

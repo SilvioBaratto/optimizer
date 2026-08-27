@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import uuid
 
+from portopt_db.models.macro.macro_regime import (
+    MacroCalibration,
+    MacroNews,
+    MacroNewsTheme,
+)
 from sqlalchemy.orm import Session
 
-from app.models.macro.macro_regime import MacroCalibration, MacroNews, MacroNewsTheme
 from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 
 

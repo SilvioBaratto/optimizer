@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models._shared import BaseModel
+from portopt_db.base import BaseModel
 
 
 class EconomicIndicator(BaseModel):
@@ -135,9 +135,10 @@ class BondYield(BaseModel):
 
 
 class TradingEconomicsObservation(BaseModel):
-    """Trading Economics time-series observation: one row per (country, indicator_key, date).
+    """Trading Economics time-series observation.
 
-    Accumulates daily snapshots so that regime classifiers can access
+    One row per (country, indicator_key, date). Accumulates daily snapshots so
+    that regime classifiers can access
     historical indicator values instead of only the latest overwritten row.
     """
 

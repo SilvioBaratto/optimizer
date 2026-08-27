@@ -12,7 +12,7 @@ import datetime
 from sqlalchemy import BigInteger, Date, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models._shared import BaseModel
+from portopt_db.base import BaseModel
 
 
 class EarningsCalendar(BaseModel):

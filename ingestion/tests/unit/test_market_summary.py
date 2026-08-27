@@ -120,7 +120,7 @@ class TestRepository:
         assert repo.upsert_summaries("US", _AS_OF, rows) == 1  # idempotent
         db_session.flush()
 
-        from app.models.market_data.market_summary import MarketSummary
+        from portopt_db.models.market_data.market_summary import MarketSummary
 
         got = db_session.query(MarketSummary).all()
         assert len(got) == 1

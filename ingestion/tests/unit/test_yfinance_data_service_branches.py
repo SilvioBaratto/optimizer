@@ -149,7 +149,7 @@ class TestPriceUnit:
     price rows so the fx layer converts — no lossy transform at ingest."""
 
     def test_price_history_model_has_price_unit_column(self) -> None:
-        from app.models.market_data.yfinance_data import PriceHistory
+        from portopt_db.models.market_data.yfinance_data import PriceHistory
 
         assert hasattr(PriceHistory, "price_unit")
 
@@ -183,7 +183,7 @@ class TestAnalystEstimates:
     the shared fundamentals window (SPEC A1 / OQ5)."""
 
     def test_models_have_expected_columns(self) -> None:
-        from app.models.market_data.yfinance_data import (
+        from portopt_db.models.market_data.yfinance_data import (
             EarningsEstimate,
             GrowthEstimate,
             RevenueEstimate,
@@ -232,7 +232,10 @@ class TestEarningsTimeline:
     """earnings_history + earnings_dates (SPEC A2)."""
 
     def test_models_have_expected_columns(self) -> None:
-        from app.models.market_data.yfinance_data import EarningsDate, EarningsHistory
+        from portopt_db.models.market_data.yfinance_data import (
+            EarningsDate,
+            EarningsHistory,
+        )
 
         for col in (
             "period_date",
@@ -277,7 +280,7 @@ class TestAnalystActions:
     """analyst_actions (upgrades/downgrades) — SPEC A3, analyst-rating cadence."""
 
     def test_model_has_expected_columns(self) -> None:
-        from app.models.market_data.yfinance_data import AnalystAction
+        from portopt_db.models.market_data.yfinance_data import AnalystAction
 
         for col in ("action_date", "firm", "from_grade", "to_grade", "action"):
             assert hasattr(AnalystAction, col)
@@ -314,7 +317,7 @@ class TestEsgScores:
     """esg_scores (SPEC A4)."""
 
     def test_model_has_expected_columns(self) -> None:
-        from app.models.market_data.yfinance_data import EsgScore
+        from portopt_db.models.market_data.yfinance_data import EsgScore
 
         for col in (
             "total_esg",
@@ -351,7 +354,7 @@ class TestSecFilings:
     """sec_filings (SPEC A5) — list of filing dicts."""
 
     def test_model_has_expected_columns(self) -> None:
-        from app.models.market_data.yfinance_data import SecFiling
+        from portopt_db.models.market_data.yfinance_data import SecFiling
 
         for col in ("filing_date", "form_type", "title", "url"):
             assert hasattr(SecFiling, col)
@@ -392,19 +395,19 @@ class TestCorpActionExtras:
     """Shares outstanding + capital gains + price-history CG column (SPEC A6)."""
 
     def test_shares_outstanding_model_columns(self) -> None:
-        from app.models.market_data.yfinance_data import SharesOutstanding
+        from portopt_db.models.market_data.yfinance_data import SharesOutstanding
 
         for col in ("date", "shares"):
             assert hasattr(SharesOutstanding, col)
 
     def test_capital_gain_model_columns(self) -> None:
-        from app.models.market_data.yfinance_data import CapitalGain
+        from portopt_db.models.market_data.yfinance_data import CapitalGain
 
         for col in ("date", "amount"):
             assert hasattr(CapitalGain, col)
 
     def test_price_history_has_capital_gains_column(self) -> None:
-        from app.models.market_data.yfinance_data import PriceHistory
+        from portopt_db.models.market_data.yfinance_data import PriceHistory
 
         assert hasattr(PriceHistory, "capital_gains")
 
@@ -457,19 +460,19 @@ class TestHoldersExtras:
     """major_holders + insider_purchases + insider_roster (SPEC A7)."""
 
     def test_major_holders_model_columns(self) -> None:
-        from app.models.market_data.yfinance_data import MajorHolders
+        from portopt_db.models.market_data.yfinance_data import MajorHolders
 
         for col in ("insiders_percent_held", "institutions_percent_held"):
             assert hasattr(MajorHolders, col)
 
     def test_insider_purchase_model_columns(self) -> None:
-        from app.models.market_data.yfinance_data import InsiderPurchaseSummary
+        from portopt_db.models.market_data.yfinance_data import InsiderPurchaseSummary
 
         for col in ("net_shares", "total_insider_shares"):
             assert hasattr(InsiderPurchaseSummary, col)
 
     def test_insider_roster_model_columns(self) -> None:
-        from app.models.market_data.yfinance_data import InsiderRosterHolder
+        from portopt_db.models.market_data.yfinance_data import InsiderRosterHolder
 
         for col in ("insider_name", "position"):
             assert hasattr(InsiderRosterHolder, col)
@@ -536,7 +539,7 @@ class TestProfileExtras:
     """ticker_profile_extras (SPEC A9) — mapped from the already-fetched info."""
 
     def test_model_has_expected_columns(self) -> None:
-        from app.models.market_data.yfinance_data import TickerProfileExtra
+        from portopt_db.models.market_data.yfinance_data import TickerProfileExtra
 
         for col in ("shares_short", "short_ratio", "overall_risk", "sector_key"):
             assert hasattr(TickerProfileExtra, col)

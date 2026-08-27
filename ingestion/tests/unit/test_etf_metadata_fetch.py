@@ -10,7 +10,8 @@ from __future__ import annotations
 import datetime as dt
 from unittest.mock import MagicMock
 
-from app.models.universe.universe import Exchange, Instrument
+from portopt_db.models.universe.universe import Exchange, Instrument
+
 from app.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
 )
@@ -86,15 +87,14 @@ def test_fetch_etf_metadata_writes_all_tables(db_session) -> None:
 def test_fetch_etf_metadata_writes_depth_tables(db_session) -> None:
     """SPEC A8: equity/bond holdings, bond ratings, fund operations, and the
     fund overview (category/description) are persisted from funds_data depth."""
-    from sqlalchemy import select
-
-    from app.models.market_data.etf_metadata import (
+    from portopt_db.models.market_data.etf_metadata import (
         ETFBondHoldings,
         ETFBondRating,
         ETFEquityHoldings,
         ETFFundOperations,
         ETFMetadata,
     )
+    from sqlalchemy import select
 
     inst = _fi_instrument(db_session)
     yf = MagicMock()

@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from portopt_db.models.universe.universe import Exchange, Instrument
 from sqlalchemy.orm import Session
 
-from app.models.universe.universe import Exchange, Instrument
 from tests._fixtures._helpers import add_and_flush
 
 

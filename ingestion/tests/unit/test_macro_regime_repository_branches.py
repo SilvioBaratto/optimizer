@@ -29,9 +29,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy.orm import Session
-
-from app.models.macro.macro_regime import (
+from portopt_db.models.macro.macro_regime import (
     BondYield,
     BondYieldObservation,
     EconomicIndicator,
@@ -44,6 +42,8 @@ from app.models.macro.macro_regime import (
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
 )
+from sqlalchemy.orm import Session
+
 from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 
 # ---------------------------------------------------------------------------

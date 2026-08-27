@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models._shared import BaseModel
+from portopt_db.base import BaseModel
 
 # Use JSONB on PostgreSQL, plain JSON elsewhere (e.g. SQLite in tests).
 _JSON = JSON().with_variant(JSONB, "postgresql")

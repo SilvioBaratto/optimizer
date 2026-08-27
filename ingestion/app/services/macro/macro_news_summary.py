@@ -18,9 +18,9 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal
 
+from portopt_db.models.macro.macro_regime import MacroNews
 from sqlalchemy.orm import Session
 
-from app.models.macro.macro_regime import MacroNews
 from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 from app.services._shared import ProgressCallback, _noop
 from app.services.macro._baml_client import llm_call_options

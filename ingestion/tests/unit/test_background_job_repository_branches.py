@@ -76,7 +76,7 @@ class TestEnsureTablesExistFallback:
         # Outer except fires (broken inspect); inner fallback also fails.
         import sys
 
-        from app.models._shared import Base
+        from portopt_db.base import Base
 
         broken_mod = MagicMock()
         broken_mod.inspect.side_effect = RuntimeError("inspect boom")

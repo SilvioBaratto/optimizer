@@ -9,13 +9,13 @@ from __future__ import annotations
 from datetime import date
 from typing import NamedTuple
 
-from sqlalchemy.orm import Session
-
-from app.models.macro.macro_regime import (
+from portopt_db.models.macro.macro_regime import (
     EconomicIndicator,
     FredObservation,
     MacroCalibration,
 )
+from sqlalchemy.orm import Session
+
 from tests._fixtures._helpers import add_and_flush
 
 _SEED_DATE = date(2024, 1, 1)

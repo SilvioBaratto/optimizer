@@ -9,10 +9,7 @@ from typing import Any, cast
 from uuid import UUID
 
 import pandas as pd
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
-
-from app.models.market_data.yfinance_data import (
+from portopt_db.models.market_data.yfinance_data import (
     AnalystAction,
     AnalystPriceTarget,
     AnalystRecommendation,
@@ -40,7 +37,10 @@ from app.models.market_data.yfinance_data import (
     TickerProfile,
     TickerProfileExtra,
 )
-from app.models.universe.universe import Instrument
+from portopt_db.models.universe.universe import Instrument
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, joinedload
+
 from app.repositories._shared import RepositoryBase
 
 logger = logging.getLogger(__name__)

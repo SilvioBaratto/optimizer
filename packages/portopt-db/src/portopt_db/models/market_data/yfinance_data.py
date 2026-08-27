@@ -22,10 +22,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models._shared import BaseModel
+from portopt_db.base import BaseModel
 
 if TYPE_CHECKING:
-    from app.models.universe.universe import Instrument
+    from portopt_db.models.universe.universe import Instrument
 
 
 class TickerProfile(BaseModel):

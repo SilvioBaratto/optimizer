@@ -6,12 +6,12 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Any
 
+from portopt_db.models.universe.universe import Exchange, Instrument
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.universe.universe import Exchange, Instrument
 from app.repositories._shared import RepositoryBase
 
 logger = logging.getLogger(__name__)

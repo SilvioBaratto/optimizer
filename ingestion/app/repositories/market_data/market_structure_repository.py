@@ -11,13 +11,13 @@ import datetime as dt
 import uuid
 from typing import Any
 
-from sqlalchemy import select
-
-from app.models.market_data.market_structure import (
+from portopt_db.models.market_data.market_structure import (
     SectorIndustry,
     SectorSnapshot,
     SectorTopCompany,
 )
+from sqlalchemy import select
+
 from app.repositories._shared.base import RepositoryBase
 
 

@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from portopt_db.models.market_data.yfinance_data import TickerProfile
+from portopt_db.models.universe.universe import Exchange, Instrument
 from sqlalchemy.orm import Session
 
-from app.models.market_data.yfinance_data import TickerProfile
-from app.models.universe.universe import Exchange, Instrument
 from tests._fixtures._helpers import add_and_flush
 from tests._fixtures.universe import seed_universe
 

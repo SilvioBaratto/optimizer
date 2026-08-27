@@ -6,11 +6,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import func as sa_func
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
-from app.models.macro.macro_regime import (
+from portopt_db.models.macro.macro_regime import (
     BondYield,
     BondYieldObservation,
     EconomicIndicator,
@@ -23,6 +19,10 @@ from app.models.macro.macro_regime import (
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
 )
+from sqlalchemy import func as sa_func
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.repositories._shared import RepositoryBase
 from app.utils.date_parsing import parse_reference_date
 

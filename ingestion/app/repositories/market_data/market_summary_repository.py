@@ -10,7 +10,8 @@ import datetime as dt
 import uuid
 from typing import Any
 
-from app.models.market_data.market_summary import MarketSummary
+from portopt_db.models.market_data.market_summary import MarketSummary
+
 from app.repositories._shared.base import RepositoryBase
 
 

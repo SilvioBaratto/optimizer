@@ -9,16 +9,16 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Date, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models._shared import BaseModel
+from portopt_db.base import BaseModel
 
 if TYPE_CHECKING:
-    from app.models.market_data.etf_metadata import (
+    from portopt_db.models.market_data.etf_metadata import (
         ETFAssetClass,
         ETFHolding,
         ETFMetadata,
         ETFSectorWeight,
     )
-    from app.models.market_data.yfinance_data import (
+    from portopt_db.models.market_data.yfinance_data import (
         AnalystPriceTarget,
         AnalystRecommendation,
         Dividend,

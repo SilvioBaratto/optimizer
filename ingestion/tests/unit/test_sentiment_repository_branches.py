@@ -16,10 +16,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from portopt_db.models.macro.macro_regime import MacroNews
+from portopt_db.models.market_data.yfinance_data import TickerNews, TickerProfile
 from sqlalchemy.orm import Session
 
-from app.models.macro.macro_regime import MacroNews
-from app.models.market_data.yfinance_data import TickerNews, TickerProfile
 from app.repositories.macro.sentiment_repository import SentimentRepository
 from tests._fixtures._helpers import add_and_flush
 from tests._fixtures.universe import seed_universe

@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
+from portopt_db.models.macro.macro_regime import MacroNews
 
-from app.models.macro.macro_regime import MacroNews
 from app.services.macro.macro_news_summary import (
     QUERY_COUNTRY_MAP,
     TICKER_COUNTRY_MAP,

@@ -11,13 +11,13 @@ import uuid
 from typing import Any
 
 import pandas as pd
-
-from app.models.market_data.calendars import (
+from portopt_db.models.market_data.calendars import (
     EarningsCalendar,
     EconomicEventCalendar,
     IpoCalendar,
     SplitCalendar,
 )
+
 from app.repositories._shared.base import RepositoryBase
 
 

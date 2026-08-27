@@ -21,9 +21,7 @@ from datetime import date, datetime
 
 import pandas as pd
 import pytest
-from sqlalchemy.orm import Session
-
-from app.models.market_data.yfinance_data import (
+from portopt_db.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
     Dividend,
@@ -36,7 +34,9 @@ from app.models.market_data.yfinance_data import (
     TickerNews,
     TickerProfile,
 )
-from app.models.universe.universe import Exchange, Instrument
+from portopt_db.models.universe.universe import Exchange, Instrument
+from sqlalchemy.orm import Session
+
 from app.repositories.market_data.yfinance_repository import (
     YFinanceRepository,
     _safe_date,

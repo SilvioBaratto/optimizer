@@ -73,7 +73,7 @@ def _yf_with_options() -> MagicMock:
 
 class TestModel:
     def test_option_contract_columns(self) -> None:
-        from app.models.market_data.yfinance_data import OptionContract
+        from portopt_db.models.market_data.yfinance_data import OptionContract
 
         for col in (
             "expiry",

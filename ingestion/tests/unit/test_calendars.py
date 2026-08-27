@@ -89,7 +89,7 @@ class TestRepository:
         assert repo.upsert_earnings(rows) == 1  # idempotent
         db_session.flush()
 
-        from app.models.market_data.calendars import EarningsCalendar
+        from portopt_db.models.market_data.calendars import EarningsCalendar
 
         got = db_session.query(EarningsCalendar).all()
         assert len(got) == 1
@@ -115,7 +115,7 @@ class TestRepository:
         db_session.flush()
         assert n == 1
 
-        from app.models.market_data.calendars import EconomicEventCalendar
+        from portopt_db.models.market_data.calendars import EconomicEventCalendar
 
         got = db_session.query(EconomicEventCalendar).one()
         assert got.country == "US"  # from "Region", not the "?" fallback
@@ -141,7 +141,7 @@ class TestRepository:
         db_session.flush()
         assert n == 1
 
-        from app.models.market_data.calendars import IpoCalendar
+        from portopt_db.models.market_data.calendars import IpoCalendar
 
         got = db_session.query(IpoCalendar).one()
         assert got.ipo_date == dt.date(2026, 7, 1)
@@ -164,7 +164,7 @@ class TestRepository:
         db_session.flush()
         assert n == 1
 
-        from app.models.market_data.calendars import SplitCalendar
+        from portopt_db.models.market_data.calendars import SplitCalendar
 
         got = db_session.query(SplitCalendar).one()
         assert got.split_date == dt.date(2026, 8, 15)

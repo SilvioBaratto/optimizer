@@ -25,8 +25,8 @@ from app.config import settings
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
 # Import Base *after* all model modules have been registered via
-# app.models.__init__, so Base.metadata contains every table.
-from app.models import Base
+# portopt_db.models.__init__, so Base.metadata contains every table.
+from portopt_db.models import Base
 
 target_metadata = Base.metadata
 

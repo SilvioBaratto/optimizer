@@ -9,6 +9,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+from portopt_db.models.jobs.background_job import BackgroundJob, BackgroundJobError
 from sqlalchemy import (
     delete,
     exists,
@@ -22,7 +23,6 @@ from sqlalchemy import (
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
-from app.models.jobs.background_job import BackgroundJob, BackgroundJobError
 from app.repositories._shared import RepositoryBase
 
 _ACTIVE_STATUSES: tuple[str, ...] = ("pending", "running")
@@ -49,7 +49,7 @@ class BackgroundJobRepository(RepositoryBase):
 
     def _ensure_tables_exist(self) -> None:
         """Ensure background_jobs table exists (for test isolation)."""
-        from app.models._shared import Base
+        from portopt_db.base import Base
 
         try:
             # Try to check if table exists
@@ -64,7 +64,7 @@ class BackgroundJobRepository(RepositoryBase):
             # to create-anyway. The terminal failure of that fallback is logged
             # at debug below, so the drop here is justified, not silent.
             try:
-                from app.models._shared import Base
+                from portopt_db.base import Base
 
                 Base.metadata.create_all(bind=self.session.bind)  # type: ignore[arg-type]
             except Exception as e:
