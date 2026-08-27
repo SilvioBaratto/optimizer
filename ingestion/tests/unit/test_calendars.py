@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import datetime as dt
 from contextlib import contextmanager
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -26,32 +25,46 @@ def _client() -> CalendarsClient:
     )
 
 
+_CAL = "app.services.market_data.yfinance.market.calendars.yf.Calendars"
+
+
+def _page(n: int, start: int = 0) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Symbol": [f"T{i}" for i in range(start, start + n)],
+            "Event Start Date": ["2026-10-30"] * n,
+        }
+    )
+
+
 class TestCalendarsClient:
-    def test_fetch_earnings_returns_records(self) -> None:
-        df = pd.DataFrame(
-            {
-                "ticker": ["AAPL", "MSFT"],
-                "companyshortname": ["Apple", "Microsoft"],
-                "startdatetime": ["2026-10-30", "2026-10-28"],
-                "epsestimate": [1.5, 3.1],
-            }
-        )
-        cal = SimpleNamespace(earnings_calendar=df)
-        with patch(
-            "app.services.market_data.yfinance.market.calendars.yf.Calendars",
-            return_value=cal,
-        ):
+    def test_fetch_earnings_paginates_and_disables_most_active(self) -> None:
+        cal = MagicMock()
+        # full 100-row page, then a short page -> stop after two calls.
+        cal.get_earnings_calendar.side_effect = [_page(100, 0), _page(3, 100)]
+        with patch(_CAL, return_value=cal):
             out = _client().fetch_earnings()
 
-        assert out is not None
-        assert {r["ticker"] for r in out} == {"AAPL", "MSFT"}
+        assert out is not None and len(out) == 103
+        assert cal.get_earnings_calendar.call_count == 2
+        k0 = cal.get_earnings_calendar.call_args_list[0].kwargs
+        assert k0["offset"] == 0
+        assert k0["limit"] == 100
+        assert k0["filter_most_active"] is False
+        assert cal.get_earnings_calendar.call_args_list[1].kwargs["offset"] == 100
 
-    def test_empty_dataframe_returns_empty_list(self) -> None:
-        cal = SimpleNamespace(splits_calendar=pd.DataFrame())
-        with patch(
-            "app.services.market_data.yfinance.market.calendars.yf.Calendars",
-            return_value=cal,
-        ):
+    def test_short_first_page_stops_immediately(self) -> None:
+        cal = MagicMock()
+        cal.get_ipo_info_calendar.return_value = _page(5)
+        with patch(_CAL, return_value=cal):
+            out = _client().fetch_ipos()
+        assert len(out) == 5
+        assert cal.get_ipo_info_calendar.call_count == 1
+
+    def test_empty_first_page_returns_empty_list(self) -> None:
+        cal = MagicMock()
+        cal.get_splits_calendar.return_value = pd.DataFrame()
+        with patch(_CAL, return_value=cal):
             assert _client().fetch_splits() == []
 
 
