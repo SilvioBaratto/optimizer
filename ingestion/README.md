@@ -29,6 +29,7 @@ python -m app.worker          # blocks until SIGTERM/SIGINT
 | `midday_news` | `0 14 * * *` | news + summarize (afternoon refresh) |
 | `universe_build` | `0 2 * * 0` | Trading 212 instrument universe |
 | `weekly_refetch` | `0 3 * * 0` | full yfinance + macro rebuild (5y) |
+| `weekly_market_wide` | `0 4 * * 0` | sector/industry structure, calendars, market summaries, full option chains |
 | `fred_monthly` | `0 8 1 * *` | FRED economic series |
 | `news_refresh` | every 30 min | incremental re-summarization |
 | `orphan_reaper` | every 300s | fails (or reclaims) jobs whose heartbeat lease expired |
@@ -36,7 +37,8 @@ python -m app.worker          # blocks until SIGTERM/SIGINT
 News, summarize, and calibrate form a dependency chain — each consumes what the previous one
 wrote, so a failure upstream skips the rest rather than summarizing stale articles.
 `universe_build` runs before `weekly_refetch` because every other step iterates the
-`instruments` table it writes.
+`instruments` table it writes. `weekly_market_wide` runs after `weekly_refetch` so the
+option-chain sweep sees the freshly rebuilt universe.
 
 ## Manual runs
 
@@ -55,6 +57,10 @@ docker compose exec scheduler python -m app.cli news
 docker compose exec scheduler python -m app.cli summarize
 docker compose exec scheduler python -m app.cli calibrate
 docker compose exec scheduler python -m app.cli reference-indices
+docker compose exec scheduler python -m app.cli market-structure
+docker compose exec scheduler python -m app.cli calendars
+docker compose exec scheduler python -m app.cli market-summary
+docker compose exec scheduler python -m app.cli options
 ```
 
 Single-step commands exit non-zero when the step did not complete, so shell drivers can gate

@@ -62,8 +62,9 @@ class YFinanceClient:
         return cls._instance
 
     # Exactly the registered @cached_property sub-client names. reset_instance
-    # pops each from __dict__; stale entries for deleted sub-clients (market,
-    # sectors, calendars, streaming, async_streaming) were removed.
+    # pops each from __dict__. market / sectors / calendars were re-added for the
+    # market-wide ingestion steps (SPEC Gap B); only streaming / async_streaming
+    # remain unimplemented (batch-only daemon).
     _CACHED_SUBCLIENT_NAMES: tuple[str, ...] = (
         "financials",
         "analysis",
