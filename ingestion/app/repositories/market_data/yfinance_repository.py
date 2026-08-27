@@ -16,6 +16,7 @@ from app.models.market_data.yfinance_data import (
     AnalystAction,
     AnalystPriceTarget,
     AnalystRecommendation,
+    CapitalGain,
     Dividend,
     EarningsDate,
     EarningsEstimate,
@@ -29,6 +30,7 @@ from app.models.market_data.yfinance_data import (
     PriceHistory,
     RevenueEstimate,
     SecFiling,
+    SharesOutstanding,
     StockSplit,
     TickerNews,
     TickerProfile,
@@ -294,6 +296,7 @@ class YFinanceRepository(RepositoryBase):
                     "volume": _safe_int(row_data.get("Volume")),
                     "dividends": _safe_float(row_data.get("Dividends")),
                     "stock_splits": _safe_float(row_data.get("Stock Splits")),
+                    "capital_gains": _safe_float(row_data.get("Capital Gains")),
                     "price_unit": price_unit,
                 }
             )
@@ -668,6 +671,53 @@ class YFinanceRepository(RepositoryBase):
             .order_by(StockSplit.date.desc())
         )
         return self.session.execute(stmt).scalars().all()
+
+    # ------------------------------------------------------------------
+    # Shares Outstanding / Capital Gains (corporate-action extras)
+    # ------------------------------------------------------------------
+
+    def upsert_shares_outstanding(self, instrument_id: UUID, shares: Any) -> int:
+        """Upsert point-in-time share counts from ``get_shares_full``.
+
+        yfinance returns a Series (index=timestamp, value=shares); a
+        single-column DataFrame is squeezed. Same date can repeat, so the
+        first row per date wins the natural-key dedup.
+        """
+        series = shares
+        if isinstance(series, pd.DataFrame):
+            series = series.iloc[:, 0] if series.shape[1] else series.squeeze()
+
+        rows: list[dict[str, Any]] = []
+        seen: set[date] = set()
+        for idx, val in series.items():
+            dt = _safe_date(idx)
+            n = _safe_int(val)
+            if dt is None or n is None or dt in seen:
+                continue
+            seen.add(dt)
+            rows.append({"instrument_id": instrument_id, "date": dt, "shares": n})
+
+        return self._upsert(
+            SharesOutstanding,
+            rows,
+            constraint_name="uq_shares_outstanding_instrument_date",
+        )
+
+    def upsert_capital_gains(self, instrument_id: UUID, gains: pd.Series) -> int:
+        """Upsert capital-gain distributions (index=date, value=amount)."""
+        rows = []
+        for idx, amount in gains.items():
+            dt = _safe_date(idx)
+            amt = _safe_float(amount)
+            if dt is None or amt is None:
+                continue
+            rows.append({"instrument_id": instrument_id, "date": dt, "amount": amt})
+
+        return self._upsert(
+            CapitalGain,
+            rows,
+            constraint_name="uq_capital_gain_instrument_date",
+        )
 
     # ------------------------------------------------------------------
     # Analyst Recommendations

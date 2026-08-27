@@ -187,6 +187,9 @@ class PriceHistory(BaseModel):
     volume: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     dividends: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     stock_splits: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Fund capital-gain distribution paid on this date (yfinance "Capital Gains"
+    # history column; present for mutual funds / some ETFs, else NULL).
+    capital_gains: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     # Listing currency / price unit the OHLCV values are quoted in (e.g. "GBX"
     # pence for LSE). yfinance 1.6.0 repair keeps sub-unit currencies as-is, so
     # the series is stored raw and the fx layer converts at analysis time (SPEC OQ2).
@@ -478,6 +481,46 @@ class SecFiling(BaseModel):
     form_type: Mapped[str] = mapped_column(String(50), nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class SharesOutstanding(BaseModel):
+    """Point-in-time shares outstanding from yf.Ticker.get_shares_full()."""
+
+    __tablename__ = "shares_outstanding"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "date", name="uq_shares_outstanding_instrument_date"
+        ),
+        Index("ix_shares_outstanding_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+class CapitalGain(BaseModel):
+    """Capital-gain distributions from yf.Ticker.capital_gains (funds)."""
+
+    __tablename__ = "capital_gains"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "date", name="uq_capital_gain_instrument_date"
+        ),
+        Index("ix_capital_gains_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(20, 6), nullable=False)
 
 
 class AnalystRecommendation(BaseModel):

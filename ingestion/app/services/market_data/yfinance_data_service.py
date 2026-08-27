@@ -719,6 +719,27 @@ class YFinanceDataService:
                 errors.append(f"sec_filings: {e}")
                 logger.warning("Failed sec_filings for %s: %s", yfinance_ticker, e)
 
+        # 3l. Shares outstanding (fundamentals window; point-in-time float).
+        if estimates_fresh:
+            skipped.append("shares_outstanding")
+        else:
+            try:
+                shares = self._timed(
+                    lambda: self.yf_client.corporate_actions.fetch_shares_full(
+                        yfinance_ticker
+                    )
+                )
+                counts["shares_outstanding"] = (
+                    self.repo.upsert_shares_outstanding(instrument_id, shares)
+                    if shares is not None and not getattr(shares, "empty", True)
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"shares_outstanding: {e}")
+                logger.warning(
+                    "Failed shares_outstanding for %s: %s", yfinance_ticker, e
+                )
+
         # 4. Dividends
         if (
             mode == "incremental"
@@ -744,6 +765,31 @@ class YFinanceDataService:
             except Exception as e:
                 errors.append(f"dividends: {e}")
                 logger.warning("Failed dividends for %s: %s", yfinance_ticker, e)
+
+        # 4b. Capital gains (fund distributions; shares the dividends window).
+        if (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("dividends_updated_at"), thresholds.dividends_hours, now
+            )
+        ):
+            skipped.append("capital_gains")
+        else:
+            try:
+                cap_gains = self._timed(
+                    lambda: self.yf_client.corporate_actions.fetch_capital_gains(
+                        yfinance_ticker
+                    )
+                )
+                counts["capital_gains"] = (
+                    self.repo.upsert_capital_gains(instrument_id, cap_gains)
+                    if cap_gains is not None and not cap_gains.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"capital_gains: {e}")
+                logger.warning("Failed capital_gains for %s: %s", yfinance_ticker, e)
 
         # 5. Stock splits
         if (
