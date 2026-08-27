@@ -98,6 +98,10 @@ class StalenessThresholds:
 
 DEFAULT_THRESHOLDS = StalenessThresholds()
 
+# Sentinel: distinguishes "caller did not supply staleness" (query it) from
+# "caller supplied None" (no data yet → treat as stale) on fetch_and_store.
+_UNSET: Any = object()
+
 
 def _is_fresh(
     updated_at: datetime | None,
@@ -146,6 +150,7 @@ class YFinanceDataService:
         exchange_name: str | None = None,
         currency_code: str | None = None,
         asset_class: str | None = None,
+        staleness: Any = _UNSET,
     ) -> dict[str, Any]:
         """Fetch all data categories for a single ticker and store.
 
@@ -172,9 +177,12 @@ class YFinanceDataService:
         if thresholds is None:
             thresholds = DEFAULT_THRESHOLDS
 
-        # In incremental mode, query staleness info once upfront
-        staleness: dict[str, Any] | None = None
-        if mode == "incremental":
+        # In incremental mode, query staleness info once upfront — unless the
+        # caller (a bulk sweep) pre-loaded it in one grouped query and injected
+        # it here, avoiding a per-instrument round-trip.
+        if mode != "incremental":
+            staleness = None
+        elif staleness is _UNSET:
             try:
                 staleness = self.repo.get_staleness_info(instrument_id)
             except Exception as e:
@@ -1231,6 +1239,12 @@ def run_bulk_yfinance_fetch(
             request_timeout=float(_settings.yfinance_request_timeout_seconds),
         )
 
+        # Incremental: one grouped staleness query for the whole sweep instead
+        # of 11 MAX() round-trips per instrument inside fetch_and_store.
+        staleness_by_id: dict[UUID, dict[str, Any]] = {}
+        if request.mode == "incremental":
+            staleness_by_id = repo.get_staleness_info_bulk([i.id for i in instruments])
+
         for idx, instrument in enumerate(instruments, 1):
             ticker = instrument.yfinance_ticker
             on_progress(current=idx, current_ticker=ticker)
@@ -1248,6 +1262,11 @@ def run_bulk_yfinance_fetch(
                     exchange_name=instrument.exchange_name,
                     currency_code=instrument.currency_code,
                     asset_class=getattr(instrument, "asset_class", None),
+                    staleness=(
+                        staleness_by_id.get(instrument.id)
+                        if request.mode == "incremental"
+                        else _UNSET
+                    ),
                 )
 
                 for k, v in result["counts"].items():
@@ -1318,6 +1337,7 @@ def _fetch_one_ticker(
     yf_client: YFinanceClient,
     database_manager: Any,
     request_timeout: float | None = None,
+    staleness: Any = _UNSET,
 ) -> dict[str, Any]:
     """Fetch a single ticker inside an isolated per-thread session."""
     if not spec.yfinance_ticker:
@@ -1334,6 +1354,7 @@ def _fetch_one_ticker(
                 exchange_name=spec.exchange_name,
                 currency_code=spec.currency_code,
                 asset_class=spec.asset_class,
+                staleness=staleness,
             )
             session.commit()
             return result
@@ -1385,6 +1406,15 @@ def _run_bulk_yfinance_fetch_parallel(
     total = len(specs)
     on_progress(total=total)
 
+    # Incremental: pre-load staleness for the whole sweep in one main-thread
+    # session (grouped queries) instead of 11 MAX() round-trips per worker.
+    staleness_by_id: dict[UUID, dict[str, Any]] = {}
+    if request.mode == "incremental":
+        with database_manager.get_session() as _s:
+            staleness_by_id = YFinanceRepository(_s).get_staleness_info_bulk(
+                [s.instrument_id for s in specs]
+            )
+
     counter = [0]
     counter_lock = threading.Lock()
     aggregate_lock = threading.Lock()
@@ -1397,7 +1427,16 @@ def _run_bulk_yfinance_fetch_parallel(
     ) -> tuple[_InstrumentSpec, dict[str, Any] | Exception]:
         try:
             return spec, _fetch_one_ticker(
-                spec, request, yf_client, database_manager, request_timeout
+                spec,
+                request,
+                yf_client,
+                database_manager,
+                request_timeout,
+                staleness=(
+                    staleness_by_id.get(spec.instrument_id)
+                    if request.mode == "incremental"
+                    else _UNSET
+                ),
             )
         except Exception as exc:
             return spec, exc

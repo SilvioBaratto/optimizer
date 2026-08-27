@@ -296,6 +296,27 @@ class YFinanceRepository(RepositoryBase):
         )
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def get_options_as_of_bulk(
+        self, instrument_ids: Sequence[UUID]
+    ) -> dict[UUID, date]:
+        """Latest options snapshot date per instrument in one grouped query.
+
+        Avoids a MAX(as_of) round-trip per instrument across the full sweep.
+        """
+        ids = list(instrument_ids)
+        if not ids:
+            return {}
+        stmt = (
+            select(OptionContract.instrument_id, func.max(OptionContract.as_of))
+            .where(OptionContract.instrument_id.in_(ids))
+            .group_by(OptionContract.instrument_id)
+        )
+        return {
+            row[0]: row[1]
+            for row in self.session.execute(stmt).all()
+            if row[1] is not None
+        }
+
     def upsert_option_chain(
         self, instrument_id: UUID, rows: list[dict[str, Any]]
     ) -> int:
@@ -1268,6 +1289,56 @@ class YFinanceRepository(RepositoryBase):
                 )
             ).scalar_one_or_none()
             result[f"{category}_updated_at"] = val
+
+        return result
+
+    def get_staleness_info_bulk(
+        self, instrument_ids: Sequence[UUID]
+    ) -> dict[UUID, dict[str, Any]]:
+        """Batched :meth:`get_staleness_info` for a whole sweep.
+
+        Returns one full staleness dict per requested id (all-None for an
+        instrument with no rows yet), matching the single-query shape exactly —
+        but via 11 grouped queries total instead of 11 per instrument.
+        """
+        ids = list(instrument_ids)
+        category_models = [
+            ("profile", TickerProfile),
+            ("financials", FinancialStatement),
+            ("dividends", Dividend),
+            ("splits", StockSplit),
+            ("recommendations", AnalystRecommendation),
+            ("price_targets", AnalystPriceTarget),
+            ("institutional_holders", InstitutionalHolder),
+            ("mutualfund_holders", MutualFundHolder),
+            ("insider_transactions", InsiderTransaction),
+            ("news", TickerNews),
+        ]
+        result: dict[UUID, dict[str, Any]] = {
+            iid: {
+                "price_max_date": None,
+                **{f"{cat}_updated_at": None for cat, _ in category_models},
+            }
+            for iid in ids
+        }
+        if not ids:
+            return result
+
+        for iid, mx in self.session.execute(
+            select(PriceHistory.instrument_id, func.max(PriceHistory.date))
+            .where(PriceHistory.instrument_id.in_(ids))
+            .group_by(PriceHistory.instrument_id)
+        ).all():
+            result[iid]["price_max_date"] = mx
+
+        for category, model in category_models:
+            m = cast(Any, model)
+            for iid, mx in self.session.execute(
+                select(m.instrument_id, func.max(m.updated_at))
+                .where(m.instrument_id.in_(ids))
+                .group_by(m.instrument_id)
+            ).all():
+                result[iid][f"{category}_updated_at"] = mx
 
         return result
 

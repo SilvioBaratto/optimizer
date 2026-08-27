@@ -565,6 +565,35 @@ class TestProfileExtras:
         repo.upsert_profile_extras.assert_called_once()
 
 
+class TestStalenessInjection:
+    """A bulk sweep pre-loads staleness in one grouped query and injects it, so
+    fetch_and_store must NOT run its own per-instrument staleness query."""
+
+    def test_injected_staleness_skips_per_instrument_query(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(staleness=None)
+        yf = _make_yf_client_silent()
+        service = YFinanceDataService(repo=repo, yf_client=yf)
+        result = service.fetch_and_store(
+            instrument_id=uuid4(),
+            yfinance_ticker="AAPL",
+            mode="incremental",
+            staleness={"financials_updated_at": now, "price_max_date": None},
+        )
+        repo.get_staleness_info.assert_not_called()
+        assert "valuation_measures" in result["skipped"]
+
+    def test_missing_staleness_falls_back_to_query(self) -> None:
+        repo = _make_repo(staleness={"price_max_date": None})
+        yf = _make_yf_client_silent()
+        service = YFinanceDataService(repo=repo, yf_client=yf)
+        # No staleness kwarg → the internal query still runs.
+        service.fetch_and_store(
+            instrument_id=uuid4(), yfinance_ticker="AAPL", mode="incremental"
+        )
+        repo.get_staleness_info.assert_called_once()
+
+
 def _run(
     repo: MagicMock,
     yf_client: MagicMock,

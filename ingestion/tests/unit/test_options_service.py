@@ -128,34 +128,41 @@ class TestIsFresh:
 
 
 class TestBulkFetch:
-    def _repo(self, *, as_of):
+    def _repo(self, *, iid, as_of):
         repo = MagicMock(name="repo")
         repo.get_instruments_with_yfinance_ticker.return_value = [
-            SimpleNamespace(id=uuid4(), yfinance_ticker="AAPL")
+            SimpleNamespace(id=iid, yfinance_ticker="AAPL")
         ]
-        repo.get_options_as_of.return_value = as_of
+        # Grouped gate query: present-and-fresh -> skip; absent -> stale/fetch.
+        repo.get_options_as_of_bulk.return_value = {iid: as_of} if as_of else {}
         repo.upsert_option_chain.return_value = 2
         return repo
 
     def test_persists_when_stale(self) -> None:
-        repo = self._repo(as_of=None)
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
         yf = _yf_with_options()
         with (
             patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t: fn()),
             patch("app.database.database_manager", _session_ctx()),
         ):
             result = run_bulk_options_fetch(yf)
 
+        repo.get_options_as_of_bulk.assert_called_once()
+        repo.get_options_as_of.assert_not_called()  # no per-instrument query
         repo.upsert_option_chain.assert_called_once()
         assert result["contract_rows"] == 2
         assert result["instruments_processed"] == 1
         assert result["instruments_skipped_fresh"] == 0
 
     def test_skips_when_fresh(self) -> None:
-        repo = self._repo(as_of=date.today())
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=date.today())
         yf = _yf_with_options()
         with (
             patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t: fn()),
             patch("app.database.database_manager", _session_ctx()),
         ):
             result = run_bulk_options_fetch(yf, staleness_hours=168)
@@ -163,3 +170,23 @@ class TestBulkFetch:
         repo.upsert_option_chain.assert_not_called()
         yf.metadata.fetch_options_expirations.assert_not_called()
         assert result["instruments_skipped_fresh"] == 1
+
+    def test_yfinance_calls_are_timeout_wrapped(self) -> None:
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        yf = _yf_with_options()
+        seen: list[float] = []
+
+        def _capture(fn, timeout):
+            seen.append(timeout)
+            return fn()
+
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", _capture),
+            patch("app.database.database_manager", _session_ctx()),
+        ):
+            run_bulk_options_fetch(yf, request_timeout=7.5)
+
+        # expirations + one option_chain both routed through the watchdog
+        assert seen and all(t == 7.5 for t in seen)
