@@ -128,3 +128,14 @@ def test_respects_max_pages(monkeypatch: pytest.MonkeyPatch) -> None:
     src.max_pages = 2
     src.get_instruments()
     assert screener.screen.call_count == 2
+
+
+def test_pagination_requests_a_stable_sort(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Offset paging over Yahoo's default order can dup/skip rows across pages;
+    # a stable sortField makes paging deterministic.
+    full = {"quotes": [_quote(f"S{i}", "NMS") for i in range(250)]}
+    src, screener = _source([full, {"quotes": []}], monkeypatch)
+    src.get_instruments()
+    assert screener.screen.call_args_list, "screen was never called"
+    for call in screener.screen.call_args_list:
+        assert call.kwargs.get("sort_field")  # non-None deterministic sort field
