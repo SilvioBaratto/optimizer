@@ -90,6 +90,9 @@ def _make_yf_client_silent() -> MagicMock:
     yf_client.holders.fetch_mutualfund_holders.return_value = None
     yf_client.holders.fetch_insider_transactions.return_value = None
     yf_client.metadata.fetch_valuation_measures.return_value = None
+    yf_client.analysis.fetch_earnings_estimate.return_value = None
+    yf_client.analysis.fetch_revenue_estimate.return_value = None
+    yf_client.analysis.fetch_growth_estimates.return_value = None
     ticker_mock = MagicMock()
     ticker_mock.news = []
     yf_client.get_ticker.return_value = ticker_mock
@@ -157,6 +160,56 @@ class TestPriceUnit:
         yf.fetch_history.return_value = hist
         _run(repo, yf, mode="incremental", currency_code="GBX")
         assert repo.upsert_price_history.call_args.kwargs.get("price_unit") == "GBX"
+
+
+class TestAnalystEstimates:
+    """earnings/revenue/growth estimates: dedicated tables, staleness-gated on
+    the shared fundamentals window (SPEC A1 / OQ5)."""
+
+    def test_models_have_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import (
+            EarningsEstimate,
+            GrowthEstimate,
+            RevenueEstimate,
+        )
+
+        for col in ("period", "num_analysts", "avg", "low", "high", "growth"):
+            assert hasattr(EarningsEstimate, col)
+        assert hasattr(EarningsEstimate, "year_ago_eps")
+        assert hasattr(RevenueEstimate, "year_ago_revenue")
+        for col in ("stock_trend", "industry_trend", "sector_trend", "index_trend"):
+            assert hasattr(GrowthEstimate, col)
+
+    def test_skipped_when_financials_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"financials_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "earnings_estimate" in result["skipped"]
+        assert "revenue_estimate" in result["skipped"]
+        assert "growth_estimates" in result["skipped"]
+        yf.analysis.fetch_earnings_estimate.assert_not_called()
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"financials_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        est = pd.DataFrame(
+            {"numberOfAnalysts": [5], "avg": [1.2], "low": [1.0], "high": [1.5]},
+            index=["0q"],
+        )
+        yf.analysis.fetch_earnings_estimate.return_value = est
+        yf.analysis.fetch_revenue_estimate.return_value = est
+        yf.analysis.fetch_growth_estimates.return_value = pd.DataFrame(
+            {"stockTrend": [0.1], "indexTrend": [0.08]}, index=["0q"]
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_earnings_estimate.assert_called_once()
+        repo.upsert_revenue_estimate.assert_called_once()
+        repo.upsert_growth_estimates.assert_called_once()
 
 
 def _run(

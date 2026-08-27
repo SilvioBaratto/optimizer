@@ -16,11 +16,14 @@ from app.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
     Dividend,
+    EarningsEstimate,
     FinancialStatement,
+    GrowthEstimate,
     InsiderTransaction,
     InstitutionalHolder,
     MutualFundHolder,
     PriceHistory,
+    RevenueEstimate,
     StockSplit,
     TickerNews,
     TickerProfile,
@@ -294,6 +297,77 @@ class YFinanceRepository(RepositoryBase):
             PriceHistory,
             rows,
             constraint_name="uq_price_history_instrument_date",
+        )
+
+    def upsert_earnings_estimate(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert forward-period earnings estimates (index = period labels)."""
+        rows = [
+            {
+                "instrument_id": instrument_id,
+                "period": _safe_str(period, 10),
+                "num_analysts": _safe_int(row.get("numberOfAnalysts")),
+                "avg": _safe_float(row.get("avg")),
+                "low": _safe_float(row.get("low")),
+                "high": _safe_float(row.get("high")),
+                "year_ago_eps": _safe_float(row.get("yearAgoEps")),
+                "growth": _safe_float(row.get("growth")),
+            }
+            for period, row in df.iterrows()
+        ]
+        return self._upsert(
+            EarningsEstimate,
+            rows,
+            constraint_name="uq_earnings_estimate_instrument_period",
+        )
+
+    def upsert_revenue_estimate(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert forward-period revenue estimates (index = period labels)."""
+        rows = [
+            {
+                "instrument_id": instrument_id,
+                "period": _safe_str(period, 10),
+                "num_analysts": _safe_int(row.get("numberOfAnalysts")),
+                "avg": _safe_float(row.get("avg")),
+                "low": _safe_float(row.get("low")),
+                "high": _safe_float(row.get("high")),
+                "year_ago_revenue": _safe_float(row.get("yearAgoRevenue")),
+                "growth": _safe_float(row.get("growth")),
+            }
+            for period, row in df.iterrows()
+        ]
+        return self._upsert(
+            RevenueEstimate,
+            rows,
+            constraint_name="uq_revenue_estimate_instrument_period",
+        )
+
+    def upsert_growth_estimates(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert per-period growth estimates (stock/industry/sector/index trend).
+
+        Column names vary across yfinance versions; read defensively.
+        """
+
+        def _col(row: Any, *names: str) -> Any:
+            for name in names:
+                if name in row:
+                    return row.get(name)
+            return None
+
+        rows = [
+            {
+                "instrument_id": instrument_id,
+                "period": _safe_str(period, 10),
+                "stock_trend": _safe_float(_col(row, "stockTrend", "stock")),
+                "industry_trend": _safe_float(_col(row, "industryTrend", "industry")),
+                "sector_trend": _safe_float(_col(row, "sectorTrend", "sector")),
+                "index_trend": _safe_float(_col(row, "indexTrend", "index")),
+            }
+            for period, row in df.iterrows()
+        ]
+        return self._upsert(
+            GrowthEstimate,
+            rows,
+            constraint_name="uq_growth_estimate_instrument_period",
         )
 
     def get_price_history(

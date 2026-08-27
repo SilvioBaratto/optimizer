@@ -271,6 +271,86 @@ class StockSplit(BaseModel):
     ratio: Mapped[float] = mapped_column(Numeric(20, 6), nullable=False)
 
 
+class EarningsEstimate(BaseModel):
+    """Forward-period earnings estimates from yf.Ticker.earnings_estimate.
+
+    One row per period label ("0q", "+1q", "0y", "+1y").
+    """
+
+    __tablename__ = "earnings_estimate"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "period", name="uq_earnings_estimate_instrument_period"
+        ),
+        Index("ix_earnings_estimate_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period: Mapped[str] = mapped_column(String(10), nullable=False)
+    num_analysts: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    low: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    high: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    year_ago_eps: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    growth: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+
+
+class RevenueEstimate(BaseModel):
+    """Forward-period revenue estimates from yf.Ticker.revenue_estimate."""
+
+    __tablename__ = "revenue_estimate"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "period", name="uq_revenue_estimate_instrument_period"
+        ),
+        Index("ix_revenue_estimate_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period: Mapped[str] = mapped_column(String(10), nullable=False)
+    num_analysts: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg: Mapped[float | None] = mapped_column(Numeric(38, 2), nullable=True)
+    low: Mapped[float | None] = mapped_column(Numeric(38, 2), nullable=True)
+    high: Mapped[float | None] = mapped_column(Numeric(38, 2), nullable=True)
+    year_ago_revenue: Mapped[float | None] = mapped_column(
+        Numeric(38, 2), nullable=True
+    )
+    growth: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+
+
+class GrowthEstimate(BaseModel):
+    """Growth estimates from yf.Ticker.growth_estimates: per-period trend vs
+    stock / industry / sector / index.
+    """
+
+    __tablename__ = "growth_estimates"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "period", name="uq_growth_estimate_instrument_period"
+        ),
+        Index("ix_growth_estimates_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period: Mapped[str] = mapped_column(String(10), nullable=False)
+    stock_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    industry_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    sector_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    index_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+
+
 class AnalystRecommendation(BaseModel):
     """Analyst recommendation summary from yf.Ticker.recommendations_summary."""
 

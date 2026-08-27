@@ -553,6 +553,71 @@ class YFinanceDataService:
                 errors.append(f"eps_revisions: {e}")
                 logger.warning("Failed eps_revisions for %s: %s", yfinance_ticker, e)
 
+        # 3d/3e/3f. Analyst estimates (earnings / revenue / growth) — dedicated
+        # typed tables, staleness-gated on the shared fundamentals window.
+        estimates_fresh = (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("financials_updated_at"), thresholds.financials_hours, now
+            )
+        )
+        if estimates_fresh:
+            skipped.append("earnings_estimate")
+        else:
+            try:
+                ee_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_earnings_estimate(
+                        yfinance_ticker
+                    )
+                )
+                counts["earnings_estimate"] = (
+                    self.repo.upsert_earnings_estimate(instrument_id, ee_df)
+                    if ee_df is not None and not ee_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"earnings_estimate: {e}")
+                logger.warning(
+                    "Failed earnings_estimate for %s: %s", yfinance_ticker, e
+                )
+
+        if estimates_fresh:
+            skipped.append("revenue_estimate")
+        else:
+            try:
+                re_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_revenue_estimate(
+                        yfinance_ticker
+                    )
+                )
+                counts["revenue_estimate"] = (
+                    self.repo.upsert_revenue_estimate(instrument_id, re_df)
+                    if re_df is not None and not re_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"revenue_estimate: {e}")
+                logger.warning("Failed revenue_estimate for %s: %s", yfinance_ticker, e)
+
+        if estimates_fresh:
+            skipped.append("growth_estimates")
+        else:
+            try:
+                ge_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_growth_estimates(
+                        yfinance_ticker
+                    )
+                )
+                counts["growth_estimates"] = (
+                    self.repo.upsert_growth_estimates(instrument_id, ge_df)
+                    if ge_df is not None and not ge_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"growth_estimates: {e}")
+                logger.warning("Failed growth_estimates for %s: %s", yfinance_ticker, e)
+
         # 4. Dividends
         if (
             mode == "incremental"
