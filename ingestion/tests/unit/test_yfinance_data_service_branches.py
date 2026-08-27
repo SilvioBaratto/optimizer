@@ -85,6 +85,7 @@ def _make_yf_client_silent() -> MagicMock:
     yf_client.analysis.fetch_recommendations_summary.return_value = None
     yf_client.analysis.fetch_upgrades_downgrades.return_value = None
     yf_client.analysis.fetch_sustainability.return_value = None
+    yf_client.financials.fetch_sec_filings.return_value = None
     yf_client.analysis.fetch_analyst_price_targets.return_value = None
     yf_client.analysis.fetch_eps_trend.return_value = None
     yf_client.analysis.fetch_eps_revisions.return_value = None
@@ -333,6 +334,47 @@ class TestEsgScores:
         )
         _run(repo, yf, mode="incremental")
         repo.upsert_esg_scores.assert_called_once()
+
+
+class TestSecFilings:
+    """sec_filings (SPEC A5) — list of filing dicts."""
+
+    def test_model_has_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import SecFiling
+
+        for col in ("filing_date", "form_type", "title", "url"):
+            assert hasattr(SecFiling, col)
+
+    def test_skipped_when_financials_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"financials_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "sec_filings" in result["skipped"]
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"financials_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.financials.fetch_sec_filings.return_value = [
+            {
+                "date": "2024-02-01",
+                "type": "10-K",
+                "title": "Annual report",
+                "edgarUrl": "u",
+            },
+            {
+                "date": "2024-05-01",
+                "type": "10-Q",
+                "title": "Quarterly",
+                "edgarUrl": "u2",
+            },
+        ]
+        _run(repo, yf, mode="incremental")
+        repo.upsert_sec_filings.assert_called_once()
 
 
 def _run(

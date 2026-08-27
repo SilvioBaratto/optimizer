@@ -28,6 +28,7 @@ from app.models.market_data.yfinance_data import (
     MutualFundHolder,
     PriceHistory,
     RevenueEstimate,
+    SecFiling,
     StockSplit,
     TickerNews,
     TickerProfile,
@@ -480,6 +481,40 @@ class YFinanceRepository(RepositoryBase):
             "highest_controversy": _metric("highestControversy"),
         }
         return self._upsert(EsgScore, [row], constraint_name="uq_esg_score_instrument")
+
+    def upsert_sec_filings(
+        self, instrument_id: UUID, filings: list[dict[str, Any]]
+    ) -> int:
+        """Upsert SEC filings from yf.Ticker.sec_filings (list of dicts)."""
+
+        def _col(d: dict[str, Any], *names: str) -> Any:
+            for name in names:
+                if name in d:
+                    return d.get(name)
+            return None
+
+        rows: list[dict[str, Any]] = []
+        seen: set[tuple] = set()
+        for filing in filings:
+            filing_date = _safe_date(_col(filing, "date", "filingDate", "epochDate"))
+            if filing_date is None:
+                continue
+            form_type = _safe_str(_col(filing, "type", "form", "formType"), 50) or ""
+            title = _safe_str(_col(filing, "title", "description"), 500) or ""
+            key = (filing_date, form_type, title)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "filing_date": filing_date,
+                    "form_type": form_type,
+                    "title": title,
+                    "url": _safe_str(_col(filing, "edgarUrl", "url", "link"), 1000),
+                }
+            )
+        return self._upsert(SecFiling, rows, constraint_name="uq_sec_filing")
 
     def get_price_history(
         self,

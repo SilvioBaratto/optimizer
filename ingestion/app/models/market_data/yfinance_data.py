@@ -454,6 +454,32 @@ class EsgScore(BaseModel):
     )
 
 
+class SecFiling(BaseModel):
+    """SEC filings from yf.Ticker.sec_filings."""
+
+    __tablename__ = "sec_filings"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id",
+            "filing_date",
+            "form_type",
+            "title",
+            name="uq_sec_filing",
+        ),
+        Index("ix_sec_filings_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    filing_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    form_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class AnalystRecommendation(BaseModel):
     """Analyst recommendation summary from yf.Ticker.recommendations_summary."""
 

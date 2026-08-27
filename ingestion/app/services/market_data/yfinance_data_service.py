@@ -702,6 +702,23 @@ class YFinanceDataService:
                 errors.append(f"esg_scores: {e}")
                 logger.warning("Failed esg_scores for %s: %s", yfinance_ticker, e)
 
+        # 3k. SEC filings (list of dicts; fundamentals window).
+        if estimates_fresh:
+            skipped.append("sec_filings")
+        else:
+            try:
+                filings = self._timed(
+                    lambda: self.yf_client.financials.fetch_sec_filings(yfinance_ticker)
+                )
+                counts["sec_filings"] = (
+                    self.repo.upsert_sec_filings(instrument_id, filings)
+                    if filings
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"sec_filings: {e}")
+                logger.warning("Failed sec_filings for %s: %s", yfinance_ticker, e)
+
         # 4. Dividends
         if (
             mode == "incremental"
