@@ -105,6 +105,11 @@ _universe_annotate_jobs = BackgroundJobService(
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
+_options_jobs = BackgroundJobService(
+    job_type="options_fetch",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
 
 # The live scheduler, bound by create_scheduler(). The RECLAIM reaper submits
 # one-shot re-dispatch jobs through it so they run in the drained executor pool.
@@ -242,6 +247,29 @@ def run_yfinance_step(
         _yfinance_jobs,
         run_bulk_yfinance_fetch,
         YFinanceFetchRequest(mode=mode, period=period, workers=workers),
+        get_yfinance_client(),
+        attempt=attempt,
+    )
+
+
+def run_options_step(*, staleness_hours: int = 168, attempt: int = 0) -> bool:
+    """Fetch full option chains for every instrument (SPEC A10).
+
+    High-volume and low-frequency — its own job slot / staleness gate, kept
+    out of the daily per-ticker fetch. Runs synchronously in the scheduler
+    thread under the shared heartbeat (via ``_run_step``)."""
+    from app.services.market_data.options_service import run_bulk_options_fetch
+    from app.services.market_data.yfinance import get_yfinance_client
+
+    def _fn(client, *, on_progress):
+        return run_bulk_options_fetch(
+            client, staleness_hours=staleness_hours, on_progress=on_progress
+        )
+
+    return _run_step(
+        "options",
+        _options_jobs,
+        _fn,
         get_yfinance_client(),
         attempt=attempt,
     )

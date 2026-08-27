@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Date,
     Float,
     ForeignKey,
@@ -803,3 +804,41 @@ class TickerProfileExtra(BaseModel):
     compensation_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
     shareholder_rights_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
     overall_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class OptionContract(BaseModel):
+    """Single option contract snapshot from yf.Ticker.option_chain (SPEC A10 /
+    OQ1). High-volume: written by its own low-frequency scheduler step, one row
+    per (instrument, snapshot date, contract)."""
+
+    __tablename__ = "options_chain"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id",
+            "as_of",
+            "contract_symbol",
+            name="uq_option_contract",
+        ),
+        Index("ix_options_chain_instrument_id", "instrument_id"),
+        Index("ix_options_chain_expiry", "expiry"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    as_of: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    expiry: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    option_type: Mapped[str] = mapped_column(String(4), nullable=False)  # call | put
+    strike: Mapped[float] = mapped_column(Numeric(20, 6), nullable=False)
+    contract_symbol: Mapped[str] = mapped_column(String(50), nullable=False)
+    last_price: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    bid: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    ask: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    volume: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    open_interest: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    implied_volatility: Mapped[float | None] = mapped_column(
+        Numeric(20, 10), nullable=True
+    )
+    in_the_money: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

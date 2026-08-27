@@ -325,6 +325,27 @@ class TestRunFredMonthly:
         assert "fred" in labels
 
 
+class TestRunOptionsStep:
+    def test_composes_run_step_with_options_label(self):
+        with ExitStack() as stack:
+            mock_step = stack.enter_context(patch(f"{M}._run_step", return_value=True))
+            stack.enter_context(
+                patch(
+                    "app.services.market_data.yfinance.get_yfinance_client",
+                    return_value=MagicMock(),
+                )
+            )
+
+            from app.services.jobs.scheduler import _options_jobs, run_options_step
+
+            assert run_options_step() is True
+
+        assert mock_step.call_count == 1
+        args = mock_step.call_args.args
+        assert args[0] == "options"
+        assert args[1] is _options_jobs
+
+
 # ---------------------------------------------------------------------------
 # TestRunNewsRefresh
 # ---------------------------------------------------------------------------

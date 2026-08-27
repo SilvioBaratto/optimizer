@@ -30,6 +30,7 @@ from app.models.market_data.yfinance_data import (
     InstitutionalHolder,
     MajorHolders,
     MutualFundHolder,
+    OptionContract,
     PriceHistory,
     RevenueEstimate,
     SecFiling,
@@ -274,6 +275,41 @@ class YFinanceRepository(RepositoryBase):
             TickerProfileExtra,
             [row],
             constraint_name="uq_ticker_profile_extras_instrument",
+        )
+
+    # ------------------------------------------------------------------
+    # Options chain (SPEC A10 — high-volume, own scheduler step)
+    # ------------------------------------------------------------------
+
+    def get_options_as_of(self, instrument_id: UUID) -> date | None:
+        """Most recent options snapshot date for the instrument, or None."""
+        stmt = select(func.max(OptionContract.as_of)).where(
+            OptionContract.instrument_id == instrument_id
+        )
+        return self.session.execute(stmt).scalar_one_or_none()
+
+    def upsert_option_chain(
+        self, instrument_id: UUID, rows: list[dict[str, Any]]
+    ) -> int:
+        """Upsert option-contract snapshot rows (already flattened + typed).
+
+        Deduped in-batch on (as_of, contract_symbol): a single snapshot must not
+        touch the same natural key twice (PostgreSQL ON CONFLICT cardinality).
+        """
+        deduped: dict[tuple, dict[str, Any]] = {}
+        for r in rows:
+            symbol = r.get("contract_symbol")
+            as_of = r.get("as_of")
+            if not symbol or as_of is None:
+                continue
+            deduped[(as_of, symbol)] = {"instrument_id": instrument_id, **r}
+        prepared = list(deduped.values())
+        if not prepared:
+            return 0
+        return self._upsert(
+            OptionContract,
+            prepared,
+            constraint_name="uq_option_contract",
         )
 
     def get_sectors_by_yfinance_ticker(self, tickers: Sequence[str]) -> dict[str, str]:
