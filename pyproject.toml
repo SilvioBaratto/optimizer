@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Portfolio optimization library built on skfolio and scikit-learn"
 readme = "README.md"
 license = {text = "PolyForm-Noncommercial-1.0.0"}
-requires-python = ">=3.10"
+# 3.12 floor: the numpy==2.5.2 / pandas==3.0.5 pins require Python>=3.12, so the
+# prior >=3.10 was unsatisfiable (uv resolves across the whole range; pip masked it).
+requires-python = ">=3.12"
 authors = [
     {name = "Silvio Baratto"},
 ]
@@ -18,9 +20,8 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Office/Business :: Financial :: Investment",
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
@@ -51,6 +52,12 @@ include = ["optimizer*"]
 
 [tool.setuptools.package-data]
 optimizer = ["py.typed"]
+
+# uv workspace: the optimizer lib (this root = portopt-core) plus the ingestion
+# daemon and the shared DB package. portopt-core deliberately does NOT depend on
+# portopt-db — the optimizer library stays DB-free (guarded by a hygiene test).
+[tool.uv.workspace]
+members = ["ingestion", "packages/portopt-db"]
 
 [tool.ruff]
 line-length = 88

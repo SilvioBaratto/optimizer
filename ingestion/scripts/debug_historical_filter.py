@@ -27,11 +27,12 @@ import argparse
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app.services.market_data.yfinance import YFinanceClient
-from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.filters.historical_data import (
     HistoricalDataFilter,
 )
+
+from app.services.market_data.yfinance import YFinanceClient
+from app.services.universe.trading212.config import UniverseBuilderConfig
 
 # Real names that unquestionably have 5y of daily history → every one SHOULD
 # pass HistoricalDataFilter. Any FAIL here is a fetch/crumb problem, not "young".

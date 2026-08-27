@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools==84.0.0", "wheel==0.48.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "portopt-db"
+version = "0.1.0"
+description = "Shared SQLAlchemy models, repositories, engine and Alembic migrations for the portopt Postgres database."
+readme = "README.md"
+# 3.12 floor: matches the workspace (pandas==3.0.5 requires Python>=3.12).
+requires-python = ">=3.12"
+authors = [{ name = "Silvio Baratto" }]
+
+# Owns the database stack for the workspace; the single SQLAlchemy pin every
+# consumer inherits (Python allows only one installed version).
+dependencies = [
+    "SQLAlchemy==2.0.52",
+    "psycopg2-binary==2.9.12",
+    "alembic==1.19.1",
+    "pandas==3.0.5",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1", "pytest-cov==7.1.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["portopt_db*"]
+
+[tool.setuptools.package-data]
+portopt_db = ["py.typed"]

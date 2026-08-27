@@ -6,7 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "portopt"
 version = "0.1.0"
 description = "Optimizer Platform ingestion daemon and CLI"
-requires-python = ">=3.10"
+# 3.12 floor: numpy/pandas/scikit-learn pins require Python>=3.12 (see root).
+requires-python = ">=3.12"
 
 dependencies = [
     # Configuration
@@ -43,6 +44,9 @@ dependencies = [
     "questionary==2.1.1",
     "rich==15.0.0",
     "cryptography==45.0.7",
+    # Shared DB package (workspace). Owns SQLAlchemy/psycopg2/alembic + the schema;
+    # ingestion inherits them transitively. Not yet imported — wired in P1+.
+    "portopt-db",
 ]
 
 # Test-only dependencies. pytest-cov is declared here (NOT in runtime
@@ -60,6 +64,10 @@ test = [
 # ingestion triggers). `app.cli:app` is the callable Typer instance.
 [project.scripts]
 portopt = "app.cli:app"
+
+# Resolve portopt-db from the workspace (local path), not PyPI.
+[tool.uv.sources]
+portopt-db = { workspace = true }
 
 [tool.setuptools.packages.find]
 include = ["app*"]
