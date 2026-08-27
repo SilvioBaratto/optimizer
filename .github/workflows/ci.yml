@@ -13,67 +13,63 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# uv workspace (portopt-core + ingestion + packages/portopt-db). `uv sync
+# --all-packages --all-extras` builds one shared venv for the whole workspace.
+# NOTE (workspace tradeoff): a single venv means the old "install only ingestion
+# so `optimizer` is absent" isolation is gone — enforcement of the
+# ingestion-must-not-import-optimizer boundary now rests entirely on the static
+# source-scan guard (tests/unit/hygiene/test_no_optimizer_import.py) + the
+# portopt-core⊬portopt_db guard. See tasks/plan.md risk #1.
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.12"
-          cache: "pip"
-      - run: pip install -e ".[lint]"
-      - run: ruff check optimizer/ tests/
-      - run: ruff format --check optimizer/ tests/
-      - run: pip-audit --strict --desc on
+          enable-cache: true
+      - run: uv sync --all-packages --all-extras
+      - run: uv run ruff check optimizer/ tests/
+      - run: uv run ruff format --check optimizer/ tests/
+      - run: uv run pip-audit --strict --desc on
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.12"
-          cache: "pip"
-      - run: pip install -e ".[typecheck]"
-      - run: mypy optimizer/
+          enable-cache: true
+      - run: uv sync --all-packages --all-extras
+      - run: uv run mypy optimizer/
 
   pyright:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.12"
-          cache: "pip"
-      - run: pip install -e ".[typecheck]"
-      - uses: jakebailey/pyright-action@8ec14b5cfe41f26e5f41686a31eb6012758217ef  # v3.0.2
-        with:
-          version: '1.1.398'
-          python-version: '3.10'
-          level: error
-          annotate: all
+          enable-cache: true
+      - run: uv sync --all-packages --all-extras
+      - run: uv run pyright
 
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: "pip"
-      - run: pip install -e ".[test]"
-      - run: pytest tests/ -v --tb=short --cov=optimizer --cov-branch --cov-report=xml --cov-report=term-missing --cov-fail-under=90
-      # Branch-aware, per-metric floor: fails if line-rate OR branch-rate < 0.80.
-      # Complements the blended --cov-fail-under so a branch regression cannot
-      # hide behind high statement coverage. 3.12 leg only (coverage.xml is
-      # identical across legs; one check is sufficient).
+          enable-cache: true
+      - run: uv sync --all-packages --all-extras --python ${{ matrix.python-version }}
+      - run: uv run --python ${{ matrix.python-version }} pytest tests/ -v --tb=short --cov=optimizer --cov-branch --cov-report=xml --cov-report=term-missing --cov-fail-under=90
+      # Branch-aware per-metric floor (fails if line OR branch < 0.80). 3.12 leg only.
       - if: matrix.python-version == '3.12'
-        run: python scripts/check_branch_coverage.py coverage.xml 0.80
+        run: uv run python scripts/check_branch_coverage.py coverage.xml 0.80
       - if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v5
         with:
@@ -84,21 +80,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.12"
-          cache: "pip"
-      # The ingestion daemon does NOT import the optimizer library. Installing
-      # only ingestion/pyproject.toml (its own deps + the [test] extra) keeps
-      # that decoupling enforced: if anything under ingestion/app grows a
-      # `from optimizer ...` import, this job fails.
-      - run: pip install -e "./ingestion[test]"
-      # --cov-report=xml:coverage.xml writes ingestion/coverage.xml (the
-      # `cd ingestion` scope only covers this step). --cov-fail-under=80 is the
-      # fast blended first gate; the floor lives in CI, not pyproject, so local
-      # pytest stays flag-free.
-      - run: cd ingestion && pytest tests/ -v --tb=short --cov=app --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
-      # Branch-aware, per-metric floor: fails if line-rate OR branch-rate < 0.80,
-      # so a branch regression cannot hide behind high statement coverage.
-      # Mirrors the optimizer `test` job. Reads ingestion/coverage.xml from repo root.
-      - run: python scripts/check_branch_coverage.py ingestion/coverage.xml 0.80
+          enable-cache: true
+      - run: uv sync --all-packages --all-extras
+      - run: cd ingestion && uv run pytest tests/ -v --tb=short --cov=app --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
+      - run: uv run python scripts/check_branch_coverage.py ingestion/coverage.xml 0.80
+
+  portopt-db-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages --all-extras
+      # Coverage floor (line>=90 / branch>=0.80) is added in P3.2 once the DB-layer
+      # tests are relocated here; until then this job proves the package imports
+      # and its own tests pass under the workspace env.
+      - run: cd packages/portopt-db && uv run pytest -v --tb=short

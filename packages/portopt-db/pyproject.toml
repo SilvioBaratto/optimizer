@@ -29,3 +29,12 @@ include = ["portopt_db*"]
 
 [tool.setuptools.package-data]
 portopt_db = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+
+[tool.coverage.run]
+branch = true
+source = ["portopt_db"]
+omit = ["*/__init__.py"]

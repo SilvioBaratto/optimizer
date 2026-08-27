@@ -44,7 +44,10 @@ Changelog = "https://github.com/SilvioBaratto/optimizer/blob/main/CHANGELOG.md"
 [project.optional-dependencies]
 test = ["pytest==9.1.1", "pytest-cov==7.1.0", "hypothesis==6.165.10", "pyyaml==6.0.3"]
 lint = ["ruff==0.16.4", "pip-audit==2.10.1"]
-typecheck = ["mypy==2.3.1", "pyright[nodejs]==1.1.411"]
+# pyright pinned to 1.1.398 — the version the pre-uv CI's pyright-action used and
+# was green with. (The prior 1.1.411 pin here was never what CI ran; 1.1.411
+# flags 2 pre-existing warnings-as-errors in optimizer/ that 1.1.398 does not.)
+typecheck = ["mypy==2.3.1", "pyright[nodejs]==1.1.398"]
 dev = ["portopt-core[test,lint,typecheck]", "pre-commit==4.6.2"]
 
 [tool.setuptools.packages.find]
