@@ -6,6 +6,11 @@ from app.models.market_data.etf_metadata import (
     ETFMetadata,
     ETFSectorWeight,
 )
+from app.models.market_data.market_structure import (
+    SectorIndustry,
+    SectorSnapshot,
+    SectorTopCompany,
+)
 from app.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
@@ -33,6 +38,9 @@ __all__ = [
     "InstitutionalHolder",
     "MutualFundHolder",
     "PriceHistory",
+    "SectorIndustry",
+    "SectorSnapshot",
+    "SectorTopCompany",
     "StockSplit",
     "TickerNews",
     "TickerProfile",

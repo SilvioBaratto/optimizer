@@ -110,6 +110,11 @@ _options_jobs = BackgroundJobService(
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
+_market_structure_jobs = BackgroundJobService(
+    job_type="market_structure_fetch",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
 
 # The live scheduler, bound by create_scheduler(). The RECLAIM reaper submits
 # one-shot re-dispatch jobs through it so they run in the drained executor pool.
@@ -270,6 +275,25 @@ def run_options_step(*, staleness_hours: int = 168, attempt: int = 0) -> bool:
         "options",
         _options_jobs,
         _fn,
+        get_yfinance_client(),
+        attempt=attempt,
+    )
+
+
+def run_market_structure_step(*, attempt: int = 0) -> bool:
+    """Fetch sector/industry rollups across regions (SPEC B1).
+
+    Market-wide + slow-moving — its own weekly job slot, kept out of the daily
+    per-ticker loop. Runs synchronously under the shared heartbeat."""
+    from app.services.market_data.market_structure_service import (
+        run_market_structure_fetch,
+    )
+    from app.services.market_data.yfinance import get_yfinance_client
+
+    return _run_step(
+        "market_structure",
+        _market_structure_jobs,
+        run_market_structure_fetch,
         get_yfinance_client(),
         attempt=attempt,
     )
