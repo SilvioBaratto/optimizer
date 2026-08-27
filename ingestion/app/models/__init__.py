@@ -9,6 +9,12 @@ from app.models.macro.macro_regime import (
     MacroNewsTheme,
     TradingEconomicsIndicator,
 )
+from app.models.market_data.calendars import (
+    EarningsCalendar,
+    EconomicEventCalendar,
+    IpoCalendar,
+    SplitCalendar,
+)
 from app.models.market_data.etf_metadata import (
     ETFAssetClass,
     ETFHolding,
@@ -48,12 +54,15 @@ __all__ = [
     "ETFHolding",
     "ETFMetadata",
     "ETFSectorWeight",
+    "EarningsCalendar",
+    "EconomicEventCalendar",
     "EconomicIndicator",
     "Exchange",
     "FinancialStatement",
     "InsiderTransaction",
     "InstitutionalHolder",
     "Instrument",
+    "IpoCalendar",
     "MacroCalibration",
     "MacroNews",
     "MacroNewsSummary",
@@ -63,6 +72,7 @@ __all__ = [
     "SectorIndustry",
     "SectorSnapshot",
     "SectorTopCompany",
+    "SplitCalendar",
     "StockSplit",
     "TickerNews",
     "TickerProfile",
