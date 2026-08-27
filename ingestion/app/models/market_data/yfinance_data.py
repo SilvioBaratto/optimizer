@@ -187,6 +187,10 @@ class PriceHistory(BaseModel):
     volume: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     dividends: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     stock_splits: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Listing currency / price unit the OHLCV values are quoted in (e.g. "GBX"
+    # pence for LSE). yfinance 1.6.0 repair keeps sub-unit currencies as-is, so
+    # the series is stored raw and the fx layer converts at analysis time (SPEC OQ2).
+    price_unit: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class FinancialStatement(BaseModel):

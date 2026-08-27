@@ -259,9 +259,16 @@ class YFinanceRepository(RepositoryBase):
     # ------------------------------------------------------------------
 
     def upsert_price_history(
-        self, instrument_id: UUID, history_df: pd.DataFrame
+        self,
+        instrument_id: UUID,
+        history_df: pd.DataFrame,
+        price_unit: str | None = None,
     ) -> int:
-        """Upsert daily OHLCV rows from a yfinance history DataFrame."""
+        """Upsert daily OHLCV rows from a yfinance history DataFrame.
+
+        ``price_unit`` records the listing currency the prices are quoted in
+        (e.g. "GBX"); the values are stored as-is (SPEC OQ2).
+        """
         rows = []
         for idx, row_data in history_df.iterrows():
             dt = idx
@@ -279,6 +286,7 @@ class YFinanceRepository(RepositoryBase):
                     "volume": _safe_int(row_data.get("Volume")),
                     "dividends": _safe_float(row_data.get("Dividends")),
                     "stock_splits": _safe_float(row_data.get("Stock Splits")),
+                    "price_unit": price_unit,
                 }
             )
 

@@ -366,8 +366,10 @@ class YFinanceDataService:
                             )
 
             if history is not None and not history.empty:
+                # Store the listing currency as the price unit (raw, unconverted) so
+                # sub-unit series (GBX pence) are unambiguous downstream (SPEC OQ2).
                 counts["prices"] = self.repo.upsert_price_history(
-                    instrument_id, history
+                    instrument_id, history, price_unit=currency_code
                 )
             else:
                 counts["prices"] = counts.get("prices", 0)

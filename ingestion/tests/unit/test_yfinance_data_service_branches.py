@@ -125,6 +125,40 @@ class TestValuationEpsStalenessGate:
         yf.analysis.fetch_eps_revisions.assert_called_once()
 
 
+class TestPriceUnit:
+    """GBp/sub-unit prices (SPEC OQ2): the listing currency is stored as-is on
+    price rows so the fx layer converts — no lossy transform at ingest."""
+
+    def test_price_history_model_has_price_unit_column(self) -> None:
+        from app.models.market_data.yfinance_data import PriceHistory
+
+        assert hasattr(PriceHistory, "price_unit")
+
+    def test_price_unit_passed_from_currency_code(self) -> None:
+        hist = pd.DataFrame(
+            {
+                "Open": [1.0],
+                "High": [1.0],
+                "Low": [1.0],
+                "Close": [1.0],
+                "Volume": [10],
+                "Dividends": [0.0],
+                "Stock Splits": [0.0],
+            },
+            index=pd.to_datetime(["2024-01-02"]),
+        )
+        repo = _make_repo(
+            staleness={
+                "price_max_date": date(2024, 1, 1),
+                "financials_updated_at": None,
+            }
+        )
+        yf = _make_yf_client_silent()
+        yf.fetch_history.return_value = hist
+        _run(repo, yf, mode="incremental", currency_code="GBX")
+        assert repo.upsert_price_history.call_args.kwargs.get("price_unit") == "GBX"
+
+
 def _run(
     repo: MagicMock,
     yf_client: MagicMock,
