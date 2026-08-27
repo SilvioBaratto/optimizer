@@ -20,6 +20,7 @@ from app.models.market_data.yfinance_data import (
     EarningsDate,
     EarningsEstimate,
     EarningsHistory,
+    EsgScore,
     FinancialStatement,
     GrowthEstimate,
     InsiderTransaction,
@@ -456,6 +457,29 @@ class YFinanceRepository(RepositoryBase):
                 }
             )
         return self._upsert(AnalystAction, rows, constraint_name="uq_analyst_action")
+
+    def upsert_esg_scores(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert the latest ESG snapshot from yf.Ticker.sustainability.
+
+        sustainability is a single-column frame indexed by metric name.
+        """
+        series = df.iloc[:, 0] if df.shape[1] >= 1 else df.squeeze()
+
+        def _metric(name: str) -> float | None:
+            try:
+                return _safe_float(series.get(name))
+            except Exception:  # defensive: shape varies across versions
+                return None
+
+        row = {
+            "instrument_id": instrument_id,
+            "total_esg": _metric("totalEsg"),
+            "environment_score": _metric("environmentScore"),
+            "social_score": _metric("socialScore"),
+            "governance_score": _metric("governanceScore"),
+            "highest_controversy": _metric("highestControversy"),
+        }
+        return self._upsert(EsgScore, [row], constraint_name="uq_esg_score_instrument")
 
     def get_price_history(
         self,

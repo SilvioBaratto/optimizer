@@ -427,6 +427,33 @@ class AnalystAction(BaseModel):
     action: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
 
+class EsgScore(BaseModel):
+    """ESG / sustainability scores from yf.Ticker.sustainability (latest snapshot)."""
+
+    __tablename__ = "esg_scores"
+    __table_args__ = (
+        UniqueConstraint("instrument_id", name="uq_esg_score_instrument"),
+        Index("ix_esg_scores_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    total_esg: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    environment_score: Mapped[float | None] = mapped_column(
+        Numeric(20, 6), nullable=True
+    )
+    social_score: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    governance_score: Mapped[float | None] = mapped_column(
+        Numeric(20, 6), nullable=True
+    )
+    highest_controversy: Mapped[float | None] = mapped_column(
+        Numeric(20, 6), nullable=True
+    )
+
+
 class AnalystRecommendation(BaseModel):
     """Analyst recommendation summary from yf.Ticker.recommendations_summary."""
 

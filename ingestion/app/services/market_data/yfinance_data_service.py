@@ -683,6 +683,25 @@ class YFinanceDataService:
                 errors.append(f"analyst_actions: {e}")
                 logger.warning("Failed analyst_actions for %s: %s", yfinance_ticker, e)
 
+        # 3j. ESG / sustainability (rarely changes; fundamentals window).
+        if estimates_fresh:
+            skipped.append("esg_scores")
+        else:
+            try:
+                esg_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_sustainability(
+                        yfinance_ticker
+                    )
+                )
+                counts["esg_scores"] = (
+                    self.repo.upsert_esg_scores(instrument_id, esg_df)
+                    if esg_df is not None and not esg_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"esg_scores: {e}")
+                logger.warning("Failed esg_scores for %s: %s", yfinance_ticker, e)
+
         # 4. Dividends
         if (
             mode == "incremental"

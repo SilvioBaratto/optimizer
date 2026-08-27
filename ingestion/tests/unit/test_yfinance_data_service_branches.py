@@ -84,6 +84,7 @@ def _make_yf_client_silent() -> MagicMock:
     yf_client.corporate_actions.fetch_splits.return_value = None
     yf_client.analysis.fetch_recommendations_summary.return_value = None
     yf_client.analysis.fetch_upgrades_downgrades.return_value = None
+    yf_client.analysis.fetch_sustainability.return_value = None
     yf_client.analysis.fetch_analyst_price_targets.return_value = None
     yf_client.analysis.fetch_eps_trend.return_value = None
     yf_client.analysis.fetch_eps_revisions.return_value = None
@@ -295,6 +296,43 @@ class TestAnalystActions:
         )
         _run(repo, yf, mode="incremental")
         repo.upsert_analyst_actions.assert_called_once()
+
+
+class TestEsgScores:
+    """esg_scores (SPEC A4)."""
+
+    def test_model_has_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import EsgScore
+
+        for col in (
+            "total_esg",
+            "environment_score",
+            "social_score",
+            "governance_score",
+            "highest_controversy",
+        ):
+            assert hasattr(EsgScore, col)
+
+    def test_skipped_when_financials_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"financials_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "esg_scores" in result["skipped"]
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"financials_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.analysis.fetch_sustainability.return_value = pd.DataFrame(
+            {"esgScores": [22.5]},
+            index=["totalEsg"],
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_esg_scores.assert_called_once()
 
 
 def _run(
