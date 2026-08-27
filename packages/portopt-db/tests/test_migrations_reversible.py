@@ -32,10 +32,10 @@ from pathlib import Path
 
 import pytest
 
-# Alembic moved to packages/portopt-db (single migration owner). parents[4] is
-# the repo root from tests/unit/hygiene/.
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-_VERSIONS_DIR = _REPO_ROOT / "packages" / "portopt-db" / "alembic" / "versions"
+# This test lives in packages/portopt-db/tests/; parents[1] is the portopt-db
+# package root, which holds the alembic tree (the single migration owner).
+_PKG_ROOT = Path(__file__).resolve().parents[1]
+_VERSIONS_DIR = _PKG_ROOT / "alembic" / "versions"
 
 
 def _iter_revision_files() -> Iterator[Path]:
@@ -112,7 +112,7 @@ def test_when_the_real_versions_directory_is_scanned_then_all_current_revisions_
     assert len(real_files) > 0
 
     offending = [
-        str(path.relative_to(_REPO_ROOT))
+        str(path.relative_to(_PKG_ROOT))
         for path in real_files
         if _find_downgrade_violation(path.read_text(encoding="utf-8"))
     ]
@@ -127,7 +127,7 @@ def test_when_the_real_versions_directory_is_scanned_then_each_revision_defines_
         has_upgrade = _find_function(tree, "upgrade") is not None
         has_downgrade = _find_function(tree, "downgrade") is not None
         if not (has_upgrade and has_downgrade):
-            offending.append(str(path.relative_to(_REPO_ROOT)))
+            offending.append(str(path.relative_to(_PKG_ROOT)))
 
     assert offending == []
 

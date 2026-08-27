@@ -12,12 +12,12 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from portopt_db.models.jobs.background_job import BackgroundJob
 from pydantic import BaseModel as PydanticBase
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.repositories._shared.base import BaseRepository, RepositoryBase
+from portopt_db.models.jobs.background_job import BackgroundJob
+from portopt_db.repository import BaseRepository, RepositoryBase
 
 # ---------------------------------------------------------------------------
 # Minimal Pydantic schemas that mirror the BackgroundJob create/update surface

@@ -38,6 +38,9 @@ portopt_db = ["py.typed"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider"
+markers = [
+    "criterion: tag a test with the spec criterion it covers",
+]
 
 [tool.coverage.run]
 branch = true

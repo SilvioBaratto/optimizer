@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import pandas as pd
 import pytest
+
 from portopt_db.repositories.market_data.yfinance_repository import (
     YFinanceRepository,
     _safe_date,

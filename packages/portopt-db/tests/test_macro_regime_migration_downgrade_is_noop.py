@@ -14,9 +14,7 @@ from pathlib import Path
 import pytest
 
 MIGRATION_PATH = (
-    Path(__file__).parents[4]
-    / "packages"
-    / "portopt-db"
+    Path(__file__).resolve().parents[1]
     / "alembic"
     / "versions"
     / "ecf0a9a2bfdc_add_macro_regime_tables.py"

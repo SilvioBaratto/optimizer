@@ -21,6 +21,8 @@ from datetime import date, datetime
 
 import pandas as pd
 import pytest
+from sqlalchemy.orm import Session
+
 from portopt_db.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
@@ -43,7 +45,6 @@ from portopt_db.repositories.market_data.yfinance_repository import (
     _safe_str,
     _safe_val,
 )
-from sqlalchemy.orm import Session
 
 # ---------------------------------------------------------------------------
 # Seed helpers

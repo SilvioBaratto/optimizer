@@ -23,11 +23,10 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from _fixtures import add_and_flush, seed_universe
+
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
-
-from tests._fixtures import seed_universe
-from tests._fixtures._helpers import add_and_flush
 
 # ---------------------------------------------------------------------------
 # Helpers

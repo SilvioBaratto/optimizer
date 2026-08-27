@@ -10,13 +10,14 @@ This avoids reliance on sub-second timing precision in SQLite.
 
 import datetime
 
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
+
 from portopt_db.models.macro.macro_regime import (
     EconomicIndicator,
     TradingEconomicsObservation,
 )
 from portopt_db.repositories.macro.macro_regime_repository import MacroRegimeRepository
-from sqlalchemy import select, text
-from sqlalchemy.orm import Session
 
 _PAST = datetime.datetime(2000, 1, 1, 0, 0, 0)
 

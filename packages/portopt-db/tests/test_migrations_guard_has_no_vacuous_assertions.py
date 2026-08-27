@@ -26,10 +26,8 @@ from pathlib import Path
 
 import pytest
 
-_INGESTION_ROOT = Path(__file__).resolve().parents[3]
-_GUARD_FILE = (
-    _INGESTION_ROOT / "tests" / "unit" / "hygiene" / "test_migrations_reversible.py"
-)
+# The reversibility guard is now a sibling in packages/portopt-db/tests/.
+_GUARD_FILE = Path(__file__).resolve().parent / "test_migrations_reversible.py"
 
 
 def _is_empty_literal(node: ast.AST) -> bool:

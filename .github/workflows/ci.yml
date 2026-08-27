@@ -95,7 +95,5 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --all-packages --all-extras
-      # Coverage floor (line>=90 / branch>=0.80) is added in P3.2 once the DB-layer
-      # tests are relocated here; until then this job proves the package imports
-      # and its own tests pass under the workspace env.
-      - run: cd packages/portopt-db && uv run pytest -v --tb=short
+      - run: cd packages/portopt-db && uv run pytest -v --tb=short --cov=portopt_db --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=90
+      - run: uv run python scripts/check_branch_coverage.py packages/portopt-db/coverage.xml 0.80

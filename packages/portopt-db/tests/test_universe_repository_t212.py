@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from datetime import date
 
+from _fixtures import add_and_flush
+
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
-
-from tests._fixtures._helpers import add_and_flush
 
 
 def _repo(session) -> UniverseRepository:

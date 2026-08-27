@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.hygiene.test_migrations_reversible import _find_downgrade_violation
 from tests.unit.hygiene.test_no_http_surface import (
     _INGESTION_ROOT,
     find_http_violations,
@@ -141,14 +140,9 @@ def test_when_bootstrap_benchmarks_is_reexported_then_the_shared_init_guard_fail
     assert find_reexport_violation(reexported_source) is True
 
 
-@pytest.mark.criterion("scope-7")
-def test_when_a_non_bare_upgrade_has_a_bare_downgrade_then_the_migrations_guard_fails():
-    text = (
-        "def upgrade() -> None:\n    op.create_table('t')\n\n"
-        "def downgrade() -> None:\n    pass\n"
-    )
-
-    assert _find_downgrade_violation(text) == "downgrade() body is bare"
+# The migration-reversibility guard detector moved to portopt-db with the
+# alembic tree; its violation-detection is covered by
+# packages/portopt-db/tests/test_migrations_reversible.py.
 
 
 def _run_guard_module(
