@@ -1,6 +1,9 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS builder
 
+# uv binary (pinned to match the workspace lockfile tooling)
+COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /usr/local/bin/uv
+
 WORKDIR /build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -8,19 +11,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Isolated venv — copies cleanly to the runtime stage without PYTHONPATH hacks
-RUN python -m venv /venv
-ENV PATH=/venv/bin:$PATH
+ENV UV_PYTHON_DOWNLOADS=0
 
-# Copy source and install the daemon's runtime deps from pyproject.toml.
-# Installing `.` (no [test] extra) keeps pytest/pytest-cov out of the runtime
-# image; deps now have a single source of truth (ingestion/pyproject.toml).
+# Workspace metadata + only the members the daemon needs. optimizer/ (portopt-core,
+# the skfolio stack) is deliberately NOT copied — `--package portopt` installs the
+# ingestion daemon + its workspace dep portopt-db, and nothing from the optimizer lib.
+COPY pyproject.toml uv.lock ./
+COPY packages/portopt-db/ packages/portopt-db/
 COPY ingestion/ ingestion/
-WORKDIR /build/ingestion
-RUN pip install --no-cache-dir .
+
+# Real (non-editable) install into an isolated venv so the runtime stage needs no
+# build-tree source paths. --frozen: respect the committed lock. --no-dev: no test deps.
+RUN uv venv /venv
+ENV VIRTUAL_ENV=/venv PATH=/venv/bin:$PATH
+RUN uv sync --frozen --no-dev --no-editable --package portopt --active
 
 # Regenerate the BAML client from baml_src/ (baml-cli ships with baml-py)
-RUN baml-cli generate
+RUN cd ingestion && baml-cli generate
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.12-slim
@@ -34,10 +41,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN useradd -m -u 1000 appuser
 
-# Virtualenv (includes all packages + scripts: alembic, baml-cli)
+# Virtualenv (includes all runtime packages + scripts: alembic, baml-cli)
 COPY --from=builder /venv /venv
 
-# Application code with the generated baml_client already in place
+# Application source (alembic.ini + alembic/ + generated baml_client + entrypoint
+# live outside the installed `app` package, so the source tree is still needed).
 COPY --from=builder /build/ingestion/ ./ingestion/
 
 COPY ingestion/entrypoint.sh /entrypoint.sh
