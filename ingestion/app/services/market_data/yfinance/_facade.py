@@ -16,7 +16,7 @@ from .infrastructure import (
     is_rate_limit_error,
     retry_with_backoff,
 )
-from .market import SearchClient
+from .market import CalendarsClient, MarketClient, SearchClient, SectorsClient
 from .protocols import CacheProtocol, CircuitBreakerProtocol, RateLimiterProtocol
 from .screener import ScreenerClient
 from .ticker import (
@@ -62,8 +62,9 @@ class YFinanceClient:
         return cls._instance
 
     # Exactly the registered @cached_property sub-client names. reset_instance
-    # pops each from __dict__; stale entries for deleted sub-clients (market,
-    # sectors, calendars, streaming, async_streaming) were removed.
+    # pops each from __dict__. market / sectors / calendars were re-added for the
+    # market-wide ingestion steps (SPEC Gap B); only streaming / async_streaming
+    # remain unimplemented (batch-only daemon).
     _CACHED_SUBCLIENT_NAMES: tuple[str, ...] = (
         "financials",
         "analysis",
@@ -73,6 +74,9 @@ class YFinanceClient:
         "search",
         "funds",
         "screener",
+        "sectors",
+        "calendars",
+        "market",
     )
 
     @classmethod
@@ -496,6 +500,18 @@ class YFinanceClient:
     @cached_property
     def screener(self) -> ScreenerClient:
         return ScreenerClient(**self._module_sub_client_kwargs())
+
+    @cached_property
+    def sectors(self) -> SectorsClient:
+        return SectorsClient(**self._module_sub_client_kwargs())
+
+    @cached_property
+    def calendars(self) -> CalendarsClient:
+        return CalendarsClient(**self._module_sub_client_kwargs())
+
+    @cached_property
+    def market(self) -> MarketClient:
+        return MarketClient(**self._module_sub_client_kwargs())
 
 
 def get_yfinance_client(

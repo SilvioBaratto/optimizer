@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 
 _PAGE_SIZE = 250
 
+# Stable sort field so offset pagination is deterministic — without it, paging over
+# Yahoo's default order can duplicate or skip rows across pages. "ticker" is yf.screen's
+# own default sort and is present for every query class.
+_SORT_FIELD = "ticker"
+
 # Yahoo exchange code -> config exchange name (must be a key of
 # UniverseBuilderConfig.yahoo_suffix_map, since the builder filters on that set).
 # Codes are Yahoo's exchange abbreviations; verify against live screener output
@@ -106,7 +111,13 @@ class YFinanceUniverseSource:
         collected: list[dict[str, Any]] = []
         for page in range(self.max_pages):
             offset = page * _PAGE_SIZE
-            result = self.screener.screen(query, size=_PAGE_SIZE, offset=offset)
+            result = self.screener.screen(
+                query,
+                size=_PAGE_SIZE,
+                offset=offset,
+                sort_field=_SORT_FIELD,
+                sort_asc=True,
+            )
             page_quotes = (result or {}).get("quotes", [])
             if not page_quotes:
                 break

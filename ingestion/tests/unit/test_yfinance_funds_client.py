@@ -33,6 +33,25 @@ def _funds_data() -> MagicMock:
         {"Name": ["US Treasury", "Bund"], "Holding Percent": [0.05, 0.03]},
         index=pd.Index(["UST", "BUND"], name="Symbol"),
     )
+    fd.equity_holdings = pd.DataFrame(
+        {"JAGA.DE": [15.0, 2.0]},
+        index=["priceToEarnings", "priceToBook"],
+    )
+    fd.bond_holdings = pd.DataFrame(
+        {"JAGA.DE": [5.5, 7.0]},
+        index=["duration", "maturity"],
+    )
+    fd.fund_operations = pd.DataFrame(
+        {"JAGA.DE": [0.001, 0.2]},
+        index=["annualReportExpenseRatio", "annualHoldingsTurnover"],
+    )
+    fd.bond_ratings = {"aaa": 0.5, "bbb": 0.2}
+    fd.fund_overview = {
+        "categoryName": "Ultrashort Bond",
+        "family": "JPMorgan",
+        "legalType": "Exchange Traded Fund",
+    }
+    fd.description = "A short-duration bond ETF."
     return fd
 
 
@@ -51,6 +70,21 @@ class TestFetchFundsData:
         assert out["sector_weightings"]["government"] == 0.6
         assert {h["symbol"] for h in out["top_holdings"]} == {"UST", "BUND"}
         assert out["top_holdings"][0]["weight"] == 0.05
+
+    def test_parses_fund_depth(self, client: FundsClient) -> None:
+        ticker = MagicMock()
+        ticker.funds_data = _funds_data()
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_funds_data("JAGA.DE")
+
+        assert out is not None
+        assert out["equity_holdings"]["priceToEarnings"] == 15.0
+        assert out["bond_holdings"]["duration"] == 5.5
+        assert out["fund_operations"]["annualReportExpenseRatio"] == 0.001
+        assert out["bond_ratings"]["aaa"] == 0.5
+        assert out["fund_overview"]["categoryName"] == "Ultrashort Bond"
+        assert out["description"] == "A short-duration bond ETF."
 
     def test_equity_ticker_with_empty_funds_data_returns_none(
         self, client: FundsClient

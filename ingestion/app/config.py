@@ -111,6 +111,16 @@ class Settings(BaseSettings):
         default="0 8 1 * *",
         alias="SCHEDULER_FRED_MONTHLY_CRON",
     )
+    scheduler_market_wide_cron: str = Field(
+        default="0 4 * * 0",
+        alias="SCHEDULER_MARKET_WIDE_CRON",
+        description=(
+            "Weekly market-wide sweep (sector/industry structure, calendars, "
+            "market summaries, full option chains). Scheduled after "
+            "SCHEDULER_WEEKLY_REFETCH_CRON so option chains see the fresh "
+            "universe."
+        ),
+    )
     scheduler_news_refresh_interval_minutes: int = Field(
         default=30,
         alias="SCHEDULER_NEWS_REFRESH_INTERVAL_MIN",

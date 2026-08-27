@@ -300,6 +300,51 @@ class TestRunWeeklyRefetch:
         assert "macro" in labels
 
 
+class TestRunWeeklyMarketWide:
+    def test_runs_all_four_market_wide_steps(self):
+        with ExitStack() as stack:
+            mock_step = stack.enter_context(patch(f"{M}._run_step"))
+            stack.enter_context(
+                patch(
+                    "app.services.market_data.yfinance.get_yfinance_client",
+                    return_value=MagicMock(),
+                )
+            )
+            mock_step.return_value = True
+
+            from app.services.jobs.scheduler import run_weekly_market_wide
+
+            run_weekly_market_wide()
+
+        labels = {c.args[0] for c in mock_step.call_args_list}
+        assert labels == {
+            "market_structure",
+            "calendars",
+            "market_summary",
+            "options",
+        }
+
+    def test_registry_includes_weekly_market_wide(self):
+        from app.services.jobs.scheduler import _build_schedule_registry
+
+        ids = {d.job_id for d in _build_schedule_registry()}
+        assert "weekly_market_wide" in ids
+
+    @pytest.mark.parametrize(
+        "job_type",
+        [
+            "market_structure_fetch",
+            "calendars_fetch",
+            "market_summary_fetch",
+            "options_fetch",
+        ],
+    )
+    def test_market_wide_job_types_are_reclaim_dispatchable(self, job_type):
+        from app.services.jobs.scheduler import _reclaim_dispatchable
+
+        assert _reclaim_dispatchable(job_type) is True
+
+
 # ---------------------------------------------------------------------------
 # TestRunFredMonthly
 # ---------------------------------------------------------------------------
@@ -323,6 +368,27 @@ class TestRunFredMonthly:
 
         labels = {c.args[0] for c in mock_step.call_args_list}
         assert "fred" in labels
+
+
+class TestRunOptionsStep:
+    def test_composes_run_step_with_options_label(self):
+        with ExitStack() as stack:
+            mock_step = stack.enter_context(patch(f"{M}._run_step", return_value=True))
+            stack.enter_context(
+                patch(
+                    "app.services.market_data.yfinance.get_yfinance_client",
+                    return_value=MagicMock(),
+                )
+            )
+
+            from app.services.jobs.scheduler import _options_jobs, run_options_step
+
+            assert run_options_step() is True
+
+        assert mock_step.call_count == 1
+        args = mock_step.call_args.args
+        assert args[0] == "options"
+        assert args[1] is _options_jobs
 
 
 # ---------------------------------------------------------------------------

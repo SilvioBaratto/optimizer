@@ -27,6 +27,7 @@ _CRON_JOBS = {
     "universe_build",
     "weekly_refetch",
     "fred_monthly",
+    "weekly_market_wide",
 }
 _INTERVAL_JOBS = {"news_refresh", "orphan_reaper"}
 _ALL_JOBS = _CRON_JOBS | _INTERVAL_JOBS
@@ -44,7 +45,7 @@ def _build_scheduler():
 
 
 class TestSchedulerRegistration:
-    def test_when_created_then_six_jobs_registered(self) -> None:
+    def test_when_created_then_all_jobs_registered(self) -> None:
         scheduler = _build_scheduler()
         ids = {job.id for job in scheduler.get_jobs()}
         assert ids == _ALL_JOBS

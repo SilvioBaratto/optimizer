@@ -14,6 +14,10 @@ already running that step.
     python -m app.cli news
     python -m app.cli summarize
     python -m app.cli calibrate
+    python -m app.cli market-structure             # sector/industry rollups
+    python -m app.cli calendars                    # earnings/IPO/splits/economic
+    python -m app.cli market-summary               # regional market summaries
+    python -m app.cli options                      # full option chains
 
 Single-step commands exit non-zero when the step did not complete, so shell
 drivers can gate on them. The composite commands (``daily``, ``refetch-all``)
@@ -173,6 +177,42 @@ def calibrate() -> None:
     from app.services.jobs.scheduler import run_calibrate_step
 
     _exit(run_calibrate_step())
+
+
+@app.command(name="market-structure")
+def market_structure() -> None:
+    """Fetch sector/industry rollups across regions into sector_* tables."""
+    _boot()
+    from app.services.jobs.scheduler import run_market_structure_step
+
+    _exit(run_market_structure_step())
+
+
+@app.command()
+def calendars() -> None:
+    """Fetch market-wide earnings/IPO/splits/economic calendars."""
+    _boot()
+    from app.services.jobs.scheduler import run_calendars_step
+
+    _exit(run_calendars_step())
+
+
+@app.command(name="market-summary")
+def market_summary() -> None:
+    """Fetch regional market summaries into market_summaries."""
+    _boot()
+    from app.services.jobs.scheduler import run_market_summary_step
+
+    _exit(run_market_summary_step())
+
+
+@app.command()
+def options() -> None:
+    """Fetch full option chains into options_chain (own staleness gate)."""
+    _boot()
+    from app.services.jobs.scheduler import run_options_step
+
+    _exit(run_options_step())
 
 
 @app.command()

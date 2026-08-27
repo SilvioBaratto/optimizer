@@ -12,9 +12,13 @@ Scheduled jobs:
      + macro rebuild.
   5. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — FRED
      economic data.
-  6. **news_refresh** (IntervalTrigger, default every 30 min) — incremental
+  6. **weekly_market_wide** (CronTrigger, default Sunday 04:00 UTC) — market-wide
+     sweep: sector/industry structure, calendars, market summaries, full option
+     chains. Runs *after* ``weekly_refetch`` so option chains see the fresh
+     universe.
+  7. **news_refresh** (IntervalTrigger, default every 30 min) — incremental
      news re-summarization for countries with new articles.
-  7. **orphan_reaper** (IntervalTrigger) — fails jobs whose worker died without
+  8. **orphan_reaper** (IntervalTrigger) — fails jobs whose worker died without
      a terminal status, so a wedged run does not block its type forever.
 
 All cron schedules are configurable via environment variables.
@@ -102,6 +106,26 @@ _universe_jobs = BackgroundJobService(
 )
 _universe_annotate_jobs = BackgroundJobService(
     job_type="t212_annotate",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
+_options_jobs = BackgroundJobService(
+    job_type="options_fetch",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
+_market_structure_jobs = BackgroundJobService(
+    job_type="market_structure_fetch",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
+_calendars_jobs = BackgroundJobService(
+    job_type="calendars_fetch",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
+_market_summary_jobs = BackgroundJobService(
+    job_type="market_summary_fetch",
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
@@ -242,6 +266,84 @@ def run_yfinance_step(
         _yfinance_jobs,
         run_bulk_yfinance_fetch,
         YFinanceFetchRequest(mode=mode, period=period, workers=workers),
+        get_yfinance_client(),
+        attempt=attempt,
+    )
+
+
+def run_options_step(*, staleness_hours: int = 168, attempt: int = 0) -> bool:
+    """Fetch full option chains for every instrument (SPEC A10).
+
+    High-volume and low-frequency — its own job slot / staleness gate, kept
+    out of the daily per-ticker fetch. Runs synchronously in the scheduler
+    thread under the shared heartbeat (via ``_run_step``)."""
+    from app.services.market_data.options_service import run_bulk_options_fetch
+    from app.services.market_data.yfinance import get_yfinance_client
+
+    def _fn(client, *, on_progress):
+        return run_bulk_options_fetch(
+            client, staleness_hours=staleness_hours, on_progress=on_progress
+        )
+
+    return _run_step(
+        "options",
+        _options_jobs,
+        _fn,
+        get_yfinance_client(),
+        attempt=attempt,
+    )
+
+
+def run_market_structure_step(*, attempt: int = 0) -> bool:
+    """Fetch sector/industry rollups across regions (SPEC B1).
+
+    Market-wide + slow-moving — its own weekly job slot, kept out of the daily
+    per-ticker loop. Runs synchronously under the shared heartbeat."""
+    from app.services.market_data.market_structure_service import (
+        run_market_structure_fetch,
+    )
+    from app.services.market_data.yfinance import get_yfinance_client
+
+    return _run_step(
+        "market_structure",
+        _market_structure_jobs,
+        run_market_structure_fetch,
+        get_yfinance_client(),
+        attempt=attempt,
+    )
+
+
+def run_calendars_step(*, attempt: int = 0) -> bool:
+    """Fetch market-wide calendars (earnings/IPO/splits/economic) — SPEC B2.
+
+    Market-wide + forward-looking — its own job slot, out of the daily
+    per-ticker loop. Runs synchronously under the shared heartbeat."""
+    from app.services.market_data.calendars_service import run_calendars_fetch
+    from app.services.market_data.yfinance import get_yfinance_client
+
+    return _run_step(
+        "calendars",
+        _calendars_jobs,
+        run_calendars_fetch,
+        get_yfinance_client(),
+        attempt=attempt,
+    )
+
+
+def run_market_summary_step(*, attempt: int = 0) -> bool:
+    """Fetch regional market summaries (SPEC B3).
+
+    Market-wide — its own job slot, out of the daily per-ticker loop. Runs
+    synchronously under the shared heartbeat."""
+    from app.services.market_data.market_summary_service import (
+        run_market_summary_fetch,
+    )
+    from app.services.market_data.yfinance import get_yfinance_client
+
+    return _run_step(
+        "market_summary",
+        _market_summary_jobs,
+        run_market_summary_fetch,
         get_yfinance_client(),
         attempt=attempt,
     )
@@ -424,6 +526,26 @@ def run_weekly_refetch() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Weekly market-wide sweep (SPEC Gap B + options)
+# ---------------------------------------------------------------------------
+
+
+def run_weekly_market_wide() -> None:
+    """Weekly market-wide data: sector/industry structure, calendars, market
+    summaries, and full option chains.
+
+    Scheduled after ``weekly_refetch`` so the option-chain sweep sees the
+    freshly rebuilt instrument universe. Each step claims its own job slot and
+    is independent — a failure in one does not block the others."""
+    logger.info("weekly_market_wide: starting")
+    run_market_structure_step()
+    run_calendars_step()
+    run_market_summary_step()
+    run_options_step()
+    logger.info("weekly_market_wide: finished")
+
+
+# ---------------------------------------------------------------------------
 # Weekly universe build
 # ---------------------------------------------------------------------------
 
@@ -543,6 +665,10 @@ _RECLAIM_STEP: dict[str, Callable[..., bool]] = {
     "news_summarize": run_summarize_step,
     "macro_calibrate": run_calibrate_step,
     "universe_build": run_universe_step,
+    "market_structure_fetch": run_market_structure_step,
+    "calendars_fetch": run_calendars_step,
+    "market_summary_fetch": run_market_summary_step,
+    "options_fetch": run_options_step,
 }
 
 
@@ -742,6 +868,16 @@ def _build_schedule_registry() -> list[ScheduleDefinition]:
             func=run_fred_monthly,
             trigger=CronTrigger.from_crontab(
                 settings.scheduler_fred_monthly_cron,
+                timezone="UTC",
+            ),
+            misfire_grace_time=grace,
+        ),
+        ScheduleDefinition(
+            job_id="weekly_market_wide",
+            name="Weekly market-wide sweep (structure/calendars/summary/options)",
+            func=run_weekly_market_wide,
+            trigger=CronTrigger.from_crontab(
+                settings.scheduler_market_wide_cron,
                 timezone="UTC",
             ),
             misfire_grace_time=grace,

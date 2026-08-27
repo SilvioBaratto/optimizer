@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Date,
     Float,
     ForeignKey,
@@ -187,6 +188,13 @@ class PriceHistory(BaseModel):
     volume: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     dividends: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     stock_splits: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Fund capital-gain distribution paid on this date (yfinance "Capital Gains"
+    # history column; present for mutual funds / some ETFs, else NULL).
+    capital_gains: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Listing currency / price unit the OHLCV values are quoted in (e.g. "GBX"
+    # pence for LSE). yfinance 1.6.0 repair keeps sub-unit currencies as-is, so
+    # the series is stored raw and the fx layer converts at analysis time (SPEC OQ2).
+    price_unit: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class FinancialStatement(BaseModel):
@@ -265,6 +273,329 @@ class StockSplit(BaseModel):
     instrument: Mapped[Instrument] = relationship(back_populates="stock_splits")
     date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     ratio: Mapped[float] = mapped_column(Numeric(20, 6), nullable=False)
+
+
+class EarningsEstimate(BaseModel):
+    """Forward-period earnings estimates from yf.Ticker.earnings_estimate.
+
+    One row per period label ("0q", "+1q", "0y", "+1y").
+    """
+
+    __tablename__ = "earnings_estimate"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "period", name="uq_earnings_estimate_instrument_period"
+        ),
+        Index("ix_earnings_estimate_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period: Mapped[str] = mapped_column(String(10), nullable=False)
+    num_analysts: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    low: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    high: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    year_ago_eps: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    growth: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+
+
+class RevenueEstimate(BaseModel):
+    """Forward-period revenue estimates from yf.Ticker.revenue_estimate."""
+
+    __tablename__ = "revenue_estimate"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "period", name="uq_revenue_estimate_instrument_period"
+        ),
+        Index("ix_revenue_estimate_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period: Mapped[str] = mapped_column(String(10), nullable=False)
+    num_analysts: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg: Mapped[float | None] = mapped_column(Numeric(38, 2), nullable=True)
+    low: Mapped[float | None] = mapped_column(Numeric(38, 2), nullable=True)
+    high: Mapped[float | None] = mapped_column(Numeric(38, 2), nullable=True)
+    year_ago_revenue: Mapped[float | None] = mapped_column(
+        Numeric(38, 2), nullable=True
+    )
+    growth: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+
+
+class GrowthEstimate(BaseModel):
+    """Growth estimates from yf.Ticker.growth_estimates: per-period trend vs
+    stock / industry / sector / index.
+    """
+
+    __tablename__ = "growth_estimates"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "period", name="uq_growth_estimate_instrument_period"
+        ),
+        Index("ix_growth_estimates_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period: Mapped[str] = mapped_column(String(10), nullable=False)
+    stock_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    industry_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    sector_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    index_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+
+
+class EarningsHistory(BaseModel):
+    """Historical EPS surprise from yf.Ticker.earnings_history (per past quarter)."""
+
+    __tablename__ = "earnings_history"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "period_date", name="uq_earnings_history_instrument_period"
+        ),
+        Index("ix_earnings_history_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    eps_estimate: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    eps_actual: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    eps_difference: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    surprise_percent: Mapped[float | None] = mapped_column(
+        Numeric(20, 6), nullable=True
+    )
+
+
+class EarningsDate(BaseModel):
+    """Past + upcoming earnings dates from yf.Ticker.get_earnings_dates()."""
+
+    __tablename__ = "earnings_dates"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "earnings_date", name="uq_earnings_date_instrument_date"
+        ),
+        Index("ix_earnings_dates_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    earnings_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    eps_estimate: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    eps_actual: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    surprise_percent: Mapped[float | None] = mapped_column(
+        Numeric(20, 6), nullable=True
+    )
+
+
+class AnalystAction(BaseModel):
+    """Analyst upgrade/downgrade actions from yf.Ticker.upgrades_downgrades."""
+
+    __tablename__ = "analyst_actions"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id",
+            "action_date",
+            "firm",
+            "to_grade",
+            name="uq_analyst_action",
+        ),
+        Index("ix_analyst_actions_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    action_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    firm: Mapped[str] = mapped_column(String(200), nullable=False)
+    from_grade: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    to_grade: Mapped[str] = mapped_column(String(100), nullable=False)
+    action: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+
+class EsgScore(BaseModel):
+    """ESG / sustainability scores from yf.Ticker.sustainability (latest snapshot)."""
+
+    __tablename__ = "esg_scores"
+    __table_args__ = (
+        UniqueConstraint("instrument_id", name="uq_esg_score_instrument"),
+        Index("ix_esg_scores_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    total_esg: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    environment_score: Mapped[float | None] = mapped_column(
+        Numeric(20, 6), nullable=True
+    )
+    social_score: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    governance_score: Mapped[float | None] = mapped_column(
+        Numeric(20, 6), nullable=True
+    )
+    highest_controversy: Mapped[float | None] = mapped_column(
+        Numeric(20, 6), nullable=True
+    )
+
+
+class SecFiling(BaseModel):
+    """SEC filings from yf.Ticker.sec_filings."""
+
+    __tablename__ = "sec_filings"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id",
+            "filing_date",
+            "form_type",
+            "title",
+            name="uq_sec_filing",
+        ),
+        Index("ix_sec_filings_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    filing_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    form_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class SharesOutstanding(BaseModel):
+    """Point-in-time shares outstanding from yf.Ticker.get_shares_full()."""
+
+    __tablename__ = "shares_outstanding"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "date", name="uq_shares_outstanding_instrument_date"
+        ),
+        Index("ix_shares_outstanding_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+class CapitalGain(BaseModel):
+    """Capital-gain distributions from yf.Ticker.capital_gains (funds)."""
+
+    __tablename__ = "capital_gains"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "date", name="uq_capital_gain_instrument_date"
+        ),
+        Index("ix_capital_gains_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(20, 6), nullable=False)
+
+
+class MajorHolders(BaseModel):
+    """Ownership breakdown from yf.Ticker.major_holders (latest snapshot)."""
+
+    __tablename__ = "major_holders"
+    __table_args__ = (
+        UniqueConstraint("instrument_id", name="uq_major_holders_instrument"),
+        Index("ix_major_holders_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    insiders_percent_held: Mapped[float | None] = mapped_column(Float, nullable=True)
+    institutions_percent_held: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    institutions_float_percent_held: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    institutions_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+class InsiderPurchaseSummary(BaseModel):
+    """6-month insider buy/sell summary from yf.Ticker.insider_purchases."""
+
+    __tablename__ = "insider_purchases"
+    __table_args__ = (
+        UniqueConstraint("instrument_id", name="uq_insider_purchases_instrument"),
+        Index("ix_insider_purchases_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    purchase_shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    sale_shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    net_shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    total_insider_shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+class InsiderRosterHolder(BaseModel):
+    """Individual insiders from yf.Ticker.insider_roster_holders."""
+
+    __tablename__ = "insider_roster"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "insider_name", name="uq_insider_roster_instrument_name"
+        ),
+        Index("ix_insider_roster_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    insider_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    position: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    most_recent_transaction: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )
+    latest_transaction_date: Mapped[datetime.date | None] = mapped_column(
+        Date, nullable=True
+    )
+    shares_owned_directly: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    shares_owned_indirectly: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
 
 
 class AnalystRecommendation(BaseModel):
@@ -425,3 +756,89 @@ class TickerNews(BaseModel):
     news_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ticker_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
     full_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class TickerProfileExtra(BaseModel):
+    """Extra yf.Ticker.info fields not on TickerProfile (short interest, 52-week
+    change vs S&P, sector/industry keys, governance risk). One row per
+    instrument (SPEC A9 / OQ3)."""
+
+    __tablename__ = "ticker_profile_extras"
+    __table_args__ = (
+        UniqueConstraint("instrument_id", name="uq_ticker_profile_extras_instrument"),
+        Index("ix_ticker_profile_extras_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # Short interest
+    shares_short: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    shares_short_prior_month: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    short_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    short_percent_of_float: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shares_percent_shares_out: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+
+    # Ownership + momentum
+    held_percent_insiders: Mapped[float | None] = mapped_column(Float, nullable=True)
+    held_percent_institutions: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    fifty_two_week_change: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sandp_52_week_change: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Classification keys (stable Yahoo slugs, distinct from display names)
+    sector_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    industry_key: Mapped[str | None] = mapped_column(String(150), nullable=True)
+
+    # Governance risk scores (1 = low ... 10 = high)
+    audit_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    board_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    compensation_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    shareholder_rights_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    overall_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class OptionContract(BaseModel):
+    """Single option contract snapshot from yf.Ticker.option_chain (SPEC A10 /
+    OQ1). High-volume: written by its own low-frequency scheduler step, one row
+    per (instrument, snapshot date, contract)."""
+
+    __tablename__ = "options_chain"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id",
+            "as_of",
+            "contract_symbol",
+            name="uq_option_contract",
+        ),
+        Index("ix_options_chain_instrument_id", "instrument_id"),
+        Index("ix_options_chain_expiry", "expiry"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    as_of: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    expiry: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    option_type: Mapped[str] = mapped_column(String(4), nullable=False)  # call | put
+    strike: Mapped[float] = mapped_column(Numeric(20, 6), nullable=False)
+    contract_symbol: Mapped[str] = mapped_column(String(50), nullable=False)
+    last_price: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    bid: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    ask: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    volume: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    open_interest: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    implied_volatility: Mapped[float | None] = mapped_column(
+        Numeric(20, 10), nullable=True
+    )
+    in_the_money: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

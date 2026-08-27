@@ -13,17 +13,32 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.market_data.yfinance_data import (
+    AnalystAction,
     AnalystPriceTarget,
     AnalystRecommendation,
+    CapitalGain,
     Dividend,
+    EarningsDate,
+    EarningsEstimate,
+    EarningsHistory,
+    EsgScore,
     FinancialStatement,
+    GrowthEstimate,
+    InsiderPurchaseSummary,
+    InsiderRosterHolder,
     InsiderTransaction,
     InstitutionalHolder,
+    MajorHolders,
     MutualFundHolder,
+    OptionContract,
     PriceHistory,
+    RevenueEstimate,
+    SecFiling,
+    SharesOutstanding,
     StockSplit,
     TickerNews,
     TickerProfile,
+    TickerProfileExtra,
 )
 from app.models.universe.universe import Instrument
 from app.repositories._shared import RepositoryBase
@@ -85,6 +100,14 @@ def _safe_date(v: Any) -> date | None:
     v = _safe_val(v)
     if v is None:
         return None
+    # pd.NaT / pd.NA are missing values but NaT subclasses datetime, so the
+    # branch below would call NaT.date() -> NaT and leak a bogus date into a
+    # NOT NULL column. Treat any pandas NA scalar as missing.
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
     if isinstance(v, datetime):
         return v.date()
     if isinstance(v, date):
@@ -230,6 +253,94 @@ class YFinanceRepository(RepositoryBase):
         stmt = select(TickerProfile).where(TickerProfile.instrument_id == instrument_id)
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def upsert_profile_extras(self, instrument_id: UUID, info: dict[str, Any]) -> int:
+        """Upsert the 1:1 extra-info row (short interest, momentum, governance
+        risk) mapped from the same yf.Ticker.info dict as ``upsert_profile``."""
+        row = {
+            "instrument_id": instrument_id,
+            "shares_short": _safe_int(info.get("sharesShort")),
+            "shares_short_prior_month": _safe_int(info.get("sharesShortPriorMonth")),
+            "short_ratio": _safe_float(info.get("shortRatio")),
+            "short_percent_of_float": _safe_float(info.get("shortPercentOfFloat")),
+            "shares_percent_shares_out": _safe_float(
+                info.get("sharesPercentSharesOut")
+            ),
+            "held_percent_insiders": _safe_float(info.get("heldPercentInsiders")),
+            "held_percent_institutions": _safe_float(
+                info.get("heldPercentInstitutions")
+            ),
+            "fifty_two_week_change": _safe_float(info.get("52WeekChange")),
+            "sandp_52_week_change": _safe_float(info.get("SandP52WeekChange")),
+            "sector_key": _safe_str(info.get("sectorKey"), 100),
+            "industry_key": _safe_str(info.get("industryKey"), 150),
+            "audit_risk": _safe_int(info.get("auditRisk")),
+            "board_risk": _safe_int(info.get("boardRisk")),
+            "compensation_risk": _safe_int(info.get("compensationRisk")),
+            "shareholder_rights_risk": _safe_int(info.get("shareHolderRightsRisk")),
+            "overall_risk": _safe_int(info.get("overallRisk")),
+        }
+        return self._upsert(
+            TickerProfileExtra,
+            [row],
+            constraint_name="uq_ticker_profile_extras_instrument",
+        )
+
+    # ------------------------------------------------------------------
+    # Options chain (SPEC A10 — high-volume, own scheduler step)
+    # ------------------------------------------------------------------
+
+    def get_options_as_of(self, instrument_id: UUID) -> date | None:
+        """Most recent options snapshot date for the instrument, or None."""
+        stmt = select(func.max(OptionContract.as_of)).where(
+            OptionContract.instrument_id == instrument_id
+        )
+        return self.session.execute(stmt).scalar_one_or_none()
+
+    def get_options_as_of_bulk(
+        self, instrument_ids: Sequence[UUID]
+    ) -> dict[UUID, date]:
+        """Latest options snapshot date per instrument in one grouped query.
+
+        Avoids a MAX(as_of) round-trip per instrument across the full sweep.
+        """
+        ids = list(instrument_ids)
+        if not ids:
+            return {}
+        stmt = (
+            select(OptionContract.instrument_id, func.max(OptionContract.as_of))
+            .where(OptionContract.instrument_id.in_(ids))
+            .group_by(OptionContract.instrument_id)
+        )
+        return {
+            row[0]: row[1]
+            for row in self.session.execute(stmt).all()
+            if row[1] is not None
+        }
+
+    def upsert_option_chain(
+        self, instrument_id: UUID, rows: list[dict[str, Any]]
+    ) -> int:
+        """Upsert option-contract snapshot rows (already flattened + typed).
+
+        Deduped in-batch on (as_of, contract_symbol): a single snapshot must not
+        touch the same natural key twice (PostgreSQL ON CONFLICT cardinality).
+        """
+        deduped: dict[tuple, dict[str, Any]] = {}
+        for r in rows:
+            symbol = r.get("contract_symbol")
+            as_of = r.get("as_of")
+            if not symbol or as_of is None:
+                continue
+            deduped[(as_of, symbol)] = {"instrument_id": instrument_id, **r}
+        prepared = list(deduped.values())
+        if not prepared:
+            return 0
+        return self._upsert(
+            OptionContract,
+            prepared,
+            constraint_name="uq_option_contract",
+        )
+
     def get_sectors_by_yfinance_ticker(self, tickers: Sequence[str]) -> dict[str, str]:
         """Return ``{yfinance_ticker: sector}`` for the given tickers.
 
@@ -259,14 +370,24 @@ class YFinanceRepository(RepositoryBase):
     # ------------------------------------------------------------------
 
     def upsert_price_history(
-        self, instrument_id: UUID, history_df: pd.DataFrame
+        self,
+        instrument_id: UUID,
+        history_df: pd.DataFrame,
+        price_unit: str | None = None,
     ) -> int:
-        """Upsert daily OHLCV rows from a yfinance history DataFrame."""
+        """Upsert daily OHLCV rows from a yfinance history DataFrame.
+
+        ``price_unit`` records the listing currency the prices are quoted in
+        (e.g. "GBX"); the values are stored as-is (SPEC OQ2).
+        """
         rows = []
         for idx, row_data in history_df.iterrows():
-            dt = idx
-            if isinstance(dt, pd.Timestamp | datetime):
-                dt = dt.date()
+            # _safe_date coerces pd.NaT (a datetime subclass) to None; a NaT
+            # index row would otherwise write date=NaT into a NOT NULL column
+            # and abort the whole ticker's price INSERT.
+            dt = _safe_date(idx)
+            if dt is None:
+                continue
 
             rows.append(
                 {
@@ -279,6 +400,8 @@ class YFinanceRepository(RepositoryBase):
                     "volume": _safe_int(row_data.get("Volume")),
                     "dividends": _safe_float(row_data.get("Dividends")),
                     "stock_splits": _safe_float(row_data.get("Stock Splits")),
+                    "capital_gains": _safe_float(row_data.get("Capital Gains")),
+                    "price_unit": price_unit,
                 }
             )
 
@@ -287,6 +410,227 @@ class YFinanceRepository(RepositoryBase):
             rows,
             constraint_name="uq_price_history_instrument_date",
         )
+
+    def upsert_earnings_estimate(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert forward-period earnings estimates (index = period labels)."""
+        rows = [
+            {
+                "instrument_id": instrument_id,
+                "period": _safe_str(period, 10),
+                "num_analysts": _safe_int(row.get("numberOfAnalysts")),
+                "avg": _safe_float(row.get("avg")),
+                "low": _safe_float(row.get("low")),
+                "high": _safe_float(row.get("high")),
+                "year_ago_eps": _safe_float(row.get("yearAgoEps")),
+                "growth": _safe_float(row.get("growth")),
+            }
+            for period, row in df.iterrows()
+        ]
+        return self._upsert(
+            EarningsEstimate,
+            rows,
+            constraint_name="uq_earnings_estimate_instrument_period",
+        )
+
+    def upsert_revenue_estimate(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert forward-period revenue estimates (index = period labels)."""
+        rows = [
+            {
+                "instrument_id": instrument_id,
+                "period": _safe_str(period, 10),
+                "num_analysts": _safe_int(row.get("numberOfAnalysts")),
+                "avg": _safe_float(row.get("avg")),
+                "low": _safe_float(row.get("low")),
+                "high": _safe_float(row.get("high")),
+                "year_ago_revenue": _safe_float(row.get("yearAgoRevenue")),
+                "growth": _safe_float(row.get("growth")),
+            }
+            for period, row in df.iterrows()
+        ]
+        return self._upsert(
+            RevenueEstimate,
+            rows,
+            constraint_name="uq_revenue_estimate_instrument_period",
+        )
+
+    def upsert_growth_estimates(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert per-period growth estimates (stock/industry/sector/index trend).
+
+        Column names vary across yfinance versions; read defensively.
+        """
+
+        def _col(row: Any, *names: str) -> Any:
+            for name in names:
+                if name in row:
+                    return row.get(name)
+            return None
+
+        rows = [
+            {
+                "instrument_id": instrument_id,
+                "period": _safe_str(period, 10),
+                "stock_trend": _safe_float(_col(row, "stockTrend", "stock")),
+                "industry_trend": _safe_float(_col(row, "industryTrend", "industry")),
+                "sector_trend": _safe_float(_col(row, "sectorTrend", "sector")),
+                "index_trend": _safe_float(_col(row, "indexTrend", "index")),
+            }
+            for period, row in df.iterrows()
+        ]
+        return self._upsert(
+            GrowthEstimate,
+            rows,
+            constraint_name="uq_growth_estimate_instrument_period",
+        )
+
+    def upsert_earnings_history(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert historical EPS surprise (index = past-quarter dates).
+
+        Deduped in-batch on ``period_date`` (last-wins): two source rows on the
+        same calendar day would otherwise collide on ``uq_earnings_history_...``
+        within one ON CONFLICT and abort the whole write.
+        """
+        by_date: dict[date, dict[str, Any]] = {}
+        for idx, row in df.iterrows():
+            period_date = _safe_date(idx)
+            if period_date is None:
+                continue
+            by_date[period_date] = {
+                "instrument_id": instrument_id,
+                "period_date": period_date,
+                "eps_estimate": _safe_float(row.get("epsEstimate")),
+                "eps_actual": _safe_float(row.get("epsActual")),
+                "eps_difference": _safe_float(row.get("epsDifference")),
+                "surprise_percent": _safe_float(row.get("surprisePercent")),
+            }
+        rows = list(by_date.values())
+        return self._upsert(
+            EarningsHistory,
+            rows,
+            constraint_name="uq_earnings_history_instrument_period",
+        )
+
+    def upsert_earnings_dates(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert past/upcoming earnings dates (index = tz-aware datetimes).
+
+        Column labels vary across yfinance versions; read defensively.
+        """
+
+        def _col(row: Any, *names: str) -> Any:
+            for name in names:
+                if name in row:
+                    return row.get(name)
+            return None
+
+        by_date: dict[date, dict[str, Any]] = {}
+        for idx, row in df.iterrows():
+            earnings_date = _safe_date(idx)
+            if earnings_date is None:
+                continue
+            by_date[earnings_date] = {
+                "instrument_id": instrument_id,
+                "earnings_date": earnings_date,
+                "eps_estimate": _safe_float(_col(row, "EPS Estimate", "epsEstimate")),
+                "eps_actual": _safe_float(_col(row, "Reported EPS", "epsActual")),
+                "surprise_percent": _safe_float(
+                    _col(row, "Surprise(%)", "surprisePercent")
+                ),
+            }
+        rows = list(by_date.values())
+        return self._upsert(
+            EarningsDate,
+            rows,
+            constraint_name="uq_earnings_date_instrument_date",
+        )
+
+    def upsert_analyst_actions(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert analyst upgrade/downgrade actions (index = grade dates)."""
+
+        def _col(row: Any, *names: str) -> Any:
+            for name in names:
+                if name in row:
+                    return row.get(name)
+            return None
+
+        rows: list[dict[str, Any]] = []
+        seen: set[tuple] = set()
+        for idx, row in df.iterrows():
+            action_date = _safe_date(idx)
+            if action_date is None:
+                continue
+            firm = _safe_str(_col(row, "Firm", "firm"), 200) or ""
+            to_grade = _safe_str(_col(row, "ToGrade", "toGrade"), 100) or ""
+            key = (action_date, firm, to_grade)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "action_date": action_date,
+                    "firm": firm,
+                    "from_grade": _safe_str(_col(row, "FromGrade", "fromGrade"), 100),
+                    "to_grade": to_grade,
+                    "action": _safe_str(_col(row, "Action", "action"), 50),
+                }
+            )
+        return self._upsert(AnalystAction, rows, constraint_name="uq_analyst_action")
+
+    def upsert_esg_scores(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert the latest ESG snapshot from yf.Ticker.sustainability.
+
+        sustainability is a single-column frame indexed by metric name.
+        """
+        series = df.iloc[:, 0] if df.shape[1] >= 1 else df.squeeze()
+
+        def _metric(name: str) -> float | None:
+            try:
+                return _safe_float(series.get(name))
+            except Exception:  # defensive: shape varies across versions
+                return None
+
+        row = {
+            "instrument_id": instrument_id,
+            "total_esg": _metric("totalEsg"),
+            "environment_score": _metric("environmentScore"),
+            "social_score": _metric("socialScore"),
+            "governance_score": _metric("governanceScore"),
+            "highest_controversy": _metric("highestControversy"),
+        }
+        return self._upsert(EsgScore, [row], constraint_name="uq_esg_score_instrument")
+
+    def upsert_sec_filings(
+        self, instrument_id: UUID, filings: list[dict[str, Any]]
+    ) -> int:
+        """Upsert SEC filings from yf.Ticker.sec_filings (list of dicts)."""
+
+        def _col(d: dict[str, Any], *names: str) -> Any:
+            for name in names:
+                if name in d:
+                    return d.get(name)
+            return None
+
+        rows: list[dict[str, Any]] = []
+        seen: set[tuple] = set()
+        for filing in filings:
+            filing_date = _safe_date(_col(filing, "date", "filingDate", "epochDate"))
+            if filing_date is None:
+                continue
+            form_type = _safe_str(_col(filing, "type", "form", "formType"), 50) or ""
+            title = _safe_str(_col(filing, "title", "description"), 500) or ""
+            key = (filing_date, form_type, title)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "filing_date": filing_date,
+                    "form_type": form_type,
+                    "title": title,
+                    "url": _safe_str(_col(filing, "edgarUrl", "url", "link"), 1000),
+                }
+            )
+        return self._upsert(SecFiling, rows, constraint_name="uq_sec_filing")
 
     def get_price_history(
         self,
@@ -440,6 +784,53 @@ class YFinanceRepository(RepositoryBase):
             .order_by(StockSplit.date.desc())
         )
         return self.session.execute(stmt).scalars().all()
+
+    # ------------------------------------------------------------------
+    # Shares Outstanding / Capital Gains (corporate-action extras)
+    # ------------------------------------------------------------------
+
+    def upsert_shares_outstanding(self, instrument_id: UUID, shares: Any) -> int:
+        """Upsert point-in-time share counts from ``get_shares_full``.
+
+        yfinance returns a Series (index=timestamp, value=shares); a
+        single-column DataFrame is squeezed. Same date can repeat, so the
+        first row per date wins the natural-key dedup.
+        """
+        series = shares
+        if isinstance(series, pd.DataFrame):
+            series = series.iloc[:, 0] if series.shape[1] else series.squeeze()
+
+        rows: list[dict[str, Any]] = []
+        seen: set[date] = set()
+        for idx, val in series.items():
+            dt = _safe_date(idx)
+            n = _safe_int(val)
+            if dt is None or n is None or dt in seen:
+                continue
+            seen.add(dt)
+            rows.append({"instrument_id": instrument_id, "date": dt, "shares": n})
+
+        return self._upsert(
+            SharesOutstanding,
+            rows,
+            constraint_name="uq_shares_outstanding_instrument_date",
+        )
+
+    def upsert_capital_gains(self, instrument_id: UUID, gains: pd.Series) -> int:
+        """Upsert capital-gain distributions (index=date, value=amount)."""
+        rows = []
+        for idx, amount in gains.items():
+            dt = _safe_date(idx)
+            amt = _safe_float(amount)
+            if dt is None or amt is None:
+                continue
+            rows.append({"instrument_id": instrument_id, "date": dt, "amount": amt})
+
+        return self._upsert(
+            CapitalGain,
+            rows,
+            constraint_name="uq_capital_gain_instrument_date",
+        )
 
     # ------------------------------------------------------------------
     # Analyst Recommendations
@@ -654,6 +1045,112 @@ class YFinanceRepository(RepositoryBase):
         return self.session.execute(stmt).scalars().all()
 
     # ------------------------------------------------------------------
+    # Holders extras (major holders + insider summary + insider roster)
+    # ------------------------------------------------------------------
+
+    def upsert_major_holders(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert the 1:1 ownership breakdown from ``major_holders``.
+
+        yfinance returns a label-indexed single-value DataFrame
+        (``insidersPercentHeld`` etc.); read the first column as a lookup.
+        """
+        lookup = df.iloc[:, 0] if df.shape[1] else df.squeeze()
+
+        def _v(key: str) -> Any:
+            try:
+                return lookup.get(key)
+            except (AttributeError, TypeError):
+                return None
+
+        row = {
+            "instrument_id": instrument_id,
+            "insiders_percent_held": _safe_float(_v("insidersPercentHeld")),
+            "institutions_percent_held": _safe_float(_v("institutionsPercentHeld")),
+            "institutions_float_percent_held": _safe_float(
+                _v("institutionsFloatPercentHeld")
+            ),
+            "institutions_count": _safe_int(_v("institutionsCount")),
+        }
+        return self._upsert(
+            MajorHolders, [row], constraint_name="uq_major_holders_instrument"
+        )
+
+    def upsert_insider_purchases(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert the 1:1 6-month insider buy/sell summary.
+
+        The label lives in the first column ("Insider Purchases Last 6m") with
+        the figure in "Shares"; read known labels defensively.
+        """
+        label_col = df.columns[0]
+        shares_by_label: dict[str, Any] = {}
+        for _, r in df.iterrows():
+            label = _safe_str(r.get(label_col), 100)
+            if label:
+                shares_by_label[label] = r.get("Shares")
+
+        def _shares(*labels: str) -> int | None:
+            for label in labels:
+                if label in shares_by_label:
+                    return _safe_int(shares_by_label[label])
+            return None
+
+        row = {
+            "instrument_id": instrument_id,
+            "purchase_shares": _shares("Purchases"),
+            "sale_shares": _shares("Sales"),
+            "net_shares": _shares(
+                "Net Shares Purchased (Sold)", "Net Shares Purchased"
+            ),
+            "total_insider_shares": _shares("Total Insider Shares Held"),
+        }
+        return self._upsert(
+            InsiderPurchaseSummary,
+            [row],
+            constraint_name="uq_insider_purchases_instrument",
+        )
+
+    def upsert_insider_roster(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert individual insiders from ``insider_roster_holders``."""
+
+        def _col(r: Any, *names: str) -> Any:
+            for name in names:
+                if name in r:
+                    return r.get(name)
+            return None
+
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for _, r in df.iterrows():
+            name = _safe_str(_col(r, "Name", "name"), 500)
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "insider_name": name,
+                    "position": _safe_str(_col(r, "Position", "position"), 500),
+                    "most_recent_transaction": _safe_str(
+                        _col(r, "Most Recent Transaction"), 200
+                    ),
+                    "latest_transaction_date": _safe_date(
+                        _col(r, "Latest Transaction Date")
+                    ),
+                    "shares_owned_directly": _safe_int(
+                        _col(r, "Shares Owned Directly")
+                    ),
+                    "shares_owned_indirectly": _safe_int(
+                        _col(r, "Shares Owned Indirectly")
+                    ),
+                }
+            )
+        return self._upsert(
+            InsiderRosterHolder,
+            rows,
+            constraint_name="uq_insider_roster_instrument_name",
+        )
+
+    # ------------------------------------------------------------------
     # Ticker News
     # ------------------------------------------------------------------
 
@@ -792,6 +1289,56 @@ class YFinanceRepository(RepositoryBase):
                 )
             ).scalar_one_or_none()
             result[f"{category}_updated_at"] = val
+
+        return result
+
+    def get_staleness_info_bulk(
+        self, instrument_ids: Sequence[UUID]
+    ) -> dict[UUID, dict[str, Any]]:
+        """Batched :meth:`get_staleness_info` for a whole sweep.
+
+        Returns one full staleness dict per requested id (all-None for an
+        instrument with no rows yet), matching the single-query shape exactly —
+        but via 11 grouped queries total instead of 11 per instrument.
+        """
+        ids = list(instrument_ids)
+        category_models = [
+            ("profile", TickerProfile),
+            ("financials", FinancialStatement),
+            ("dividends", Dividend),
+            ("splits", StockSplit),
+            ("recommendations", AnalystRecommendation),
+            ("price_targets", AnalystPriceTarget),
+            ("institutional_holders", InstitutionalHolder),
+            ("mutualfund_holders", MutualFundHolder),
+            ("insider_transactions", InsiderTransaction),
+            ("news", TickerNews),
+        ]
+        result: dict[UUID, dict[str, Any]] = {
+            iid: {
+                "price_max_date": None,
+                **{f"{cat}_updated_at": None for cat, _ in category_models},
+            }
+            for iid in ids
+        }
+        if not ids:
+            return result
+
+        for iid, mx in self.session.execute(
+            select(PriceHistory.instrument_id, func.max(PriceHistory.date))
+            .where(PriceHistory.instrument_id.in_(ids))
+            .group_by(PriceHistory.instrument_id)
+        ).all():
+            result[iid]["price_max_date"] = mx
+
+        for category, model in category_models:
+            m = cast(Any, model)
+            for iid, mx in self.session.execute(
+                select(m.instrument_id, func.max(m.updated_at))
+                .where(m.instrument_id.in_(ids))
+                .group_by(m.instrument_id)
+            ).all():
+                result[iid][f"{category}_updated_at"] = mx
 
         return result
 

@@ -64,11 +64,17 @@ def _make_repo(*, staleness: dict[str, Any] | None = None) -> MagicMock:
     repo.upsert_financial_statements.return_value = 0
     repo.upsert_dividends.return_value = 0
     repo.upsert_splits.return_value = 0
+    repo.upsert_shares_outstanding.return_value = 0
+    repo.upsert_capital_gains.return_value = 0
     repo.upsert_recommendations.return_value = 0
     repo.upsert_price_targets.return_value = 0
     repo.upsert_institutional_holders.return_value = 0
     repo.upsert_mutualfund_holders.return_value = 0
     repo.upsert_insider_transactions.return_value = 0
+    repo.upsert_major_holders.return_value = 0
+    repo.upsert_insider_purchases.return_value = 0
+    repo.upsert_insider_roster.return_value = 0
+    repo.upsert_profile_extras.return_value = 0
     repo.upsert_news.return_value = 3
     return repo
 
@@ -82,18 +88,510 @@ def _make_yf_client_silent() -> MagicMock:
     yf_client.financials.fetch_cashflow.return_value = None
     yf_client.corporate_actions.fetch_dividends.return_value = None
     yf_client.corporate_actions.fetch_splits.return_value = None
+    yf_client.corporate_actions.fetch_shares_full.return_value = None
+    yf_client.corporate_actions.fetch_capital_gains.return_value = None
     yf_client.analysis.fetch_recommendations_summary.return_value = None
+    yf_client.analysis.fetch_upgrades_downgrades.return_value = None
+    yf_client.analysis.fetch_sustainability.return_value = None
+    yf_client.financials.fetch_sec_filings.return_value = None
     yf_client.analysis.fetch_analyst_price_targets.return_value = None
     yf_client.analysis.fetch_eps_trend.return_value = None
     yf_client.analysis.fetch_eps_revisions.return_value = None
     yf_client.holders.fetch_institutional_holders.return_value = None
     yf_client.holders.fetch_mutualfund_holders.return_value = None
     yf_client.holders.fetch_insider_transactions.return_value = None
+    yf_client.holders.fetch_major_holders.return_value = None
+    yf_client.holders.fetch_insider_purchases.return_value = None
+    yf_client.holders.fetch_insider_roster_holders.return_value = None
     yf_client.metadata.fetch_valuation_measures.return_value = None
+    yf_client.analysis.fetch_earnings_estimate.return_value = None
+    yf_client.analysis.fetch_revenue_estimate.return_value = None
+    yf_client.analysis.fetch_growth_estimates.return_value = None
+    yf_client.analysis.fetch_earnings_history.return_value = None
+    yf_client.metadata.fetch_earnings_dates.return_value = None
     ticker_mock = MagicMock()
     ticker_mock.news = []
     yf_client.get_ticker.return_value = ticker_mock
     return yf_client
+
+
+class TestValuationEpsStalenessGate:
+    """valuation/eps_trend/eps_revisions are staleness-gated on the shared
+    financial_statements table (financials_updated_at) — no longer refetched every run."""
+
+    def test_skipped_when_financials_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"financials_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "valuation_measures" in result["skipped"]
+        assert "eps_trend" in result["skipped"]
+        assert "eps_revisions" in result["skipped"]
+        yf.metadata.fetch_valuation_measures.assert_not_called()
+        yf.analysis.fetch_eps_trend.assert_not_called()
+        yf.analysis.fetch_eps_revisions.assert_not_called()
+
+    def test_fetched_when_financials_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"financials_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        _run(repo, yf, mode="incremental")
+        yf.metadata.fetch_valuation_measures.assert_called_once()
+        yf.analysis.fetch_eps_trend.assert_called_once()
+        yf.analysis.fetch_eps_revisions.assert_called_once()
+
+
+class TestPriceUnit:
+    """GBp/sub-unit prices (SPEC OQ2): the listing currency is stored as-is on
+    price rows so the fx layer converts — no lossy transform at ingest."""
+
+    def test_price_history_model_has_price_unit_column(self) -> None:
+        from app.models.market_data.yfinance_data import PriceHistory
+
+        assert hasattr(PriceHistory, "price_unit")
+
+    def test_price_unit_passed_from_currency_code(self) -> None:
+        hist = pd.DataFrame(
+            {
+                "Open": [1.0],
+                "High": [1.0],
+                "Low": [1.0],
+                "Close": [1.0],
+                "Volume": [10],
+                "Dividends": [0.0],
+                "Stock Splits": [0.0],
+            },
+            index=pd.to_datetime(["2024-01-02"]),
+        )
+        repo = _make_repo(
+            staleness={
+                "price_max_date": date(2024, 1, 1),
+                "financials_updated_at": None,
+            }
+        )
+        yf = _make_yf_client_silent()
+        yf.fetch_history.return_value = hist
+        _run(repo, yf, mode="incremental", currency_code="GBX")
+        assert repo.upsert_price_history.call_args.kwargs.get("price_unit") == "GBX"
+
+
+class TestAnalystEstimates:
+    """earnings/revenue/growth estimates: dedicated tables, staleness-gated on
+    the shared fundamentals window (SPEC A1 / OQ5)."""
+
+    def test_models_have_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import (
+            EarningsEstimate,
+            GrowthEstimate,
+            RevenueEstimate,
+        )
+
+        for col in ("period", "num_analysts", "avg", "low", "high", "growth"):
+            assert hasattr(EarningsEstimate, col)
+        assert hasattr(EarningsEstimate, "year_ago_eps")
+        assert hasattr(RevenueEstimate, "year_ago_revenue")
+        for col in ("stock_trend", "industry_trend", "sector_trend", "index_trend"):
+            assert hasattr(GrowthEstimate, col)
+
+    def test_skipped_when_financials_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"financials_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "earnings_estimate" in result["skipped"]
+        assert "revenue_estimate" in result["skipped"]
+        assert "growth_estimates" in result["skipped"]
+        yf.analysis.fetch_earnings_estimate.assert_not_called()
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"financials_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        est = pd.DataFrame(
+            {"numberOfAnalysts": [5], "avg": [1.2], "low": [1.0], "high": [1.5]},
+            index=["0q"],
+        )
+        yf.analysis.fetch_earnings_estimate.return_value = est
+        yf.analysis.fetch_revenue_estimate.return_value = est
+        yf.analysis.fetch_growth_estimates.return_value = pd.DataFrame(
+            {"stockTrend": [0.1], "indexTrend": [0.08]}, index=["0q"]
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_earnings_estimate.assert_called_once()
+        repo.upsert_revenue_estimate.assert_called_once()
+        repo.upsert_growth_estimates.assert_called_once()
+
+
+class TestEarningsTimeline:
+    """earnings_history + earnings_dates (SPEC A2)."""
+
+    def test_models_have_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import EarningsDate, EarningsHistory
+
+        for col in (
+            "period_date",
+            "eps_estimate",
+            "eps_actual",
+            "eps_difference",
+            "surprise_percent",
+        ):
+            assert hasattr(EarningsHistory, col)
+        for col in ("earnings_date", "eps_estimate", "eps_actual", "surprise_percent"):
+            assert hasattr(EarningsDate, col)
+
+    def test_skipped_when_financials_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"financials_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "earnings_history" in result["skipped"]
+        assert "earnings_dates" in result["skipped"]
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"financials_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.analysis.fetch_earnings_history.return_value = pd.DataFrame(
+            {"epsEstimate": [1.0], "epsActual": [1.1], "surprisePercent": [10.0]},
+            index=pd.to_datetime(["2024-03-31"]),
+        )
+        yf.metadata.fetch_earnings_dates.return_value = pd.DataFrame(
+            {"EPS Estimate": [1.2], "Reported EPS": [1.3], "Surprise(%)": [8.0]},
+            index=pd.to_datetime(["2024-07-25"]),
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_earnings_history.assert_called_once()
+        repo.upsert_earnings_dates.assert_called_once()
+
+
+class TestAnalystActions:
+    """analyst_actions (upgrades/downgrades) — SPEC A3, analyst-rating cadence."""
+
+    def test_model_has_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import AnalystAction
+
+        for col in ("action_date", "firm", "from_grade", "to_grade", "action"):
+            assert hasattr(AnalystAction, col)
+
+    def test_skipped_when_recommendations_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"recommendations_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "analyst_actions" in result["skipped"]
+        yf.analysis.fetch_upgrades_downgrades.assert_not_called()
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"recommendations_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.analysis.fetch_upgrades_downgrades.return_value = pd.DataFrame(
+            {
+                "Firm": ["MS", "GS"],
+                "ToGrade": ["Buy", "Hold"],
+                "FromGrade": ["Hold", "Buy"],
+                "Action": ["up", "down"],
+            },
+            index=pd.to_datetime(["2024-05-01", "2024-05-02"]),
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_analyst_actions.assert_called_once()
+
+
+class TestEsgScores:
+    """esg_scores (SPEC A4)."""
+
+    def test_model_has_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import EsgScore
+
+        for col in (
+            "total_esg",
+            "environment_score",
+            "social_score",
+            "governance_score",
+            "highest_controversy",
+        ):
+            assert hasattr(EsgScore, col)
+
+    def test_skipped_when_financials_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"financials_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "esg_scores" in result["skipped"]
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"financials_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.analysis.fetch_sustainability.return_value = pd.DataFrame(
+            {"esgScores": [22.5]},
+            index=["totalEsg"],
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_esg_scores.assert_called_once()
+
+
+class TestSecFilings:
+    """sec_filings (SPEC A5) — list of filing dicts."""
+
+    def test_model_has_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import SecFiling
+
+        for col in ("filing_date", "form_type", "title", "url"):
+            assert hasattr(SecFiling, col)
+
+    def test_skipped_when_financials_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"financials_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "sec_filings" in result["skipped"]
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"financials_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.financials.fetch_sec_filings.return_value = [
+            {
+                "date": "2024-02-01",
+                "type": "10-K",
+                "title": "Annual report",
+                "edgarUrl": "u",
+            },
+            {
+                "date": "2024-05-01",
+                "type": "10-Q",
+                "title": "Quarterly",
+                "edgarUrl": "u2",
+            },
+        ]
+        _run(repo, yf, mode="incremental")
+        repo.upsert_sec_filings.assert_called_once()
+
+
+class TestCorpActionExtras:
+    """Shares outstanding + capital gains + price-history CG column (SPEC A6)."""
+
+    def test_shares_outstanding_model_columns(self) -> None:
+        from app.models.market_data.yfinance_data import SharesOutstanding
+
+        for col in ("date", "shares"):
+            assert hasattr(SharesOutstanding, col)
+
+    def test_capital_gain_model_columns(self) -> None:
+        from app.models.market_data.yfinance_data import CapitalGain
+
+        for col in ("date", "amount"):
+            assert hasattr(CapitalGain, col)
+
+    def test_price_history_has_capital_gains_column(self) -> None:
+        from app.models.market_data.yfinance_data import PriceHistory
+
+        assert hasattr(PriceHistory, "capital_gains")
+
+    def test_shares_skipped_when_financials_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"financials_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "shares_outstanding" in result["skipped"]
+        yf.corporate_actions.fetch_shares_full.assert_not_called()
+
+    def test_shares_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"financials_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.corporate_actions.fetch_shares_full.return_value = pd.Series(
+            [1_000_000, 1_050_000],
+            index=pd.to_datetime(["2024-01-01", "2024-06-01"]),
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_shares_outstanding.assert_called_once()
+
+    def test_capital_gains_skipped_when_dividends_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"dividends_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "capital_gains" in result["skipped"]
+        yf.corporate_actions.fetch_capital_gains.assert_not_called()
+
+    def test_capital_gains_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"dividends_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.corporate_actions.fetch_capital_gains.return_value = pd.Series(
+            [0.5, 0.7],
+            index=pd.to_datetime(["2023-12-15", "2024-12-15"]),
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_capital_gains.assert_called_once()
+
+
+class TestHoldersExtras:
+    """major_holders + insider_purchases + insider_roster (SPEC A7)."""
+
+    def test_major_holders_model_columns(self) -> None:
+        from app.models.market_data.yfinance_data import MajorHolders
+
+        for col in ("insiders_percent_held", "institutions_percent_held"):
+            assert hasattr(MajorHolders, col)
+
+    def test_insider_purchase_model_columns(self) -> None:
+        from app.models.market_data.yfinance_data import InsiderPurchaseSummary
+
+        for col in ("net_shares", "total_insider_shares"):
+            assert hasattr(InsiderPurchaseSummary, col)
+
+    def test_insider_roster_model_columns(self) -> None:
+        from app.models.market_data.yfinance_data import InsiderRosterHolder
+
+        for col in ("insider_name", "position"):
+            assert hasattr(InsiderRosterHolder, col)
+
+    def test_skipped_when_holders_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={
+                "institutional_holders_updated_at": now,
+                "insider_transactions_updated_at": now,
+                "price_max_date": None,
+            }
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "major_holders" in result["skipped"]
+        assert "insider_purchases" in result["skipped"]
+        assert "insider_roster" in result["skipped"]
+        yf.holders.fetch_major_holders.assert_not_called()
+        yf.holders.fetch_insider_purchases.assert_not_called()
+        yf.holders.fetch_insider_roster_holders.assert_not_called()
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={
+                "institutional_holders_updated_at": None,
+                "insider_transactions_updated_at": None,
+                "price_max_date": None,
+            }
+        )
+        yf = _make_yf_client_silent()
+        yf.holders.fetch_major_holders.return_value = pd.DataFrame(
+            {"Value": [0.01, 0.60]},
+            index=["insidersPercentHeld", "institutionsPercentHeld"],
+        )
+        yf.holders.fetch_insider_purchases.return_value = pd.DataFrame(
+            {
+                "Insider Purchases Last 6m": [
+                    "Purchases",
+                    "Sales",
+                    "Net Shares Purchased (Sold)",
+                    "Total Insider Shares Held",
+                ],
+                "Shares": [100, 40, 60, 5000],
+                "Trans": [2, 1, 1, None],
+            }
+        )
+        yf.holders.fetch_insider_roster_holders.return_value = pd.DataFrame(
+            {
+                "Name": ["JANE DOE"],
+                "Position": ["CEO"],
+                "Most Recent Transaction": ["Buy"],
+                "Latest Transaction Date": ["2024-05-01"],
+                "Shares Owned Directly": [1000],
+            }
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_major_holders.assert_called_once()
+        repo.upsert_insider_purchases.assert_called_once()
+        repo.upsert_insider_roster.assert_called_once()
+
+
+class TestProfileExtras:
+    """ticker_profile_extras (SPEC A9) — mapped from the already-fetched info."""
+
+    def test_model_has_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import TickerProfileExtra
+
+        for col in ("shares_short", "short_ratio", "overall_risk", "sector_key"):
+            assert hasattr(TickerProfileExtra, col)
+
+    def test_skipped_when_profile_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(staleness={"profile_updated_at": now, "price_max_date": None})
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "profile" in result["skipped"]
+        repo.upsert_profile_extras.assert_not_called()
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"profile_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.fetch_info.return_value = {
+            "symbol": "AAPL",
+            "sharesShort": 100_000,
+            "shortRatio": 1.2,
+            "overallRisk": 3,
+            "sectorKey": "technology",
+        }
+        _run(repo, yf, mode="incremental")
+        repo.upsert_profile_extras.assert_called_once()
+
+
+class TestStalenessInjection:
+    """A bulk sweep pre-loads staleness in one grouped query and injects it, so
+    fetch_and_store must NOT run its own per-instrument staleness query."""
+
+    def test_injected_staleness_skips_per_instrument_query(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(staleness=None)
+        yf = _make_yf_client_silent()
+        service = YFinanceDataService(repo=repo, yf_client=yf)
+        result = service.fetch_and_store(
+            instrument_id=uuid4(),
+            yfinance_ticker="AAPL",
+            mode="incremental",
+            staleness={"financials_updated_at": now, "price_max_date": None},
+        )
+        repo.get_staleness_info.assert_not_called()
+        assert "valuation_measures" in result["skipped"]
+
+    def test_missing_staleness_falls_back_to_query(self) -> None:
+        repo = _make_repo(staleness={"price_max_date": None})
+        yf = _make_yf_client_silent()
+        service = YFinanceDataService(repo=repo, yf_client=yf)
+        # No staleness kwarg → the internal query still runs.
+        service.fetch_and_store(
+            instrument_id=uuid4(), yfinance_ticker="AAPL", mode="incremental"
+        )
+        repo.get_staleness_info.assert_called_once()
 
 
 def _run(

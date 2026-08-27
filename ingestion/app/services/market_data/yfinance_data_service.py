@@ -98,6 +98,10 @@ class StalenessThresholds:
 
 DEFAULT_THRESHOLDS = StalenessThresholds()
 
+# Sentinel: distinguishes "caller did not supply staleness" (query it) from
+# "caller supplied None" (no data yet → treat as stale) on fetch_and_store.
+_UNSET: Any = object()
+
 
 def _is_fresh(
     updated_at: datetime | None,
@@ -146,6 +150,7 @@ class YFinanceDataService:
         exchange_name: str | None = None,
         currency_code: str | None = None,
         asset_class: str | None = None,
+        staleness: Any = _UNSET,
     ) -> dict[str, Any]:
         """Fetch all data categories for a single ticker and store.
 
@@ -172,9 +177,12 @@ class YFinanceDataService:
         if thresholds is None:
             thresholds = DEFAULT_THRESHOLDS
 
-        # In incremental mode, query staleness info once upfront
-        staleness: dict[str, Any] | None = None
-        if mode == "incremental":
+        # In incremental mode, query staleness info once upfront — unless the
+        # caller (a bulk sweep) pre-loaded it in one grouped query and injected
+        # it here, avoiding a per-instrument round-trip.
+        if mode != "incremental":
+            staleness = None
+        elif staleness is _UNSET:
             try:
                 staleness = self.repo.get_staleness_info(instrument_id)
             except Exception as e:
@@ -273,6 +281,11 @@ class YFinanceDataService:
                 info = self._timed(lambda: self.yf_client.fetch_info(yfinance_ticker))
                 if info:
                     counts["profile"] = self.repo.upsert_profile(instrument_id, info)
+                    # SPEC A9: extra info fields (short interest, momentum,
+                    # governance risk) reuse the same fetched dict — no re-fetch.
+                    counts["profile_extras"] = self.repo.upsert_profile_extras(
+                        instrument_id, info
+                    )
                 else:
                     counts["profile"] = 0
             except Exception as e:
@@ -366,8 +379,10 @@ class YFinanceDataService:
                             )
 
             if history is not None and not history.empty:
+                # Store the listing currency as the price unit (raw, unconverted) so
+                # sub-unit series (GBX pence) are unambiguous downstream (SPEC OQ2).
                 counts["prices"] = self.repo.upsert_price_history(
-                    instrument_id, history
+                    instrument_id, history, price_unit=currency_code
                 )
             else:
                 counts["prices"] = counts.get("prices", 0)
@@ -447,75 +462,296 @@ class YFinanceDataService:
 
         # 3a. Valuation measures (Ticker.valuation, 9-metric panel).
         # Open-EAV reuse of financial_statements: no migration, no new model.
-        try:
-            val_df = self._timed(
-                lambda: self.yf_client.metadata.fetch_valuation_measures(
-                    yfinance_ticker
-                )
+        # Staleness-gated on the shared financial_statements table.
+        if (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("financials_updated_at"), thresholds.financials_hours, now
             )
-            if val_df is not None and not val_df.empty:
-                counts["valuation_measures"] = self.repo.upsert_financial_statements(
-                    instrument_id,
-                    val_df,
-                    "valuation_measures",
-                    "point_in_time",
-                    currency_code=reporting_currency,
+        ):
+            skipped.append("valuation_measures")
+        else:
+            try:
+                val_df = self._timed(
+                    lambda: self.yf_client.metadata.fetch_valuation_measures(
+                        yfinance_ticker
+                    )
                 )
-            else:
-                counts["valuation_measures"] = 0
-        except Exception as e:
-            errors.append(f"valuation_measures: {e}")
-            logger.warning("Failed valuation_measures for %s: %s", yfinance_ticker, e)
+                if val_df is not None and not val_df.empty:
+                    counts["valuation_measures"] = (
+                        self.repo.upsert_financial_statements(
+                            instrument_id,
+                            val_df,
+                            "valuation_measures",
+                            "point_in_time",
+                            currency_code=reporting_currency,
+                        )
+                    )
+                else:
+                    counts["valuation_measures"] = 0
+            except Exception as e:
+                errors.append(f"valuation_measures: {e}")
+                logger.warning(
+                    "Failed valuation_measures for %s: %s", yfinance_ticker, e
+                )
 
         # 3b. EPS trend. yfinance returns string period labels ("0q", "+1q",
         # "0y", "+1y"); coerce columns to datetimes and drop NaT so the
         # repository's _safe_date does not silently drop rows.
-        try:
-            eps_trend_df = self._timed(
-                lambda: self.yf_client.analysis.fetch_eps_trend(yfinance_ticker)
+        if (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("financials_updated_at"), thresholds.financials_hours, now
             )
-            if eps_trend_df is not None and not eps_trend_df.empty:
-                eps_trend_df = eps_trend_df.copy()
-                eps_trend_df.columns = pd.to_datetime(
-                    eps_trend_df.columns, errors="coerce"
+        ):
+            skipped.append("eps_trend")
+        else:
+            try:
+                eps_trend_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_eps_trend(yfinance_ticker)
                 )
-                eps_trend_df = eps_trend_df.loc[:, eps_trend_df.columns.notna()]
-            if eps_trend_df is not None and not eps_trend_df.empty:
-                counts["eps_trend"] = self.repo.upsert_financial_statements(
-                    instrument_id,
-                    eps_trend_df,
-                    "eps_trend",
-                    "estimate",
-                    currency_code=None,
-                )
-            else:
-                counts["eps_trend"] = 0
-        except Exception as e:
-            errors.append(f"eps_trend: {e}")
-            logger.warning("Failed eps_trend for %s: %s", yfinance_ticker, e)
+                if eps_trend_df is not None and not eps_trend_df.empty:
+                    eps_trend_df = eps_trend_df.copy()
+                    eps_trend_df.columns = pd.to_datetime(
+                        eps_trend_df.columns, errors="coerce"
+                    )
+                    eps_trend_df = eps_trend_df.loc[:, eps_trend_df.columns.notna()]
+                if eps_trend_df is not None and not eps_trend_df.empty:
+                    counts["eps_trend"] = self.repo.upsert_financial_statements(
+                        instrument_id,
+                        eps_trend_df,
+                        "eps_trend",
+                        "estimate",
+                        currency_code=None,
+                    )
+                else:
+                    counts["eps_trend"] = 0
+            except Exception as e:
+                errors.append(f"eps_trend: {e}")
+                logger.warning("Failed eps_trend for %s: %s", yfinance_ticker, e)
 
         # 3c. EPS revisions. Same period-label coercion as eps_trend.
-        try:
-            eps_rev_df = self._timed(
-                lambda: self.yf_client.analysis.fetch_eps_revisions(yfinance_ticker)
+        if (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("financials_updated_at"), thresholds.financials_hours, now
             )
-            if eps_rev_df is not None and not eps_rev_df.empty:
-                eps_rev_df = eps_rev_df.copy()
-                eps_rev_df.columns = pd.to_datetime(eps_rev_df.columns, errors="coerce")
-                eps_rev_df = eps_rev_df.loc[:, eps_rev_df.columns.notna()]
-            if eps_rev_df is not None and not eps_rev_df.empty:
-                counts["eps_revisions"] = self.repo.upsert_financial_statements(
-                    instrument_id,
-                    eps_rev_df,
-                    "eps_revisions",
-                    "estimate",
-                    currency_code=None,
+        ):
+            skipped.append("eps_revisions")
+        else:
+            try:
+                eps_rev_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_eps_revisions(yfinance_ticker)
                 )
-            else:
-                counts["eps_revisions"] = 0
-        except Exception as e:
-            errors.append(f"eps_revisions: {e}")
-            logger.warning("Failed eps_revisions for %s: %s", yfinance_ticker, e)
+                if eps_rev_df is not None and not eps_rev_df.empty:
+                    eps_rev_df = eps_rev_df.copy()
+                    eps_rev_df.columns = pd.to_datetime(
+                        eps_rev_df.columns, errors="coerce"
+                    )
+                    eps_rev_df = eps_rev_df.loc[:, eps_rev_df.columns.notna()]
+                if eps_rev_df is not None and not eps_rev_df.empty:
+                    counts["eps_revisions"] = self.repo.upsert_financial_statements(
+                        instrument_id,
+                        eps_rev_df,
+                        "eps_revisions",
+                        "estimate",
+                        currency_code=None,
+                    )
+                else:
+                    counts["eps_revisions"] = 0
+            except Exception as e:
+                errors.append(f"eps_revisions: {e}")
+                logger.warning("Failed eps_revisions for %s: %s", yfinance_ticker, e)
+
+        # 3d/3e/3f. Analyst estimates (earnings / revenue / growth) — dedicated
+        # typed tables, staleness-gated on the shared fundamentals window.
+        estimates_fresh = (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("financials_updated_at"), thresholds.financials_hours, now
+            )
+        )
+        if estimates_fresh:
+            skipped.append("earnings_estimate")
+        else:
+            try:
+                ee_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_earnings_estimate(
+                        yfinance_ticker
+                    )
+                )
+                counts["earnings_estimate"] = (
+                    self.repo.upsert_earnings_estimate(instrument_id, ee_df)
+                    if ee_df is not None and not ee_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"earnings_estimate: {e}")
+                logger.warning(
+                    "Failed earnings_estimate for %s: %s", yfinance_ticker, e
+                )
+
+        if estimates_fresh:
+            skipped.append("revenue_estimate")
+        else:
+            try:
+                re_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_revenue_estimate(
+                        yfinance_ticker
+                    )
+                )
+                counts["revenue_estimate"] = (
+                    self.repo.upsert_revenue_estimate(instrument_id, re_df)
+                    if re_df is not None and not re_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"revenue_estimate: {e}")
+                logger.warning("Failed revenue_estimate for %s: %s", yfinance_ticker, e)
+
+        if estimates_fresh:
+            skipped.append("growth_estimates")
+        else:
+            try:
+                ge_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_growth_estimates(
+                        yfinance_ticker
+                    )
+                )
+                counts["growth_estimates"] = (
+                    self.repo.upsert_growth_estimates(instrument_id, ge_df)
+                    if ge_df is not None and not ge_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"growth_estimates: {e}")
+                logger.warning("Failed growth_estimates for %s: %s", yfinance_ticker, e)
+
+        # 3g. Earnings history (past-quarter EPS surprise).
+        if estimates_fresh:
+            skipped.append("earnings_history")
+        else:
+            try:
+                eh_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_earnings_history(
+                        yfinance_ticker
+                    )
+                )
+                counts["earnings_history"] = (
+                    self.repo.upsert_earnings_history(instrument_id, eh_df)
+                    if eh_df is not None and not eh_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"earnings_history: {e}")
+                logger.warning("Failed earnings_history for %s: %s", yfinance_ticker, e)
+
+        # 3h. Earnings dates (past + upcoming).
+        if estimates_fresh:
+            skipped.append("earnings_dates")
+        else:
+            try:
+                ed_df = self._timed(
+                    lambda: self.yf_client.metadata.fetch_earnings_dates(
+                        yfinance_ticker
+                    )
+                )
+                counts["earnings_dates"] = (
+                    self.repo.upsert_earnings_dates(instrument_id, ed_df)
+                    if ed_df is not None and not ed_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"earnings_dates: {e}")
+                logger.warning("Failed earnings_dates for %s: %s", yfinance_ticker, e)
+
+        # 3i. Analyst upgrade/downgrade actions (analyst-rating cadence).
+        if (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("recommendations_updated_at"),
+                thresholds.recommendations_hours,
+                now,
+            )
+        ):
+            skipped.append("analyst_actions")
+        else:
+            try:
+                ad_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_upgrades_downgrades(
+                        yfinance_ticker
+                    )
+                )
+                counts["analyst_actions"] = (
+                    self.repo.upsert_analyst_actions(instrument_id, ad_df)
+                    if ad_df is not None and not ad_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"analyst_actions: {e}")
+                logger.warning("Failed analyst_actions for %s: %s", yfinance_ticker, e)
+
+        # 3j. ESG / sustainability (rarely changes; fundamentals window).
+        if estimates_fresh:
+            skipped.append("esg_scores")
+        else:
+            try:
+                esg_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_sustainability(
+                        yfinance_ticker
+                    )
+                )
+                counts["esg_scores"] = (
+                    self.repo.upsert_esg_scores(instrument_id, esg_df)
+                    if esg_df is not None and not esg_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"esg_scores: {e}")
+                logger.warning("Failed esg_scores for %s: %s", yfinance_ticker, e)
+
+        # 3k. SEC filings (list of dicts; fundamentals window).
+        if estimates_fresh:
+            skipped.append("sec_filings")
+        else:
+            try:
+                filings = self._timed(
+                    lambda: self.yf_client.financials.fetch_sec_filings(yfinance_ticker)
+                )
+                counts["sec_filings"] = (
+                    self.repo.upsert_sec_filings(instrument_id, filings)
+                    if filings
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"sec_filings: {e}")
+                logger.warning("Failed sec_filings for %s: %s", yfinance_ticker, e)
+
+        # 3l. Shares outstanding (fundamentals window; point-in-time float).
+        if estimates_fresh:
+            skipped.append("shares_outstanding")
+        else:
+            try:
+                shares = self._timed(
+                    lambda: self.yf_client.corporate_actions.fetch_shares_full(
+                        yfinance_ticker
+                    )
+                )
+                counts["shares_outstanding"] = (
+                    self.repo.upsert_shares_outstanding(instrument_id, shares)
+                    if shares is not None and not getattr(shares, "empty", True)
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"shares_outstanding: {e}")
+                logger.warning(
+                    "Failed shares_outstanding for %s: %s", yfinance_ticker, e
+                )
 
         # 4. Dividends
         if (
@@ -542,6 +778,31 @@ class YFinanceDataService:
             except Exception as e:
                 errors.append(f"dividends: {e}")
                 logger.warning("Failed dividends for %s: %s", yfinance_ticker, e)
+
+        # 4b. Capital gains (fund distributions; shares the dividends window).
+        if (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("dividends_updated_at"), thresholds.dividends_hours, now
+            )
+        ):
+            skipped.append("capital_gains")
+        else:
+            try:
+                cap_gains = self._timed(
+                    lambda: self.yf_client.corporate_actions.fetch_capital_gains(
+                        yfinance_ticker
+                    )
+                )
+                counts["capital_gains"] = (
+                    self.repo.upsert_capital_gains(instrument_id, cap_gains)
+                    if cap_gains is not None and not cap_gains.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"capital_gains: {e}")
+                logger.warning("Failed capital_gains for %s: %s", yfinance_ticker, e)
 
         # 5. Stock splits
         if (
@@ -715,6 +976,79 @@ class YFinanceDataService:
                     "Failed insider transactions for %s: %s", yfinance_ticker, e
                 )
 
+        # 10b. Major holders (ownership breakdown; institutional window).
+        if (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("institutional_holders_updated_at"),
+                thresholds.institutional_holders_hours,
+                now,
+            )
+        ):
+            skipped.append("major_holders")
+        else:
+            try:
+                mh_df = self._timed(
+                    lambda: self.yf_client.holders.fetch_major_holders(yfinance_ticker)
+                )
+                counts["major_holders"] = (
+                    self.repo.upsert_major_holders(instrument_id, mh_df)
+                    if mh_df is not None and not mh_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"major_holders: {e}")
+                logger.warning("Failed major_holders for %s: %s", yfinance_ticker, e)
+
+        # 10c/10d. Insider purchases + roster (insider window).
+        insider_fresh = (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("insider_transactions_updated_at"),
+                thresholds.insider_transactions_hours,
+                now,
+            )
+        )
+        if insider_fresh:
+            skipped.append("insider_purchases")
+        else:
+            try:
+                ip_df = self._timed(
+                    lambda: self.yf_client.holders.fetch_insider_purchases(
+                        yfinance_ticker
+                    )
+                )
+                counts["insider_purchases"] = (
+                    self.repo.upsert_insider_purchases(instrument_id, ip_df)
+                    if ip_df is not None and not ip_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"insider_purchases: {e}")
+                logger.warning(
+                    "Failed insider_purchases for %s: %s", yfinance_ticker, e
+                )
+
+        if insider_fresh:
+            skipped.append("insider_roster")
+        else:
+            try:
+                ir_df = self._timed(
+                    lambda: self.yf_client.holders.fetch_insider_roster_holders(
+                        yfinance_ticker
+                    )
+                )
+                counts["insider_roster"] = (
+                    self.repo.upsert_insider_roster(instrument_id, ir_df)
+                    if ir_df is not None and not ir_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"insider_roster: {e}")
+                logger.warning("Failed insider_roster for %s: %s", yfinance_ticker, e)
+
         # 11. News (always fetched with full article content scraped)
         try:
             news_list = self._timed(lambda: _get_lazy_ticker().news)
@@ -786,7 +1120,13 @@ class YFinanceDataService:
             profile = self._timed(
                 lambda: self.yf_client.funds.fetch_fund_profile(yfinance_ticker)
             )
-            if profile:
+            fdata = self._timed(
+                lambda: self.yf_client.funds.fetch_funds_data(yfinance_ticker)
+            )
+            overview = (fdata or {}).get("fund_overview") or {}
+            description = (fdata or {}).get("description")
+            profile = profile or {}
+            if profile or overview or description:
                 etf_repo.upsert_metadata(
                     instrument_id,
                     aum=profile.get("aum"),
@@ -795,13 +1135,12 @@ class YFinanceDataService:
                     legal_type=profile.get("legal_type"),
                     expense_ratio=profile.get("expense_ratio"),
                     base_currency=profile.get("base_currency"),
+                    category=overview.get("categoryName") or overview.get("category"),
+                    description=description,
                     as_of=as_of,
                 )
                 counts["etf_metadata"] = 1
 
-            fdata = self._timed(
-                lambda: self.yf_client.funds.fetch_funds_data(yfinance_ticker)
-            )
             if fdata:
                 ac = fdata.get("asset_classes") or {}
                 etf_repo.upsert_asset_classes(
@@ -822,6 +1161,27 @@ class YFinanceDataService:
                 if sectors:
                     counts["etf_sector_weights"] = etf_repo.upsert_sector_weights(
                         instrument_id, as_of, sectors
+                    )
+                # Depth (SPEC A8): equity/bond metrics, ratings, operations.
+                equity = fdata.get("equity_holdings") or {}
+                if equity:
+                    counts["etf_equity_holdings"] = etf_repo.upsert_equity_holdings(
+                        instrument_id, as_of, equity
+                    )
+                bonds = fdata.get("bond_holdings") or {}
+                if bonds:
+                    counts["etf_bond_holdings"] = etf_repo.upsert_bond_holdings(
+                        instrument_id, as_of, bonds
+                    )
+                ratings = fdata.get("bond_ratings") or {}
+                if ratings:
+                    counts["etf_bond_ratings"] = etf_repo.upsert_bond_ratings(
+                        instrument_id, as_of, ratings
+                    )
+                operations = fdata.get("fund_operations") or {}
+                if operations:
+                    counts["etf_fund_operations"] = etf_repo.upsert_fund_operations(
+                        instrument_id, as_of, operations
                     )
         except Exception as e:
             errors.append(f"etf_metadata: {e}")
@@ -879,6 +1239,12 @@ def run_bulk_yfinance_fetch(
             request_timeout=float(_settings.yfinance_request_timeout_seconds),
         )
 
+        # Incremental: one grouped staleness query for the whole sweep instead
+        # of 11 MAX() round-trips per instrument inside fetch_and_store.
+        staleness_by_id: dict[UUID, dict[str, Any]] = {}
+        if request.mode == "incremental":
+            staleness_by_id = repo.get_staleness_info_bulk([i.id for i in instruments])
+
         for idx, instrument in enumerate(instruments, 1):
             ticker = instrument.yfinance_ticker
             on_progress(current=idx, current_ticker=ticker)
@@ -896,6 +1262,11 @@ def run_bulk_yfinance_fetch(
                     exchange_name=instrument.exchange_name,
                     currency_code=instrument.currency_code,
                     asset_class=getattr(instrument, "asset_class", None),
+                    staleness=(
+                        staleness_by_id.get(instrument.id)
+                        if request.mode == "incremental"
+                        else _UNSET
+                    ),
                 )
 
                 for k, v in result["counts"].items():
@@ -966,6 +1337,7 @@ def _fetch_one_ticker(
     yf_client: YFinanceClient,
     database_manager: Any,
     request_timeout: float | None = None,
+    staleness: Any = _UNSET,
 ) -> dict[str, Any]:
     """Fetch a single ticker inside an isolated per-thread session."""
     if not spec.yfinance_ticker:
@@ -982,6 +1354,7 @@ def _fetch_one_ticker(
                 exchange_name=spec.exchange_name,
                 currency_code=spec.currency_code,
                 asset_class=spec.asset_class,
+                staleness=staleness,
             )
             session.commit()
             return result
@@ -1033,6 +1406,15 @@ def _run_bulk_yfinance_fetch_parallel(
     total = len(specs)
     on_progress(total=total)
 
+    # Incremental: pre-load staleness for the whole sweep in one main-thread
+    # session (grouped queries) instead of 11 MAX() round-trips per worker.
+    staleness_by_id: dict[UUID, dict[str, Any]] = {}
+    if request.mode == "incremental":
+        with database_manager.get_session() as _s:
+            staleness_by_id = YFinanceRepository(_s).get_staleness_info_bulk(
+                [s.instrument_id for s in specs]
+            )
+
     counter = [0]
     counter_lock = threading.Lock()
     aggregate_lock = threading.Lock()
@@ -1045,7 +1427,16 @@ def _run_bulk_yfinance_fetch_parallel(
     ) -> tuple[_InstrumentSpec, dict[str, Any] | Exception]:
         try:
             return spec, _fetch_one_ticker(
-                spec, request, yf_client, database_manager, request_timeout
+                spec,
+                request,
+                yf_client,
+                database_manager,
+                request_timeout,
+                staleness=(
+                    staleness_by_id.get(spec.instrument_id)
+                    if request.mode == "incremental"
+                    else _UNSET
+                ),
             )
         except Exception as exc:
             return spec, exc

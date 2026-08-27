@@ -156,6 +156,10 @@ class TestSingleStepCommands:
             ("news", "run_news_step"),
             ("calibrate", "run_calibrate_step"),
             ("universe", "run_universe_step"),
+            ("market-structure", "run_market_structure_step"),
+            ("calendars", "run_calendars_step"),
+            ("market-summary", "run_market_summary_step"),
+            ("options", "run_options_step"),
         ],
     )
     def test_command_invokes_matching_scheduler_step(
@@ -177,6 +181,10 @@ class TestSingleStepCommands:
             ("yfinance", "run_yfinance_step"),
             ("fred", "run_fred_step"),
             ("summarize", "run_summarize_step"),
+            ("market-structure", "run_market_structure_step"),
+            ("calendars", "run_calendars_step"),
+            ("market-summary", "run_market_summary_step"),
+            ("options", "run_options_step"),
         ],
     )
     def test_exits_nonzero_when_step_did_not_complete(

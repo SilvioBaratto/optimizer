@@ -62,6 +62,29 @@ def test_screen_predefined_valid_delegates(mock_screen: MagicMock) -> None:
     assert mock_screen.call_args.args[0] == name
 
 
+@patch(_SCREEN)
+def test_screen_predefined_uses_count_not_size(mock_screen: MagicMock) -> None:
+    import yfinance as yf
+
+    mock_screen.return_value = {"quotes": []}
+    name = next(iter(yf.PREDEFINED_SCREENER_QUERIES))
+    _client().screen_predefined(name, count=50)
+    kwargs = mock_screen.call_args.kwargs
+    assert kwargs.get("count") == 50
+    assert "size" not in kwargs  # predefined screens size via count, not size
+
+
+@patch(_SCREEN)
+def test_custom_query_uses_size_not_count(mock_screen: MagicMock) -> None:
+    mock_screen.return_value = {"quotes": []}
+    _client().screen(
+        "day_gainers", size=80
+    )  # a Query would be an object; string still size-path here
+    kwargs = mock_screen.call_args.kwargs
+    assert kwargs.get("size") == 80
+    assert "count" not in kwargs
+
+
 def test_facade_exposes_screener_and_tracks_it_for_reset() -> None:
     from app.services.market_data.yfinance import YFinanceClient
 
