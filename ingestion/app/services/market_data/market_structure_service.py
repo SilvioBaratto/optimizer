@@ -16,6 +16,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from app.repositories.market_data.market_structure_repository import _int, _num
 from app.services._shared import ProgressCallback, _noop
 from app.services.market_data.yfinance import YFinanceClient
 from app.services.market_data.yfinance.market.sectors import SECTOR_KEYS
@@ -34,18 +35,6 @@ DEFAULT_REGIONS: tuple[str, ...] = (
     "SE",
     "CA",
 )
-
-
-def _num(v: Any) -> float | None:
-    try:
-        return float(v) if v is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _int(v: Any) -> int | None:
-    f = _num(v)
-    return int(f) if f is not None else None
 
 
 def run_market_structure_fetch(

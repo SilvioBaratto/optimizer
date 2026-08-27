@@ -665,6 +665,10 @@ _RECLAIM_STEP: dict[str, Callable[..., bool]] = {
     "news_summarize": run_summarize_step,
     "macro_calibrate": run_calibrate_step,
     "universe_build": run_universe_step,
+    "market_structure_fetch": run_market_structure_step,
+    "calendars_fetch": run_calendars_step,
+    "market_summary_fetch": run_market_summary_step,
+    "options_fetch": run_options_step,
 }
 
 

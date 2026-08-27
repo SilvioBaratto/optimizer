@@ -330,6 +330,20 @@ class TestRunWeeklyMarketWide:
         ids = {d.job_id for d in _build_schedule_registry()}
         assert "weekly_market_wide" in ids
 
+    @pytest.mark.parametrize(
+        "job_type",
+        [
+            "market_structure_fetch",
+            "calendars_fetch",
+            "market_summary_fetch",
+            "options_fetch",
+        ],
+    )
+    def test_market_wide_job_types_are_reclaim_dispatchable(self, job_type):
+        from app.services.jobs.scheduler import _reclaim_dispatchable
+
+        assert _reclaim_dispatchable(job_type) is True
+
 
 # ---------------------------------------------------------------------------
 # TestRunFredMonthly

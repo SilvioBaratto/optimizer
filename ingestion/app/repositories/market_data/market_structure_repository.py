@@ -28,6 +28,11 @@ def _num(v: Any) -> float | None:
         return None
 
 
+def _int(v: Any) -> int | None:
+    f = _num(v)
+    return int(f) if f is not None else None
+
+
 class MarketStructureRepository(RepositoryBase):
     def upsert_sector_snapshot(
         self,
