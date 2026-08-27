@@ -64,9 +64,11 @@ class CalendarsRepository(RepositoryBase):
     def upsert_earnings(self, rows: list[dict[str, Any]]) -> int:
         out: dict[tuple, dict[str, Any]] = {}
         for r in rows:
-            ticker = _str(_col(r, "ticker", "Symbol", "symbol", "index"), 30)
+            ticker = _str(_col(r, "Symbol", "ticker", "symbol", "index"), 30)
+            # yfinance builds columns from humanized labels then renames; the
+            # earnings date label is "Event Start Date".
             event_date = _date(
-                _col(r, "startdatetime", "Earnings Date", "earningsDate", "date")
+                _col(r, "Event Start Date", "startdatetime", "Earnings Date", "date")
             )
             if not ticker or event_date is None:
                 continue
@@ -75,11 +77,11 @@ class CalendarsRepository(RepositoryBase):
                 "ticker": ticker,
                 "event_date": event_date,
                 "company_name": _str(
-                    _col(r, "companyshortname", "Company", "company"), 255
+                    _col(r, "Company", "Company Name", "companyshortname"), 255
                 ),
-                "eps_estimate": _num(_col(r, "epsestimate", "EPS Estimate")),
-                "eps_actual": _num(_col(r, "epsactual", "Reported EPS")),
-                "eps_surprise_pct": _num(_col(r, "epssurprisepct", "Surprise(%)")),
+                "eps_estimate": _num(_col(r, "EPS Estimate", "epsestimate")),
+                "eps_actual": _num(_col(r, "Reported EPS", "epsactual")),
+                "eps_surprise_pct": _num(_col(r, "Surprise(%)", "epssurprisepct")),
             }
         return self._commit(
             EarningsCalendar,
@@ -91,19 +93,20 @@ class CalendarsRepository(RepositoryBase):
     def upsert_ipos(self, rows: list[dict[str, Any]]) -> int:
         out: dict[tuple, dict[str, Any]] = {}
         for r in rows:
-            ticker = _str(_col(r, "ticker", "Symbol", "symbol", "index"), 30)
-            ipo_date = _date(_col(r, "startdatetime", "date", "Date"))
+            ticker = _str(_col(r, "Symbol", "ticker", "symbol", "index"), 30)
+            # IPO datetime label is "Date"; identity fields use humanized labels.
+            ipo_date = _date(_col(r, "Date", "startdatetime"))
             if not ticker or ipo_date is None:
                 continue
             out[(ticker, ipo_date)] = {
                 "id": uuid.uuid4(),
                 "ticker": ticker,
                 "ipo_date": ipo_date,
-                "company_name": _str(_col(r, "companyshortname", "Company"), 255),
-                "exchange": _str(_col(r, "exchange", "Exchange"), 50),
-                "price_range": _str(_col(r, "pricefrom", "priceRange", "Price"), 100),
-                "currency": _str(_col(r, "currency", "Currency"), 10),
-                "shares": _int(_col(r, "offersize", "shares", "Shares")),
+                "company_name": _str(_col(r, "Company Name", "companyshortname"), 255),
+                "exchange": _str(_col(r, "Exchange", "exchange"), 50),
+                "price_range": _str(_col(r, "Price From", "pricefrom"), 100),
+                "currency": _str(_col(r, "Currency Name", "currency"), 10),
+                "shares": _int(_col(r, "Shares", "offersize", "shares")),
             }
         return self._commit(
             IpoCalendar,
@@ -115,16 +118,19 @@ class CalendarsRepository(RepositoryBase):
     def upsert_splits(self, rows: list[dict[str, Any]]) -> int:
         out: dict[tuple, dict[str, Any]] = {}
         for r in rows:
-            ticker = _str(_col(r, "ticker", "Symbol", "symbol", "index"), 30)
-            split_date = _date(_col(r, "startdatetime", "date", "Date"))
+            ticker = _str(_col(r, "Symbol", "ticker", "symbol", "index"), 30)
+            # Split datetime label is "Payable On".
+            split_date = _date(_col(r, "Payable On", "startdatetime"))
             if not ticker or split_date is None:
                 continue
+            # yfinance's splits calendar carries no split ratio — only share-worth
+            # fields — so ratio is left NULL rather than mislabelling "Optionable".
             out[(ticker, split_date)] = {
                 "id": uuid.uuid4(),
                 "ticker": ticker,
                 "split_date": split_date,
-                "company_name": _str(_col(r, "companyshortname", "Company"), 255),
-                "ratio": _str(_col(r, "optionable", "ratio", "Ratio"), 50),
+                "company_name": _str(_col(r, "Company Name", "companyshortname"), 255),
+                "ratio": _str(_col(r, "ratio", "Ratio"), 50),
             }
         return self._commit(
             SplitCalendar,
@@ -136,9 +142,10 @@ class CalendarsRepository(RepositoryBase):
     def upsert_economic_events(self, rows: list[dict[str, Any]]) -> int:
         out: dict[tuple, dict[str, Any]] = {}
         for r in rows:
-            event = _str(_col(r, "event", "Event", "eventName"), 255)
-            country = _str(_col(r, "country", "Country", "region"), 50) or "?"
-            event_date = _date(_col(r, "startdatetime", "date", "Date"))
+            event = _str(_col(r, "Event", "event", "eventName"), 255)
+            # country_code is renamed to "Region"; date label is "Event Time".
+            country = _str(_col(r, "Region", "country", "Country"), 50) or "?"
+            event_date = _date(_col(r, "Event Time", "startdatetime", "date"))
             if not event or event_date is None:
                 continue
             out[(event, country, event_date)] = {
@@ -146,9 +153,9 @@ class CalendarsRepository(RepositoryBase):
                 "event": event,
                 "country": country,
                 "event_date": event_date,
-                "actual": _str(_col(r, "actual", "Actual"), 50),
-                "forecast": _str(_col(r, "forecast", "Forecast", "expected"), 50),
-                "prior": _str(_col(r, "prior", "Prior", "previous"), 50),
+                "actual": _str(_col(r, "Actual", "actual"), 50),
+                "forecast": _str(_col(r, "Expected", "forecast", "Forecast"), 50),
+                "prior": _str(_col(r, "Last", "prior", "Prior"), 50),
             }
         return self._commit(
             EconomicEventCalendar,

@@ -41,12 +41,14 @@ def _summary_to_list(summary: Any) -> list[dict[str, Any]]:
     if not isinstance(summary, dict):
         return []
     out: list[dict[str, Any]] = []
-    for symbol, q in summary.items():
+    for exchange, q in summary.items():
         if not isinstance(q, dict):
             continue
         out.append(
             {
-                "symbol": str(symbol),
+                # yfinance keys summary by exchange code; the instrument symbol
+                # (e.g. "^GSPC") lives in q["symbol"]. Fall back to the key.
+                "symbol": str(q.get("symbol") or exchange),
                 "short_name": q.get("shortName") or q.get("longName"),
                 "price": _raw(q.get("regularMarketPrice")),
                 "change": _raw(q.get("regularMarketChange")),

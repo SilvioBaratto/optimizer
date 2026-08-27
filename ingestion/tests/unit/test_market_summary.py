@@ -54,6 +54,33 @@ class TestMarketClient:
         assert out[0]["change_percent"] == 0.42
         assert out[0]["market_state"] == "REGULAR"
 
+    def test_symbol_comes_from_quote_not_exchange_key(self) -> None:
+        # yfinance keys summary by exchange code; the real symbol is q["symbol"].
+        summary = {
+            "SNP": {
+                "symbol": "^GSPC",
+                "shortName": "S&P 500",
+                "regularMarketPrice": {"raw": 5600.5},
+            }
+        }
+        market = SimpleNamespace(summary=summary)
+        with patch(
+            "app.services.market_data.yfinance.market.market_summary.yf.Market",
+            return_value=market,
+        ):
+            out = _client().fetch_summary("US")
+        assert out[0]["symbol"] == "^GSPC"  # not "SNP"
+
+    def test_symbol_falls_back_to_key_when_missing(self) -> None:
+        summary = {"XYZ": {"shortName": "Thing", "regularMarketPrice": 1.0}}
+        market = SimpleNamespace(summary=summary)
+        with patch(
+            "app.services.market_data.yfinance.market.market_summary.yf.Market",
+            return_value=market,
+        ):
+            out = _client().fetch_summary("US")
+        assert out[0]["symbol"] == "XYZ"
+
     def test_non_dict_summary_yields_empty(self) -> None:
         market = SimpleNamespace(summary=None)
         with patch(
