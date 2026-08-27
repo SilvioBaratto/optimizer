@@ -523,6 +523,80 @@ class CapitalGain(BaseModel):
     amount: Mapped[float] = mapped_column(Numeric(20, 6), nullable=False)
 
 
+class MajorHolders(BaseModel):
+    """Ownership breakdown from yf.Ticker.major_holders (latest snapshot)."""
+
+    __tablename__ = "major_holders"
+    __table_args__ = (
+        UniqueConstraint("instrument_id", name="uq_major_holders_instrument"),
+        Index("ix_major_holders_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    insiders_percent_held: Mapped[float | None] = mapped_column(Float, nullable=True)
+    institutions_percent_held: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    institutions_float_percent_held: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    institutions_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+class InsiderPurchaseSummary(BaseModel):
+    """6-month insider buy/sell summary from yf.Ticker.insider_purchases."""
+
+    __tablename__ = "insider_purchases"
+    __table_args__ = (
+        UniqueConstraint("instrument_id", name="uq_insider_purchases_instrument"),
+        Index("ix_insider_purchases_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    purchase_shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    sale_shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    net_shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    total_insider_shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+class InsiderRosterHolder(BaseModel):
+    """Individual insiders from yf.Ticker.insider_roster_holders."""
+
+    __tablename__ = "insider_roster"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "insider_name", name="uq_insider_roster_instrument_name"
+        ),
+        Index("ix_insider_roster_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    insider_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    position: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    most_recent_transaction: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )
+    latest_transaction_date: Mapped[datetime.date | None] = mapped_column(
+        Date, nullable=True
+    )
+    shares_owned_directly: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    shares_owned_indirectly: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+
+
 class AnalystRecommendation(BaseModel):
     """Analyst recommendation summary from yf.Ticker.recommendations_summary."""
 

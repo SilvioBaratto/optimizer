@@ -71,6 +71,9 @@ def _make_repo(*, staleness: dict[str, Any] | None = None) -> MagicMock:
     repo.upsert_institutional_holders.return_value = 0
     repo.upsert_mutualfund_holders.return_value = 0
     repo.upsert_insider_transactions.return_value = 0
+    repo.upsert_major_holders.return_value = 0
+    repo.upsert_insider_purchases.return_value = 0
+    repo.upsert_insider_roster.return_value = 0
     repo.upsert_news.return_value = 3
     return repo
 
@@ -96,6 +99,9 @@ def _make_yf_client_silent() -> MagicMock:
     yf_client.holders.fetch_institutional_holders.return_value = None
     yf_client.holders.fetch_mutualfund_holders.return_value = None
     yf_client.holders.fetch_insider_transactions.return_value = None
+    yf_client.holders.fetch_major_holders.return_value = None
+    yf_client.holders.fetch_insider_purchases.return_value = None
+    yf_client.holders.fetch_insider_roster_holders.return_value = None
     yf_client.metadata.fetch_valuation_measures.return_value = None
     yf_client.analysis.fetch_earnings_estimate.return_value = None
     yf_client.analysis.fetch_revenue_estimate.return_value = None
@@ -444,6 +450,85 @@ class TestCorpActionExtras:
         )
         _run(repo, yf, mode="incremental")
         repo.upsert_capital_gains.assert_called_once()
+
+
+class TestHoldersExtras:
+    """major_holders + insider_purchases + insider_roster (SPEC A7)."""
+
+    def test_major_holders_model_columns(self) -> None:
+        from app.models.market_data.yfinance_data import MajorHolders
+
+        for col in ("insiders_percent_held", "institutions_percent_held"):
+            assert hasattr(MajorHolders, col)
+
+    def test_insider_purchase_model_columns(self) -> None:
+        from app.models.market_data.yfinance_data import InsiderPurchaseSummary
+
+        for col in ("net_shares", "total_insider_shares"):
+            assert hasattr(InsiderPurchaseSummary, col)
+
+    def test_insider_roster_model_columns(self) -> None:
+        from app.models.market_data.yfinance_data import InsiderRosterHolder
+
+        for col in ("insider_name", "position"):
+            assert hasattr(InsiderRosterHolder, col)
+
+    def test_skipped_when_holders_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={
+                "institutional_holders_updated_at": now,
+                "insider_transactions_updated_at": now,
+                "price_max_date": None,
+            }
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "major_holders" in result["skipped"]
+        assert "insider_purchases" in result["skipped"]
+        assert "insider_roster" in result["skipped"]
+        yf.holders.fetch_major_holders.assert_not_called()
+        yf.holders.fetch_insider_purchases.assert_not_called()
+        yf.holders.fetch_insider_roster_holders.assert_not_called()
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={
+                "institutional_holders_updated_at": None,
+                "insider_transactions_updated_at": None,
+                "price_max_date": None,
+            }
+        )
+        yf = _make_yf_client_silent()
+        yf.holders.fetch_major_holders.return_value = pd.DataFrame(
+            {"Value": [0.01, 0.60]},
+            index=["insidersPercentHeld", "institutionsPercentHeld"],
+        )
+        yf.holders.fetch_insider_purchases.return_value = pd.DataFrame(
+            {
+                "Insider Purchases Last 6m": [
+                    "Purchases",
+                    "Sales",
+                    "Net Shares Purchased (Sold)",
+                    "Total Insider Shares Held",
+                ],
+                "Shares": [100, 40, 60, 5000],
+                "Trans": [2, 1, 1, None],
+            }
+        )
+        yf.holders.fetch_insider_roster_holders.return_value = pd.DataFrame(
+            {
+                "Name": ["JANE DOE"],
+                "Position": ["CEO"],
+                "Most Recent Transaction": ["Buy"],
+                "Latest Transaction Date": ["2024-05-01"],
+                "Shares Owned Directly": [1000],
+            }
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_major_holders.assert_called_once()
+        repo.upsert_insider_purchases.assert_called_once()
+        repo.upsert_insider_roster.assert_called_once()
 
 
 def _run(

@@ -24,8 +24,11 @@ from app.models.market_data.yfinance_data import (
     EsgScore,
     FinancialStatement,
     GrowthEstimate,
+    InsiderPurchaseSummary,
+    InsiderRosterHolder,
     InsiderTransaction,
     InstitutionalHolder,
+    MajorHolders,
     MutualFundHolder,
     PriceHistory,
     RevenueEstimate,
@@ -930,6 +933,112 @@ class YFinanceRepository(RepositoryBase):
             .order_by(InsiderTransaction.start_date.desc())
         )
         return self.session.execute(stmt).scalars().all()
+
+    # ------------------------------------------------------------------
+    # Holders extras (major holders + insider summary + insider roster)
+    # ------------------------------------------------------------------
+
+    def upsert_major_holders(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert the 1:1 ownership breakdown from ``major_holders``.
+
+        yfinance returns a label-indexed single-value DataFrame
+        (``insidersPercentHeld`` etc.); read the first column as a lookup.
+        """
+        lookup = df.iloc[:, 0] if df.shape[1] else df.squeeze()
+
+        def _v(key: str) -> Any:
+            try:
+                return lookup.get(key)
+            except (AttributeError, TypeError):
+                return None
+
+        row = {
+            "instrument_id": instrument_id,
+            "insiders_percent_held": _safe_float(_v("insidersPercentHeld")),
+            "institutions_percent_held": _safe_float(_v("institutionsPercentHeld")),
+            "institutions_float_percent_held": _safe_float(
+                _v("institutionsFloatPercentHeld")
+            ),
+            "institutions_count": _safe_int(_v("institutionsCount")),
+        }
+        return self._upsert(
+            MajorHolders, [row], constraint_name="uq_major_holders_instrument"
+        )
+
+    def upsert_insider_purchases(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert the 1:1 6-month insider buy/sell summary.
+
+        The label lives in the first column ("Insider Purchases Last 6m") with
+        the figure in "Shares"; read known labels defensively.
+        """
+        label_col = df.columns[0]
+        shares_by_label: dict[str, Any] = {}
+        for _, r in df.iterrows():
+            label = _safe_str(r.get(label_col), 100)
+            if label:
+                shares_by_label[label] = r.get("Shares")
+
+        def _shares(*labels: str) -> int | None:
+            for label in labels:
+                if label in shares_by_label:
+                    return _safe_int(shares_by_label[label])
+            return None
+
+        row = {
+            "instrument_id": instrument_id,
+            "purchase_shares": _shares("Purchases"),
+            "sale_shares": _shares("Sales"),
+            "net_shares": _shares(
+                "Net Shares Purchased (Sold)", "Net Shares Purchased"
+            ),
+            "total_insider_shares": _shares("Total Insider Shares Held"),
+        }
+        return self._upsert(
+            InsiderPurchaseSummary,
+            [row],
+            constraint_name="uq_insider_purchases_instrument",
+        )
+
+    def upsert_insider_roster(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert individual insiders from ``insider_roster_holders``."""
+
+        def _col(r: Any, *names: str) -> Any:
+            for name in names:
+                if name in r:
+                    return r.get(name)
+            return None
+
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for _, r in df.iterrows():
+            name = _safe_str(_col(r, "Name", "name"), 500)
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "insider_name": name,
+                    "position": _safe_str(_col(r, "Position", "position"), 500),
+                    "most_recent_transaction": _safe_str(
+                        _col(r, "Most Recent Transaction"), 200
+                    ),
+                    "latest_transaction_date": _safe_date(
+                        _col(r, "Latest Transaction Date")
+                    ),
+                    "shares_owned_directly": _safe_int(
+                        _col(r, "Shares Owned Directly")
+                    ),
+                    "shares_owned_indirectly": _safe_int(
+                        _col(r, "Shares Owned Indirectly")
+                    ),
+                }
+            )
+        return self._upsert(
+            InsiderRosterHolder,
+            rows,
+            constraint_name="uq_insider_roster_instrument_name",
+        )
 
     # ------------------------------------------------------------------
     # Ticker News

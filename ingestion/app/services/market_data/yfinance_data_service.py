@@ -963,6 +963,79 @@ class YFinanceDataService:
                     "Failed insider transactions for %s: %s", yfinance_ticker, e
                 )
 
+        # 10b. Major holders (ownership breakdown; institutional window).
+        if (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("institutional_holders_updated_at"),
+                thresholds.institutional_holders_hours,
+                now,
+            )
+        ):
+            skipped.append("major_holders")
+        else:
+            try:
+                mh_df = self._timed(
+                    lambda: self.yf_client.holders.fetch_major_holders(yfinance_ticker)
+                )
+                counts["major_holders"] = (
+                    self.repo.upsert_major_holders(instrument_id, mh_df)
+                    if mh_df is not None and not mh_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"major_holders: {e}")
+                logger.warning("Failed major_holders for %s: %s", yfinance_ticker, e)
+
+        # 10c/10d. Insider purchases + roster (insider window).
+        insider_fresh = (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("insider_transactions_updated_at"),
+                thresholds.insider_transactions_hours,
+                now,
+            )
+        )
+        if insider_fresh:
+            skipped.append("insider_purchases")
+        else:
+            try:
+                ip_df = self._timed(
+                    lambda: self.yf_client.holders.fetch_insider_purchases(
+                        yfinance_ticker
+                    )
+                )
+                counts["insider_purchases"] = (
+                    self.repo.upsert_insider_purchases(instrument_id, ip_df)
+                    if ip_df is not None and not ip_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"insider_purchases: {e}")
+                logger.warning(
+                    "Failed insider_purchases for %s: %s", yfinance_ticker, e
+                )
+
+        if insider_fresh:
+            skipped.append("insider_roster")
+        else:
+            try:
+                ir_df = self._timed(
+                    lambda: self.yf_client.holders.fetch_insider_roster_holders(
+                        yfinance_ticker
+                    )
+                )
+                counts["insider_roster"] = (
+                    self.repo.upsert_insider_roster(instrument_id, ir_df)
+                    if ir_df is not None and not ir_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"insider_roster: {e}")
+                logger.warning("Failed insider_roster for %s: %s", yfinance_ticker, e)
+
         # 11. News (always fetched with full article content scraped)
         try:
             news_list = self._timed(lambda: _get_lazy_ticker().news)
