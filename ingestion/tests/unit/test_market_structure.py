@@ -13,10 +13,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-
-from app.repositories.market_data.market_structure_repository import (
+from portopt_db.repositories.market_data.market_structure_repository import (
     MarketStructureRepository,
 )
+
 from app.services.market_data.market_structure_service import (
     run_market_structure_fetch,
 )
@@ -139,7 +139,7 @@ class TestBulkFetch:
         }
         with (
             patch(
-                "app.repositories.market_data.market_structure_repository."
+                "portopt_db.repositories.market_data.market_structure_repository."
                 "MarketStructureRepository",
                 return_value=repo,
             ),
@@ -160,7 +160,7 @@ class TestBulkFetch:
         yf.sectors.fetch_sector.side_effect = RuntimeError("boom")
         with (
             patch(
-                "app.repositories.market_data.market_structure_repository."
+                "portopt_db.repositories.market_data.market_structure_repository."
                 "MarketStructureRepository",
                 return_value=repo,
             ),

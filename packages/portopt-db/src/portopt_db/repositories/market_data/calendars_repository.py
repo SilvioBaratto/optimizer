@@ -11,14 +11,14 @@ import uuid
 from typing import Any
 
 import pandas as pd
+
 from portopt_db.models.market_data.calendars import (
     EarningsCalendar,
     EconomicEventCalendar,
     IpoCalendar,
     SplitCalendar,
 )
-
-from app.repositories._shared.base import RepositoryBase
+from portopt_db.repository import RepositoryBase
 
 
 def _col(row: dict[str, Any], *names: str) -> Any:

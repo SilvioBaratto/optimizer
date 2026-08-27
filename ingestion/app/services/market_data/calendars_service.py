@@ -24,8 +24,11 @@ def run_calendars_fetch(
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
     """Fetch + persist all four market-wide calendars."""
+    from portopt_db.repositories.market_data.calendars_repository import (
+        CalendarsRepository,
+    )
+
     from app.database import database_manager
-    from app.repositories.market_data.calendars_repository import CalendarsRepository
 
     now = datetime.now(timezone.utc)
 

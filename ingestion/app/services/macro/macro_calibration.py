@@ -16,9 +16,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from portopt_db.repositories.macro.macro_regime_repository import MacroRegimeRepository
 from sqlalchemy.orm import Session
 
-from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 from app.services._shared import ProgressCallback, _noop
 from app.services.macro._baml_client import llm_call_options
 from baml_client import b

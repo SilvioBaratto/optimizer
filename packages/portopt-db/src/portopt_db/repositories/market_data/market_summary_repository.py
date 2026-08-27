@@ -11,8 +11,7 @@ import uuid
 from typing import Any
 
 from portopt_db.models.market_data.market_summary import MarketSummary
-
-from app.repositories._shared.base import RepositoryBase
+from portopt_db.repository import RepositoryBase
 
 
 def _num(v: Any) -> float | None:

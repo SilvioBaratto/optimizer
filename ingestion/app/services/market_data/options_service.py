@@ -18,8 +18,8 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 import pandas as pd
+from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 
-from app.repositories.market_data.yfinance_repository import YFinanceRepository
 from app.services._shared import ProgressCallback, _noop
 from app.services.market_data.yfinance import YFinanceClient
 from app.services.market_data.yfinance_data_service import call_with_timeout

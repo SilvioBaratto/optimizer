@@ -16,7 +16,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from app.repositories.market_data.market_structure_repository import _int, _num
+from portopt_db.repositories.market_data.market_structure_repository import _int, _num
+
 from app.services._shared import ProgressCallback, _noop
 from app.services.market_data.yfinance import YFinanceClient
 from app.services.market_data.yfinance.market.sectors import SECTOR_KEYS
@@ -44,10 +45,11 @@ def run_market_structure_fetch(
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
     """Fetch + persist sector/industry rollups for every (sector, region)."""
-    from app.database import database_manager
-    from app.repositories.market_data.market_structure_repository import (
+    from portopt_db.repositories.market_data.market_structure_repository import (
         MarketStructureRepository,
     )
+
+    from app.database import database_manager
 
     now = datetime.now(timezone.utc)
     as_of = now.date()

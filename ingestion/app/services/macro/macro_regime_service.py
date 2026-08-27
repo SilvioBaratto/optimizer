@@ -12,7 +12,8 @@ import datetime
 import logging
 from typing import Any
 
-from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
+from portopt_db.repositories.macro.macro_regime_repository import MacroRegimeRepository
+
 from app.services._shared import ProgressCallback, _noop
 from app.services.macro.scrapers.fred_scraper import FRED_SERIES, FredScraper
 from app.services.macro.scrapers.ilsole_scraper import (

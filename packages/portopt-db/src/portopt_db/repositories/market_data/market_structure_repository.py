@@ -11,14 +11,14 @@ import datetime as dt
 import uuid
 from typing import Any
 
+from sqlalchemy import select
+
 from portopt_db.models.market_data.market_structure import (
     SectorIndustry,
     SectorSnapshot,
     SectorTopCompany,
 )
-from sqlalchemy import select
-
-from app.repositories._shared.base import RepositoryBase
+from portopt_db.repository import RepositoryBase
 
 
 def _num(v: Any) -> float | None:

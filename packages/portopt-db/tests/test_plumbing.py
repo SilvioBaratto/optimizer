@@ -29,7 +29,7 @@ class TestDbConfig:
 
     def test_is_frozen(self) -> None:
         cfg = DbConfig(url="x")
-        with pytest.raises(Exception):  # noqa: B017 - FrozenInstanceError
+        with pytest.raises(Exception):
             cfg.url = "y"  # type: ignore[misc]
 
 

@@ -11,9 +11,10 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.repositories.market_data.market_summary_repository import (
+from portopt_db.repositories.market_data.market_summary_repository import (
     MarketSummaryRepository,
 )
+
 from app.services.market_data.market_summary_service import run_market_summary_fetch
 from app.services.market_data.yfinance.market.market_summary import (
     MARKET_IDENTIFIERS,
@@ -145,7 +146,7 @@ class TestBulkFetch:
         yf.market.fetch_summary.return_value = [{"symbol": "^GSPC"}]
         with (
             patch(
-                "app.repositories.market_data.market_summary_repository."
+                "portopt_db.repositories.market_data.market_summary_repository."
                 "MarketSummaryRepository",
                 return_value=repo,
             ),
@@ -164,7 +165,7 @@ class TestBulkFetch:
         yf.market.fetch_summary.side_effect = RuntimeError("boom")
         with (
             patch(
-                "app.repositories.market_data.market_summary_repository."
+                "portopt_db.repositories.market_data.market_summary_repository."
                 "MarketSummaryRepository",
                 return_value=repo,
             ),

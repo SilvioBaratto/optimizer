@@ -25,10 +25,11 @@ def run_market_summary_fetch(
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
     """Fetch + persist regional market summaries for every identifier."""
-    from app.database import database_manager
-    from app.repositories.market_data.market_summary_repository import (
+    from portopt_db.repositories.market_data.market_summary_repository import (
         MarketSummaryRepository,
     )
+
+    from app.database import database_manager
 
     now = datetime.now(timezone.utc)
     as_of = now.date()

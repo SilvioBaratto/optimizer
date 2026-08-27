@@ -10,8 +10,8 @@ from __future__ import annotations
 from datetime import date
 
 from portopt_db.models.universe.universe import Exchange, Instrument
+from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
-from app.repositories.universe.universe_repository import UniverseRepository
 from tests._fixtures._helpers import add_and_flush
 
 

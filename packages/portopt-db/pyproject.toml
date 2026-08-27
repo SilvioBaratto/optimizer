@@ -32,20 +32,8 @@ include = ["portopt_db*"]
 [tool.setuptools.package-data]
 portopt_db = ["py.typed"]
 
-[tool.ruff]
-line-length = 88
-# py310 syntax target (matches the root config); runtime floor is >=3.12.
-target-version = "py310"
-# Alembic migrations are mechanical / auto-generated — not linted (E501 long
-# op.* lines, S608 string SQL in data migrations, E402 env.py late imports).
-extend-exclude = ["alembic"]
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "S", "RUF", "C4", "PTH"]
-ignore = ["RUF002", "RUF003"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # asserts are the point of tests
+# ruff config lives in ruff.toml (extends the root config + mirrors
+# ingestion/ruff.toml for the moved models/repositories).
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

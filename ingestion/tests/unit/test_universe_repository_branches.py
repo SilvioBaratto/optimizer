@@ -24,8 +24,8 @@ from datetime import date
 
 import pytest
 from portopt_db.models.universe.universe import Exchange, Instrument
+from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
-from app.repositories.universe.universe_repository import UniverseRepository
 from tests._fixtures import seed_universe
 from tests._fixtures._helpers import add_and_flush
 
@@ -360,8 +360,9 @@ class TestGetActiveTickersTypeScope:
 
     def test_scopes_by_instrument_type(self, db_session) -> None:
         from portopt_db.models.universe.universe import Instrument
-
-        from app.repositories.universe.universe_repository import UniverseRepository
+        from portopt_db.repositories.universe.universe_repository import (
+            UniverseRepository,
+        )
 
         repo = UniverseRepository(db_session)
         ex = repo.save_exchange({"name": "NASDAQ", "id": 1})

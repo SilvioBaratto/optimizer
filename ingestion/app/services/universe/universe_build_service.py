@@ -14,8 +14,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from portopt_db.repositories.universe.universe_repository import UniverseRepository
+
 from app.database import database_manager
-from app.repositories.universe.universe_repository import UniverseRepository
 from app.schemas.universe.trading212 import UniverseBuildRequest
 from app.services._shared import ProgressCallback, _noop
 from app.services.market_data.yfinance import get_yfinance_client

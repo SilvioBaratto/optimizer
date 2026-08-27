@@ -12,6 +12,8 @@ import datetime as dt
 import uuid
 from typing import Any
 
+from sqlalchemy import select
+
 from portopt_db.models.market_data.etf_metadata import (
     ETFAssetClass,
     ETFBondHoldings,
@@ -22,9 +24,7 @@ from portopt_db.models.market_data.etf_metadata import (
     ETFMetadata,
     ETFSectorWeight,
 )
-from sqlalchemy import select
-
-from app.repositories._shared.base import RepositoryBase
+from portopt_db.repository import RepositoryBase
 
 
 class ETFMetadataRepository(RepositoryBase):

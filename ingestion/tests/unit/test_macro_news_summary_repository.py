@@ -2,9 +2,8 @@
 
 import datetime
 
+from portopt_db.repositories.macro.macro_regime_repository import MacroRegimeRepository
 from sqlalchemy.orm import Session
-
-from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 
 
 def _make_data(

@@ -15,8 +15,7 @@ from portopt_db.models.market_data.etf_metadata import (
     ETFSectorWeight,
 )
 from portopt_db.models.universe.universe import Exchange, Instrument
-
-from app.repositories.market_data.etf_metadata_repository import (
+from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
 )
 

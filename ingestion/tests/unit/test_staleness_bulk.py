@@ -9,8 +9,7 @@ import datetime as dt
 
 from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
 from portopt_db.models.universe.universe import Exchange, Instrument
-
-from app.repositories.market_data.yfinance_repository import YFinanceRepository
+from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 
 
 def _instrument(db_session, ticker: str) -> Instrument:

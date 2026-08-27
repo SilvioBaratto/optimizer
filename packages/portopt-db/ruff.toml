@@ -1,0 +1,37 @@
+extend = "../../pyproject.toml"
+# Alembic migrations are mechanical / auto-generated — not linted.
+extend-exclude = ["alembic"]
+
+[lint]
+# Mirror ingestion/ruff.toml: the models + repositories moved here carry the
+# same SQLAlchemy / docstring / legacy conventions, so they lint identically.
+extend-ignore = [
+    "B008",
+    "RUF012",  # SQLAlchemy mutable class-level defaults (relationship/Column)
+    "E501",    # legacy long docstrings/error messages exceed 88
+    "RUF001",  # mathematical / locale unicode in strings
+    "E402",
+    "S104",
+    "S311",
+    "N806",
+    "N803",
+    "N812",
+    "N818",
+    "N802",
+]
+
+[lint.per-file-ignores]
+"tests/**" = [
+    "S101",
+    "S106",
+    "S608",
+    "B017",
+    "RUF043",
+    "RUF059",
+    "RUF022",
+    "SIM117",
+    "S110",
+    "S112",
+]
+"src/portopt_db/models/**" = ["RUF012", "N806"]
+"src/portopt_db/repositories/**" = ["S608"]  # table names from constants, not user input

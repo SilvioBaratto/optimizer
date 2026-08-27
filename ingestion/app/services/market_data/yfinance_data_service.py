@@ -18,11 +18,11 @@ from typing import Any
 from uuid import UUID
 
 import pandas as pd
-
-from app.repositories.market_data.etf_metadata_repository import (
+from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
 )
-from app.repositories.market_data.yfinance_repository import YFinanceRepository
+from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
+
 from app.services._shared import ProgressCallback, _noop, has_sufficient_history
 from app.services.market_data.yfinance import YFinanceClient
 from app.utils.currency import to_major_currency

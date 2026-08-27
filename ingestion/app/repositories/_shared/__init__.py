@@ -3,14 +3,15 @@
 Cross-cutting repository infrastructure used by all domain repos.
 """
 
+from portopt_db.repositories.database_admin import (
+    APP_TABLES,
+    DatabaseAdminRepository,
+)
+
 from app.repositories._shared.base import (
     BaseRepository,
     RepositoryBase,
     _get_table,
-)
-from app.repositories._shared.database_admin_repository import (
-    APP_TABLES,
-    DatabaseAdminRepository,
 )
 
 __all__ = [

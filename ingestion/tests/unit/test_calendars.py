@@ -11,8 +11,8 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+from portopt_db.repositories.market_data.calendars_repository import CalendarsRepository
 
-from app.repositories.market_data.calendars_repository import CalendarsRepository
 from app.services.market_data.calendars_service import run_calendars_fetch
 from app.services.market_data.yfinance.market.calendars import CalendarsClient
 
@@ -197,7 +197,7 @@ class TestBulkFetch:
 
         with (
             patch(
-                "app.repositories.market_data.calendars_repository.CalendarsRepository",
+                "portopt_db.repositories.market_data.calendars_repository.CalendarsRepository",
                 return_value=repo,
             ),
             patch("app.database.database_manager", _fake_dbm()),
@@ -226,7 +226,7 @@ class TestBulkFetch:
 
         with (
             patch(
-                "app.repositories.market_data.calendars_repository.CalendarsRepository",
+                "portopt_db.repositories.market_data.calendars_repository.CalendarsRepository",
                 return_value=repo,
             ),
             patch("app.database.database_manager", _fake_dbm()),

@@ -14,8 +14,9 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from portopt_db.repositories.universe.universe_repository import UniverseRepository
+
 from app.database import database_manager
-from app.repositories.universe.universe_repository import UniverseRepository
 from app.services._shared import ProgressCallback, _noop
 from app.services.universe.universe_build_service import (
     Trading212NotConfiguredError,

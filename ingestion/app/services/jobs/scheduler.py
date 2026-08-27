@@ -588,7 +588,10 @@ def run_news_refresh() -> None:
     Stateless: derives "last run" from the most recent ``macro_news_summaries``
     row so the job is restart-safe without in-memory state.
     """
-    from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
+    from portopt_db.repositories.macro.macro_regime_repository import (
+        MacroRegimeRepository,
+    )
+
     from app.services.macro.macro_news_summary import (
         _find_countries_with_new_articles,
         _is_morning_pipeline_complete,

@@ -35,9 +35,7 @@ from portopt_db.models.market_data.yfinance_data import (
     TickerProfile,
 )
 from portopt_db.models.universe.universe import Exchange, Instrument
-from sqlalchemy.orm import Session
-
-from app.repositories.market_data.yfinance_repository import (
+from portopt_db.repositories.market_data.yfinance_repository import (
     YFinanceRepository,
     _safe_date,
     _safe_float,
@@ -45,6 +43,7 @@ from app.repositories.market_data.yfinance_repository import (
     _safe_str,
     _safe_val,
 )
+from sqlalchemy.orm import Session
 
 # ---------------------------------------------------------------------------
 # Seed helpers
@@ -1673,7 +1672,9 @@ class TestUpsertInsiderTransactionsPreprocessing:
         assert captured[0]["shares"] == 2000
 
     def test_sentinel_date_used_when_start_date_none(self, db_session: Session) -> None:
-        from app.repositories.market_data.yfinance_repository import _SENTINEL_DATE
+        from portopt_db.repositories.market_data.yfinance_repository import (
+            _SENTINEL_DATE,
+        )
 
         df = pd.DataFrame(
             {

@@ -42,9 +42,8 @@ from portopt_db.models.macro.macro_regime import (
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
 )
+from portopt_db.repositories.macro.macro_regime_repository import MacroRegimeRepository
 from sqlalchemy.orm import Session
-
-from app.repositories.macro.macro_regime_repository import MacroRegimeRepository
 
 # ---------------------------------------------------------------------------
 # Helpers

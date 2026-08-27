@@ -11,9 +11,8 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
+from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 from sqlalchemy.orm import Session
-
-from app.repositories.market_data.yfinance_repository import YFinanceRepository
 
 
 def fetch_close_prices(

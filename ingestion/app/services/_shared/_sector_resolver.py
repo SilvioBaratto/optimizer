@@ -22,9 +22,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 from sqlalchemy.orm import Session
-
-from app.repositories.market_data.yfinance_repository import YFinanceRepository
 
 UNCLASSIFIED = "Unclassified"
 

@@ -424,7 +424,7 @@ class TestRunNewsRefresh:
         stack.enter_context(patch(f"{M}.database_manager", mock_dm))
         stack.enter_context(
             patch(
-                "app.repositories.macro.macro_regime_repository.MacroRegimeRepository",
+                "portopt_db.repositories.macro.macro_regime_repository.MacroRegimeRepository",
                 mock_repo_cls,
             )
         )

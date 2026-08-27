@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.repositories._shared import RepositoryBase
+from portopt_db.repository import RepositoryBase
 
 logger = logging.getLogger(__name__)
 

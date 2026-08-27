@@ -19,12 +19,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy.orm import Session
-
-from app.repositories._shared.database_admin_repository import (
+from portopt_db.repositories.database_admin import (
     DatabaseAdminRepository,
     _missing_table_row,
 )
+from sqlalchemy.orm import Session
 
 # A table name present in the _ALLOWED_TABLES frozenset.
 _ALLOWED = "instruments"

@@ -11,11 +11,11 @@ import datetime as dt
 from unittest.mock import MagicMock
 
 from portopt_db.models.universe.universe import Exchange, Instrument
-
-from app.repositories.market_data.etf_metadata_repository import (
+from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
 )
-from app.repositories.market_data.yfinance_repository import YFinanceRepository
+from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
+
 from app.services.market_data.yfinance_data_service import (
     DEFAULT_THRESHOLDS,
     YFinanceDataService,
