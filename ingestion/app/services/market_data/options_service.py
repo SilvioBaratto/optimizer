@@ -56,6 +56,7 @@ def _flatten_chain(chain: Any, as_of: date, expiry: date) -> list[dict[str, Any]
             strike = _f(r.get("strike"))
             if not symbol or strike is None:
                 continue
+            itm = r.get("inTheMoney")
             rows.append(
                 {
                     "as_of": as_of,
@@ -69,9 +70,9 @@ def _flatten_chain(chain: Any, as_of: date, expiry: date) -> list[dict[str, Any]
                     "volume": _i(r.get("volume")),
                     "open_interest": _i(r.get("openInterest")),
                     "implied_volatility": _f(r.get("impliedVolatility")),
-                    "in_the_money": bool(r.get("inTheMoney"))
-                    if r.get("inTheMoney") is not None
-                    else None,
+                    "in_the_money": (
+                        None if itm is None or pd.isna(itm) else bool(itm)
+                    ),
                 }
             )
     return rows

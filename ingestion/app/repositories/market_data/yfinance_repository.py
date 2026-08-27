@@ -361,9 +361,12 @@ class YFinanceRepository(RepositoryBase):
         """
         rows = []
         for idx, row_data in history_df.iterrows():
-            dt = idx
-            if isinstance(dt, pd.Timestamp | datetime):
-                dt = dt.date()
+            # _safe_date coerces pd.NaT (a datetime subclass) to None; a NaT
+            # index row would otherwise write date=NaT into a NOT NULL column
+            # and abort the whole ticker's price INSERT.
+            dt = _safe_date(idx)
+            if dt is None:
+                continue
 
             rows.append(
                 {
@@ -459,19 +462,26 @@ class YFinanceRepository(RepositoryBase):
         )
 
     def upsert_earnings_history(self, instrument_id: UUID, df: pd.DataFrame) -> int:
-        """Upsert historical EPS surprise (index = past-quarter dates)."""
-        rows = [
-            {
+        """Upsert historical EPS surprise (index = past-quarter dates).
+
+        Deduped in-batch on ``period_date`` (last-wins): two source rows on the
+        same calendar day would otherwise collide on ``uq_earnings_history_...``
+        within one ON CONFLICT and abort the whole write.
+        """
+        by_date: dict[date, dict[str, Any]] = {}
+        for idx, row in df.iterrows():
+            period_date = _safe_date(idx)
+            if period_date is None:
+                continue
+            by_date[period_date] = {
                 "instrument_id": instrument_id,
-                "period_date": _safe_date(idx),
+                "period_date": period_date,
                 "eps_estimate": _safe_float(row.get("epsEstimate")),
                 "eps_actual": _safe_float(row.get("epsActual")),
                 "eps_difference": _safe_float(row.get("epsDifference")),
                 "surprise_percent": _safe_float(row.get("surprisePercent")),
             }
-            for idx, row in df.iterrows()
-        ]
-        rows = [r for r in rows if r["period_date"] is not None]
+        rows = list(by_date.values())
         return self._upsert(
             EarningsHistory,
             rows,
@@ -490,19 +500,21 @@ class YFinanceRepository(RepositoryBase):
                     return row.get(name)
             return None
 
-        rows = [
-            {
+        by_date: dict[date, dict[str, Any]] = {}
+        for idx, row in df.iterrows():
+            earnings_date = _safe_date(idx)
+            if earnings_date is None:
+                continue
+            by_date[earnings_date] = {
                 "instrument_id": instrument_id,
-                "earnings_date": _safe_date(idx),
+                "earnings_date": earnings_date,
                 "eps_estimate": _safe_float(_col(row, "EPS Estimate", "epsEstimate")),
                 "eps_actual": _safe_float(_col(row, "Reported EPS", "epsActual")),
                 "surprise_percent": _safe_float(
                     _col(row, "Surprise(%)", "surprisePercent")
                 ),
             }
-            for idx, row in df.iterrows()
-        ]
-        rows = [r for r in rows if r["earnings_date"] is not None]
+        rows = list(by_date.values())
         return self._upsert(
             EarningsDate,
             rows,

@@ -88,7 +88,51 @@ class TestAnalystEstimates:
         assert (r["sector_trend"], r["index_trend"]) == (0.3, 0.4)
 
 
+class TestPriceHistory:
+    def test_nat_index_row_dropped(self, repo) -> None:
+        # A NaT in the DatetimeIndex must not become date=NaT in a NOT NULL col.
+        df = pd.DataFrame(
+            {"Close": [1.0, 2.0]},
+            index=[pd.Timestamp("2024-01-02"), pd.NaT],
+        )
+        repo.upsert_price_history(_IID, df)
+        rows = _rows(repo)
+        assert len(rows) == 1
+        assert rows[0]["date"] == dt.date(2024, 1, 2)
+
+
 class TestEarningsTimeline:
+    def test_earnings_history_dedups_on_period_date(self, repo) -> None:
+        # Two source rows on the same day collapse to one conflict key; without
+        # in-batch dedup PostgreSQL raises "cannot affect row a second time".
+        df = pd.DataFrame(
+            {
+                "epsEstimate": [1.0, 1.5],
+                "epsActual": [1.1, 1.6],
+                "epsDifference": [0.1, 0.1],
+                "surprisePercent": [10.0, 5.0],
+            },
+            index=pd.to_datetime(["2024-03-31", "2024-03-31"]),
+        )
+        repo.upsert_earnings_history(_IID, df)
+        rows = _rows(repo)
+        assert len(rows) == 1
+        assert rows[0]["eps_estimate"] == 1.5  # last-wins
+
+    def test_earnings_dates_dedups_on_calendar_date(self, repo) -> None:
+        # Distinct tz datetimes on the same calendar date collapse to one key.
+        df = pd.DataFrame(
+            {
+                "EPS Estimate": [1.0, 1.2],
+                "Reported EPS": [1.1, 1.3],
+                "Surprise(%)": [10.0, 8.0],
+            },
+            index=pd.to_datetime(["2024-05-01 08:00", "2024-05-01 20:00"]),
+        )
+        repo.upsert_earnings_dates(_IID, df)
+        rows = _rows(repo)
+        assert len(rows) == 1
+
     def test_earnings_history_drops_undated_rows(self, repo) -> None:
         df = pd.DataFrame(
             {

@@ -96,6 +96,18 @@ class TestFlatten:
         assert by_type["call"]["in_the_money"] is True
         assert by_type["put"]["implied_volatility"] == 0.28
 
+    def test_in_the_money_nan_maps_to_none(self) -> None:
+        calls = pd.DataFrame(
+            {
+                "contractSymbol": ["X"],
+                "strike": [1.0],
+                "inTheMoney": [float("nan")],
+            }
+        )
+        chain = SimpleNamespace(calls=calls, puts=pd.DataFrame())
+        rows = _flatten_chain(chain, date(2026, 8, 27), date(2026, 9, 18))
+        assert rows[0]["in_the_money"] is None
+
     def test_flatten_skips_rows_without_symbol_or_strike(self) -> None:
         calls = pd.DataFrame({"contractSymbol": [None], "strike": [1.0]})
         chain = SimpleNamespace(calls=calls, puts=pd.DataFrame())
