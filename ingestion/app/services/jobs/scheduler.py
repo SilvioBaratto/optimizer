@@ -12,9 +12,13 @@ Scheduled jobs:
      + macro rebuild.
   5. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — FRED
      economic data.
-  6. **news_refresh** (IntervalTrigger, default every 30 min) — incremental
+  6. **weekly_market_wide** (CronTrigger, default Sunday 04:00 UTC) — market-wide
+     sweep: sector/industry structure, calendars, market summaries, full option
+     chains. Runs *after* ``weekly_refetch`` so option chains see the fresh
+     universe.
+  7. **news_refresh** (IntervalTrigger, default every 30 min) — incremental
      news re-summarization for countries with new articles.
-  7. **orphan_reaper** (IntervalTrigger) — fails jobs whose worker died without
+  8. **orphan_reaper** (IntervalTrigger) — fails jobs whose worker died without
      a terminal status, so a wedged run does not block its type forever.
 
 All cron schedules are configurable via environment variables.
@@ -522,6 +526,26 @@ def run_weekly_refetch() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Weekly market-wide sweep (SPEC Gap B + options)
+# ---------------------------------------------------------------------------
+
+
+def run_weekly_market_wide() -> None:
+    """Weekly market-wide data: sector/industry structure, calendars, market
+    summaries, and full option chains.
+
+    Scheduled after ``weekly_refetch`` so the option-chain sweep sees the
+    freshly rebuilt instrument universe. Each step claims its own job slot and
+    is independent — a failure in one does not block the others."""
+    logger.info("weekly_market_wide: starting")
+    run_market_structure_step()
+    run_calendars_step()
+    run_market_summary_step()
+    run_options_step()
+    logger.info("weekly_market_wide: finished")
+
+
+# ---------------------------------------------------------------------------
 # Weekly universe build
 # ---------------------------------------------------------------------------
 
@@ -840,6 +864,16 @@ def _build_schedule_registry() -> list[ScheduleDefinition]:
             func=run_fred_monthly,
             trigger=CronTrigger.from_crontab(
                 settings.scheduler_fred_monthly_cron,
+                timezone="UTC",
+            ),
+            misfire_grace_time=grace,
+        ),
+        ScheduleDefinition(
+            job_id="weekly_market_wide",
+            name="Weekly market-wide sweep (structure/calendars/summary/options)",
+            func=run_weekly_market_wide,
+            trigger=CronTrigger.from_crontab(
+                settings.scheduler_market_wide_cron,
                 timezone="UTC",
             ),
             misfire_grace_time=grace,
