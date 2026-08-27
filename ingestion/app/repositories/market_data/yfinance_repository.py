@@ -100,6 +100,14 @@ def _safe_date(v: Any) -> date | None:
     v = _safe_val(v)
     if v is None:
         return None
+    # pd.NaT / pd.NA are missing values but NaT subclasses datetime, so the
+    # branch below would call NaT.date() -> NaT and leak a bogus date into a
+    # NOT NULL column. Treat any pandas NA scalar as missing.
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
     if isinstance(v, datetime):
         return v.date()
     if isinstance(v, date):
