@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.market_data.yfinance_data import (
+    AnalystAction,
     AnalystPriceTarget,
     AnalystRecommendation,
     Dividend,
@@ -422,6 +423,39 @@ class YFinanceRepository(RepositoryBase):
             rows,
             constraint_name="uq_earnings_date_instrument_date",
         )
+
+    def upsert_analyst_actions(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert analyst upgrade/downgrade actions (index = grade dates)."""
+
+        def _col(row: Any, *names: str) -> Any:
+            for name in names:
+                if name in row:
+                    return row.get(name)
+            return None
+
+        rows: list[dict[str, Any]] = []
+        seen: set[tuple] = set()
+        for idx, row in df.iterrows():
+            action_date = _safe_date(idx)
+            if action_date is None:
+                continue
+            firm = _safe_str(_col(row, "Firm", "firm"), 200) or ""
+            to_grade = _safe_str(_col(row, "ToGrade", "toGrade"), 100) or ""
+            key = (action_date, firm, to_grade)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "action_date": action_date,
+                    "firm": firm,
+                    "from_grade": _safe_str(_col(row, "FromGrade", "fromGrade"), 100),
+                    "to_grade": to_grade,
+                    "action": _safe_str(_col(row, "Action", "action"), 50),
+                }
+            )
+        return self._upsert(AnalystAction, rows, constraint_name="uq_analyst_action")
 
     def get_price_history(
         self,

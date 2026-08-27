@@ -83,6 +83,7 @@ def _make_yf_client_silent() -> MagicMock:
     yf_client.corporate_actions.fetch_dividends.return_value = None
     yf_client.corporate_actions.fetch_splits.return_value = None
     yf_client.analysis.fetch_recommendations_summary.return_value = None
+    yf_client.analysis.fetch_upgrades_downgrades.return_value = None
     yf_client.analysis.fetch_analyst_price_targets.return_value = None
     yf_client.analysis.fetch_eps_trend.return_value = None
     yf_client.analysis.fetch_eps_revisions.return_value = None
@@ -257,6 +258,43 @@ class TestEarningsTimeline:
         _run(repo, yf, mode="incremental")
         repo.upsert_earnings_history.assert_called_once()
         repo.upsert_earnings_dates.assert_called_once()
+
+
+class TestAnalystActions:
+    """analyst_actions (upgrades/downgrades) — SPEC A3, analyst-rating cadence."""
+
+    def test_model_has_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import AnalystAction
+
+        for col in ("action_date", "firm", "from_grade", "to_grade", "action"):
+            assert hasattr(AnalystAction, col)
+
+    def test_skipped_when_recommendations_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"recommendations_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "analyst_actions" in result["skipped"]
+        yf.analysis.fetch_upgrades_downgrades.assert_not_called()
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"recommendations_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.analysis.fetch_upgrades_downgrades.return_value = pd.DataFrame(
+            {
+                "Firm": ["MS", "GS"],
+                "ToGrade": ["Buy", "Hold"],
+                "FromGrade": ["Hold", "Buy"],
+                "Action": ["up", "down"],
+            },
+            index=pd.to_datetime(["2024-05-01", "2024-05-02"]),
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_analyst_actions.assert_called_once()
 
 
 def _run(

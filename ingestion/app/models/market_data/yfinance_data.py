@@ -400,6 +400,33 @@ class EarningsDate(BaseModel):
     )
 
 
+class AnalystAction(BaseModel):
+    """Analyst upgrade/downgrade actions from yf.Ticker.upgrades_downgrades."""
+
+    __tablename__ = "analyst_actions"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id",
+            "action_date",
+            "firm",
+            "to_grade",
+            name="uq_analyst_action",
+        ),
+        Index("ix_analyst_actions_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    action_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    firm: Mapped[str] = mapped_column(String(200), nullable=False)
+    from_grade: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    to_grade: Mapped[str] = mapped_column(String(100), nullable=False)
+    action: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+
 class AnalystRecommendation(BaseModel):
     """Analyst recommendation summary from yf.Ticker.recommendations_summary."""
 

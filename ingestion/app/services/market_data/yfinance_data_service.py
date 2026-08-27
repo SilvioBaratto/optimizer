@@ -656,6 +656,33 @@ class YFinanceDataService:
                 errors.append(f"earnings_dates: {e}")
                 logger.warning("Failed earnings_dates for %s: %s", yfinance_ticker, e)
 
+        # 3i. Analyst upgrade/downgrade actions (analyst-rating cadence).
+        if (
+            mode == "incremental"
+            and staleness is not None
+            and _is_fresh(
+                staleness.get("recommendations_updated_at"),
+                thresholds.recommendations_hours,
+                now,
+            )
+        ):
+            skipped.append("analyst_actions")
+        else:
+            try:
+                ad_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_upgrades_downgrades(
+                        yfinance_ticker
+                    )
+                )
+                counts["analyst_actions"] = (
+                    self.repo.upsert_analyst_actions(instrument_id, ad_df)
+                    if ad_df is not None and not ad_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"analyst_actions: {e}")
+                logger.warning("Failed analyst_actions for %s: %s", yfinance_ticker, e)
+
         # 4. Dividends
         if (
             mode == "incremental"
