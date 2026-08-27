@@ -1107,7 +1107,13 @@ class YFinanceDataService:
             profile = self._timed(
                 lambda: self.yf_client.funds.fetch_fund_profile(yfinance_ticker)
             )
-            if profile:
+            fdata = self._timed(
+                lambda: self.yf_client.funds.fetch_funds_data(yfinance_ticker)
+            )
+            overview = (fdata or {}).get("fund_overview") or {}
+            description = (fdata or {}).get("description")
+            profile = profile or {}
+            if profile or overview or description:
                 etf_repo.upsert_metadata(
                     instrument_id,
                     aum=profile.get("aum"),
@@ -1116,13 +1122,12 @@ class YFinanceDataService:
                     legal_type=profile.get("legal_type"),
                     expense_ratio=profile.get("expense_ratio"),
                     base_currency=profile.get("base_currency"),
+                    category=overview.get("categoryName") or overview.get("category"),
+                    description=description,
                     as_of=as_of,
                 )
                 counts["etf_metadata"] = 1
 
-            fdata = self._timed(
-                lambda: self.yf_client.funds.fetch_funds_data(yfinance_ticker)
-            )
             if fdata:
                 ac = fdata.get("asset_classes") or {}
                 etf_repo.upsert_asset_classes(
@@ -1143,6 +1148,27 @@ class YFinanceDataService:
                 if sectors:
                     counts["etf_sector_weights"] = etf_repo.upsert_sector_weights(
                         instrument_id, as_of, sectors
+                    )
+                # Depth (SPEC A8): equity/bond metrics, ratings, operations.
+                equity = fdata.get("equity_holdings") or {}
+                if equity:
+                    counts["etf_equity_holdings"] = etf_repo.upsert_equity_holdings(
+                        instrument_id, as_of, equity
+                    )
+                bonds = fdata.get("bond_holdings") or {}
+                if bonds:
+                    counts["etf_bond_holdings"] = etf_repo.upsert_bond_holdings(
+                        instrument_id, as_of, bonds
+                    )
+                ratings = fdata.get("bond_ratings") or {}
+                if ratings:
+                    counts["etf_bond_ratings"] = etf_repo.upsert_bond_ratings(
+                        instrument_id, as_of, ratings
+                    )
+                operations = fdata.get("fund_operations") or {}
+                if operations:
+                    counts["etf_fund_operations"] = etf_repo.upsert_fund_operations(
+                        instrument_id, as_of, operations
                     )
         except Exception as e:
             errors.append(f"etf_metadata: {e}")

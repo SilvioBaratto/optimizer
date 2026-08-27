@@ -16,6 +16,10 @@ from sqlalchemy import select
 
 from app.models.market_data.etf_metadata import (
     ETFAssetClass,
+    ETFBondHoldings,
+    ETFBondRating,
+    ETFEquityHoldings,
+    ETFFundOperations,
     ETFHolding,
     ETFMetadata,
     ETFSectorWeight,
@@ -35,6 +39,8 @@ class ETFMetadataRepository(RepositoryBase):
         expense_ratio: float | None,
         base_currency: str | None,
         as_of: dt.date | None,
+        category: str | None = None,
+        description: str | None = None,
     ) -> None:
         self._upsert(
             ETFMetadata,
@@ -48,6 +54,8 @@ class ETFMetadataRepository(RepositoryBase):
                     "legal_type": legal_type,
                     "expense_ratio": expense_ratio,
                     "base_currency": base_currency,
+                    "category": category,
+                    "description": description,
                     "as_of": as_of,
                 }
             ],
@@ -59,6 +67,8 @@ class ETFMetadataRepository(RepositoryBase):
                 "legal_type",
                 "expense_ratio",
                 "base_currency",
+                "category",
+                "description",
                 "as_of",
                 "updated_at",
             ],
@@ -156,6 +166,130 @@ class ETFMetadataRepository(RepositoryBase):
             update_columns=["weight", "updated_at"],
         )
         return len(rows)
+
+    def upsert_equity_holdings(
+        self,
+        instrument_id: uuid.UUID,
+        as_of: dt.date,
+        metrics: dict[str, float],
+    ) -> int:
+        if not metrics:
+            return 0
+        self._upsert(
+            ETFEquityHoldings,
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "instrument_id": instrument_id,
+                    "as_of": as_of,
+                    "price_to_earnings": metrics.get("priceToEarnings"),
+                    "price_to_book": metrics.get("priceToBook"),
+                    "price_to_sales": (
+                        metrics.get("priceToSales")
+                        or metrics.get("priceToSalesTrailing12Months")
+                    ),
+                    "price_to_cashflow": metrics.get("priceToCashflow"),
+                    "median_market_cap": metrics.get("medianMarketCap"),
+                    "three_year_earnings_growth": metrics.get(
+                        "threeYearEarningsGrowth"
+                    ),
+                }
+            ],
+            index_elements=["instrument_id", "as_of"],
+            update_columns=[
+                "price_to_earnings",
+                "price_to_book",
+                "price_to_sales",
+                "price_to_cashflow",
+                "median_market_cap",
+                "three_year_earnings_growth",
+                "updated_at",
+            ],
+        )
+        return 1
+
+    def upsert_bond_holdings(
+        self,
+        instrument_id: uuid.UUID,
+        as_of: dt.date,
+        metrics: dict[str, float],
+    ) -> int:
+        if not metrics:
+            return 0
+        self._upsert(
+            ETFBondHoldings,
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "instrument_id": instrument_id,
+                    "as_of": as_of,
+                    "duration": metrics.get("duration"),
+                    "maturity": metrics.get("maturity"),
+                    "credit_quality": metrics.get("creditQuality"),
+                }
+            ],
+            index_elements=["instrument_id", "as_of"],
+            update_columns=["duration", "maturity", "credit_quality", "updated_at"],
+        )
+        return 1
+
+    def upsert_bond_ratings(
+        self,
+        instrument_id: uuid.UUID,
+        as_of: dt.date,
+        ratings: dict[str, float],
+    ) -> int:
+        rows = [
+            {
+                "id": uuid.uuid4(),
+                "instrument_id": instrument_id,
+                "as_of": as_of,
+                "rating": rating,
+                "weight": weight,
+            }
+            for rating, weight in ratings.items()
+        ]
+        if not rows:
+            return 0
+        self._upsert(
+            ETFBondRating,
+            rows,
+            index_elements=["instrument_id", "as_of", "rating"],
+            update_columns=["weight", "updated_at"],
+        )
+        return len(rows)
+
+    def upsert_fund_operations(
+        self,
+        instrument_id: uuid.UUID,
+        as_of: dt.date,
+        metrics: dict[str, float],
+    ) -> int:
+        if not metrics:
+            return 0
+        self._upsert(
+            ETFFundOperations,
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "instrument_id": instrument_id,
+                    "as_of": as_of,
+                    "annual_report_expense_ratio": metrics.get(
+                        "annualReportExpenseRatio"
+                    ),
+                    "annual_holdings_turnover": metrics.get("annualHoldingsTurnover"),
+                    "total_net_assets": metrics.get("totalNetAssets"),
+                }
+            ],
+            index_elements=["instrument_id", "as_of"],
+            update_columns=[
+                "annual_report_expense_ratio",
+                "annual_holdings_turnover",
+                "total_net_assets",
+                "updated_at",
+            ],
+        )
+        return 1
 
     # ------------------------------------------------------------------ reads
 

@@ -84,10 +84,22 @@ class FundsClient(BaseClient):
 
         if not asset_classes and not sector_weightings and not top_holdings:
             return None
+
+        description = getattr(fd, "description", None)
+        if not isinstance(description, str):
+            description = None
         return {
             "asset_classes": asset_classes,
             "sector_weightings": sector_weightings,
             "top_holdings": top_holdings,
+            # Depth (SPEC A8): metric-indexed DataFrames flattened to {metric:
+            # value}; bond_ratings / fund_overview are already dict-shaped.
+            "equity_holdings": _first_col_dict(getattr(fd, "equity_holdings", None)),
+            "bond_holdings": _first_col_dict(getattr(fd, "bond_holdings", None)),
+            "fund_operations": _first_col_dict(getattr(fd, "fund_operations", None)),
+            "bond_ratings": _as_dict(getattr(fd, "bond_ratings", None)),
+            "fund_overview": _as_dict(getattr(fd, "fund_overview", None)),
+            "description": description,
         }
 
 
@@ -96,6 +108,23 @@ def _as_dict(value: Any) -> dict[str, Any]:
         return dict(value) if value else {}
     except Exception:
         return {}
+
+
+def _first_col_dict(frame: Any) -> dict[str, float]:
+    """Flatten a metric-indexed DataFrame (equity/bond holdings, operations) to
+    ``{metric: value}`` reading the fund's own (first) column; the second column
+    is usually the category average and is dropped."""
+    if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
+        return {}
+    col = frame.iloc[:, 0]
+    out: dict[str, float] = {}
+    for key, val in col.items():
+        if pd.notna(val):
+            try:
+                out[str(key)] = float(val)
+            except (TypeError, ValueError):
+                continue
+    return out
 
 
 def _parse_holdings(frame: Any) -> list[dict[str, Any]]:

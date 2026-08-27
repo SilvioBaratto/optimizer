@@ -83,6 +83,81 @@ def test_fetch_etf_metadata_writes_all_tables(db_session) -> None:
     assert not errors
 
 
+def test_fetch_etf_metadata_writes_depth_tables(db_session) -> None:
+    """SPEC A8: equity/bond holdings, bond ratings, fund operations, and the
+    fund overview (category/description) are persisted from funds_data depth."""
+    from sqlalchemy import select
+
+    from app.models.market_data.etf_metadata import (
+        ETFBondHoldings,
+        ETFBondRating,
+        ETFEquityHoldings,
+        ETFFundOperations,
+        ETFMetadata,
+    )
+
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = {
+        "aum": 1e9,
+        "nav": 100.0,
+        "fund_family": "JPMorgan",
+        "legal_type": "ETF",
+        "expense_ratio": 0.001,
+        "base_currency": "EUR",
+    }
+    yf.funds.fetch_funds_data.return_value = {
+        "asset_classes": {"stockPosition": 0.0, "bondPosition": 1.0},
+        "top_holdings": [],
+        "sector_weightings": {},
+        "equity_holdings": {"priceToEarnings": 15.0, "priceToBook": 2.0},
+        "bond_holdings": {"duration": 5.5, "maturity": 7.0, "creditQuality": 3.0},
+        "fund_operations": {
+            "annualReportExpenseRatio": 0.001,
+            "annualHoldingsTurnover": 0.2,
+            "totalNetAssets": 1.0e9,
+        },
+        "bond_ratings": {"aaa": 0.5, "bbb": 0.2},
+        "fund_overview": {"categoryName": "Ultrashort Bond", "legalType": "ETF"},
+        "description": "A short-duration bond ETF.",
+    }
+    svc = _service(db_session, yf)
+
+    counts: dict[str, int] = {}
+    errors: list[str] = []
+    svc._fetch_etf_metadata(
+        inst.id, "JAGA.DE", "full", DEFAULT_THRESHOLDS, _NOW, counts, errors, []
+    )
+    db_session.flush()
+
+    eq = db_session.execute(
+        select(ETFEquityHoldings).where(ETFEquityHoldings.instrument_id == inst.id)
+    ).scalar_one()
+    assert float(eq.price_to_earnings) == 15.0
+    bh = db_session.execute(
+        select(ETFBondHoldings).where(ETFBondHoldings.instrument_id == inst.id)
+    ).scalar_one()
+    assert float(bh.duration) == 5.5
+    ratings = (
+        db_session.execute(
+            select(ETFBondRating).where(ETFBondRating.instrument_id == inst.id)
+        )
+        .scalars()
+        .all()
+    )
+    assert {r.rating for r in ratings} == {"aaa", "bbb"}
+    ops = db_session.execute(
+        select(ETFFundOperations).where(ETFFundOperations.instrument_id == inst.id)
+    ).scalar_one()
+    assert float(ops.annual_report_expense_ratio) == 0.001
+    meta = db_session.execute(
+        select(ETFMetadata).where(ETFMetadata.instrument_id == inst.id)
+    ).scalar_one()
+    assert meta.category == "Ultrashort Bond"
+    assert meta.description == "A short-duration bond ETF."
+    assert not errors
+
+
 def test_incremental_skips_when_metadata_is_fresh(db_session) -> None:
     inst = _fi_instrument(db_session)
     ETFMetadataRepository(db_session).upsert_metadata(
