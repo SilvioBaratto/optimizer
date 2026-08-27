@@ -37,6 +37,7 @@ from app.models.market_data.yfinance_data import (
     StockSplit,
     TickerNews,
     TickerProfile,
+    TickerProfileExtra,
 )
 from app.models.universe.universe import Instrument
 from app.repositories._shared import RepositoryBase
@@ -242,6 +243,38 @@ class YFinanceRepository(RepositoryBase):
     def get_profile(self, instrument_id: UUID) -> TickerProfile | None:
         stmt = select(TickerProfile).where(TickerProfile.instrument_id == instrument_id)
         return self.session.execute(stmt).scalar_one_or_none()
+
+    def upsert_profile_extras(self, instrument_id: UUID, info: dict[str, Any]) -> int:
+        """Upsert the 1:1 extra-info row (short interest, momentum, governance
+        risk) mapped from the same yf.Ticker.info dict as ``upsert_profile``."""
+        row = {
+            "instrument_id": instrument_id,
+            "shares_short": _safe_int(info.get("sharesShort")),
+            "shares_short_prior_month": _safe_int(info.get("sharesShortPriorMonth")),
+            "short_ratio": _safe_float(info.get("shortRatio")),
+            "short_percent_of_float": _safe_float(info.get("shortPercentOfFloat")),
+            "shares_percent_shares_out": _safe_float(
+                info.get("sharesPercentSharesOut")
+            ),
+            "held_percent_insiders": _safe_float(info.get("heldPercentInsiders")),
+            "held_percent_institutions": _safe_float(
+                info.get("heldPercentInstitutions")
+            ),
+            "fifty_two_week_change": _safe_float(info.get("52WeekChange")),
+            "sandp_52_week_change": _safe_float(info.get("SandP52WeekChange")),
+            "sector_key": _safe_str(info.get("sectorKey"), 100),
+            "industry_key": _safe_str(info.get("industryKey"), 150),
+            "audit_risk": _safe_int(info.get("auditRisk")),
+            "board_risk": _safe_int(info.get("boardRisk")),
+            "compensation_risk": _safe_int(info.get("compensationRisk")),
+            "shareholder_rights_risk": _safe_int(info.get("shareHolderRightsRisk")),
+            "overall_risk": _safe_int(info.get("overallRisk")),
+        }
+        return self._upsert(
+            TickerProfileExtra,
+            [row],
+            constraint_name="uq_ticker_profile_extras_instrument",
+        )
 
     def get_sectors_by_yfinance_ticker(self, tickers: Sequence[str]) -> dict[str, str]:
         """Return ``{yfinance_ticker: sector}`` for the given tickers.

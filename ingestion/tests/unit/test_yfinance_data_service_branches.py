@@ -74,6 +74,7 @@ def _make_repo(*, staleness: dict[str, Any] | None = None) -> MagicMock:
     repo.upsert_major_holders.return_value = 0
     repo.upsert_insider_purchases.return_value = 0
     repo.upsert_insider_roster.return_value = 0
+    repo.upsert_profile_extras.return_value = 0
     repo.upsert_news.return_value = 3
     return repo
 
@@ -529,6 +530,39 @@ class TestHoldersExtras:
         repo.upsert_major_holders.assert_called_once()
         repo.upsert_insider_purchases.assert_called_once()
         repo.upsert_insider_roster.assert_called_once()
+
+
+class TestProfileExtras:
+    """ticker_profile_extras (SPEC A9) — mapped from the already-fetched info."""
+
+    def test_model_has_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import TickerProfileExtra
+
+        for col in ("shares_short", "short_ratio", "overall_risk", "sector_key"):
+            assert hasattr(TickerProfileExtra, col)
+
+    def test_skipped_when_profile_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(staleness={"profile_updated_at": now, "price_max_date": None})
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "profile" in result["skipped"]
+        repo.upsert_profile_extras.assert_not_called()
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"profile_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.fetch_info.return_value = {
+            "symbol": "AAPL",
+            "sharesShort": 100_000,
+            "shortRatio": 1.2,
+            "overallRisk": 3,
+            "sectorKey": "technology",
+        }
+        _run(repo, yf, mode="incremental")
+        repo.upsert_profile_extras.assert_called_once()
 
 
 def _run(

@@ -273,6 +273,11 @@ class YFinanceDataService:
                 info = self._timed(lambda: self.yf_client.fetch_info(yfinance_ticker))
                 if info:
                     counts["profile"] = self.repo.upsert_profile(instrument_id, info)
+                    # SPEC A9: extra info fields (short interest, momentum,
+                    # governance risk) reuse the same fetched dict — no re-fetch.
+                    counts["profile_extras"] = self.repo.upsert_profile_extras(
+                        instrument_id, info
+                    )
                 else:
                     counts["profile"] = 0
             except Exception as e:

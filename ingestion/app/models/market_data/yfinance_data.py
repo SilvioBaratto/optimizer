@@ -755,3 +755,51 @@ class TickerNews(BaseModel):
     news_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ticker_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
     full_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class TickerProfileExtra(BaseModel):
+    """Extra yf.Ticker.info fields not on TickerProfile (short interest, 52-week
+    change vs S&P, sector/industry keys, governance risk). One row per
+    instrument (SPEC A9 / OQ3)."""
+
+    __tablename__ = "ticker_profile_extras"
+    __table_args__ = (
+        UniqueConstraint("instrument_id", name="uq_ticker_profile_extras_instrument"),
+        Index("ix_ticker_profile_extras_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # Short interest
+    shares_short: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    shares_short_prior_month: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    short_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    short_percent_of_float: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shares_percent_shares_out: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+
+    # Ownership + momentum
+    held_percent_insiders: Mapped[float | None] = mapped_column(Float, nullable=True)
+    held_percent_institutions: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    fifty_two_week_change: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sandp_52_week_change: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Classification keys (stable Yahoo slugs, distinct from display names)
+    sector_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    industry_key: Mapped[str | None] = mapped_column(String(150), nullable=True)
+
+    # Governance risk scores (1 = low ... 10 = high)
+    audit_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    board_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    compensation_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    shareholder_rights_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    overall_risk: Mapped[int | None] = mapped_column(Integer, nullable=True)
