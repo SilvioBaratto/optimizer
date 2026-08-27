@@ -16,7 +16,9 @@ from app.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
     Dividend,
+    EarningsDate,
     EarningsEstimate,
+    EarningsHistory,
     FinancialStatement,
     GrowthEstimate,
     InsiderTransaction,
@@ -368,6 +370,57 @@ class YFinanceRepository(RepositoryBase):
             GrowthEstimate,
             rows,
             constraint_name="uq_growth_estimate_instrument_period",
+        )
+
+    def upsert_earnings_history(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert historical EPS surprise (index = past-quarter dates)."""
+        rows = [
+            {
+                "instrument_id": instrument_id,
+                "period_date": _safe_date(idx),
+                "eps_estimate": _safe_float(row.get("epsEstimate")),
+                "eps_actual": _safe_float(row.get("epsActual")),
+                "eps_difference": _safe_float(row.get("epsDifference")),
+                "surprise_percent": _safe_float(row.get("surprisePercent")),
+            }
+            for idx, row in df.iterrows()
+        ]
+        rows = [r for r in rows if r["period_date"] is not None]
+        return self._upsert(
+            EarningsHistory,
+            rows,
+            constraint_name="uq_earnings_history_instrument_period",
+        )
+
+    def upsert_earnings_dates(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert past/upcoming earnings dates (index = tz-aware datetimes).
+
+        Column labels vary across yfinance versions; read defensively.
+        """
+
+        def _col(row: Any, *names: str) -> Any:
+            for name in names:
+                if name in row:
+                    return row.get(name)
+            return None
+
+        rows = [
+            {
+                "instrument_id": instrument_id,
+                "earnings_date": _safe_date(idx),
+                "eps_estimate": _safe_float(_col(row, "EPS Estimate", "epsEstimate")),
+                "eps_actual": _safe_float(_col(row, "Reported EPS", "epsActual")),
+                "surprise_percent": _safe_float(
+                    _col(row, "Surprise(%)", "surprisePercent")
+                ),
+            }
+            for idx, row in df.iterrows()
+        ]
+        rows = [r for r in rows if r["earnings_date"] is not None]
+        return self._upsert(
+            EarningsDate,
+            rows,
+            constraint_name="uq_earnings_date_instrument_date",
         )
 
     def get_price_history(

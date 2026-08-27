@@ -351,6 +351,55 @@ class GrowthEstimate(BaseModel):
     index_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
 
 
+class EarningsHistory(BaseModel):
+    """Historical EPS surprise from yf.Ticker.earnings_history (per past quarter)."""
+
+    __tablename__ = "earnings_history"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "period_date", name="uq_earnings_history_instrument_period"
+        ),
+        Index("ix_earnings_history_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    eps_estimate: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    eps_actual: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    eps_difference: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    surprise_percent: Mapped[float | None] = mapped_column(
+        Numeric(20, 6), nullable=True
+    )
+
+
+class EarningsDate(BaseModel):
+    """Past + upcoming earnings dates from yf.Ticker.get_earnings_dates()."""
+
+    __tablename__ = "earnings_dates"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "earnings_date", name="uq_earnings_date_instrument_date"
+        ),
+        Index("ix_earnings_dates_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    earnings_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    eps_estimate: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    eps_actual: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    surprise_percent: Mapped[float | None] = mapped_column(
+        Numeric(20, 6), nullable=True
+    )
+
+
 class AnalystRecommendation(BaseModel):
     """Analyst recommendation summary from yf.Ticker.recommendations_summary."""
 

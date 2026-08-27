@@ -93,6 +93,8 @@ def _make_yf_client_silent() -> MagicMock:
     yf_client.analysis.fetch_earnings_estimate.return_value = None
     yf_client.analysis.fetch_revenue_estimate.return_value = None
     yf_client.analysis.fetch_growth_estimates.return_value = None
+    yf_client.analysis.fetch_earnings_history.return_value = None
+    yf_client.metadata.fetch_earnings_dates.return_value = None
     ticker_mock = MagicMock()
     ticker_mock.news = []
     yf_client.get_ticker.return_value = ticker_mock
@@ -210,6 +212,51 @@ class TestAnalystEstimates:
         repo.upsert_earnings_estimate.assert_called_once()
         repo.upsert_revenue_estimate.assert_called_once()
         repo.upsert_growth_estimates.assert_called_once()
+
+
+class TestEarningsTimeline:
+    """earnings_history + earnings_dates (SPEC A2)."""
+
+    def test_models_have_expected_columns(self) -> None:
+        from app.models.market_data.yfinance_data import EarningsDate, EarningsHistory
+
+        for col in (
+            "period_date",
+            "eps_estimate",
+            "eps_actual",
+            "eps_difference",
+            "surprise_percent",
+        ):
+            assert hasattr(EarningsHistory, col)
+        for col in ("earnings_date", "eps_estimate", "eps_actual", "surprise_percent"):
+            assert hasattr(EarningsDate, col)
+
+    def test_skipped_when_financials_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(
+            staleness={"financials_updated_at": now, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        result = _run(repo, yf, mode="incremental")
+        assert "earnings_history" in result["skipped"]
+        assert "earnings_dates" in result["skipped"]
+
+    def test_persisted_when_stale(self) -> None:
+        repo = _make_repo(
+            staleness={"financials_updated_at": None, "price_max_date": None}
+        )
+        yf = _make_yf_client_silent()
+        yf.analysis.fetch_earnings_history.return_value = pd.DataFrame(
+            {"epsEstimate": [1.0], "epsActual": [1.1], "surprisePercent": [10.0]},
+            index=pd.to_datetime(["2024-03-31"]),
+        )
+        yf.metadata.fetch_earnings_dates.return_value = pd.DataFrame(
+            {"EPS Estimate": [1.2], "Reported EPS": [1.3], "Surprise(%)": [8.0]},
+            index=pd.to_datetime(["2024-07-25"]),
+        )
+        _run(repo, yf, mode="incremental")
+        repo.upsert_earnings_history.assert_called_once()
+        repo.upsert_earnings_dates.assert_called_once()
 
 
 def _run(

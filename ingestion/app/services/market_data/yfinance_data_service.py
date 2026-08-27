@@ -618,6 +618,44 @@ class YFinanceDataService:
                 errors.append(f"growth_estimates: {e}")
                 logger.warning("Failed growth_estimates for %s: %s", yfinance_ticker, e)
 
+        # 3g. Earnings history (past-quarter EPS surprise).
+        if estimates_fresh:
+            skipped.append("earnings_history")
+        else:
+            try:
+                eh_df = self._timed(
+                    lambda: self.yf_client.analysis.fetch_earnings_history(
+                        yfinance_ticker
+                    )
+                )
+                counts["earnings_history"] = (
+                    self.repo.upsert_earnings_history(instrument_id, eh_df)
+                    if eh_df is not None and not eh_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"earnings_history: {e}")
+                logger.warning("Failed earnings_history for %s: %s", yfinance_ticker, e)
+
+        # 3h. Earnings dates (past + upcoming).
+        if estimates_fresh:
+            skipped.append("earnings_dates")
+        else:
+            try:
+                ed_df = self._timed(
+                    lambda: self.yf_client.metadata.fetch_earnings_dates(
+                        yfinance_ticker
+                    )
+                )
+                counts["earnings_dates"] = (
+                    self.repo.upsert_earnings_dates(instrument_id, ed_df)
+                    if ed_df is not None and not ed_df.empty
+                    else 0
+                )
+            except Exception as e:
+                errors.append(f"earnings_dates: {e}")
+                logger.warning("Failed earnings_dates for %s: %s", yfinance_ticker, e)
+
         # 4. Dividends
         if (
             mode == "incremental"
