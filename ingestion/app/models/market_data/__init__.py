@@ -17,6 +17,7 @@ from app.models.market_data.market_structure import (
     SectorSnapshot,
     SectorTopCompany,
 )
+from app.models.market_data.market_summary import MarketSummary
 from app.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
@@ -45,6 +46,7 @@ __all__ = [
     "InsiderTransaction",
     "InstitutionalHolder",
     "IpoCalendar",
+    "MarketSummary",
     "MutualFundHolder",
     "PriceHistory",
     "SectorIndustry",

@@ -16,7 +16,7 @@ from .infrastructure import (
     is_rate_limit_error,
     retry_with_backoff,
 )
-from .market import CalendarsClient, SearchClient, SectorsClient
+from .market import CalendarsClient, MarketClient, SearchClient, SectorsClient
 from .protocols import CacheProtocol, CircuitBreakerProtocol, RateLimiterProtocol
 from .screener import ScreenerClient
 from .ticker import (
@@ -75,6 +75,7 @@ class YFinanceClient:
         "screener",
         "sectors",
         "calendars",
+        "market",
     )
 
     @classmethod
@@ -506,6 +507,10 @@ class YFinanceClient:
     @cached_property
     def calendars(self) -> CalendarsClient:
         return CalendarsClient(**self._module_sub_client_kwargs())
+
+    @cached_property
+    def market(self) -> MarketClient:
+        return MarketClient(**self._module_sub_client_kwargs())
 
 
 def get_yfinance_client(
