@@ -9,12 +9,13 @@
 
 Quantitative portfolio construction and optimization built on [skfolio](https://skfolio.org/) and scikit-learn. Every component follows the **frozen-config + factory** pattern and composes in standard sklearn pipelines.
 
-The repository holds two things:
+The repository is a **`uv` workspace** with three packages:
 
 - **`optimizer/`** — the pure-Python optimization library, published to PyPI as **`portopt-core`** (import package `optimizer`). DB-agnostic, no API keys, no I/O.
 - **`ingestion/`** — the **`portopt`** app: a yfinance-centric ingestion daemon (PostgreSQL + SQLAlchemy + APScheduler + BAML) plus a `uv`-installable CLI and install wizard. No HTTP API.
+- **`packages/portopt-db/`** — **`portopt-db`** (import package `portopt_db`): the shared database layer — SQLAlchemy models, repositories, connection manager, and the single Alembic migration tree. Consumed by `ingestion`; carries no sklearn/skfolio stack.
 
-The two are independent: `ingestion/` does not import `optimizer`, and the daemon image carries none of the sklearn/skfolio stack.
+The optimizer library is independent of the data side: neither `ingestion/` nor `portopt-db/` imports `optimizer`, and the daemon image carries none of the sklearn/skfolio optimization stack.
 
 ## Installation
 
@@ -240,7 +241,8 @@ optimizer/            Pure-Python library (DB-agnostic, sklearn/skfolio-based)
   online/             partial_fit-based incremental workflows
   fx/                 Multi-currency conversion + FX return decomposition
 
-ingestion/            Ingestion daemon (PostgreSQL, SQLAlchemy, APScheduler, BAML)
+ingestion/            Ingestion daemon (PostgreSQL, APScheduler, BAML) — services/scheduler/CLI
+packages/portopt-db/  Shared DB layer (models, repositories, engine, single Alembic tree)
 scheduler/            Shell wrappers over the daemon CLI (fetch, refetch)
 scripts/              CI helpers (branch-coverage gate)
 tests/                Library test suite
@@ -249,20 +251,23 @@ tests/                Library test suite
 ## Development
 
 ```bash
-pip install -e ".[dev]"
+# uv workspace: one venv for all three packages
+uv sync --all-packages --all-extras
 
-# Tests
-pytest tests/ -v
+# Tests (per package)
+uv run --package portopt-core pytest tests/ -v       # optimizer library
+uv run --package portopt-db   pytest                 # shared DB layer
+uv run --package portopt      pytest                 # ingestion daemon
 
-# Lint
-ruff check optimizer/ tests/
-
-# Type check
-mypy optimizer/
+# Lint / type check
+uv run --package portopt-core ruff check optimizer/ tests/
+uv run --package portopt-core mypy optimizer/
 
 # Everything (lint + typecheck + test)
 make all
 ```
+
+`pip install -e ".[dev]"` still works for the library alone if you are not on uv.
 
 ## Ingestion daemon
 
@@ -278,10 +283,10 @@ yfinance universe *after* the build (it no longer sources it).
 docker compose up -d
 docker compose logs -f scheduler
 
-# Or run the daemon directly
-cd ingestion && pip install -e ".[test]"
-alembic upgrade head
-python -m app.worker              # blocks until SIGTERM
+# Or run the daemon directly (uv workspace)
+uv sync --all-packages --all-extras
+(cd packages/portopt-db && alembic upgrade head)   # migrations owned by portopt-db
+uv run --package portopt python -m app.worker      # blocks until SIGTERM
 ```
 
 Seven scheduled jobs: `daily_pipeline` (07:00), `midday_news` (14:00), `universe_build`

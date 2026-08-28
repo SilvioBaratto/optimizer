@@ -6,6 +6,12 @@ a schedule, and exposes Prometheus metrics.
 
 It does not depend on the `optimizer` library — this side ingests, it does not optimize.
 
+The database layer (models, repositories, connection manager, and the Alembic migration
+tree) lives in the shared **`portopt-db`** package (`packages/portopt-db/`), a `uv`-workspace
+sibling. The daemon imports it as `portopt_db` and keeps only services, the scheduler, the
+CLI, schemas, and the `jobs` repository behavior. Migrations are owned by `portopt-db` and
+run from there.
+
 ## Run
 
 ```bash
@@ -13,12 +19,12 @@ docker compose up -d          # db + adminer + scheduler
 docker compose logs -f scheduler
 ```
 
-Locally:
+Locally (from the workspace root):
 
 ```bash
-pip install -e ".[test]"
-alembic upgrade head
-python -m app.worker          # blocks until SIGTERM/SIGINT
+uv sync --all-packages --all-extras
+(cd packages/portopt-db && alembic upgrade head)   # migration owner
+uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
 ```
 
 ## Scheduled jobs
@@ -131,16 +137,22 @@ project's cutoff — **do not plan a scale-out on 4.x without re-validating this
 app/
   worker.py        daemon entrypoint (metrics → init_db → reap orphans → bootstrap → scheduler)
   cli.py           manual runs (Typer)
+  database.py      thin factory: builds DbConfig from settings → portopt_db.DatabaseManager
   services/
     jobs/          APScheduler wiring + BackgroundJobService
     market_data/   yfinance client, bulk fetch, reference-index seeding
     macro/         FRED / Il Sole / Trading Economics scrapers, LLM summary + calibration
     universe/      Trading 212 universe build
     infrastructure/ circuit breaker, rate limiter, retry, TTL cache
-  repositories/    typed DB access
-  models/          SQLAlchemy tables
+  repositories/
+    jobs/          BackgroundJobRepository (behavior stays here); domain repos re-exported
+                   from portopt_db.repositories
   schemas/         typed step arguments + progress payloads
 baml_src/          LLM functions (SummarizeCountryNews, ClassifyMacroRegime)
+
+# Models, domain repositories, engine, and Alembic live in the shared package:
+../packages/portopt-db/src/portopt_db/   base, models/, repositories/, engine, config, coerce
+../packages/portopt-db/alembic/          the single migration tree
 ```
 
 ## Tests

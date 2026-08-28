@@ -13,17 +13,19 @@ These must be loaded proactively, not on request. Any work involving financial d
 
 ## Project Overview
 
-Python-only repository. Two shipped things:
+Python-only **uv workspace** with three packages (one shared venv):
 
-- **`optimizer/`** — Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based). Published to PyPI as **`portopt`**
-- **`ingestion/`** — Headless **ingestion daemon**. APScheduler in-process, no HTTP API. Fetches market / fundamental / macro data into PostgreSQL on a schedule. Entrypoint `ingestion/app/worker.py`; manual runs via `ingestion/app/cli.py`
+- **`optimizer/`** — Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based). Distribution **`portopt-core`** (import package `optimizer`)
+- **`ingestion/`** — Headless **ingestion daemon**. APScheduler in-process, no HTTP API. Fetches market / fundamental / macro data into PostgreSQL on a schedule. Entrypoint `ingestion/app/worker.py`; manual runs via `ingestion/app/cli.py`. Distribution **`portopt`**
+- **`packages/portopt-db/`** — Shared **database layer** (import package `portopt_db`): SQLAlchemy `Base` + all models + all repositories + `DatabaseManager`/`RepositoryBase` + the **single Alembic tree**. Distribution **`portopt-db`** (internal today; the only consumer is `ingestion`, a future `fund/` is planned). See its own architecture section below.
 
-The two do not depend on each other. `ingestion/` does **not** import `optimizer` and carries no `skfolio`/portfolio-optimization stack. It **does** ship `scikit-learn` (with `scipy` transitively): yfinance's price-repair path (`repair=True`) imports `sklearn.cluster.DBSCAN`, so without it ~22% of tickers return empty history and get silently dropped from the universe. sklearn here is a data-layer dep, not an optimization one — the boundary the daemon protects is *no optimization*, guarded by `ingestion/tests/unit/hygiene/test_no_optimizer_import.py`.
+None of the three depend on `optimizer`/`skfolio` except the optimizer library itself. `ingestion/` and `portopt-db/` do **not** import `optimizer`; `portopt-db/` carries no sklearn/skfolio stack at all. The daemon **does** ship `scikit-learn` (with `scipy` transitively): yfinance's price-repair path (`repair=True`) imports `sklearn.cluster.DBSCAN`, so without it ~22% of tickers return empty history and get silently dropped from the universe. sklearn here is a data-layer dep, not an optimization one — the *no optimization* boundary is guarded by three static import-scan tests: `ingestion/tests/unit/hygiene/test_no_optimizer_import.py`, `packages/portopt-db/tests/test_no_optimizer_import.py`, and root `tests/test_no_portopt_db_import.py` (optimizer ⊬ portopt_db). With a single shared workspace venv there is no install-isolation, so these static guards are the sole enforcement of the boundaries.
 
 Supporting directories:
 
 - **`tests/`** — library test suite (mirrors `optimizer/` submodules) + `tests/scheduler/` (shell-wrapper contract)
 - **`ingestion/tests/`** — daemon test suite (SQLite in-memory)
+- **`packages/portopt-db/tests/`** — DB-layer test suite (SQLite in-memory; owns the moved model/repository/engine/migration tests)
 - **`scheduler/`** — thin shell wrappers over the CLI (`fetch.sh`, `refetch_all.sh`)
 - **`scripts/`** — CI helpers (`check_branch_coverage.py`)
 
@@ -31,33 +33,39 @@ There is **no frontend, no docs site, no `examples/`, no `research/`, no `cli/`,
 
 ## Build & Run Commands
 
+This is a **uv workspace** — `uv sync` resolves all three members into one shared venv. Run
+tools per-package with `uv run --package <name>` (`portopt-core`, `portopt`, `portopt-db`).
+`pip install -e` still works per-package for anyone not on uv.
+
 ```bash
 # Infrastructure
 docker compose up -d              # PostgreSQL (54320) + Adminer (18081) + scheduler (metrics 9000)
 
-# Optimizer library (root)
-pip install -e ".[dev]"           # Install optimizer + dev deps
-pytest tests/ -v                  # All optimizer tests
-pytest tests/rebalancing/ -v      # Single module tests
-pytest -k "test_name"             # Single test by name
-ruff check optimizer/ tests/      # Lint (CI step)
-ruff check . --fix                # Lint + auto-fix
-mypy optimizer/                   # Type check strict mode (CI step)
+# Workspace setup (all three packages + every extra into one venv)
+uv sync --all-packages --all-extras
+
+# Optimizer library (root, package portopt-core)
+uv run --package portopt-core pytest tests/ -v      # All optimizer tests
+uv run --package portopt-core pytest -k "test_name" # Single test by name
+uv run --package portopt-core ruff check optimizer/ tests/
+uv run --package portopt-core mypy optimizer/       # Type check strict mode (CI step)
 
 # Makefile shortcuts (root)
 make lint                         # ruff check + ruff format --check
 make format                       # ruff format (writes changes)
 make typecheck                    # mypy optimizer/
 make test                         # pytest with coverage term-missing
-make coverage                     # pytest with HTML coverage in htmlcov/
 make all                          # lint + typecheck + test
 make clean                        # remove caches, coverage, egg-info
 
-# Ingestion daemon
-cd ingestion && pip install -e ".[test]"
-alembic upgrade head              # Run migrations
-python -m app.worker              # Run the daemon (blocks; SIGTERM to stop)
-cd ingestion && pytest            # Daemon tests
+# Shared DB layer (package portopt-db)
+uv run --package portopt-db pytest                  # DB-layer tests
+# Alembic lives in the DB package — it is the single migration owner:
+cd packages/portopt-db && alembic upgrade head      # current head: d3e4f5a6b7c8
+
+# Ingestion daemon (package portopt)
+uv run --package portopt pytest                     # Daemon tests
+uv run --package portopt python -m app.worker       # Run the daemon (blocks; SIGTERM to stop)
 
 # Manual ingestion runs (same job-slot / heartbeat path as the scheduler)
 docker compose exec scheduler python -m app.cli daily
@@ -71,19 +79,21 @@ cd ingestion && baml-cli generate
 
 ## CI Pipeline
 
-`.github/workflows/ci.yml` — triggers on push/PR to `main`, Ubuntu, Python 3.12. Jobs:
+`.github/workflows/ci.yml` — triggers on push/PR to `main`, Ubuntu, Python **3.12 & 3.13**
+matrix, **uv**-driven (`uv sync --all-packages --all-extras`). Jobs:
 
 | Job | Steps |
 |-----|-------|
 | `lint` | `ruff check optimizer/ tests/` → `ruff format --check` → `pip-audit --strict` |
 | `typecheck` | `mypy optimizer/` |
-| `pyright` | `pyright` (scoped to `optimizer/` only) |
+| `pyright` | `pyright` (scoped to `optimizer/` only, pinned `1.1.398`) |
 | `test` | `pytest tests/` with `--cov=optimizer --cov-fail-under=90`, then `scripts/check_branch_coverage.py coverage.xml 0.80` |
 | `ingestion-test` | `pytest ingestion/tests/` with `--cov=app --cov-fail-under=80`, then the same branch-coverage gate |
+| `portopt-db-test` | `pytest packages/portopt-db/tests/` with `--cov=portopt_db --cov-fail-under=90`, then the same branch-coverage gate |
 
 Other workflows: `release.yml` (on `v*` tags). There is no `smoke.yml` — it drove `/optimize` and `/backtest`, which no longer exist.
 
-**Dependencies**: the library's runtime deps live in the root `pyproject.toml` `[project.dependencies]` — CI installs via `pip install -e ".[dev]"`. The ingestion daemon's deps live in `ingestion/pyproject.toml` (`[project.dependencies]` + the `[test]` extra), installed separately by the `ingestion-test` job (`pip install -e "./ingestion[test]"`) and by `ingestion/Dockerfile` (`pip install .`, runtime-only). There is no `requirements.txt` anywhere; add library deps to the root `pyproject.toml` and daemon deps to `ingestion/pyproject.toml`.
+**Dependencies**: each workspace member declares its own deps. Library runtime deps live in the root `pyproject.toml` `[project.dependencies]`; the DB layer's in `packages/portopt-db/pyproject.toml` (SQLAlchemy, psycopg2-binary, alembic, pandas, pydantic); the daemon's in `ingestion/pyproject.toml` (`portopt-db` is a `[tool.uv.sources]` workspace dep — the daemon no longer declares psycopg2-binary/alembic directly, they arrive transitively via portopt-db). There is no `requirements.txt`; add DB deps to `packages/portopt-db/pyproject.toml`, library deps to the root, daemon-only deps to `ingestion/pyproject.toml`. `requires-python >= 3.12` across all three (numpy 2.5 / pandas 3.0 require it).
 
 ## Architecture
 
@@ -249,18 +259,43 @@ Plus: `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`
 - **`Pipeline` is rejected by `online_predict` / `OnlineGridSearch`** — skfolio routes `partial_fit` through a single estimator and cannot route through `Pipeline`. Apply pre-selection to `X` upstream before passing to online wrappers
 - **Walk-forward CV cannot vary constraints per fold** — regime-dependent sector bands are fixed for a whole run; a backtest is single-regime, not per-rebalance
 
+### Shared DB Package (`portopt-db`, `packages/portopt-db/src/portopt_db/`)
+
+The database layer, extracted out of the daemon so any consumer (today `ingestion`, later
+`fund/`) shares one schema, one connection manager, and one migration history. **Pure
+structural extraction** — same tables, same queries, same behavior; it introduced no schema
+or logic change. Carries **no** sklearn/skfolio/optimizer import (guarded).
+
+| Component | Path | Purpose |
+|-----------|------|---------|
+| `base` | `base.py` | Declarative `Base` + `BaseModel` + timestamp/UUID mixins + `type_annotation_map` |
+| `models` | `models/{jobs,macro,market_data,universe}/` | All SQLAlchemy tables. `models/__init__.py` imports every module so `Base.metadata` is fully registered — import it (not `base`) before `create_all` |
+| `repositories` | `repositories/{macro,market_data,universe}/` + `database_admin.py` | Typed repositories moved wholesale |
+| `repository` | `repository.py` | `RepositoryBase` (`_upsert` via ON CONFLICT) + `BaseRepository` |
+| `engine` | `engine.py` | `DatabaseManager` — config-injected (takes a `DbConfig`, no coupling to `app.config`) |
+| `config` | `config.py` | `@dataclass(frozen=True) DbConfig` (url + pool options + `connect_args()`) |
+| `coerce` | `coerce.py` | `parse_reference_date` and date coercion helpers |
+| Alembic | `alembic/` + `alembic.ini` | **Single migration owner.** `env.py` reads `DATABASE_URL` env (fallback to ini) and `from portopt_db.models import Base`. Head: `d3e4f5a6b7c8` |
+
+**Jobs split (deliberate)**: the `background_jobs` *model* lives here (single Alembic owner),
+but `BackgroundJobRepository`'s *behavior* stays in `ingestion/app/repositories/jobs/` — it
+imports `RepositoryBase` from `portopt_db.repository`. Ingestion's `app/database.py` is now a
+thin singleton factory: it builds a `DbConfig` from `app.config.settings` and instantiates
+`DatabaseManager`.
+
 ### Ingestion Daemon (`ingestion/app/`)
 
 Headless. **No HTTP API, no FastAPI, no routes.** Layering is
 **Scheduler/CLI → Services → Repositories → Models**, with `_shared/` in each layer
-for cross-cutting code.
+for cross-cutting code. Models and most repositories now live in **`portopt-db`** (above);
+ingestion keeps only the `jobs` repository behavior and imports the rest from `portopt_db`.
 
 | Layer | Path | Domains |
 |-------|------|---------|
 | Entrypoints | `ingestion/app/` | `worker.py` (daemon), `cli.py` (manual runs) |
 | Services | `ingestion/app/services/` | `jobs`, `macro`, `market_data`, `universe`, `infrastructure`, `_shared` |
-| Repositories | `ingestion/app/repositories/` | `jobs`, `macro`, `market_data`, `universe`, `_shared` |
-| Models | `ingestion/app/models/` | `jobs`, `macro`, `market_data`, `universe`, `_shared` |
+| Repositories | `ingestion/app/repositories/` | `jobs` only (behavior); macro/market_data/universe re-exported from `portopt_db.repositories` |
+| Models | `portopt_db.models` | all tables — no `ingestion/app/models/` anymore |
 | Schemas | `ingestion/app/schemas/` | `jobs`, `macro`, `market_data`, `universe`, `_shared` |
 
 With the HTTP layer gone, schemas are no longer request/response bodies — they are the
@@ -401,10 +436,15 @@ Il Sole 24 Ore and Trading Economics are scraped from HTML — **neither takes a
 
 ### Database
 
-~28 tables, all ingestion. The portfolio / execution / factor / risk / rebalancing /
-api_keys tables (17 of them) were dropped by migration `d1e2f3a4b5c6`, which is
-**destructive and one-way** — its `downgrade()` raises. Restore from a pre-upgrade dump
-rather than downgrading.
+~28 tables, all ingestion. Schema + migrations are owned by **`portopt-db`** (models in
+`portopt_db.models`, the single Alembic tree in `packages/portopt-db/alembic/`, head
+`d3e4f5a6b7c8`) — `alembic upgrade head` runs from `packages/portopt-db`, not from
+`ingestion/`. The portfolio / execution / factor / risk / rebalancing / api_keys tables (17
+of them) were dropped by migration `d1e2f3a4b5c6`, which is **destructive and one-way** — its
+`downgrade()` raises. Restore from a pre-upgrade dump rather than downgrading.
+
+Coverage floors: `portopt_db` is gated at **line ≥ 90%** and branch ≥ 0.80 (same
+`scripts/check_branch_coverage.py` gate as the library and daemon).
 
 ### Testing
 
