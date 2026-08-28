@@ -987,7 +987,7 @@ class TestUpsertEmptyInputGuards:
     INSERT is never compiled)."""
 
     def test_upsert_base_empty_rows_returns_zero(self, db_session: Session) -> None:
-        from app.repositories._shared.base import RepositoryBase
+        from portopt_db.repository import RepositoryBase
 
         base = RepositoryBase(db_session)
         # Empty rows — early return before any SQL is compiled or executed
@@ -1001,7 +1001,7 @@ class TestUpsertEmptyInputGuards:
     def test_upsert_base_empty_rows_with_update_columns_returns_zero(
         self, db_session: Session
     ) -> None:
-        from app.repositories._shared.base import RepositoryBase
+        from portopt_db.repository import RepositoryBase
 
         base = RepositoryBase(db_session)
         result = base._upsert(

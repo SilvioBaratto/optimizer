@@ -18,7 +18,9 @@ _SRC = _PKG_ROOT / "src" / "portopt_db"
 _PYPROJECT = _PKG_ROOT / "pyproject.toml"
 _SELF = Path(__file__).resolve()
 
-_OPTIMIZER_IMPORT = re.compile(r"^\s*(from optimizer\b|import optimizer\b)", re.MULTILINE)
+_OPTIMIZER_IMPORT = re.compile(
+    r"^\s*(from optimizer\b|import optimizer\b)", re.MULTILINE
+)
 _FORBIDDEN_PACKAGES = ("skfolio",)
 
 
@@ -51,7 +53,9 @@ def test_when_src_is_scanned_then_no_optimizer_import_is_found():
 
 
 def test_when_pyproject_is_read_then_no_optimization_stack_dependency_is_declared():
-    assert find_forbidden_stack_dependencies(_PYPROJECT.read_text(encoding="utf-8")) == []
+    assert (
+        find_forbidden_stack_dependencies(_PYPROJECT.read_text(encoding="utf-8")) == []
+    )
 
 
 def test_when_an_optimizer_import_is_injected_then_the_guard_fails(tmp_path):

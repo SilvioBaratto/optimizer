@@ -9,8 +9,8 @@ from portopt_db.repositories.macro.macro_regime_repository import MacroRegimeRep
 from portopt_db.repositories.macro.sentiment_repository import SentimentRepository
 from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
+from portopt_db.repository import BaseRepository, RepositoryBase
 
-from app.repositories._shared import BaseRepository, RepositoryBase
 from app.repositories.jobs.background_job_repository import BackgroundJobRepository
 
 __all__ = [

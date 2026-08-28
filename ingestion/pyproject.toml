@@ -14,10 +14,10 @@ dependencies = [
     "python-dotenv==1.2.3",
     "pydantic==2.13.4",
     "pydantic-settings==2.15.0",
-    # Database
+    # Database: the engine/models/migrations live in portopt-db (inherited via
+    # the workspace dep below). SQLAlchemy stays a direct dep — services type
+    # against Session / use text(); psycopg2-binary + alembic are transitive.
     "SQLAlchemy==2.0.52",
-    "psycopg2-binary==2.9.12",
-    "alembic==1.19.1",
     # AI/ML — BAML drives the news-summary and macro-regime-calibration steps
     "baml-py==0.226.1",
     # Financial Data
@@ -91,17 +91,11 @@ disallow_any_generics = false
 warn_return_any = false
 no_implicit_reexport = false
 
-# SQLAlchemy Column/relationship descriptors return Any at runtime; suppress
-# the subclassing errors that arise from inheriting untyped bases.
+# Models + domain repositories moved to portopt-db (their mypy relaxations live
+# in that package). The BackgroundJobRepository stays here and still subclasses
+# portopt_db.RepositoryBase's dynamic-SQLAlchemy base.
 [[tool.mypy.overrides]]
-module = ["app.models.*"]
-disallow_subclassing_any = false
-
-# Generic base repository uses dynamic SQLAlchemy attributes (__table__, id,
-# created_at) that are only available at runtime via the ORM descriptor
-# protocol — mypy cannot statically verify these on type[ModelType].
-[[tool.mypy.overrides]]
-module = ["app.repositories.*"]
+module = ["app.repositories.jobs.*"]
 disallow_subclassing_any = false
 warn_return_any = false
 
@@ -121,7 +115,6 @@ ignore_missing_imports = true
 # mypy 1.4+ differentiates import-missing vs import-untyped; suppress both.
 [[tool.mypy.overrides]]
 module = [
-    "app.repositories.yfinance_repository",
     "app.services.scrapers.fred_scraper",
     "app.services.scrapers.ilsole_scraper",
     "app.services.scrapers.tradingeconomics_scraper",

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.utils.date_parsing import parse_reference_date
+from portopt_db.coerce import parse_reference_date
 
 # ---------------------------------------------------------------------------
 # None / non-string edge cases

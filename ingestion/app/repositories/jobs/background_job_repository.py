@@ -10,6 +10,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 from portopt_db.models.jobs.background_job import BackgroundJob, BackgroundJobError
+from portopt_db.repository import RepositoryBase
 from sqlalchemy import (
     delete,
     exists,
@@ -22,8 +23,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
-
-from app.repositories._shared import RepositoryBase
 
 _ACTIVE_STATUSES: tuple[str, ...] = ("pending", "running")
 _TERMINAL_STATUSES: tuple[str, ...] = ("failed", "completed")
