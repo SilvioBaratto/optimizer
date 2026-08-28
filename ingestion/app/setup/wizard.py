@@ -105,17 +105,28 @@ def run_setup_interactive(prompter: Prompter, *, passphrase: str | None = None) 
     config: dict[str, object] = {}
 
     if prompter.confirm(_MSG_CONNECT_T212, default=False):
-        t212_key = prompter.password(_MSG_T212_KEY)
-        t212_secret = prompter.password(_MSG_T212_SECRET)
+        # Rule 2: auto-detect exported env vars before prompting.
+        t212_key = os.getenv("TRADING_212_API_KEY") or prompter.password(_MSG_T212_KEY)
+        t212_secret = os.getenv("TRADING_212_SECRET_KEY") or prompter.password(
+            _MSG_T212_SECRET
+        )
         if not validators.validate_t212(t212_key, t212_secret):
             raise SetupError("Trading212 credentials failed validation.")
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
 
-    # Mandatory LLM gate — loop until a cloud key validates.
+    # Mandatory LLM gate — loop until a cloud key validates. The provider's env
+    # var (e.g. OPENAI_API_KEY) is tried once before falling back to a prompt, so
+    # an invalid env value cannot spin the loop forever.
+    tried_env: set[str] = set()
     while True:
         provider = prompter.select(_MSG_LLM_PROVIDER, list(_CLOUD_PROVIDERS))
-        llm_key = prompter.password(_MSG_LLM_KEY)
+        env_key = os.getenv(f"{provider.upper()}_API_KEY")
+        if env_key and provider not in tried_env:
+            tried_env.add(provider)
+            llm_key = env_key
+        else:
+            llm_key = prompter.password(_MSG_LLM_KEY)
         if validators.validate_llm(provider, llm_key):
             break
         prompter.error("Invalid provider/key — try again.")
@@ -123,7 +134,7 @@ def run_setup_interactive(prompter: Prompter, *, passphrase: str | None = None) 
     secrets[f"{provider}_api_key"] = llm_key
 
     if prompter.confirm(_MSG_CONNECT_FRED, default=False):
-        fred_key = prompter.password(_MSG_FRED_KEY)
+        fred_key = os.getenv("FRED_API_KEY") or prompter.password(_MSG_FRED_KEY)
         if not validators.validate_fred(fred_key):
             raise SetupError("FRED API key failed validation.")
         secrets["fred_api_key"] = fred_key

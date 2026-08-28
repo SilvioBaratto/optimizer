@@ -41,7 +41,17 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s: True)
     monkeypatch.setattr(wizard.validators, "validate_llm", lambda p, k: True)
     monkeypatch.setattr(wizard.validators, "validate_fred", lambda k: True)
-    monkeypatch.delenv("PORTOPT_PASSPHRASE", raising=False)
+    # Clear every credential env var so interactive tests are deterministic:
+    # env-autodetection (Rule 2) must not pick up the developer's real shell env.
+    for _var in (
+        "PORTOPT_PASSPHRASE",
+        "TRADING_212_API_KEY",
+        "TRADING_212_SECRET_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "FRED_API_KEY",
+    ):
+        monkeypatch.delenv(_var, raising=False)
     return calls
 
 
@@ -228,6 +238,82 @@ def test_interactive_empty_passphrase_fails(patched: dict) -> None:
     with pytest.raises(wizard.SetupError):
         wizard.run_setup_interactive(prompter)
     assert patched["saved_secrets"] is None
+
+
+def test_interactive_t212_keys_autodetected_from_env(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Rule 2: exported T212 env vars are used without prompting. The prompt map
+    # omits _MSG_T212_KEY/_SECRET; NonInteractivePrompter.password would raise if
+    # the wizard prompted, so completing proves env was read first.
+    monkeypatch.setenv("TRADING_212_API_KEY", "env-tk")
+    monkeypatch.setenv("TRADING_212_SECRET_KEY", "env-ts")
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_CONNECT_T212: True,
+            wizard._MSG_LLM_PROVIDER: "openai",
+            wizard._MSG_LLM_KEY: "sk-o",
+            wizard._MSG_CONNECT_FRED: False,
+        }
+    )
+    wizard.run_setup_interactive(prompter)
+    assert patched["saved_secrets"]["trading_212_api_key"] == "env-tk"
+    assert patched["saved_secrets"]["trading_212_secret_key"] == "env-ts"  # noqa: S105 - test fixture value, not a secret
+
+
+def test_interactive_llm_key_autodetected_from_env(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "env-sk")  # no _MSG_LLM_KEY in the map
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_CONNECT_T212: False,
+            wizard._MSG_LLM_PROVIDER: "openai",
+            wizard._MSG_CONNECT_FRED: False,
+        }
+    )
+    wizard.run_setup_interactive(prompter)
+    assert patched["saved_secrets"] == {"openai_api_key": "env-sk"}
+
+
+def test_interactive_fred_key_autodetected_from_env(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FRED_API_KEY", "env-fk")
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_CONNECT_T212: False,
+            wizard._MSG_LLM_PROVIDER: "openai",
+            wizard._MSG_LLM_KEY: "sk-o",
+            wizard._MSG_CONNECT_FRED: True,
+        }
+    )
+    wizard.run_setup_interactive(prompter)
+    assert patched["saved_secrets"]["fred_api_key"] == "env-fk"
+
+
+def test_interactive_invalid_env_llm_key_falls_back_to_prompt(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An invalid env key must not spin the loop: after it fails once, the wizard
+    # falls back to prompting rather than re-reading the same env value forever.
+    monkeypatch.setenv("OPENAI_API_KEY", "env-bad")
+    attempts = iter([False, True])
+    monkeypatch.setattr(wizard.validators, "validate_llm", lambda p, k: next(attempts))
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_CONNECT_T212: False,
+            wizard._MSG_LLM_PROVIDER: "openai",
+            wizard._MSG_LLM_KEY: "sk-prompted",
+            wizard._MSG_CONNECT_FRED: False,
+        }
+    )
+    wizard.run_setup_interactive(prompter)
+    assert patched["saved_secrets"] == {"openai_api_key": "sk-prompted"}
 
 
 def test_interactive_docker_down_propagates(
