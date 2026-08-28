@@ -410,7 +410,7 @@ Configuration via `.env` at project root:
 - `DATABASE_URL` — PostgreSQL connection string
 - `TRADING_212_API_KEY` — Trading 212 API access. **Absent ⇒ `universe_build` skips without claiming a job slot** (a config state, not a failure)
 - `FRED_API_KEY` — Federal Reserve Economic Data
-- `OLLAMA_BASE_URL` / `OLLAMA_MODEL` / `OLLAMA_API_KEY` — BAML LLM client (news summarize + macro calibrate). Read by BAML directly from `baml_src/clients.baml`, so they are deliberately absent from `app/config.py`
+- `LLM_PROVIDER` (`openai` | `anthropic` — **cloud-only; local/Ollama is deliberately not supported**) selects the BAML LLM client (news summarize + macro-regime calibrate), plus the provider's key/model: `OPENAI_API_KEY` / `OPENAI_MODEL` or `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL`. These **are** read by `app/config.py` (`Settings`, which rejects any non-cloud `LLM_PROVIDER`) and injected into BAML per call via a `ClientRegistry` (`app/services/macro/_baml_client.py`); `baml_src/clients.baml` compiles against a cloud default. The install wizard makes a provider mandatory and validates the key on the spot. Any `OLLAMA_*` vars are dead leftovers — nothing reads them
 
 Il Sole 24 Ore and Trading Economics are scraped from HTML — **neither takes an API key**. (`TRADING_ECONOMICS_API_KEY` appeared in the old docs and `.env.example` but nothing ever read it.)
 
