@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -54,8 +55,8 @@ class BackgroundJob(BaseModel):
     )
     current: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     total: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    extra: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
-    result: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    extra: Mapped[dict[str, Any] | None] = mapped_column(_JSON, nullable=True)
+    result: Mapped[dict[str, Any] | None] = mapped_column(_JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

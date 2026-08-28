@@ -35,6 +35,17 @@ portopt_db = ["py.typed"]
 # ruff config lives in ruff.toml (extends the root config + mirrors
 # ingestion/ruff.toml for the moved models/repositories).
 
+[tool.mypy]
+# Strict gate on the shared DB layer. These repos/models were only loosely
+# checked while they lived under ingestion (disallow_untyped_defs=false, etc.);
+# as their own package they ship py.typed, so consumers inherit these types —
+# hold them to the same strict bar as the optimizer library. Scope is src only
+# (CI runs `mypy src/portopt_db`); alembic/ and tests/ stay out.
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider"

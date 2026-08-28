@@ -19,7 +19,7 @@ UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
 
 def _get_table(model: type[DeclarativeBase]) -> Table:
     """Extract the SQLAlchemy Table from a mapped class."""
-    return cast(Table, model.__table__)  # type: ignore[attr-defined]
+    return cast(Table, model.__table__)
 
 
 class RepositoryBase:
@@ -53,7 +53,7 @@ class RepositoryBase:
                 "_upsert requires exactly one of constraint_name / index_elements"
             )
 
-        tbl = _get_table(model)  # type: ignore[arg-type]
+        tbl = _get_table(model)
         stmt = pg_insert(tbl).values(rows)
 
         update_dict: dict[str, Any]
@@ -152,7 +152,7 @@ class BaseRepository(
         self.session.refresh(db_obj)
         return db_obj
 
-    def create_from_dict(self, obj_data: dict) -> ModelType:
+    def create_from_dict(self, obj_data: dict[str, Any]) -> ModelType:
         db_obj = self.model(**obj_data)
         self.session.add(db_obj)
         self.session.flush()
@@ -172,7 +172,7 @@ class BaseRepository(
         self.session.refresh(db_obj)
         return db_obj
 
-    def update_from_dict(self, id: Any, obj_data: dict) -> ModelType | None:
+    def update_from_dict(self, id: Any, obj_data: dict[str, Any]) -> ModelType | None:
         db_obj = self.get(id)
         if not db_obj:
             return None

@@ -33,7 +33,7 @@ class DatabaseManager:
     def __init__(self, config: DbConfig):
         self.config = config
         self._engine: Engine | None = None
-        self._session_factory: sessionmaker | None = None
+        self._session_factory: sessionmaker[Session] | None = None
         self._is_initialized: bool = False
         self._lock = threading.RLock()
         self._last_health_check: float = 0
@@ -71,7 +71,7 @@ class DatabaseManager:
             pool_timeout=cfg.pool_timeout,
             pool_recycle=cfg.pool_recycle,
             pool_pre_ping=cfg.pool_pre_ping,
-            pool_reset_on_return=cfg.pool_reset_on_return,  # type: ignore[arg-type]
+            pool_reset_on_return=cfg.pool_reset_on_return,
         )
         logger.info(
             "Database engine created (QueuePool size=%s overflow=%s recycle=%ss "

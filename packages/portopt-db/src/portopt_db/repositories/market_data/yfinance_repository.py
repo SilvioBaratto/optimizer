@@ -325,7 +325,7 @@ class YFinanceRepository(RepositoryBase):
         Deduped in-batch on (as_of, contract_symbol): a single snapshot must not
         touch the same natural key twice (PostgreSQL ON CONFLICT cardinality).
         """
-        deduped: dict[tuple, dict[str, Any]] = {}
+        deduped: dict[tuple[Any, ...], dict[str, Any]] = {}
         for r in rows:
             symbol = r.get("contract_symbol")
             as_of = r.get("as_of")
@@ -552,7 +552,7 @@ class YFinanceRepository(RepositoryBase):
             return None
 
         rows: list[dict[str, Any]] = []
-        seen: set[tuple] = set()
+        seen: set[tuple[Any, ...]] = set()
         for idx, row in df.iterrows():
             action_date = _safe_date(idx)
             if action_date is None:
@@ -610,7 +610,7 @@ class YFinanceRepository(RepositoryBase):
             return None
 
         rows: list[dict[str, Any]] = []
-        seen: set[tuple] = set()
+        seen: set[tuple[Any, ...]] = set()
         for filing in filings:
             filing_date = _safe_date(_col(filing, "date", "filingDate", "epochDate"))
             if filing_date is None:

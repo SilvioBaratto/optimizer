@@ -43,6 +43,8 @@ jobs:
           enable-cache: true
       - run: uv sync --all-packages --all-extras
       - run: uv run mypy optimizer/
+      # portopt-db ships py.typed; hold it to its own strict [tool.mypy] gate.
+      - run: cd packages/portopt-db && uv run mypy src/portopt_db
 
   pyright:
     runs-on: ubuntu-latest

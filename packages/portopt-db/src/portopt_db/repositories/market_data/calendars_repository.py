@@ -8,7 +8,8 @@ each field is read defensively across the spellings Yahoo has used. Uses
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from datetime import date
+from typing import Any, cast
 
 import pandas as pd
 
@@ -28,14 +29,14 @@ def _col(row: dict[str, Any], *names: str) -> Any:
     return None
 
 
-def _date(v: Any):
+def _date(v: Any) -> date | None:
     if v is None:
         return None
     try:
         ts = pd.to_datetime(v, errors="coerce", utc=True)
         if ts is None or pd.isna(ts):
             return None
-        return ts.date()
+        return cast(date, ts.date())
     except (TypeError, ValueError):
         return None
 
@@ -62,7 +63,7 @@ def _str(v: Any, n: int) -> str | None:
 
 class CalendarsRepository(RepositoryBase):
     def upsert_earnings(self, rows: list[dict[str, Any]]) -> int:
-        out: dict[tuple, dict[str, Any]] = {}
+        out: dict[tuple[Any, ...], dict[str, Any]] = {}
         for r in rows:
             ticker = _str(_col(r, "Symbol", "ticker", "symbol", "index"), 30)
             # yfinance builds columns from humanized labels then renames; the
@@ -91,7 +92,7 @@ class CalendarsRepository(RepositoryBase):
         )
 
     def upsert_ipos(self, rows: list[dict[str, Any]]) -> int:
-        out: dict[tuple, dict[str, Any]] = {}
+        out: dict[tuple[Any, ...], dict[str, Any]] = {}
         for r in rows:
             ticker = _str(_col(r, "Symbol", "ticker", "symbol", "index"), 30)
             # IPO datetime label is "Date"; identity fields use humanized labels.
@@ -116,7 +117,7 @@ class CalendarsRepository(RepositoryBase):
         )
 
     def upsert_splits(self, rows: list[dict[str, Any]]) -> int:
-        out: dict[tuple, dict[str, Any]] = {}
+        out: dict[tuple[Any, ...], dict[str, Any]] = {}
         for r in rows:
             ticker = _str(_col(r, "Symbol", "ticker", "symbol", "index"), 30)
             # Split datetime label is "Payable On".
@@ -140,7 +141,7 @@ class CalendarsRepository(RepositoryBase):
         )
 
     def upsert_economic_events(self, rows: list[dict[str, Any]]) -> int:
-        out: dict[tuple, dict[str, Any]] = {}
+        out: dict[tuple[Any, ...], dict[str, Any]] = {}
         for r in rows:
             event = _str(_col(r, "Event", "event", "eventName"), 255)
             # country_code is renamed to "Region"; date label is "Event Time".
