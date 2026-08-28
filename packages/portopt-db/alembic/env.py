@@ -16,11 +16,20 @@ if config.config_file_name is not None:
 
 # The URL is injected via the DATABASE_URL environment variable (the consumer —
 # ingestion, a future fund/, or a CI/dev shell — sets it). portopt_db does not
-# import any application settings. Falls back to the alembic.ini default for a
-# local dev run with no env set.
+# import any application settings, so it cannot read the daemon's .env. To avoid
+# silently migrating the credentialed alembic.ini default DB when the caller
+# forgot to export DATABASE_URL, online migrations refuse to run without it.
+# Offline mode (`--sql`) only renders SQL against the ini URL and never touches a
+# real database, so the fallback is harmless there.
 _db_url = os.getenv("DATABASE_URL")
 if _db_url:
     config.set_main_option("sqlalchemy.url", _db_url)
+elif not context.is_offline_mode():
+    raise RuntimeError(
+        "DATABASE_URL is not set — refusing to run online migrations against "
+        "the alembic.ini default database. Export DATABASE_URL (or run via "
+        "Docker, which sets it) before `alembic upgrade`."
+    )
 
 # Importing the models package registers every model on Base.metadata, so
 # autogenerate/upgrade see the complete schema.

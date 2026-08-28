@@ -45,7 +45,7 @@ dependencies = [
     "rich==15.0.0",
     "cryptography==45.0.7",
     # Shared DB package (workspace). Owns SQLAlchemy/psycopg2/alembic + the schema;
-    # ingestion inherits them transitively. Not yet imported — wired in P1+.
+    # ingestion inherits them transitively.
     "portopt-db",
 ]
 

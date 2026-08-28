@@ -64,6 +64,9 @@ members = ["ingestion", "packages/portopt-db"]
 
 [tool.ruff]
 line-length = 88
+# Deliberately py310, below the >=3.12 runtime floor: py312 turns on UP042
+# (rewrite `class X(str, Enum)` -> `StrEnum`) across the library's config
+# pattern — a behavior-changing, library-wide migration deferred to its own task.
 target-version = "py310"
 
 [tool.ruff.lint]
@@ -82,12 +85,12 @@ ignore = ["RUF002", "RUF003"]  # allow unicode in docstrings/comments (mathemati
 "tests/test_check_branch_coverage.py" = ["S603"]
 
 [tool.mypy]
-# 3.12, not 3.10, despite requires-python = ">=3.10". numpy's bundled stubs use
-# PEP 695 `type` statements, which mypy refuses to parse below 3.12 — it aborts
-# on numpy/__init__.pyi before reaching any of our code, so a 3.10 target means
-# mypy silently checks nothing at all. Runtime 3.10 compatibility is still
-# enforced elsewhere: ruff (target-version = "py310"), pyright
-# (pythonVersion = "3.10"), and the 3.10 leg of the CI test matrix.
+# Matches the workspace floor (requires-python = ">=3.12"; numpy 2.5 / pandas 3.0
+# require it, and numpy's bundled stubs use PEP 695 `type` statements that mypy
+# refuses to parse below 3.12 — a lower target makes it abort on numpy before
+# reaching our code and silently check nothing). The 3.12/3.13 CI matrix tracks
+# the same floor. ruff intentionally lags at py310 (see [tool.ruff]) to hold off
+# the StrEnum migration.
 python_version = "3.12"
 strict = true
 warn_return_any = true
