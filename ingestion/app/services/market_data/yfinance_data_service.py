@@ -280,6 +280,13 @@ class YFinanceDataService:
             try:
                 info = self._timed(lambda: self.yf_client.fetch_info(yfinance_ticker))
                 if info:
+                    # yfinance's .info does not carry ISIN — fetch it separately
+                    # (Ticker.isin) and inject so ticker_profiles.isin populates.
+                    isin = self._timed(
+                        lambda: self.yf_client.metadata.fetch_isin(yfinance_ticker)
+                    )
+                    if isin:
+                        info["isin"] = isin
                     counts["profile"] = self.repo.upsert_profile(instrument_id, info)
                     # SPEC A9: extra info fields (short interest, momentum,
                     # governance risk) reuse the same fetched dict — no re-fetch.

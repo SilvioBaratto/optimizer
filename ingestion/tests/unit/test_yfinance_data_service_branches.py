@@ -104,6 +104,7 @@ def _make_yf_client_silent() -> MagicMock:
     yf_client.holders.fetch_insider_purchases.return_value = None
     yf_client.holders.fetch_insider_roster_holders.return_value = None
     yf_client.metadata.fetch_valuation_measures.return_value = None
+    yf_client.metadata.fetch_isin.return_value = None
     yf_client.analysis.fetch_earnings_estimate.return_value = None
     yf_client.analysis.fetch_revenue_estimate.return_value = None
     yf_client.analysis.fetch_growth_estimates.return_value = None
@@ -176,6 +177,37 @@ class TestPriceUnit:
         yf.fetch_history.return_value = hist
         _run(repo, yf, mode="incremental", currency_code="GBX")
         assert repo.upsert_price_history.call_args.kwargs.get("price_unit") == "GBX"
+
+
+class TestIsinBackfill:
+    """ISIN is not carried by yfinance's .info, so the profile step fetches it
+    separately (Ticker.isin) and injects it into the info dict before upsert —
+    otherwise ticker_profiles.isin is always NULL."""
+
+    def test_isin_fetched_and_injected_into_profile(self) -> None:
+        repo = _make_repo(staleness=None)
+        yf = _make_yf_client_silent()
+        yf.fetch_info.return_value = {"symbol": "AAPL", "shortName": "Apple"}
+        yf.metadata.fetch_isin.return_value = "US0378331005"
+        _run(repo, yf, mode="full")
+        yf.metadata.fetch_isin.assert_called_once()
+        info_arg = repo.upsert_profile.call_args.args[1]
+        assert info_arg["isin"] == "US0378331005"
+
+    def test_isin_absent_leaves_profile_isin_unset(self) -> None:
+        repo = _make_repo(staleness=None)
+        yf = _make_yf_client_silent()
+        yf.fetch_info.return_value = {"symbol": "AAPL", "shortName": "Apple"}
+        yf.metadata.fetch_isin.return_value = None
+        _run(repo, yf, mode="full")
+        info_arg = repo.upsert_profile.call_args.args[1]
+        assert info_arg.get("isin") is None
+
+    def test_isin_not_fetched_when_no_profile_info(self) -> None:
+        repo = _make_repo(staleness=None)
+        yf = _make_yf_client_silent()  # fetch_info returns None -> profile skipped
+        _run(repo, yf, mode="full")
+        yf.metadata.fetch_isin.assert_not_called()
 
 
 class TestAnalystEstimates:
