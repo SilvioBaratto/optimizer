@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, joinedload
 
+from portopt_db.models.market_data.yfinance_data import TickerProfile
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repository import RepositoryBase
 
@@ -171,6 +172,36 @@ class UniverseRepository(RepositoryBase):
         )
         self.session.flush()
         return bool(result.rowcount)
+
+    def backfill_isin_from_profiles(self) -> int:
+        """Copy ISIN from ``ticker_profiles`` onto instruments that lack one.
+
+        The Screener universe build carries no ISIN, but the per-instrument
+        profile fetch stores ``info["isin"]`` on ``ticker_profiles``. This copies
+        that value onto the canonical ``instruments.isin`` for rows still missing
+        one — a single portable UPDATE (correlated subquery; compiles on both
+        PostgreSQL and the SQLite test engine). Never overwrites an existing
+        value. Returns the number of rows filled.
+        """
+        profile_isin = (
+            select(TickerProfile.isin)
+            .where(TickerProfile.instrument_id == Instrument.id)
+            .scalar_subquery()
+        )
+        result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
+            update(Instrument)
+            .where(Instrument.isin.is_(None))
+            .where(
+                Instrument.id.in_(
+                    select(TickerProfile.instrument_id).where(
+                        TickerProfile.isin.is_not(None)
+                    )
+                )
+            )
+            .values(isin=profile_isin)
+        )
+        self.session.flush()
+        return result.rowcount or 0
 
     def get_active_instruments(self) -> Sequence[Instrument]:
         """All non-delisted instruments (used by the T212 annotation step)."""

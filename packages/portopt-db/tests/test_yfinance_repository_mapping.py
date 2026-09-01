@@ -77,15 +77,11 @@ class TestAnalystEstimates:
         assert _constraint(repo) == "uq_earnings_estimate_instrument_period"
 
     def test_growth_estimates_defensive_column_names(self, repo) -> None:
-        # Short spellings (stock/industry/...) rather than *Trend must still map.
-        df = pd.DataFrame(
-            {"stock": [0.1], "industry": [0.2], "sector": [0.3], "index": [0.4]},
-            index=["0q"],
-        )
+        # Short spellings (stock/index) rather than *Trend must still map.
+        df = pd.DataFrame({"stock": [0.1], "index": [0.4]}, index=["0q"])
         repo.upsert_growth_estimates(_IID, df)
         r = _rows(repo)[0]
-        assert (r["stock_trend"], r["industry_trend"]) == (0.1, 0.2)
-        assert (r["sector_trend"], r["index_trend"]) == (0.3, 0.4)
+        assert (r["stock_trend"], r["index_trend"]) == (0.1, 0.4)
 
 
 class TestPriceHistory:
@@ -184,24 +180,6 @@ class TestAnalystActions:
         assert rows[0]["from_grade"] == "Hold"
 
 
-class TestEsgScores:
-    def test_metric_lookup_from_single_column_frame(self, repo) -> None:
-        df = pd.DataFrame(
-            {"esgScores": [22.5, 1.0, 2.0, 3.0, 4.0]},
-            index=[
-                "totalEsg",
-                "environmentScore",
-                "socialScore",
-                "governanceScore",
-                "highestControversy",
-            ],
-        )
-        repo.upsert_esg_scores(_IID, df)
-        r = _rows(repo)[0]
-        assert r["total_esg"] == 22.5
-        assert r["highest_controversy"] == 4.0
-
-
 class TestSecFilings:
     def test_dedup_and_key_fallbacks(self, repo) -> None:
         filings = [
@@ -232,13 +210,6 @@ class TestCorpActionExtras:
         repo.upsert_shares_outstanding(_IID, df)
         rows = _rows(repo)
         assert len(rows) == 1 and rows[0]["shares"] == 2000
-
-    def test_capital_gains_series(self, repo) -> None:
-        s = pd.Series([0.5], index=pd.to_datetime(["2023-12-15"]))
-        repo.upsert_capital_gains(_IID, s)
-        r = _rows(repo)[0]
-        assert r["amount"] == 0.5
-        assert r["date"] == dt.date(2023, 12, 15)
 
 
 class TestHoldersExtras:

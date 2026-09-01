@@ -331,8 +331,8 @@ class RevenueEstimate(BaseModel):
 
 
 class GrowthEstimate(BaseModel):
-    """Growth estimates from yf.Ticker.growth_estimates: per-period trend vs
-    stock / industry / sector / index.
+    """Growth estimates from yf.Ticker.growth_estimates: per-period stock and
+    index trend. (yfinance 1.6.0 no longer emits industry/sector trend.)
     """
 
     __tablename__ = "growth_estimates"
@@ -350,8 +350,6 @@ class GrowthEstimate(BaseModel):
     )
     period: Mapped[str] = mapped_column(String(10), nullable=False)
     stock_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
-    industry_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
-    sector_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     index_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
 
 
@@ -431,33 +429,6 @@ class AnalystAction(BaseModel):
     action: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
 
-class EsgScore(BaseModel):
-    """ESG / sustainability scores from yf.Ticker.sustainability (latest snapshot)."""
-
-    __tablename__ = "esg_scores"
-    __table_args__ = (
-        UniqueConstraint("instrument_id", name="uq_esg_score_instrument"),
-        Index("ix_esg_scores_instrument_id", "instrument_id"),
-    )
-
-    instrument_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("instruments.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    total_esg: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
-    environment_score: Mapped[float | None] = mapped_column(
-        Numeric(20, 6), nullable=True
-    )
-    social_score: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
-    governance_score: Mapped[float | None] = mapped_column(
-        Numeric(20, 6), nullable=True
-    )
-    highest_controversy: Mapped[float | None] = mapped_column(
-        Numeric(20, 6), nullable=True
-    )
-
-
 class SecFiling(BaseModel):
     """SEC filings from yf.Ticker.sec_filings."""
 
@@ -502,26 +473,6 @@ class SharesOutstanding(BaseModel):
     )
     date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-
-
-class CapitalGain(BaseModel):
-    """Capital-gain distributions from yf.Ticker.capital_gains (funds)."""
-
-    __tablename__ = "capital_gains"
-    __table_args__ = (
-        UniqueConstraint(
-            "instrument_id", "date", name="uq_capital_gain_instrument_date"
-        ),
-        Index("ix_capital_gains_instrument_id", "instrument_id"),
-    )
-
-    instrument_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("instruments.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    amount: Mapped[float] = mapped_column(Numeric(20, 6), nullable=False)
 
 
 class MajorHolders(BaseModel):
@@ -593,9 +544,6 @@ class InsiderRosterHolder(BaseModel):
         Date, nullable=True
     )
     shares_owned_directly: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    shares_owned_indirectly: Mapped[int | None] = mapped_column(
-        BigInteger, nullable=True
-    )
 
 
 class AnalystRecommendation(BaseModel):

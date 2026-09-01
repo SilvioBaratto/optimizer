@@ -50,9 +50,13 @@ def _num(v: Any) -> float | None:
         return None
 
 
-def _int(v: Any) -> int | None:
-    f = _num(v)
-    return int(f) if f is not None else None
+def _ratio_str(old: float, new: float) -> str:
+    """Render a split ratio ``old:new`` (e.g. ``5:1``), trimming whole floats."""
+
+    def _fmt(v: float) -> str:
+        return str(int(v)) if float(v).is_integer() else f"{v:g}"
+
+    return f"{_fmt(old)}:{_fmt(new)}"
 
 
 def _str(v: Any, n: int) -> str | None:
@@ -99,21 +103,25 @@ class CalendarsRepository(RepositoryBase):
             ipo_date = _date(_col(r, "Date", "startdatetime"))
             if not ticker or ipo_date is None:
                 continue
+            # yfinance's IPO calendar labels the company "Company" (not "Company
+            # Name") and the currency "Currency" (not "Currency Name"). It carries
+            # no price/share figures at all, so those columns were dropped.
             out[(ticker, ipo_date)] = {
                 "id": uuid.uuid4(),
                 "ticker": ticker,
                 "ipo_date": ipo_date,
-                "company_name": _str(_col(r, "Company Name", "companyshortname"), 255),
+                "company_name": _str(
+                    _col(r, "Company", "Company Name", "companyshortname"), 255
+                ),
                 "exchange": _str(_col(r, "Exchange", "exchange"), 50),
-                "price_range": _str(_col(r, "Price From", "pricefrom"), 100),
-                "currency": _str(_col(r, "Currency Name", "currency"), 10),
-                "shares": _int(_col(r, "Shares", "offersize", "shares")),
+                "currency": _str(_col(r, "Currency", "Currency Name", "currency"), 10)
+                or None,
             }
         return self._commit(
             IpoCalendar,
             list(out.values()),
             ["ticker", "ipo_date"],
-            ["company_name", "exchange", "price_range", "currency", "shares"],
+            ["company_name", "exchange", "currency"],
         )
 
     def upsert_splits(self, rows: list[dict[str, Any]]) -> int:
@@ -124,14 +132,23 @@ class CalendarsRepository(RepositoryBase):
             split_date = _date(_col(r, "Payable On", "startdatetime"))
             if not ticker or split_date is None:
                 continue
-            # yfinance's splits calendar carries no split ratio — only share-worth
-            # fields — so ratio is left NULL rather than mislabelling "Optionable".
+            # The split ratio is encoded as Old Share Worth : Share Worth
+            # (e.g. 5:1 = a 1-for-5 consolidation); the company label is "Company".
+            old_worth = _num(_col(r, "Old Share Worth", "oldshareworth"))
+            new_worth = _num(_col(r, "Share Worth", "shareworth"))
+            ratio = (
+                _ratio_str(old_worth, new_worth)
+                if old_worth is not None and new_worth is not None
+                else None
+            )
             out[(ticker, split_date)] = {
                 "id": uuid.uuid4(),
                 "ticker": ticker,
                 "split_date": split_date,
-                "company_name": _str(_col(r, "Company Name", "companyshortname"), 255),
-                "ratio": _str(_col(r, "ratio", "Ratio"), 50),
+                "company_name": _str(
+                    _col(r, "Company", "Company Name", "companyshortname"), 255
+                ),
+                "ratio": ratio,
             }
         return self._commit(
             SplitCalendar,

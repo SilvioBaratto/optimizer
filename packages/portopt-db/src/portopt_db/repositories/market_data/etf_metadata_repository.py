@@ -27,6 +27,23 @@ from portopt_db.models.market_data.etf_metadata import (
 from portopt_db.repository import RepositoryBase
 
 
+def _pick(metrics: dict[str, float], *keys: str) -> float | None:
+    """Return the first present metric across candidate keys.
+
+    ``funds_data`` depth DataFrames are indexed by human **display labels**
+    (e.g. ``"Price/Earnings"``, ``"Duration"``, ``"Annual Report Expense
+    Ratio"``) — exactly what ``_first_col_dict`` emits as dict keys. Earlier code
+    looked up the raw camelCase field names, which never matched the label form,
+    so every metric landed NULL. The label spelling is tried first; the camelCase
+    spelling is kept as a forward-compat fallback.
+    """
+    for key in keys:
+        value = metrics.get(key)
+        if value is not None:
+            return value
+    return None
+
+
 class ETFMetadataRepository(RepositoryBase):
     def upsert_metadata(
         self,
@@ -182,16 +199,24 @@ class ETFMetadataRepository(RepositoryBase):
                     "id": uuid.uuid4(),
                     "instrument_id": instrument_id,
                     "as_of": as_of,
-                    "price_to_earnings": metrics.get("priceToEarnings"),
-                    "price_to_book": metrics.get("priceToBook"),
-                    "price_to_sales": (
-                        metrics.get("priceToSales")
-                        or metrics.get("priceToSalesTrailing12Months")
+                    "price_to_earnings": _pick(
+                        metrics, "Price/Earnings", "priceToEarnings"
                     ),
-                    "price_to_cashflow": metrics.get("priceToCashflow"),
-                    "median_market_cap": metrics.get("medianMarketCap"),
-                    "three_year_earnings_growth": metrics.get(
-                        "threeYearEarningsGrowth"
+                    "price_to_book": _pick(metrics, "Price/Book", "priceToBook"),
+                    "price_to_sales": _pick(
+                        metrics,
+                        "Price/Sales",
+                        "priceToSales",
+                        "priceToSalesTrailing12Months",
+                    ),
+                    "price_to_cashflow": _pick(
+                        metrics, "Price/Cashflow", "priceToCashflow"
+                    ),
+                    "median_market_cap": _pick(
+                        metrics, "Median Market Cap", "medianMarketCap"
+                    ),
+                    "three_year_earnings_growth": _pick(
+                        metrics, "3 Year Earnings Growth", "threeYearEarningsGrowth"
                     ),
                 }
             ],
@@ -223,9 +248,11 @@ class ETFMetadataRepository(RepositoryBase):
                     "id": uuid.uuid4(),
                     "instrument_id": instrument_id,
                     "as_of": as_of,
-                    "duration": metrics.get("duration"),
-                    "maturity": metrics.get("maturity"),
-                    "credit_quality": metrics.get("creditQuality"),
+                    "duration": _pick(metrics, "Duration", "duration"),
+                    "maturity": _pick(metrics, "Maturity", "maturity"),
+                    "credit_quality": _pick(
+                        metrics, "Credit Quality", "creditQuality", "credit_quality"
+                    ),
                 }
             ],
             index_elements=["instrument_id", "as_of"],
@@ -274,11 +301,17 @@ class ETFMetadataRepository(RepositoryBase):
                     "id": uuid.uuid4(),
                     "instrument_id": instrument_id,
                     "as_of": as_of,
-                    "annual_report_expense_ratio": metrics.get(
-                        "annualReportExpenseRatio"
+                    "annual_report_expense_ratio": _pick(
+                        metrics,
+                        "Annual Report Expense Ratio",
+                        "annualReportExpenseRatio",
                     ),
-                    "annual_holdings_turnover": metrics.get("annualHoldingsTurnover"),
-                    "total_net_assets": metrics.get("totalNetAssets"),
+                    "annual_holdings_turnover": _pick(
+                        metrics, "Annual Holdings Turnover", "annualHoldingsTurnover"
+                    ),
+                    "total_net_assets": _pick(
+                        metrics, "Total Net Assets", "totalNetAssets"
+                    ),
                 }
             ],
             index_elements=["instrument_id", "as_of"],

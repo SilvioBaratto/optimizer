@@ -63,16 +63,15 @@ def test_economic_real_labels_and_region(db_session) -> None:
 
 def test_ipo_real_labels(db_session) -> None:
     repo = CalendarsRepository(db_session)
+    # yfinance's real IPO labels: "Company" / "Currency" (not "* Name").
     n = repo.upsert_ipos(
         [
             {
                 "Symbol": "NEWCO",
-                "Company Name": "New Co",
+                "Company": "New Co",
                 "Exchange": "NMS",
                 "Date": "2026-07-01",
-                "Price From": "18.00",
-                "Currency Name": "USD",
-                "Shares": 1_000_000,
+                "Currency": "USD",
             }
         ]
     )
@@ -82,19 +81,22 @@ def test_ipo_real_labels(db_session) -> None:
     got = db_session.query(IpoCalendar).one()
     assert got.ipo_date == dt.date(2026, 7, 1)
     assert got.company_name == "New Co"
+    assert got.exchange == "NMS"
     assert got.currency == "USD"
-    assert got.price_range == "18.00"
 
 
 def test_splits_real_labels(db_session) -> None:
     repo = CalendarsRepository(db_session)
+    # Real labels: "Company"; ratio is Old Share Worth : Share Worth (1-for-5).
     n = repo.upsert_splits(
         [
             {
                 "Symbol": "SPLIT",
-                "Company Name": "Split Co",
+                "Company": "Split Co",
                 "Payable On": "2026-08-15",
                 "Optionable": True,
+                "Old Share Worth": 5,
+                "Share Worth": 1,
             }
         ]
     )
@@ -104,4 +106,4 @@ def test_splits_real_labels(db_session) -> None:
     got = db_session.query(SplitCalendar).one()
     assert got.split_date == dt.date(2026, 8, 15)
     assert got.company_name == "Split Co"
-    assert got.ratio is None  # Optionable is not a ratio
+    assert got.ratio == "5:1"

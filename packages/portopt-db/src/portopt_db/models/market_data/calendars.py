@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import BigInteger, Date, Index, Numeric, String, UniqueConstraint
+from sqlalchemy import Date, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from portopt_db.base import BaseModel
@@ -47,9 +47,7 @@ class IpoCalendar(BaseModel):
     ipo_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     exchange: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    price_range: Mapped[str | None] = mapped_column(String(100), nullable=True)
     currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    shares: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class SplitCalendar(BaseModel):

@@ -10,6 +10,9 @@ import datetime as dt
 
 from portopt_db.models.market_data.etf_metadata import (
     ETFAssetClass,
+    ETFBondHoldings,
+    ETFEquityHoldings,
+    ETFFundOperations,
     ETFHolding,
     ETFMetadata,
     ETFSectorWeight,
@@ -148,3 +151,53 @@ def test_sector_weights_upsert_is_idempotent(db_session) -> None:
     assert (
         db_session.query(ETFSectorWeight).filter_by(instrument_id=inst.id).count() == 2
     )
+
+
+def test_depth_upserts_map_yfinance_display_labels(db_session) -> None:
+    """funds_data depth dicts are keyed by yfinance display labels
+    ("Price/Earnings", "Duration", "Annual Report Expense Ratio"), not camelCase.
+    The repo must map those onto the model columns; absent labels stay NULL.
+    """
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+
+    repo.upsert_equity_holdings(
+        inst.id,
+        _AS_OF,
+        {"Price/Earnings": 22.5, "Price/Book": 3.1, "Median Market Cap": 1.0e11},
+    )
+    # "Credit Quality" absent (NaN upstream for many bond ETFs) -> stays NULL.
+    repo.upsert_bond_holdings(inst.id, _AS_OF, {"Duration": 6.2, "Maturity": 8.0})
+    repo.upsert_fund_operations(
+        inst.id,
+        _AS_OF,
+        {"Annual Report Expense Ratio": 0.0009, "Total Net Assets": 5.0e8},
+    )
+    db_session.flush()
+
+    eq = db_session.query(ETFEquityHoldings).filter_by(instrument_id=inst.id).one()
+    assert float(eq.price_to_earnings) == 22.5
+    assert float(eq.price_to_book) == 3.1
+    assert float(eq.median_market_cap) == 1.0e11
+    assert eq.price_to_sales is None  # label absent -> NULL
+
+    bh = db_session.query(ETFBondHoldings).filter_by(instrument_id=inst.id).one()
+    assert float(bh.duration) == 6.2
+    assert float(bh.maturity) == 8.0
+    assert bh.credit_quality is None
+
+    ops = db_session.query(ETFFundOperations).filter_by(instrument_id=inst.id).one()
+    assert float(ops.annual_report_expense_ratio) == 0.0009
+    assert float(ops.total_net_assets) == 5.0e8
+    assert ops.annual_holdings_turnover is None
+
+
+def test_depth_upserts_accept_camelcase_fallback(db_session) -> None:
+    """Forward-compat: camelCase keys still map if yfinance switches spelling."""
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+    repo.upsert_bond_holdings(inst.id, _AS_OF, {"duration": 4.0, "creditQuality": 2.5})
+    db_session.flush()
+    bh = db_session.query(ETFBondHoldings).filter_by(instrument_id=inst.id).one()
+    assert float(bh.duration) == 4.0
+    assert float(bh.credit_quality) == 2.5

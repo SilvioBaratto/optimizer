@@ -11,6 +11,7 @@ from datetime import date
 
 from _fixtures import add_and_flush
 
+from portopt_db.models.market_data.yfinance_data import TickerProfile
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
@@ -68,3 +69,49 @@ def test_get_active_instruments_excludes_delisted(db_session) -> None:
     )
     tickers = {i.ticker for i in _repo(db_session).get_active_instruments()}
     assert tickers == {"AAPL"}
+
+
+def test_backfill_isin_fills_null_from_profile(db_session) -> None:
+    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
+    inst = add_and_flush(
+        db_session, Instrument(ticker="AAPL", short_name="Apple", exchange=ex)
+    )
+    assert inst.isin is None
+    add_and_flush(
+        db_session, TickerProfile(instrument_id=inst.id, isin="US0378331005")
+    )
+
+    filled = _repo(db_session).backfill_isin_from_profiles()
+
+    assert filled == 1
+    db_session.refresh(inst)
+    assert inst.isin == "US0378331005"
+
+
+def test_backfill_isin_does_not_overwrite_existing(db_session) -> None:
+    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
+    inst = add_and_flush(
+        db_session,
+        Instrument(ticker="AAPL", short_name="Apple", exchange=ex, isin="EXISTING123"),
+    )
+    add_and_flush(db_session, TickerProfile(instrument_id=inst.id, isin="OTHER456"))
+
+    filled = _repo(db_session).backfill_isin_from_profiles()
+
+    assert filled == 0
+    db_session.refresh(inst)
+    assert inst.isin == "EXISTING123"
+
+
+def test_backfill_isin_skips_null_profile_isin(db_session) -> None:
+    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
+    inst = add_and_flush(
+        db_session, Instrument(ticker="AAPL", short_name="Apple", exchange=ex)
+    )
+    add_and_flush(db_session, TickerProfile(instrument_id=inst.id, isin=None))
+
+    filled = _repo(db_session).backfill_isin_from_profiles()
+
+    assert filled == 0
+    db_session.refresh(inst)
+    assert inst.isin is None

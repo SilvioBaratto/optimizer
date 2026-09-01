@@ -16,12 +16,10 @@ from portopt_db.models.market_data.yfinance_data import (
     AnalystAction,
     AnalystPriceTarget,
     AnalystRecommendation,
-    CapitalGain,
     Dividend,
     EarningsDate,
     EarningsEstimate,
     EarningsHistory,
-    EsgScore,
     FinancialStatement,
     GrowthEstimate,
     InsiderPurchaseSummary,
@@ -454,9 +452,11 @@ class YFinanceRepository(RepositoryBase):
         )
 
     def upsert_growth_estimates(self, instrument_id: UUID, df: pd.DataFrame) -> int:
-        """Upsert per-period growth estimates (stock/industry/sector/index trend).
+        """Upsert per-period growth estimates (stock + index trend).
 
-        Column names vary across yfinance versions; read defensively.
+        yfinance 1.6.0 emits only ``stockTrend`` / ``indexTrend`` (industry and
+        sector trend were dropped upstream). Column names vary across versions, so
+        read defensively.
         """
 
         def _col(row: Any, *names: str) -> Any:
@@ -470,8 +470,6 @@ class YFinanceRepository(RepositoryBase):
                 "instrument_id": instrument_id,
                 "period": _safe_str(period, 10),
                 "stock_trend": _safe_float(_col(row, "stockTrend", "stock")),
-                "industry_trend": _safe_float(_col(row, "industryTrend", "industry")),
-                "sector_trend": _safe_float(_col(row, "sectorTrend", "sector")),
                 "index_trend": _safe_float(_col(row, "indexTrend", "index")),
             }
             for period, row in df.iterrows()
@@ -574,29 +572,6 @@ class YFinanceRepository(RepositoryBase):
                 }
             )
         return self._upsert(AnalystAction, rows, constraint_name="uq_analyst_action")
-
-    def upsert_esg_scores(self, instrument_id: UUID, df: pd.DataFrame) -> int:
-        """Upsert the latest ESG snapshot from yf.Ticker.sustainability.
-
-        sustainability is a single-column frame indexed by metric name.
-        """
-        series = df.iloc[:, 0] if df.shape[1] >= 1 else df.squeeze()
-
-        def _metric(name: str) -> float | None:
-            try:
-                return _safe_float(series.get(name))
-            except Exception:  # defensive: shape varies across versions
-                return None
-
-        row = {
-            "instrument_id": instrument_id,
-            "total_esg": _metric("totalEsg"),
-            "environment_score": _metric("environmentScore"),
-            "social_score": _metric("socialScore"),
-            "governance_score": _metric("governanceScore"),
-            "highest_controversy": _metric("highestControversy"),
-        }
-        return self._upsert(EsgScore, [row], constraint_name="uq_esg_score_instrument")
 
     def upsert_sec_filings(
         self, instrument_id: UUID, filings: list[dict[str, Any]]
@@ -814,22 +789,6 @@ class YFinanceRepository(RepositoryBase):
             SharesOutstanding,
             rows,
             constraint_name="uq_shares_outstanding_instrument_date",
-        )
-
-    def upsert_capital_gains(self, instrument_id: UUID, gains: pd.Series) -> int:
-        """Upsert capital-gain distributions (index=date, value=amount)."""
-        rows = []
-        for idx, amount in gains.items():
-            dt = _safe_date(idx)
-            amt = _safe_float(amount)
-            if dt is None or amt is None:
-                continue
-            rows.append({"instrument_id": instrument_id, "date": dt, "amount": amt})
-
-        return self._upsert(
-            CapitalGain,
-            rows,
-            constraint_name="uq_capital_gain_instrument_date",
         )
 
     # ------------------------------------------------------------------
@@ -1138,9 +1097,6 @@ class YFinanceRepository(RepositoryBase):
                     ),
                     "shares_owned_directly": _safe_int(
                         _col(r, "Shares Owned Directly")
-                    ),
-                    "shares_owned_indirectly": _safe_int(
-                        _col(r, "Shares Owned Indirectly")
                     ),
                 }
             )
