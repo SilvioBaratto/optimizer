@@ -65,7 +65,6 @@ def _make_repo(*, staleness: dict[str, Any] | None = None) -> MagicMock:
     repo.upsert_dividends.return_value = 0
     repo.upsert_splits.return_value = 0
     repo.upsert_shares_outstanding.return_value = 0
-    repo.upsert_capital_gains.return_value = 0
     repo.upsert_recommendations.return_value = 0
     repo.upsert_price_targets.return_value = 0
     repo.upsert_institutional_holders.return_value = 0
@@ -89,10 +88,8 @@ def _make_yf_client_silent() -> MagicMock:
     yf_client.corporate_actions.fetch_dividends.return_value = None
     yf_client.corporate_actions.fetch_splits.return_value = None
     yf_client.corporate_actions.fetch_shares_full.return_value = None
-    yf_client.corporate_actions.fetch_capital_gains.return_value = None
     yf_client.analysis.fetch_recommendations_summary.return_value = None
     yf_client.analysis.fetch_upgrades_downgrades.return_value = None
-    yf_client.analysis.fetch_sustainability.return_value = None
     yf_client.financials.fetch_sec_filings.return_value = None
     yf_client.analysis.fetch_analyst_price_targets.return_value = None
     yf_client.analysis.fetch_eps_trend.return_value = None
@@ -225,7 +222,7 @@ class TestAnalystEstimates:
             assert hasattr(EarningsEstimate, col)
         assert hasattr(EarningsEstimate, "year_ago_eps")
         assert hasattr(RevenueEstimate, "year_ago_revenue")
-        for col in ("stock_trend", "industry_trend", "sector_trend", "index_trend"):
+        for col in ("stock_trend", "index_trend"):
             assert hasattr(GrowthEstimate, col)
 
     def test_skipped_when_financials_fresh(self) -> None:
@@ -345,43 +342,6 @@ class TestAnalystActions:
         repo.upsert_analyst_actions.assert_called_once()
 
 
-class TestEsgScores:
-    """esg_scores (SPEC A4)."""
-
-    def test_model_has_expected_columns(self) -> None:
-        from portopt_db.models.market_data.yfinance_data import EsgScore
-
-        for col in (
-            "total_esg",
-            "environment_score",
-            "social_score",
-            "governance_score",
-            "highest_controversy",
-        ):
-            assert hasattr(EsgScore, col)
-
-    def test_skipped_when_financials_fresh(self) -> None:
-        now = datetime.now(timezone.utc)
-        repo = _make_repo(
-            staleness={"financials_updated_at": now, "price_max_date": None}
-        )
-        yf = _make_yf_client_silent()
-        result = _run(repo, yf, mode="incremental")
-        assert "esg_scores" in result["skipped"]
-
-    def test_persisted_when_stale(self) -> None:
-        repo = _make_repo(
-            staleness={"financials_updated_at": None, "price_max_date": None}
-        )
-        yf = _make_yf_client_silent()
-        yf.analysis.fetch_sustainability.return_value = pd.DataFrame(
-            {"esgScores": [22.5]},
-            index=["totalEsg"],
-        )
-        _run(repo, yf, mode="incremental")
-        repo.upsert_esg_scores.assert_called_once()
-
-
 class TestSecFilings:
     """sec_filings (SPEC A5) — list of filing dicts."""
 
@@ -432,12 +392,6 @@ class TestCorpActionExtras:
         for col in ("date", "shares"):
             assert hasattr(SharesOutstanding, col)
 
-    def test_capital_gain_model_columns(self) -> None:
-        from portopt_db.models.market_data.yfinance_data import CapitalGain
-
-        for col in ("date", "amount"):
-            assert hasattr(CapitalGain, col)
-
     def test_price_history_has_capital_gains_column(self) -> None:
         from portopt_db.models.market_data.yfinance_data import PriceHistory
 
@@ -464,28 +418,6 @@ class TestCorpActionExtras:
         )
         _run(repo, yf, mode="incremental")
         repo.upsert_shares_outstanding.assert_called_once()
-
-    def test_capital_gains_skipped_when_dividends_fresh(self) -> None:
-        now = datetime.now(timezone.utc)
-        repo = _make_repo(
-            staleness={"dividends_updated_at": now, "price_max_date": None}
-        )
-        yf = _make_yf_client_silent()
-        result = _run(repo, yf, mode="incremental")
-        assert "capital_gains" in result["skipped"]
-        yf.corporate_actions.fetch_capital_gains.assert_not_called()
-
-    def test_capital_gains_persisted_when_stale(self) -> None:
-        repo = _make_repo(
-            staleness={"dividends_updated_at": None, "price_max_date": None}
-        )
-        yf = _make_yf_client_silent()
-        yf.corporate_actions.fetch_capital_gains.return_value = pd.Series(
-            [0.5, 0.7],
-            index=pd.to_datetime(["2023-12-15", "2024-12-15"]),
-        )
-        _run(repo, yf, mode="incremental")
-        repo.upsert_capital_gains.assert_called_once()
 
 
 class TestHoldersExtras:
@@ -801,6 +733,8 @@ class TestIncrementalPriceFetch:
         args_kwargs = call_kwargs[1] if call_kwargs[1] else {}
         all_args = {**args_kwargs}
         assert "start" in all_args or "period" not in all_args
+        # actions=True so Dividends / Stock Splits land in price_history.
+        assert all_args.get("actions") is True
 
 
 # ===========================================================================

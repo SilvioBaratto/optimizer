@@ -110,12 +110,13 @@ def test_fetch_etf_metadata_writes_depth_tables(db_session) -> None:
         "asset_classes": {"stockPosition": 0.0, "bondPosition": 1.0},
         "top_holdings": [],
         "sector_weightings": {},
-        "equity_holdings": {"priceToEarnings": 15.0, "priceToBook": 2.0},
-        "bond_holdings": {"duration": 5.5, "maturity": 7.0, "creditQuality": 3.0},
+        # Real yfinance funds_data depth keys are display labels, not camelCase.
+        "equity_holdings": {"Price/Earnings": 15.0, "Price/Book": 2.0},
+        "bond_holdings": {"Duration": 5.5, "Maturity": 7.0, "Credit Quality": 3.0},
         "fund_operations": {
-            "annualReportExpenseRatio": 0.001,
-            "annualHoldingsTurnover": 0.2,
-            "totalNetAssets": 1.0e9,
+            "Annual Report Expense Ratio": 0.001,
+            "Annual Holdings Turnover": 0.2,
+            "Total Net Assets": 1.0e9,
         },
         "bond_ratings": {"aaa": 0.5, "bbb": 0.2},
         "fund_overview": {"categoryName": "Ultrashort Bond", "legalType": "ETF"},

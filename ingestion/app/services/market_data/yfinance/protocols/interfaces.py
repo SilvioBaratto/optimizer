@@ -170,10 +170,6 @@ class AnalysisClientProtocol(Protocol):
         self, symbol: str, max_retries: int | None = None
     ) -> pd.DataFrame | None: ...
 
-    def fetch_sustainability(
-        self, symbol: str, max_retries: int | None = None
-    ) -> pd.DataFrame | None: ...
-
     def fetch_eps_trend(
         self, symbol: str, max_retries: int | None = None
     ) -> pd.DataFrame | None: ...
@@ -223,10 +219,6 @@ class CorporateActionsClientProtocol(Protocol):
     def fetch_actions(
         self, symbol: str, max_retries: int | None = None
     ) -> pd.DataFrame | None: ...
-
-    def fetch_capital_gains(
-        self, symbol: str, max_retries: int | None = None
-    ) -> pd.Series | None: ...
 
     def fetch_shares_full(
         self,

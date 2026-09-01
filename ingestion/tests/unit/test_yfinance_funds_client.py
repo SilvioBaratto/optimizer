@@ -33,17 +33,19 @@ def _funds_data() -> MagicMock:
         {"Name": ["US Treasury", "Bund"], "Holding Percent": [0.05, 0.03]},
         index=pd.Index(["UST", "BUND"], name="Symbol"),
     )
+    # funds_data depth DataFrames are indexed by yfinance's human display labels
+    # (Title Case, spaces, slashes) — not camelCase field names.
     fd.equity_holdings = pd.DataFrame(
         {"JAGA.DE": [15.0, 2.0]},
-        index=["priceToEarnings", "priceToBook"],
+        index=["Price/Earnings", "Price/Book"],
     )
     fd.bond_holdings = pd.DataFrame(
         {"JAGA.DE": [5.5, 7.0]},
-        index=["duration", "maturity"],
+        index=["Duration", "Maturity"],
     )
     fd.fund_operations = pd.DataFrame(
         {"JAGA.DE": [0.001, 0.2]},
-        index=["annualReportExpenseRatio", "annualHoldingsTurnover"],
+        index=["Annual Report Expense Ratio", "Annual Holdings Turnover"],
     )
     fd.bond_ratings = {"aaa": 0.5, "bbb": 0.2}
     fd.fund_overview = {
@@ -79,9 +81,9 @@ class TestFetchFundsData:
             out = client.fetch_funds_data("JAGA.DE")
 
         assert out is not None
-        assert out["equity_holdings"]["priceToEarnings"] == 15.0
-        assert out["bond_holdings"]["duration"] == 5.5
-        assert out["fund_operations"]["annualReportExpenseRatio"] == 0.001
+        assert out["equity_holdings"]["Price/Earnings"] == 15.0
+        assert out["bond_holdings"]["Duration"] == 5.5
+        assert out["fund_operations"]["Annual Report Expense Ratio"] == 0.001
         assert out["bond_ratings"]["aaa"] == 0.5
         assert out["fund_overview"]["categoryName"] == "Ultrashort Bond"
         assert out["description"] == "A short-duration bond ETF."

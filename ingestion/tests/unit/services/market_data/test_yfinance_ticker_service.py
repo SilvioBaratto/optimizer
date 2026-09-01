@@ -151,27 +151,6 @@ class TestFetchActions:
         assert client.fetch_actions("AAPL", max_retries=1) is None
 
 
-class TestFetchCapitalGains:
-    def test_when_series_non_empty_then_returns_series(self) -> None:
-        client, _ = _corp_client(capital_gains=_SERIES)
-        result = client.fetch_capital_gains("AAPL", max_retries=1)
-        assert result is not None and result.equals(_SERIES)
-
-    def test_when_series_empty_then_returns_none(self) -> None:
-        client, _ = _corp_client(capital_gains=_EMPTY_SERIES)
-        assert client.fetch_capital_gains("AAPL", max_retries=1) is None
-
-    def test_when_attribute_raises_then_returns_none(self) -> None:
-        cache, rl, cb, ticker = _make_infra()
-        type(ticker).capital_gains = property(
-            lambda self: (_ for _ in ()).throw(RuntimeError("err"))
-        )
-        client = CorporateActionsClient(
-            cache=cache, rate_limiter=rl, circuit_breaker=cb
-        )
-        assert client.fetch_capital_gains("AAPL", max_retries=1) is None
-
-
 class TestFetchSharesFull:
     def test_when_dataframe_non_empty_then_returns_dataframe(self) -> None:
         fake_ticker = MagicMock(name="yf.Ticker")

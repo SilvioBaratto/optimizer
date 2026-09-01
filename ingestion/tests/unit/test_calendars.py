@@ -40,18 +40,58 @@ def _page(n: int, start: int = 0) -> pd.DataFrame:
 class TestCalendarsClient:
     def test_fetch_earnings_paginates_and_disables_most_active(self) -> None:
         cal = MagicMock()
-        # full 100-row page, then a short page -> stop after two calls.
-        cal.get_earnings_calendar.side_effect = [_page(100, 0), _page(3, 100)]
+        # Forward pass: full page then a short page -> 2 calls, offsets 0/100.
+        # Backward pass: one short page -> 1 call. Merged forward-first.
+        cal.get_earnings_calendar.side_effect = [
+            _page(100, 0),
+            _page(3, 100),
+            _page(2, 200),
+        ]
         with patch(_CAL, return_value=cal):
             out = _client().fetch_earnings()
 
-        assert out is not None and len(out) == 103
-        assert cal.get_earnings_calendar.call_count == 2
-        k0 = cal.get_earnings_calendar.call_args_list[0].kwargs
-        assert k0["offset"] == 0
-        assert k0["limit"] == 100
-        assert k0["filter_most_active"] is False
-        assert cal.get_earnings_calendar.call_args_list[1].kwargs["offset"] == 100
+        assert out is not None
+        assert len(out) == 105  # 103 forward + 2 backward
+        assert cal.get_earnings_calendar.call_count == 3
+        calls = cal.get_earnings_calendar.call_args_list
+        # forward pass paginates 0 -> 100
+        assert calls[0].kwargs["offset"] == 0
+        assert calls[0].kwargs["limit"] == 100
+        assert calls[1].kwargs["offset"] == 100
+        # backward pass restarts pagination at offset 0
+        assert calls[2].kwargs["offset"] == 0
+        # most-active filter disabled on every pass
+        assert all(c.kwargs["filter_most_active"] is False for c in calls)
+
+    def test_fetch_earnings_fetches_forward_and_backward_windows(self) -> None:
+        cal = MagicMock()
+        # one short page per pass -> forward pass, then backward pass.
+        cal.get_earnings_calendar.side_effect = [_page(1, 0), _page(1, 50)]
+        with patch(_CAL, return_value=cal):
+            _client().fetch_earnings()
+
+        today = dt.datetime.now(dt.timezone.utc).date()
+        fwd, past = cal.get_earnings_calendar.call_args_list
+        # forward: starts today, ends in the future (upcoming estimates)
+        assert fwd.kwargs["start"] == today
+        assert fwd.kwargs["end"] > today
+        # backward: starts before today, ends today (realized EPS + surprise)
+        assert past.kwargs["start"] < today
+        assert past.kwargs["end"] == today
+
+    def test_fetch_economic_events_fetches_forward_and_backward(self) -> None:
+        cal = MagicMock()
+        # one short page per pass -> forward then backward window.
+        cal.get_economic_events_calendar.side_effect = [_page(2, 0), _page(3, 50)]
+        with patch(_CAL, return_value=cal):
+            out = _client().fetch_economic_events()
+
+        assert out is not None
+        assert len(out) == 5  # 2 forward + 3 backward
+        today = dt.datetime.now(dt.timezone.utc).date()
+        fwd, past = cal.get_economic_events_calendar.call_args_list
+        assert fwd.kwargs["start"] == today and fwd.kwargs["end"] > today
+        assert past.kwargs["start"] < today and past.kwargs["end"] == today
 
     def test_short_first_page_stops_immediately(self) -> None:
         cal = MagicMock()
@@ -125,16 +165,15 @@ class TestRepository:
 
     def test_ipo_real_labels(self, db_session) -> None:
         repo = CalendarsRepository(db_session)
+        # yfinance's real IPO labels: "Company" / "Currency" (not "* Name").
         n = repo.upsert_ipos(
             [
                 {
                     "Symbol": "NEWCO",
-                    "Company Name": "New Co",
+                    "Company": "New Co",
                     "Exchange": "NMS",
                     "Date": "2026-07-01",
-                    "Price From": "18.00",
-                    "Currency Name": "USD",
-                    "Shares": 1_000_000,
+                    "Currency": "USD",
                 }
             ]
         )
@@ -146,18 +185,21 @@ class TestRepository:
         got = db_session.query(IpoCalendar).one()
         assert got.ipo_date == dt.date(2026, 7, 1)
         assert got.company_name == "New Co"
+        assert got.exchange == "NMS"
         assert got.currency == "USD"
-        assert got.price_range == "18.00"
 
     def test_splits_real_labels(self, db_session) -> None:
         repo = CalendarsRepository(db_session)
+        # Real labels: "Company"; ratio derived from Old Share Worth : Share Worth.
         n = repo.upsert_splits(
             [
                 {
                     "Symbol": "SPLIT",
-                    "Company Name": "Split Co",
+                    "Company": "Split Co",
                     "Payable On": "2026-08-15",
                     "Optionable": True,
+                    "Old Share Worth": 5,
+                    "Share Worth": 1,
                 }
             ]
         )
@@ -169,7 +211,7 @@ class TestRepository:
         got = db_session.query(SplitCalendar).one()
         assert got.split_date == dt.date(2026, 8, 15)
         assert got.company_name == "Split Co"
-        assert got.ratio is None  # Optionable is not a ratio
+        assert got.ratio == "5:1"
 
 
 def _fake_dbm() -> MagicMock:

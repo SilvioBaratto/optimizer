@@ -317,6 +317,10 @@ class YFinanceDataService:
                     start=start_date.isoformat(),
                     end=date.today().isoformat(),
                     min_rows=0,
+                    # actions=True adds Dividends / Stock Splits columns the
+                    # price-history upsert persists (Capital Gains no longer
+                    # emitted by Yahoo → stays NULL).
+                    actions=True,
                     timeout=self._request_timeout,
                 )
             else:
@@ -326,6 +330,10 @@ class YFinanceDataService:
                     yfinance_ticker,
                     period=period,
                     min_rows=1,
+                    # actions=True adds Dividends / Stock Splits columns the
+                    # price-history upsert persists (Capital Gains no longer
+                    # emitted by Yahoo → stays NULL).
+                    actions=True,
                     timeout=self._request_timeout,
                 )
 
@@ -703,25 +711,6 @@ class YFinanceDataService:
                 errors.append(f"analyst_actions: {e}")
                 logger.warning("Failed analyst_actions for %s: %s", yfinance_ticker, e)
 
-        # 3j. ESG / sustainability (rarely changes; fundamentals window).
-        if estimates_fresh:
-            skipped.append("esg_scores")
-        else:
-            try:
-                esg_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_sustainability(
-                        yfinance_ticker
-                    )
-                )
-                counts["esg_scores"] = (
-                    self.repo.upsert_esg_scores(instrument_id, esg_df)
-                    if esg_df is not None and not esg_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"esg_scores: {e}")
-                logger.warning("Failed esg_scores for %s: %s", yfinance_ticker, e)
-
         # 3k. SEC filings (list of dicts; fundamentals window).
         if estimates_fresh:
             skipped.append("sec_filings")
@@ -785,31 +774,6 @@ class YFinanceDataService:
             except Exception as e:
                 errors.append(f"dividends: {e}")
                 logger.warning("Failed dividends for %s: %s", yfinance_ticker, e)
-
-        # 4b. Capital gains (fund distributions; shares the dividends window).
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _is_fresh(
-                staleness.get("dividends_updated_at"), thresholds.dividends_hours, now
-            )
-        ):
-            skipped.append("capital_gains")
-        else:
-            try:
-                cap_gains = self._timed(
-                    lambda: self.yf_client.corporate_actions.fetch_capital_gains(
-                        yfinance_ticker
-                    )
-                )
-                counts["capital_gains"] = (
-                    self.repo.upsert_capital_gains(instrument_id, cap_gains)
-                    if cap_gains is not None and not cap_gains.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"capital_gains: {e}")
-                logger.warning("Failed capital_gains for %s: %s", yfinance_ticker, e)
 
         # 5. Stock splits
         if (
@@ -1200,6 +1164,28 @@ class YFinanceDataService:
 # ---------------------------------------------------------------------------
 
 
+def _backfill_instrument_isin_from_profiles() -> None:
+    """Propagate ISIN from ``ticker_profiles`` onto ``instruments`` after a sweep.
+
+    The Screener universe build stores no ISIN; the per-instrument profile fetch
+    does (``ticker_profiles.isin``). Copy it onto the canonical ``instruments.isin``
+    for rows still missing one. Idempotent and cheap (a single UPDATE); best-effort
+    so an enrichment failure never sinks the fetch result.
+    """
+    from portopt_db.repositories.universe.universe_repository import UniverseRepository
+
+    from app.database import database_manager
+
+    try:
+        with database_manager.get_session() as session:
+            filled = UniverseRepository(session).backfill_isin_from_profiles()
+            session.commit()
+        if filled:
+            logger.info("Backfilled ISIN onto %d instruments from profiles", filled)
+    except Exception:
+        logger.exception("ISIN backfill from ticker_profiles failed (non-fatal)")
+
+
 def run_bulk_yfinance_fetch(
     request: Any,
     yf_client: YFinanceClient,
@@ -1221,9 +1207,11 @@ def run_bulk_yfinance_fetch(
         and ``skipped_category_count``.
     """
     if request.workers > 1:
-        return _run_bulk_yfinance_fetch_parallel(
+        result_dict = _run_bulk_yfinance_fetch_parallel(
             request, yf_client, on_progress=on_progress, workers=request.workers
         )
+        _backfill_instrument_isin_from_profiles()
+        return result_dict
 
     from app.database import database_manager
 
@@ -1303,6 +1291,7 @@ def run_bulk_yfinance_fetch(
         )
         logger.info("Bulk yfinance fetch completed: %d tickers", total)
 
+    _backfill_instrument_isin_from_profiles()
     return result_dict
 
 

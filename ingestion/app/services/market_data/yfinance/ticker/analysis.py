@@ -1,4 +1,4 @@
-"""Sub-client for analyst recommendations, estimates, and sustainability."""
+"""Sub-client for analyst recommendations and estimates."""
 
 from __future__ import annotations
 
@@ -136,22 +136,6 @@ class AnalysisClient(BaseClient):
 
         def _action() -> pd.DataFrame | None:
             return self._get_ticker(symbol).growth_estimates
-
-        return self._fetch_with_resilience(
-            _action,
-            max_retries,
-            is_valid=lambda df: df is not None and not df.empty,
-        )
-
-    def fetch_sustainability(
-        self,
-        symbol: str,
-        max_retries: int | None = None,
-    ) -> pd.DataFrame | None:
-        logger.debug("Fetching sustainability for '%s'", symbol)
-
-        def _action() -> pd.DataFrame | None:
-            return self._get_ticker(symbol).sustainability
 
         return self._fetch_with_resilience(
             _action,

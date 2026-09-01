@@ -63,22 +63,6 @@ class CorporateActionsClient(BaseClient):
             is_valid=lambda df: df is not None and not df.empty,
         )
 
-    def fetch_capital_gains(
-        self,
-        symbol: str,
-        max_retries: int | None = None,
-    ) -> pd.Series | None:
-        logger.debug("Fetching capital gains for '%s'", symbol)
-
-        def _action() -> pd.Series | None:
-            return self._get_ticker(symbol).capital_gains
-
-        return self._fetch_with_resilience(
-            _action,
-            max_retries,
-            is_valid=lambda s: s is not None and not s.empty,
-        )
-
     def fetch_shares_full(
         self,
         symbol: str,
