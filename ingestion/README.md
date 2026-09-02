@@ -33,9 +33,9 @@ uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
 |-----|---------|--------------|
 | `daily_pipeline` | `0 7 * * *` | ref-indices → yfinance → macro → news → summarize → calibrate |
 | `midday_news` | `0 14 * * *` | news + summarize (afternoon refresh) |
-| `universe_build` | `0 2 * * 0` | Trading 212 instrument universe |
-| `weekly_refetch` | `0 3 * * 0` | full yfinance + macro rebuild (5y) |
-| `weekly_market_wide` | `0 4 * * 0` | sector/industry structure, calendars, market summaries, full option chains |
+| `universe_build` | `0 2 * * sat` | Trading 212 instrument universe (Saturday) |
+| `weekly_refetch` | `0 3 * * sat` | full yfinance + macro rebuild (5y), Saturday after Friday close |
+| `weekly_market_wide` | `0 4 * * sat` | sector/industry structure, calendars, market summaries, full option chains |
 | `fred_monthly` | `0 8 1 * *` | FRED economic series |
 | `news_refresh` | every 30 min | incremental re-summarization |
 | `orphan_reaper` | every 300s | fails (or reclaims) jobs whose heartbeat lease expired |

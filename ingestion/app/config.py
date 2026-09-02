@@ -95,30 +95,38 @@ class Settings(BaseSettings):
         alias="SCHEDULER_MIDDAY_NEWS_CRON",
     )
     scheduler_universe_build_cron: str = Field(
-        default="0 2 * * 0",
+        default="0 2 * * sat",
         alias="SCHEDULER_UNIVERSE_BUILD_CRON",
         description=(
-            "Trading 212 universe rebuild. Must precede "
-            "SCHEDULER_WEEKLY_REFETCH_CRON so the yfinance rebuild fetches the "
-            "fresh instrument set."
+            "Trading 212 universe rebuild. Saturday 02:00 UTC by default. Must "
+            "precede SCHEDULER_WEEKLY_REFETCH_CRON so the yfinance rebuild "
+            "fetches the fresh instrument set."
         ),
     )
     scheduler_weekly_refetch_cron: str = Field(
-        default="0 3 * * 0",
+        default="0 3 * * sat",
         alias="SCHEDULER_WEEKLY_REFETCH_CRON",
+        description=(
+            "Weekly full 5y yfinance + macro rebuild. Saturday 03:00 UTC by "
+            "default so it runs after Friday's market close (captures the full "
+            "week) and off the weekday incremental path. Runs after "
+            "SCHEDULER_UNIVERSE_BUILD_CRON, before SCHEDULER_MARKET_WIDE_CRON. "
+            "Weekday name (sat) is used deliberately: APScheduler from_crontab "
+            "numbers days 0=Mon..6=Sun, not the standard crontab 0=Sun."
+        ),
     )
     scheduler_fred_monthly_cron: str = Field(
         default="0 8 1 * *",
         alias="SCHEDULER_FRED_MONTHLY_CRON",
     )
     scheduler_market_wide_cron: str = Field(
-        default="0 4 * * 0",
+        default="0 4 * * sat",
         alias="SCHEDULER_MARKET_WIDE_CRON",
         description=(
             "Weekly market-wide sweep (sector/industry structure, calendars, "
-            "market summaries, full option chains). Scheduled after "
-            "SCHEDULER_WEEKLY_REFETCH_CRON so option chains see the fresh "
-            "universe."
+            "market summaries, full option chains). Saturday 04:00 UTC by "
+            "default, after SCHEDULER_WEEKLY_REFETCH_CRON so option chains see "
+            "the fresh universe."
         ),
     )
     scheduler_news_refresh_interval_minutes: int = Field(
