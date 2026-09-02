@@ -247,3 +247,39 @@ def test_dedup_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
         src, "_build_queries", lambda: [("Q", "STOCK", _STOCK_SORT_FIELD, _BIG_CAP)]
     )
     assert {i["ticker"] for i in src.get_instruments()} == {"NVDA", "NVD.DE"}
+
+
+def test_certificate_without_fundamentals_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A structured product: no financialCurrency / marketCap / shares / netAssets.
+    cert = {
+        "symbol": "AT0000A3.VI",
+        "exchange": "VIE",
+        "longName": "RBI Expr.Z./Nvidia 25-30",
+        "currency": "EUR",
+        "regularMarketPrice": 100.0,
+        "averageDailyVolume3Month": 500,
+    }
+    real = _quote("OMV", "VIE", longName="OMV AG", currency="EUR", financialCurrency="EUR")
+    src, _ = _source([{"quotes": [cert, real]}, {"quotes": []}], monkeypatch)
+    assert {i["ticker"] for i in src.get_instruments()} == {"OMV"}
+
+
+def test_etf_with_net_assets_kept(monkeypatch: pytest.MonkeyPatch) -> None:
+    # ETFs carry netAssets (no marketCap/shares) -> must clear the existence gate.
+    etf = {
+        "symbol": "SPY",
+        "exchange": "NMS",
+        "longName": "SPDR S&P 500 ETF Trust",
+        "currency": "USD",
+        "regularMarketPrice": 760.0,
+        "averageDailyVolume3Month": 50_000_000,
+        "netAssets": 795_000_000_000,
+    }
+    src, _ = _source(
+        [{"quotes": [etf]}, {"quotes": []}],
+        monkeypatch,
+        queries=[("Q", "ETF", _ETF_SORT_FIELD, _BIG_CAP)],
+    )
+    assert [i["ticker"] for i in src.get_instruments()] == ["SPY"]

@@ -179,6 +179,7 @@ def _quote_to_listing(quote: dict[str, Any]) -> Listing:
         ),
         market_cap=quote.get("marketCap"),
         shares_outstanding=quote.get("sharesOutstanding"),
+        net_assets=quote.get("netAssets"),
     )
 
 

@@ -32,9 +32,10 @@ def _mk(
     price,
     vol,
     *,
-    fin_ccy="USD",
+    fin_ccy: str | None = "USD",
     shares: float | None = 1e9,
     mcap: float | None = None,
+    net_assets: float | None = None,
 ):
     return Listing(
         symbol=symbol,
@@ -47,6 +48,7 @@ def _mk(
         avg_volume=vol,
         market_cap=mcap,
         shares_outstanding=shares,
+        net_assets=net_assets,
     )
 
 
@@ -149,6 +151,26 @@ class TestDeriveMetrics:
         m = derive_metrics(lst, _FX)
         assert m.mcap_usd == pytest.approx(3e8 * 25.0 * 1.25)
 
+    def test_etf_size_from_net_assets(self) -> None:
+        # ETFs carry netAssets, not marketCap/shares -> mcap_usd from net_assets.
+        lst = _mk(
+            "SPY", "PCX", "SPDR S&P 500 ETF Trust", "USD", 760.0, 50e6,
+            fin_ccy=None, shares=None, net_assets=795e9,
+        )
+        m = derive_metrics(lst, _FX)
+        assert m.mcap_usd == pytest.approx(795e9)
+        assert m.has_fundamentals is True
+
+    def test_certificate_has_no_fundamentals(self) -> None:
+        # No financialCurrency, no marketCap, no shares, no netAssets -> not a security.
+        lst = _mk(
+            "AT0000A3.VI", "VIE", "RBI Expr.Z./Nvidia 25-30", "EUR", 100.0, 500,
+            fin_ccy=None, shares=None,
+        )
+        m = derive_metrics(lst, _FX)
+        assert m.mcap_usd is None
+        assert m.has_fundamentals is False
+
 
 # --------------------------------------------------------------------------- #
 # dedup_canonical
@@ -245,6 +267,14 @@ class TestPassesFloor:
 
     def test_unpriced_rejected(self) -> None:
         assert passes_floor(self._m(30e6, 60_000, price=None), self._CFG) is False
+
+    def test_no_fundamentals_rejected(self) -> None:
+        # Existence gate: certificate/structured product with no size signal.
+        m = Metrics(
+            major_ccy="EUR", price_major=100.0, mcap_usd=None,
+            addv_usd=None, has_fundamentals=False,
+        )
+        assert passes_floor(m, self._CFG) is False
 
 
 # --------------------------------------------------------------------------- #

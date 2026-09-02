@@ -126,6 +126,7 @@ class Listing:
     avg_volume: float | None  # averageDailyVolume3Month, SHARES (a count)
     market_cap: float | None  # LOCAL major-unit currency
     shares_outstanding: float | None
+    net_assets: float | None = None  # ETF fund net assets, LOCAL major-unit ccy
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,7 @@ class Metrics:
     price_major: float | None
     mcap_usd: float | None
     addv_usd: float | None
+    has_fundamentals: bool = True
 
 
 def _positive(value: float | None) -> float | None:
@@ -193,9 +195,28 @@ def derive_metrics(listing: Listing, usd_per_major: dict[str, float]) -> Metrics
             reported = _positive(listing.market_cap)
             if reported is not None:
                 mcap_usd = reported * usd  # fallback: reported is already major-unit
+        if mcap_usd is None:
+            net_assets = _positive(listing.net_assets)
+            if net_assets is not None:
+                mcap_usd = net_assets * usd  # ETF: size proxy = fund net assets
+
+    # Existence gate: a real security has a reporting currency (files financials)
+    # or a computable size (marketCap / shares×price / netAssets). A certificate,
+    # structured product or bond has NONE of these — verified: the screener carries
+    # no financialCurrency / marketCap / netAssets / sharesOutstanding for them. This
+    # is what distinguishes them from equities, by nature — not a name pattern.
+    has_fundamentals = (
+        listing.financial_currency is not None
+        or mcap_usd is not None
+        or _positive(listing.net_assets) is not None
+    )
 
     return Metrics(
-        major_ccy=major, price_major=price_major, mcap_usd=mcap_usd, addv_usd=addv_usd
+        major_ccy=major,
+        price_major=price_major,
+        mcap_usd=mcap_usd,
+        addv_usd=addv_usd,
+        has_fundamentals=has_fundamentals,
     )
 
 
@@ -282,6 +303,8 @@ def passes_floor(
     so a name doesn't churn out on a noisy month.
     """
     if metrics.price_major is None:  # unpriced / non-existent line
+        return False
+    if not metrics.has_fundamentals:  # certificate / structured product / bond
         return False
     mcap_below = (
         metrics.mcap_usd is not None
