@@ -1,143 +1,113 @@
-# Live Data Inventory
+# Data Inventory — Live Volumes
 
-Counted directly against the running database on **2026-07-11** (migration head `d1e2f3a4b5c6`).
-These are exact `count(*)` values, not planner estimates — re-run the queries at the bottom to
-refresh.
+Snapshot of the optimizer PostgreSQL database (`postgresql://postgres:postgres@localhost:54320/optimizer_db`).
+57 base tables (55 documented below + `alembic_version`, `apscheduler_jobs` infra). Row counts
+are live-at-snapshot; treat as orders of magnitude, not exact current values.
 
----
+## 1. Table Volumes (rows, descending)
 
-## Universe Coverage
+| Table | Rows |
+|-------|-----:|
+| financial_statements | 11,253,341 |
+| price_history | 9,786,726 |
+| shares_outstanding | 789,921 |
+| analyst_actions | 419,930 |
+| sec_filings | 389,385 |
+| dividends | 372,607 |
+| insider_transactions | 256,439 |
+| earnings_dates | 106,647 |
+| ticker_news | 61,898 |
+| institutional_holders | 58,417 |
+| mutual_fund_holders | 52,398 |
+| insider_roster | 44,559 |
+| growth_estimates | 40,203 |
+| revenue_estimate | 30,408 |
+| earnings_estimate | 23,656 |
+| earnings_history | 17,956 |
+| analyst_recommendations | 17,100 |
+| instruments | 8,898 |
+| ticker_profiles | 8,895 |
+| ticker_profile_extras | 8,895 |
+| insider_purchases | 8,024 |
+| analyst_price_targets | 7,949 |
+| stock_splits | 7,794 |
+| major_holders | 7,734 |
+| etf_bond_ratings | 6,549 |
+| earnings_calendar | 3,996 |
+| etf_sector_weights | 2,200 |
+| economic_event_calendar | 1,496 |
+| etf_asset_classes | 839 |
+| etf_equity_holdings | 839 |
+| etf_fund_operations | 839 |
+| etf_metadata | 839 |
+| etf_bond_holdings | 774 |
+| etf_holdings | 770 |
+| split_calendar | 477 |
+| trading_economics_indicators | 138 |
+| trading_economics_observations | 138 |
+| macro_news_themes | 66 |
+| macro_news | 36 |
+| bond_yields | 16 |
+| bond_yield_observations | 16 |
+| exchanges | 14 |
+| background_job_errors | 12 |
+| ipo_calendar | 11 |
+| background_jobs | 6 |
+| economic_indicator_observations | 4 |
+| economic_indicators | 4 |
+| macro_news_summaries | 4 |
+| fred_observations | 0 |
+| macro_calibrations | 0 |
+| market_summaries | 0 |
+| options_chain | 0 |
+| sector_industries | 0 |
+| sector_snapshots | 0 |
+| sector_top_companies | 0 |
 
-### Exchanges (6) and their instruments — 2,914 total
-| Exchange | t212_id | Instruments |
-|----------|---------|------------:|
-| NYSE | 43 | 1,322 |
-| NASDAQ | 53 | 1,139 |
-| London Stock Exchange | 42 | 314 |
-| Deutsche Börse Xetra | 41 | 69 |
-| Euronext Paris | 58 | 65 |
-| `SMOKE` | — | 5 |
+## 2. Empty Tables and Their Populating Scheduler Step
 
-**`SMOKE` is not a real exchange.** `SM1`–`SM5` are fixture rows left behind by
-the deleted smoke-test suite; the seed fixture that created them has since
-been deleted along with the suite. Exclude them from any universe query, and
-do not treat them as tradable instruments.
+All seven empty tables are populated by low-frequency (monthly / weekly / market-wide)
+steps, not the daily per-ticker loop — so empty is a schedule state, not a failure.
 
-### Countries tracked (4)
-USA, France, Germany, UK — for Trading Economics, Il Sole 24 Ore, bond yields, macro news,
-summaries, and calibrations alike.
+| Table | Populating step | Job / trigger |
+|-------|-----------------|---------------|
+| fred_observations | `run_fred_step` (CLI `fred`) | `fred_monthly` (0 8 1 * *); **also requires `FRED_API_KEY`** — absent key = no-op |
+| macro_calibrations | `run_calibrate_step` (CLI `calibrate`) | tail of `daily_pipeline`; writes only when macro indicator rows exist and BAML LLM is invoked |
+| market_summaries | `run_market_summary_step` | `weekly_market_wide` (Sat); iterates the 8 `MARKET_IDENTIFIERS` |
+| options_chain | `run_options_step` | `weekly_market_wide` (Sat, after weekly refetch); own ~weekly staleness gate |
+| sector_industries | `run_market_structure_step` | `weekly_market_wide` (Sat 04:00, `market_structure_fetch`) |
+| sector_snapshots | `run_market_structure_step` | `weekly_market_wide` (Sat 04:00, `market_structure_fetch`) |
+| sector_top_companies | `run_market_structure_step` | `weekly_market_wide` (Sat 04:00, `market_structure_fetch`) |
 
-### Sectors (11 GICS, yfinance naming)
-| Sector | Instruments |
-|--------|------------:|
-| Financial Services | 460 |
-| Technology | 420 |
-| Healthcare | 418 |
-| Industrials | 396 |
-| Consumer Cyclical | 340 |
-| Basic Materials | 182 |
-| Energy | 165 |
-| Real Estate | 162 |
-| Communication Services | 135 |
-| Consumer Defensive | 128 |
-| Utilities | 84 |
+## 3. Notable Specifics
 
-4 profiles carry an **empty-string** sector (not NULL) — guard with `sector <> ''`, not just
-`IS NOT NULL`. yfinance names deviate from the GICS standard: "Financial Services" not
-"Financials", "Consumer Cyclical" not "Consumer Discretionary".
+- **`financial_statements` — the EAV giant (~11.3M rows).** Long/EAV layout: yfinance
+  statement DataFrames (columns = period dates, index = line-item names) melted to one row
+  per cell. Overloaded `statement_type` also carries `valuation_measures`, `eps_trend`,
+  `eps_revisions`, `earnings` — filter on `statement_type` + `period_type`, not type alone.
+  `line_item` labels are raw yfinance strings, not a controlled vocabulary. `value` is
+  `Numeric(38,6)` (Decimal on read).
 
----
+- **`price_history` — ~9.8M daily OHLCV bars.** One row per (instrument, date), plus sparse
+  corporate-action columns (dividends / stock_splits / capital_gains). `price_unit` records
+  listing currency as-is (e.g. `GBX` = pence) — never normalized; FX/scale is the reader's
+  job. yfinance repair path (sklearn DBSCAN) matters upstream: without it ~22% of tickers
+  return empty history and never land here.
 
-## Row Counts
+- **The 8-table ETF family** (written together in `_fetch_etf_metadata`, yfinance step):
+  `etf_metadata` (1:1 headline, 839), `etf_asset_classes` (839), `etf_equity_holdings`
+  (839), `etf_fund_operations` (839), `etf_bond_holdings` (774), `etf_holdings` (770),
+  `etf_bond_ratings` (6,549), `etf_sector_weights` (2,200). All composition tables are
+  point-in-time keyed on `(instrument_id, as_of, ...)`; only ETF instruments get rows.
 
-| Table | Rows | Growth |
-|-------|-----:|--------|
-| `financial_statements` | 5,177,043 | EAV — by far the largest table. Grows per instrument × statement × period × line item |
-| `price_history` | 3,722,754 | +1 row per instrument per trading day. Range: **2021-05-17 → 2026-07-10** |
-| `insider_transactions` | 179,763 | Bursty |
-| `fred_observations` | 150,952 | +1 per series per observation date (some series run daily back to the 1850s) |
-| `dividends` | 140,540 | Quarterly-ish per paying instrument |
-| `ticker_news` | 109,726 | Continuous |
-| `mutual_fund_holders` | 29,695 | Refreshed wholesale |
-| `institutional_holders` | 29,093 | Refreshed wholesale |
-| `analyst_recommendations` | 10,789 | ~4 periods per instrument |
-| `stock_splits` | 4,555 | Rare |
-| `instruments` | 2,914 | Weekly rebuild from Trading 212 |
-| `ticker_profiles` | 2,909 | 1:1 with instruments (the 5 missing are the SMOKE fixtures) |
-| `analyst_price_targets` | 2,897 | 1:1 with covered instruments |
-| `trading_economics_observations` | 2,208 | 138 indicators × 4 countries × history |
-| `macro_news_themes` | 995 | ~1.7 per article |
-| `macro_news` | 569 | Continuous |
-| `bond_yield_observations` | 256 | 16 series × history |
-| `trading_economics_indicators` | 138 | Latest value per (country, indicator) |
-| `macro_news_summaries` | 64 | **LLM output** — 1 per country per day |
-| `economic_indicator_observations` | 64 | Il Sole forecast history |
-| `bond_yields` | 16 | Latest per (country, maturity) |
-| `exchanges` | 6 | 5 real + SMOKE |
-| `macro_calibrations` | 5 | **LLM output** — 1 per country |
-| `economic_indicators` | 4 | Latest Il Sole snapshot per country |
-| `background_jobs` | ~7 | Rolling — one row per scheduled or manual step |
-| `background_job_errors` | 0 | Child of background_jobs |
+- **The 4 calendar tables** (market-wide, no instrument FK; `weekly_market_wide` sweep via
+  `run_calendars_step`): `earnings_calendar` (3,996), `economic_event_calendar` (1,496),
+  `split_calendar` (477), `ipo_calendar` (11). Distinct from the per-instrument
+  `earnings_dates` / `stock_splits` tables.
 
-`macro_news_summaries` and `macro_calibrations` are **generated by an LLM** (Ollama via BAML), not
-scraped. They are regenerated, never hand-corrected.
-
----
-
-## FRED Series (18)
-
-| Series | Rows | Coverage | What it is |
-|--------|-----:|----------|------------|
-| `USRECDM` | 62,668 | 1854-12 → 2026-06 | US recession indicator (daily) |
-| `DGS10` | 16,825 | 1962-01 → 2026-06 | 10-year Treasury constant maturity |
-| `T10Y2Y` | 13,066 | 1976-06 → 2026-06 | 10Y–2Y spread (inversion signal) |
-| `DGS2` | 13,065 | 1976-06 → 2026-06 | 2-year Treasury |
-| `DGS3MO` | 11,695 | 1981-09 → 2026-06 | 3-month Treasury |
-| `BAA10Y` | 10,563 | 1986-01 → 2026-06 | Baa corporate spread over 10Y |
-| `VIXCLS` | 9,520 | 1990-01 → 2026-06 | VIX close |
-| `DTWEXBGS` | 5,345 | 2006-01 → 2026-06 | Trade-weighted USD index |
-| `USREC` | 2,058 | 1854-12 → 2026-05 | NBER recession (monthly) |
-| `USALOLITOAASTSAM` | 857 | 1955-01 → 2026-05 | OECD leading indicator — USA |
-| `BAMLC0A0CM` | 827 | 2023-05 → 2026-06 | Investment-grade corporate OAS |
-| `BAMLH0A0HYM2` | 827 | 2023-05 → 2026-06 | High-yield OAS |
-| `GBRLOLITOAASTSAM` | 822 | 1957-12 → 2026-05 | OECD leading indicator — UK |
-| `DEULOLITOAASTSAM` | 785 | 1961-01 → 2026-05 | OECD leading indicator — Germany |
-| `FRALOLITOAASTSAM` | 769 | 1962-05 → 2026-05 | OECD leading indicator — France |
-| `RECPROUSM156N` | 711 | 1967-02 → 2026-04 | Smoothed US recession probability |
-| `A191RL1Q225SBEA` | 316 | 1947-04 → 2026-01 | Real GDP growth (quarterly) |
-| `JHGDPBRINDX` | 233 | 1967-10 → 2025-10 | GDP-based recession index |
-
-The `FRED_SERIES` dict in `ingestion/app/services/macro/scrapers/fred_scraper.py` is the source of
-truth for which series are fetched — not this table.
-
----
-
-## Trading Economics (138 indicators × 4 countries)
-
-Latest values in `trading_economics_indicators`; history in `trading_economics_observations`
-(2,208 rows). Indicator keys are lowercase snake_case (`manufacturing_pmi`, `unemployment_rate`,
-`gdp_growth_rate`, …). The subset actually fed to the regime-calibration LLM is
-`_KEY_TE_INDICATORS` in `ingestion/app/services/macro/macro_calibration.py`.
-
-Trading Economics and Il Sole 24 Ore are **scraped from HTML and take no API key**.
-
----
-
-## Refreshing this file
-
-```sql
--- Exact counts. pg_stat.n_live_tup is only an estimate and drifts badly after bulk upserts.
-SELECT 'price_history' AS t, count(*) FROM price_history
-UNION ALL SELECT 'instruments', count(*) FROM instruments;
-
--- Per-exchange instrument counts
-SELECT e.name, e.t212_id, count(i.id)
-FROM exchanges e LEFT JOIN instruments i ON i.exchange_id = e.id
-GROUP BY e.name, e.t212_id ORDER BY 3 DESC;
-
--- FRED coverage
-SELECT series_id, count(*), min(date), max(date)
-FROM fred_observations GROUP BY series_id ORDER BY 2 DESC;
-```
-
-Run with: `docker compose exec -T db psql -U postgres -d optimizer_db`
+- **Macro tables pending the fred / macro / calibrate steps.** `fred_observations` and
+  `macro_calibrations` are empty (see §2). The scraped macro set is thinly populated:
+  `trading_economics_indicators`/`_observations` (138 each), `bond_yields`/`_observations`
+  (16 each), `economic_indicators`/`_observations` and `macro_news_summaries` (4 each),
+  `macro_news` (36). These fill via `run_macro_step` (daily_pipeline / weekly_refetch),
+  `run_summarize_step`, and — for calibrations — `run_calibrate_step` invoking the BAML LLM.
