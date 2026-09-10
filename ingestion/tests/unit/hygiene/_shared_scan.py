@@ -20,7 +20,7 @@ import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
-_EXCLUDE_DIR_PARTS = {"__pycache__", "baml_client"}
+_EXCLUDE_DIR_PARTS = {"__pycache__"}
 
 
 def _iter_python_files(root: Path, *, exclude: Path | None = None) -> Iterator[Path]:

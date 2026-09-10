@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import threading
 from contextlib import ExitStack, contextmanager
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -127,46 +126,26 @@ def _make_step_side_effect(returns: dict[str, bool]):
 
 
 @pytest.mark.parametrize(
-    "yf_ok,news_ok,summarize_ok,expected,absent",
+    "yf_ok,expected,absent",
     [
         (
             True,
-            True,
-            True,
-            {"yfinance", "macro", "news", "summarize", "calibrate"},
+            {"yfinance", "macro", "news"},
             set(),
         ),
         (
             False,
-            False,
-            False,
             {"yfinance", "macro"},
-            {"news", "summarize", "calibrate"},
-        ),
-        (
-            True,
-            False,
-            False,
-            {"yfinance", "macro", "news"},
-            {"summarize", "calibrate"},
-        ),
-        (
-            True,
-            True,
-            False,
-            {"yfinance", "macro", "news", "summarize"},
-            {"calibrate"},
+            {"news"},
         ),
     ],
 )
 class TestRunDailyPipeline:
-    def test_step_gating(self, yf_ok, news_ok, summarize_ok, expected, absent):
+    def test_step_gating(self, yf_ok, expected, absent):
         returns = {
             "yfinance": yf_ok,
             "macro": True,
-            "news": news_ok,
-            "summarize": summarize_ok,
-            "calibrate": True,
+            "news": True,
         }
 
         with ExitStack() as stack:
@@ -187,12 +166,6 @@ class TestRunDailyPipeline:
             stack.enter_context(
                 patch(
                     "app.schemas.macro.macro_regime.MacroNewsFetchRequest",
-                    return_value=MagicMock(),
-                )
-            )
-            stack.enter_context(
-                patch(
-                    "app.schemas.macro.macro_regime.MacroNewsSummarizeRequest",
                     return_value=MagicMock(),
                 )
             )
@@ -235,12 +208,6 @@ class TestRunMiddayNewsRefresh:
                     return_value=MagicMock(),
                 )
             )
-            stack.enter_context(
-                patch(
-                    "app.schemas.macro.macro_regime.MacroNewsSummarizeRequest",
-                    return_value=MagicMock(),
-                )
-            )
             mock_step.side_effect = _make_step_side_effect(step_returns)
 
             from app.services.jobs.scheduler import run_midday_news_refresh
@@ -249,17 +216,10 @@ class TestRunMiddayNewsRefresh:
 
         return mock_step
 
-    def test_when_news_ok_then_summarize_called(self):
-        mock_step = self._run({"news": True, "summarize": True})
+    def test_runs_news_step(self):
+        mock_step = self._run({"news": True})
         labels = {c.args[0] for c in mock_step.call_args_list}
-        assert "news" in labels
-        assert "summarize" in labels
-
-    def test_when_news_fails_then_summarize_not_called(self):
-        mock_step = self._run({"news": False})
-        labels = {c.args[0] for c in mock_step.call_args_list}
-        assert "news" in labels
-        assert "summarize" not in labels
+        assert labels == {"news"}
 
 
 # ---------------------------------------------------------------------------
@@ -389,147 +349,6 @@ class TestRunOptionsStep:
         args = mock_step.call_args.args
         assert args[0] == "options"
         assert args[1] is _options_jobs
-
-
-# ---------------------------------------------------------------------------
-# TestRunNewsRefresh
-# ---------------------------------------------------------------------------
-
-
-class TestRunNewsRefresh:
-    def _patch_all(
-        self,
-        stack,
-        *,
-        morning_complete=True,
-        countries=None,
-        pruned=0,
-        db_side_effect=None,
-    ):
-        mock_dm = MagicMock()
-        mock_session = MagicMock()
-        mock_repo = MagicMock()
-        mock_repo.delete_old_news_summaries.return_value = pruned
-
-        if db_side_effect:
-            mock_dm.get_session.side_effect = db_side_effect
-        else:
-            mock_dm.get_session.return_value.__enter__ = MagicMock(
-                return_value=mock_session
-            )
-            mock_dm.get_session.return_value.__exit__ = MagicMock(return_value=False)
-
-        mock_repo_cls = MagicMock(return_value=mock_repo)
-
-        stack.enter_context(patch(f"{M}.database_manager", mock_dm))
-        stack.enter_context(
-            patch(
-                "portopt_db.repositories.macro.macro_regime_repository.MacroRegimeRepository",
-                mock_repo_cls,
-            )
-        )
-        mock_morning = stack.enter_context(
-            patch(
-                "app.services.macro.macro_news_summary._is_morning_pipeline_complete",
-                return_value=morning_complete,
-            )
-        )
-        mock_find = stack.enter_context(
-            patch(
-                "app.services.macro.macro_news_summary._find_countries_with_new_articles",
-                return_value=countries or [],
-            )
-        )
-        mock_summarize = stack.enter_context(
-            patch("app.services.macro.macro_news_summary._summarize_country_safe")
-        )
-        stack.enter_context(
-            patch(
-                f"{M}._get_last_refresh_time",
-                return_value=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            )
-        )
-        return mock_morning, mock_find, mock_summarize, mock_session, mock_repo
-
-    def test_when_morning_incomplete_then_early_return(self):
-        with ExitStack() as stack:
-            mock_morning, mock_find, mock_summarize, _, _ = self._patch_all(
-                stack, morning_complete=False
-            )
-
-            from app.services.jobs.scheduler import run_news_refresh
-
-            run_news_refresh()
-
-        mock_find.assert_not_called()
-
-    def test_when_no_new_articles_then_summarize_not_called_but_prune_runs(self):
-        with ExitStack() as stack:
-            _, mock_find, mock_summarize, mock_session, mock_repo = self._patch_all(
-                stack, morning_complete=True, countries=[]
-            )
-
-            from app.services.jobs.scheduler import run_news_refresh
-
-            run_news_refresh()
-
-        mock_summarize.assert_not_called()
-        mock_repo.delete_old_news_summaries.assert_called_once()
-        mock_session.commit.assert_called_once()
-
-    def test_when_countries_found_then_summarize_called_per_country_and_prune_runs(
-        self,
-    ):
-        with ExitStack() as stack:
-            _, _, mock_summarize, mock_session, mock_repo = self._patch_all(
-                stack, morning_complete=True, countries=["USA", "UK"], pruned=3
-            )
-
-            from app.services.jobs.scheduler import run_news_refresh
-
-            run_news_refresh()
-
-        assert mock_summarize.call_count == 2
-        mock_session.commit.assert_called_once()
-
-    def test_when_db_raises_then_exception_is_swallowed(self):
-        with ExitStack() as stack:
-            self._patch_all(stack, db_side_effect=Exception("boom"))
-
-            from app.services.jobs.scheduler import run_news_refresh
-
-            # Must not raise
-            run_news_refresh()
-
-
-# ---------------------------------------------------------------------------
-# TestGetLastRefreshTime
-# ---------------------------------------------------------------------------
-
-
-class TestGetLastRefreshTime:
-    def test_when_db_has_value_then_returns_that_datetime(self):
-        from app.services.jobs.scheduler import _get_last_refresh_time
-
-        expected = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        mock_session = MagicMock()
-        mock_session.execute.return_value.scalar_one_or_none.return_value = expected
-
-        result = _get_last_refresh_time(mock_session)
-
-        assert result == expected
-
-    def test_when_db_returns_none_then_returns_past_datetime(self):
-        from app.services.jobs.scheduler import _get_last_refresh_time
-
-        mock_session = MagicMock()
-        mock_session.execute.return_value.scalar_one_or_none.return_value = None
-
-        now = datetime.now(timezone.utc)
-        result = _get_last_refresh_time(mock_session)
-
-        assert isinstance(result, datetime)
-        assert result < now
 
 
 # ---------------------------------------------------------------------------

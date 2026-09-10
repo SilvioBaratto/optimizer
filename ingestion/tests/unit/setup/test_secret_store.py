@@ -20,7 +20,7 @@ def _store(tmp_path: Path) -> Path:
 
 def test_save_then_load_roundtrip(tmp_path: Path) -> None:
     path = _store(tmp_path)
-    secrets = {"OPENAI_API_KEY": "sk-abc123", "FRED_API_KEY": "fred-xyz"}
+    secrets = {"TRADING_212_API_KEY": "t212-abc123", "FRED_API_KEY": "fred-xyz"}
     secret_store.save_secrets(secrets, "correct horse battery staple", path=path)
     loaded = secret_store.load_secrets("correct horse battery staple", path=path)
     assert loaded == secrets
@@ -35,12 +35,10 @@ def test_wrong_passphrase_raises(tmp_path: Path) -> None:
 
 def test_ciphertext_contains_no_plaintext(tmp_path: Path) -> None:
     path = _store(tmp_path)
-    secret_store.save_secrets(
-        {"OPENAI_API_KEY": "sk-supersecretvalue"}, "pw", path=path
-    )
+    secret_store.save_secrets({"FRED_API_KEY": "supersecretvalue"}, "pw", path=path)
     raw = path.read_bytes()
-    assert b"sk-supersecretvalue" not in raw
-    assert b"OPENAI_API_KEY" not in raw
+    assert b"supersecretvalue" not in raw
+    assert b"FRED_API_KEY" not in raw
 
 
 def test_passphrase_not_persisted(tmp_path: Path) -> None:

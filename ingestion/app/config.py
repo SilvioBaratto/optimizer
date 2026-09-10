@@ -13,8 +13,6 @@ _SECRET_FILE_FIELDS = (
     "trading_212_api_key",
     "trading_212_secret_key",
     "fred_api_key",
-    "openai_api_key",
-    "anthropic_api_key",
 )
 
 
@@ -62,29 +60,6 @@ class Settings(BaseSettings):
     # FRED API
     fred_api_key: str = Field(default="", alias="FRED_API_KEY")
 
-    # LLM provider — cloud-only (openai or anthropic); local models are not
-    # supported. Keys/models flow into BAML at call time via a ClientRegistry.
-    llm_provider: str = Field(default="openai", alias="LLM_PROVIDER")
-    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
-    anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
-    anthropic_model: str = Field(
-        default="claude-3-5-sonnet-latest", alias="ANTHROPIC_MODEL"
-    )
-
-    @field_validator("llm_provider", mode="before")
-    @classmethod
-    def _normalize_llm_provider(cls, v: object) -> object:
-        """Accept case-insensitive 'openai'/'anthropic'; reject local/unknown."""
-        if isinstance(v, str):
-            normalized = v.strip().lower()
-            if normalized not in ("openai", "anthropic"):
-                raise ValueError(
-                    "LLM_PROVIDER must be 'openai' or 'anthropic' (cloud only)"
-                )
-            return normalized
-        return v
-
     # Scheduler — cron expressions (5-field: min hour dom month dow)
     scheduler_daily_pipeline_cron: str = Field(
         default="0 7 * * *",
@@ -128,10 +103,6 @@ class Settings(BaseSettings):
             "default, after SCHEDULER_WEEKLY_REFETCH_CRON so option chains see "
             "the fresh universe."
         ),
-    )
-    scheduler_news_refresh_interval_minutes: int = Field(
-        default=30,
-        alias="SCHEDULER_NEWS_REFRESH_INTERVAL_MIN",
     )
     scheduler_misfire_grace_time_seconds: int = Field(
         default=3600,

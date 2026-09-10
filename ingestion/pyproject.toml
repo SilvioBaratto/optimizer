@@ -18,8 +18,6 @@ dependencies = [
     # the workspace dep below). SQLAlchemy stays a direct dep — services type
     # against Session / use text(); psycopg2-binary + alembic are transitive.
     "SQLAlchemy==2.0.52",
-    # AI/ML — BAML drives the news-summary and macro-regime-calibration steps
-    "baml-py==0.226.1",
     # Financial Data
     "exchange_calendars==4.13.2",
     "yfinance==1.6.0",
@@ -139,8 +137,6 @@ module = [
     "reportlab.*",
     "apscheduler",
     "apscheduler.*",
-    "baml_client",
-    "baml_client.*",
     "sqlalchemy_utils",
     "sqlalchemy_utils.*",
 ]

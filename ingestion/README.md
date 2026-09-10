@@ -31,17 +31,16 @@ uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
 
 | Job | Default | What it does |
 |-----|---------|--------------|
-| `daily_pipeline` | `0 7 * * *` | ref-indices → yfinance → macro → news → summarize → calibrate |
-| `midday_news` | `0 14 * * *` | news + summarize (afternoon refresh) |
+| `daily_pipeline` | `0 7 * * *` | yfinance → macro → news |
+| `midday_news` | `0 14 * * *` | news (afternoon refresh) |
 | `universe_build` | `0 2 * * sat` | Trading 212 instrument universe (Saturday) |
 | `weekly_refetch` | `0 3 * * sat` | full yfinance + macro rebuild (5y), Saturday after Friday close |
 | `weekly_market_wide` | `0 4 * * sat` | sector/industry structure, calendars, market summaries, full option chains |
 | `fred_monthly` | `0 8 1 * *` | FRED economic series |
-| `news_refresh` | every 30 min | incremental re-summarization |
 | `orphan_reaper` | every 300s | fails (or reclaims) jobs whose heartbeat lease expired |
 
-News, summarize, and calibrate form a dependency chain — each consumes what the previous one
-wrote, so a failure upstream skips the rest rather than summarizing stale articles.
+`daily_pipeline` gates news on the yfinance step succeeding, so a failed fetch skips the
+news scrape rather than layering it over stale data.
 `universe_build` runs before `weekly_refetch` because every other step iterates the
 `instruments` table it writes. `weekly_market_wide` runs after `weekly_refetch` so the
 option-chain sweep sees the freshly rebuilt universe.
@@ -60,8 +59,6 @@ docker compose exec scheduler python -m app.cli universe
 docker compose exec scheduler python -m app.cli macro
 docker compose exec scheduler python -m app.cli fred
 docker compose exec scheduler python -m app.cli news
-docker compose exec scheduler python -m app.cli summarize
-docker compose exec scheduler python -m app.cli calibrate
 docker compose exec scheduler python -m app.cli reference-indices
 docker compose exec scheduler python -m app.cli market-structure
 docker compose exec scheduler python -m app.cli calendars
@@ -141,14 +138,13 @@ app/
   services/
     jobs/          APScheduler wiring + BackgroundJobService
     market_data/   yfinance client, bulk fetch, reference-index seeding
-    macro/         FRED / Il Sole / Trading Economics scrapers, LLM summary + calibration
+    macro/         FRED / Il Sole / Trading Economics scrapers, macro news scraping
     universe/      Trading 212 universe build
     infrastructure/ circuit breaker, rate limiter, retry, TTL cache
   repositories/
     jobs/          BackgroundJobRepository (behavior stays here); domain repos re-exported
                    from portopt_db.repositories
   schemas/         typed step arguments + progress payloads
-baml_src/          LLM functions (SummarizeCountryNews, ClassifyMacroRegime)
 
 # Models, domain repositories, engine, and Alembic live in the shared package:
 ../packages/portopt-db/src/portopt_db/   base, models/, repositories/, engine, config, coerce

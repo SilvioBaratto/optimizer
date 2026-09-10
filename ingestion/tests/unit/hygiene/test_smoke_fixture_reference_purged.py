@@ -49,7 +49,9 @@ def test_when_repository_is_scanned_then_no_file_references_the_deleted_fixture(
         path = _REPO_ROOT / rel
         try:
             text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
+        except (FileNotFoundError, UnicodeDecodeError):
+            # A path present in the git index but absent on disk (an
+            # unstaged deletion mid-refactor) cannot reference the fixture.
             continue
         if "smoke_prices" in text:
             offending.append(rel)

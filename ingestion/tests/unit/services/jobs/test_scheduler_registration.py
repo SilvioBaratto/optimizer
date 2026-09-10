@@ -29,7 +29,7 @@ _CRON_JOBS = {
     "fred_monthly",
     "weekly_market_wide",
 }
-_INTERVAL_JOBS = {"news_refresh", "orphan_reaper"}
+_INTERVAL_JOBS = {"orphan_reaper"}
 _ALL_JOBS = _CRON_JOBS | _INTERVAL_JOBS
 
 

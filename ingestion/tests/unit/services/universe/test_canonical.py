@@ -154,8 +154,15 @@ class TestDeriveMetrics:
     def test_etf_size_from_net_assets(self) -> None:
         # ETFs carry netAssets, not marketCap/shares -> mcap_usd from net_assets.
         lst = _mk(
-            "SPY", "PCX", "SPDR S&P 500 ETF Trust", "USD", 760.0, 50e6,
-            fin_ccy=None, shares=None, net_assets=795e9,
+            "SPY",
+            "PCX",
+            "SPDR S&P 500 ETF Trust",
+            "USD",
+            760.0,
+            50e6,
+            fin_ccy=None,
+            shares=None,
+            net_assets=795e9,
         )
         m = derive_metrics(lst, _FX)
         assert m.mcap_usd == pytest.approx(795e9)
@@ -164,8 +171,14 @@ class TestDeriveMetrics:
     def test_certificate_has_no_fundamentals(self) -> None:
         # No financialCurrency, no marketCap, no shares, no netAssets -> not a security.
         lst = _mk(
-            "AT0000A3.VI", "VIE", "RBI Expr.Z./Nvidia 25-30", "EUR", 100.0, 500,
-            fin_ccy=None, shares=None,
+            "AT0000A3.VI",
+            "VIE",
+            "RBI Expr.Z./Nvidia 25-30",
+            "EUR",
+            100.0,
+            500,
+            fin_ccy=None,
+            shares=None,
         )
         m = derive_metrics(lst, _FX)
         assert m.mcap_usd is None
@@ -271,8 +284,11 @@ class TestPassesFloor:
     def test_no_fundamentals_rejected(self) -> None:
         # Existence gate: certificate/structured product with no size signal.
         m = Metrics(
-            major_ccy="EUR", price_major=100.0, mcap_usd=None,
-            addv_usd=None, has_fundamentals=False,
+            major_ccy="EUR",
+            price_major=100.0,
+            mcap_usd=None,
+            addv_usd=None,
+            has_fundamentals=False,
         )
         assert passes_floor(m, self._CFG) is False
 

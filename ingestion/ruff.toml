@@ -1,5 +1,4 @@
 extend = "../pyproject.toml"
-extend-exclude = ["baml_client"]
 
 [lint]
 # Ignore rules that are intentional SQLAlchemy/test patterns, or that

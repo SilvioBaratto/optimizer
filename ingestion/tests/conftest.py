@@ -120,7 +120,7 @@ def seeded_market_data(db_session: Session):
 
 @pytest.fixture
 def seeded_macro(db_session: Session):
-    """Seed an EconomicIndicator + MacroCalibration + FredObservation."""
+    """Seed an EconomicIndicator + FredObservation."""
     return seed_macro(db_session)
 
 

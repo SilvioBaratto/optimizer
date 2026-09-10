@@ -62,7 +62,7 @@ _CASE_SENSITIVE_MARKERS = (
 )
 _ROUTE_DECORATOR_PATTERN = re.compile(r"@\w+\.(get|post|put|delete|patch|websocket)\(")
 _SCAN_SUFFIXES = {".py", ".toml", ".ini", ".cfg", ".txt"}
-_EXCLUDE_DIR_PARTS = {"__pycache__", "baml_client"}
+_EXCLUDE_DIR_PARTS = {"__pycache__"}
 
 # (path-suffix, line-substring, reason)
 _ALLOWLIST = (

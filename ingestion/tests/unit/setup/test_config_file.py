@@ -15,7 +15,7 @@ from app.setup import config_file
 def test_save_then_load_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     cfg = {
-        "llm_provider": "openai",
+        "universe_source": "yfinance",
         "require_full_coverage": True,
         "exchanges": ["NMS", "LSE"],
         "workers": 4,
@@ -31,7 +31,7 @@ def test_load_missing_returns_empty(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "bad_key",
     [
-        "openai_api_key",
+        "fred_api_key",
         "TRADING_212_SECRET_KEY",
         "passphrase",
         "auth_token",

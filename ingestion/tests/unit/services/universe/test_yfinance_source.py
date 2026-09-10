@@ -261,7 +261,9 @@ def test_certificate_without_fundamentals_dropped(
         "regularMarketPrice": 100.0,
         "averageDailyVolume3Month": 500,
     }
-    real = _quote("OMV", "VIE", longName="OMV AG", currency="EUR", financialCurrency="EUR")
+    real = _quote(
+        "OMV", "VIE", longName="OMV AG", currency="EUR", financialCurrency="EUR"
+    )
     src, _ = _source([{"quotes": [cert, real]}, {"quotes": []}], monkeypatch)
     assert {i["ticker"] for i in src.get_instruments()} == {"OMV"}
 

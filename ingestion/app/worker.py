@@ -174,13 +174,12 @@ def main() -> None:
     scheduler.start()
     logger.info(
         "APScheduler started — daily=%s, midday_news=%s, universe=%s, "
-        "weekly=%s, fred=%s, news_refresh=%dmin",
+        "weekly=%s, fred=%s",
         settings.scheduler_daily_pipeline_cron,
         settings.scheduler_midday_news_cron,
         settings.scheduler_universe_build_cron,
         settings.scheduler_weekly_refetch_cron,
         settings.scheduler_fred_monthly_cron,
-        settings.scheduler_news_refresh_interval_minutes,
     )
 
     _install_signal_handlers()

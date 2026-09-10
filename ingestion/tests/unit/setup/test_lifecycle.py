@@ -16,7 +16,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         lifecycle.secret_store,
         "load_secrets",
-        lambda passphrase, **kw: {"openai_api_key": "sk-o"},
+        lambda passphrase, **kw: {"fred_api_key": "fk"},
     )
     monkeypatch.setattr(
         lifecycle.compose_secrets,
@@ -42,7 +42,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
 
 def test_run_start_renders_secrets_then_brings_up(patched: dict) -> None:
     lifecycle.run_start("pw")
-    assert patched["rendered"] == {"openai_api_key": "sk-o"}
+    assert patched["rendered"] == {"fred_api_key": "fk"}
     assert patched["compose"] == ["up"]
 
 

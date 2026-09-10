@@ -41,10 +41,6 @@ class TestSetupCommand:
                 [
                     "setup",
                     "--non-interactive",
-                    "--llm-provider",
-                    "openai",
-                    "--llm-key",
-                    "sk-x",
                     "--t212-key",
                     "tk",
                     "--t212-secret",
@@ -55,8 +51,6 @@ class TestSetupCommand:
             )
         assert result.exit_code == 0
         kwargs = mock_run.call_args.kwargs
-        assert kwargs["llm_provider"] == "openai"
-        assert kwargs["llm_key"] == "sk-x"
         assert kwargs["t212_key"] == "tk"
         assert kwargs["t212_secret"] == "ts"  # noqa: S105 - test value, not a secret
         assert kwargs["fred_key"] == "fk"
@@ -73,9 +67,7 @@ class TestSetupCommand:
                 [
                     "setup",
                     "--non-interactive",
-                    "--llm-provider",
-                    "openai",
-                    "--llm-key",
+                    "--fred-key",
                     "x",
                 ],
             )
@@ -154,7 +146,6 @@ class TestSingleStepCommands:
         [
             ("macro", "run_macro_step"),
             ("news", "run_news_step"),
-            ("calibrate", "run_calibrate_step"),
             ("universe", "run_universe_step"),
             ("market-structure", "run_market_structure_step"),
             ("calendars", "run_calendars_step"),
@@ -176,11 +167,9 @@ class TestSingleStepCommands:
         [
             ("macro", "run_macro_step"),
             ("news", "run_news_step"),
-            ("calibrate", "run_calibrate_step"),
             ("universe", "run_universe_step"),
             ("yfinance", "run_yfinance_step"),
             ("fred", "run_fred_step"),
-            ("summarize", "run_summarize_step"),
             ("market-structure", "run_market_structure_step"),
             ("calendars", "run_calendars_step"),
             ("market-summary", "run_market_summary_step"),
@@ -244,18 +233,6 @@ class TestFlagOptions:
             runner.invoke(app, ["fred", "--no-incremental"])
 
         assert fn.call_args.kwargs == {"incremental": False}
-
-    def test_summarize_force_refresh_default_true(self) -> None:
-        with patch(f"{SCHED}.run_summarize_step", return_value=True) as fn:
-            runner.invoke(app, ["summarize"])
-
-        assert fn.call_args.kwargs == {"force_refresh": True}
-
-    def test_summarize_no_force_refresh_forwarded(self) -> None:
-        with patch(f"{SCHED}.run_summarize_step", return_value=True) as fn:
-            runner.invoke(app, ["summarize", "--no-force-refresh"])
-
-        assert fn.call_args.kwargs == {"force_refresh": False}
 
 
 class TestCompositeCommands:

@@ -108,8 +108,6 @@ class TestStepWrappersForwardAttempt:
             "run_macro_step",
             "run_fred_step",
             "run_news_step",
-            "run_summarize_step",
-            "run_calibrate_step",
         ],
     )
     def test_wrapper_forwards_attempt(self, wrapper: str) -> None:

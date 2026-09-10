@@ -26,9 +26,6 @@ RUN uv venv /venv
 ENV VIRTUAL_ENV=/venv PATH=/venv/bin:$PATH
 RUN uv sync --frozen --no-dev --no-editable --package portopt --active
 
-# Regenerate the BAML client from baml_src/ (baml-cli ships with baml-py)
-RUN cd ingestion && baml-cli generate
-
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.12-slim
 
@@ -41,11 +38,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN useradd -m -u 1000 appuser
 
-# Virtualenv (includes all runtime packages + scripts: alembic, baml-cli)
+# Virtualenv (includes all runtime packages + scripts: alembic)
 COPY --from=builder /venv /venv
 
-# Application source (generated baml_client + entrypoint live outside the
-# installed `app` package, so the source tree is still needed).
+# Application source (the entrypoint lives outside the installed `app`
+# package, so the source tree is still needed).
 COPY --from=builder /build/ingestion/ ./ingestion/
 
 # The Alembic tree lives in portopt-db (single migration owner) and sits outside

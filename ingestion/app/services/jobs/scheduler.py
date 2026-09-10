@@ -2,9 +2,9 @@
 
 Scheduled jobs:
   1. **daily_pipeline** (CronTrigger, default 07:00 UTC) — sequential data
-     pipeline: ref-indices → yfinance → macro → news → summarize → calibrate.
-  2. **midday_news** (CronTrigger, default 14:00 UTC) — news fetch + summarize
-     only (catch afternoon market news).
+     pipeline: ref-indices → yfinance → macro → news.
+  2. **midday_news** (CronTrigger, default 14:00 UTC) — macro news fetch
+     (catch afternoon market news).
   3. **universe_build** (CronTrigger, default Sunday 02:00 UTC) — Trading 212
      instrument-universe rebuild. Runs *before* ``weekly_refetch`` so the
      yfinance rebuild sees the fresh instrument set.
@@ -16,9 +16,7 @@ Scheduled jobs:
      sweep: sector/industry structure, calendars, market summaries, full option
      chains. Runs *after* ``weekly_refetch`` so option chains see the fresh
      universe.
-  7. **news_refresh** (IntervalTrigger, default every 30 min) — incremental
-     news re-summarization for countries with new articles.
-  8. **orphan_reaper** (IntervalTrigger) — fails jobs whose worker died without
+  7. **orphan_reaper** (IntervalTrigger) — fails jobs whose worker died without
      a terminal status, so a wedged run does not block its type forever.
 
 All cron schedules are configurable via environment variables.
@@ -38,7 +36,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from apscheduler.executors.pool import ThreadPoolExecutor
@@ -54,8 +52,6 @@ from app.services.jobs.background_job import (
     BackgroundJobService,
     JobAlreadyRunningError,
 )
-from app.services.macro.macro_calibration import run_bulk_calibrate
-from app.services.macro.macro_news_summary import run_news_summarize
 from app.services.macro.macro_regime_service import (
     run_bulk_fred_fetch,
     run_bulk_macro_fetch,
@@ -81,16 +77,6 @@ _macro_jobs = BackgroundJobService(
 )
 _news_fetch_jobs = BackgroundJobService(
     job_type="macro_news_fetch",
-    session_factory=database_manager.get_session,
-    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
-)
-_summarize_jobs = BackgroundJobService(
-    job_type="news_summarize",
-    session_factory=database_manager.get_session,
-    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
-)
-_calibrate_jobs = BackgroundJobService(
-    job_type="macro_calibrate",
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
@@ -388,33 +374,6 @@ def run_news_step(*, attempt: int = 0) -> bool:
     )
 
 
-def run_summarize_step(*, force_refresh: bool = True, attempt: int = 0) -> bool:
-    """LLM-summarize macro news per country."""
-    from app.schemas.macro.macro_regime import MacroNewsSummarizeRequest
-
-    return _run_step(
-        "summarize",
-        _summarize_jobs,
-        run_news_summarize,
-        MacroNewsSummarizeRequest(force_refresh=force_refresh),
-        attempt=attempt,
-    )
-
-
-def run_calibrate_step(*, attempt: int = 0) -> bool:
-    """LLM-calibrate the macro regime (delta / tau) per country."""
-    from app.services.macro.scrapers import PORTFOLIO_COUNTRIES
-
-    return _run_step(
-        "calibrate",
-        _calibrate_jobs,
-        run_bulk_calibrate,
-        list(PORTFOLIO_COUNTRIES),
-        True,
-        attempt=attempt,
-    )
-
-
 def run_universe_step(*, attempt: int = 0) -> bool:
     """Rebuild the instrument universe from the yfinance Screener.
 
@@ -468,12 +427,11 @@ def run_t212_annotate_step(*, attempt: int = 0) -> bool:
 
 
 def run_daily_pipeline() -> None:
-    """Sequential pipeline: ref-indices → yfinance → macro → news → summarize → calibrate.
+    """Sequential pipeline: ref-indices → yfinance → macro → news.
 
-    News, summarize, and calibrate form a dependency chain: each consumes what
-    the previous one wrote, so a failure upstream skips the rest rather than
-    summarizing stale articles or calibrating off a stale summary. Macro is
-    independent of yfinance and always runs.
+    News depends on yfinance (it fetches article content for the fetched
+    tickers), so a failed yfinance step skips news rather than scraping against
+    a stale universe. Macro is independent of yfinance and always runs.
     """
     logger.info("daily_pipeline: starting")
 
@@ -483,29 +441,22 @@ def run_daily_pipeline() -> None:
 
     if not yf_ok:
         logger.warning("daily_pipeline: news skipped — yfinance did not complete")
-    elif not run_news_step():
-        logger.warning("daily_pipeline: summarize skipped — news did not complete")
-    elif not run_summarize_step():
-        logger.warning("daily_pipeline: calibrate skipped — summarize did not complete")
     else:
-        run_calibrate_step()
+        run_news_step()
 
     logger.info("daily_pipeline: finished")
 
 
 # ---------------------------------------------------------------------------
-# Midday news refresh (news + summarize only)
+# Midday news refresh (news fetch only)
 # ---------------------------------------------------------------------------
 
 
 def run_midday_news_refresh() -> None:
-    """News fetch + summarize — catches afternoon market news."""
+    """Fetch macro news — catches afternoon market news."""
     logger.info("midday_news: starting")
 
-    if run_news_step():
-        run_summarize_step()
-    else:
-        logger.warning("midday_news: summarize skipped — news did not complete")
+    run_news_step()
 
     logger.info("midday_news: finished")
 
@@ -516,7 +467,7 @@ def run_midday_news_refresh() -> None:
 
 
 def run_weekly_refetch() -> None:
-    """Full yfinance + macro data rebuild (no news/summarize/calibrate)."""
+    """Full yfinance + macro data rebuild (no news)."""
     logger.info("weekly_refetch: starting")
 
     run_yfinance_step(mode="full", period="5y", workers=settings.yfinance_fetch_workers)
@@ -575,86 +526,6 @@ def run_fred_monthly() -> None:
     logger.info("fred_monthly: finished")
 
 
-# ---------------------------------------------------------------------------
-# News refresh (replaces MacroNewsSummaryScheduler)
-# ---------------------------------------------------------------------------
-
-_RETENTION_DAYS = 90
-
-
-def run_news_refresh() -> None:
-    """Incremental 30-minute news re-summarization.
-
-    Stateless: derives "last run" from the most recent ``macro_news_summaries``
-    row so the job is restart-safe without in-memory state.
-    """
-    from portopt_db.repositories.macro.macro_regime_repository import (
-        MacroRegimeRepository,
-    )
-
-    from app.services.macro.macro_news_summary import (
-        _find_countries_with_new_articles,
-        _is_morning_pipeline_complete,
-        _summarize_country_safe,
-    )
-
-    now = datetime.now(timezone.utc)
-    today = now.date()
-
-    try:
-        with database_manager.get_session() as session:
-            repo = MacroRegimeRepository(session)
-
-            # Guard: skip if morning pipeline has not run yet
-            if not _is_morning_pipeline_complete(repo, today):
-                logger.info(
-                    "news_refresh: morning pipeline not yet complete for %s, skipping",
-                    today,
-                )
-                return
-
-            # Derive last-run from DB (restart-safe)
-            last_refresh = _get_last_refresh_time(session)
-            logger.info("news_refresh: checking articles since %s", last_refresh)
-
-            countries = _find_countries_with_new_articles(repo, last_refresh)
-            if not countries:
-                logger.info("news_refresh: no new articles, skipping")
-            else:
-                logger.info(
-                    "news_refresh: %d countries with new articles: %s",
-                    len(countries),
-                    countries,
-                )
-                for country in countries:
-                    _summarize_country_safe(session, country)
-
-            # Retention purge
-            cutoff = today - timedelta(days=_RETENTION_DAYS)
-            pruned = repo.delete_old_news_summaries(cutoff)
-            if pruned:
-                logger.info("news_refresh: pruned %d old summaries", pruned)
-            session.commit()
-
-    except Exception:
-        logger.exception("news_refresh: tick failed (non-fatal)")
-
-
-def _get_last_refresh_time(session) -> datetime:
-    """Return the most recent ``macro_news_summaries.updated_at``, or fallback."""
-    from sqlalchemy import text
-
-    row = session.execute(
-        text("SELECT MAX(updated_at) FROM macro_news_summaries")
-    ).scalar_one_or_none()
-
-    if row is None:
-        return datetime.now(timezone.utc) - timedelta(
-            minutes=settings.scheduler_news_refresh_interval_minutes,
-        )
-    return row
-
-
 # job_type -> step function for the RECLAIM strategy (R3/§5.3). Module-level
 # names (not lambdas) so a re-dispatch job is picklable for the SQLAlchemy job
 # store. Each re-runs the step's default (incremental / idempotent) variant; a
@@ -665,8 +536,6 @@ _RECLAIM_STEP: dict[str, Callable[..., bool]] = {
     "macro_fetch": run_macro_step,
     "fred_fetch": run_fred_step,
     "macro_news_fetch": run_news_step,
-    "news_summarize": run_summarize_step,
-    "macro_calibrate": run_calibrate_step,
     "universe_build": run_universe_step,
     "market_structure_fetch": run_market_structure_step,
     "calendars_fetch": run_calendars_step,
@@ -884,15 +753,6 @@ def _build_schedule_registry() -> list[ScheduleDefinition]:
                 timezone="UTC",
             ),
             misfire_grace_time=grace,
-        ),
-        ScheduleDefinition(
-            job_id="news_refresh",
-            name="Incremental news summary refresh",
-            func=run_news_refresh,
-            trigger=IntervalTrigger(
-                minutes=settings.scheduler_news_refresh_interval_minutes,
-            ),
-            misfire_grace_time=grace // 4,
         ),
         ScheduleDefinition(
             job_id="orphan_reaper",

@@ -12,8 +12,6 @@ already running that step.
     python -m app.cli macro
     python -m app.cli fred
     python -m app.cli news
-    python -m app.cli summarize
-    python -m app.cli calibrate
     python -m app.cli market-structure             # sector/industry rollups
     python -m app.cli calendars                    # earnings/IPO/splits/economic
     python -m app.cli market-summary               # regional market summaries
@@ -72,7 +70,7 @@ def _exit(ok: bool) -> None:
 
 @app.command()
 def daily() -> None:
-    """Run the full daily pipeline: ref-indices, yfinance, macro, news, summarize, calibrate."""
+    """Run the full daily pipeline: ref-indices, yfinance, macro, news."""
     _boot()
     from app.services.jobs.scheduler import run_daily_pipeline
 
@@ -156,29 +154,6 @@ def news() -> None:
     _exit(run_news_step())
 
 
-@app.command()
-def summarize(
-    force_refresh: bool = typer.Option(
-        True,
-        help="Re-summarize countries even when a summary already exists for today.",
-    ),
-) -> None:
-    """LLM-summarize macro news into macro_news_summaries / macro_news_themes."""
-    _boot()
-    from app.services.jobs.scheduler import run_summarize_step
-
-    _exit(run_summarize_step(force_refresh=force_refresh))
-
-
-@app.command()
-def calibrate() -> None:
-    """LLM-calibrate the macro regime (delta / tau) into macro_calibrations."""
-    _boot()
-    from app.services.jobs.scheduler import run_calibrate_step
-
-    _exit(run_calibrate_step())
-
-
 @app.command(name="market-structure")
 def market_structure() -> None:
     """Fetch sector/industry rollups across regions into sector_* tables."""
@@ -222,10 +197,6 @@ def setup(
         "--non-interactive",
         help="Run without prompts (CI); requires the flags below + PORTOPT_PASSPHRASE.",
     ),
-    llm_provider: str | None = typer.Option(
-        None, "--llm-provider", help="Cloud LLM provider: openai or anthropic."
-    ),
-    llm_key: str | None = typer.Option(None, "--llm-key", help="Cloud LLM API key."),
     t212_key: str | None = typer.Option(None, "--t212-key", help="Trading212 API key."),
     t212_secret: str | None = typer.Option(
         None, "--t212-secret", help="Trading212 secret key."
@@ -242,8 +213,6 @@ def setup(
         if non_interactive:
             wizard.run_setup_noninteractive(
                 passphrase=os.getenv("PORTOPT_PASSPHRASE"),
-                llm_provider=llm_provider,
-                llm_key=llm_key,
                 t212_key=t212_key,
                 t212_secret=t212_secret,
                 fred_key=fred_key,

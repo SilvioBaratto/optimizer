@@ -100,8 +100,6 @@ class TestJobServicesAdoptCadence:
             "_yfinance_jobs",
             "_macro_jobs",
             "_news_fetch_jobs",
-            "_summarize_jobs",
-            "_calibrate_jobs",
             "_fred_jobs",
             "_universe_jobs",
         ],

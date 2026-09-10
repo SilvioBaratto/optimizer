@@ -113,7 +113,9 @@ def find_legacy_api_violations(root: Path) -> list[str]:
         path = root / rel
         try:
             text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
+        except (FileNotFoundError, UnicodeDecodeError):
+            # A path present in the git index but absent on disk (an
+            # unstaged deletion mid-refactor) is not a live reference.
             continue
         for line in text.splitlines():
             if _LEGACY_API_PATTERN.search(line) and not _is_allowlisted(rel, line):

@@ -12,8 +12,8 @@ from app.setup import prompts
 
 
 def test_noninteractive_returns_canned_answers() -> None:
-    p = prompts.NonInteractivePrompter({"Provider:": "openai", "Connect?": True})
-    assert p.select("Provider:", ["openai", "anthropic"]) == "openai"
+    p = prompts.NonInteractivePrompter({"Choice:": "alpha", "Connect?": True})
+    assert p.select("Choice:", ["alpha", "beta"]) == "alpha"
     assert p.confirm("Connect?") is True
     assert p.error("ignored") is None  # error is a no-op without a TTY
 

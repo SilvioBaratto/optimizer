@@ -3,11 +3,10 @@
 import datetime as dt
 import uuid
 from datetime import date, datetime
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas._shared import AsyncJobCreateResponse, AsyncJobProgress, CamelCaseModel
+from app.schemas._shared import AsyncJobCreateResponse, AsyncJobProgress
 
 # ---------------------------------------------------------------------------
 # Request schemas
@@ -192,68 +191,6 @@ class MacroNewsFetchRequest(BaseModel):
     )
 
 
-class MacroNewsSummarizeRequest(BaseModel):
-    """Request body for news summary generation."""
-
-    countries: list[str] | None = Field(
-        default=None,
-        description="Countries to summarize. None means all mapped countries.",
-    )
-    force_refresh: bool = Field(
-        default=False,
-        description="Bypass the daily cache and re-invoke the LLM for all countries.",
-    )
-
-
-class MacroNewsSummarizeJobResponse(AsyncJobCreateResponse):
-    """Returned when a background news summarize job is created."""
-
-
-class MacroNewsSummarizeProgress(AsyncJobProgress):
-    """Progress info for a news summarize background job."""
-
-    current_country: str = ""
-
-
-class MacroNewsSummaryResponse(BaseModel):
-    """Response for a single daily country news summary."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    country: str
-    summary_date: date
-    summary: str | None = None
-    sentiment: Literal["BULLISH", "BEARISH", "NEUTRAL", "MIXED"] | None = None
-    sentiment_score: float | None = None
-    article_count: int | None = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class MacroCalibrateBatchRequest(BaseModel):
-    """Request body for batch macro calibration."""
-
-    countries: list[str] | None = Field(
-        default=None,
-        description="Countries to calibrate. None means all portfolio countries.",
-    )
-    force_refresh: bool = Field(
-        default=True,
-        description="Bypass cached calibration and re-invoke the LLM.",
-    )
-
-
-class MacroCalibrateBatchJobResponse(AsyncJobCreateResponse):
-    """Returned when a background batch calibration job is created."""
-
-
-class MacroCalibrateBatchProgress(AsyncJobProgress):
-    """Progress info for a batch calibration background job."""
-
-    current_country: str = ""
-
-
 class CountryMacroSummary(BaseModel):
     """Aggregated macro data for a single country."""
 
@@ -261,38 +198,3 @@ class CountryMacroSummary(BaseModel):
     economic_indicators: list[EconomicIndicatorResponse] = Field(default_factory=list)
     te_indicators: list[TradingEconomicsIndicatorResponse] = Field(default_factory=list)
     bond_yields: list[BondYieldResponse] = Field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# Macro calibration response — typed argument/result for the macro
-# calibration service (there is no HTTP route; the daemon is headless).
-# ---------------------------------------------------------------------------
-
-
-class MacroCalibrationResponse(CamelCaseModel):
-    """Calibrated Black-Litterman parameters from LLM macro regime classification."""
-
-    phase: str = Field(
-        ...,
-        description="Business cycle phase: EARLY_EXPANSION | MID_EXPANSION | LATE_EXPANSION | RECESSION.",
-    )
-    delta: float = Field(
-        ...,
-        description="Risk aversion scalar δ, clamped to [1.0, 10.0].",
-    )
-    tau: float = Field(
-        ..., description="Uncertainty scaling τ, clamped to [0.001, 0.1]."
-    )
-    confidence: float = Field(
-        ..., description="LLM classification confidence in [0.0, 1.0]."
-    )
-    rationale: str = Field(..., description="LLM explanation of phase classification.")
-    macro_summary: str = Field(..., description="Macro indicator text fed to the LLM.")
-    bl_config: dict = Field(
-        ...,
-        description=(
-            "Ready-to-use kwargs for BlackLittermanConfig. "
-            "Pass ``bl_config['tau']`` and ``bl_config['prior_config']['risk_aversion']`` "
-            "directly to the optimizer config layer."
-        ),
-    )

@@ -2,8 +2,7 @@
 
 Two entry points share one persist+bootstrap core:
 - ``run_setup_noninteractive`` — flags/env for CI; fails loud, never loops.
-- ``run_setup_interactive`` — drives a `Prompter`; the LLM step loops until a
-  cloud key validates (mandatory, no local models).
+- ``run_setup_interactive`` — drives a `Prompter`.
 
 Secrets are validated live *before* anything is written, so a failure at any
 step leaves nothing persisted.
@@ -21,15 +20,11 @@ from app.setup import (
 )
 from app.setup.prompts import Prompter
 
-_CLOUD_PROVIDERS = ("openai", "anthropic")
-
 # Stable prompt messages (also used as keys by NonInteractivePrompter in tests).
 _MSG_PASSPHRASE = "Master passphrase:"  # noqa: S105 - UI label, not a secret
 _MSG_CONNECT_T212 = "Connect Trading212?"
 _MSG_T212_KEY = "TRADING_212_API_KEY:"
 _MSG_T212_SECRET = "TRADING_212_SECRET_KEY:"  # noqa: S105 - UI label, not a secret
-_MSG_LLM_PROVIDER = "LLM provider:"
-_MSG_LLM_KEY = "LLM API key:"
 _MSG_CONNECT_FRED = "Configure FRED (optional)?"
 _MSG_FRED_KEY = "FRED_API_KEY:"
 
@@ -50,8 +45,6 @@ def _persist_and_bootstrap(
 def run_setup_noninteractive(
     *,
     passphrase: str | None,
-    llm_provider: str | None,
-    llm_key: str | None,
     t212_key: str | None = None,
     t212_secret: str | None = None,
     fred_key: str | None = None,
@@ -72,15 +65,6 @@ def run_setup_noninteractive(
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
 
-    if llm_provider not in _CLOUD_PROVIDERS:
-        raise SetupError(
-            f"LLM provider must be one of {_CLOUD_PROVIDERS} (cloud only)."
-        )
-    if not llm_key or not validators.validate_llm(llm_provider, llm_key):
-        raise SetupError(f"{llm_provider} API key failed validation.")
-    config["llm_provider"] = llm_provider
-    secrets[f"{llm_provider}_api_key"] = llm_key
-
     if fred_key:
         if not validators.validate_fred(fred_key):
             raise SetupError("FRED API key failed validation.")
@@ -90,7 +74,7 @@ def run_setup_noninteractive(
 
 
 def run_setup_interactive(prompter: Prompter, *, passphrase: str | None = None) -> None:
-    """Interactive setup via the prompt seam; the LLM step loops until valid."""
+    """Interactive setup via the prompt seam; each credential validates before persist."""
     docker_bootstrap.check_docker()
 
     pw = (
@@ -114,24 +98,6 @@ def run_setup_interactive(prompter: Prompter, *, passphrase: str | None = None) 
             raise SetupError("Trading212 credentials failed validation.")
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
-
-    # Mandatory LLM gate — loop until a cloud key validates. The provider's env
-    # var (e.g. OPENAI_API_KEY) is tried once before falling back to a prompt, so
-    # an invalid env value cannot spin the loop forever.
-    tried_env: set[str] = set()
-    while True:
-        provider = prompter.select(_MSG_LLM_PROVIDER, list(_CLOUD_PROVIDERS))
-        env_key = os.getenv(f"{provider.upper()}_API_KEY")
-        if env_key and provider not in tried_env:
-            tried_env.add(provider)
-            llm_key = env_key
-        else:
-            llm_key = prompter.password(_MSG_LLM_KEY)
-        if validators.validate_llm(provider, llm_key):
-            break
-        prompter.error("Invalid provider/key — try again.")
-    config["llm_provider"] = provider
-    secrets[f"{provider}_api_key"] = llm_key
 
     if prompter.confirm(_MSG_CONNECT_FRED, default=False):
         fred_key = os.getenv("FRED_API_KEY") or prompter.password(_MSG_FRED_KEY)

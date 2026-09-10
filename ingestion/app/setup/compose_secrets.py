@@ -18,8 +18,6 @@ SECRET_NAMES = (
     "trading_212_api_key",
     "trading_212_secret_key",
     "fred_api_key",
-    "openai_api_key",
-    "anthropic_api_key",
 )
 
 DEFAULT_SECRETS_DIR = Path("secrets")
