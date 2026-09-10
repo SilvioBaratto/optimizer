@@ -61,8 +61,6 @@ services:
       - trading_212_api_key
       - trading_212_secret_key
       - fred_api_key
-      - openai_api_key
-      - anthropic_api_key
     ports:
       # Prometheus metrics only — no API is served
       - "9000:9000"
@@ -96,7 +94,3 @@ secrets:
     file: ./secrets/trading_212_secret_key
   fred_api_key:
     file: ./secrets/fred_api_key
-  openai_api_key:
-    file: ./secrets/openai_api_key
-  anthropic_api_key:
-    file: ./secrets/anthropic_api_key
