@@ -1,6 +1,6 @@
 # Prior Estimators
 
-A **prior** produces a `ReturnDistribution` (mu, covariance, returns, sample_weight, cholesky) that downstream optimizers consume. Swap priors to inject views, stress tests, factor structure, or synthetic scenarios without changing the optimizer.
+A **prior** produces a `ReturnDistribution` (mu, covariance, returns, sample_weight, factor_model) that downstream optimizers consume. Swap priors to inject views, stress tests, factor structure, or synthetic scenarios without changing the optimizer. The fitted object lives on `return_distribution_`.
 
 ## Imports
 
@@ -8,7 +8,9 @@ A **prior** produces a `ReturnDistribution` (mu, covariance, returns, sample_wei
 from skfolio.prior import (
     EmpiricalPrior,
     BlackLitterman,
-    TimeSeriesFactorModel,    # v0.17.0+ — replaces deprecated FactorModel
+    TimeSeriesFactorModel,       # time-series factor model (estimator)
+    CharacteristicsFactorModel,  # NEW 1.0 — cross-sectional / BARRA-style (see factor_models.md)
+    FactorModel,                 # NEW 1.0 meaning — fitted CONTAINER, not an estimator
     SyntheticData,
     EntropyPooling,
     OpinionPooling,
@@ -16,6 +18,30 @@ from skfolio.prior import (
     ReturnDistribution,
 )
 ```
+
+## ⚠️ 1.0 breaking changes for factor models
+
+1. **Factor returns are keyword-only `factors=`** — the old positional `y` no longer works:
+   ```python
+   # 0.20.x (BROKEN)   model.fit(X_train, y_train)
+   # 1.0               model.fit(X_train, factors=factors_train)
+   ```
+   This propagates through metadata routing to a nested factor prior inside an optimizer.
+2. **`FactorModel` is repurposed.** In 1.0 `skfolio.prior.FactorModel` is the *fitted result container* (loading matrix, factor moments, idiosyncratic covariance, exposures, factor/idio returns) produced by `TimeSeriesFactorModel` / `CharacteristicsFactorModel` — it is **no longer an estimator you instantiate as `prior_estimator`**. Use `TimeSeriesFactorModel()` (or `CharacteristicsFactorModel()`) as the estimator.
+
+## ReturnDistribution
+
+```python
+ReturnDistribution(
+    mu,           # (n_assets,)
+    covariance,   # (n_assets, n_assets)
+    returns,      # (n_observations, n_assets)
+    sample_weight=None,
+    factor_model=None,   # FactorModel | None; the matrix sqrt is the read-only property `covariance_sqrt`
+)
+```
+
+Read moments/scenarios from a fitted prior's `return_distribution_`. In 1.0 this can span the *full universe* with non-investable assets marked NaN; optimizers solve the investable subset then expand (see `data_representation.md`).
 
 ## EmpiricalPrior
 
@@ -26,7 +52,7 @@ prior = EmpiricalPrior(
     mu_estimator=ShrunkMu(),
     covariance_estimator=LedoitWolf(),
     is_log_normal=False,
-    investment_horizon=None,  # set with is_log_normal=True for multi-year
+    investment_horizon=None,  # set with is_log_normal=True for multi-year projection
 )
 ```
 
@@ -45,26 +71,24 @@ prior = BlackLitterman(
 )
 ```
 
-**View syntax:**
-- Absolute: `"TICKER == value"` or `"TICKER >= value"`
-- Relative: `"TICKER1 - TICKER2 == value"`
+**View syntax:** absolute `"TICKER == value"` / `"TICKER >= value"`; relative `"TICKER1 - TICKER2 == value"`.
 
-## TimeSeriesFactorModel (v0.17.0+)
+## TimeSeriesFactorModel
 
-Factor model — reduces dimensionality via common factors. **Replaces deprecated `FactorModel`.** The constructor signature and `fit(X, y)` contract are unchanged; only the import needs updating.
+Time-series factor model — estimates asset exposures by regressing on observed factor returns. Reduces dimensionality via common factors.
 
 ```python
 from skfolio.prior import TimeSeriesFactorModel
 
 prior = TimeSeriesFactorModel(
-    loading_matrix_estimator=LoadingMatrixRegression(),
+    loading_matrix_estimator=LoadingMatrixRegression(),  # default; LassoCV-based
     factor_prior_estimator=EmpiricalPrior(),
 )
-# X = asset returns, y = factor returns
-model.fit(X_train, y=factor_returns_train)
+# X = asset returns, factors = factor returns (KEYWORD)
+model.fit(X_train, factors=factors_train)
 ```
 
-**Black-Litterman Factor Model** — chain a BL prior inside the factor prior:
+**Black-Litterman factor model** — chain a BL prior inside the factor prior; views reference **factor** names:
 
 ```python
 prior = TimeSeriesFactorModel(
@@ -73,9 +97,24 @@ prior = TimeSeriesFactorModel(
         tau=0.05,
     ),
 )
+model.fit(X_train, factors=factors_train)
 ```
 
-> `FactorModel` still works in 0.17.x+ but emits a deprecation warning. Migrate imports.
+## CharacteristicsFactorModel (NEW in 1.0)
+
+Cross-sectional (BARRA-style) factor model driven by fundamental/price *descriptors* over an `AssetPanel`. Full treatment in **`factor_models.md`**. Sketch:
+
+```python
+from skfolio.prior import CharacteristicsFactorModel
+
+model = CharacteristicsFactorModel(
+    factors=[("market", global_factor), ("value", value_factor), ...],
+    neutralize_against={"non_linear_size": ["size"]},
+    exposure_lag=1,
+    factor_prior_estimator=EmpiricalPrior(...),
+)
+model.fit(characteristics=panel)   # panel is a skfolio.containers.AssetPanel
+```
 
 ## SyntheticData
 
@@ -89,9 +128,11 @@ prior = SyntheticData(
 )
 ```
 
+Composable: usable standalone (`fit(X)`), as a `prior_estimator` inside `EntropyPooling`, or as a `factor_prior_estimator` inside `TimeSeriesFactorModel`. Re-stress a nested instance via `set_params(factor_prior_estimator__sample_args=...)`.
+
 ## EntropyPooling
 
-Adjusts baseline probabilities to satisfy views while minimizing KL divergence.
+Adjusts baseline scenario probabilities (`sample_weight`) to satisfy views while minimizing KL divergence. Stackable on top of another prior via `prior_estimator=`.
 
 ```python
 prior = EntropyPooling(
@@ -102,9 +143,11 @@ prior = EntropyPooling(
     cvar_views=["GE == 0.08"],
     cvar_beta=0.95,
     groups={"Financials": ["BAC", "JPM"], "Healthcare": ["JNJ", "LLY"]},
-    prior_estimator=EmpiricalPrior(),
+    prior_estimator=EmpiricalPrior(),   # or a SyntheticData / factor prior to pool on top of
 )
 ```
+
+Fitted diagnostics: `relative_entropy_`, `effective_number_of_scenarios_`.
 
 ### View types
 
@@ -122,7 +165,7 @@ prior = EntropyPooling(
 
 ## OpinionPooling
 
-Combines multiple expert distributions into a consensus prior.
+Combines multiple expert distributions into a consensus prior. Supports linear and logarithmic pooling with an optional robust KL-penalty.
 
 ```python
 prior = OpinionPooling(
@@ -130,7 +173,11 @@ prior = OpinionPooling(
         ("expert_1", EntropyPooling(mean_views=["AAPL == 0.001"])),
         ("expert_2", EntropyPooling(mean_views=["AAPL == -0.001"])),
     ],
-    opinion_probabilities=[0.4, 0.5],  # remaining 0.1 → base prior
+    opinion_probabilities=[0.4, 0.5],  # need NOT sum to 1; residual mass → base prior
     prior_estimator=EmpiricalPrior(),
 )
 ```
+
+## Stress testing
+
+Fit a prior (or read `VineCopula.sample(..., conditioning=...)`), then evaluate an existing allocation on the stressed distribution by passing it to `optimizer.predict(stressed_return_distribution)` — no refit needed.

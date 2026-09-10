@@ -12,7 +12,7 @@ from skfolio.linear_model import CSLinearRegression, CSLinearRegressorWrapper
 
 - `X` — features, shape `(T, N, K)` (T observations × N assets × K features)
 - `y` — targets, shape `(T, N)`
-- `sample_weight` — optional, shape `(T, N)`; zeros drop an asset for that observation
+- `cs_weights` — optional, shape `(T, N)`; zeros drop an asset for that observation (the kwarg is `cs_weights`, not `sample_weight`)
 - `coef_` after `fit` — shape `(T, K)`; one coefficient vector per observation
 - `intercept_` — shape `(T,)` when `fit_intercept=True`
 
@@ -31,7 +31,7 @@ y = rng.standard_normal((T, N))
 w = np.ones((T, N))                    # zero rows are excluded per period
 
 model = CSLinearRegression(fit_intercept=True)
-model.fit(X, y, sample_weight=w)
+model.fit(X, y, cs_weights=w)
 
 preds = model.predict(X)               # (T, N)
 r2 = model.score(X, y)
@@ -52,6 +52,6 @@ Adapts any scikit-learn `Regressor` to the cross-sectional contract — call its
 from sklearn.linear_model import Ridge
 from skfolio.linear_model import CSLinearRegressorWrapper
 
-model = CSLinearRegressorWrapper(estimator=Ridge(alpha=1.0))
-model.fit(X, y, sample_weight=w)
+model = CSLinearRegressorWrapper(regressor=Ridge(alpha=1.0))
+model.fit(X, y, cs_weights=w)
 ```

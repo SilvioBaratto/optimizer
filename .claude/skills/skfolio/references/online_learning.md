@@ -1,6 +1,6 @@
-# Online Learning & Covariance Forecast Evaluation (v0.18.0+)
+# Online Learning & Covariance Forecast Evaluation
 
-Online learning keeps a **single stateful estimator** that updates incrementally via `partial_fit`, instead of refitting from scratch at every CV split. This speeds up walk-forward simulations dramatically and more closely matches live-trading semantics.
+Online learning keeps a **single stateful estimator** that updates incrementally via `partial_fit`, instead of refitting from scratch at every CV split. Speeds up walk-forward simulations dramatically and more closely matches live-trading semantics.
 
 ## Imports
 
@@ -17,16 +17,16 @@ from skfolio.model_selection import (
 
 ## Requirements
 
-The estimator **must** implement `partial_fit`. `online_predict` / `online_score` / `OnlineGridSearch` **do not** accept `Pipeline` objects — wrap an incremental estimator directly.
+The estimator **must** implement `partial_fit`. `online_predict` / `online_score` / `OnlineGridSearch` **do not** accept `Pipeline` objects — wrap an incremental estimator directly. Instances are **not thread-safe** (mutable accumulated state) — one wrapper per thread.
 
 Currently `partial_fit`-capable:
 - Moment estimators: `EWMu`, `EWCovariance`, `EWVariance`, `RegimeAdjustedEWCovariance`, `RegimeAdjustedEWVariance`
-- Prior: `EmpiricalPrior` (when wrapping incremental moments)
+- Prior: `EmpiricalPrior` (when wrapping incremental moments); `CharacteristicsFactorModel`
 - Optimizer: `MeanRisk` (when wrapping an incremental prior)
 
 ## online_predict
 
-Forward-walking prediction: clone estimator → warm up → for each test window, predict then update.
+Forward-walking prediction: clone estimator → warm up → for each test window, predict then update. Restricted to portfolio-optimization estimators; returns a `MultiPeriodPortfolio`.
 
 ```python
 from skfolio.model_selection import online_predict
@@ -39,21 +39,21 @@ model = MeanRisk(
         mu_estimator=EWMu(half_life=40),
         covariance_estimator=EWCovariance(half_life=40),
     ),
+    fallback="previous_weights",   # carry last allocation forward on a failed rebalance
+    raise_on_failure=False,        # → FailedPortfolio instead of raising (see portfolio.md)
 )
 
 pred = online_predict(
     model, X,
-    warmup_size=252,     # first observations used for initial partial_fit
+    warmup_size=252,     # initial observations for warmup partial_fit
     test_size=1,         # rebalance step
-    freq=None,           # or "W", "M" for frequency-based splits
-    purged_size=0,
+    purged_size=0,       # optional gap between train/test windows
 )
-# Returns MultiPeriodPortfolio
 ```
 
 ## online_score
 
-Returns a scalar (or dict) computed on the full concatenated out-of-sample path — more stable than averaging per-fold scores at short rebalance horizons.
+Returns a scalar (or dict) computed on the full concatenated out-of-sample path — more stable than averaging per-fold scores at short rebalance horizons. Accepts optimizers *and* non-predictor estimators.
 
 ```python
 from skfolio.metrics import make_scorer
@@ -61,10 +61,14 @@ from skfolio import RatioMeasure
 
 score = online_score(
     model, X,
-    scoring=make_scorer(RatioMeasure.SORTINO_RATIO),
+    scoring=RatioMeasure.SORTINO_RATIO,   # measure directly; make_scorer is NOT accepted by online APIs
     warmup_size=252, test_size=1,
 )
 ```
+
+- For **optimizers**, pass a `BaseMeasure`/`RatioMeasure` enum directly — the online evaluators **reject** `make_scorer(...)` (raises `TypeError`).
+- For **non-predictor** estimators, use `make_scorer(..., response_method=None)`.
+- `portfolio_weights=None` defaults to an inverse-volatility portfolio direction (rather than erroring).
 
 ## OnlineGridSearch / OnlineRandomizedSearch
 
@@ -81,25 +85,26 @@ search = OnlineGridSearch(
     },
     warmup_size=252,
     test_size=1,
-    scoring=make_scorer(RatioMeasure.SORTINO_RATIO),
+    scoring=RatioMeasure.SORTINO_RATIO,   # measure directly; make_scorer not supported for online eval
+    refit=None,      # metric name for multi-metric searches
     n_jobs=-1,
 )
 search.fit(X)
-print(search.best_params_, search.best_score_)
+print(search.best_params_, search.best_score_)   # best_estimator_ ready without extra refit
 ```
 
 `OnlineRandomizedSearch` has the same surface but samples `param_distributions` for `n_iter` candidates.
 
 ## Covariance Forecast Evaluation
 
-Diagnose a covariance estimator's out-of-sample quality **independently of any optimizer**. Use this to rank candidate covariance estimators *before* embedding them in a prior.
+Diagnose a covariance estimator's out-of-sample quality **independently of any optimizer**. Rank candidates *before* embedding one in a prior.
 
 ```python
 from skfolio.moments import EWCovariance, RegimeAdjustedEWCovariance
 
 # Walk-forward (refit every split)
 ew_eval = covariance_forecast_evaluation(
-    EWCovariance(half_life=40), X, warmup_size=252,
+    EWCovariance(half_life=40), X, train_size=252,
 )
 
 # Online (partial_fit-based, much faster)
@@ -125,6 +130,6 @@ reg_eval.plot_qlike_loss()    # forecast-vs-realized variance loss
 ### Side-by-side comparison
 
 ```python
-comp = CovarianceForecastComparison({"EW": ew_eval, "RegimeEW": reg_eval})
+comp = CovarianceForecastComparison([ew_eval, reg_eval], names=["EW", "RegimeEW"])
 comp.summary()
 ```

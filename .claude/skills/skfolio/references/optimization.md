@@ -1,6 +1,6 @@
 # Optimization Models
 
-All optimizers are scikit-learn estimators: `model.fit(X)` learns, `model.predict(X)` returns a `Portfolio`.
+All optimizers are scikit-learn estimators: `model.fit(X)` learns, `model.predict(X)` returns a `Portfolio`. Weights live in `weights_` after fit.
 
 ## Imports
 
@@ -13,12 +13,42 @@ from skfolio.optimization import (
     MaximumDiversification, DistributionallyRobustCVaR,
     # Clustering
     HierarchicalRiskParity, HierarchicalEqualRiskContribution,
-    NestedClustersOptimization, SchurComplementary,   # v0.17.0+
+    NestedClustersOptimization, SchurComplementary,
     # Ensemble
     StackingOptimization,
     # Enum
     ObjectiveFunction,
 )
+```
+
+## Resilience layer (NEW in 1.0)
+
+Every optimizer now accepts a failure-handling layer. Applies to walk-forward / online backtests where a single rebalance can be infeasible.
+
+```python
+model = MeanRisk(
+    objective_function=ObjectiveFunction.MAXIMIZE_RATIO,
+    fallback=None,          # single estimator | list of estimators | "previous_weights"
+    raise_on_failure=True,  # default; False → warn + return FailedPortfolio
+)
+```
+
+- **`fallback`** — on primary-fit failure try, in order: a single estimator, a list of estimators (first that succeeds wins), or the literal `"previous_weights"` (reuse the last good allocation).
+- **`raise_on_failure`** (default `True`) — `True` re-raises after fallbacks exhausted; `False` emits a warning and `predict()` returns a `FailedPortfolio`.
+- **Fitted attrs**: `fallback_` (`BaseOptimization | "previous_weights" | None`), `fallback_chain_` (`list[tuple[str, str]]` of attempts+outcomes), `error_` (`str | list[str] | None`).
+- **`skfolio.portfolio.FailedPortfolio`** — sentinel returned by `predict()` on failure; carries `optimization_error` and `fallback_chain`. See `portfolio.md`.
+
+```python
+from skfolio.optimization import MeanRisk, ObjectiveFunction
+
+model = MeanRisk(
+    objective_function=ObjectiveFunction.MAXIMIZE_RATIO,
+    fallback="previous_weights",
+    raise_on_failure=False,
+)
+model.fit(X_train)
+portfolio = model.predict(X_test)   # Portfolio, or FailedPortfolio on failure
+print(model.fallback_chain_)
 ```
 
 ## MeanRisk
@@ -33,8 +63,8 @@ model = MeanRisk(
     max_weights=0.15,          # cap per asset
     budget=1.0,                # fully invested
     prior_estimator=EmpiricalPrior(),
-    mu_uncertainty_set_estimator=None,
-    covariance_uncertainty_set_estimator=None,
+    mu_uncertainty_set_estimator=None,          # robust mean-risk (see distance_clustering.md)
+    covariance_uncertainty_set_estimator=None,  # applied only for VARIANCE risk / max_variance
     l1_coef=0.0,
     l2_coef=0.0,
     transaction_costs=0.0,
@@ -43,8 +73,14 @@ model = MeanRisk(
     linear_constraints=None,   # ["Tech <= 0.4", "Tech >= Health"]
     left_inequality=None,      # Aw <= b
     right_inequality=None,
+    target_weights=None,       # NEW 1.0 — weight-based tracking target
+    max_tracking_error=None,   # NEW 1.0 — tracking-error cap
+    fallback=None,             # NEW 1.0
+    raise_on_failure=True,     # NEW 1.0
 )
 ```
+
+Robust mean-risk is expressed on `MeanRisk` itself via `mu_uncertainty_set_estimator` / `covariance_uncertainty_set_estimator` — there is no separate wrapper class. Covariance uncertainty is only applied when `risk_measure=RiskMeasure.VARIANCE` (or `max_variance` is set).
 
 ### ObjectiveFunction
 
@@ -54,6 +90,10 @@ model = MeanRisk(
 | `MAXIMIZE_RETURN` | Maximize expected return |
 | `MAXIMIZE_UTILITY` | Maximize return − risk_aversion × risk |
 | `MAXIMIZE_RATIO` | Maximize return / risk (e.g., Sharpe) |
+
+### Efficient frontier
+
+`MeanRisk(risk_measure=..., efficient_frontier_size=30)` makes `predict(X)` return a `Population` of 30 portfolios (one per frontier point). See `portfolio.md`.
 
 ### RiskMeasure (convex — usable with MeanRisk)
 
@@ -69,7 +109,7 @@ model = MeanRisk(
 | `EVAR` | Entropic Value at Risk |
 | `WORST_REALIZATION` | Worst-case scenario |
 | `CDAR` | Conditional Drawdown at Risk |
-| `MAXIMUM_DRAWDOWN` | Maximum drawdown |
+| `MAX_DRAWDOWN` | Maximum drawdown |
 | `AVERAGE_DRAWDOWN` | Average drawdown |
 | `EDAR` | Entropic Drawdown at Risk |
 | `ULCER_INDEX` | Ulcer index |
@@ -77,31 +117,15 @@ model = MeanRisk(
 
 ### ExtraRiskMeasure (non-convex — scoring only)
 
-| Value | Description |
-|---|---|
-| `VALUE_AT_RISK` | VaR |
-| `DRAWDOWN_AT_RISK` | Drawdown VaR |
-| `ENTROPIC_RISK_MEASURE` | Entropic risk |
-| `FOURTH_CENTRAL_MOMENT` | Kurtosis proxy |
-| `FOURTH_LOWER_PARTIAL_MOMENT` | Downside kurtosis |
-| `SKEW` | Portfolio skewness |
-| `KURTOSIS` | Portfolio kurtosis |
+`VALUE_AT_RISK`, `DRAWDOWN_AT_RISK`, `ENTROPIC_RISK_MEASURE`, `FOURTH_CENTRAL_MOMENT`, `FOURTH_LOWER_PARTIAL_MOMENT`, `SKEW`, `KURTOSIS`.
 
 ### RatioMeasure
 
-| Value | Description |
-|---|---|
-| `SHARPE_RATIO` | Return / StdDev |
-| `SORTINO_RATIO` | Return / Downside deviation |
-| `CALMAR_RATIO` | Return / Max drawdown |
-| `CVAR_RATIO` | Return / CVaR |
+`SHARPE_RATIO`, `SORTINO_RATIO`, `CALMAR_RATIO`, `CVAR_RATIO` (+ `ANNUALIZED_SHARPE_RATIO`, ...).
 
 ### PerfMeasure
 
-| Value | Description |
-|---|---|
-| `MEAN` | Mean return |
-| `ANNUALIZED_MEAN` | Annualized mean |
+`MEAN`, `ANNUALIZED_MEAN`.
 
 ## RiskBudgeting
 
@@ -118,7 +142,7 @@ model = RiskBudgeting(
 
 ## MaximumDiversification
 
-Maximizes the diversification ratio.
+Maximizes the diversification ratio. (Class name is `MaximumDiversification`.)
 
 ```python
 model = MaximumDiversification(prior_estimator=EmpiricalPrior())
@@ -170,11 +194,12 @@ model = NestedClustersOptimization(
     inner_estimator=MeanRisk(),
     outer_estimator=MeanRisk(),
     distance_estimator=PearsonDistance(),
-    hierarchical_clustering_estimator=HierarchicalClustering(),
+    clustering_estimator=HierarchicalClustering(),
+    cv=None, n_jobs=None,
 )
 ```
 
-## SchurComplementary (v0.17.0+)
+## SchurComplementary
 
 Schur-complement-inspired hierarchical allocator that interpolates between HRP (`gamma=0`) and minimum-variance (`gamma→1`).
 
@@ -204,6 +229,7 @@ model = StackingOptimization(
         ("meanrisk", MeanRisk()),
     ],
     final_estimator=MeanRisk(),
+    cv=None, n_jobs=None,
 )
 ```
 
@@ -212,14 +238,16 @@ model = StackingOptimization(
 Minimizes tracking error vs. a benchmark return series.
 
 ```python
-model = BenchmarkTracker(tracking_error_target=0.01)
+model = BenchmarkTracker(risk_measure=RiskMeasure.VARIANCE)
 model.fit(X, y=benchmark_returns)       # y is required
 ```
+
+> Tracking-style constraints can now also be expressed directly on `MeanRisk` via `target_weights` + `max_tracking_error`.
 
 ## Naive Models
 
 ```python
 EqualWeighted()                # 1/N
 InverseVolatility()            # inverse-vol weighting
-Random(n_portfolios=100)       # random portfolios
+Random()                       # random Dirichlet weights
 ```

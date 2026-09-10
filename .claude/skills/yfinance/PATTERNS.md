@@ -134,9 +134,11 @@ annual_cf = ticker.cashflow
 quarterly_cf = ticker.quarterly_cashflow
 ttm_cf = ticker.get_cashflow(freq="trailing")
 
-# Earnings (simplified income — Revenue and Earnings columns)
-annual_earn = ticker.earnings
-quarterly_earn = ticker.quarterly_earnings
+# Earnings — DEPRECATED in 1.6.0: ticker.earnings / ticker.quarterly_earnings
+# now emit a DeprecationWarning and return None (data no longer served by the API).
+# Use the "Net Income" row of the income statement instead:
+net_income = ticker.get_income_stmt().loc["Net Income"]              # annual
+net_income_q = ticker.quarterly_income_stmt.loc["Net Income"]        # quarterly
 
 # Get as dict instead of DataFrame
 income_dict = ticker.get_income_stmt(as_dict=True)
@@ -258,8 +260,8 @@ actions = ticker.actions
 # Capital gains (for mutual funds / ETFs)
 gains = ticker.capital_gains
 
-# Shares outstanding over time
-shares = ticker.shares_full
+# Shares outstanding over time (method — there is no .shares_full attribute)
+shares = ticker.get_shares_full()
 # Or with date range:
 shares = ticker.get_shares_full(start="2020-01-01", end="2024-01-01")
 ```
@@ -272,7 +274,7 @@ shares = ticker.get_shares_full(start="2020-01-01", end="2024-01-01")
 import yfinance as yf
 
 # Full-text search across Yahoo Finance
-search = yf.Search("Apple")
+search = yf.Search("Apple", include_research=True)   # research/nav need their include_* flag
 
 # Matching stock symbols
 for quote in search.quotes:
@@ -280,22 +282,22 @@ for quote in search.quotes:
 
 # Related news
 for article in search.news:
-    print(f"{article['title']}")
+    print(article["title"])
 
-# Research reports
+# Research reports (only populated because include_research=True)
 for report in search.research:
-    print(f"{report['title']}")
+    print(report["title"])
 
-# Lookup — screen-like symbol search by type
-lookup = yf.Lookup("semiconductor", type="equity")
-for quote in lookup.quotes:
-    print(f"{quote['symbol']}: {quote['shortname']}")
+search.all            # filtered aggregate view
+search.response       # raw payload
 
-# Lookup for ETFs
-etf_lookup = yf.Lookup("bond", type="etf")
-
-# Lookup for mutual funds
-fund_lookup = yf.Lookup("growth", type="mutualfund")
+# Lookup — filter by asset class via PROPERTY or get_*(count=...), NOT a type= arg
+lookup = yf.Lookup("semiconductor")
+lookup.stock                      # full result set for stocks
+lookup.etf                        # full result set for ETFs
+lookup.mutualfund
+df = lookup.get_stock(count=25)   # count-limited DataFrame
+df = lookup.get_etf(count=10)
 ```
 
 ---
@@ -305,21 +307,18 @@ fund_lookup = yf.Lookup("growth", type="mutualfund")
 ```python
 import yfinance as yf
 
-# US market
-market = yf.Market("us_market")
+# Identifiers: US, GB, ASIA, EUROPE, RATES, COMMODITIES, CURRENCIES, CRYPTOCURRENCIES
+market = yf.Market("US")
 
-# Market status (open/closed/pre/post)
+# Market status — US ONLY. Non-US returns None + a logged warning (v1.4.0).
 status = market.status
 print(status)
 
-# Market summary (major indices, key metrics)
+# Market summary — regional, works for all eight identifiers
 summary = market.summary
 print(summary)
 
-# Other markets
-uk = yf.Market("gb_market")
-japan = yf.Market("jp_market")
-germany = yf.Market("de_market")
+europe = yf.Market("EUROPE").summary   # use .summary for non-US regional data
 ```
 
 ---
@@ -329,20 +328,23 @@ germany = yf.Market("de_market")
 ```python
 import yfinance as yf
 
-# Sector data
-tech = yf.Sector("technology")
+# Sector data (region scopes the rollups; ISO 3166-1 alpha-2, defaults to US)
+tech = yf.Sector("technology", region="US")
 print(tech.overview)
-print(tech.top_companies)     # Top companies by market cap
-print(tech.industries)        # Industries within sector
-print(tech.top_etfs)          # Sector-tracking ETFs
-print(tech.research)          # Research reports
+print(tech.top_companies)      # Top companies by market cap (region-scoped)
+print(tech.industries)         # Industries within sector
+print(tech.top_etfs)           # Sector-tracking ETFs (region-scoped)
+print(tech.top_mutual_funds)   # Sector-tracking mutual funds
+print(tech.research_reports)   # Research reports (renamed from .research)
 
 # Industry data
-semis = yf.Industry("semiconductors")
+semis = yf.Industry("semiconductors", region="US")
 print(semis.overview)
 print(semis.top_companies)
-print(semis.top_etfs)
-print(semis.research)
+print(semis.top_performing_companies)
+print(semis.top_growth_companies)
+print(semis.research_reports)
+print(semis.sector_key, semis.sector_name)
 
 # Available sector keys
 sectors = [
@@ -363,31 +365,35 @@ from yfinance import EquityQuery
 
 # Simple query: large-cap tech stocks
 query = EquityQuery("and", [
-    EquityQuery("gt", ["marketcap", 10_000_000_000]),  # > $10B
+    EquityQuery("gt", ["intradaymarketcap", 10_000_000_000]),  # > $10B
     EquityQuery("eq", ["sector", "Technology"]),
 ])
 
-result = yf.screen(query, sort_field="marketcap", sort_type="desc", size=25)
+result = yf.screen(query, sortField="intradaymarketcap", sortAsc=False, size=25)
 for stock in result["quotes"]:
     print(f"{stock['symbol']}: ${stock.get('marketCap', 0):,.0f}")
 
 # Complex query with nested AND/OR
 query = EquityQuery("and", [
-    EquityQuery("gt", ["marketcap", 1_000_000_000]),
+    EquityQuery("gt", ["intradaymarketcap", 1_000_000_000]),
     EquityQuery("or", [
         EquityQuery("gt", ["dividendyield", 3]),
-        EquityQuery("lt", ["peratio", 15]),
+        EquityQuery("lt", ["peratio.lasttwelvemonths", 15]),
     ]),
     EquityQuery("eq", ["region", "us"]),
 ])
 
-result = yf.screen(query, sort_field="dividendyield", sort_type="desc", size=50)
-print(f"Total matches: {result['total']}")
+# NOTE: sortField (camelCase) + sortAsc (bool), NOT sort_field / sort_type.
+# size for CUSTOM queries (default 100, max 250); count for PREDEFINED names (default 25).
+result = yf.screen(query, sortField="dividendyield", sortAsc=False, size=50)
+
+# Predefined screen — pass a name string and use count
+gainers = yf.screen("day_gainers", count=50)
 
 # Between operator
 query = EquityQuery("and", [
     EquityQuery("btwn", ["intradayprice", 10, 50]),
-    EquityQuery("gt", ["volume", 1_000_000]),
+    EquityQuery("gt", ["dayvolume", 1_000_000]),
 ])
 
 # Paginated results
@@ -401,11 +407,15 @@ for offset in range(0, 500, 250):
 # Fund screening
 from yfinance import FundQuery
 
+# FundQuery has a SMALL field set: exchange, categoryname,
+# annualreturnnavy1categoryrank, performanceratingoverall, initialinvestment,
+# riskratingoverall, intradaypricechange, eodprice, intradayprice.
+# (No netassets / annualreturnnavy5 — those are ETFQuery-only.)
 fund_query = FundQuery("and", [
-    FundQuery("gt", ["netassets", 1_000_000_000]),
-    FundQuery("lt", ["annualreturnnavy5", 10]),
+    FundQuery("gt", ["performanceratingoverall", 3]),
+    FundQuery("lt", ["riskratingoverall", 4]),
 ])
-fund_result = yf.screen(fund_query, sort_field="netassets", sort_type="desc")
+fund_result = yf.screen(fund_query, sortField="performanceratingoverall", sortAsc=False)
 
 # ETF screening (v1.3.0+)
 from yfinance import ETFQuery
@@ -425,7 +435,7 @@ for etf in etf_result["quotes"]:
 import yfinance as yf
 
 t = yf.Ticker("AAPL")
-vm = t.valuation_measures
+vm = t.get_valuation_measures()   # method (freq='quarterly', periods=5); no .valuation_measures attr
 # DataFrame with rows for Market Cap, Enterprise Value, Trailing P/E,
 # Forward P/E, PEG Ratio (5yr), Price/Sales, Price/Book, EV/Revenue, EV/EBITDA
 # and columns for current + historical quarters and year-ends.
@@ -438,33 +448,34 @@ print(vm.iloc[:, 0])                # all 9 metrics for the most recent period
 
 ## 12. WebSocket Real-Time Data
 
+No `run()` / `on_message`. Pattern: `subscribe(...)` → `listen(handler)` → `close()`.
+
 ```python
 import yfinance as yf
 
-# Synchronous WebSocket
-def on_message(ws, msg):
-    """Called for each price update."""
-    print(f"Symbol: {msg['id']}, Price: {msg['price']}, Volume: {msg['dayVolume']}")
+# Synchronous WebSocket (context manager handles close())
+def on_message(msg):
+    """Called for each price update (single dict arg)."""
+    # decoded keys are snake_case proto names: id, price, time, day_volume, change, change_percent, ...
+    print(f"{msg['id']}: {msg['price']} vol={msg.get('day_volume')}")
 
-ws = yf.WebSocket()
-ws.subscribe(["AAPL", "MSFT", "GOOG"])
-ws.on_message = on_message
-ws.run()  # Blocks — runs until interrupted
+with yf.WebSocket() as ws:
+    ws.subscribe(["AAPL", "MSFT", "GOOG"])
+    ws.listen(on_message)          # blocks; handler passed HERE, not via on_message=
 
-# Asynchronous WebSocket
+# Asynchronous WebSocket — coroutines must be awaited
 import asyncio
 
 async def stream_prices():
-    ws = yf.AsyncWebSocket()
-    ws.subscribe(["AAPL", "MSFT"])
-
-    async for msg in ws:
-        print(f"{msg['id']}: {msg['price']}")
-        # Break condition:
-        # if some_condition:
-        #     break
+    async with yf.AsyncWebSocket() as ws:
+        await ws.subscribe(["AAPL", "MSFT"])
+        await ws.listen(lambda msg: print(f"{msg['id']}: {msg['price']}"))
 
 asyncio.run(stream_prices())
+
+# Convenience: stream straight off a Ticker / Tickers
+yf.Ticker("AAPL").live()
+yf.Tickers("AAPL MSFT").live()
 ```
 
 ---
@@ -475,72 +486,52 @@ asyncio.run(stream_prices())
 import yfinance as yf
 
 # Calendar data for a date range
-cal = yf.Calendars(start="2024-01-01", end="2024-03-31")
+cal = yf.Calendars(start="2026-01-01", end="2026-03-31")
 
-# Earnings calendar
-earnings = cal.earnings
+# Convenience properties (default settings, no filtering/pagination)
+earnings = cal.earnings_calendar
+ipos = cal.ipo_info_calendar
+splits = cal.splits_calendar
+econ = cal.economic_events_calendar
 print(earnings.head())
 
-# IPO calendar
-ipos = cal.ipos
-print(ipos.head())
+# Manual query methods — paginate (limit defaults to 12!) + filter + cache bypass
+big_earnings = cal.get_earnings_calendar(
+    market_cap=100_000_000, filter_most_active=True, limit=100,
+)
+more_ipos = cal.get_ipo_info_calendar(limit=50, offset=50, force=True)
 
-# Stock splits
-splits = cal.splits
-print(splits.head())
-
-# Economic events
-econ = cal.economic_events
-print(econ.head())
-
-# Single ticker calendar info
-ticker = yf.Ticker("AAPL")
-cal_info = ticker.calendar
-# Shows next earnings date, ex-dividend date, etc.
+# Single ticker calendar info (dict of next earnings/dividend events)
+cal_info = yf.Ticker("AAPL").calendar
 ```
 
 ---
 
 ## 14. Fund Data
 
+Fund data lives under `ticker.funds_data` (a `FundsData` object) — not flat `ticker.fund_*`.
+
 ```python
 import yfinance as yf
 
 # ETF example
-spy = yf.Ticker("SPY")
+fd = yf.Ticker("SPY").funds_data
 
-# Fund overview
-overview = spy.fund_overview
-print(overview)
+overview   = fd.fund_overview        # dict[str, str | None] — family, category
+holdings   = fd.top_holdings         # DataFrame — top holdings with weights
+sectors    = fd.sector_weightings    # dict[str, float]
+allocation = fd.asset_classes        # dict[str, float] — stocks/bonds/cash/other
+operations = fd.fund_operations      # DataFrame — turnover, expense ratio, inception, AUM
+eq_hold    = fd.equity_holdings      # DataFrame — P/E, P/B of holdings
+desc       = fd.description          # str
+qt         = fd.quote_type()         # str — METHOD, not a property
 
-# Top holdings with weights
-holdings = spy.fund_top_holdings
-print(holdings.head(10))
-
-# Sector weightings
-sectors = spy.fund_sector_weightings
-print(sectors)
-
-# Asset allocation (stocks/bonds/cash/other)
-allocation = spy.fund_asset_allocation
-print(allocation)
-
-# Performance data
-perf = spy.fund_performance
-print(perf)
-
-# Holding info (AUM, turnover, inception)
-info = spy.fund_holding_info
-print(info)
-
-# Equity holdings characteristics (P/E, P/B of holdings)
-eq_hold = spy.fund_equity_holdings
-print(eq_hold)
+# NOTE: no fund_performance — use ticker.history() for returns.
 
 # Bond holdings (for bond funds/ETFs)
-bond_etf = yf.Ticker("AGG")
-bond_hold = bond_etf.fund_bond_holdings
-bond_ratings = bond_etf.fund_bond_ratings
+bond_fd = yf.Ticker("AGG").funds_data
+bond_hold    = bond_fd.bond_holdings    # DataFrame
+bond_ratings = bond_fd.bond_ratings     # dict[str, float]
 ```
 
 ---
@@ -684,7 +675,7 @@ history = ticker.history(period="1y")
 
 tickers = yf.Tickers("AAPL MSFT", session=session)
 
-market = yf.Market("us_market", session=session)
+market = yf.Market("US", session=session)
 
 search = yf.Search("Apple", session=session)
 
@@ -697,10 +688,10 @@ sector = yf.Sector("technology", session=session)
 
 ## 19. Project Integration Patterns
 
-This project wraps yfinance through `@yfinance_client/client.py` with resilience patterns:
+This project wraps yfinance through `ingestion/app/services/market_data/yfinance/_facade.py` (package `app.services.market_data.yfinance`) with resilience patterns:
 
 ```python
-from yfinance_client import YFinanceClient, get_yfinance_client
+from app.services.market_data.yfinance import YFinanceClient, get_yfinance_client
 
 # Singleton access — preferred way
 client = get_yfinance_client()
@@ -734,19 +725,8 @@ data = client.bulk_download(
 ticker = client.get_ticker("AAPL")
 # Subsequent calls return cached Ticker object
 
-# Adapter layer for dependency injection
-from optimizer.adapters.yfinance import PriceAdapter, MarketCapAdapter
-
-price_provider = PriceAdapter()  # uses singleton client internally
-history = price_provider.fetch_history("AAPL", period="2y")
-stock, bench, info = price_provider.fetch_price_and_benchmark("AAPL")
-
-mcap_provider = MarketCapAdapter()
-market_caps = mcap_provider.get_market_caps(["AAPL", "MSFT", "GOOG"])
-# Returns pd.Series of market caps
-
 # News with full article content
-from yfinance_client import NewsClient
+from app.services.market_data.yfinance import NewsClient
 
 news_client = NewsClient(yf_client=client)
 articles = news_client.fetch(
@@ -757,7 +737,7 @@ articles = news_client.fetch(
 # Each article dict may include 'full_content' from scraping
 
 # Country-level news aggregation
-from yfinance_client import CountryNewsFetcher
+from app.services.market_data.yfinance import CountryNewsFetcher
 
 fetcher = CountryNewsFetcher(yf_client=client)
 us_news = fetcher.fetch_for_country("USA", max_articles=50)

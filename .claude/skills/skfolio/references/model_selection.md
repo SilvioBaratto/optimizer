@@ -15,15 +15,25 @@ from skfolio.model_selection import (
 
 Rolling/expanding window CV for time series.
 
+⚠️ **1.0 rename:** `expend_train` → `expand_train` (old misspelling removed).
+
 ```python
 cv = WalkForward(
-    test_size=60,      # test observations per fold
-    train_size=252,    # None ⇒ expanding window
+    test_size=60,          # test observations per fold (or a pandas offset with freq)
+    train_size=252,        # training observations
+    freq=None,             # NEW: calendar frequency, e.g. "WOM-3FRI" (needs DatetimeIndex)
+    freq_offset=None,      # NEW
+    previous=False,        # NEW
+    expand_train=False,    # True ⇒ expanding window (was expend_train)
+    reduce_test=False,     # NEW
+    purged_size=0,         # NEW: gap between train and test
 )
 
 pred = cross_val_predict(MeanRisk(), X, cv=cv)
 print(pred.sharpe_ratio)   # pred is a MultiPeriodPortfolio
 ```
+
+Full signature: `WalkForward(test_size, train_size, freq=None, freq_offset=None, previous=False, expand_train=False, reduce_test=False, purged_size=0)`.
 
 ## CombinatorialPurgedCV
 
@@ -33,8 +43,6 @@ Multiple paths with purging and embargoing to prevent leakage from nearby folds 
 cv = CombinatorialPurgedCV(
     n_folds=10,
     n_test_folds=8,
-    purge_size=5,
-    embargo_size=5,
 )
 
 pred = cross_val_predict(MeanRisk(), X, cv=cv)
@@ -42,7 +50,7 @@ pred = cross_val_predict(MeanRisk(), X, cv=cv)
 print(pred.summary())
 ```
 
-Use `optimal_folds_number(n_observations, n_test_folds, ...)` to pick `n_folds` that balance path count against fold size.
+Use `optimal_folds_number(n_observations, target_train_size, target_n_test_paths)` → `(n_folds, n_test_folds)` to size folds.
 
 ## MultipleRandomizedCV
 
@@ -57,30 +65,29 @@ cv = MultipleRandomizedCV(
 )
 ```
 
-Supports `get_n_splits()` (0.16.0+).
-
 ## cross_val_predict
 
 - `MultiPeriodPortfolio` for single-path CV (`KFold`, `WalkForward`)
-- `Population` for multi-path CV (`CombinatorialPurgedCV`, `MultipleRandomizedCV`)
+- `Population` of `MultiPeriodPortfolio` for multi-path CV (`CombinatorialPurgedCV`, `MultipleRandomizedCV`)
 
 ```python
 pred = cross_val_predict(model, X, cv=cv)
+np.asarray(pred)   # array form of the returns
 ```
 
 ---
 
 ## Hyperparameter Tuning
 
-Uses scikit-learn's `GridSearchCV` and `RandomizedSearchCV`. For online/walk-forward tuning see `online_learning.md` (`OnlineGridSearch`).
+Uses scikit-learn's `GridSearchCV` and `RandomizedSearchCV`. For online/walk-forward tuning see `online_learning.md` (`OnlineGridSearch` / `OnlineRandomizedSearch`).
 
 ### Nested parameter syntax
 
-Double-underscore `__` reaches nested estimator params. Discover them via `model.get_params()`.
+Double-underscore `__` reaches nested estimator params. Discover them via `model.get_params(deep=True)`.
 
 ```python
 param_grid = {
-    "prior_estimator__mu_estimator__alpha": [0.001, 0.01, 0.1],
+    "prior_estimator__mu_estimator__half_life": [10, 20, 40, 80],   # NOT alpha (1.0)
     "risk_measure": [RiskMeasure.SEMI_VARIANCE, RiskMeasure.CVAR],
 }
 ```
@@ -98,6 +105,8 @@ def custom(pred):                           # receives a Portfolio
 scoring = make_scorer(custom)
 ```
 
+Default optimizer score is the Sharpe ratio when `scoring` is omitted.
+
 ### GridSearchCV
 
 ```python
@@ -105,12 +114,12 @@ from sklearn.model_selection import GridSearchCV, KFold
 
 grid = GridSearchCV(
     estimator=MeanRisk(),
-    param_grid=param_grid,
+    param_grid=param_grid,             # a dict, or a list of dicts for disjoint sub-spaces
     cv=KFold(n_splits=5, shuffle=False),    # shuffle=False for time series
     scoring=scoring,
     n_jobs=-1,
 )
-grid.fit(X)
+grid.fit(X)                             # optimizers fit with X only (no y)
 best = grid.best_estimator_
 ```
 
@@ -153,8 +162,8 @@ model.fit(X, implied_vol=implied_vol)
 ```
 
 Three steps:
-1. `set_config(enable_metadata_routing=True)` — enable globally.
+1. `set_config(enable_metadata_routing=True)` — enable globally, **before** step 2.
 2. `.set_fit_request(<param>=True)` — declare the metadata on the consumer.
 3. `model.fit(X, <param>=value)` — pass it at fit time; routing threads it through.
 
-Metadata propagates through `GridSearchCV` splits automatically.
+Factor returns for factor-model priors route the same way as the `factors=` keyword. Metadata propagates through `GridSearchCV` splits automatically.

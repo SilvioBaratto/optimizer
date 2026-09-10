@@ -144,6 +144,9 @@ frontend/.angular/
 .claude/*
 !.claude/skills/
 .claude/skills/**/evals/
+# Local skill-eval scratch workspaces (not shared)
+.claude/skills/skfolio-workspace/
+.claude/skills/yfinance-workspace/
 
 # Playwright MCP
 .playwright-mcp/

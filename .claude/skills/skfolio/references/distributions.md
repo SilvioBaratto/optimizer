@@ -22,8 +22,8 @@ Multivariate dependence model — fits a regular-vine structure where each node 
 from skfolio.distribution import VineCopula, StudentT, JohnsonSU
 
 copula = VineCopula(
-    copulas="all",                                     # or a list of copula classes
-    univariate_distributions=[StudentT, JohnsonSU],
+    copula_candidates=None,                            # None = default candidate set (or pass a list of copula classes)
+    marginal_candidates=[StudentT, JohnsonSU],         # univariate marginals
 )
 copula.fit(X)
 samples = copula.sample(n_samples=10_000)
@@ -60,5 +60,7 @@ factor_prior = SyntheticData(
 
 prior = TimeSeriesFactorModel(factor_prior_estimator=factor_prior)
 model = MeanRisk(risk_measure=RiskMeasure.CVAR, prior_estimator=prior)
-model.fit(X_train, y=y_train)                          # y = factor returns
+model.fit(X_train, factors=factors_train)              # 1.0: keyword `factors=`, not `y`
 ```
+
+> **1.0:** factor returns are passed as the keyword-only `factors=` (was positional `y`), and the estimator is `TimeSeriesFactorModel` — `FactorModel` is now a fitted *container*, not an estimator. See `priors.md` / `factor_models.md`.

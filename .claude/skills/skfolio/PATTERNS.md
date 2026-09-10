@@ -68,7 +68,7 @@ equilibrium_prior = EmpiricalPrior(
 bl_prior = BlackLitterman(
     views=[
         "AAPL == 0.10",           # AAPL returns 10% annually
-        "MSFT - GOOG == 0.03",    # MSFT outperforms GOOG by 3%
+        "MSFT - AMD == 0.03",     # MSFT outperforms AMD by 3%
         "JPM == 0.08",            # JPM returns 8%
     ],
     tau=0.05,
@@ -88,9 +88,9 @@ portfolio = model.predict(X_test)
 
 ---
 
-## 3. Factor Model Pipeline (v0.17.0+)
+## 3. Factor Model Pipeline
 
-> Use `TimeSeriesFactorModel` — `FactorModel` is deprecated as of 0.17.0.
+> Use `TimeSeriesFactorModel`. In 1.0 `FactorModel` is the fitted *container*, not an estimator; factor returns are the keyword-only `factors=` (not `y`).
 
 ```python
 from skfolio.datasets import load_sp500_dataset, load_factors_dataset
@@ -104,10 +104,10 @@ prices = load_sp500_dataset()
 factor_prices = load_factors_dataset()
 
 X = prices_to_returns(prices)
-y = prices_to_returns(factor_prices)
+factors = prices_to_returns(factor_prices)
 
 X_train, X_test = X.iloc[:252], X.iloc[252:]
-y_train, y_test = y.iloc[:252], y.iloc[252:]
+factors_train, factors_test = factors.iloc[:252], factors.iloc[252:]
 
 # Factor model with shrunk estimates
 factor_prior = TimeSeriesFactorModel(
@@ -124,8 +124,8 @@ model = MeanRisk(
     min_weights=0.0,
 )
 
-# X = asset returns, y = factor returns
-model.fit(X_train, y=y_train)
+# X = asset returns, factors = factor returns (keyword-only in 1.0)
+model.fit(X_train, factors=factors_train)
 portfolio = model.predict(X_test)
 print(portfolio.sharpe_ratio)
 ```
@@ -149,7 +149,7 @@ model = MeanRisk(
     prior_estimator=bl_factor,
     risk_measure=RiskMeasure.CVAR,
 )
-model.fit(X_train, y=y_train)
+model.fit(X_train, factors=factors_train)
 ```
 
 ---
@@ -354,8 +354,8 @@ pipe = Pipeline([
     )),
 ])
 
-# Factor returns passed as y
-pipe.fit(X_train, optimization__y=y_train)
+# Factor returns routed to the optimization step (keyword `factors` in 1.0)
+pipe.fit(X_train, optimization__factors=factors_train)
 ```
 
 ---
@@ -406,7 +406,7 @@ from skfolio.model_selection import CombinatorialPurgedCV
 cv = CombinatorialPurgedCV(
     n_folds=10,
     n_test_folds=8,
-    purge_size=5,
+    purged_size=5,
     embargo_size=5,
 )
 
@@ -470,14 +470,14 @@ model = MeanRisk(
     objective_function=ObjectiveFunction.MAXIMIZE_RATIO,
     risk_measure=RiskMeasure.CVAR,
     prior_estimator=EmpiricalPrior(
-        mu_estimator=EWMu(alpha=0.2),
+        mu_estimator=EWMu(half_life=40),   # 1.0: half_life, NOT alpha
         covariance_estimator=LedoitWolf(),
     ),
 )
 
 # Tune nested estimator parameters
 param_grid = {
-    "prior_estimator__mu_estimator__alpha": [0.01, 0.05, 0.1, 0.2, 0.5],
+    "prior_estimator__mu_estimator__half_life": [10, 20, 40, 80, 160],
 }
 
 grid = GridSearchCV(
@@ -549,8 +549,8 @@ from skfolio import RiskMeasure
 
 # Fit vine copula and generate synthetic scenarios
 copula = VineCopula(
-    copulas="all",  # try all copula types
-    univariate_distributions=[StudentT, JohnsonSU],
+    copula_candidates=None,                      # None = try the default candidate set
+    marginal_candidates=[StudentT, JohnsonSU],   # univariate marginals
 )
 
 prior = SyntheticData(
@@ -569,7 +569,7 @@ model.fit(X_train)
 ### Stressed Factor Model
 
 ```python
-from skfolio.prior import FactorModel, SyntheticData
+from skfolio.prior import TimeSeriesFactorModel, SyntheticData
 
 # Stress test: factor drops 10%
 factor_prior = SyntheticData(
@@ -580,7 +580,8 @@ factor_prior = SyntheticData(
     ),
 )
 
-prior = FactorModel(
+# 1.0: TimeSeriesFactorModel is the estimator (FactorModel is now a fitted container)
+prior = TimeSeriesFactorModel(
     factor_prior_estimator=factor_prior,
 )
 
@@ -588,7 +589,7 @@ model = MeanRisk(
     risk_measure=RiskMeasure.CVAR,
     prior_estimator=prior,
 )
-model.fit(X_train, y=y_train)
+model.fit(X_train, factors=factors_train)   # keyword-only in 1.0
 ```
 
 ---
@@ -803,7 +804,7 @@ print(f"Max DD:  {pred.max_drawdown:.3%}")
 # Scalar score over full path
 score = online_score(
     model, X,
-    scoring=make_scorer(RatioMeasure.SORTINO_RATIO),
+    scoring=RatioMeasure.SORTINO_RATIO,   # pass the measure directly; make_scorer is rejected by online APIs
     warmup_size=252,
 )
 ```
@@ -821,7 +822,7 @@ search = OnlineGridSearch(
     },
     warmup_size=252,
     test_size=1,
-    scoring=make_scorer(RatioMeasure.SORTINO_RATIO),
+    scoring=RatioMeasure.SORTINO_RATIO,   # measure directly; make_scorer not supported for online eval
     n_jobs=-1,
 )
 search.fit(X)
@@ -857,7 +858,7 @@ reg_eval.plot_qlike_loss()
 
 # Side-by-side comparison
 comparison = CovarianceForecastComparison(
-    {"EW": ew_eval, "RegimeEW": reg_eval},
+    [ew_eval, reg_eval], names=["EW", "RegimeEW"],
 )
 comparison.summary()
 ```
@@ -921,7 +922,7 @@ y = rng.standard_normal((T, N))      # asset returns
 w = np.ones((T, N))                  # per-period asset weights (0 excludes)
 
 model = CSLinearRegression(fit_intercept=True)
-model.fit(X, y, sample_weight=w)
+model.fit(X, y, cs_weights=w)
 
 print(model.coef_.shape)             # (T, K) — factor returns per period
 print(model.intercept_.shape)        # (T,)
@@ -930,7 +931,7 @@ preds = model.predict(X)             # (T, N)
 r2 = model.score(X, y)
 ```
 
-Zero `sample_weight` rows are dropped from the fit (useful when an asset is absent from the universe that day — NaN allowed).
+Zero `cs_weights` rows are dropped from the fit (useful when an asset is absent from the universe that day — NaN allowed).
 
 ---
 
@@ -1008,8 +1009,8 @@ from skfolio.prior import TimeSeriesFactorModel, BlackLitterman, EmpiricalPrior
 prices = load_sp500_dataset()
 factor_prices = load_factors_dataset()
 
-X = prices_to_returns(prices)           # linear returns
-y = prices_to_returns(factor_prices)    # factor returns
+X = prices_to_returns(prices)               # linear returns
+factors = prices_to_returns(factor_prices)  # factor returns
 
 # ── Factor Model with BL Views ──────────────────────────────────
 bl_factor_prior = TimeSeriesFactorModel(
@@ -1057,8 +1058,8 @@ grid = GridSearchCV(
     n_jobs=-1,
 )
 
-# Factor returns passed to optimization step
-grid.fit(X, optimization__y=y)
+# Factor returns routed to the optimization step (keyword `factors` in 1.0)
+grid.fit(X, optimization__factors=factors)
 best_pipe = grid.best_estimator_
 
 print(f"Best params: {grid.best_params_}")
@@ -1070,7 +1071,7 @@ pred = cross_val_predict(
     best_pipe,
     X,
     cv=cv,
-    params=dict(optimization__y=y),
+    params=dict(optimization__factors=factors),
 )
 
 print(f"\nWalk-Forward Results:")
@@ -1081,3 +1082,129 @@ print(f"  CVaR (95%):    {pred.cvar:.3%}")
 
 pred.plot_cumulative_returns()
 ```
+
+---
+
+## 22. Optimizer Resilience / Fallback (v1.0+)
+
+A single rebalance can be infeasible in a long backtest. The 1.0 resilience layer keeps the run going instead of crashing.
+
+```python
+from skfolio.optimization import MeanRisk, ObjectiveFunction, EqualWeighted
+from skfolio.model_selection import cross_val_predict, WalkForward
+from skfolio.portfolio import FailedPortfolio
+from skfolio import RiskMeasure
+
+model = MeanRisk(
+    objective_function=ObjectiveFunction.MAXIMIZE_RATIO,
+    risk_measure=RiskMeasure.CVAR,
+    min_weights=0.0, max_weights=0.10,
+    # try in order on failure; here fall back to equal weight, then carry last allocation
+    fallback=[EqualWeighted(), "previous_weights"],
+    raise_on_failure=False,   # → predict() returns a FailedPortfolio instead of raising
+)
+
+model.fit(X_train)
+portfolio = model.predict(X_test)
+
+if isinstance(portfolio, FailedPortfolio):
+    print("rebalance failed:", portfolio.optimization_error)
+    print("attempts:", portfolio.fallback_chain)
+else:
+    print(model.fallback_chain_)   # what actually ran, e.g. [("MeanRisk", "failed"), ("EqualWeighted", "success")]
+
+# In a walk-forward, failed folds no longer abort the whole backtest:
+pred = cross_val_predict(model, X, cv=WalkForward(test_size=21, train_size=252))
+```
+
+`fallback` accepts a single estimator, a list (first success wins), or the literal `"previous_weights"`. Fitted diagnostics: `fallback_`, `fallback_chain_`, `error_`.
+
+---
+
+## 23. Characteristics (BARRA-style) Factor Model (v1.0+)
+
+Cross-sectional factor model built from fundamental/price descriptors over an `AssetPanel`. Full API in `references/factor_models.md`.
+
+```python
+from skfolio.containers import AssetPanel
+from skfolio.datasets import make_synthetic_characteristics
+from skfolio.descriptor import BookToPrice, SalesToPrice, EWMarketBeta, EWMomentum, LogMarketCap
+from skfolio.factor_exposure import (
+    GlobalFactor, OneHotCategoricalFactors, FixedWeightedFactor, DerivedFactor,
+)
+from skfolio.moments import EWMu, RegimeAdjustedEWCovariance
+from skfolio.optimization import MeanRisk, ObjectiveFunction
+from skfolio.prior import CharacteristicsFactorModel, EmpiricalPrior
+from skfolio import RiskMeasure
+
+panel = make_synthetic_characteristics(n_assets=200, n_observations=1000, random_state=42)
+month, half_year, year = 21, 126, 252
+
+factors = [
+    ("market",   GlobalFactor(family="market")),
+    ("industry", OneHotCategoricalFactors(category="industry", family="industry")),
+    ("beta",     FixedWeightedFactor(descriptors=[("beta", EWMarketBeta(half_life=year))],
+                                     transform_by_group="industry")),
+    ("momentum", FixedWeightedFactor(descriptors=[("mom", EWMomentum(half_life=half_year, skip=month))],
+                                     transform_by_group="industry")),
+    ("size",     FixedWeightedFactor(descriptors=[("log_mcap", LogMarketCap())],
+                                     transform_by_group="industry")),
+    ("non_linear_size", DerivedFactor(source="size", func=lambda x: x ** 3,
+                                      transform_by_group="industry")),
+    ("value",    FixedWeightedFactor(
+        descriptors=[("btp", BookToPrice()), ("stp", SalesToPrice())],
+        weights=[0.7, 0.3], transform_by_group="industry")),
+]
+
+prior = CharacteristicsFactorModel(
+    factors=factors,
+    neutralize_against={"non_linear_size": ["size"]},
+    constrained_families=[("industry", None)],   # zero-sum across industry dummies
+    exposure_lag=1,                              # returns at t regress on exposures at t-1
+    factor_prior_estimator=EmpiricalPrior(
+        mu_estimator=EWMu(half_life=year),
+        covariance_estimator=RegimeAdjustedEWCovariance(half_life=half_year, corr_half_life=year),
+    ),
+    n_jobs=-1,
+)
+prior.fit(characteristics=panel)                 # keyword-only; input is an AssetPanel
+
+model = MeanRisk(
+    objective_function=ObjectiveFunction.MINIMIZE_RISK,
+    risk_measure=RiskMeasure.VARIANCE,
+    prior_estimator=prior,
+    min_weights=0.0,
+)
+# incremental update as new characteristics arrive:
+prior.partial_fit(characteristics=panel)
+```
+
+Inspect the fitted decomposition via `prior.factor_model_` (`.summary()`, `.exposures_df()`, `.cs_regression_scores()`, `plot_*`).
+
+---
+
+## 24. Orthogonal Uncertainty Set (v1.0+)
+
+Robust mean-risk that confines estimation-error uncertainty to the space orthogonal to a factor-model loading matrix. Requires a factor-model `prior_estimator`.
+
+```python
+from sklearn import set_config
+from skfolio.optimization import MeanRisk, ObjectiveFunction
+from skfolio.uncertainty_set import OrthogonalMuUncertaintySet, OrthogonalCovarianceUncertaintySet
+from skfolio.prior import CharacteristicsFactorModel
+from skfolio import RiskMeasure
+
+set_config(enable_metadata_routing=True)   # required so `characteristics` routes to the prior
+
+model = MeanRisk(
+    objective_function=ObjectiveFunction.MAXIMIZE_RATIO,
+    risk_measure=RiskMeasure.VARIANCE,
+    prior_estimator=CharacteristicsFactorModel(factors=factors),   # factor-model prior required
+    mu_uncertainty_set_estimator=OrthogonalMuUncertaintySet(confidence_level=0.95),
+    covariance_uncertainty_set_estimator=OrthogonalCovarianceUncertaintySet(radius=0.05),
+    min_weights=0.0,
+)
+model.fit(None, characteristics=panel)   # MeanRisk.fit needs X positionally; pass None, route characteristics
+```
+
+> Orthogonal covariance uncertainty is parameterized by `radius`, not `confidence_level`. Covariance uncertainty applies only with `RiskMeasure.VARIANCE` (or `max_variance`). See `references/distance_clustering.md`.
