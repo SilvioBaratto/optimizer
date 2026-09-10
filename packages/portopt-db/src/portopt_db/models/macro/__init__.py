@@ -3,9 +3,7 @@
 from portopt_db.models.macro.macro_regime import (
     BondYield,
     EconomicIndicator,
-    MacroCalibration,
     MacroNews,
-    MacroNewsSummary,
     MacroNewsTheme,
     TradingEconomicsIndicator,
 )
@@ -13,9 +11,7 @@ from portopt_db.models.macro.macro_regime import (
 __all__ = [
     "BondYield",
     "EconomicIndicator",
-    "MacroCalibration",
     "MacroNews",
-    "MacroNewsSummary",
     "MacroNewsTheme",
     "TradingEconomicsIndicator",
 ]

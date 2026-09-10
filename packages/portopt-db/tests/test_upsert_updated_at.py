@@ -25,49 +25,6 @@ _PAST = datetime.datetime(2000, 1, 1, 0, 0, 0)
 class TestUpsertUpdatedAtStamping:
     """_upsert() must advance updated_at on conflict and preserve created_at."""
 
-    def test_updated_at_advances_after_conflict_explicit_update_columns(
-        self, db_session: Session
-    ) -> None:
-        """upsert_macro_news_summary uses an explicit update_columns list.
-        On conflict, updated_at must advance beyond the pre-conflict sentinel."""
-        repo = MacroRegimeRepository(db_session)
-        d = datetime.date(2026, 1, 10)
-        data = {
-            "summary": "First",
-            "sentiment": "neutral",
-            "sentiment_score": 0.0,
-            "article_count": 1,
-            "news_summary": "X",
-        }
-        repo.upsert_macro_news_summary("USA_311_A", d, data)
-        db_session.flush()
-
-        row = repo.get_macro_news_summary("USA_311_A", d)
-        assert row is not None
-        created_at = row.created_at
-
-        # Force updated_at to a known past value so the conflict upsert's func.now()
-        # is guaranteed to produce a newer timestamp — avoids SQLite clock precision issues.
-        db_session.execute(
-            text(
-                "UPDATE macro_news_summaries SET updated_at = :ts"
-                " WHERE country = :c AND summary_date = :d"
-            ),
-            {"ts": _PAST, "c": "USA_311_A", "d": d},
-        )
-        db_session.flush()
-        db_session.expire(row)
-
-        repo.upsert_macro_news_summary("USA_311_A", d, {**data, "summary": "Updated"})
-        db_session.flush()
-        db_session.expire(row)
-
-        row = repo.get_macro_news_summary("USA_311_A", d)
-        assert row is not None
-        assert row.summary == "Updated"
-        assert row.created_at == created_at, "created_at must never change on conflict"
-        assert row.updated_at > _PAST, "updated_at must advance on conflict"
-
     def test_updated_at_advances_after_conflict_fallback_path(
         self, db_session: Session
     ) -> None:
@@ -110,53 +67,6 @@ class TestUpsertUpdatedAtStamping:
         assert row.last_inflation == 3.5
         assert row.created_at == created_at, "created_at must never change on conflict"
         assert row.updated_at > _PAST, "updated_at must advance on conflict"
-
-    def test_created_at_never_overwritten_on_conflict(
-        self, db_session: Session
-    ) -> None:
-        """created_at is excluded from the update_dict and must remain frozen."""
-        repo = MacroRegimeRepository(db_session)
-        d = datetime.date(2026, 2, 1)
-        data = {
-            "summary": "A",
-            "sentiment": "positive",
-            "sentiment_score": 0.5,
-            "article_count": 3,
-            "news_summary": "Y",
-        }
-        repo.upsert_macro_news_summary("DE_311", d, data)
-        db_session.flush()
-
-        row = repo.get_macro_news_summary("DE_311", d)
-        assert row is not None
-        original_created_at = row.created_at
-
-        repo.upsert_macro_news_summary("DE_311", d, {**data, "summary": "B"})
-        db_session.flush()
-        db_session.expire(row)
-
-        row = repo.get_macro_news_summary("DE_311", d)
-        assert row is not None
-        assert row.created_at == original_created_at
-
-    def test_first_insert_sets_both_timestamps(self, db_session: Session) -> None:
-        """On a clean INSERT (no conflict), both created_at and updated_at are set."""
-        repo = MacroRegimeRepository(db_session)
-        d = datetime.date(2026, 3, 1)
-        data = {
-            "summary": "New",
-            "sentiment": "negative",
-            "sentiment_score": -0.3,
-            "article_count": 2,
-            "news_summary": "Z",
-        }
-        repo.upsert_macro_news_summary("FR_311", d, data)
-        db_session.flush()
-
-        row = repo.get_macro_news_summary("FR_311", d)
-        assert row is not None
-        assert row.created_at is not None
-        assert row.updated_at is not None
 
     def test_narrow_update_columns_omitting_updated_at_leaves_it_unchanged(
         self, db_session: Session

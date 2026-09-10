@@ -17,9 +17,7 @@ from portopt_db.models.macro.macro_regime import (
     EconomicIndicator,
     EconomicIndicatorObservation,
     FredObservation,
-    MacroCalibration,
     MacroNews,
-    MacroNewsSummary,
     MacroNewsTheme,
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
@@ -582,83 +580,6 @@ class MacroRegimeRepository(RepositoryBase):
         return count
 
     # ------------------------------------------------------------------
-    # Macro News Summaries (AI-generated daily country summaries)
-    # ------------------------------------------------------------------
-
-    def upsert_macro_news_summary(
-        self,
-        country: str,
-        summary_date: datetime.date,
-        data: dict[str, Any],
-    ) -> int:
-        """Insert or update the daily news summary for a country on a given date.
-
-        Args:
-            country: Country name (e.g. "USA").
-            summary_date: The date this summary covers.
-            data: Dict of summary column values (summary, key_themes, etc.).
-
-        Returns:
-            Number of rows processed (always 1).
-        """
-        row: dict[str, Any] = {
-            "id": uuid.uuid4(),
-            "country": country,
-            "summary_date": summary_date,
-            **data,
-        }
-        return self._upsert(
-            MacroNewsSummary,
-            [row],
-            constraint_name="uq_macro_news_summary_country_date",
-            update_columns=[
-                "summary",
-                "sentiment",
-                "sentiment_score",
-                "article_count",
-                "news_summary",
-                "updated_at",
-            ],
-        )
-
-    def get_macro_news_summary(
-        self,
-        country: str,
-        summary_date: datetime.date | None = None,
-    ) -> MacroNewsSummary | None:
-        """Return the latest (or date-specific) news summary for a country, or None."""
-        stmt = select(MacroNewsSummary).where(MacroNewsSummary.country == country)
-        if summary_date is not None:
-            stmt = stmt.where(MacroNewsSummary.summary_date == summary_date)
-        else:
-            stmt = stmt.order_by(MacroNewsSummary.summary_date.desc())
-        return self.session.execute(stmt).scalars().first()
-
-    def get_all_news_summaries(
-        self,
-        summary_date: datetime.date | None = None,
-    ) -> Sequence[MacroNewsSummary]:
-        """Return news summaries for all countries, optionally filtered to a single date."""
-        stmt = select(MacroNewsSummary)
-        if summary_date is not None:
-            stmt = stmt.where(MacroNewsSummary.summary_date == summary_date)
-        stmt = stmt.order_by(
-            MacroNewsSummary.country,
-            MacroNewsSummary.summary_date.desc(),
-        )
-        return self.session.execute(stmt).scalars().all()
-
-    def delete_old_news_summaries(self, before_date: datetime.date) -> int:
-        """Delete news summaries with summary_date before the cutoff. Returns count deleted."""
-        stmt = select(MacroNewsSummary).where(
-            MacroNewsSummary.summary_date < before_date
-        )
-        rows = self.session.execute(stmt).scalars().all()
-        for row in rows:
-            self.session.delete(row)
-        return len(rows)
-
-    # ------------------------------------------------------------------
     # Country Summary
     # ------------------------------------------------------------------
 
@@ -674,75 +595,6 @@ class MacroRegimeRepository(RepositoryBase):
             "te_indicators": self.get_te_indicators(country=country),
             "bond_yields": self.get_bond_yields(country=country),
         }
-
-    # ------------------------------------------------------------------
-    # Macro Calibrations (cached LLM results)
-    # ------------------------------------------------------------------
-
-    def upsert_macro_calibration(
-        self,
-        country: str,
-        data: dict[str, Any],
-    ) -> int:
-        """Insert or update the cached macro calibration for a country.
-
-        Args:
-            country: Country name (e.g. "USA").
-            data: Dict of calibration column values (phase, delta, tau, etc.).
-
-        Returns:
-            Number of rows processed (always 1).
-        """
-        row: dict[str, Any] = {
-            "id": uuid.uuid4(),
-            "country": country,
-            **data,
-        }
-        return self._upsert(
-            MacroCalibration,
-            [row],
-            constraint_name="uq_macro_calibration_country",
-        )
-
-    def get_macro_calibration(self, country: str) -> MacroCalibration | None:
-        """Return the cached calibration for a country, or None."""
-        stmt = select(MacroCalibration).where(MacroCalibration.country == country)
-        return self.session.execute(stmt).scalar_one_or_none()
-
-    def upsert_regime_classification(self, country: str, regime: str) -> None:
-        """Persist the rule-based MacroRegime classifier output for a country.
-
-        Issue #530: writes only ``regime_classification``; preserves any
-        existing BAML-managed columns (``phase``, ``delta``, ``tau``,
-        ``confidence``, ``rationale``, ``macro_summary``).  When no row
-        exists for the country yet, inserts a row with neutral placeholder
-        values for the BAML columns so the BAML calibrator can later
-        update them.
-
-        T1.2 / ARCHITECTURE.md §5.4: written as an idempotent
-        ``INSERT ... ON CONFLICT DO UPDATE`` on ``uq_macro_calibration_country``
-        (via :meth:`_upsert`) rather than a read-then-mutate, so an
-        at-least-once re-run (the reaper's reclaim path) converges to one row
-        without racing the unique constraint. Only ``regime_classification``
-        (and ``updated_at``) are in the conflict update set, so BAML columns on
-        an existing row are left untouched; the placeholder BAML values in the
-        INSERT payload are used only when the row is created fresh.
-        """
-        row: dict[str, Any] = {
-            "id": uuid.uuid4(),
-            "country": country,
-            "phase": "",
-            "delta": 0.0,
-            "tau": 0.0,
-            "confidence": 0.0,
-            "regime_classification": regime,
-        }
-        self._upsert(
-            MacroCalibration,
-            [row],
-            constraint_name="uq_macro_calibration_country",
-            update_columns=["regime_classification", "updated_at"],
-        )
 
     # ------------------------------------------------------------------
     # Aggregate helpers

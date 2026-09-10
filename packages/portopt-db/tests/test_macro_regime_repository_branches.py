@@ -18,8 +18,6 @@ execution path; only their SQLite-safe early-return guard branches are driven:
   - ``upsert_bond_yield_observations``     (pg ON CONFLICT)
   - ``upsert_fred_observations``           (pg ON CONFLICT)
   - ``upsert_macro_news``                  (pg ON CONFLICT)
-  - ``upsert_macro_news_summary``          (pg ON CONFLICT)
-  - ``upsert_macro_calibration``           (pg ON CONFLICT)
 
 All SELECT / plain-INSERT / DELETE methods run fine on SQLite and are fully
 exercised below.
@@ -37,9 +35,7 @@ from portopt_db.models.macro.macro_regime import (
     EconomicIndicator,
     EconomicIndicatorObservation,
     FredObservation,
-    MacroCalibration,
     MacroNews,
-    MacroNewsSummary,
     MacroNewsTheme,
     TradingEconomicsIndicator,
     TradingEconomicsObservation,
@@ -107,40 +103,6 @@ def _news(news_id: str, pub: _DT | None = None, ticker: str | None = None) -> Ma
         title=f"Title {news_id}",
         publish_time=pub,
         source_ticker=ticker,
-    )
-
-
-def _summary(
-    country: str,
-    date: _D,
-    summary: str = "ok",
-    sentiment: str = "neutral",
-) -> MacroNewsSummary:
-    return MacroNewsSummary(
-        country=country,
-        summary_date=date,
-        summary=summary,
-        sentiment=sentiment,
-        sentiment_score=0.0,
-        article_count=1,
-    )
-
-
-def _calib(
-    country: str,
-    phase: str = "expansion",
-    delta: float = 0.1,
-    tau: float = 0.5,
-    confidence: float = 0.8,
-    regime: str | None = None,
-) -> MacroCalibration:
-    return MacroCalibration(
-        country=country,
-        phase=phase,
-        delta=delta,
-        tau=tau,
-        confidence=confidence,
-        regime_classification=regime,
     )
 
 
@@ -923,97 +885,6 @@ class TestDeleteOldMacroNews:
 
 
 # ===========================================================================
-# get_macro_calibration
-# ===========================================================================
-
-
-class TestGetMacroCalibration:
-    def test_when_no_row_returns_none(self, db_session: Session) -> None:
-        repo = MacroRegimeRepository(db_session)
-        assert repo.get_macro_calibration("USA") is None
-
-    def test_returns_matching_country_row(self, db_session: Session) -> None:
-        _flush(db_session, _calib("USA", regime="expansion"))
-        repo = MacroRegimeRepository(db_session)
-        row = repo.get_macro_calibration("USA")
-        assert row is not None
-        assert row.country == "USA"
-        assert row.regime_classification == "expansion"
-
-    def test_isolates_by_country(self, db_session: Session) -> None:
-        _flush(db_session, _calib("USA"), _calib("EU"))
-        repo = MacroRegimeRepository(db_session)
-        eu = repo.get_macro_calibration("EU")
-        assert eu is not None and eu.country == "EU"
-
-    def test_unknown_country_returns_none(self, db_session: Session) -> None:
-        _flush(db_session, _calib("USA"))
-        repo = MacroRegimeRepository(db_session)
-        assert repo.get_macro_calibration("JP") is None
-
-
-# ===========================================================================
-# upsert_regime_classification (SQLite-safe: uses plain session.add)
-# ===========================================================================
-
-
-class TestUpsertRegimeClassification:
-    def test_inserts_new_row_when_missing(self, db_session: Session) -> None:
-        repo = MacroRegimeRepository(db_session)
-        repo.upsert_regime_classification("USA", "expansion")
-        db_session.flush()
-        row = repo.get_macro_calibration("USA")
-        assert row is not None
-        assert row.regime_classification == "expansion"
-
-    def test_inserted_row_has_placeholder_baml_values(
-        self, db_session: Session
-    ) -> None:
-        repo = MacroRegimeRepository(db_session)
-        repo.upsert_regime_classification("USA", "slowdown")
-        db_session.flush()
-        row = repo.get_macro_calibration("USA")
-        assert row is not None
-        assert row.phase == ""
-        assert row.delta == 0.0
-        assert row.tau == 0.0
-        assert row.confidence == 0.0
-
-    def test_updates_existing_row_preserving_baml_fields(
-        self, db_session: Session
-    ) -> None:
-        existing = _calib("USA", phase="mid", delta=1.5, tau=0.3, confidence=0.9)
-        _flush(db_session, existing)
-        repo = MacroRegimeRepository(db_session)
-        repo.upsert_regime_classification("USA", "recession")
-        db_session.flush()
-        db_session.refresh(existing)
-        assert existing.regime_classification == "recession"
-        assert existing.phase == "mid"
-        assert existing.delta == 1.5
-
-    def test_overwrites_classification_on_second_call(
-        self, db_session: Session
-    ) -> None:
-        repo = MacroRegimeRepository(db_session)
-        repo.upsert_regime_classification("USA", "recovery")
-        db_session.flush()
-        repo.upsert_regime_classification("USA", "expansion")
-        db_session.flush()
-        row = repo.get_macro_calibration("USA")
-        assert row is not None
-        assert row.regime_classification == "expansion"
-
-    def test_two_countries_independent(self, db_session: Session) -> None:
-        repo = MacroRegimeRepository(db_session)
-        repo.upsert_regime_classification("USA", "expansion")
-        repo.upsert_regime_classification("EU", "recession")
-        db_session.flush()
-        assert repo.get_macro_calibration("USA").regime_classification == "expansion"
-        assert repo.get_macro_calibration("EU").regime_classification == "recession"
-
-
-# ===========================================================================
 # get_country_summary
 # ===========================================================================
 
@@ -1094,65 +965,3 @@ class TestGetDistinctCountries:
         _flush(db_session, _by("OnlyInBond", "10Y"))
         repo = MacroRegimeRepository(db_session)
         assert "OnlyInBond" in repo.get_distinct_countries()
-
-
-# ===========================================================================
-# MacroNewsSummary — get_macro_news_summary branches
-# (complement to test_macro_news_summary_repository.py)
-# ===========================================================================
-
-
-class TestGetMacroNewsSummaryBranches:
-    """Drive branches not yet covered by the existing summary test file."""
-
-    def test_with_exact_date_bypasses_order_by(self, db_session: Session) -> None:
-        d = _D(2026, 3, 1)
-        _flush(db_session, _summary("USA", d, summary="exact"))
-        repo = MacroRegimeRepository(db_session)
-        row = repo.get_macro_news_summary("USA", summary_date=d)
-        assert row is not None
-        assert row.summary == "exact"
-
-    def test_without_date_uses_desc_order(self, db_session: Session) -> None:
-        _flush(
-            db_session,
-            _summary("USA", _D(2026, 1, 1), summary="jan"),
-            _summary("USA", _D(2026, 3, 1), summary="mar"),
-        )
-        repo = MacroRegimeRepository(db_session)
-        row = repo.get_macro_news_summary("USA")
-        assert row is not None
-        assert row.summary == "mar"
-
-    def test_date_present_but_no_row_returns_none(self, db_session: Session) -> None:
-        repo = MacroRegimeRepository(db_session)
-        assert repo.get_macro_news_summary("USA", summary_date=_D(2026, 1, 1)) is None
-
-
-# ===========================================================================
-# delete_old_news_summaries (complementary edge cases)
-# ===========================================================================
-
-
-class TestDeleteOldNewsSummariesBranches:
-    def test_empty_table_returns_zero(self, db_session: Session) -> None:
-        repo = MacroRegimeRepository(db_session)
-        assert repo.delete_old_news_summaries(_D(2026, 1, 1)) == 0
-
-    def test_all_rows_newer_returns_zero(self, db_session: Session) -> None:
-        _flush(db_session, _summary("USA", _D(2026, 6, 1)))
-        repo = MacroRegimeRepository(db_session)
-        assert repo.delete_old_news_summaries(_D(2026, 1, 1)) == 0
-
-    def test_mixed_rows_only_old_deleted(self, db_session: Session) -> None:
-        _flush(
-            db_session,
-            _summary("USA", _D(2025, 1, 1)),
-            _summary("USA", _D(2026, 6, 1)),
-        )
-        repo = MacroRegimeRepository(db_session)
-        deleted = repo.delete_old_news_summaries(_D(2026, 1, 1))
-        db_session.flush()
-        assert deleted == 1
-        remaining = repo.get_all_news_summaries()
-        assert all(r.summary_date >= _D(2026, 1, 1) for r in remaining)

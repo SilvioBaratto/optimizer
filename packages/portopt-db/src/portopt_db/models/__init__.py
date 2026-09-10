@@ -9,9 +9,7 @@ from portopt_db.models.jobs.background_job import BackgroundJob, BackgroundJobEr
 from portopt_db.models.macro.macro_regime import (
     BondYield,
     EconomicIndicator,
-    MacroCalibration,
     MacroNews,
-    MacroNewsSummary,
     MacroNewsTheme,
     TradingEconomicsIndicator,
 )
@@ -70,9 +68,7 @@ __all__ = [
     "InstitutionalHolder",
     "Instrument",
     "IpoCalendar",
-    "MacroCalibration",
     "MacroNews",
-    "MacroNewsSummary",
     "MacroNewsTheme",
     "MarketSummary",
     "MutualFundHolder",
