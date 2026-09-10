@@ -1019,43 +1019,6 @@ Alembic head: `b6c7d8e9f0a1` (62 migrations, single tree at `packages/portopt-db
 | created_at | timestamp with time zone | no |
 | updated_at | timestamp with time zone | no |
 
-### macro_calibrations — 0 rows
-- PK: `id`
-- Unique: `uq_macro_calibration_country` (country)
-- FK: none
-
-| Column | Type | Nullable |
-|--------|------|----------|
-| id | uuid | no |
-| country | character varying | no |
-| phase | character varying | no |
-| delta | double precision | no |
-| tau | double precision | no |
-| confidence | double precision | no |
-| rationale | text | yes |
-| macro_summary | text | yes |
-| created_at | timestamp with time zone | no |
-| updated_at | timestamp with time zone | no |
-| regime_classification | character varying | yes |
-
-### macro_news_summaries — 4 rows
-- PK: `id`
-- Unique: `uq_macro_news_summary_country_date` (country, summary_date)
-- FK: none
-
-| Column | Type | Nullable |
-|--------|------|----------|
-| id | uuid | no |
-| country | character varying | no |
-| summary_date | date | no |
-| summary | text | yes |
-| sentiment | character varying | yes |
-| sentiment_score | double precision | yes |
-| article_count | integer | yes |
-| news_summary | text | yes |
-| created_at | timestamp with time zone | no |
-| updated_at | timestamp with time zone | no |
-
 ### macro_news_themes — 66 rows
 - PK: `id`
 - Unique: `uq_macro_news_theme` (news_id, theme)

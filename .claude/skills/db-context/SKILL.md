@@ -1,7 +1,7 @@
 ---
 name: db-context
 description: >
-  Complete knowledge of the optimizer PostgreSQL database: 57 ingestion tables, schema,
+  Complete knowledge of the optimizer PostgreSQL database: 55 ingestion tables, schema,
   relationships, live row counts, query patterns, and conventions. Load this skill proactively
   whenever working with database models (packages/portopt-db/src/portopt_db/models/), repositories
   (packages/portopt-db/src/portopt_db/repositories/ + ingestion/app/repositories/jobs/), Alembic
@@ -28,15 +28,15 @@ rather than reviving the table.
 and repositories from `portopt_db.repositories`; only the `jobs` repository *behavior* still lives
 in `ingestion/app/repositories/jobs/`.
 
-Live totals: **57 base tables** (55 documented below + `alembic_version` + `apscheduler_jobs`).
-Alembic head `b6c7d8e9f0a1`, 62 migrations. Row counts below are the last verified live snapshot.
+Live totals: **55 base tables** (53 documented below + `alembic_version` + `apscheduler_jobs`).
+Alembic head `d8e9f0a1b2c3`, 63 migrations. Row counts below are the last verified live snapshot.
 
 - Column-by-column schema → `references/full-schema.md`
 - Live volumes, FRED series, indicator lists → `references/data-inventory.md`
 
 ---
 
-## 1. Table Catalog (55 documented + 2 infra)
+## 1. Table Catalog (53 documented + 2 infra)
 
 ### Core (2)
 | Table | Model | Rows | Unique On | Purpose |
@@ -134,7 +134,7 @@ back as `Decimal`.
 
 Filled by the weekly market-wide sweep; empty until it first runs.
 
-### Macro (11)
+### Macro (9)
 | Table | Model | Rows | Unique On | FK | Purpose |
 |-------|-------|-----:|-----------|----|---------|
 | `economic_indicators` | EconomicIndicator | 4 | country | — | Il Sole 24 Ore consensus FORECAST snapshot (latest per country) |
@@ -146,13 +146,10 @@ Filled by the weekly market-wide sweep; empty until it first runs.
 | `fred_observations` | FredObservation | 0 | (series_id, date) | — | FRED series (needs `FRED_API_KEY`; empty until fred step runs) |
 | `macro_news` | MacroNews | 36 | news_id | — | Macro articles, optional `full_content` |
 | `macro_news_themes` | MacroNewsTheme | 66 | (news_id, theme) | → macro_news.id | Theme tags (junction, clear-then-re-add) |
-| `macro_news_summaries` | MacroNewsSummary | 4 | (country, summary_date) | — | **LLM** daily country summaries (BAML `SummarizeCountryNews`) |
-| `macro_calibrations` | MacroCalibration | 0 | country | — | **LLM** regime calibration (BAML `ClassifyMacroRegime`); empty until calibrate step |
 
 Il Sole 24 Ore and Trading Economics are **scraped from HTML and take no API key**. FRED needs
-`FRED_API_KEY`. The two LLM tables are written by the `summarize` and `calibrate` steps via the
-**cloud-only** BAML client (openai|anthropic; Ollama removed). `economic_indicators` are FORECASTS,
-`trading_economics_indicators` are realized actuals — do not conflate.
+`FRED_API_KEY`. `economic_indicators` are FORECASTS, `trading_economics_indicators` are realized
+actuals — do not conflate.
 
 ### Operations (2)
 | Table | Model | Rows | Unique On | FK | Purpose |
@@ -206,7 +203,7 @@ macro_news      1--* macro_news_themes     (CASCADE, delete-orphan)
 - Sector & Market: `sector_snapshots`, `sector_industries`, `sector_top_companies`, `market_summaries`
 - Macro: `economic_indicators`, `economic_indicator_observations`, `trading_economics_indicators`,
   `trading_economics_observations`, `bond_yields`, `bond_yield_observations`, `fred_observations`,
-  `macro_news`, `macro_news_summaries`, `macro_calibrations`
+  `macro_news`
 
 Note: `macro_news_themes.news_id` is the UUID FK to `macro_news.id`, distinct from
 `macro_news.news_id` (the external String article id used for parent dedup).
@@ -384,11 +381,6 @@ select(BackgroundJob).where(BackgroundJob.job_type == "yfinance_fetch").order_by
   wall-clock). `macro_news.publish_time` is nullable.
 - **1:1 tables declared as lists** — TickerProfile/MajorHolders/etc. are unique on `instrument_id`
   but `Instrument` may declare list relationships; snapshot tables retain no history.
-- **`macro_calibrations` sentinel rows** — a fresh row can have `phase=''`, `delta=0/tau=0` before
-  BAML runs; two write paths (LLM calibration vs rule-based `regime_classification`) each preserve
-  the other's columns.
-- **LLM tables are cloud-only output** — `macro_news_summaries`/`macro_calibrations` come from the
-  BAML openai|anthropic client (Ollama removed). Regenerated, not corrected — do not hand-edit.
 - **Orphan reaper is heartbeat-lease based** — `reap_orphans` fails any active row whose
   `last_heartbeat_at` is NULL/stale (> timeout, default 300s); `worker_pid`/`worker_host` are
   observability-only (the host/PID scope check was removed). Long synchronous steps must run under

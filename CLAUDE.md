@@ -59,10 +59,7 @@ uv run --package portopt python -m app.worker       # Run the daemon (blocks; SI
 docker compose exec scheduler python -m app.cli daily
 docker compose exec scheduler python -m app.cli refetch-all
 docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
-# also: universe | macro | fred | news | summarize | calibrate | reference-indices
-
-# BAML (regenerate after editing ingestion/baml_src/)
-cd ingestion && baml-cli generate
+# also: universe | macro | fred | news | reference-indices
 ```
 
 ## CI Pipeline
@@ -116,7 +113,7 @@ Full tables and internals → **[`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE
 - **Gotcha — transient-error detection** (`infrastructure/retry.py`): case-sensitive substring match. `"Too Many Requests"` trips the breaker; `"too many requests"` does not
 - **Cron weekday gotcha**: APScheduler `from_crontab` numbers days `0=Mon..6=Sun`. Use weekday names (`sat`); a bare `0` fires Monday
 
-Key env vars: `DATABASE_URL`, `TRADING_212_API_KEY` (absent ⇒ `universe_build` skips without claiming a slot), `FRED_API_KEY`, `LLM_PROVIDER` (`openai`|`anthropic` — cloud-only, local/Ollama not supported), `METRICS_PORT` (9000), `YFINANCE_FETCH_WORKERS` (1-16, default 4). Full list + `SCHEDULER_*` crons → ARCHITECTURE.md.
+Key env vars: `DATABASE_URL`, `TRADING_212_API_KEY` (absent ⇒ `universe_build` skips without claiming a slot), `FRED_API_KEY`, `METRICS_PORT` (9000), `YFINANCE_FETCH_WORKERS` (1-16, default 4). Full list + `SCHEDULER_*` crons → ARCHITECTURE.md.
 
 ## Linting & Type Checking
 

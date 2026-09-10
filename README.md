@@ -12,7 +12,7 @@ Quantitative portfolio construction and optimization built on [skfolio](https://
 The repository is a **`uv` workspace** with three packages:
 
 - **`optimizer/`** — the pure-Python optimization library, published to PyPI as **`portopt-core`** (import package `optimizer`). DB-agnostic, no API keys, no I/O.
-- **`ingestion/`** — the **`portopt`** app: a yfinance-centric ingestion daemon (PostgreSQL + SQLAlchemy + APScheduler + BAML) plus a `uv`-installable CLI and install wizard. No HTTP API.
+- **`ingestion/`** — the **`portopt`** app: a yfinance-centric ingestion daemon (PostgreSQL + SQLAlchemy + APScheduler) plus a `uv`-installable CLI and install wizard. No HTTP API.
 - **`packages/portopt-db/`** — **`portopt-db`** (import package `portopt_db`): the shared database layer — SQLAlchemy models, repositories, connection manager, and the single Alembic migration tree. Consumed by `ingestion`; carries no sklearn/skfolio stack.
 
 The optimizer library is independent of the data side: neither `ingestion/` nor `portopt-db/` imports `optimizer`, and the daemon image carries none of the sklearn/skfolio optimization stack.
@@ -30,9 +30,8 @@ powershell -c "irm https://raw.githubusercontent.com/SilvioBaratto/optimizer/mai
 
 The bootstrap installs `uv` (if missing), runs `uv tool install portopt`, and launches
 `portopt setup` — an interactive wizard that verifies Docker, validates your API keys,
-encrypts your secrets (`~/.portopt/secrets.enc`), and migrates the database. A cloud LLM
-provider (OpenAI or Anthropic) is **mandatory**. Re-run any time with `portopt setup`; manage
-the stack with `portopt start` / `portopt stop` / `portopt status`.
+encrypts your secrets (`~/.portopt/secrets.enc`), and migrates the database. Re-run any time
+with `portopt setup`; manage the stack with `portopt start` / `portopt stop` / `portopt status`.
 
 The optimization **library** is a separate distribution, `portopt-core` (import package `optimizer`):
 
@@ -241,7 +240,7 @@ optimizer/            Pure-Python library (DB-agnostic, sklearn/skfolio-based)
   online/             partial_fit-based incremental workflows
   fx/                 Multi-currency conversion + FX return decomposition
 
-ingestion/            Ingestion daemon (PostgreSQL, APScheduler, BAML) — services/scheduler/CLI
+ingestion/            Ingestion daemon (PostgreSQL, APScheduler) — services/scheduler/CLI
 packages/portopt-db/  Shared DB layer (models, repositories, engine, single Alembic tree)
 scheduler/            Shell wrappers over the daemon CLI (fetch, refetch)
 scripts/              CI helpers (branch-coverage gate)
@@ -300,8 +299,7 @@ running that step:
 ```bash
 docker compose exec scheduler python -m app.cli daily
 docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
-# also: refetch-all | universe | macro | fred | news | summarize | calibrate |
-#       reference-indices
+# also: refetch-all | universe | macro | fred | news | reference-indices
 ```
 
 Run **exactly one daemon per database**: the orphan reaper fails any active job whose
@@ -318,7 +316,6 @@ from the environment (and Docker-compose `secrets:` at `/run/secrets/*`):
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `FRED_API_KEY` | Federal Reserve Economic Data |
-| `LLM_PROVIDER` + `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` (+ `OPENAI_MODEL` / `ANTHROPIC_MODEL`) | Cloud LLM (**mandatory**) — BAML news summarization + macro-regime calibration. Local models are not supported |
 | `TRADING_212_API_KEY` / `TRADING_212_SECRET_KEY` / `TRADING_212_MODE` | Optional Trading 212 add-on — mapped onto the yfinance universe after the build |
 | `METRICS_PORT` | Prometheus port (default `9000`) |
 | `NOTIFICATION_WEBHOOK_URL` | Discord/Slack webhook for job-failure alerts (optional) |

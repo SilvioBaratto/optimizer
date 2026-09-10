@@ -1,7 +1,7 @@
 # Data Inventory — Live Volumes
 
 Snapshot of the optimizer PostgreSQL database (`postgresql://postgres:postgres@localhost:54320/optimizer_db`).
-57 base tables (55 documented below + `alembic_version`, `apscheduler_jobs` infra). Row counts
+55 base tables (53 documented below + `alembic_version`, `apscheduler_jobs` infra). Row counts
 are live-at-snapshot; treat as orders of magnitude, not exact current values.
 
 ## 1. Table Volumes (rows, descending)
@@ -55,9 +55,7 @@ are live-at-snapshot; treat as orders of magnitude, not exact current values.
 | background_jobs | 6 |
 | economic_indicator_observations | 4 |
 | economic_indicators | 4 |
-| macro_news_summaries | 4 |
 | fred_observations | 0 |
-| macro_calibrations | 0 |
 | market_summaries | 0 |
 | options_chain | 0 |
 | sector_industries | 0 |
@@ -66,13 +64,12 @@ are live-at-snapshot; treat as orders of magnitude, not exact current values.
 
 ## 2. Empty Tables and Their Populating Scheduler Step
 
-All seven empty tables are populated by low-frequency (monthly / weekly / market-wide)
+All six empty tables are populated by low-frequency (monthly / weekly / market-wide)
 steps, not the daily per-ticker loop — so empty is a schedule state, not a failure.
 
 | Table | Populating step | Job / trigger |
 |-------|-----------------|---------------|
 | fred_observations | `run_fred_step` (CLI `fred`) | `fred_monthly` (0 8 1 * *); **also requires `FRED_API_KEY`** — absent key = no-op |
-| macro_calibrations | `run_calibrate_step` (CLI `calibrate`) | tail of `daily_pipeline`; writes only when macro indicator rows exist and BAML LLM is invoked |
 | market_summaries | `run_market_summary_step` | `weekly_market_wide` (Sat); iterates the 8 `MARKET_IDENTIFIERS` |
 | options_chain | `run_options_step` | `weekly_market_wide` (Sat, after weekly refetch); own ~weekly staleness gate |
 | sector_industries | `run_market_structure_step` | `weekly_market_wide` (Sat 04:00, `market_structure_fetch`) |
@@ -105,9 +102,8 @@ steps, not the daily per-ticker loop — so empty is a schedule state, not a fai
   `split_calendar` (477), `ipo_calendar` (11). Distinct from the per-instrument
   `earnings_dates` / `stock_splits` tables.
 
-- **Macro tables pending the fred / macro / calibrate steps.** `fred_observations` and
-  `macro_calibrations` are empty (see §2). The scraped macro set is thinly populated:
-  `trading_economics_indicators`/`_observations` (138 each), `bond_yields`/`_observations`
-  (16 each), `economic_indicators`/`_observations` and `macro_news_summaries` (4 each),
-  `macro_news` (36). These fill via `run_macro_step` (daily_pipeline / weekly_refetch),
-  `run_summarize_step`, and — for calibrations — `run_calibrate_step` invoking the BAML LLM.
+- **Macro tables pending the fred / macro steps.** `fred_observations` is empty (see §2).
+  The scraped macro set is thinly populated: `trading_economics_indicators`/`_observations`
+  (138 each), `bond_yields`/`_observations` (16 each), `economic_indicators`/`_observations`
+  (4 each), `macro_news` (36), `macro_news_themes` (66). These fill via `run_macro_step`
+  (daily_pipeline / weekly_refetch) and `run_news_step`.
