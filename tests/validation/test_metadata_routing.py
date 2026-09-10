@@ -102,9 +102,8 @@ class TestImpliedVolMetadataRouting:
         pred = run_cross_val(
             model,
             returns,
-            y=factor_returns,
             cv=cv,
-            params={"implied_vol": implied_vol_factors},
+            params={"implied_vol": implied_vol_factors, "factors": factor_returns},
         )
 
         assert pred is not None
@@ -128,9 +127,8 @@ class TestImpliedVolMetadataRouting:
         pred = run_cross_val(
             model,
             returns,
-            y=factor_returns,
             cv=cv,
-            params={"implied_vol": implied_vol_factors},
+            params={"implied_vol": implied_vol_factors, "factors": factor_returns},
         )
 
         # With N_OBS=500, train_size=252, test_size=63 → 3 folds
@@ -151,7 +149,7 @@ class TestImpliedVolMetadataRouting:
             factor_prior_estimator=EmpiricalPrior(covariance_estimator=imp_cov)
         )
         model = MeanRisk(prior_estimator=factor_prior, min_weights=0.0)
-        model.fit(returns, factor_returns, implied_vol=implied_vol_factors)
+        model.fit(returns, factors=factor_returns, implied_vol=implied_vol_factors)
 
         cov = model.prior_estimator_.return_distribution_.covariance
         assert cov.shape == (N_ASSETS, N_ASSETS)
@@ -175,9 +173,8 @@ class TestImpliedVolMetadataRouting:
         pred = run_cross_val(
             model,
             returns,
-            y=factor_returns,
             cv=cv,
-            params={"implied_vol": implied_vol_factors},
+            params={"implied_vol": implied_vol_factors, "factors": factor_returns},
         )
 
         for portfolio in pred.portfolios:

@@ -42,7 +42,6 @@ class TestBlackLittermanConfig:
         assert cfg.groups is None
         assert cfg.prior_config is None
         assert cfg.use_factor_model is False
-        assert cfg.residual_variance is True
 
     def test_frozen(self) -> None:
         cfg = BlackLittermanConfig(views=("AAPL == 0.05",))
@@ -60,7 +59,6 @@ class TestBlackLittermanConfig:
             view_confidences=(0.8, 0.6),
             groups=groups,
             use_factor_model=True,
-            residual_variance=False,
         )
         assert cfg.views == views
         assert cfg.tau == 0.1
@@ -69,7 +67,6 @@ class TestBlackLittermanConfig:
         assert cfg.view_confidences == (0.8, 0.6)
         assert cfg.groups == groups
         assert cfg.use_factor_model is True
-        assert cfg.residual_variance is False
 
     def test_for_equilibrium(self) -> None:
         views = ("AAPL == 0.05",)

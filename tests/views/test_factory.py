@@ -88,16 +88,6 @@ class TestBuildBlackLitterman:
         prior = build_black_litterman(cfg)
         assert isinstance(prior, TimeSeriesFactorModel)
 
-    def test_factor_model_residual_variance(self) -> None:
-        cfg = BlackLittermanConfig(
-            views=("TICK_00 == 0.05",),
-            use_factor_model=True,
-            residual_variance=False,
-        )
-        prior = build_black_litterman(cfg)
-        assert isinstance(prior, TimeSeriesFactorModel)
-        assert prior.residual_variance is False
-
     def test_views_converted_to_list(self) -> None:
         cfg = BlackLittermanConfig(views=("TICK_00 == 0.05",))
         prior = build_black_litterman(cfg)
@@ -458,7 +448,7 @@ class TestIntegration:
         # Views must reference factor names when wrapped in TimeSeriesFactorModel
         cfg = BlackLittermanConfig.for_factor_model(views=("MTUM == 0.05",))
         prior = build_black_litterman(cfg)
-        prior.fit(asset_returns, y=factor_returns)
+        prior.fit(asset_returns, factors=factor_returns)
         rd = prior.return_distribution_
         assert rd.mu is not None
         assert rd.covariance is not None

@@ -91,7 +91,7 @@ def build_mu_estimator(config: MomentEstimationConfig) -> BaseMu:
         case MuEstimatorType.SHRUNK:
             return ShrunkMu(method=_SHRINKAGE_MAP[config.shrinkage_method])
         case MuEstimatorType.EW:
-            return EWMu(alpha=config.ew_mu_alpha)
+            return EWMu(half_life=config.ew_mu_half_life)
         case MuEstimatorType.EQUILIBRIUM:
             return EquilibriumMu(risk_aversion=config.risk_aversion)
         case _:
@@ -123,7 +123,7 @@ def build_cov_estimator(config: MomentEstimationConfig) -> BaseCovariance:
         case CovEstimatorType.SHRUNK:
             return ShrunkCovariance(shrinkage=config.shrunk_cov_shrinkage)
         case CovEstimatorType.EW:
-            return EWCovariance(alpha=config.ew_cov_alpha)
+            return EWCovariance(half_life=config.ew_cov_half_life)
         case CovEstimatorType.GERBER:
             return GerberCovariance(threshold=config.gerber_threshold)
         case CovEstimatorType.GRAPHICAL_LASSO_CV:
@@ -233,7 +233,6 @@ def build_prior(config: MomentEstimationConfig | None = None) -> BasePrior:
     if config.use_factor_model:
         return TimeSeriesFactorModel(
             factor_prior_estimator=empirical_prior,
-            residual_variance=config.residual_variance,
         )
 
     return empirical_prior

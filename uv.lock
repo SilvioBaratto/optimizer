@@ -1683,7 +1683,6 @@ name = "portopt"
 version = "0.1.0"
 source = { editable = "ingestion" }
 dependencies = [
-    { name = "alembic" },
     { name = "apscheduler" },
     { name = "baml-py" },
     { name = "beautifulsoup4" },
@@ -1694,7 +1693,6 @@ dependencies = [
     { name = "pandas" },
     { name = "portopt-db" },
     { name = "prometheus-client" },
-    { name = "psycopg2-binary" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
@@ -1716,7 +1714,6 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", specifier = "==1.19.1" },
     { name = "apscheduler", specifier = "==3.11.3" },
     { name = "baml-py", specifier = "==0.226.1" },
     { name = "beautifulsoup4", specifier = "==4.15.0" },
@@ -1727,7 +1724,6 @@ requires-dist = [
     { name = "pandas", specifier = "==3.0.5" },
     { name = "portopt-db", editable = "packages/portopt-db" },
     { name = "prometheus-client", specifier = "==0.26.0" },
-    { name = "psycopg2-binary", specifier = "==2.9.12" },
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "pydantic-settings", specifier = "==2.15.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = "==9.1.1" },
@@ -1801,7 +1797,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'lint'", specifier = "==0.16.4" },
     { name = "scikit-learn", specifier = "==1.9.0" },
     { name = "scipy", specifier = "==1.18.1" },
-    { name = "skfolio", specifier = "==1.0.0" },
+    { name = "skfolio", specifier = "==1.0.6" },
 ]
 provides-extras = ["test", "lint", "typecheck", "dev"]
 
@@ -2466,7 +2462,7 @@ wheels = [
 
 [[package]]
 name = "skfolio"
-version = "1.0.0"
+version = "1.0.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "clarabel" },
@@ -2478,9 +2474,9 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/44/f1/c59a787c811036739dba5dcc82dd65073e1a53ed2e96adbe0ac57cc3d05e/skfolio-1.0.0.tar.gz", hash = "sha256:936282ba198b40d23c15545f69daf870bd619a08965b2a8ea4ea6e73ab6ae490", size = 1149476, upload-time = "2026-08-23T21:21:33.564Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/af/18/42b5d14d047fb605d5a71ff068cf9c5a0d0a9bff83b8e92184207ab5910c/skfolio-1.0.6.tar.gz", hash = "sha256:61957c8967416f489b75e51dfa6667ddb27ebbc0de3840f3728709a7191dfc04", size = 1149629, upload-time = "2026-09-08T07:54:43.512Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4e/20/235cd8e20aee66ce2782af8bc5768c2acd4baba995554e4dd80086a615ac/skfolio-1.0.0-py3-none-any.whl", hash = "sha256:f6a808b90006107babef7ad3afca5cba3a37573e15398732544fcb9709f69b9a", size = 1367698, upload-time = "2026-08-23T21:21:31.223Z" },
+    { url = "https://files.pythonhosted.org/packages/34/a1/ab25422a3643746266e7394fc18a13d50e8a7e203493f7eddfe18eb98a6a/skfolio-1.0.6-py3-none-any.whl", hash = "sha256:21919b457d11c1d0fb7d4c574ffb7695ef92a70738e8254a7c2fd787c3f8607f", size = 1368076, upload-time = "2026-09-08T07:54:41.804Z" },
 ]
 
 [[package]]

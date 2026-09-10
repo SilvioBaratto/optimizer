@@ -5,8 +5,11 @@ Composes :class:`_ExternallyControlledRegimeCovariance` →
 :class:`~skfolio.prior.TimeSeriesFactorModel` →
 :func:`build_mean_risk` → :func:`~optimizer.pipeline.build_portfolio_pipeline`.
 
-Factor returns are passed as ``y`` when calling ``pipeline.fit(X, y=factor_returns)``
-or :func:`~optimizer.validation.run_cross_val`.
+Factor returns are passed via the optimizer step's ``factors`` fit param —
+``pipeline.fit(X, optimizer__factors=factor_returns)``, or through
+:func:`~optimizer.validation.run_cross_val` with
+``params={"factors": factor_returns}`` (skfolio 1.0 replaced the former
+positional ``y`` factor argument).
 """
 
 from __future__ import annotations
@@ -211,13 +214,15 @@ def build_regime_blended_mean_risk(
 
         _ExternallyControlledRegimeCovariance  (baked-in HMM probs)
           └─ EmpiricalPrior
-               └─ TimeSeriesFactorModel        (factor returns via y=...)
+               └─ TimeSeriesFactorModel        (factor returns via factors=)
                     └─ MeanRisk
                          └─ Pipeline           (pre-selection → optimizer)
 
-    The returned pipeline expects ``y=factor_returns`` (aligned to the
-    asset return index) when calling ``pipeline.fit(X, y=factor_returns)``
-    or :func:`~optimizer.validation.run_cross_val`.
+    Pass factor returns (aligned to the asset return index) via the
+    ``optimizer`` step's ``factors`` fit param:
+    ``pipeline.fit(X, optimizer__factors=factor_returns)``, or through
+    :func:`~optimizer.validation.run_cross_val` with
+    ``params={"factors": factor_returns}`` (skfolio 1.0).
 
     Parameters
     ----------
@@ -227,9 +232,10 @@ def build_regime_blended_mean_risk(
         quarterly rolling walk-forward.
     factor_returns : pd.DataFrame
         Factor return time series indexed by date, shape
-        ``(T, n_factors)``.  Pass this as ``y`` when calling
-        ``pipeline.fit(X, y=factor_returns)`` or
-        :func:`~optimizer.validation.run_cross_val`.
+        ``(T, n_factors)``.  Pass this via the ``optimizer`` step's
+        ``factors`` fit param: ``pipeline.fit(X, optimizer__factors=...)``
+        or :func:`~optimizer.validation.run_cross_val` with
+        ``params={"factors": factor_returns}``.
     regime_probabilities : pd.DataFrame
         Pre-computed HMM regime probabilities indexed by date,
         shape ``(T, n_regimes)``.  Baked into the covariance estimator;
@@ -278,7 +284,7 @@ def build_regime_blended_mean_risk(
     empirical_prior = EmpiricalPrior(covariance_estimator=regime_cov)
 
     # 3. Factor model: empirical_prior provides regime-aware Σ; factor
-    #    returns are supplied as y when pipeline.fit(X, y=factor_returns).
+    #    returns are supplied via the optimizer step's `factors` fit param.
     factor_model = TimeSeriesFactorModel(factor_prior_estimator=empirical_prior)
 
     # 4. MeanRisk optimizer with optional turnover control.

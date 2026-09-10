@@ -79,7 +79,7 @@ class TestFactoryProducesFittablePipeline:
             factor_returns=factor_returns_df,
             regime_probabilities=regime_probs_df,
         )
-        pipeline.fit(returns_df, y=factor_returns_df)
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
         portfolio = pipeline.predict(returns_df)
 
         assert isinstance(portfolio, Portfolio)
@@ -128,7 +128,7 @@ class TestFactoryAlignsOnIntersectingDates:
             factor_returns=factor_returns_df,
             regime_probabilities=truncated,
         )
-        pipeline.fit(returns_df, y=factor_returns_df)
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
 
     def test_too_little_overlap_raises_configuration_error(
         self,
@@ -142,7 +142,7 @@ class TestFactoryAlignsOnIntersectingDates:
             regime_probabilities=too_short,
         )
         with pytest.raises(ConfigurationError):
-            pipeline.fit(returns_df, y=factor_returns_df)
+            pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ class TestConstantStressRegime:
             factor_returns=factor_returns_df,
             regime_probabilities=probs,
         )
-        pipeline.fit(returns_df, y=factor_returns_df)
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
         portfolio = pipeline.predict(returns_df)
 
         assert not np.any(np.isnan(portfolio.weights))
@@ -204,7 +204,7 @@ class TestEntropyPoolingViewConflictRaises:
         pipeline = build_portfolio_pipeline(optimizer)
 
         with pytest.raises(Exception):  # noqa: B017
-            pipeline.fit(returns_df, y=factor_returns_df)
+            pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
 
 
 # ---------------------------------------------------------------------------

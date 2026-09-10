@@ -67,14 +67,14 @@ class TestBuildMuEstimator:
         assert isinstance(estimator, ShrunkMu)
         assert estimator.method == ShrunkMuMethods.BAYES_STEIN
 
-    def test_ew_alpha_forwarded(self) -> None:
+    def test_ew_half_life_forwarded(self) -> None:
         cfg = MomentEstimationConfig(
             mu_estimator=MuEstimatorType.EW,
-            ew_mu_alpha=0.5,
+            ew_mu_half_life=20.0,
         )
         estimator = build_mu_estimator(cfg)
         assert isinstance(estimator, EWMu)
-        assert estimator.alpha == 0.5
+        assert estimator.half_life == 20.0
 
     def test_equilibrium_risk_aversion_forwarded(self) -> None:
         cfg = MomentEstimationConfig(
@@ -121,14 +121,14 @@ class TestBuildCovEstimator:
         assert isinstance(estimator, ShrunkCovariance)
         assert estimator.shrinkage == 0.5  # type: ignore[comparison-overlap]
 
-    def test_ew_alpha_forwarded(self) -> None:
+    def test_ew_half_life_forwarded(self) -> None:
         cfg = MomentEstimationConfig(
             cov_estimator=CovEstimatorType.EW,
-            ew_cov_alpha=0.3,
+            ew_cov_half_life=15.0,
         )
         estimator = build_cov_estimator(cfg)
         assert isinstance(estimator, EWCovariance)
-        assert estimator.alpha == 0.3
+        assert estimator.half_life == 15.0
 
     def test_gerber_threshold_forwarded(self) -> None:
         cfg = MomentEstimationConfig(
@@ -218,15 +218,6 @@ class TestBuildPrior:
         cfg = MomentEstimationConfig(use_factor_model=True)
         prior = build_prior(cfg)
         assert isinstance(prior, TimeSeriesFactorModel)
-
-    def test_factor_model_residual_variance(self) -> None:
-        cfg = MomentEstimationConfig(
-            use_factor_model=True,
-            residual_variance=False,
-        )
-        prior = build_prior(cfg)
-        assert isinstance(prior, TimeSeriesFactorModel)
-        assert prior.residual_variance is False
 
     def test_is_log_normal_forwarded(self) -> None:
         cfg = MomentEstimationConfig(is_log_normal=True)
@@ -325,11 +316,11 @@ class TestIntegration:
         # Align date ranges before converting to returns
         common_idx = prices.index.intersection(factor_prices.index)
         X = prices_to_returns(prices.loc[common_idx])
-        y = prices_to_returns(factor_prices.loc[common_idx])
+        factors = prices_to_returns(factor_prices.loc[common_idx])
 
         cfg = MomentEstimationConfig(use_factor_model=True)
         prior = build_prior(cfg)
-        prior.fit(X, y=y)
+        prior.fit(X, factors=factors)
         rd = prior.return_distribution_
         assert rd.mu is not None
         assert rd.covariance is not None

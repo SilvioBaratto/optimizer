@@ -152,7 +152,6 @@ def build_black_litterman(
     if config.use_factor_model:
         return TimeSeriesFactorModel(
             factor_prior_estimator=bl,
-            residual_variance=config.residual_variance,
         )
 
     return bl

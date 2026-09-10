@@ -85,14 +85,17 @@ class MomentEstimationConfig:
         Which expected return estimator to use.
     shrinkage_method : ShrinkageMethod
         Shrinkage flavour when ``mu_estimator`` is ``SHRUNK``.
-    ew_mu_alpha : float
-        Exponential weighting decay for ``EWMu``.
+    ew_mu_half_life : float
+        Exponential-weighting half-life (in observations) for ``EWMu``.
+        skfolio 1.0 replaced the former ``alpha`` argument with
+        ``half_life``; convert via ``half_life = -1 / log2(1 - alpha)``.
     risk_aversion : float
         Risk-aversion coefficient for ``EquilibriumMu``.
     cov_estimator : CovEstimatorType
         Which covariance estimator to use.
-    ew_cov_alpha : float
-        Exponential weighting decay for ``EWCovariance``.
+    ew_cov_half_life : float
+        Exponential-weighting half-life (in observations) for
+        ``EWCovariance``. Replaces the former ``alpha`` (skfolio 1.0).
     shrunk_cov_shrinkage : float
         Shrinkage intensity for ``ShrunkCovariance``.
     gerber_threshold : float
@@ -104,8 +107,8 @@ class MomentEstimationConfig:
         Investment horizon forwarded to ``EmpiricalPrior``.
     use_factor_model : bool
         If ``True``, wrap the prior in a ``TimeSeriesFactorModel``.
-    residual_variance : bool
-        Whether to include residual variance in ``TimeSeriesFactorModel``.
+        Fit with factor returns via the keyword ``factors=`` (skfolio 1.0;
+        the former positional ``y`` factor argument was removed).
     variance_estimator : VarianceEstimatorType or None
         Which 1-D variance estimator to build via
         :func:`build_variance_estimator`. Independent of ``cov_estimator``.
@@ -134,12 +137,13 @@ class MomentEstimationConfig:
     # -- Expected return estimator --
     mu_estimator: MuEstimatorType = MuEstimatorType.EMPIRICAL
     shrinkage_method: ShrinkageMethod = ShrinkageMethod.JAMES_STEIN
-    ew_mu_alpha: float = 0.2
+    # 3.11 ≈ former alpha=0.2 (skfolio 1.0 dropped alpha; half_life = -1/log2(1-alpha))
+    ew_mu_half_life: float = 3.11
     risk_aversion: float = 1.0
 
     # -- Covariance estimator --
     cov_estimator: CovEstimatorType = CovEstimatorType.LEDOIT_WOLF
-    ew_cov_alpha: float = 0.2
+    ew_cov_half_life: float = 3.11
     shrunk_cov_shrinkage: float = 0.1
     gerber_threshold: float = 0.5
 
@@ -149,7 +153,6 @@ class MomentEstimationConfig:
 
     # -- Factor model --
     use_factor_model: bool = False
-    residual_variance: bool = True
 
     # -- Variance estimator + regime adjustment --
     variance_estimator: VarianceEstimatorType | None = None

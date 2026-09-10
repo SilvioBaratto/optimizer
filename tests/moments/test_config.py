@@ -55,15 +55,14 @@ class TestMomentEstimationConfig:
         assert cfg.mu_estimator == MuEstimatorType.EMPIRICAL
         assert cfg.cov_estimator == CovEstimatorType.LEDOIT_WOLF
         assert cfg.shrinkage_method == ShrinkageMethod.JAMES_STEIN
-        assert cfg.ew_mu_alpha == 0.2
+        assert cfg.ew_mu_half_life == 3.11
         assert cfg.risk_aversion == 1.0
-        assert cfg.ew_cov_alpha == 0.2
+        assert cfg.ew_cov_half_life == 3.11
         assert cfg.shrunk_cov_shrinkage == 0.1
         assert cfg.gerber_threshold == 0.5
         assert cfg.is_log_normal is False
         assert cfg.investment_horizon is None
         assert cfg.use_factor_model is False
-        assert cfg.residual_variance is True
 
     def test_frozen(self) -> None:
         cfg = MomentEstimationConfig()
@@ -73,14 +72,14 @@ class TestMomentEstimationConfig:
     def test_custom_values(self) -> None:
         cfg = MomentEstimationConfig(
             mu_estimator=MuEstimatorType.EW,
-            ew_mu_alpha=0.5,
+            ew_mu_half_life=20.0,
             cov_estimator=CovEstimatorType.GERBER,
             gerber_threshold=0.3,
             is_log_normal=True,
             investment_horizon=252.0,
         )
         assert cfg.mu_estimator == MuEstimatorType.EW
-        assert cfg.ew_mu_alpha == 0.5
+        assert cfg.ew_mu_half_life == 20.0
         assert cfg.cov_estimator == CovEstimatorType.GERBER
         assert cfg.gerber_threshold == 0.3
         assert cfg.is_log_normal is True

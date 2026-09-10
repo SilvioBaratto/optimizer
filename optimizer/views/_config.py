@@ -47,9 +47,8 @@ class BlackLittermanConfig:
         ``MomentEstimationConfig.for_equilibrium_ledoitwolf()``.
     use_factor_model : bool
         If ``True``, wrap the Black-Litterman prior in a
-        :class:`skfolio.prior.TimeSeriesFactorModel`.
-    residual_variance : bool
-        Whether to include residual variance in ``TimeSeriesFactorModel``.
+        :class:`skfolio.prior.TimeSeriesFactorModel`. Fit with factor
+        returns via the keyword ``factors=`` (skfolio 1.0).
     """
 
     views: tuple[str, ...]
@@ -60,7 +59,6 @@ class BlackLittermanConfig:
     groups: dict[str, list[str]] | None = None
     prior_config: MomentEstimationConfig | None = None
     use_factor_model: bool = False
-    residual_variance: bool = True
 
     def __post_init__(self) -> None:
         if self.tau <= 0:
