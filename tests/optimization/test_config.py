@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from optimizer.optimization import (
+    FallbackPolicy,
     MeanRiskConfig,
     ObjectiveFunctionType,
     RatioMeasureType,
@@ -48,6 +49,18 @@ class TestRatioMeasureType:
         assert RatioMeasureType.CVAR_RATIO.value == "cvar_ratio"
 
 
+class TestFallbackPolicy:
+    def test_members(self) -> None:
+        assert set(FallbackPolicy) == {
+            FallbackPolicy.NONE,
+            FallbackPolicy.PREVIOUS_WEIGHTS,
+        }
+
+    def test_str_serialization(self) -> None:
+        assert FallbackPolicy.NONE.value == "none"
+        assert FallbackPolicy.PREVIOUS_WEIGHTS.value == "previous_weights"
+
+
 class TestMeanRiskConfig:
     def test_default_values(self) -> None:
         cfg = MeanRiskConfig()
@@ -72,6 +85,8 @@ class TestMeanRiskConfig:
         assert cfg.solver_params is None
         assert cfg.prior_config is None
         assert cfg.max_sector_weight is None
+        assert cfg.raise_on_failure is True
+        assert cfg.fallback_policy == FallbackPolicy.NONE
 
     def test_frozen(self) -> None:
         cfg = MeanRiskConfig()
@@ -150,3 +165,27 @@ class TestMeanRiskConfig:
         cfg = MeanRiskConfig.for_max_sharpe_sector_constrained()
         with pytest.raises(AttributeError):
             cfg.max_sector_weight = 0.5  # type: ignore[misc]
+
+    def test_resilience_fields_custom(self) -> None:
+        cfg = MeanRiskConfig(
+            raise_on_failure=False,
+            fallback_policy=FallbackPolicy.PREVIOUS_WEIGHTS,
+        )
+        assert cfg.raise_on_failure is False
+        assert cfg.fallback_policy == FallbackPolicy.PREVIOUS_WEIGHTS
+
+    def test_for_tracking_error_defaults(self) -> None:
+        cfg = MeanRiskConfig.for_tracking_error()
+        assert cfg.objective == ObjectiveFunctionType.MAXIMIZE_RATIO
+        assert cfg.risk_measure == RiskMeasureType.VARIANCE
+        assert cfg.max_tracking_error == 0.05
+
+    def test_for_tracking_error_custom(self) -> None:
+        cfg = MeanRiskConfig.for_tracking_error(max_tracking_error=0.12)
+        assert cfg.max_tracking_error == 0.12
+
+    def test_for_resilient_walk_forward(self) -> None:
+        cfg = MeanRiskConfig.for_resilient_walk_forward()
+        assert cfg.objective == ObjectiveFunctionType.MAXIMIZE_RATIO
+        assert cfg.raise_on_failure is False
+        assert cfg.fallback_policy == FallbackPolicy.PREVIOUS_WEIGHTS

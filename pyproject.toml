@@ -50,7 +50,11 @@ lint = ["ruff==0.16.4", "pip-audit==2.10.1"]
 typecheck = ["mypy==2.3.1", "pyright[nodejs]==1.1.398"]
 dev = ["portopt-core[test,lint,typecheck]", "pre-commit==4.6.2"]
 
+# src-layout: the `optimizer` import package now lives under
+# packages/portopt-core/optimizer (moved out of the repo root). `where` points
+# setuptools at that source root; the import name and dist name are unchanged.
 [tool.setuptools.packages.find]
+where = ["packages/portopt-core"]
 include = ["optimizer*"]
 
 [tool.setuptools.package-data]
@@ -74,8 +78,8 @@ select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "S", "RUF", "C4", "PTH"]
 ignore = ["RUF002", "RUF003"]  # allow unicode in docstrings/comments (mathematical notation)
 
 [tool.ruff.lint.per-file-ignores]
-"optimizer/__init__.py" = ["E402"]  # logging NullHandler must precede module imports
-"optimizer/**" = ["N803", "N806"]  # sklearn convention: X, y parameter names
+"packages/portopt-core/optimizer/__init__.py" = ["E402"]  # logging NullHandler must precede module imports
+"packages/portopt-core/optimizer/**" = ["N803", "N806"]  # sklearn convention: X, y parameter names
 "tests/**" = ["N803", "N806", "S101"]
 # Scheduler tests intentionally shell out to `sh -n` / `sh -c` for script
 # validation; the subprocess S-rules and raw-shell-snippet E501 would add
@@ -126,6 +130,7 @@ module = [
     "optimizer.distance._factory",
     "optimizer.linear_model._factory",
     "optimizer.uncertainty_set._factory",
+    "optimizer.universe._transformer",
 ]
 disallow_subclassing_any = false
 
@@ -165,7 +170,7 @@ exclude_lines = [
 pythonVersion = "3.10"
 pythonPlatform = "All"
 typeCheckingMode = "standard"
-include = ["optimizer"]
+include = ["packages/portopt-core/optimizer"]
 exclude = [
     "**/__pycache__",
 ]

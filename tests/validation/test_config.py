@@ -56,6 +56,45 @@ class TestWalkForwardConfig:
         assert cfg.train_size == 504
         assert cfg.purged_size == 5
 
+    def test_expand_train_alias_reads_expend_train(self) -> None:
+        # skfolio 1.0 corrected spelling exposed as a read-only alias.
+        assert WalkForwardConfig().expand_train is False
+        assert WalkForwardConfig.for_quarterly_expanding().expand_train is True
+
+    def test_calendar_fields_default_none(self) -> None:
+        cfg = WalkForwardConfig()
+        assert cfg.freq is None
+        assert cfg.freq_offset is None
+        assert cfg.previous is False
+
+    def test_for_monthly_calendar(self) -> None:
+        cfg = WalkForwardConfig.for_monthly_calendar()
+        assert cfg.freq == "MS"
+        assert cfg.test_size == 1
+        assert cfg.train_size == 12
+        assert cfg.previous is False
+
+    def test_calendar_custom(self) -> None:
+        cfg = WalkForwardConfig(
+            test_size=1, train_size=6, freq="MS", freq_offset="2D", previous=True
+        )
+        assert cfg.freq == "MS"
+        assert cfg.freq_offset == "2D"
+        assert cfg.previous is True
+
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"test_size": 0}, "test_size"),
+            ({"train_size": 0}, "train_size"),
+            ({"purged_size": -1}, "purged_size"),
+            ({"freq_offset": "2D"}, "freq_offset requires freq"),
+        ],
+    )
+    def test_invalid_params_raise(self, kwargs: dict, match: str) -> None:
+        with pytest.raises(ValueError, match=match):
+            WalkForwardConfig(**kwargs)
+
 
 class TestCPCVConfig:
     def test_defaults(self) -> None:
@@ -91,6 +130,20 @@ class TestCPCVConfig:
         assert cfg.purged_size == 10
         assert cfg.embargo_size == 5
 
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"n_folds": 2}, "n_folds"),
+            ({"n_folds": 10, "n_test_folds": 10}, "n_test_folds"),
+            ({"n_folds": 10, "n_test_folds": 0}, "n_test_folds"),
+            ({"purged_size": -1}, "purged_size"),
+            ({"embargo_size": -1}, "embargo_size"),
+        ],
+    )
+    def test_invalid_params_raise(self, kwargs: dict, match: str) -> None:
+        with pytest.raises(ValueError, match=match):
+            CPCVConfig(**kwargs)
+
 
 class TestMultipleRandomizedCVConfig:
     def test_defaults(self) -> None:
@@ -119,3 +172,19 @@ class TestMultipleRandomizedCVConfig:
         wf = WalkForwardConfig.for_monthly_rolling()
         cfg = MultipleRandomizedCVConfig(walk_forward_config=wf)
         assert cfg.walk_forward_config.test_size == 21
+
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"n_subsamples": 0}, "n_subsamples"),
+            ({"asset_subset_size": 0}, "asset_subset_size"),
+            ({"window_size": 0}, "window_size"),
+        ],
+    )
+    def test_invalid_params_raise(self, kwargs: dict, match: str) -> None:
+        with pytest.raises(ValueError, match=match):
+            MultipleRandomizedCVConfig(**kwargs)
+
+    def test_window_size_none_allowed(self) -> None:
+        cfg = MultipleRandomizedCVConfig(window_size=None)
+        assert cfg.window_size is None

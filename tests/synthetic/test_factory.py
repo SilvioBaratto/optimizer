@@ -13,6 +13,7 @@ from optimizer.synthetic import (
     SelectionCriterionType,
     SyntheticDataConfig,
     VineCopulaConfig,
+    build_conditional_synthetic_data,
     build_synthetic_data,
     build_vine_copula,
 )
@@ -195,6 +196,55 @@ class TestBuildSyntheticData:
         assert isinstance(model, SyntheticData)
         assert model.n_samples == 5_000
         assert model.sample_args == {"conditioning": {"TICK_00": -0.30}}
+
+
+class TestBuildConditionalSyntheticData:
+    def test_conditioning_forwarded_as_sample_args(self) -> None:
+        model = build_conditional_synthetic_data({"TICK_00": -0.10})
+        assert model.sample_args == {"conditioning": {"TICK_00": -0.10}}
+
+    def test_empty_conditioning_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="conditioning"):
+            build_conditional_synthetic_data({})
+
+    def test_bound_tuple_conditioning_forwarded(self) -> None:
+        model = build_conditional_synthetic_data({"TICK_00": (-0.30, -0.10)})
+        assert model.sample_args == {"conditioning": {"TICK_00": (-0.30, -0.10)}}
+
+    def test_central_asset_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        cfg = SyntheticDataConfig.for_conditional_stress(["TICK_00"], n_samples=100)
+        with caplog.at_level("WARNING", logger="optimizer.synthetic._factory"):
+            build_conditional_synthetic_data({"TICK_00": -0.10}, cfg)
+        assert "non-central" not in caplog.text
+
+    def test_non_central_asset_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level("WARNING", logger="optimizer.synthetic._factory"):
+            build_conditional_synthetic_data({"TICK_00": -0.10})
+        assert "non-central" in caplog.text
+        assert "TICK_00" in caplog.text
+
+    def test_warn_non_central_disabled(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level("WARNING", logger="optimizer.synthetic._factory"):
+            build_conditional_synthetic_data({"TICK_00": -0.10}, warn_non_central=False)
+        assert caplog.text == ""
+
+    def test_explicit_estimator_used(self) -> None:
+        explicit = VineCopula(central_assets=["TICK_00"])
+        model = build_conditional_synthetic_data(
+            {"TICK_00": -0.10}, distribution_estimator=explicit
+        )
+        assert model.distribution_estimator is explicit
+
+    def test_conditional_fit_produces_moments(self, returns_df: pd.DataFrame) -> None:
+        cfg = SyntheticDataConfig.for_conditional_stress(["TICK_00"], n_samples=300)
+        model = build_conditional_synthetic_data({"TICK_00": -0.30}, cfg)
+        model.fit(returns_df)
+        prior = model.return_distribution_
+        assert prior.mu is not None
+        assert prior.covariance is not None
+        assert len(prior.mu) == returns_df.shape[1]
 
 
 # ---------------------------------------------------------------------------

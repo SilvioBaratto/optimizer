@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from optimizer.fx._decomposition import FxReturnDecomposition, decompose_fx_returns
 
@@ -74,20 +75,102 @@ class TestDecomposeReturns:
         assert result.fx_returns["SPY"].abs().sum() > 0
 
     def test_algebraic_identity(self) -> None:
-        """Verify r_total ≈ r_local + r_fx + r_local * r_fx."""
+        """Verify r_total == r_local + r_fx + r_local * r_fx EXACTLY.
+
+        Because base_price = local_price * rate, we have
+        (1 + r_total) = (1 + r_local)(1 + r_fx), so the identity is exact
+        (up to floating-point) — NOT merely approximate.  A previous
+        implementation zeroed the first-row FX return, breaking this.
+        """
         local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
         result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
 
         reconstructed = result.local_returns + result.fx_returns + result.cross_terms
 
-        # The identity should hold closely (not exactly due to
-        # discrete compounding and alignment)
         diff = (result.total_returns - reconstructed).abs()
-        # Allow tolerance — the identity is approximate because
-        # pct_change on base_prices = pct_change(local * fx) includes
-        # the cross term implicitly
-        assert diff.max().max() < 0.01, (
-            f"Max decomposition error: {diff.max().max():.6f}"
+        assert diff.max().max() < 1e-10, (
+            f"Max decomposition error: {diff.max().max():.3e}"
+        )
+
+    def test_first_row_fx_return_not_dropped(self) -> None:
+        """Regression: the first return date must carry the real FX return.
+
+        A large rate jump on the first return date must be reflected in
+        ``fx_returns`` (previously it was silently set to 0.0, breaking
+        the identity by the full magnitude of that jump).
+        """
+        dates = pd.bdate_range("2024-01-02", periods=6)
+        local = pd.DataFrame({"LLOY.L": [50, 51, 52, 53, 54, 55.0]}, index=dates)
+        rate = pd.Series([1.10, 1.30, 1.31, 1.32, 1.33, 1.34], index=dates)
+        fx = pd.DataFrame({"GBP": rate})
+        base = local.copy()
+        base["LLOY.L"] = local["LLOY.L"] * rate
+        cmap = {"LLOY.L": "GBP"}
+
+        result = decompose_fx_returns(local, base, fx, cmap, "EUR")
+
+        assert result.fx_returns["LLOY.L"].iloc[0] == pytest.approx(1.30 / 1.10 - 1.0)
+        recon = result.local_returns + result.fx_returns + result.cross_terms
+        assert (result.total_returns - recon).abs().max().max() < 1e-10
+
+    def test_case_insensitive_currency_columns(self) -> None:
+        """FX columns quoted in lower-case must still match the currency map."""
+        local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
+        fx_lower = fx_rates.rename(columns=str.lower)
+        result = decompose_fx_returns(local_prices, base_prices, fx_lower, cmap, "EUR")
+
+        assert result.fx_returns["LLOY.L"].abs().sum() > 0
+        assert result.fx_returns["SPY"].abs().sum() > 0
+
+    def test_hedged_returns_full_hedge_equals_local(self) -> None:
+        local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
+        result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
+
+        hedged = result.hedged_returns(hedge_ratio=1.0)
+        pd.testing.assert_frame_equal(hedged, result.local_returns)
+
+    def test_hedged_returns_zero_hedge_equals_total(self) -> None:
+        local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
+        result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
+
+        unhedged = result.hedged_returns(hedge_ratio=0.0)
+        # r_local + r_fx + r_cross == r_total (exact identity)
+        pd.testing.assert_frame_equal(
+            unhedged, result.total_returns, check_exact=False, atol=1e-10
+        )
+
+    def test_hedged_returns_partial(self) -> None:
+        local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
+        result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
+
+        half = result.hedged_returns(hedge_ratio=0.5)
+        expected = result.local_returns + 0.5 * (result.fx_returns + result.cross_terms)
+        pd.testing.assert_frame_equal(half, expected)
+
+    def test_hedged_returns_rejects_non_finite(self) -> None:
+        from optimizer.exceptions import DataError
+
+        local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
+        result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
+
+        with pytest.raises(DataError, match="finite"):
+            result.hedged_returns(hedge_ratio=float("nan"))
+        with pytest.raises(DataError, match="finite"):
+            result.hedged_returns(hedge_ratio=float("inf"))
+
+    def test_cumulative_contributions(self) -> None:
+        local_prices, base_prices, fx_rates, cmap = self._make_fixtures()
+        result = decompose_fx_returns(local_prices, base_prices, fx_rates, cmap, "EUR")
+
+        summary = result.cumulative_contributions()
+        assert list(summary.columns) == ["local", "fx", "cross", "total"]
+        assert set(summary.index) == set(local_prices.columns)
+        # Base-currency ticker has no FX contribution.
+        assert summary.loc["ORA.PA", "fx"] == 0.0
+        # total column matches compounded total_returns.
+        expected_total = (1.0 + result.total_returns).prod() - 1.0
+        pd.testing.assert_series_equal(
+            summary["total"], expected_total, check_names=False
         )
 
     def test_shapes_consistent(self) -> None:

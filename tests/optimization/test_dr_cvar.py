@@ -40,6 +40,21 @@ class TestDRCVaRConfig:
         with pytest.raises(dataclasses.FrozenInstanceError):
             cfg.epsilon = 0.0  # type: ignore[misc]
 
+    def test_when_negative_epsilon_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="epsilon"):
+            DRCVaRConfig(epsilon=-0.01)
+
+    def test_when_epsilon_zero_then_valid(self) -> None:
+        assert DRCVaRConfig(epsilon=0.0).epsilon == 0.0
+
+    def test_when_cvar_beta_out_of_range_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="cvar_beta"):
+            DRCVaRConfig(cvar_beta=1.0)
+
 
 class TestPresets:
     def test_when_for_default_then_epsilon_0_05(self) -> None:

@@ -224,6 +224,60 @@ class TestComputeICSeriesCSRegression:
         assert len(result) == 0
         assert result.name == "f"
 
+    def test_when_partial_coverage_kept_then_no_crash(self) -> None:
+        """Kept periods with scattered NaN pairs must fit via cs_weights mask.
+
+        Regression test: skfolio ``CSLinearRegression`` rejects positive-weight
+        pairs with non-finite X/y.  Ragged per-period coverage (each kept row
+        above ``min_observations`` still has some NaN pairs) previously raised
+        ``ValueError``.  The 0/1 weight mask excludes invalid pairs.
+        """
+        rng = np.random.default_rng(11)
+        dates = pd.date_range("2023-01-01", periods=12, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(20)]
+        scores = pd.DataFrame(rng.normal(0, 1, (12, 20)), index=dates, columns=tickers)
+        returns = pd.DataFrame(
+            0.05 * scores.values + rng.normal(0, 0.02, (12, 20)),
+            index=dates,
+            columns=tickers,
+        )
+        # Punch 5 NaN scores into every row (different columns per row) so
+        # every kept period is partial-coverage but still has 15 valid pairs.
+        for r in range(12):
+            drop_cols = rng.choice(20, size=5, replace=False)
+            scores.iloc[r, drop_cols] = np.nan
+
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=5,
+            use_cs_regression=True,
+        )
+        assert isinstance(result, pd.Series)
+        assert len(result) == 12  # all rows kept (15 >= 5 valid pairs)
+        assert np.isfinite(result.to_numpy()).all()
+
+    def test_when_partial_coverage_slope_matches_manual_ols(self) -> None:
+        """Masked-out pairs must not affect the fitted slope."""
+        dates = pd.date_range("2023-01-01", periods=1, freq="ME")
+        tickers = [f"T{i}" for i in range(6)]
+        # y = 2*x on the 5 valid assets; the 6th pair is NaN and must be
+        # excluded (not treated as 0) so the recovered slope is exactly 2.
+        x_vals = [1.0, 2.0, 3.0, 4.0, 5.0, np.nan]
+        y_vals = [2.0, 4.0, 6.0, 8.0, 10.0, np.nan]
+        scores = pd.DataFrame([x_vals], index=dates, columns=tickers)
+        returns = pd.DataFrame([y_vals], index=dates, columns=tickers)
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=3,
+            use_cs_regression=True,
+        )
+        assert len(result) == 1
+        assert result.iloc[0] == pytest.approx(2.0, abs=1e-6)
+
 
 class TestNeweyWestTStat:
     def test_significant_ic(self) -> None:

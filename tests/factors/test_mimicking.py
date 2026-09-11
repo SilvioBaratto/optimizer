@@ -10,6 +10,7 @@ import pytest
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
+    build_all_factor_mimicking_portfolios,
     build_factor_mimicking_portfolios,
     compute_cross_factor_correlation,
 )
@@ -406,3 +407,52 @@ class TestBetaNeutral:
             scores, returns, beta_neutral=False, market_returns=market_returns
         )
         pd.testing.assert_frame_equal(standard, explicit_false)
+
+
+class TestBuildAllFactorMimickingPortfolios:
+    def test_columns_are_factor_names_in_order(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        rng = np.random.default_rng(99)
+        scores2 = pd.DataFrame(
+            rng.standard_normal(scores.shape),
+            index=scores.index,
+            columns=scores.columns,
+        )
+        panel = build_all_factor_mimicking_portfolios(
+            {"value": scores, "momentum": scores2}, returns
+        )
+        assert list(panel.columns) == ["value", "momentum"]
+        assert panel.shape[1] == 2
+
+    def test_matches_per_factor_calls(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        panel = build_all_factor_mimicking_portfolios({"value": scores}, returns)
+        single = build_factor_mimicking_portfolios(scores, returns)
+        pd.testing.assert_series_equal(
+            panel["value"], single["factor_return"], check_names=False
+        )
+
+    def test_outer_aligns_on_union_of_dates(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        short = scores.iloc[:-5]
+        panel = build_all_factor_mimicking_portfolios(
+            {"full": scores, "short": short}, returns
+        )
+        # Row index = union of both factors' date indices.
+        assert len(panel.index) == len(scores.index)
+        assert panel["short"].iloc[-5:].isna().all()
+
+    def test_empty_mapping_raises(self, returns: pd.DataFrame) -> None:
+        with pytest.raises(ConfigurationError, match="non-empty"):
+            build_all_factor_mimicking_portfolios({}, returns)
+
+    def test_invalid_quantile_propagates(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="quantile"):
+            build_all_factor_mimicking_portfolios(
+                {"value": scores}, returns, quantile=0.9
+            )

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from optimizer.scoring import ScorerConfig
@@ -16,6 +18,21 @@ class TestGridSearchConfig:
         assert isinstance(cfg.scorer_config, ScorerConfig)
         assert cfg.n_jobs is None
         assert cfg.return_train_score is False
+        assert math.isnan(cfg.error_score)  # type: ignore[arg-type]
+        assert cfg.refit is True
+        assert cfg.verbose == 0
+
+    def test_error_score_raise_allowed(self) -> None:
+        cfg = GridSearchConfig(error_score="raise")
+        assert cfg.error_score == "raise"
+
+    def test_error_score_invalid_string_rejected(self) -> None:
+        with pytest.raises(ValueError, match="error_score"):
+            GridSearchConfig(error_score="boom")
+
+    def test_error_score_invalid_type_rejected(self) -> None:
+        with pytest.raises(ValueError, match="error_score"):
+            GridSearchConfig(error_score=object())  # type: ignore[arg-type]
 
     def test_frozen(self) -> None:
         cfg = GridSearchConfig()
@@ -57,3 +74,17 @@ class TestRandomizedSearchConfig:
         assert cfg.n_iter == 200
         assert cfg.cv_config.expend_train is True
         assert cfg.return_train_score is True
+
+    def test_defaults_new_fields(self) -> None:
+        cfg = RandomizedSearchConfig()
+        assert math.isnan(cfg.error_score)  # type: ignore[arg-type]
+        assert cfg.refit is True
+        assert cfg.verbose == 0
+
+    def test_n_iter_must_be_positive(self) -> None:
+        with pytest.raises(ValueError, match="n_iter"):
+            RandomizedSearchConfig(n_iter=0)
+
+    def test_error_score_invalid_rejected(self) -> None:
+        with pytest.raises(ValueError, match="error_score"):
+            RandomizedSearchConfig(error_score="nope")

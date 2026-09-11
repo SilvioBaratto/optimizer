@@ -10,6 +10,7 @@ from skfolio.optimization import MeanRisk
 from skfolio.optimization.convex._base import ObjectiveFunction
 
 from optimizer.optimization import (
+    FallbackPolicy,
     MeanRiskConfig,
     ObjectiveFunctionType,
     RiskMeasureType,
@@ -583,3 +584,110 @@ class TestSectorBandsAndFactorExposure:
         )
         np.testing.assert_array_equal(model.left_inequality, custom_left)
         np.testing.assert_array_equal(model.right_inequality, custom_right)
+
+
+# ---------------------------------------------------------------------------
+# Resilience layer (skfolio 1.0): raise_on_failure / fallback
+# ---------------------------------------------------------------------------
+
+
+class TestResilienceWiring:
+    """Config resilience fields flow into MeanRisk; explicit kwargs win."""
+
+    def test_default_raise_on_failure_forwarded(self) -> None:
+        model = build_mean_risk(MeanRiskConfig())
+        assert model.raise_on_failure is True
+        assert model.fallback is None
+
+    def test_config_raise_on_failure_false_forwarded(self) -> None:
+        model = build_mean_risk(MeanRiskConfig(raise_on_failure=False))
+        assert model.raise_on_failure is False
+
+    def test_previous_weights_policy_sets_fallback(self) -> None:
+        cfg = MeanRiskConfig(fallback_policy=FallbackPolicy.PREVIOUS_WEIGHTS)
+        model = build_mean_risk(cfg)
+        assert model.fallback == "previous_weights"
+
+    def test_none_policy_leaves_fallback_none(self) -> None:
+        model = build_mean_risk(MeanRiskConfig(fallback_policy=FallbackPolicy.NONE))
+        assert model.fallback is None
+
+    def test_explicit_raise_on_failure_kwarg_overrides_config(self) -> None:
+        cfg = MeanRiskConfig(raise_on_failure=False)
+        model = build_mean_risk(cfg, raise_on_failure=True)
+        assert model.raise_on_failure is True
+
+    def test_explicit_fallback_kwarg_overrides_policy(self) -> None:
+        cfg = MeanRiskConfig(fallback_policy=FallbackPolicy.PREVIOUS_WEIGHTS)
+        model = build_mean_risk(cfg, fallback=None)
+        assert model.fallback is None
+
+    def test_target_weights_forwarded_via_kwarg(self) -> None:
+        target = np.full(20, 1.0 / 20)
+        model = build_mean_risk(MeanRiskConfig(), target_weights=target)
+        np.testing.assert_allclose(model.target_weights, target)
+
+
+class TestResilienceIntegration:
+    """Real fit/predict of the resilience layer."""
+
+    def test_previous_weights_fallback_recovers_on_infeasible(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        # min_weights=0.5 * 20 assets = 10 > budget 1 => infeasible.
+        prev = np.full(returns_df.shape[1], 1.0 / returns_df.shape[1])
+        cfg = MeanRiskConfig(
+            min_weights=0.5,
+            raise_on_failure=False,
+            fallback_policy=FallbackPolicy.PREVIOUS_WEIGHTS,
+        )
+        model = build_mean_risk(cfg, previous_weights=prev)
+        model.fit(returns_df)
+        assert model.fallback_ == "previous_weights"
+        np.testing.assert_allclose(model.weights_, prev)
+        portfolio = model.predict(returns_df)
+        # A valid Portfolio (not a FailedPortfolio) is produced.
+        assert portfolio.weights is not None
+
+    def test_infeasible_no_fallback_yields_failed_portfolio(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        from skfolio.portfolio import FailedPortfolio
+
+        cfg = MeanRiskConfig(min_weights=0.5, raise_on_failure=False)
+        model = build_mean_risk(cfg)
+        model.fit(returns_df)
+        assert model.error_ is not None
+        portfolio = model.predict(returns_df)
+        assert isinstance(portfolio, FailedPortfolio)
+
+    def test_infeasible_default_raises(self, returns_df: pd.DataFrame) -> None:
+        cfg = MeanRiskConfig(min_weights=0.5)  # raise_on_failure defaults True
+        model = build_mean_risk(cfg)
+        with pytest.raises(Exception):  # noqa: B017 - skfolio SolverError
+            model.fit(returns_df)
+
+    def test_tracking_error_preset_fits_with_benchmark(
+        self, returns_df: pd.DataFrame, benchmark_returns: pd.Series
+    ) -> None:
+        cfg = MeanRiskConfig.for_tracking_error(max_tracking_error=0.10)
+        model = build_mean_risk(cfg)
+        model.fit(returns_df, benchmark_returns)
+        assert model.weights_.shape == (returns_df.shape[1],)
+
+    def test_tracking_error_without_benchmark_raises(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        cfg = MeanRiskConfig.for_tracking_error()
+        model = build_mean_risk(cfg)
+        with pytest.raises(ValueError):
+            model.fit(returns_df)
+
+    def test_target_weights_fit(self, returns_df: pd.DataFrame) -> None:
+        target = np.full(returns_df.shape[1], 1.0 / returns_df.shape[1])
+        cfg = MeanRiskConfig(
+            objective=ObjectiveFunctionType.MAXIMIZE_RATIO, l2_coef=0.1
+        )
+        model = build_mean_risk(cfg, target_weights=target)
+        model.fit(returns_df)
+        assert model.weights_.shape == (returns_df.shape[1],)

@@ -56,6 +56,19 @@ class TestHierarchicalClusteringConfig:
         cfg = HierarchicalClusteringConfig(max_clusters=5)
         assert cfg.max_clusters == 5
 
+    @pytest.mark.parametrize("bad", [0, -1, -10])
+    def test_when_max_clusters_non_positive_then_raises(self, bad: int) -> None:
+        with pytest.raises(ConfigurationError, match="max_clusters"):
+            HierarchicalClusteringConfig(max_clusters=bad)
+
+    def test_when_max_clusters_bool_then_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="max_clusters"):
+            HierarchicalClusteringConfig(max_clusters=True)
+
+    def test_when_max_clusters_none_then_no_raise(self) -> None:
+        cfg = HierarchicalClusteringConfig(max_clusters=None)
+        assert cfg.max_clusters is None
+
 
 class TestPresets:
     def test_when_for_default_then_ward_linkage(self) -> None:
@@ -65,6 +78,34 @@ class TestPresets:
     def test_when_for_single_linkage_then_single_linkage(self) -> None:
         cfg = HierarchicalClusteringConfig.for_single_linkage()
         assert cfg.linkage_method == LinkageMethodType.SINGLE
+
+    def test_when_for_complete_linkage_then_complete_linkage(self) -> None:
+        cfg = HierarchicalClusteringConfig.for_complete_linkage()
+        assert cfg.linkage_method == LinkageMethodType.COMPLETE
+
+    def test_when_for_average_linkage_then_average_linkage(self) -> None:
+        cfg = HierarchicalClusteringConfig.for_average_linkage()
+        assert cfg.linkage_method == LinkageMethodType.AVERAGE
+
+    def test_when_for_ward_linkage_then_ward_linkage(self) -> None:
+        cfg = HierarchicalClusteringConfig.for_ward_linkage()
+        assert cfg.linkage_method == LinkageMethodType.WARD
+
+    def test_when_with_max_clusters_then_count_and_linkage_stored(self) -> None:
+        cfg = HierarchicalClusteringConfig.with_max_clusters(
+            4, linkage_method=LinkageMethodType.SINGLE
+        )
+        assert cfg.max_clusters == 4
+        assert cfg.linkage_method == LinkageMethodType.SINGLE
+
+    def test_when_with_max_clusters_default_linkage_then_ward(self) -> None:
+        cfg = HierarchicalClusteringConfig.with_max_clusters(3)
+        assert cfg.max_clusters == 3
+        assert cfg.linkage_method == LinkageMethodType.WARD
+
+    def test_when_with_max_clusters_non_positive_then_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="max_clusters"):
+            HierarchicalClusteringConfig.with_max_clusters(0)
 
 
 class TestBuildHierarchicalClustering:
@@ -86,6 +127,12 @@ class TestBuildHierarchicalClustering:
     def test_when_default_then_max_clusters_none(self) -> None:
         est = build_hierarchical_clustering(HierarchicalClusteringConfig())
         assert est.max_clusters is None
+
+    def test_when_with_max_clusters_preset_then_forwarded(self) -> None:
+        cfg = HierarchicalClusteringConfig.with_max_clusters(2)
+        est = build_hierarchical_clustering(cfg)
+        assert est.max_clusters == 2
+        assert est.linkage_method == LinkageMethod.WARD
 
 
 class TestIntegrationWithDistance:
@@ -115,6 +162,8 @@ class TestIntegrationWithDistance:
         assert clustering.linkage_matrix_.shape == (n_assets - 1, 4)
         assert clustering.n_clusters_ >= 1
         assert clustering.labels_.shape == (n_assets,)
+        # skfolio 1.0.6 stores the condensed (upper-triangular) distance too.
+        assert clustering.condensed_distance_.shape == (n_assets * (n_assets - 1) // 2,)
 
     def test_when_max_clusters_then_n_clusters_bounded(
         self,

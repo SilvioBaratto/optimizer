@@ -388,6 +388,45 @@ class TestComputeExchangeMcapPercentileThresholds:
         assert isinstance(thresholds, pd.Series)
         assert set(thresholds.index) == set(tickers)
 
+    def test_nan_mcap_does_not_poison_exchange_threshold(self) -> None:
+        """A single NaN market cap must not blank out the whole exchange.
+
+        ``np.percentile`` propagates NaN, which would drive the exchange
+        threshold to NaN and silently exclude every stock on it.  The
+        NaN-aware implementation ignores the missing value and still yields a
+        finite threshold from the remaining members.
+        """
+        tickers = [f"T{i}" for i in range(11)]
+        values = [float(v) for v in range(100, 1100, 100)]  # 10 finite values
+        values.append(np.nan)  # 11th member has a missing market cap
+        mcaps = pd.Series(values, index=tickers)
+        exchanges = pd.Series(["NYSE"] * 11, index=tickers)
+
+        thresholds = compute_exchange_mcap_percentile_thresholds(
+            mcaps, exchanges, percentile=0.10
+        )
+
+        expected = float(np.nanpercentile(mcaps.to_numpy(dtype=float), 10))
+        finite = thresholds.dropna()
+        assert len(finite) == 11
+        assert np.isfinite(thresholds.to_numpy()).all()
+        assert thresholds.loc[tickers[:10]].eq(expected).all()
+
+    def test_nan_counts_below_min_exchange_size_default_zero(self) -> None:
+        """Only finite mcaps count toward the min-exchange-size gate."""
+        # 8 finite + 2 NaN: only 8 finite, below the default finite-count gate.
+        finite_vals = [float(v) for v in range(100, 900, 100)]  # 8 values
+        vals = [*finite_vals, np.nan, np.nan]
+        tickers = [f"T{i}" for i in range(10)]
+        mcaps = pd.Series(vals, index=tickers)
+        exchanges = pd.Series(["AIM"] * 10, index=tickers)
+
+        thresholds = compute_exchange_mcap_percentile_thresholds(
+            mcaps, exchanges, percentile=0.10
+        )
+        # 8 finite < default min_exchange_size (10) → threshold 0 everywhere.
+        assert (thresholds == 0.0).all()
+
     def test_custom_min_exchange_size(self) -> None:
         # 8 stocks; with min_exchange_size=5, percentile IS computed
         tickers = [f"T{i}" for i in range(8)]

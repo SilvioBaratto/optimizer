@@ -13,6 +13,7 @@ from skfolio.model_selection import (
 
 from optimizer.validation import (
     CPCVConfig,
+    CrossValFailureReport,
     MultipleRandomizedCVConfig,
     WalkForwardConfig,
     build_cpcv,
@@ -20,6 +21,7 @@ from optimizer.validation import (
     build_walk_forward,
     compute_optimal_folds,
     run_cross_val,
+    summarize_cv_failures,
 )
 
 
@@ -60,6 +62,26 @@ class TestBuildWalkForward:
         for train_idx, test_idx in splits:
             assert len(test_idx) <= 21
             assert len(train_idx) >= 100
+
+    def test_calendar_freq_produces_splits(self, returns_df: pd.DataFrame) -> None:
+        # 400 business days ≈ 19 months → 12-month train leaves several
+        # monthly test folds.
+        cfg = WalkForwardConfig.for_monthly_calendar()
+        cv = build_walk_forward(cfg)
+        splits = list(cv.split(returns_df))
+        assert len(splits) > 0
+        # No leakage: every train index precedes its test index.
+        for train_idx, test_idx in splits:
+            assert int(np.max(train_idx)) < int(np.min(test_idx))
+
+    def test_freq_offset_string_is_converted(self, returns_df: pd.DataFrame) -> None:
+        cfg = WalkForwardConfig(
+            test_size=1, train_size=6, freq="MS", freq_offset="2D", previous=True
+        )
+        cv = build_walk_forward(cfg)
+        # freq_offset carried through as a parsed pandas offset, not the raw str.
+        assert not isinstance(cv.freq_offset, str)
+        assert len(list(cv.split(returns_df))) > 0
 
 
 class TestBuildCPCV:
@@ -215,3 +237,72 @@ class TestRunCrossValMRCV:
         cv = build_multiple_randomized_cv(cfg)
         pred = run_cross_val(EqualWeighted(), returns_df, cv=cv)
         assert len(pred) > 0
+
+
+class TestSummarizeCvFailures:
+    """Resilience layer: count FailedPortfolio folds (skfolio 1.0 fallback)."""
+
+    def test_clean_backtest_reports_no_failures(self, returns_df: pd.DataFrame) -> None:
+        from skfolio.optimization import EqualWeighted
+
+        cfg = WalkForwardConfig(test_size=21, train_size=100)
+        pred = run_cross_val(EqualWeighted(), returns_df, cv=build_walk_forward(cfg))
+        report = summarize_cv_failures(pred)
+        assert isinstance(report, CrossValFailureReport)
+        assert report.n_failed == 0
+        assert report.failure_rate == 0.0
+        assert report.has_failures is False
+        assert report.total == len(pred.portfolios)
+
+    def test_multi_period_portfolio_with_failed_fold(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        from skfolio import MultiPeriodPortfolio, Portfolio
+        from skfolio.portfolio import FailedPortfolio
+
+        window = returns_df.iloc[:30]
+        n = returns_df.shape[1]
+        ok = Portfolio(X=window, weights=np.full(n, 1.0 / n), name="ok")
+        bad = FailedPortfolio(X=window, name="fold3", optimization_error="infeasible")
+        mpp = MultiPeriodPortfolio(portfolios=[ok, bad])
+
+        report = summarize_cv_failures(mpp)
+        assert report.total == 2
+        assert report.n_failed == 1
+        assert report.failure_rate == pytest.approx(0.5)
+        assert report.has_failures is True
+        assert report.failures == [("fold3", "infeasible")]
+
+    def test_population_of_multi_period_portfolios_flattened(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        from skfolio import MultiPeriodPortfolio, Population, Portfolio
+        from skfolio.portfolio import FailedPortfolio
+
+        window = returns_df.iloc[:30]
+        n = returns_df.shape[1]
+        ok = Portfolio(X=window, weights=np.full(n, 1.0 / n), name="ok")
+        bad = FailedPortfolio(X=window, name="p1", optimization_error="solver failed")
+        pop = Population([MultiPeriodPortfolio(portfolios=[ok, bad])])
+
+        report = summarize_cv_failures(pop)
+        assert report.total == 2
+        assert report.n_failed == 1
+        assert report.failures[0][0] == "p1"
+
+    def test_flat_population_of_portfolios(self, returns_df: pd.DataFrame) -> None:
+        from skfolio import Population, Portfolio
+        from skfolio.portfolio import FailedPortfolio
+
+        window = returns_df.iloc[:30]
+        n = returns_df.shape[1]
+        ok = Portfolio(X=window, weights=np.full(n, 1.0 / n), name="ok")
+        bad = FailedPortfolio(X=window, name="p2", optimization_error="nan bounds")
+        report = summarize_cv_failures(Population([ok, bad]))
+        assert report.total == 2
+        assert report.n_failed == 1
+
+    def test_report_is_frozen(self, returns_df: pd.DataFrame) -> None:
+        report = CrossValFailureReport(total=3, n_failed=0, failure_rate=0.0)
+        with pytest.raises(AttributeError):
+            report.n_failed = 1  # type: ignore[misc]

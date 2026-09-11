@@ -28,9 +28,11 @@ from skfolio.prior import EmpiricalPrior, TimeSeriesFactorModel
 from optimizer.exceptions import ConfigurationError
 from optimizer.moments import (
     CovEstimatorType,
+    FactorModelType,
     MomentEstimationConfig,
     MuEstimatorType,
     ShrinkageMethod,
+    build_characteristics_factor_model,
     build_cov_estimator,
     build_mu_estimator,
     build_prior,
@@ -84,6 +86,15 @@ class TestBuildMuEstimator:
         estimator = build_mu_estimator(cfg)
         assert isinstance(estimator, EquilibriumMu)
         assert estimator.risk_aversion == 2.5
+
+    def test_ew_min_observations_forwarded(self) -> None:
+        cfg = MomentEstimationConfig(
+            mu_estimator=MuEstimatorType.EW,
+            min_observations=25,
+        )
+        estimator = build_mu_estimator(cfg)
+        assert isinstance(estimator, EWMu)
+        assert estimator.min_observations == 25
 
 
 class TestBuildCovEstimator:
@@ -152,6 +163,46 @@ class TestBuildCovEstimator:
         assert estimator.corr_half_life == 50.0
         assert estimator.hac_lags == 4
 
+    def test_ew_min_observations_forwarded(self) -> None:
+        cfg = MomentEstimationConfig(
+            cov_estimator=CovEstimatorType.EW,
+            min_observations=30,
+        )
+        estimator = build_cov_estimator(cfg)
+        assert isinstance(estimator, EWCovariance)
+        assert estimator.min_observations == 30
+
+    def test_ew_min_observations_defaults_none(self) -> None:
+        cfg = MomentEstimationConfig(cov_estimator=CovEstimatorType.EW)
+        estimator = build_cov_estimator(cfg)
+        assert isinstance(estimator, EWCovariance)
+        assert estimator.min_observations is None
+
+    def test_implied_uses_new_annualization_factor_name(self) -> None:
+        # skfolio 1.0 renamed annualized_factor -> annualization_factor;
+        # the factory must set the NEW name and leave the deprecated one None.
+        cfg = MomentEstimationConfig(
+            cov_estimator=CovEstimatorType.IMPLIED,
+            implied_annualization_factor=252.0,
+            implied_window_size=15,
+        )
+        estimator = build_cov_estimator(cfg)
+        assert isinstance(estimator, ImpliedCovariance)
+        assert estimator.annualization_factor == 252.0
+        assert estimator.window_size == 15
+        assert estimator.annualized_factor is None
+
+    def test_implied_annualization_factor_defaults_none(self) -> None:
+        # config default is None; skfolio resolves None to its 252.0 default
+        # inside __init__, so the built estimator carries 252.0 (never the
+        # deprecated annualized_factor).
+        cfg = MomentEstimationConfig(cov_estimator=CovEstimatorType.IMPLIED)
+        estimator = build_cov_estimator(cfg)
+        assert isinstance(estimator, ImpliedCovariance)
+        assert estimator.annualization_factor == 252.0
+        assert estimator.annualized_factor is None
+        assert estimator.window_size == 20
+
 
 class TestUnsupportedEstimatorRaises:
     """The match dispatch rejects unknown estimator values (defensive guard)."""
@@ -218,6 +269,22 @@ class TestBuildPrior:
         cfg = MomentEstimationConfig(use_factor_model=True)
         prior = build_prior(cfg)
         assert isinstance(prior, TimeSeriesFactorModel)
+
+    def test_time_series_factor_model_type_explicit(self) -> None:
+        cfg = MomentEstimationConfig(
+            use_factor_model=True,
+            factor_model_type=FactorModelType.TIME_SERIES,
+        )
+        prior = build_prior(cfg)
+        assert isinstance(prior, TimeSeriesFactorModel)
+
+    def test_characteristics_via_build_prior_raises(self) -> None:
+        cfg = MomentEstimationConfig(
+            use_factor_model=True,
+            factor_model_type=FactorModelType.CHARACTERISTICS,
+        )
+        with pytest.raises(ConfigurationError, match="CharacteristicsFactorModel"):
+            build_prior(cfg)
 
     def test_is_log_normal_forwarded(self) -> None:
         cfg = MomentEstimationConfig(is_log_normal=True)
@@ -324,3 +391,81 @@ class TestIntegration:
         rd = prior.return_distribution_
         assert rd.mu is not None
         assert rd.covariance is not None
+
+
+@pytest.fixture()
+def asset_panel():  # type: ignore[no-untyped-def]
+    """Minimal cross-sectional AssetPanel for CharacteristicsFactorModel.
+
+    Enough assets (12) so the cross-sectional regression is well posed
+    once ``min_regression_assets`` is lowered from the skfolio default.
+    """
+    import numpy as np
+    from skfolio.containers import AssetPanel, Field2D
+
+    n_obs, n_assets = 160, 12
+    rng = np.random.default_rng(0)
+    return AssetPanel(
+        fields={
+            "returns": Field2D(rng.normal(0.0005, 0.01, (n_obs, n_assets))),
+            "value": Field2D(rng.normal(0.0, 1.0, (n_obs, n_assets))),
+            "market_cap": Field2D(np.abs(rng.normal(1e6, 1e5, (n_obs, n_assets)))),
+        },
+        observations=pd.bdate_range("2020-01-01", periods=n_obs),
+        asset_names=[f"A{i}" for i in range(n_assets)],
+    )
+
+
+def _make_factors():  # type: ignore[no-untyped-def]
+    from skfolio.descriptor import Passthrough
+    from skfolio.factor_exposure import FixedWeightedFactor, GlobalFactor
+
+    return [
+        ("market", GlobalFactor(family="market")),
+        (
+            "value",
+            FixedWeightedFactor(
+                descriptors=[("value", Passthrough("value"))],
+                family="value",
+            ),
+        ),
+    ]
+
+
+class TestBuildCharacteristicsFactorModel:
+    def test_returns_characteristics_factor_model(self) -> None:
+        from skfolio.prior import CharacteristicsFactorModel, EmpiricalPrior
+
+        cfg = MomentEstimationConfig(
+            exposure_lag=2,
+            min_regression_assets=3,
+            mu_estimator=MuEstimatorType.SHRUNK,
+        )
+        model = build_characteristics_factor_model(cfg, factors=_make_factors())
+        assert isinstance(model, CharacteristicsFactorModel)
+        assert model.exposure_lag == 2
+        assert model.min_regression_assets == 3
+        assert isinstance(model.factor_prior_estimator, EmpiricalPrior)
+        assert isinstance(model.factor_prior_estimator.mu_estimator, ShrunkMu)
+
+    def test_none_config_defaults(self) -> None:
+        from skfolio.prior import CharacteristicsFactorModel
+
+        model = build_characteristics_factor_model(factors=_make_factors())
+        assert isinstance(model, CharacteristicsFactorModel)
+        assert model.exposure_lag == 1
+
+    def test_neutralize_against_forwarded(self) -> None:
+        model = build_characteristics_factor_model(
+            factors=_make_factors(),
+            neutralize_against={"value": ["market"]},
+        )
+        assert model.neutralize_against == {"value": ["market"]}
+
+    def test_fit_produces_full_universe_moments(self, asset_panel) -> None:  # type: ignore[no-untyped-def]
+        cfg = MomentEstimationConfig(min_regression_assets=3)
+        model = build_characteristics_factor_model(cfg, factors=_make_factors())
+        model.fit(characteristics=asset_panel)
+        rd = model.return_distribution_
+        assert rd.mu.shape == (12,)
+        assert rd.covariance.shape == (12, 12)

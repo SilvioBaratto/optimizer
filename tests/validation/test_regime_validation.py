@@ -248,6 +248,35 @@ class TestRunRegimeValidation:
         assert result.n_regimes_observed == 0
         assert len(result.per_regime_metrics) == 0
 
+    def test_all_unknown_overlap_returns_empty_result(self) -> None:
+        """Overlapping macro data that all classifies as UNKNOWN and is then
+        filtered out must return a well-formed empty result, not crash."""
+        dates = pd.bdate_range("2024-01-02", periods=60)
+        # Columns unrecognised by classify_regime → UNKNOWN for every date.
+        macro = pd.DataFrame({"irrelevant": 1.0}, index=dates)
+        oos = pd.Series(
+            np.random.default_rng(0).normal(0.001, 0.01, size=60), index=dates
+        )
+        result = run_regime_validation(oos, macro)  # include_unknown_regime=False
+        assert result.n_regimes_observed == 0
+        assert len(result.per_regime_metrics) == 0
+        assert len(result.per_subperiod_metrics) == 0
+        assert result.total_obs == 60
+        # Result frames still carry their columns and serialize cleanly.
+        expected_cols = {
+            "obs",
+            "coverage_pct",
+            "ann_return",
+            "ann_vol",
+            "sharpe",
+            "max_drawdown",
+            "obs_sufficient",
+        }
+        assert set(result.per_regime_metrics.columns) == expected_cols
+        import json
+
+        json.dumps(result.to_attribution_dict())
+
     def test_regime_timeline_length(
         self,
         synthetic_oos_returns: pd.Series,

@@ -7,7 +7,11 @@ import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
 
-from optimizer.pre_selection import PreSelectionConfig, build_preselection_pipeline
+from optimizer.pre_selection import (
+    PreSelectionConfig,
+    SelectKMeasure,
+    build_preselection_pipeline,
+)
 
 
 @pytest.fixture()
@@ -388,3 +392,138 @@ class TestSkfolioIntegration:
         assert clean.shape[1] <= returns.shape[1]
         assert clean.shape[0] == returns.shape[0]
         assert not clean.isna().any().any()
+
+
+class TestNewConfigFields:
+    """Coverage for the additive skfolio 1.0 config surface."""
+
+    def test_new_defaults(self) -> None:
+        cfg = PreSelectionConfig()
+        assert cfg.zero_variance_threshold == 1e-8
+        assert cfg.drop_internal_nan is False
+        assert cfg.select_k_measure is SelectKMeasure.SHARPE_RATIO
+        assert cfg.pareto_threshold == -0.5
+
+    def test_select_k_measure_string_coerced(self) -> None:
+        cfg = PreSelectionConfig(select_k_measure="standard_deviation")
+        assert cfg.select_k_measure is SelectKMeasure.STANDARD_DEVIATION
+
+    def test_invalid_select_k_measure_raises(self) -> None:
+        with pytest.raises(ValueError):
+            PreSelectionConfig(select_k_measure="not_a_measure")
+
+    def test_zero_variance_threshold_negative_raises(self) -> None:
+        with pytest.raises(ValueError, match="zero_variance_threshold"):
+            PreSelectionConfig(zero_variance_threshold=-1e-6)
+
+    def test_top_k_non_positive_raises(self) -> None:
+        with pytest.raises(ValueError, match="top_k"):
+            PreSelectionConfig(top_k=0)
+
+    def test_pareto_min_assets_non_positive_raises(self) -> None:
+        with pytest.raises(ValueError, match="pareto_min_assets"):
+            PreSelectionConfig(pareto_min_assets=-1)
+
+    def test_expiration_lookahead_non_positive_raises(self) -> None:
+        with pytest.raises(ValueError, match="expiration_lookahead"):
+            PreSelectionConfig(use_non_expiring=True, expiration_lookahead=0)
+
+    def test_for_low_volatility_preset(self) -> None:
+        cfg = PreSelectionConfig.for_low_volatility()
+        assert cfg.top_k == 50
+        assert cfg.top_k_highest is False
+        assert cfg.select_k_measure is SelectKMeasure.STANDARD_DEVIATION
+
+    def test_zero_variance_threshold_wired(self) -> None:
+        cfg = PreSelectionConfig(zero_variance_threshold=1e-4)
+        pipe = build_preselection_pipeline(cfg)
+        assert pipe.named_steps["drop_zero_variance"].threshold == 1e-4
+
+    def test_drop_internal_nan_wired(self) -> None:
+        cfg = PreSelectionConfig(drop_internal_nan=True)
+        pipe = build_preselection_pipeline(cfg)
+        assert pipe.named_steps["select_complete"].drop_assets_with_internal_nan is True
+
+    def test_pareto_threshold_wired(self) -> None:
+        cfg = PreSelectionConfig(use_pareto=True, pareto_threshold=-0.25)
+        pipe = build_preselection_pipeline(cfg)
+        assert pipe.named_steps["select_pareto"].threshold == -0.25
+
+    def test_select_k_measure_wired_to_skfolio(self) -> None:
+        from skfolio.measures import RiskMeasure
+
+        cfg = PreSelectionConfig(
+            top_k=5, select_k_measure=SelectKMeasure.STANDARD_DEVIATION
+        )
+        pipe = build_preselection_pipeline(cfg)
+        assert pipe.named_steps["select_k"].measure is RiskMeasure.STANDARD_DEVIATION
+
+    def test_low_vol_selects_lowest_variance(self) -> None:
+        rng = np.random.default_rng(7)
+        n_obs = 250
+        df = pd.DataFrame(
+            {
+                "CALM1": rng.normal(0.0, 0.005, n_obs),
+                "CALM2": rng.normal(0.0, 0.007, n_obs),
+                "WILD1": rng.normal(0.0, 0.05, n_obs),
+                "WILD2": rng.normal(0.0, 0.06, n_obs),
+            },
+            index=pd.date_range("2023-01-01", periods=n_obs, freq="B"),
+        )
+        cfg = PreSelectionConfig(
+            top_k=2,
+            top_k_highest=False,
+            select_k_measure=SelectKMeasure.STANDARD_DEVIATION,
+            correlation_threshold=1.0,
+        )
+        pipe = build_preselection_pipeline(cfg)
+        out = pipe.fit_transform(df)
+        assert set(out.columns) == {"CALM1", "CALM2"}
+
+
+class TestNonExpiringWithDates:
+    """SelectNonExpiring actually filters once expiration dates are supplied."""
+
+    def test_expiring_asset_dropped(self) -> None:
+        rng = np.random.default_rng(1)
+        n_obs = 120
+        idx = pd.date_range("2023-01-01", periods=n_obs, freq="B")
+        df = pd.DataFrame(
+            rng.normal(0.0, 0.01, (n_obs, 3)),
+            columns=["LIVE", "EXPIRES", "OTHER"],
+            index=idx,
+        )
+        cfg = PreSelectionConfig(
+            use_non_expiring=True,
+            expiration_lookahead=30,
+            correlation_threshold=1.0,
+        )
+        expiration_dates = {"EXPIRES": idx[-1] + pd.Timedelta(days=5)}
+        pipe = build_preselection_pipeline(cfg, expiration_dates=expiration_dates)
+        out = pipe.fit_transform(df)
+        assert "EXPIRES" not in out.columns
+        assert "LIVE" in out.columns
+        assert "OTHER" in out.columns
+
+    def test_no_dates_requires_dates_at_fit(self) -> None:
+        """skfolio's SelectNonExpiring mandates expiration_dates at fit time.
+
+        Building without them still assembles the pipeline (step-ordering
+        tests rely on that), but fitting raises — documenting that
+        expiration_dates is a required companion of use_non_expiring.
+        """
+        rng = np.random.default_rng(2)
+        n_obs = 120
+        df = pd.DataFrame(
+            rng.normal(0.0, 0.01, (n_obs, 3)),
+            columns=["A", "B", "C"],
+            index=pd.date_range("2023-01-01", periods=n_obs, freq="B"),
+        )
+        cfg = PreSelectionConfig(
+            use_non_expiring=True,
+            expiration_lookahead=30,
+            correlation_threshold=1.0,
+        )
+        pipe = build_preselection_pipeline(cfg)
+        with pytest.raises(ValueError, match="expiration_dates"):
+            pipe.fit_transform(df)

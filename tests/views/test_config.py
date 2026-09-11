@@ -102,6 +102,28 @@ class TestBlackLittermanConfig:
         with pytest.raises(ValueError, match="tau must be strictly positive"):
             BlackLittermanConfig(views=("AAPL == 0.05",), tau=-0.01)
 
+    def test_view_confidences_length_mismatch_raises(self) -> None:
+        """view_confidences must have exactly one entry per view."""
+        with pytest.raises(ValueError, match="one entry per view"):
+            BlackLittermanConfig(
+                views=("AAPL == 0.05", "MSFT == 0.03"),
+                view_confidences=(0.8,),
+            )
+
+    def test_view_confidence_out_of_range_raises(self) -> None:
+        with pytest.raises(ValueError, match=r"in \[0, 1\]"):
+            BlackLittermanConfig(
+                views=("AAPL == 0.05",),
+                view_confidences=(1.4,),
+            )
+
+    def test_view_confidences_matching_length_accepted(self) -> None:
+        cfg = BlackLittermanConfig(
+            views=("AAPL == 0.05", "MSFT == 0.03"),
+            view_confidences=(0.8, 0.6),
+        )
+        assert cfg.view_confidences == (0.8, 0.6)
+
 
 class TestEntropyPoolingConfig:
     def test_default_values(self) -> None:
@@ -112,7 +134,9 @@ class TestEntropyPoolingConfig:
         assert cfg.correlation_views is None
         assert cfg.skew_views is None
         assert cfg.kurtosis_views is None
+        assert cfg.value_at_risk_views is None
         assert cfg.cvar_views is None
+        assert cfg.value_at_risk_beta == 0.95
         assert cfg.cvar_beta == 0.95
         assert cfg.groups is None
         assert cfg.solver == "TNC"
@@ -188,6 +212,33 @@ class TestEntropyPoolingConfig:
         cfg = EntropyPoolingConfig()
         assert cfg.mean_inequality_views is None
 
+    def test_value_at_risk_views_field(self) -> None:
+        cfg = EntropyPoolingConfig(value_at_risk_views=("AAPL >= 0.03",))
+        assert cfg.value_at_risk_views == ("AAPL >= 0.03",)
+
+    def test_value_at_risk_beta_field(self) -> None:
+        cfg = EntropyPoolingConfig(value_at_risk_beta=0.99)
+        assert cfg.value_at_risk_beta == 0.99
+
+    def test_cvar_beta_out_of_range_raises(self) -> None:
+        with pytest.raises(ValueError, match="cvar_beta"):
+            EntropyPoolingConfig(cvar_beta=1.0)
+
+    def test_value_at_risk_beta_out_of_range_raises(self) -> None:
+        with pytest.raises(ValueError, match="value_at_risk_beta"):
+            EntropyPoolingConfig(value_at_risk_beta=0.0)
+
+    def test_for_tail_risk(self) -> None:
+        cfg = EntropyPoolingConfig.for_tail_risk(
+            cvar_views=("AAPL == 0.05",),
+            value_at_risk_views=("AAPL >= 0.03",),
+            beta=0.975,
+        )
+        assert cfg.cvar_views == ("AAPL == 0.05",)
+        assert cfg.value_at_risk_views == ("AAPL >= 0.03",)
+        assert cfg.cvar_beta == 0.975
+        assert cfg.value_at_risk_beta == 0.975
+
 
 class TestOpinionPoolingConfig:
     def test_default_values(self) -> None:
@@ -237,3 +288,7 @@ class TestOpinionPoolingConfig:
     def test_none_probabilities_accepted(self) -> None:
         cfg = OpinionPoolingConfig(opinion_probabilities=None)
         assert cfg.opinion_probabilities is None
+
+    def test_negative_divergence_penalty_raises(self) -> None:
+        with pytest.raises(ValueError, match="divergence_penalty must be non-negative"):
+            OpinionPoolingConfig(divergence_penalty=-0.1)

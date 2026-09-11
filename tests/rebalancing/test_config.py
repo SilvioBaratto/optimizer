@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from optimizer.rebalancing import (
+    PANDAS_FREQ,
     TRADING_DAYS,
     CalendarRebalancingConfig,
     HybridRebalancingConfig,
@@ -50,11 +51,35 @@ class TestTradingDays:
         assert TRADING_DAYS[RebalancingFrequency.ANNUAL] == 252
 
 
+class TestPandasFreq:
+    def test_all_frequencies_mapped(self) -> None:
+        assert set(PANDAS_FREQ) == set(RebalancingFrequency)
+
+    def test_values(self) -> None:
+        assert PANDAS_FREQ[RebalancingFrequency.MONTHLY] == "MS"
+        assert PANDAS_FREQ[RebalancingFrequency.QUARTERLY] == "QS"
+        assert PANDAS_FREQ[RebalancingFrequency.SEMIANNUAL] == "2QS"
+        assert PANDAS_FREQ[RebalancingFrequency.ANNUAL] == "YS"
+
+    def test_aliases_parse_with_pandas(self) -> None:
+        import pandas as pd
+
+        for alias in PANDAS_FREQ.values():
+            # Raises if the alias is not a valid pandas offset.
+            assert pd.tseries.frequencies.to_offset(alias) is not None
+
+
 class TestCalendarRebalancingConfig:
     def test_defaults(self) -> None:
         cfg = CalendarRebalancingConfig()
         assert cfg.frequency == RebalancingFrequency.QUARTERLY
         assert cfg.trading_days == 63
+
+    def test_pandas_freq_property(self) -> None:
+        assert CalendarRebalancingConfig.for_monthly().pandas_freq == "MS"
+        assert CalendarRebalancingConfig.for_quarterly().pandas_freq == "QS"
+        assert CalendarRebalancingConfig.for_semiannual().pandas_freq == "2QS"
+        assert CalendarRebalancingConfig.for_annual().pandas_freq == "YS"
 
     def test_frozen(self) -> None:
         cfg = CalendarRebalancingConfig()

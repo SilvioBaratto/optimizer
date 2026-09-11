@@ -10,6 +10,7 @@ from optimizer.fx import (
     align_fx_rates,
     build_fx_pair_ticker,
     compute_cross_rate,
+    invert_fx_rates,
     required_fx_currencies,
 )
 
@@ -106,6 +107,31 @@ class TestAlignFxRates:
         price_dates = pd.bdate_range("2024-01-01", periods=5)
         with pytest.raises(DataError, match="empty"):
             align_fx_rates(pd.DataFrame(), price_dates)
+
+
+class TestInvertFxRates:
+    """Tests for invert_fx_rates()."""
+
+    def test_series_reciprocal(self) -> None:
+        s = pd.Series([1.25, 2.0, 0.5])
+        result = invert_fx_rates(s)
+        pd.testing.assert_series_equal(result, pd.Series([0.8, 0.5, 2.0]))
+
+    def test_dataframe_reciprocal(self) -> None:
+        df = pd.DataFrame({"GBP": [1.25, 2.0], "USD": [4.0, 0.5]})
+        result = invert_fx_rates(df)
+        expected = pd.DataFrame({"GBP": [0.8, 0.5], "USD": [0.25, 2.0]})
+        pd.testing.assert_frame_equal(result, expected)
+
+    def test_zero_maps_to_nan_not_inf(self) -> None:
+        s = pd.Series([0.0, 2.0])
+        result = invert_fx_rates(s)
+        assert np.isnan(result.iloc[0])
+        assert result.iloc[1] == 0.5
+
+    def test_double_inversion_roundtrip(self) -> None:
+        s = pd.Series([1.15, 1.17, 0.92])
+        pd.testing.assert_series_equal(invert_fx_rates(invert_fx_rates(s)), s)
 
 
 class TestRequiredFxCurrencies:

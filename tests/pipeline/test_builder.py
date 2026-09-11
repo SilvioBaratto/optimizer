@@ -81,3 +81,27 @@ class TestBuildPortfolioPipeline:
         pipe.fit(returns_df)
         portfolio = pipe.predict(returns_df)
         assert len(portfolio.weights) > 0
+
+    def test_expiration_dates_forwarded(self, returns_df: pd.DataFrame) -> None:
+        """expiration_dates reach the pre-selection SelectNonExpiring step."""
+        import datetime as dt
+
+        exp = {t: dt.datetime(2025, 1, 1) for t in returns_df.columns}
+        cfg = PreSelectionConfig(use_non_expiring=True, expiration_lookahead=30)
+        pipe = build_portfolio_pipeline(
+            EqualWeighted(),
+            pre_selection_config=cfg,
+            expiration_dates=exp,
+        )
+        steps = dict(pipe.steps)
+        assert "select_non_expiring" in steps
+        assert steps["select_non_expiring"].expiration_dates == exp
+
+    def test_expiration_dates_noop_by_default(self, returns_df: pd.DataFrame) -> None:
+        """Without use_non_expiring, no SelectNonExpiring step is added."""
+        import datetime as dt
+
+        exp = {t: dt.datetime(2025, 1, 1) for t in returns_df.columns}
+        pipe = build_portfolio_pipeline(EqualWeighted(), expiration_dates=exp)
+        step_names = [name for name, _ in pipe.steps]
+        assert "select_non_expiring" not in step_names

@@ -95,6 +95,28 @@ class TestVineCopulaConfig:
         cfg = VineCopulaConfig(central_assets=("AAPL", "MSFT"))
         assert cfg.central_assets == ("AAPL", "MSFT")
 
+    def test_when_max_depth_none_then_allowed(self) -> None:
+        cfg = VineCopulaConfig(max_depth=None)
+        assert cfg.max_depth is None
+
+    def test_when_max_depth_zero_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="max_depth"):
+            VineCopulaConfig(max_depth=0)
+
+    def test_when_independence_level_out_of_range_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="independence_level"):
+            VineCopulaConfig(independence_level=1.5)
+
+    def test_when_independence_level_negative_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="independence_level"):
+            VineCopulaConfig(independence_level=-0.01)
+
 
 class TestVineCopulaPresets:
     def test_when_for_with_t_marginals_then_gaussian_and_t(self) -> None:
@@ -104,6 +126,26 @@ class TestVineCopulaPresets:
     def test_when_for_clayton_only_then_clayton_copula(self) -> None:
         cfg = VineCopulaConfig.for_clayton_only()
         assert cfg.copula_candidates == ("ClaytonCopula",)
+
+    def test_when_for_tail_dependence_then_heavy_tail_families(self) -> None:
+        cfg = VineCopulaConfig.for_tail_dependence()
+        assert cfg.marginal_candidates == ("StudentT", "JohnsonSU")
+        assert cfg.copula_candidates == (
+            "ClaytonCopula",
+            "GumbelCopula",
+            "StudentTCopula",
+        )
+        assert cfg.selection_criterion == SelectionCriterionType.BIC
+
+    def test_when_for_conditional_sampling_then_central_assets_set(self) -> None:
+        cfg = VineCopulaConfig.for_conditional_sampling(["AAPL", "MSFT"])
+        assert cfg.central_assets == ("AAPL", "MSFT")
+
+    def test_when_for_conditional_sampling_empty_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="central_assets"):
+            VineCopulaConfig.for_conditional_sampling([])
 
 
 class TestSyntheticDataConfig:
@@ -152,3 +194,23 @@ class TestSyntheticDataConfig:
         scenario = SyntheticDataConfig.for_scenario_generation()
         stress = SyntheticDataConfig.for_stress_test()
         assert scenario.vine_copula_config != stress.vine_copula_config
+
+    def test_when_n_samples_zero_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="n_samples"):
+            SyntheticDataConfig(n_samples=0)
+
+    def test_for_conditional_stress_sets_central_assets(self) -> None:
+        cfg = SyntheticDataConfig.for_conditional_stress(["AAPL"], n_samples=5_000)
+        assert cfg.n_samples == 5_000
+        assert cfg.vine_copula_config is not None
+        assert cfg.vine_copula_config.central_assets == ("AAPL",)
+        assert cfg.vine_copula_config.selection_criterion == SelectionCriterionType.BIC
+        assert cfg.vine_copula_config.max_depth == 6
+
+    def test_for_conditional_stress_empty_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="central_assets"):
+            SyntheticDataConfig.for_conditional_stress([])

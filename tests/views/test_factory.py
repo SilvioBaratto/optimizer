@@ -131,6 +131,23 @@ class TestBuildEntropyPooling:
         prior = build_entropy_pooling(cfg)
         assert prior.cvar_views == ["TICK_00 <= -0.05"]
 
+    def test_value_at_risk_views_forwarded(self) -> None:
+        cfg = EntropyPoolingConfig(value_at_risk_views=("TICK_00 >= 0.03",))
+        prior = build_entropy_pooling(cfg)
+        assert prior.value_at_risk_views == ["TICK_00 >= 0.03"]
+
+    def test_value_at_risk_beta_forwarded(self) -> None:
+        cfg = EntropyPoolingConfig(
+            value_at_risk_views=("TICK_00 >= 0.03",), value_at_risk_beta=0.99
+        )
+        prior = build_entropy_pooling(cfg)
+        assert prior.value_at_risk_beta == 0.99
+
+    def test_value_at_risk_views_default_none(self) -> None:
+        cfg = EntropyPoolingConfig(mean_views=("TICK_00 == 0.05",))
+        prior = build_entropy_pooling(cfg)
+        assert prior.value_at_risk_views is None
+
     def test_cvar_beta_forwarded(self) -> None:
         cfg = EntropyPoolingConfig(cvar_views=("TICK_00 <= -0.05",), cvar_beta=0.99)
         prior = build_entropy_pooling(cfg)
@@ -528,6 +545,43 @@ class TestIntegration:
         # EmpiricalPrior, but must not be silently dropped)
         prior_sw = prior.prior_estimator_.return_distribution_.sample_weight
         assert rd.sample_weight is prior_sw
+
+    def test_empirical_omega_wrong_shape_raises(self) -> None:
+        """A mis-sized empirical omega is rejected at fit time (issue #71)."""
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        # One view, but a 2x2 omega
+        omega = np.diag([1e-4, 1e-4])
+        cfg = BlackLittermanConfig(
+            views=("AAPL == 0.05",),
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        prior = build_black_litterman(cfg, omega=omega)
+        assert isinstance(prior, _EmpiricalOmegaBlackLitterman)
+        with pytest.raises(ValueError, match="empirical_omega must be square"):
+            prior.fit(returns)
+
+    def test_ep_fit_value_at_risk_views(self) -> None:
+        """VaR views fit and produce a finite posterior (skfolio 1.0)."""
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        cfg = EntropyPoolingConfig.for_tail_risk(
+            cvar_views=("AAPL == 0.06",),
+            value_at_risk_views=("AAPL >= 0.03",),
+        )
+        prior = build_entropy_pooling(cfg)
+        prior.fit(returns)
+        rd = prior.return_distribution_
+        assert rd.mu is not None
+        assert np.all(np.isfinite(rd.mu))
 
     def test_empirical_omega_covariance_is_psd(self) -> None:
         """Posterior covariance from empirical omega is positive semi-definite."""

@@ -78,3 +78,27 @@ def test_when_config_none_then_default_used(returns) -> None:
     estimators = [("ledoit_wolf", LedoitWolf())]
     result = run_covariance_forecast_evaluation(estimators, returns, config=None)
     assert isinstance(result, CovarianceForecastComparison)
+
+
+def test_when_params_routed_then_implied_vol_forwarded(returns) -> None:
+    """Metadata routing forwards implied_vol to ImpliedCovariance during eval."""
+    from skfolio.moments import ImpliedCovariance
+    from sklearn import set_config
+
+    set_config(enable_metadata_routing=True)
+    try:
+        implied_vol = pd.DataFrame(
+            np.random.default_rng(1).uniform(0.10, 0.50, size=returns.shape),
+            index=returns.index,
+            columns=returns.columns,
+        )
+        imp = ImpliedCovariance().set_fit_request(implied_vol=True)
+        estimators = [("implied", imp)]
+        cfg = CovarianceForecastConfig(train_size=252, test_size=21)
+        result = run_covariance_forecast_evaluation(
+            estimators, returns, config=cfg, params={"implied_vol": implied_vol}
+        )
+        assert isinstance(result, CovarianceForecastComparison)
+        assert result.names == ["implied"]
+    finally:
+        set_config(enable_metadata_routing=False)

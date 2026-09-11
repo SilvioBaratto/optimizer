@@ -6,6 +6,7 @@ import pytest
 
 from optimizer.moments import (
     CovEstimatorType,
+    FactorModelType,
     MomentEstimationConfig,
     MuEstimatorType,
     ShrinkageMethod,
@@ -48,6 +49,14 @@ class TestEnums:
         assert CovEstimatorType.LEDOIT_WOLF.value == "ledoit_wolf"
         assert ShrinkageMethod.JAMES_STEIN.value == "james_stein"
 
+    def test_factor_model_type_members(self) -> None:
+        assert set(FactorModelType) == {
+            FactorModelType.TIME_SERIES,
+            FactorModelType.CHARACTERISTICS,
+        }
+        assert FactorModelType.TIME_SERIES.value == "time_series"
+        assert FactorModelType.CHARACTERISTICS.value == "characteristics"
+
 
 class TestMomentEstimationConfig:
     def test_default_values(self) -> None:
@@ -63,6 +72,11 @@ class TestMomentEstimationConfig:
         assert cfg.is_log_normal is False
         assert cfg.investment_horizon is None
         assert cfg.use_factor_model is False
+        assert cfg.factor_model_type == FactorModelType.TIME_SERIES
+        assert cfg.exposure_lag == 1
+        assert cfg.min_regression_assets is None
+        assert cfg.implied_annualization_factor is None
+        assert cfg.implied_window_size == 20
 
     def test_frozen(self) -> None:
         cfg = MomentEstimationConfig()

@@ -1740,3 +1740,111 @@ class TestComputeNetSharpeEdgeCases:
         from optimizer.pipeline._orchestrator import _compute_net_sharpe
 
         assert _compute_net_sharpe(pd.Series([0.01, 0.01, 0.01])) is None
+
+
+class TestSearchResultsPopulation:
+    """tune_and_optimize surfaces tidy hyperparameter-search diagnostics."""
+
+    def test_search_results_populated(self, returns_df: pd.DataFrame) -> None:
+        from optimizer.tuning import GridSearchConfig
+
+        optimizer = build_mean_risk(MeanRiskConfig.for_min_variance())
+        pipe = build_portfolio_pipeline(optimizer)
+        cfg = GridSearchConfig(
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        result = tune_and_optimize(
+            pipe,
+            returns_df,
+            param_grid={"optimizer__l2_coef": [0.0, 0.01, 0.05]},
+            tuning_config=cfg,
+        )
+        assert result.search_results is not None
+        assert isinstance(result.search_results, pd.DataFrame)
+        # One row per candidate in the grid.
+        assert len(result.search_results) == 3
+        assert "rank_test_score" in result.search_results.columns
+
+    def test_optimize_leaves_search_results_none(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        """The plain optimize path does not populate search_results."""
+        pipe = build_portfolio_pipeline(EqualWeighted())
+        result = optimize(pipe, returns_df)
+        assert result.search_results is None
+
+
+class TestCvFailuresPopulation:
+    """run_full_pipeline summarises backtest fold failures (resilience layer)."""
+
+    def test_cv_failures_populated_on_backtest(self, prices_df: pd.DataFrame) -> None:
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            cv_config=WalkForwardConfig(test_size=21, train_size=100),
+        )
+        assert result.cv_failures is not None
+        # A healthy EqualWeighted backtest has no failed folds.
+        assert not result.cv_failures.has_failures
+        assert result.cv_failures.total > 0
+        assert result.cv_failures.n_failed == 0
+
+    def test_cv_failures_none_without_backtest(self, prices_df: pd.DataFrame) -> None:
+        result = run_full_pipeline(prices=prices_df, optimizer=EqualWeighted())
+        assert result.cv_failures is None
+
+    def test_cv_failures_counts_failed_folds(self, prices_df: pd.DataFrame) -> None:
+        """A FailedPortfolio in the backtest is reflected in cv_failures."""
+        from skfolio.portfolio import FailedPortfolio
+
+        rets = prices_df.iloc[1:6, :2].pct_change().dropna()
+        failed = FailedPortfolio(
+            X=rets,
+            name="fold_0",
+            optimization_error="mock solver failure",
+        )
+        with patch(
+            "optimizer.pipeline._orchestrator.backtest",
+            return_value=SimpleNamespace(portfolios=[failed], sharpe_ratio=0.0),
+        ):
+            result = run_full_pipeline(
+                prices=prices_df,
+                optimizer=EqualWeighted(),
+                cv_config=WalkForwardConfig(test_size=21, train_size=100),
+            )
+        assert result.cv_failures is not None
+        assert result.cv_failures.has_failures
+        assert result.cv_failures.n_failed == 1
+        assert result.cv_failures.total == 1
+
+
+class TestReturnsConfigRouting:
+    """run_full_pipeline optionally routes prices→returns through to_returns."""
+
+    def test_returns_config_matches_default(self, prices_df: pd.DataFrame) -> None:
+        """Default ReturnsConfig yields the same weights as the legacy path."""
+        from optimizer.preprocessing._returns import ReturnsConfig
+
+        base = run_full_pipeline(prices=prices_df, optimizer=EqualWeighted())
+        routed = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            returns_config=ReturnsConfig(),
+        )
+        pd.testing.assert_series_equal(base.weights, routed.weights)
+
+    def test_returns_config_with_y_prices_joint_align(
+        self, prices_df: pd.DataFrame
+    ) -> None:
+        """With y_prices, to_returns jointly aligns X and y (issue: benchmark)."""
+        from optimizer.preprocessing._returns import ReturnsConfig
+
+        bench = (prices_df.iloc[:, :1]).rename(columns={prices_df.columns[0]: "BENCH"})
+        result = run_full_pipeline(
+            prices=prices_df,
+            optimizer=EqualWeighted(),
+            y_prices=bench,
+            returns_config=ReturnsConfig(),
+        )
+        assert isinstance(result, PortfolioResult)
+        assert result.weights.sum() == pytest.approx(1.0, abs=1e-6)

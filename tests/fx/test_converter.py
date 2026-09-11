@@ -213,6 +213,54 @@ class TestFxPriceConverterTransform:
         pd.testing.assert_index_equal(result.columns, local_prices.columns)
 
 
+class TestFxPriceConverterCaseInsensitive:
+    """FX rate columns quoted in lower-case must still match currencies."""
+
+    def test_lowercase_fx_columns_matched(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        fx_lower = fx_rates.rename(columns=str.lower)
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map=currency_map,
+            fx_rates=fx_lower,
+        )
+        converter.fit(local_prices)
+        # No currencies should be reported missing despite lower-case cols.
+        assert converter.missing_currencies_ == set()
+
+        result = converter.transform(local_prices)
+        expected_lloy = local_prices["LLOY.L"] * fx_rates["GBP"]
+        pd.testing.assert_series_equal(
+            result["LLOY.L"], expected_lloy, check_names=False
+        )
+
+
+class TestFxPriceConverterClone:
+    """The transformer must survive sklearn clone (Pipeline composability)."""
+
+    def test_clone_preserves_params(
+        self,
+        currency_map: dict[str, str],
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        from sklearn.base import clone
+
+        converter = FxPriceConverter(
+            base_currency="GBP",
+            currency_map=currency_map,
+            fx_rates=fx_rates,
+            fill_limit=7,
+        )
+        cloned = clone(converter)
+        assert cloned.base_currency == "GBP"
+        assert cloned.fill_limit == 7
+        assert cloned.currency_map == currency_map
+
+
 class TestFxPriceConverterSklearnAPI:
     """Tests for sklearn API compliance."""
 
