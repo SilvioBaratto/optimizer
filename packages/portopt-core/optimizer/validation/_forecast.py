@@ -29,7 +29,7 @@ class CovarianceForecastConfig:
     """Immutable configuration for offline covariance forecast evaluation.
 
     Fields mirror :func:`skfolio.model_selection.covariance_forecast_evaluation`
-    (skfolio 0.20.1) — verified at implementation time via
+    (skfolio 1.0) — verified against the installed signature via
     ``inspect.signature``.
 
     Parameters

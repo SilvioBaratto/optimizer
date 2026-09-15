@@ -174,6 +174,36 @@ def run_cross_val(
         Out-of-sample portfolio predictions.  ``WalkForward`` returns
         a ``MultiPeriodPortfolio``; ``CombinatorialPurgedCV`` and
         ``MultipleRandomizedCV`` return a ``Population``.
+
+    Notes
+    -----
+    **No look-ahead** — every cross-validator built by this module
+    (:class:`WalkForward`, :class:`CombinatorialPurgedCV`,
+    :class:`MultipleRandomizedCV`) is *temporal*: it never shuffles
+    observations, so each training window strictly precedes its test
+    window.  Do not substitute a shuffling splitter (``KFold(shuffle=True)``
+    / ``train_test_split(shuffle=True)``) — that silently leaks future
+    data.  Use ``purged_size`` to also excise the autocorrelated boundary.
+
+    **Single-regime constraints** — the *estimator* is fixed for the whole
+    backtest, so any constraint it carries (sector bands, weight bounds,
+    turnover caps) is constant across every fold.  Walk-forward CV cannot
+    vary constraints per rebalance; a run is therefore single-regime, not
+    per-rebalance.  To study a regime-dependent constraint set, run one
+    backtest per regime and compare, rather than expecting one run to adapt.
+
+    **Survivorship / delisted universe** — ``X`` should be the
+    *delisted-inclusive* return matrix: include instruments that were
+    delisted during the window, with their terminal delisting return
+    (CRSP-style, e.g. ``-0.30``, or ``-1.0`` for bankruptcy) applied on the
+    delist date and ``NaN`` thereafter.  Passing only currently-listed
+    names reintroduces survivorship bias.  This function never drops
+    columns, so delisted assets are preserved — but skfolio's *default*
+    ``Empirical`` moment estimators raise on ``NaN``.  For a matrix with
+    delisted (NaN-tailed) columns, use skfolio 1.0's NaN-tolerant path
+    (e.g. ``EWMu`` / ``EWCovariance`` inside the prior, whose non-investable
+    columns are removed via ``ReturnDistribution.investable_subset``), or
+    align/zero-fill upstream in the DB→returns adapter.
     """
     if cv is None:
         cv = build_walk_forward()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -299,6 +301,117 @@ class TestFxPriceConverterSklearnAPI:
         result = converter.fit_transform(local_prices)
         assert isinstance(result, pd.DataFrame)
         assert result.shape == local_prices.shape
+
+
+class TestFxPriceConverterMinorUnits:
+    """Sub-unit (pence/cents/agorot) rescaling — the core 100x-bug guard."""
+
+    def test_gbp_pence_scaled_then_fx_converted(self) -> None:
+        """A ``GBp`` (pence) ticker must be divided by 100 before the GBP FX
+        rate is applied — otherwise the EUR price is 100x too large."""
+        dates = pd.bdate_range("2024-01-02", periods=5)
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0, 52.0, 53.0, 54.0]}, index=dates)
+        # price_unit stored verbatim as pence.
+        cmap = {"LLOY.L": "GBp"}
+        rate = pd.Series(np.linspace(1.15, 1.17, 5), index=dates)
+        fx = pd.DataFrame({"GBP": rate})
+
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map=cmap, fx_rates=fx
+        )
+        result = converter.fit_transform(prices)
+
+        # pence -> pounds (/100) -> EUR (x rate)
+        expected = (prices["LLOY.L"] / 100.0) * rate
+        pd.testing.assert_series_equal(result["LLOY.L"], expected, check_names=False)
+        # It is treated as a foreign GBP ticker with a 100x minor-unit scale.
+        assert converter.foreign_tickers_["LLOY.L"] == "GBP"
+        assert converter.ticker_scale_["LLOY.L"] == 100
+        assert converter.minor_unit_tickers_ == {"LLOY.L": 100}
+
+    def test_gbp_base_pence_ticker_rescaled_without_fx(self) -> None:
+        """With GBP base, a pence ticker still needs /100 even though no FX
+        conversion applies (major currency == base)."""
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        prices = pd.DataFrame({"LLOY.L": [500.0, 510.0, 520.0, 530.0]}, index=dates)
+        cmap = {"LLOY.L": "GBp"}
+        # No FX rates needed; base is GBP.
+        converter = FxPriceConverter(
+            base_currency="GBP", currency_map=cmap, fx_rates=pd.DataFrame()
+        )
+        result = converter.fit_transform(prices)
+
+        pd.testing.assert_series_equal(
+            result["LLOY.L"], prices["LLOY.L"] / 100.0, check_names=False
+        )
+        # Not foreign (major == base), but still rescaled.
+        assert "LLOY.L" not in converter.foreign_tickers_
+        assert converter.ticker_scale_["LLOY.L"] == 100
+        assert converter.missing_currencies_ == set()
+
+    def test_zac_cents_uses_major_zar_rate(self) -> None:
+        """A ``ZAc`` ticker resolves to ZAR for the FX lookup (upper-casing to
+        'ZAC' alone would miss the 'ZAR' rate column)."""
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        prices = pd.DataFrame({"NPN.JO": [1000.0, 1010.0, 1020.0, 1030.0]}, index=dates)
+        cmap = {"NPN.JO": "ZAc"}
+        rate = pd.Series([0.05, 0.05, 0.051, 0.049], index=dates)
+        fx = pd.DataFrame({"ZAR": rate})
+
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map=cmap, fx_rates=fx
+        )
+        result = converter.fit_transform(prices)
+
+        expected = (prices["NPN.JO"] / 100.0) * rate
+        pd.testing.assert_series_equal(result["NPN.JO"], expected, check_names=False)
+        assert converter.foreign_tickers_["NPN.JO"] == "ZAR"
+        assert converter.missing_currencies_ == set()
+
+    def test_pounds_not_mistaken_for_pence(self) -> None:
+        """Regression: an explicit 'GBP' (pounds) code must NOT be rescaled."""
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        prices = pd.DataFrame({"X": [50.0, 51.0, 52.0, 53.0]}, index=dates)
+        cmap = {"X": "GBP"}
+        rate = pd.Series([1.16, 1.16, 1.16, 1.16], index=dates)
+        fx = pd.DataFrame({"GBP": rate})
+
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map=cmap, fx_rates=fx
+        )
+        result = converter.fit_transform(prices)
+
+        # No /100 — pounds converted directly.
+        pd.testing.assert_series_equal(
+            result["X"], prices["X"] * rate, check_names=False
+        )
+        assert converter.ticker_scale_["X"] == 1
+        assert converter.minor_unit_tickers_ == {}
+
+
+class TestFxPriceConverterDecimalInput:
+    """DB Numeric columns arrive as Decimal (object dtype) — must be handled."""
+
+    def test_decimal_prices_converted(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        raw = [Decimal("50.0"), Decimal("51.0"), Decimal("52.0"), Decimal("53.0")]
+        prices = pd.DataFrame({"LLOY.L": raw}, index=dates)
+        assert prices["LLOY.L"].dtype == object  # sanity: Decimal object dtype
+        cmap = {"LLOY.L": "GBp"}
+        rate = pd.Series([1.16, 1.16, 1.16, 1.16], index=dates)
+        fx = pd.DataFrame({"GBP": rate})
+
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map=cmap, fx_rates=fx
+        )
+        result = converter.fit_transform(prices)
+
+        assert result["LLOY.L"].dtype == np.float64
+        # pence -> pounds (/100) -> EUR (x 1.16)
+        expected = pd.Series(
+            [v / 100.0 * 1.16 for v in (50.0, 51.0, 52.0, 53.0)], index=dates
+        )
+        pd.testing.assert_series_equal(result["LLOY.L"], expected, check_names=False)
 
 
 class TestFxPriceConverterFillLimitWarning:

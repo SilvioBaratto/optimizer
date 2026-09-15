@@ -851,6 +851,38 @@ class TestFactorMissingInputGuards:
         assert result.empty
 
 
+class TestEarningsYieldDimensionalContract:
+    """earnings_yield requires total net_income, not per-share EPS.
+
+    yfinance ``trailingEps`` (mapped to ticker_profiles.trailing_eps) is a
+    per-share figure; dividing it by total market_cap is dimensionally wrong
+    (result ~1/shares_outstanding too small).  The calculator must leave the
+    factor uncomputed rather than emit silently-deflated values.
+    """
+
+    def test_per_share_eps_does_not_substitute_for_net_income(
+        self, _tiny_prices: pd.DataFrame
+    ) -> None:
+        df = pd.DataFrame(
+            {"market_cap": [1.0e9, 2.0e9], "trailing_eps": [5.0, 3.0]},
+            index=pd.Index(["A", "B"], name="ticker"),
+        )
+        result = compute_factor(FactorType.EARNINGS_YIELD, df, _tiny_prices)
+        assert isinstance(result, pd.Series)
+        assert result.empty
+
+    def test_total_net_income_computes_inverse_pe(
+        self, _tiny_prices: pd.DataFrame
+    ) -> None:
+        df = pd.DataFrame(
+            {"market_cap": [1.0e9, 2.0e9], "net_income": [8.0e7, 1.0e8]},
+            index=pd.Index(["A", "B"], name="ticker"),
+        )
+        result = compute_factor(FactorType.EARNINGS_YIELD, df, _tiny_prices)
+        assert result["A"] == pytest.approx(0.08, rel=1e-9)
+        assert result["B"] == pytest.approx(0.05, rel=1e-9)
+
+
 class TestAlignToPitNoTickerColumn:
     """align_to_pit without a ticker column returns the filtered rows as-is."""
 

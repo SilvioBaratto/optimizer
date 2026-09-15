@@ -8,7 +8,7 @@
         "editor.defaultFormatter": "vscode.html-language-features"
     },
     "python.terminal.executeInFileDir": false,
-    "python.defaultInterpreterPath": "/Users/silviobaratto/anaconda3/envs/optimizer/bin/python",
+    "python.defaultInterpreterPath": "C:/Users/Baratto Silvio/AppData/Local/miniconda3/envs/optimizer/python",
     "python.envFile": "${workspaceFolder}/.env",
     "terminal.integrated.env.osx": {
         "PYTHONPATH": "${workspaceFolder}/ingestion"

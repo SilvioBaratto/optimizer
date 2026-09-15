@@ -3,9 +3,9 @@
 Three variants per side (mu / covariance):
 
 * empirical closed-form confidence sets,
-* stationary-bootstrap confidence sets (call ``arch.StationaryBootstrap``
-  under the hood — block size defaults to a Politis-White rule of thumb
-  when ``block_size=None``), and
+* stationary-bootstrap confidence sets (skfolio's native pure-numpy
+  ``stationary_bootstrap`` — no ``arch`` dependency; block size defaults
+  to a Politis-White rule of thumb when ``block_size=None``), and
 * orthogonal factor-model sets (new in skfolio 1.0), which require a
   factor-model return distribution at fit time.
 """

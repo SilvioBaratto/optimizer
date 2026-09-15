@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -163,3 +165,101 @@ class TestOutlierTreater:
         params = ot.get_params()
         assert params["winsorize_threshold"] == 2.5
         assert params["remove_threshold"] == 8.0
+
+    def test_decimal_input_does_not_raise_protected_mask(self) -> None:
+        # protected_mask=None is the default and behaves exactly as no arg.
+        df = pd.DataFrame(
+            {"X": [0.0] * 100 + [5.0]},
+            index=pd.date_range("2024-01-01", periods=101),
+        )
+        base = OutlierTreater().fit_transform(df)
+        explicit_none = OutlierTreater(protected_mask=None).fit_transform(df)
+        pd.testing.assert_frame_equal(base, explicit_none)
+
+    def test_decimal_input_does_not_raise(self) -> None:
+        # Regression: object-dtype Decimal returns previously raised
+        # TypeError ("float - Decimal") in the z-score subtraction.
+        df = pd.DataFrame(
+            {"X": [Decimal(str(v)) for v in (0.01, -0.02, 0.0, 0.05, -0.01, 0.2)]},
+            index=pd.date_range("2024-01-01", periods=6),
+        )
+        assert df.dtypes["X"] == "object"
+        out = OutlierTreater().fit_transform(df)
+        assert out.dtypes["X"] == np.float64
+
+
+class TestProtectedMask:
+    """protected_mask exempts genuine economic events from outlier treatment."""
+
+    def _spiked(
+        self,
+        spike: float = -0.50,
+        n: int = 200,
+        scale: float = 0.02,
+        seed: int = 1,
+    ) -> pd.DataFrame:
+        """Noisy body (so sigma > 0) with one extreme spike on the last row."""
+        rng = np.random.default_rng(seed)
+        col = [*rng.normal(0.0, scale, size=n - 1).tolist(), spike]
+        return pd.DataFrame(
+            {"X": col}, index=pd.date_range("2024-01-01", periods=n)
+        )
+
+    @staticmethod
+    def _mask_last(df: pd.DataFrame) -> pd.DataFrame:
+        mask = pd.DataFrame(False, index=df.index, columns=df.columns)
+        mask.iloc[-1, 0] = True
+        return mask
+
+    def test_protected_cell_not_removed(self) -> None:
+        df = self._spiked(spike=-0.50)
+        # Unprotected: |z| >> 10 -> removed to NaN.
+        assert np.isnan(OutlierTreater().fit_transform(df).iloc[-1, 0])
+        # Protected: the -0.50 survives intact, no NaN introduced.
+        out = OutlierTreater(protected_mask=self._mask_last(df)).fit_transform(df)
+        assert out.iloc[-1, 0] == pytest.approx(-0.50)
+        assert not out["X"].isna().any()
+
+    def test_protected_cell_not_winsorized(self) -> None:
+        # remove_threshold huge -> the spike lands in the winsorize band.
+        df = self._spiked(spike=-0.50)
+        unprot = OutlierTreater(remove_threshold=1e9).fit_transform(df)
+        assert unprot.iloc[-1, 0] > -0.50  # clipped toward the mean
+        out = OutlierTreater(
+            remove_threshold=1e9, protected_mask=self._mask_last(df)
+        ).fit_transform(df)
+        assert out.iloc[-1, 0] == pytest.approx(-0.50)
+
+    def test_protected_cell_excluded_from_moments(self) -> None:
+        df = self._spiked(spike=-0.50)
+        with_spike = OutlierTreater().fit(df)
+        without = OutlierTreater(protected_mask=self._mask_last(df)).fit(df)
+        # Dropping the -0.50 from the fit shrinks sigma and pulls mu to ~0.
+        assert without.sigma_["X"] < with_spike.sigma_["X"]
+        assert abs(without.mu_["X"]) < abs(with_spike.mu_["X"])
+
+    def test_mask_realigned_by_label(self) -> None:
+        # A mask over a superset index still protects the correct cell.
+        df = self._spiked(spike=-0.50)
+        extra = pd.date_range("2024-01-01", periods=len(df) + 10)
+        mask = pd.DataFrame(False, index=extra, columns=df.columns)
+        mask.loc[df.index[-1], "X"] = True
+        out = OutlierTreater(protected_mask=mask).fit_transform(df)
+        assert out.iloc[-1, 0] == pytest.approx(-0.50)
+
+    def test_unmarked_outliers_still_removed(self) -> None:
+        # Protecting one cell must not disable treatment for the rest.
+        rng = np.random.default_rng(3)
+        col = [*rng.normal(0.0, 0.02, size=198).tolist(), 0.60, -0.50]
+        df = pd.DataFrame({"X": col}, index=pd.date_range("2024-01-01", periods=200))
+        mask = pd.DataFrame(False, index=df.index, columns=df.columns)
+        mask.iloc[-1, 0] = True  # protect only the -0.50 terminal cell
+        out = OutlierTreater(protected_mask=mask).fit_transform(df)
+        assert out.iloc[-1, 0] == pytest.approx(-0.50)  # protected, kept
+        assert np.isnan(out.iloc[-2, 0])  # unprotected 0.60 spike removed
+
+    def test_sklearn_params_includes_mask(self) -> None:
+        df = self._spiked()
+        mask = self._mask_last(df)
+        ot = OutlierTreater(protected_mask=mask)
+        assert ot.get_params()["protected_mask"] is mask

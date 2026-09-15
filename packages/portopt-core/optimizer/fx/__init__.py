@@ -9,6 +9,7 @@ from optimizer.fx._config import BaseCurrency, FxConfig, FxConversionMode, FxDat
 from optimizer.fx._converter import FxPriceConverter
 from optimizer.fx._decomposition import FxReturnDecomposition, decompose_fx_returns
 from optimizer.fx._factory import build_fx_converter
+from optimizer.fx._minor_units import MINOR_UNIT_SCALES, normalize_currency_code
 from optimizer.fx._rates import (
     align_fx_rates,
     build_fx_pair_ticker,
@@ -18,6 +19,7 @@ from optimizer.fx._rates import (
 )
 
 __all__ = [
+    "MINOR_UNIT_SCALES",
     "BaseCurrency",
     "FxConfig",
     "FxConversionMode",
@@ -30,5 +32,6 @@ __all__ = [
     "compute_cross_rate",
     "decompose_fx_returns",
     "invert_fx_rates",
+    "normalize_currency_code",
     "required_fx_currencies",
 ]

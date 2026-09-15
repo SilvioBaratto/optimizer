@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from optimizer.universe import (
+    DelistingPolicy,
     ExchangeRegion,
     HysteresisConfig,
     InvestabilityScreenConfig,
@@ -837,3 +838,158 @@ class TestApplyInvestabilityScreensSkipPaths:
         assert isinstance(result, pd.Index)
         # No price history → listing-age screen removes every candidate.
         assert len(result) == 0
+
+
+# ---------------------------------------------------------------------------
+# Survivorship / delisting policy (maps to instruments.delisted_at)
+# ---------------------------------------------------------------------------
+
+
+class TestDelistingPolicy:
+    """``delisted_at`` column drives the survivorship policy."""
+
+    def test_exclude_drops_delisted_by_default(
+        self,
+        fundamentals: pd.DataFrame,
+        price_history: pd.DataFrame,
+        volume_history: pd.DataFrame,
+        financial_statements: pd.DataFrame,
+    ) -> None:
+        fund = fundamentals.copy()
+        fund["delisted_at"] = pd.NaT
+        # GOOG otherwise passes every screen; flag it delisted.
+        fund.loc["GOOG", "delisted_at"] = pd.Timestamp("2024-06-30")
+
+        result = apply_investability_screens(
+            fundamentals=fund,
+            price_history=price_history,
+            volume_history=volume_history,
+            financial_statements=financial_statements,
+        )
+        # Default policy is EXCLUDE → delisted GOOG dropped, others retained.
+        assert "GOOG" not in result
+        assert "AAPL" in result
+        assert "MSFT" in result
+
+    def test_include_keeps_delisted(
+        self,
+        fundamentals: pd.DataFrame,
+        price_history: pd.DataFrame,
+        volume_history: pd.DataFrame,
+        financial_statements: pd.DataFrame,
+    ) -> None:
+        fund = fundamentals.copy()
+        fund["delisted_at"] = pd.NaT
+        fund.loc["GOOG", "delisted_at"] = pd.Timestamp("2024-06-30")
+
+        cfg = InvestabilityScreenConfig(delisting_policy=DelistingPolicy.INCLUDE)
+        result = apply_investability_screens(
+            fundamentals=fund,
+            price_history=price_history,
+            volume_history=volume_history,
+            financial_statements=financial_statements,
+            config=cfg,
+        )
+        # Survivorship-bias-free: delisted GOOG kept.
+        assert "GOOG" in result
+
+    def test_all_null_delisted_at_unaffected(
+        self,
+        fundamentals: pd.DataFrame,
+        price_history: pd.DataFrame,
+        volume_history: pd.DataFrame,
+        financial_statements: pd.DataFrame,
+    ) -> None:
+        # Fresh universe: delisted_at present but all-NULL (the live DB state).
+        fund = fundamentals.copy()
+        fund["delisted_at"] = pd.NaT
+        result = apply_investability_screens(
+            fundamentals=fund,
+            price_history=price_history,
+            volume_history=volume_history,
+            financial_statements=financial_statements,
+        )
+        assert {"AAPL", "MSFT", "GOOG"} <= set(result)
+
+
+# ---------------------------------------------------------------------------
+# ETF flag (maps to etf_metadata presence) exempts funds from the
+# equity-only financial-statement screen
+# ---------------------------------------------------------------------------
+
+
+class TestEtfFinancialStatementExemption:
+    def _liquid_price_volume(
+        self, tickers: list[str], seed: int
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(seed)
+        n = len(tickers)
+        dates = pd.bdate_range("2023-01-01", periods=300)
+        prices = pd.DataFrame(
+            np.abs(100 + rng.normal(0, 1, (300, n)).cumsum(axis=0)),
+            index=dates,
+            columns=tickers,
+        )
+        vols = pd.DataFrame(
+            rng.integers(2_000_000, 5_000_000, (300, n)),
+            index=dates,
+            columns=tickers,
+        )
+        return prices, vols
+
+    def test_etf_exempt_stock_dropped(self) -> None:
+        tickers = ["SPY", "NOFS"]
+        prices, vols = self._liquid_price_volume(tickers, seed=3)
+        fundamentals = pd.DataFrame(
+            {
+                "market_cap": [5e9, 5e9],
+                "current_price": [100.0, 100.0],
+                "is_etf": [True, False],
+            },
+            index=pd.Index(tickers, name="ticker"),
+        )
+        # Non-empty statements frame with no rows for our tickers → both would
+        # fail the equity screen absent the ETF exemption.
+        statements = pd.DataFrame(
+            {
+                "ticker": ["OTHER"],
+                "period_type": ["annual"],
+                "period_date": ["2023-12-31"],
+            }
+        )
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=prices,
+            volume_history=vols,
+            financial_statements=statements,
+        )
+        assert "SPY" in result  # ETF exempt from the statements screen
+        assert "NOFS" not in result  # stock with no statements dropped
+
+    def test_etf_flag_does_not_bypass_other_screens(self) -> None:
+        # An ETF below the market-cap floor is still excluded — the exemption
+        # is scoped to the financial-statement screen only.
+        tickers = ["SMALLETF"]
+        prices, vols = self._liquid_price_volume(tickers, seed=5)
+        fundamentals = pd.DataFrame(
+            {
+                "market_cap": [50e6],  # below 200M entry floor
+                "current_price": [100.0],
+                "is_etf": [True],
+            },
+            index=pd.Index(tickers, name="ticker"),
+        )
+        statements = pd.DataFrame(
+            {
+                "ticker": ["OTHER"],
+                "period_type": ["annual"],
+                "period_date": ["2023-12-31"],
+            }
+        )
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=prices,
+            volume_history=vols,
+            financial_statements=statements,
+        )
+        assert "SMALLETF" not in result

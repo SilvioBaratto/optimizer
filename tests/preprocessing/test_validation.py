@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -78,3 +80,18 @@ class TestDataValidator:
         v = DataValidator()
         v.set_params(max_abs_return=2.0)
         assert v.max_abs_return == 2.0
+
+    def test_decimal_input_coerced_to_float(self) -> None:
+        # DB Numeric(20, 6) -> Decimal (object dtype) must become float64.
+        df = pd.DataFrame(
+            {"A": [Decimal("0.01"), Decimal("-0.02"), Decimal("0.03")]},
+            index=pd.date_range("2024-01-01", periods=3),
+        )
+        assert df.dtypes["A"] == "object"
+        out = DataValidator().fit_transform(df)
+        assert out.dtypes["A"] == np.float64
+        assert out.loc[out.index[0], "A"] == pytest.approx(0.01)
+
+    def test_get_params_unchanged_by_coercion(self) -> None:
+        # Coercion must not introduce a constructor parameter.
+        assert DataValidator(max_abs_return=5.0).get_params() == {"max_abs_return": 5.0}

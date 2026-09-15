@@ -6,6 +6,7 @@ import pytest
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.universe import (
+    DelistingPolicy,
     ExchangeRegion,
     HysteresisConfig,
     InvestabilityScreenConfig,
@@ -22,6 +23,26 @@ class TestExchangeRegion:
     def test_str_serialization(self) -> None:
         assert ExchangeRegion.US.value == "us"
         assert ExchangeRegion.EUROPE.value == "europe"
+
+
+class TestDelistingPolicy:
+    def test_members(self) -> None:
+        assert set(DelistingPolicy) == {
+            DelistingPolicy.EXCLUDE,
+            DelistingPolicy.INCLUDE,
+        }
+
+    def test_str_serialization(self) -> None:
+        assert DelistingPolicy.EXCLUDE.value == "exclude"
+        assert DelistingPolicy.INCLUDE.value == "include"
+
+    def test_default_is_exclude(self) -> None:
+        # A plain build defaults to a live tradable universe.
+        assert InvestabilityScreenConfig().delisting_policy is DelistingPolicy.EXCLUDE
+
+    def test_custom_policy(self) -> None:
+        cfg = InvestabilityScreenConfig(delisting_policy=DelistingPolicy.INCLUDE)
+        assert cfg.delisting_policy is DelistingPolicy.INCLUDE
 
 
 class TestHysteresisConfig:

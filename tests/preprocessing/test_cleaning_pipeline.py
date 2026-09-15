@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -111,3 +112,18 @@ class TestFactory:
         )
         pipe = make_cleaning_pipeline(cfg)
         assert [n for n, _ in pipe.steps] == ["impute"]
+
+    def test_default_pipeline_handles_decimal_returns(self) -> None:
+        # Regression: DB Decimal (object dtype) returns fed to the default
+        # validate -> outliers pipeline previously crashed at OutlierTreater.
+        rng = np.random.default_rng(7)
+        floats = rng.normal(scale=0.02, size=(120, 3))
+        df = pd.DataFrame(
+            [[Decimal(str(v)) for v in row] for row in floats],
+            columns=["A", "B", "C"],
+            index=pd.date_range("2020-01-01", periods=120),
+        )
+        assert (df.dtypes == "object").all()
+        out = make_cleaning_pipeline().fit_transform(df)
+        assert (out.dtypes == np.float64).all()
+        assert not np.isinf(out.to_numpy()).any()

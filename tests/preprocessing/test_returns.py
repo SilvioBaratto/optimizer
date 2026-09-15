@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import dataclasses
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
 import pytest
 from skfolio.preprocessing import prices_to_returns
 
+from optimizer.exceptions import DataError
 from optimizer.preprocessing import JoinMethod, ReturnsConfig, to_returns
 
 
@@ -75,3 +77,49 @@ class TestToReturns:
     def test_rejects_non_dataframe_benchmark(self, prices: pd.DataFrame) -> None:
         with pytest.raises(TypeError, match="y_prices"):
             to_returns(prices, np.zeros((6, 1)))  # type: ignore[arg-type]
+
+
+class TestDecimalCoercion:
+    """DB price_history is Numeric(20, 6) -> Decimal (object dtype)."""
+
+    @pytest.fixture()
+    def decimal_prices(self) -> pd.DataFrame:
+        idx = pd.date_range("2024-01-01", periods=6, freq="B")
+        return pd.DataFrame(
+            {
+                "AAPL": [Decimal(str(v)) for v in (100, 101, 99, 102, 104, 103)],
+                "MSFT": [Decimal(str(v)) for v in (50, 50.5, 51, 50, 49.5, 50)],
+            },
+            index=idx,
+        )
+
+    def test_decimal_prices_yield_float_returns(
+        self, decimal_prices: pd.DataFrame
+    ) -> None:
+        assert (decimal_prices.dtypes == "object").all()  # sanity: DB-shaped input
+        out = to_returns(decimal_prices)
+        # skfolio silently emits object-dtype Decimal without the boundary cast.
+        assert (out.dtypes == np.float64).all()
+
+    def test_decimal_returns_match_float(
+        self, decimal_prices: pd.DataFrame, prices: pd.DataFrame
+    ) -> None:
+        out = to_returns(decimal_prices)
+        expected = to_returns(prices.astype(float))
+        pd.testing.assert_frame_equal(out, expected)
+
+    def test_decimal_benchmark_coerced(self, decimal_prices: pd.DataFrame) -> None:
+        y = decimal_prices[["MSFT"]].rename(columns={"MSFT": "BENCH"})
+        x_ret, y_ret = to_returns(decimal_prices, y)
+        assert (x_ret.dtypes == np.float64).all()
+        assert (y_ret.dtypes == np.float64).all()
+
+    def test_non_numeric_object_column_raises(self) -> None:
+        idx = pd.date_range("2024-01-01", periods=3, freq="B")
+        bad = pd.DataFrame({"AAPL": ["a", "b", "c"]}, index=idx)
+        with pytest.raises(DataError, match="prices"):
+            to_returns(bad)
+
+    def test_float_prices_unaffected(self, prices: pd.DataFrame) -> None:
+        # Already-float frames are a no-op: identical to raw skfolio output.
+        pd.testing.assert_frame_equal(to_returns(prices), prices_to_returns(prices))

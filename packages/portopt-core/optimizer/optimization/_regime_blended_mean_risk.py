@@ -3,7 +3,7 @@
 Composes :class:`_ExternallyControlledRegimeCovariance` →
 :class:`~skfolio.prior.EmpiricalPrior` →
 :class:`~skfolio.prior.TimeSeriesFactorModel` →
-:func:`build_mean_risk` → :func:`~optimizer.pipeline.build_portfolio_pipeline`.
+:func:`build_mean_risk` → :func:`~optimizer.pre_selection.build_portfolio_pipeline`.
 
 Factor returns are passed via the optimizer step's ``factors`` fit param —
 ``pipeline.fit(X, optimizer__factors=factor_returns)``, or through
@@ -30,8 +30,8 @@ from sklearn.pipeline import Pipeline
 from optimizer.exceptions import ConfigurationError
 from optimizer.optimization._config import MeanRiskConfig
 from optimizer.optimization._factory import build_mean_risk
-from optimizer.pipeline._builder import build_portfolio_pipeline
 from optimizer.pre_selection._config import PreSelectionConfig
+from optimizer.pre_selection._pipeline import build_portfolio_pipeline
 from optimizer.validation._config import WalkForwardConfig
 from optimizer.validation._factory import build_walk_forward
 
@@ -244,7 +244,7 @@ def build_regime_blended_mean_risk(
         Pre-selection pipeline configuration.
     sector_mapping : dict[str, str] or None
         Ticker → sector mapping forwarded to
-        :func:`~optimizer.pipeline.build_portfolio_pipeline`.
+        :func:`~optimizer.pre_selection.build_portfolio_pipeline`.
     previous_weights : np.ndarray or None
         Previous portfolio weights for turnover control.  Forwarded to
         :func:`build_mean_risk` via ``**kwargs``.

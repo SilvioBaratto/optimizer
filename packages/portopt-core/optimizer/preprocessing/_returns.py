@@ -20,11 +20,35 @@ from enum import Enum
 import pandas as pd
 from skfolio.preprocessing import prices_to_returns
 
+from optimizer.exceptions import DataError
+
 __all__ = [
     "JoinMethod",
     "ReturnsConfig",
     "to_returns",
 ]
+
+
+def _coerce_price_frame(frame: pd.DataFrame, *, name: str) -> pd.DataFrame:
+    """Cast DB-sourced ``Decimal`` / object price columns to ``float64``.
+
+    ``price_history`` OHLCV columns are SQL ``Numeric(20, 6)`` and read back
+    as Python ``Decimal`` (pandas ``object`` dtype).  ``prices_to_returns``
+    does **not** coerce them — it silently emits an *object-dtype* return
+    frame of ``Decimal`` values, which then breaks (or silently corrupts)
+    every numpy / skfolio computation downstream (mixing ``float`` and
+    ``Decimal`` raises ``TypeError``).  This casts at the price boundary,
+    preserving ``NaN`` gaps; it is a no-op for already-float frames.
+    """
+    if all(pd.api.types.is_float_dtype(dt) for dt in frame.dtypes):
+        return frame
+    try:
+        return frame.astype("float64")
+    except (TypeError, ValueError) as exc:
+        raise DataError(
+            f"to_returns could not cast {name!r} price columns to float; "
+            "expected numeric prices (DB Numeric/Decimal), got non-numeric data"
+        ) from exc
 
 
 class JoinMethod(str, Enum):
@@ -84,7 +108,10 @@ def to_returns(
     """Convert a price panel to returns using a :class:`ReturnsConfig`.
 
     Thin, convention-compliant wrapper over
-    :func:`skfolio.preprocessing.prices_to_returns`.
+    :func:`skfolio.preprocessing.prices_to_returns`.  DB-sourced ``Decimal``
+    (object-dtype) price columns are cast to ``float64`` at this boundary so
+    the returned frame is always float — the dtype every downstream skfolio
+    estimator requires.
 
     Parameters
     ----------
@@ -105,6 +132,9 @@ def to_returns(
     ------
     TypeError
         If ``prices`` (or ``y_prices``) is not a pandas DataFrame.
+    DataError
+        If a price frame carries object-dtype columns that cannot be cast to
+        float (non-numeric data).
     """
     if not isinstance(prices, pd.DataFrame):
         raise TypeError(
@@ -116,6 +146,12 @@ def to_returns(
             f"to_returns requires a pandas DataFrame for 'y_prices', "
             f"got {type(y_prices).__name__}"
         )
+
+    # DB prices arrive as Decimal (object dtype); float-cast at the boundary so
+    # skfolio returns a float64 frame every downstream estimator can consume.
+    prices = _coerce_price_frame(prices, name="prices")
+    if y_prices is not None:
+        y_prices = _coerce_price_frame(y_prices, name="y_prices")
 
     cfg = config or ReturnsConfig()
     kwargs = {

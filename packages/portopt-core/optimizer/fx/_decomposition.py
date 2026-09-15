@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from optimizer.exceptions import DataError
+from optimizer.fx._minor_units import normalize_currency_code
 
 
 @dataclass
@@ -142,9 +143,13 @@ def decompose_fx_returns(
     FxReturnDecomposition
         Decomposition with total, local, FX, and cross-term returns.
     """
-    base_ccy = base_currency.upper()
+    base_ccy, _base_scale = normalize_currency_code(base_currency)
 
-    # Compute returns from prices
+    # Compute returns from prices.  Returns are scale-invariant, so the
+    # minor-unit rescaling applied to prices cancels in pct_change and the
+    # decomposition identity r_total = r_local + r_fx + r_local*r_fx still
+    # holds exactly — the only sub-unit concern here is resolving each ticker
+    # to its *major* currency so the correct FX column is found.
     local_returns = local_prices.pct_change().iloc[1:]
     total_returns = base_prices.pct_change().iloc[1:]
 
@@ -157,7 +162,7 @@ def decompose_fx_returns(
     )
 
     for ticker in local_returns.columns:
-        ccy = currency_map.get(ticker, base_ccy).upper()
+        ccy, _scale = normalize_currency_code(currency_map.get(ticker, base_ccy))
         if ccy == base_ccy:
             continue
         col = fx_col_by_ccy.get(ccy)

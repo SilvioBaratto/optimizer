@@ -59,8 +59,6 @@ online
 rebalancing
     Rebalancing frameworks (calendar-based, threshold-based,
     turnover computation, transaction cost estimation).
-pipeline
-    End-to-end portfolio orchestration: prices → validated weights.
 """
 
 import logging

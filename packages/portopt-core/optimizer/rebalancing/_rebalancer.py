@@ -158,7 +158,10 @@ def drift_breach_mask(
     ndarray of bool, shape (n_assets,)
         ``True`` for each asset whose drift breaches the threshold.  Under a
         relative threshold, a zero-target position that still carries weight is
-        always flagged (explicit exit intent).
+        always flagged (explicit exit intent).  Short (negative) target weights
+        are handled by measuring relative drift against the *magnitude* of the
+        target, so a short book optimised with ``min_weights < 0`` is treated
+        symmetrically with a long book.
     """
     if config is None:
         config = ThresholdRebalancingConfig()
@@ -172,10 +175,12 @@ def drift_breach_mask(
     if config.threshold_type == ThresholdType.ABSOLUTE:
         return drifts > config.threshold
 
-    # Relative threshold: zero-target positions with non-zero current weight
-    # always require rebalancing (explicit exit intent).
-    exit_needed = (tgt == 0) & (cur > 0)
-    safe_targets = np.where(tgt > 0, tgt, np.inf)
+    # Relative threshold: any zero-target position that still carries weight
+    # (long *or* short) always requires rebalancing (explicit exit intent).
+    # Non-zero targets use their absolute magnitude as the denominator so
+    # negative (short) targets are measured symmetrically with positive ones.
+    exit_needed = (tgt == 0) & (cur != 0)
+    safe_targets = np.where(tgt != 0, np.abs(tgt), np.inf)
     relative_drifts = drifts / safe_targets
     return exit_needed | (relative_drifts > config.threshold)
 

@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from optimizer.universe._config import (
+    DelistingPolicy,
     ExchangeRegion,
     HysteresisConfig,
     InvestabilityScreenConfig,
@@ -64,8 +65,10 @@ def compute_addv(
     ----------
     price_history : pd.DataFrame
         Price matrix (dates x tickers).  Must be denominated in major
-        currency units (e.g. GBP, not GBX).  Minor-unit normalisation
-        must be applied upstream (see ``research.data_assembly.assemble_prices``).
+        currency units (e.g. GBP, not GBX).  ``price_history.price_unit``
+        carries the listing currency; minor-unit normalisation must be
+        applied upstream via :mod:`optimizer.fx` (e.g.
+        :class:`optimizer.fx.FxPriceConverter`).
     volume_history : pd.DataFrame
         Volume matrix (dates x tickers), aligned with price_history.
     window : int
@@ -275,13 +278,21 @@ def apply_investability_screens(
     Parameters
     ----------
     fundamentals : pd.DataFrame
-        Cross-sectional data with one row per ticker.  Required
-        columns: ``market_cap``, ``current_price``.  Index is ticker.
-        All monetary columns (``market_cap``, ``current_price``, etc.)
-        must be denominated in major currency units (e.g. GBP, not
-        GBX).  Minor-unit normalisation must be applied upstream via
-        ``research.data._currency.normalize_fundamentals()`` before this
-        function is called.
+        Cross-sectional data with one row per ticker.  The index is the join
+        key (``instruments.yfinance_ticker`` for the ingestion DB) and must
+        align with the columns of ``price_history`` / ``volume_history``.
+        Required columns: ``market_cap`` (``ticker_profiles.market_cap``),
+        ``current_price`` (``ticker_profiles.current_price``).  Optional
+        columns consumed when present: ``exchange``
+        (``exchanges.name`` via ``instruments.exchange``) for the per-exchange
+        market-cap percentile screen, ``delisted_at``
+        (``instruments.delisted_at``) for the survivorship policy, and
+        ``is_etf`` (``etf_metadata`` presence) to exempt funds from the
+        equity-only financial-statement screen.
+        All monetary columns (``market_cap``, ``current_price``, etc.) must be
+        denominated in major currency units (e.g. GBP, not GBX); minor-unit
+        normalisation must be applied upstream via :mod:`optimizer.fx` before
+        this function is called.
     price_history : pd.DataFrame
         Price matrix (dates x tickers).
     volume_history : pd.DataFrame
@@ -305,6 +316,18 @@ def apply_investability_screens(
 
     # Start with all tickers present in fundamentals
     candidates = fundamentals.index
+
+    # 0. Survivorship / delisting policy (maps to ``instruments.delisted_at``,
+    #    NULL while listed).  EXCLUDE drops flagged names for a live tradable
+    #    universe; INCLUDE keeps them so historical backtests stay
+    #    survivorship-bias free.  Absent column => nothing to do, so a plain
+    #    fresh-universe build (all-NULL delisted_at) is unaffected.
+    if (
+        "delisted_at" in fundamentals.columns
+        and config.delisting_policy == DelistingPolicy.EXCLUDE
+    ):
+        active = fundamentals.index[fundamentals["delisted_at"].isna()]
+        candidates = candidates.intersection(active)
 
     # 1. Market capitalization (absolute floor + optional exchange percentile)
     if "market_cap" in fundamentals.columns:
@@ -380,6 +403,19 @@ def apply_investability_screens(
         has_enough = (annual_ok >= config.min_annual_reports) | (
             quarterly_ok >= config.min_quarterly_reports
         )
+
+        # ETFs/funds file no income statements, so an ``is_etf`` flag
+        # (``etf_metadata`` presence in the ingestion DB) exempts them from
+        # this equity-only screen instead of silently dropping every fund.
+        if "is_etf" in fundamentals.columns:
+            etf_mask = (
+                fundamentals["is_etf"]
+                .reindex(candidates, fill_value=False)
+                .fillna(False)
+                .astype(bool)
+            )
+            has_enough = has_enough | etf_mask
+
         candidates = candidates.intersection(has_enough.index[has_enough])
 
     return candidates

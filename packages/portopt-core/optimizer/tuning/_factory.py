@@ -11,9 +11,9 @@ from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from optimizer.tuning._config import GridSearchConfig, RandomizedSearchConfig
 
 # ``build_scorer`` (from ``optimizer.scoring``) and ``build_walk_forward`` (from
-# ``optimizer.validation``) are imported lazily inside the factory bodies:
-# ``tuning`` sits on an import cycle (scoring -> optimization -> pipeline ->
-# tuning -> scoring), so importing them at module top level would make the
+# ``optimizer.validation``) are imported lazily inside the factory bodies to
+# avoid a module-load import cycle between ``tuning``, ``optimizer.scoring`` and
+# ``optimizer.validation``; importing them at module top level would make the
 # package import-order-dependent.
 
 if TYPE_CHECKING:

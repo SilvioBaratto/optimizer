@@ -15,6 +15,30 @@ class ExchangeRegion(str, Enum):
     EUROPE = "europe"
 
 
+class DelistingPolicy(str, Enum):
+    """Survivorship policy for instruments flagged as delisted.
+
+    Maps to the ``instruments.delisted_at`` column of the security master
+    (set when an instrument drops out of the active universe; ``NULL`` while
+    it is still listed).  The screen only acts on this policy when the
+    injected ``fundamentals`` frame carries a ``delisted_at`` column.
+
+    ``EXCLUDE``
+        Drop instruments whose ``delisted_at`` is set — appropriate for a
+        *live, tradable* universe (you cannot trade a delisted name).  This is
+        the default so a plain point-in-time build never quietly holds dead
+        tickers.
+    ``INCLUDE``
+        Keep delisted instruments so a historical build stays
+        *survivorship-bias free*.  Pair this with as-of-date-windowed price /
+        volume history (which naturally caps a name at its delisting) and use
+        ``instruments.delisting_return`` in the downstream return assembly.
+    """
+
+    EXCLUDE = "exclude"
+    INCLUDE = "include"
+
+
 @dataclass(frozen=True)
 class HysteresisConfig:
     """Entry/exit thresholds with hysteresis to reduce turnover.
@@ -84,6 +108,12 @@ class InvestabilityScreenConfig:
         Minimum exchange-percentile rank (0-1) for existing members to
         avoid removal.  Must be <= ``mcap_percentile_entry``.  Defaults
         to the 7.5th percentile (0.075).
+    delisting_policy : DelistingPolicy
+        How to treat instruments flagged delisted (maps to
+        ``instruments.delisted_at``).  ``EXCLUDE`` (default) drops them for a
+        live tradable universe; ``INCLUDE`` keeps them for survivorship-bias-
+        free backtests.  Only active when the ``fundamentals`` frame carries a
+        ``delisted_at`` column.
     """
 
     market_cap: HysteresisConfig = field(
@@ -111,6 +141,7 @@ class InvestabilityScreenConfig:
     exchange_region: ExchangeRegion = ExchangeRegion.US
     mcap_percentile_entry: float = 0.10
     mcap_percentile_exit: float = 0.075
+    delisting_policy: DelistingPolicy = DelistingPolicy.EXCLUDE
 
     def __post_init__(self) -> None:
         if not (0.0 <= self.mcap_percentile_exit <= self.mcap_percentile_entry <= 1.0):

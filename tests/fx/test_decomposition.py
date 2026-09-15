@@ -191,3 +191,49 @@ class TestDecomposeReturns:
 
         assert result.currency_map == cmap
         assert result.base_currency == "EUR"
+
+
+class TestDecomposeMinorUnits:
+    """Minor-unit tickers must resolve to their major FX column.
+
+    Regression: ``ZAc`` upper-cases to ``ZAC`` which does not match the ``ZAR``
+    rate column, so the FX return was silently dropped and the identity broke
+    for Johannesburg / Tel Aviv listings.
+    """
+
+    def test_zac_ticker_fx_return_not_dropped(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=6)
+        # Local prices quoted in cents (ZAc).
+        local = pd.DataFrame(
+            {"NPN.JO": [1000.0, 1010.0, 1020.0, 1030.0, 1040.0, 1050.0]}, index=dates
+        )
+        rate = pd.Series([0.050, 0.051, 0.052, 0.051, 0.053, 0.052], index=dates)
+        fx = pd.DataFrame({"ZAR": rate})
+        # base_price = (local / 100) * ZAR-rate  (what FxPriceConverter yields).
+        base = (local / 100.0).multiply(rate, axis=0)
+        cmap = {"NPN.JO": "ZAc"}
+
+        result = decompose_fx_returns(local, base, fx, cmap, "EUR")
+
+        # FX return must be picked up from the ZAR column (non-zero).
+        assert result.fx_returns["NPN.JO"].abs().sum() > 0
+        # Exact algebraic identity holds (scale cancels in returns).
+        recon = result.local_returns + result.fx_returns + result.cross_terms
+        assert (result.total_returns - recon).abs().max().max() < 1e-10
+
+    def test_gbp_base_pence_ticker_zero_fx(self) -> None:
+        """A pence ticker with GBP base has major == base -> zero FX return."""
+        dates = pd.bdate_range("2024-01-02", periods=5)
+        local = pd.DataFrame(
+            {"LLOY.L": [500.0, 510.0, 520.0, 530.0, 540.0]}, index=dates
+        )
+        base = local / 100.0  # rescaled to pounds, no FX (base is GBP)
+        cmap = {"LLOY.L": "GBp"}
+
+        result = decompose_fx_returns(
+            local, base, pd.DataFrame(index=dates), cmap, "GBP"
+        )
+
+        np.testing.assert_array_equal(
+            result.fx_returns["LLOY.L"].values, np.zeros(len(result.fx_returns))
+        )

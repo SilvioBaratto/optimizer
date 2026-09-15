@@ -3,6 +3,33 @@
 ``VarianceEstimator`` instances expose a 1-D ``variance_`` attribute, NOT
 the 2-D ``covariance_`` attribute. Not interchangeable with covariance
 estimators inside priors that need a full covariance matrix.
+
+Input contract (load-bearing)
+-----------------------------
+Every estimator built here consumes, at ``fit`` time, a **linear** (simple)
+return ``DataFrame`` produced by ``prices_to_returns`` (see
+``optimizer.preprocessing``) — never log returns and never raw prices. This
+module has no notion of the database ``price_history.price_unit`` (mixed
+currency *and* scale, e.g. ``GBX`` = pence): computing a mean/covariance over
+mixed-currency, unnormalised prices is meaningless, so FX + sub-unit scale
+normalisation is the caller's responsibility and happens **upstream**
+(``optimizer.fx.FxPriceConverter`` on the price frame, *before*
+``prices_to_returns``). ``price_history`` values arrive as SQL
+``Numeric(20, 6)`` → Python ``Decimal``; that cast to ``float`` also happens
+upstream (in the read/FX/preprocessing layer). By the time a frame reaches
+these estimators it is float, single-base-currency, linear returns.
+
+NaN / ragged robustness
+-----------------------
+The 5y history is ragged (unequal-length series across the universe), so the
+returns frame can carry NaN. Only the **EW family** — ``EWMu``, ``EWCovariance``,
+``EWVariance`` and the ``RegimeAdjusted*`` variants — is NaN-aware (skfolio 1.0
+``active_mask`` / ``estimation_mask``). The remaining covariance estimators
+(``EmpiricalCovariance``, ``LedoitWolf``, ``OAS``, ``ShrunkCovariance``,
+``GerberCovariance``, ``GraphicalLassoCV``, ``DenoiseCovariance``,
+``DetoneCovariance``) and ``EmpiricalMu`` require a NaN-dense matrix and raise
+on NaN — impute upstream (``optimizer.preprocessing``) or prefer an EW-family
+estimator for changing/ragged universes.
 """
 
 from __future__ import annotations
@@ -58,6 +85,7 @@ from optimizer.moments._config import (
 )
 
 if TYPE_CHECKING:
+    import numpy as np
     from skfolio.factor_exposure import BaseFactorExposure
 
 logger = logging.getLogger(__name__)
@@ -81,13 +109,26 @@ _REGIME_METHOD_MAP: dict[RegimeAdjustmentMethodType, RegimeAdjustmentMethod] = {
 }
 
 
-def build_mu_estimator(config: MomentEstimationConfig) -> BaseMu:
+def build_mu_estimator(
+    config: MomentEstimationConfig,
+    *,
+    market_weights: np.ndarray | None = None,
+) -> BaseMu:
     """Build a skfolio expected return estimator from *config*.
 
     Parameters
     ----------
     config : MomentEstimationConfig
         Moment estimation configuration.
+    market_weights : numpy.ndarray or None, keyword-only, default=None
+        Market-capitalisation weights (aligned to the asset-column order of
+        the returns frame passed to ``fit``) for ``EquilibriumMu``'s
+        reverse-optimisation :math:`\\Pi = \\delta\\,\\Sigma\\,w_{mkt}`. Sourced
+        from the DB (``shares_outstanding`` x price, or
+        ``ticker_profiles.market_cap``); as a non-serialisable array it is a
+        factory keyword, never a config field. ``None`` falls back to skfolio's
+        equal-weight default (i.e. a degenerate, non-cap-weighted equilibrium).
+        Ignored for non-``EQUILIBRIUM`` estimators.
 
     Returns
     -------
@@ -105,7 +146,15 @@ def build_mu_estimator(config: MomentEstimationConfig) -> BaseMu:
                 min_observations=config.min_observations,
             )
         case MuEstimatorType.EQUILIBRIUM:
-            return EquilibriumMu(risk_aversion=config.risk_aversion)
+            # Reverse-optimise against the configured covariance (so a
+            # LedoitWolf/OAS/... prior stays internally consistent — skfolio's
+            # default would silently use EmpiricalCovariance here) and the
+            # supplied market-cap weights (else equal-weight equilibrium).
+            return EquilibriumMu(
+                risk_aversion=config.risk_aversion,
+                weights=market_weights,
+                covariance_estimator=build_cov_estimator(config),
+            )
         case _:
             raise ConfigurationError(
                 f"Unsupported mu_estimator: {config.mu_estimator!r}"
@@ -222,7 +271,11 @@ def build_variance_estimator(config: MomentEstimationConfig) -> BaseVariance:
             )
 
 
-def build_prior(config: MomentEstimationConfig | None = None) -> BasePrior:
+def build_prior(
+    config: MomentEstimationConfig | None = None,
+    *,
+    market_weights: np.ndarray | None = None,
+) -> BasePrior:
     """Build a complete prior estimator from *config*.
 
     Composes expected return and covariance estimators into an
@@ -235,6 +288,10 @@ def build_prior(config: MomentEstimationConfig | None = None) -> BasePrior:
     config : MomentEstimationConfig or None
         Moment estimation configuration.  Defaults to
         ``MomentEstimationConfig()`` (EmpiricalMu + LedoitWolf).
+    market_weights : numpy.ndarray or None, keyword-only, default=None
+        Market-capitalisation weights forwarded to
+        :func:`build_mu_estimator` for ``EquilibriumMu`` (see there). Only
+        used when ``config.mu_estimator`` is ``EQUILIBRIUM``.
 
     Returns
     -------
@@ -253,7 +310,7 @@ def build_prior(config: MomentEstimationConfig | None = None) -> BasePrior:
     if config is None:
         config = MomentEstimationConfig()
 
-    mu = build_mu_estimator(config)
+    mu = build_mu_estimator(config, market_weights=market_weights)
     cov = build_cov_estimator(config)
 
     empirical_prior = EmpiricalPrior(
@@ -283,6 +340,7 @@ def build_characteristics_factor_model(
     factors: list[tuple[str, BaseFactorExposure]],
     currency_factor: BaseFactorExposure | None = None,
     neutralize_against: dict[str, list[str]] | None = None,
+    market_weights: np.ndarray | None = None,
 ) -> CharacteristicsFactorModel:
     """Build a cross-sectional (BARRA-style) characteristics factor model.
 
@@ -314,6 +372,10 @@ def build_characteristics_factor_model(
     neutralize_against : dict[str, list[str]] or None
         Optional map of factor name -> factors to neutralise it against
         (e.g. ``{"non_linear_size": ["size"]}``).
+    market_weights : numpy.ndarray or None
+        Market-capitalisation weights forwarded to :func:`build_mu_estimator`
+        for the factor prior's ``EquilibriumMu`` (see there). Only used when
+        ``config.mu_estimator`` is ``EQUILIBRIUM``.
 
     Returns
     -------
@@ -324,7 +386,7 @@ def build_characteristics_factor_model(
         config = MomentEstimationConfig()
 
     factor_prior = EmpiricalPrior(
-        mu_estimator=build_mu_estimator(config),
+        mu_estimator=build_mu_estimator(config, market_weights=market_weights),
         covariance_estimator=build_cov_estimator(config),
     )
 

@@ -191,3 +191,56 @@ class TestCodependenceAttr:
     def test_when_fitted_then_codependence_present(self, returns: pd.DataFrame) -> None:
         est = build_distance(DistanceConfig.for_pearson()).fit(returns)
         assert est.codependence_.shape == (returns.shape[1],) * 2
+
+
+class TestDbDataCompatibility:
+    """Lock the input contract exercised by real ingestion data.
+
+    The DB serves 5y ragged history (NaN gaps, unequal-length series) and
+    ``Numeric`` columns as ``Decimal``. These tests characterise what the
+    skfolio distance estimators require so the builder's documented contract
+    cannot silently drift.
+    """
+
+    @pytest.mark.parametrize(
+        "estimator_type",
+        list(DistanceEstimatorType),
+    )
+    def test_when_nan_present_then_fit_raises(
+        self, estimator_type: DistanceEstimatorType, returns: pd.DataFrame
+    ) -> None:
+        # A late-listed asset (NaN gap) must be cleaned upstream: every
+        # skfolio distance estimator rejects NaN via sklearn validation.
+        if estimator_type == DistanceEstimatorType.MUTUAL_INFORMATION:
+            cfg = DistanceConfig.for_mutual_information(n_bins=8)
+        else:
+            cfg = DistanceConfig(estimator=estimator_type)
+        ragged = returns.copy()
+        ragged.iloc[:40, ragged.columns.get_loc("A05")] = np.nan
+        est = build_distance(cfg)
+        with pytest.raises(ValueError, match="NaN"):
+            est.fit(ragged)
+
+    def test_when_covariance_default_fitted_then_gerber(
+        self, returns: pd.DataFrame
+    ) -> None:
+        # Documents the skfolio default: GerberCovariance (outlier-robust),
+        # not EmpiricalCovariance.
+        from skfolio.moments import GerberCovariance
+
+        est = build_distance(DistanceConfig.for_covariance()).fit(returns)
+        assert isinstance(est.covariance_estimator_, GerberCovariance)
+
+    def test_when_decimal_cast_to_float_then_fit_succeeds(
+        self, returns: pd.DataFrame
+    ) -> None:
+        # Numeric->Decimal columns are not numpy-friendly; float-cast is the
+        # reader's job. Once cast, fitting works.
+        from decimal import Decimal
+
+        decimal_col = returns["A00"].map(lambda v: Decimal(str(v)))
+        as_float = decimal_col.astype(float)
+        x = returns.copy()
+        x["A00"] = as_float
+        est = build_distance(DistanceConfig.for_pearson()).fit(x)
+        assert est.distance_.shape == (x.shape[1],) * 2

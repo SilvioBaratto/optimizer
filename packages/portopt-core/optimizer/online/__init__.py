@@ -8,6 +8,16 @@ construct one wrapper per thread.
 ``Pipeline`` is rejected at the wrapper boundary because skfolio's
 ``online_predict`` / ``OnlineGridSearch`` cannot route ``partial_fit``
 through a ``Pipeline``. Apply pre-selection to ``X`` upstream.
+
+Input contract: ``X`` must be a float **linear**-returns frame (run
+``prices_to_returns`` upstream — never log returns). DB ``Numeric``
+columns read back as ``Decimal``; cast to ``float`` before calling
+these wrappers, because an object-dtype frame breaks skfolio's numpy
+covariance/mean math. Ragged history (newly listed tickers) yields NaN
+rows/columns — the wrappers forward ``X`` unchanged, so drop or align
+NaN upstream (or supply a skfolio NaN-aware estimator); they do not
+clean it. Calendar ``freq`` modes additionally require a
+``DatetimeIndex``.
 """
 
 import optimizer.optimization  # noqa: F401

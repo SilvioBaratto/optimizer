@@ -78,8 +78,20 @@ def build_sector_constraints(
         group array at fit-time via ``input_to_array``).
     linear_constraints : list[str]
         One constraint string per sector (``"SectorName <= cap"``).
+
+    Notes
+    -----
+    Tickers whose sector is missing (``None`` or empty string) are excluded
+    from constraint emission.  ``TickerProfile.sector`` is nullable in the
+    source DB (ETFs and some equities carry no GICS sector), so a
+    DB-sourced mapping can legitimately contain such values.  skfolio maps
+    an asset that is ``None`` / absent in ``groups`` to its own singleton
+    group, leaving it unconstrained by sector — the correct behaviour for an
+    unknown-sector asset.  Emitting a ``"None <= cap"`` row (or sorting a set
+    that mixes ``str`` and ``None``) would instead raise ``TypeError`` or
+    attach a bogus constraint, so those values are skipped here.
     """
-    sectors = sorted(set(sector_mapping.values()))
+    sectors = sorted({sector for sector in sector_mapping.values() if sector})
     cap = round(max_sector_weight, 6)
     linear_constraints = [f"{sector} <= {cap}" for sector in sectors]
 
@@ -208,9 +220,8 @@ def build_mean_risk(
         (``"<sector> <= <cap>"``) are appended to ``linear_constraints``
         after any ``min_sector_weights`` rows.  Sectors with
         ``floor == 0.0`` emit no floor row.  This is the low-level
-        factory path; prefer the orchestrator's
-        :func:`~optimizer.pipeline._orchestrator._inject_sector_bands`
-        for full pipeline usage.  ``None`` is a no-op.
+        factory path for injecting regime-conditional sector bands into a
+        :class:`MeanRisk` optimizer.  ``None`` is a no-op.
     **kwargs
         Additional keyword arguments forwarded to the
         :class:`MeanRisk` constructor (for non-serialisable

@@ -197,6 +197,26 @@ class TestDriftBreachMask:
         mask = drift_breach_mask([0.56, 0.24, 0.20], [0.50, 0.30, 0.20])
         assert mask.any()
 
+    def test_relative_short_target_uses_abs_denominator(self) -> None:
+        """Short (negative) target: relative drift measured against |target|.
+
+        A short book from ``min_weights < 0`` must be treated symmetrically
+        with a long book; |(-0.20) - (-0.30)| / 0.30 = 0.33 > 0.25 → breach.
+        """
+        current = np.array([0.50, -0.20])
+        target = np.array([0.50, -0.30])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, True])
+
+    def test_relative_short_position_exit_flagged(self) -> None:
+        """Exiting a short position (cur < 0, tgt == 0) is an explicit exit."""
+        current = np.array([0.50, -0.20])
+        target = np.array([0.50, 0.0])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, True])
+
     def test_mask_matches_should_rebalance(self) -> None:
         current = np.array([0.54, 0.26, 0.20])
         target = np.array([0.50, 0.30, 0.20])

@@ -10,6 +10,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 from optimizer.exceptions import ConfigurationError, DataError
+from optimizer.preprocessing._coerce import _coerce_numeric
 from optimizer.preprocessing._imputation import SectorImputer
 
 logger = logging.getLogger(__name__)
@@ -210,4 +211,4 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
             raise DataError(
                 f"RegressionImputer requires a pandas DataFrame, got {type(X).__name__}"
             )
-        return X
+        return _coerce_numeric(X, "RegressionImputer")

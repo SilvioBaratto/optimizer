@@ -66,7 +66,7 @@ class TestDistanceConfig:
             DistanceConfig(estimator=DistanceEstimatorType.KENDALL, bandwidth=1.0)
 
     def test_when_bandwidth_set_then_raises_unsupported(self) -> None:
-        # skfolio 0.20.1 MutualInformation has no bandwidth parameter.
+        # skfolio 1.0.x MutualInformation has no bandwidth parameter.
         with pytest.raises(ConfigurationError, match="bandwidth"):
             DistanceConfig(
                 estimator=DistanceEstimatorType.MUTUAL_INFORMATION,

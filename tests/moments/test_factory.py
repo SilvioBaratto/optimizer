@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
+import numpy as np
 import pandas as pd
 import pytest
 from skfolio.moments import (
@@ -95,6 +96,65 @@ class TestBuildMuEstimator:
         estimator = build_mu_estimator(cfg)
         assert isinstance(estimator, EWMu)
         assert estimator.min_observations == 25
+
+
+class TestEquilibriumMuWiring:
+    """EquilibriumMu is reverse-optimised against the configured covariance and
+    (optionally) DB market-cap weights, not skfolio's silent defaults."""
+
+    def test_covariance_estimator_matches_config(self) -> None:
+        # Without this wiring EquilibriumMu would silently use its own default
+        # EmpiricalCovariance, diverging from the prior's LedoitWolf/OAS/... .
+        cfg = MomentEstimationConfig(
+            mu_estimator=MuEstimatorType.EQUILIBRIUM,
+            cov_estimator=CovEstimatorType.OAS,
+        )
+        estimator = build_mu_estimator(cfg)
+        assert isinstance(estimator, EquilibriumMu)
+        assert isinstance(estimator.covariance_estimator, OAS)
+
+    def test_market_weights_default_none(self) -> None:
+        cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EQUILIBRIUM)
+        estimator = build_mu_estimator(cfg)
+        assert isinstance(estimator, EquilibriumMu)
+        assert estimator.weights is None
+
+    def test_market_weights_forwarded(self) -> None:
+        cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EQUILIBRIUM)
+        weights = np.array([0.5, 0.3, 0.2])
+        estimator = build_mu_estimator(cfg, market_weights=weights)
+        assert isinstance(estimator, EquilibriumMu)
+        assert np.array_equal(estimator.weights, weights)
+
+    def test_market_weights_ignored_for_non_equilibrium(self) -> None:
+        cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EMPIRICAL)
+        estimator = build_mu_estimator(cfg, market_weights=np.array([0.5, 0.5]))
+        assert isinstance(estimator, EmpiricalMu)
+
+    def test_build_prior_forwards_market_weights(self) -> None:
+        cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EQUILIBRIUM)
+        weights = np.array([0.6, 0.25, 0.15])
+        prior = build_prior(cfg, market_weights=weights)
+        assert isinstance(prior, EmpiricalPrior)
+        assert isinstance(prior.mu_estimator, EquilibriumMu)
+        assert np.array_equal(prior.mu_estimator.weights, weights)
+
+    def test_cap_weighted_equilibrium_prior_fits(self) -> None:
+        rng = np.random.default_rng(0)
+        cols = [f"A{i}" for i in range(4)]
+        returns = pd.DataFrame(
+            rng.normal(0.001, 0.02, (200, 4)), columns=cols
+        )
+        weights = np.array([0.4, 0.3, 0.2, 0.1])
+        cfg = MomentEstimationConfig(
+            mu_estimator=MuEstimatorType.EQUILIBRIUM,
+            cov_estimator=CovEstimatorType.LEDOIT_WOLF,
+        )
+        prior = build_prior(cfg, market_weights=weights)
+        prior.fit(returns)
+        rd = prior.return_distribution_
+        assert rd.mu.shape == (4,)
+        assert rd.covariance.shape == (4, 4)
 
 
 class TestBuildCovEstimator:
@@ -461,6 +521,18 @@ class TestBuildCharacteristicsFactorModel:
             neutralize_against={"value": ["market"]},
         )
         assert model.neutralize_against == {"value": ["market"]}
+
+    def test_market_weights_forwarded_to_factor_prior(self) -> None:
+        weights = np.array([0.7, 0.3])
+        cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EQUILIBRIUM)
+        model = build_characteristics_factor_model(
+            cfg, factors=_make_factors(), market_weights=weights
+        )
+        assert isinstance(model.factor_prior_estimator, EmpiricalPrior)
+        assert isinstance(model.factor_prior_estimator.mu_estimator, EquilibriumMu)
+        assert np.array_equal(
+            model.factor_prior_estimator.mu_estimator.weights, weights
+        )
 
     def test_fit_produces_full_universe_moments(self, asset_panel) -> None:  # type: ignore[no-untyped-def]
         cfg = MomentEstimationConfig(min_regression_assets=3)

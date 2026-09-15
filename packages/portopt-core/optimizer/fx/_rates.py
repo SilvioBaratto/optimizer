@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from optimizer.exceptions import DataError
+from optimizer.fx._minor_units import normalize_currency_code
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +37,15 @@ def build_fx_pair_ticker(
         ``None`` when ``from_ccy == to_ccy``.
         A single ticker string when one side is USD.
         A tuple ``(FROM/USD, TO/USD)`` when crossing via USD.
+
+    Notes
+    -----
+    Minor-unit codes (``GBp``, ``ZAc``, ``ILA``, ...) are resolved to their
+    major currency first, so ``build_fx_pair_ticker("GBp", "EUR")`` builds the
+    GBP pair — there is no ``GBp`` FX market to quote.
     """
-    from_ccy = from_ccy.upper()
-    to_ccy = to_ccy.upper()
+    from_ccy, _ = normalize_currency_code(from_ccy)
+    to_ccy, _ = normalize_currency_code(to_ccy)
 
     if from_ccy == to_ccy:
         return None
@@ -165,8 +172,11 @@ def required_fx_currencies(
     Returns
     -------
     set[str]
-        Currencies in ``currency_map`` that differ from
-        ``base_currency``.
+        The set of *major* currencies in ``currency_map`` that differ from
+        ``base_currency``.  Minor-unit codes are resolved to their major
+        currency (``GBp``/``ZAc``/``ILA`` -> ``GBP``/``ZAR``/``ILS``) so the
+        caller fetches the FX pairs that actually trade.
     """
-    base = base_currency.upper()
-    return {ccy.upper() for ccy in currency_map.values() if ccy.upper() != base}
+    base, _ = normalize_currency_code(base_currency)
+    majors = {normalize_currency_code(ccy)[0] for ccy in currency_map.values()}
+    return {ccy for ccy in majors if ccy != base}

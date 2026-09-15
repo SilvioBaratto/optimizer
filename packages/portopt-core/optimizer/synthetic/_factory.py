@@ -1,4 +1,25 @@
-"""Factory functions for building synthetic data and vine copula estimators."""
+"""Factory functions for building synthetic data and vine copula estimators.
+
+Input contract (real DB data)
+-----------------------------
+These factories build **data-free** skfolio estimators; the calibration data
+is supplied later at ``fit(X)`` time and is validated by skfolio via
+``sklearn.utils.validation.validate_data`` with ``ensure_all_finite=True``.
+Both :class:`~skfolio.distribution.VineCopula` and
+:class:`~skfolio.prior.SyntheticData` therefore **reject NaN/inf** and have no
+native NaN mask. When seeding a generator from the DB's real price history,
+prepare ``X`` upstream (in ``preprocessing``/``moments``, not here):
+
+* cast ``Numeric`` columns ``Decimal`` -> ``float`` (never pass ``Decimal`` /
+  SQL ``NULL``/``None`` objects);
+* normalise mixed ``price_unit`` scale/currency before ``prices_to_returns``;
+* pass **linear** (simple) returns only;
+* drop/align ragged listing history so no leading or interior NaN remain
+  (unequal-length series across assets otherwise trip the finite check);
+* keep ticker **column names** on the DataFrame -- symbol-keyed conditioning
+  (see :func:`build_conditional_synthetic_data`) resolves asset names to
+  column positions, so a bare ndarray breaks conditioning by symbol.
+"""
 
 from __future__ import annotations
 

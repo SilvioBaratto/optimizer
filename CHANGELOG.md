@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> **The `portopt` library API is unchanged.** Everything below concerns the
-> repository's ingestion service (`ingestion/`, formerly `api/`) and its
-> tooling. If you install `portopt` from PyPI, nothing here affects you.
+> **Most entries below concern the repository's ingestion service (`ingestion/`,
+> formerly `api/`) and its tooling.** The one exception is the library breaking
+> change in **Removed** immediately below.
+
+### Removed (BREAKING — library)
+
+- **`optimizer.pipeline` deleted entirely.** The library is now a set of
+  composable, DB-agnostic primitives with no fixed end-to-end runner. Removed
+  public symbols: `run_full_pipeline`, `run_full_pipeline_with_selection`,
+  `optimize`, `backtest`, `tune_and_optimize`, `compute_net_backtest_returns`,
+  `PortfolioResult`. `build_portfolio_pipeline` (pre-selection → optimiser
+  composition) moved to `optimizer.pre_selection`. Opinionated, DB-connected
+  orchestration (FX conversion, delisting correction, universe/factor selection,
+  rebalancing decisions, persistence) now belongs to the planned `fund/` bridge,
+  keeping `optimizer` DB-agnostic. Compose runs from primitives:
+  `build_portfolio_pipeline(optimizer)` + `optimizer.validation.run_cross_val`.
 
 ### Added
 

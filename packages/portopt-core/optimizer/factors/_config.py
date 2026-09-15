@@ -742,8 +742,8 @@ class SectorRegimeBandsConfig:
 
     Single-regime-per-run semantics: the regime is resolved once from the
     lagged classified macro regime and injected into the optimizer before
-    ``run_full_pipeline`` is called.  Backtest folds and the final fit
-    therefore share the same regime-conditional bands.  This is a deliberate
+    it is fit.  Backtest folds and the final fit therefore share the same
+    regime-conditional bands.  This is a deliberate
     design choice: it avoids leaking future regime information into
     walk-forward folds while keeping the implementation simple.
 

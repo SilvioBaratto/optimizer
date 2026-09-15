@@ -100,8 +100,17 @@ def _compute_book_to_price(fundamentals: pd.DataFrame) -> pd.Series:
 
 
 def _compute_earnings_yield(fundamentals: pd.DataFrame) -> pd.Series:
-    """Net income / market cap (inverse P/E)."""
-    earnings = fundamentals.get("net_income", fundamentals.get("trailing_eps"))
+    """Net income / market cap (inverse P/E).
+
+    ``net_income`` is a *total* (financial-statement) quantity in the same
+    currency unit as ``market_cap``.  There is intentionally no per-share
+    fallback (e.g. yfinance ``trailingEps``): dividing a per-share figure by
+    a total market cap is dimensionally inconsistent — the result is smaller
+    by a factor of shares-outstanding and silently pollutes the value group.
+    When ``net_income`` is absent the factor is left uncomputed, matching the
+    other statement-based value calculators (roe, profit_margin, accruals).
+    """
+    earnings = fundamentals.get("net_income")
     if earnings is None:
         return pd.Series(dtype=float)
     earnings_s = cast(pd.Series, earnings)

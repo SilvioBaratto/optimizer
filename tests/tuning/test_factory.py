@@ -7,6 +7,7 @@ import math
 import numpy as np
 import pandas as pd
 import pytest
+from skfolio.model_selection import WalkForward
 from skfolio.optimization import MeanRisk
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
@@ -18,6 +19,7 @@ from optimizer.tuning import (
     build_randomized_search_cv,
     search_results_dataframe,
 )
+from optimizer.validation import WalkForwardConfig
 
 
 @pytest.fixture()
@@ -71,6 +73,40 @@ class TestBuildRandomizedSearchCV:
         dists = {"l2_coef": [0.0, 0.01, 0.1]}
         rs = build_randomized_search_cv(model, dists, config=cfg)
         assert isinstance(rs, RandomizedSearchCV)
+
+
+class TestTemporalCausality:
+    """Lock the load-bearing guarantee: the tuning CV is strictly temporal.
+
+    A shuffling splitter (``KFold(shuffle=True)`` / ``train_test_split(
+    shuffle=True)``) on price-derived returns silently leaks future data.  Both
+    tuning factories must always build a skfolio ``WalkForward``, which splits
+    in time order and has no ``shuffle`` knob.
+    """
+
+    def test_grid_cv_is_temporal_walk_forward(self) -> None:
+        gs = build_grid_search_cv(MeanRisk(), {"l2_coef": [0.0]})
+        assert isinstance(gs.cv, WalkForward)
+        # WalkForward has no shuffle concept; nothing may reorder folds.
+        assert getattr(gs.cv, "shuffle", False) is False
+
+    def test_grid_cv_propagates_purge_gap(self) -> None:
+        cfg = GridSearchConfig(cv_config=WalkForwardConfig(purged_size=21))
+        gs = build_grid_search_cv(MeanRisk(), {"l2_coef": [0.0]}, config=cfg)
+        assert gs.cv.purged_size == 21
+
+    def test_randomized_cv_is_temporal_walk_forward(self) -> None:
+        rs = build_randomized_search_cv(MeanRisk(), {"l2_coef": [0.0]})
+        assert isinstance(rs.cv, WalkForward)
+        assert getattr(rs.cv, "shuffle", False) is False
+
+    def test_random_state_seeds_sampling_not_the_splitter(self) -> None:
+        # random_state controls ParameterSampler only; the data splitter stays a
+        # deterministic WalkForward, so it cannot introduce look-ahead leakage.
+        cfg = RandomizedSearchConfig(random_state=42)
+        rs = build_randomized_search_cv(MeanRisk(), {"l2_coef": [0.0]}, config=cfg)
+        assert rs.random_state == 42
+        assert isinstance(rs.cv, WalkForward)
 
 
 class TestResilienceKnobsWiring:

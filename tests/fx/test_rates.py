@@ -151,3 +151,29 @@ class TestRequiredFxCurrencies:
         cmap = {"LLOY.L": "gbp"}
         result = required_fx_currencies(cmap, "eur")
         assert result == {"GBP"}
+
+    def test_minor_units_resolve_to_major(self) -> None:
+        # GBp -> GBP, ZAc -> ZAR; the caller must fetch the major-unit pairs.
+        cmap = {"LLOY.L": "GBp", "NPN.JO": "ZAc", "ORA.PA": "EUR"}
+        result = required_fx_currencies(cmap, "EUR")
+        assert result == {"GBP", "ZAR"}
+
+    def test_pence_ticker_with_gbp_base_needs_no_fx(self) -> None:
+        # GBp resolves to GBP == base, so no FX pair is required.
+        cmap = {"LLOY.L": "GBp"}
+        result = required_fx_currencies(cmap, "GBP")
+        assert result == set()
+
+
+class TestBuildFxPairTickerMinorUnits:
+    """build_fx_pair_ticker resolves sub-unit codes to their major pair."""
+
+    def test_pence_resolves_to_gbp_pair(self) -> None:
+        assert build_fx_pair_ticker("GBp", "USD") == "GBPUSD=X"
+
+    def test_cents_resolves_to_zar_pair(self) -> None:
+        assert build_fx_pair_ticker("ZAc", "USD") == "ZARUSD=X"
+
+    def test_pence_to_gbp_base_returns_none(self) -> None:
+        # GBp -> GBP; same major currency as target -> no pair.
+        assert build_fx_pair_ticker("GBp", "GBP") is None

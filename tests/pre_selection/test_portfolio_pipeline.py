@@ -1,4 +1,4 @@
-"""Tests for pipeline builder."""
+"""Tests for the build_portfolio_pipeline factory (pre-selection → optimiser)."""
 
 from __future__ import annotations
 
@@ -9,8 +9,7 @@ from skfolio.optimization import EqualWeighted, HierarchicalRiskParity, MeanRisk
 from sklearn.pipeline import Pipeline
 
 from optimizer.optimization import MeanRiskConfig, build_mean_risk
-from optimizer.pipeline import build_portfolio_pipeline
-from optimizer.pre_selection import PreSelectionConfig
+from optimizer.pre_selection import PreSelectionConfig, build_portfolio_pipeline
 
 
 @pytest.fixture()

@@ -72,21 +72,22 @@ docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
 
 Every module: **frozen `@dataclass` config** + **factory function** + **`str, Enum` types**. Configs hold only primitives/enums/nested frozen dataclasses (serialisable). Non-serialisable objects (estimator instances, numpy arrays, callables) are factory `**kwargs`. Strict and consistent across all modules.
 
-All transformers follow sklearn `BaseEstimator + TransformerMixin` and compose in `sklearn.pipeline.Pipeline`. The pipeline flattens pre-selection + optimiser steps so `get_params()` exposes nested params (`"optimizer__l2_coef"`, `"drop_correlated__threshold"`).
+All transformers follow sklearn `BaseEstimator + TransformerMixin` and compose in `sklearn.pipeline.Pipeline`. `build_portfolio_pipeline()` (in `pre_selection/`) flattens pre-selection + optimiser steps so `get_params()` exposes nested params (`"optimizer__l2_coef"`, `"drop_correlated__threshold"`).
 
-**Pipeline flow**: `prices → preprocessing → pre_selection → moments → views → optimization → validation → tuning → rebalancing → pipeline`. Plus `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`, `uncertainty_set/`, `linear_model/`, `online/`, `fx/`.
+**Library is composable primitives, not a fixed end-to-end runner** — there is no `pipeline/` module and no `run_full_pipeline`. Opinionated, DB-connected orchestration (FX, delisting, universe/factor selection, rebalancing decisions, persistence) belongs to the planned `fund/` bridge, keeping `optimizer` DB-agnostic.
+
+**Module flow**: `prices → preprocessing → pre_selection → moments → views → optimization → validation → tuning → rebalancing`. Plus `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`, `uncertainty_set/`, `linear_model/`, `online/`, `fx/`.
 
 Per-submodule detail (configs, presets, factories, shape contracts) → **[`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE.md)**.
 
 ### Key conventions
 
-- `prices_to_returns()` runs **outside** the pipeline (changes data semantics); pipeline operates on return DataFrames only
+- `prices_to_returns()` runs **outside** the pipeline (changes data semantics); pipelines operate on return DataFrames only
 - Views use `tuple[str, ...]` in configs (hashable); factories convert to `list` for skfolio
 - View configs embed `MomentEstimationConfig` for their inner prior (keeps configs serialisable)
 - The fitted prior attribute is `return_distribution_` (not `prior_model_`): `mu`, `covariance`, `returns`, `sample_weight`, `cholesky`
 - For `BenchmarkTracker`, benchmark returns are passed as `y` in `fit(X, y)`
-- When `previous_weights` is passed to `run_full_pipeline()`, it auto-aligns on post-pre-selection universe and re-normalises
-- Sector mapping is injected as a plain `dict[str, str]`, not queried from the database
+- `build_portfolio_pipeline(optimizer, ...)` (in `pre_selection/`) composes pre-selection + optimiser into one flat sklearn `Pipeline`; `sector_mapping` is injected as a plain `dict[str, str]`, not queried from the database
 
 ### Cross-cutting gotchas (skfolio 1.0)
 

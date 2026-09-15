@@ -2,7 +2,7 @@
 
 Each regime maps the 11 GICS sectors to a ``(floor, cap)`` tuple that
 constrains total sector weight in the optimizer.  Bands are applied once
-per pipeline run using the lagged classified regime (single-regime-per-run
+per run using the lagged classified regime (single-regime-per-run
 injection — backtest folds and final fit share one regime).
 """
 

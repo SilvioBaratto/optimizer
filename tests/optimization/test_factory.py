@@ -296,6 +296,22 @@ class TestBuildSectorConstraints:
         _, constraints = build_sector_constraints({"A": "S"}, 1 / 3)
         assert "0.333333" in constraints[0]
 
+    def test_null_sector_value_skipped_no_crash(self) -> None:
+        """A DB-sourced NULL sector (TickerProfile.sector is nullable) must not
+        crash sorted() nor emit a bogus 'None <= cap' constraint."""
+        mapping = {"AAPL": "Technology", "MSFT": "Technology", "XYZ": None}
+        groups, constraints = build_sector_constraints(mapping, 0.25)  # type: ignore[dict-item]
+        # groups passthrough is unchanged; skfolio maps XYZ->singleton group.
+        assert groups is mapping
+        assert constraints == ["Technology <= 0.25"]
+        assert not any("None" in c for c in constraints)
+
+    def test_empty_string_sector_value_skipped(self) -> None:
+        """An empty-string sector is treated like NULL: excluded from caps."""
+        mapping = {"AAPL": "Technology", "XYZ": ""}
+        _, constraints = build_sector_constraints(mapping, 0.30)
+        assert constraints == ["Technology <= 0.3"]
+
     def test_no_sector_mapping_warning_emitted(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -353,6 +369,37 @@ class TestSectorConstraintIntegration:
         for sector in set(sector_mapping.values()):
             members = [t for t, s in sector_mapping.items() if s == sector]
             assert weights[members].sum() <= cap + 1e-6
+
+    def test_yfinance_spaced_sector_names_enforced(
+        self,
+        returns_df: pd.DataFrame,
+    ) -> None:
+        """Real yfinance GICS names contain spaces ('Financial Services',
+        'Consumer Cyclical', 'Communication Services'). skfolio's trie-based
+        constraint parser must match multi-word group labels verbatim so the
+        cap is enforced rather than silently dropped as a missing group."""
+        yf_sectors = [
+            "Financial Services",
+            "Consumer Cyclical",
+            "Communication Services",
+            "Basic Materials",
+        ]
+        mapping = {
+            col: yf_sectors[i % len(yf_sectors)]
+            for i, col in enumerate(returns_df.columns)
+        }
+        cap = 0.30  # 4 sectors * 0.30 = 1.20 > budget 1.0 => feasible
+        cfg = MeanRiskConfig.for_max_sharpe_sector_constrained(max_sector_weight=cap)
+        model = build_mean_risk(cfg, sector_mapping=mapping)
+        model.fit(returns_df)
+        portfolio = model.predict(returns_df)
+
+        weights = pd.Series(portfolio.weights, index=returns_df.columns)
+        for sector in set(mapping.values()):
+            members = [t for t, s in mapping.items() if s == sector]
+            assert weights[members].sum() <= cap + 1e-6, (
+                f"Spaced sector {sector!r} exceeds cap {cap} — parser dropped it"
+            )
 
     def test_no_sector_mapping_still_fits(
         self,

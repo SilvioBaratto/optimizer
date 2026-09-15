@@ -44,7 +44,9 @@ def build_distance(
         Non-serialisable covariance estimator instance forwarded to
         :class:`skfolio.distance.CovarianceDistance`. Only accepted when
         ``config.estimator`` is ``COVARIANCE``; ``None`` uses the skfolio
-        default (:class:`skfolio.moments.EmpiricalCovariance`).
+        default (:class:`skfolio.moments.GerberCovariance`, an outlier-robust
+        co-movement statistic — a sensible default for noisy, heavy-tailed
+        market returns).
 
     Returns
     -------
@@ -57,6 +59,20 @@ def build_distance(
     ------
     ValueError
         If ``covariance_estimator`` is supplied for a non-covariance estimator.
+
+    Notes
+    -----
+    The returned estimator expects a clean, aligned **linear**-return matrix
+    ``X`` of shape ``(n_observations, n_assets)`` with tickers as columns. All
+    six skfolio distance estimators validate ``X`` through sklearn and **reject
+    NaN / non-finite values**, and the correlation family needs a full matrix
+    (equal-length columns). Real ingestion data (5y ragged history, ``Numeric``
+    columns read back as ``Decimal``, mixed ``price_unit`` scales) is therefore
+    *not* fit-ready as-is: cast to ``float`` and align/drop NaN upstream — e.g.
+    normalise currency/scale, then drop incomplete-history assets via a
+    ``SelectComplete`` pre-selection step or ``DataFrame.dropna`` — before
+    calling ``.fit(X)``. This estimator is a pure builder and performs no such
+    cleaning itself.
     """
     estimator = config.estimator
 

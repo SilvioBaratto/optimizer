@@ -1,6 +1,7 @@
 """Investability screening for stock universe construction."""
 
 from optimizer.universe._config import (
+    DelistingPolicy,
     ExchangeRegion,
     HysteresisConfig,
     InvestabilityScreenConfig,
@@ -18,6 +19,7 @@ from optimizer.universe._screener import (
 from optimizer.universe._transformer import InvestabilityScreenSelector
 
 __all__ = [
+    "DelistingPolicy",
     "ExchangeRegion",
     "HysteresisConfig",
     "InvestabilityScreenConfig",

@@ -51,38 +51,53 @@ pip install -e ".[dev]"
 
 ```python
 from optimizer.optimization import MeanRiskConfig, build_mean_risk
-from optimizer.pipeline import run_full_pipeline
-from optimizer.validation import WalkForwardConfig
+from optimizer.pre_selection import build_portfolio_pipeline
+from optimizer.validation import WalkForwardConfig, build_walk_forward, run_cross_val
+from skfolio.preprocessing import prices_to_returns
 
-# Build optimizer from frozen config
+# Build an optimizer from a frozen config
 optimizer = build_mean_risk(MeanRiskConfig.for_max_sharpe())
 
-# Run end-to-end: prices -> returns -> preprocess -> optimize -> backtest
-result = run_full_pipeline(
-    prices=price_df,
-    optimizer=optimizer,
-    cv_config=WalkForwardConfig.for_quarterly_rolling(),
-)
+# Compose pre-selection + optimizer into one sklearn Pipeline
+pipeline = build_portfolio_pipeline(optimizer)
 
-print(result.weights)     # pd.Series of asset weights
-print(result.summary)     # dict with Sharpe, max drawdown, etc.
-print(result.backtest)    # out-of-sample MultiPeriodPortfolio
+# Convert prices -> linear returns OUTSIDE the pipeline (semantic change)
+returns = prices_to_returns(price_df)
+
+# In-sample fit / predict
+pipeline.fit(returns)
+portfolio = pipeline.predict(returns)
+print(portfolio.weights)         # asset weights
+print(portfolio.sharpe_ratio)
+
+# Out-of-sample walk-forward backtest
+cv = build_walk_forward(WalkForwardConfig.for_quarterly_rolling())
+population = run_cross_val(pipeline, returns, cv=cv)
 ```
 
 ## Features
 
-### Pipeline
+### Composable pipeline
 
-Single entry point from raw prices to validated, rebalanced portfolio weights. Handles price-to-return conversion, preprocessing, pre-selection, optimization, cross-validation, and backtesting internally.
+`optimizer` is a **library of composable primitives**, not a fixed end-to-end
+runner. Every stage — preprocessing, pre-selection, moment estimation, views,
+optimization, validation, tuning, rebalancing — is a standalone sklearn-compatible
+component. `build_portfolio_pipeline(optimizer)` flattens pre-selection + the
+optimizer into a single sklearn `Pipeline`:
 
 ```
-prices -> returns -> [preprocess -> pre-select -> optimize] -> backtest -> weights
-                      \________ sklearn Pipeline ________/
+returns -> [validate -> outliers -> impute -> select -> optimize] -> Portfolio
+           \_______________ sklearn Pipeline _______________/
 ```
 
-Prices are converted to returns **outside** the pipeline (semantic change). Everything inside is a single sklearn `Pipeline` that can be cross-validated and tuned as one object.
+Prices are converted to returns **outside** the pipeline (semantic change).
+The composed `Pipeline` is a single estimator that can be cross-validated and
+tuned as one object — pre-selection runs *inside* each CV fold to prevent leakage.
 
-`run_full_pipeline_with_selection()` extends the same entry point with an upstream stock-selection stage: fundamentals -> investability screening -> factor computation -> standardization -> regime tilts -> composite scoring -> selection.
+> Opinionated, DB-connected orchestration (FX conversion, delisting correction,
+> universe/factor selection, rebalancing decisions, persistence) is **not** part
+> of this library — it belongs to the separate `fund/` bridge layer, keeping
+> `optimizer` DB-agnostic.
 
 ### Preprocessing
 
@@ -220,7 +235,7 @@ Multi-currency handling: `FxPriceConverter` (sklearn transformer) converts a mul
 
 ```
 optimizer/            Pure-Python library (DB-agnostic, sklearn/skfolio-based)
-  pipeline/           End-to-end orchestration (prices -> validated weights)
+  pre_selection/      Asset filtering + build_portfolio_pipeline composition
   preprocessing/      Return data cleaning (validation, outliers, imputation)
   pre_selection/      Asset filtering pipeline (completeness, variance, correlation)
   moments/            Expected return + covariance + variance estimation, prior construction

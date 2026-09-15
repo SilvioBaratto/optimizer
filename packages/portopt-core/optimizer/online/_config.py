@@ -8,7 +8,7 @@ services) MUST construct one instance per thread.
 
 The ``GridSearchConfig`` / ``RandomizedSearchConfig`` defaults are
 constructed lazily to avoid an import cycle through
-``optimizer.optimization`` → ``optimizer.pipeline``.
+``optimizer.tuning`` at module load.
 """
 
 from __future__ import annotations

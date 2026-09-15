@@ -190,7 +190,7 @@ class TestEntropyPoolingViewConflictRaises:
         from optimizer.optimization._regime_blended_mean_risk import (
             _ExternallyControlledRegimeCovariance,
         )
-        from optimizer.pipeline._builder import build_portfolio_pipeline
+        from optimizer.pre_selection import build_portfolio_pipeline
 
         regime_cov = _ExternallyControlledRegimeCovariance(
             regime_probabilities=regime_probs_df

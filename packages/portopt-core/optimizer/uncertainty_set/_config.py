@@ -11,8 +11,8 @@ Three variants are supported per side:
   ``EmpiricalCovarianceUncertaintySet``).
 * ``BOOTSTRAP`` — stationary-bootstrap confidence region
   (``BootstrapMuUncertaintySet`` / ``BootstrapCovarianceUncertaintySet``).
-  Calls ``arch.StationaryBootstrap`` under the hood; ``block_size=None``
-  triggers the Politis-White rule of thumb.
+  Uses skfolio's native pure-numpy ``stationary_bootstrap`` (no ``arch``
+  dependency); ``block_size=None`` triggers the Politis-White rule of thumb.
 * ``ORTHOGONAL`` — factor-model orthogonal-subspace sets
   (``OrthogonalMuUncertaintySet`` / ``OrthogonalCovarianceUncertaintySet``,
   new in skfolio 1.0). These require a factor-model return distribution

@@ -65,8 +65,8 @@ class TestBuildPreselectionPipeline:
         assert step_names == [
             "validate",
             "outliers",
-            "impute",
             "select_complete",
+            "impute",
             "drop_zero_variance",
             "drop_correlated",
         ]
@@ -82,6 +82,12 @@ class TestBuildPreselectionPipeline:
         pipe = build_preselection_pipeline(cfg)
         step_names = [name for name, _ in pipe.steps]
         assert "select_pareto" in step_names
+
+    def test_select_complete_runs_before_impute(self) -> None:
+        """SelectComplete must precede impute (fabrication guard)."""
+        pipe = build_preselection_pipeline()
+        step_names = [name for name, _ in pipe.steps]
+        assert step_names.index("select_complete") < step_names.index("impute")
 
     def test_non_expiring_step_added(self) -> None:
         cfg = PreSelectionConfig(use_non_expiring=True, expiration_lookahead=90)
@@ -147,6 +153,49 @@ class TestBuildPreselectionPipeline:
         assert isinstance(out, pd.DataFrame)
 
 
+class TestImputeAfterSelectOrdering:
+    """Regression: SelectComplete before impute so late-listed (short-history)
+    assets are dropped, not fabricated.
+
+    Mirrors the real-DB failure mode: a 5y price window backfills late-listed
+    instruments with leading gaps.  Imputing before selection fills that gap
+    with the contemporaneous sector mean, giving the asset a fabricated full
+    history that then survives ``SelectComplete``.  Selecting first drops it.
+    """
+
+    @staticmethod
+    def _ragged() -> tuple[pd.DataFrame, dict[str, str]]:
+        rng = np.random.default_rng(7)
+        n_obs = 200
+        idx = pd.date_range("2023-01-01", periods=n_obs, freq="B")
+        data: dict[str, np.ndarray] = {
+            f"FULL_{i}": rng.normal(0.001, 0.02, n_obs) for i in range(8)
+        }
+        # Late-listed: only the last 50 obs are real (leading inception NaN).
+        short = rng.normal(0.001, 0.02, n_obs)
+        short[:150] = np.nan
+        data["SHORT"] = short
+        # Genuine full history with a single interior gap (one missing day).
+        gap = rng.normal(0.001, 0.02, n_obs)
+        gap[100] = np.nan
+        data["GAP"] = gap
+        df = pd.DataFrame(data, index=idx)
+        sectors = ["Tech", "Fin"]
+        mapping = {c: sectors[i % 2] for i, c in enumerate(df.columns)}
+        return df, mapping
+
+    def test_short_history_dropped_not_fabricated(self) -> None:
+        df, mapping = self._ragged()
+        pipe = build_preselection_pipeline(sector_mapping=mapping)
+        out = pipe.fit_transform(df)
+        # Late-listed asset is dropped by SelectComplete, never fabricated.
+        assert "SHORT" not in out.columns
+        # Full-history asset with a lone interior gap is kept...
+        assert "GAP" in out.columns
+        # ...and its interior gap is filled by the imputer that runs after.
+        assert not out.isna().to_numpy().any()
+
+
 class TestPreSelectionConfigValidation:
     """Tests for PreSelectionConfig.__post_init__ validation (issue #64)."""
 
@@ -210,9 +259,10 @@ class TestOutlierMethodValidation:
 class TestPreSelectionBehavioral:
     """Behavioral tests exercising specific pipeline steps with crafted data."""
 
-    def test_all_nan_column_imputed_and_survives(self) -> None:
-        """An all-NaN column gets imputed by cross-sectional mean and
-        passes SelectComplete (imputation runs before SelectComplete)."""
+    def test_all_nan_column_dropped_not_fabricated(self) -> None:
+        """An all-NaN column has zero real observations, so SelectComplete
+        drops it before the imputer can fabricate a full series from the
+        cross-sectional mean (selection runs before imputation)."""
         rng = np.random.default_rng(42)
         data = rng.normal(0.001, 0.02, (200, 4))
         df = pd.DataFrame(
@@ -224,9 +274,10 @@ class TestPreSelectionBehavioral:
         cfg = PreSelectionConfig(correlation_threshold=1.0)
         pipe = build_preselection_pipeline(cfg)
         out = pipe.fit_transform(df)
-        # Imputer fills column D with cross-sectional mean → no NaN remains
-        assert not out.isna().any().any()
-        assert "D" in out.columns
+        # Zero-data column is dropped, never fabricated from the sector mean.
+        assert "D" not in out.columns
+        # Surviving columns carry no NaN.
+        assert not out.isna().to_numpy().any()
 
     def test_select_complete_keeps_full_columns(self) -> None:
         rng = np.random.default_rng(42)
