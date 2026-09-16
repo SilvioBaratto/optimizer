@@ -6,6 +6,14 @@ from __future__ import annotations
 from fund.tools.moments import estimate_moments
 from fund.tools.optimize import optimize_portfolio
 from fund.tools.prices import get_prices
+from fund.tools.risk import backtest, risk_check
 from fund.tools.universe import universe_filter
 
-__all__ = ["estimate_moments", "get_prices", "optimize_portfolio", "universe_filter"]
+__all__ = [
+    "backtest",
+    "estimate_moments",
+    "get_prices",
+    "optimize_portfolio",
+    "risk_check",
+    "universe_filter",
+]
