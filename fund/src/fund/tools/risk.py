@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
@@ -156,7 +156,10 @@ def backtest(
     if frame.shape[0] < 2:
         return err("insufficient price history to backtest")
 
-    returns = prices_to_returns(frame)
+    # Single-arg ``prices_to_returns`` always yields a DataFrame; the ``| tuple``
+    # branch only applies when ``y`` is passed. Narrow it so the ``.index`` chains
+    # below don't resolve against ``tuple.index``.
+    returns = cast("pd.DataFrame", prices_to_returns(frame))
     weight_vector = np.array([float(weights[col]) for col in returns.columns])
 
     # A test block strictly follows its training block, so evaluating only on the
