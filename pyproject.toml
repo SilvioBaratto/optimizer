@@ -64,7 +64,7 @@ optimizer = ["py.typed"]
 # daemon and the shared DB package. portopt-core deliberately does NOT depend on
 # portopt-db — the optimizer library stays DB-free (guarded by a hygiene test).
 [tool.uv.workspace]
-members = ["ingestion", "packages/portopt-db"]
+members = ["ingestion", "packages/portopt-db", "fund"]
 
 [tool.ruff]
 line-length = 88

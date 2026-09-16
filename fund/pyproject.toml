@@ -1,0 +1,94 @@
+[build-system]
+requires = ["setuptools==84.0.0", "wheel==0.48.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "portopt-fund"
+version = "0.1.0"
+description = "deepagents investment-fund bridge: LLM chooses, optimizer computes"
+# 3.12 floor: inherited workspace pin (numpy/pandas via portopt-core). Matches
+# the other three members; uv resolves across the whole range.
+requires-python = ">=3.12"
+
+# The bridge layer. `fund` is the ONLY workspace member allowed to import both
+# `optimizer` (portopt-core) and `portopt_db` — guarded the other way by the
+# ingestion/db hygiene tests. deepagents/langgraph live here and NOWHERE else.
+dependencies = [
+    # Workspace bridge deps (resolved from local paths, see [tool.uv.sources]).
+    "portopt-core",
+    "portopt-db",
+    # Agent runtime. deepagents is pre-1.0 and moves fast — pinned exactly to the
+    # version whose API was verified by the Phase 0 exit probes (StoreBackend
+    # instance, ModelFallbackMiddleware, skills preload). See SPEC.md D2/D4.
+    "deepagents==0.7.14",
+    "langgraph",
+    # Durable checkpointer + store on a dedicated `langgraph` Postgres schema (D3).
+    # psycopg + pool are the connection layer PostgresSaver/PostgresStore drive.
+    "langgraph-checkpoint-postgres",
+    "psycopg[binary]",
+    "psycopg-pool",
+    # Model path (D4): DeepSeek on Ollama Cloud via ChatOllama.
+    "langchain-ollama",
+    # D6 daemon: cron + drift-monitor scheduler (same lib the ingestion daemon uses).
+    "APScheduler",
+    # Config / env / CLI / TUI.
+    "python-dotenv",
+    "pydantic",
+    "typer",
+    "textual",
+]
+
+[project.optional-dependencies]
+# Test-only deps, versions matched to the rest of the workspace so the single
+# shared venv resolves one pytest/pytest-cov. pytest-asyncio kept for the async
+# agent/worker paths that arrive in later phases.
+test = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+]
+
+# Human CLI, watch TUI, and the D6 daemon. Entrypoints reference modules filled
+# in later phases (cli/tui/worker are empty stubs today); `uv sync` does not
+# import them, so the scaffold syncs green before those modules exist.
+[project.scripts]
+fund = "fund.cli:app"
+fund-tui = "fund.tui.app:main"
+fund-worker = "fund.worker:main"
+
+# Resolve the two bridge deps from the workspace (local paths), not PyPI.
+[tool.uv.sources]
+portopt-core = { workspace = true }
+portopt-db = { workspace = true }
+
+# src-layout: import package `fund` lives under fund/src/fund. Distinct import
+# name from ingestion's `app` so the two never collide in the shared venv.
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["fund*"]
+
+[tool.setuptools.package-data]
+fund = ["py.typed"]
+
+# Coverage measured with `--cov=fund`. Branch on; the CI `fund-test` job gates
+# line ≥ 0.80 (--cov-fail-under=80) plus the independent branch-rate 0.80 check.
+[tool.coverage.run]
+branch = true
+source = ["fund"]
+# No __init__.py omit: while the package is scaffold-only, src/fund/__init__.py
+# carries the single measurable statement (__version__). Omitting it would leave
+# --cov=fund with zero statements → "no data" → a spurious 0% gate failure. Once
+# tools/ ships real logic (Phase 3) an omit list can return if __init__ noise
+# ever matters.
+omit = []
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.",
+    "raise NotImplementedError",
+    "^\\s*\\.\\.\\.$",
+]

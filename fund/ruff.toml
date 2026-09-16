@@ -1,0 +1,12 @@
+# Inherit the workspace ruff config (line-length 88, rule set E/F/I/N/W/UP/B/SIM/
+# S/RUF/C4/PTH, py310 target) from the repo root, then layer fund-specific
+# settings on top. `extend` resolves the [tool.ruff] table out of the root
+# pyproject.
+extend = "../pyproject.toml"
+
+[lint.isort]
+known-first-party = ["fund"]
+
+[lint.per-file-ignores]
+# S101: asserts are the substance of a test, not a smell.
+"tests/**" = ["S101"]
