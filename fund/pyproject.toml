@@ -61,6 +61,13 @@ fund-worker = "fund.worker:main"
 portopt-core = { workspace = true }
 portopt-db = { workspace = true }
 
+# fund-scoped pytest config: register the `integration` marker so the D3
+# Postgres round-trip test (skipped without DATABASE_URL) doesn't warn.
+[tool.pytest.ini_options]
+markers = [
+    "integration: needs a live Postgres DATABASE_URL (skipped otherwise)",
+]
+
 # src-layout: import package `fund` lives under fund/src/fund. Distinct import
 # name from ingestion's `app` so the two never collide in the shared venv.
 [tool.setuptools.packages.find]
