@@ -32,6 +32,7 @@ from portopt_db.models.market_data.market_structure import (
     SectorTopCompany,
 )
 from portopt_db.models.market_data.market_summary import MarketSummary
+from portopt_db.models.orders.paper_order import PaperOrder
 from portopt_db.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
@@ -75,6 +76,7 @@ __all__ = [
     "MacroNewsTheme",
     "MarketSummary",
     "MutualFundHolder",
+    "PaperOrder",
     "PriceHistory",
     "SectorIndustry",
     "SectorSnapshot",
