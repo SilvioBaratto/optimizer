@@ -102,11 +102,17 @@ jobs:
 
   fund-test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
-      - run: cd fund && uv run pytest tests/ -v --tb=short --cov=fund --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
-      - run: uv run python scripts/check_branch_coverage.py fund/coverage.xml 0.80
+      - run: uv sync --all-packages --all-extras --python ${{ matrix.python-version }}
+      - run: cd fund && uv run --python ${{ matrix.python-version }} pytest tests/ -v --tb=short --cov=fund --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
+      # Branch-aware per-metric floor (fails if line OR branch < 0.80). 3.12 leg only.
+      - if: matrix.python-version == '3.12'
+        run: uv run python scripts/check_branch_coverage.py fund/coverage.xml 0.80
