@@ -5,6 +5,7 @@ autogenerate and SQLite ``create_all`` in tests.
 """
 
 from portopt_db.base import Base, BaseModel, TimestampMixin, UUIDPrimaryKeyMixin
+from portopt_db.models.agent.agent_run import AgentDecision, AgentRun
 from portopt_db.models.jobs.background_job import BackgroundJob, BackgroundJobError
 from portopt_db.models.macro.macro_regime import (
     BondYield,
@@ -47,6 +48,8 @@ from portopt_db.models.market_data.yfinance_data import (
 from portopt_db.models.universe.universe import Exchange, Instrument
 
 __all__ = [
+    "AgentDecision",
+    "AgentRun",
     "AnalystPriceTarget",
     "AnalystRecommendation",
     "BackgroundJob",
