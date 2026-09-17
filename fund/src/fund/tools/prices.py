@@ -24,7 +24,14 @@ from typing import TYPE_CHECKING
 import pandas as pd
 from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 
-from fund.tools._base import ToolResult, err, ok, summarize_frame, tool_envelope
+from fund.tools._base import (
+    ToolResult,
+    coerce_date,
+    err,
+    ok,
+    summarize_frame,
+    tool_envelope,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -43,15 +50,6 @@ _PRICE_FIELDS: frozenset[str] = frozenset(
         "capital_gains",
     }
 )
-
-
-def _coerce_date(asof: dt.date | str) -> dt.date:
-    """Normalise ``asof`` to a ``date``; a ``datetime`` collapses to its date."""
-    if isinstance(asof, dt.datetime):
-        return asof.date()
-    if isinstance(asof, dt.date):
-        return asof
-    return dt.date.fromisoformat(asof)
 
 
 def load_price_frame(
@@ -78,7 +76,7 @@ def load_price_frame(
     Returns:
         ``(frame, missing)`` — the wide price frame and the absent tickers.
     """
-    end_date = _coerce_date(asof)
+    end_date = coerce_date(asof)
     repo = YFinanceRepository(session)
 
     series_by_ticker: dict[str, pd.Series] = {}
@@ -139,7 +137,7 @@ def get_prices(
     frame, missing = load_price_frame(session, asof, tickers, field=field)
 
     summary = summarize_frame(frame, name="prices")
-    summary["asof"] = _coerce_date(asof).isoformat()
+    summary["asof"] = coerce_date(asof).isoformat()
     summary["field"] = field
     summary["requested"] = list(tickers)
     summary["missing"] = missing

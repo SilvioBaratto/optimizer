@@ -26,19 +26,17 @@ from portopt_db.repositories.macro.macro_regime_repository import (
     MacroRegimeRepository,
 )
 
-from fund.tools._base import ToolResult, err, ok, summarize_frame, tool_envelope
+from fund.tools._base import (
+    ToolResult,
+    coerce_date,
+    err,
+    ok,
+    summarize_frame,
+    tool_envelope,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
-
-
-def _coerce_date(asof: dt.date | str) -> dt.date:
-    """Normalise ``asof`` to a ``date``; a ``datetime`` collapses to its date."""
-    if isinstance(asof, dt.datetime):
-        return asof.date()
-    if isinstance(asof, dt.date):
-        return asof
-    return dt.date.fromisoformat(asof)
 
 
 def load_macro_frame(
@@ -61,7 +59,7 @@ def load_macro_frame(
     Returns:
         ``(frame, missing)`` — the wide macro frame and the absent series ids.
     """
-    end_date = _coerce_date(asof)
+    end_date = coerce_date(asof)
     repo = MacroRegimeRepository(session)
 
     series_by_name: dict[str, pd.Series] = {}
@@ -107,7 +105,7 @@ def get_macro_series(
     frame, missing = load_macro_frame(session, names, asof)
 
     summary = summarize_frame(frame, name="macro")
-    summary["asof"] = _coerce_date(asof).isoformat()
+    summary["asof"] = coerce_date(asof).isoformat()
     summary["requested"] = list(names)
     summary["missing"] = missing
     return ok(summary)

@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 
 from fund.audit.orders_repository import OrderRepository
-from fund.tools._base import ToolResult, err, ok, tool_envelope
+from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -42,15 +42,6 @@ if TYPE_CHECKING:
 _DEFAULT_NOTIONAL = 100_000.0
 _DEFAULT_SLIPPAGE_BPS = 5.0
 _DEFAULT_COMMISSION_BPS = 1.0
-
-
-def _coerce_date(asof: dt.date | str) -> dt.date:
-    """Normalise ``asof`` to a ``date``; a ``datetime`` collapses to its date."""
-    if isinstance(asof, dt.datetime):
-        return asof.date()
-    if isinstance(asof, dt.date):
-        return asof
-    return dt.date.fromisoformat(asof)
 
 
 def _coerce_uuid(portfolio_id: uuid.UUID | str) -> uuid.UUID:
@@ -134,7 +125,7 @@ def place_orders(
     if not weights:
         return err("no weights to place")
 
-    end_date = _coerce_date(asof)
+    end_date = coerce_date(asof)
     pid = _coerce_uuid(portfolio_id)
     whash = _weights_hash(weights)
 

@@ -18,6 +18,7 @@ inside the individual tool modules that need it.
 
 from __future__ import annotations
 
+import datetime as dt
 import functools
 import logging
 from collections.abc import Callable, Generator, Mapping
@@ -34,6 +35,19 @@ logger = logging.getLogger("fund.tools")
 ToolResult = dict[str, Any]
 
 P = ParamSpec("P")
+
+
+def coerce_date(asof: dt.date | str) -> dt.date:
+    """Normalise ``asof`` to a ``date``; a ``datetime`` collapses to its date.
+
+    Shared by every tool that takes an ``asof`` upper bound so the date-coercion
+    rule (accept ``date`` / ``datetime`` / ISO ``YYYY-MM-DD`` string) lives once.
+    """
+    if isinstance(asof, dt.datetime):
+        return asof.date()
+    if isinstance(asof, dt.date):
+        return asof
+    return dt.date.fromisoformat(asof)
 
 
 def ok(data: Any) -> ToolResult:
@@ -112,6 +126,7 @@ def summarize_frame(frame: Any, *, name: str = "frame") -> dict[str, Any]:
 
 __all__ = [
     "ToolResult",
+    "coerce_date",
     "err",
     "ok",
     "session_scope",
