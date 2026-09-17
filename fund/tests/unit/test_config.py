@@ -35,6 +35,15 @@ def test_defaults_pin_the_spec8_contract():
     assert cfg.recursion_limit == 50
     # D10 HITL
     assert cfg.interrupt_on == ("place_orders",)
+    # Fase-5 persistence: pinned Store key resolving a ConstraintSetRef
+    assert cfg.constraint_set_store_key == "constraint_set"
+
+
+def test_constraint_set_store_key_is_pinned():
+    # The active ConstraintSet is cached under this key so a Phase-4
+    # ConstraintSetRef resolves; it is a fixed contract, not env-sourced.
+    assert load_config(env={}).constraint_set_store_key == "constraint_set"
+    assert settings.constraint_set_store_key == "constraint_set"
 
 
 def test_langgraph_pool_kwargs_forces_search_path():

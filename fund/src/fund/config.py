@@ -70,6 +70,10 @@ class FundConfig:
     # --- D10 HITL: tools gated behind interrupt_on (checkpointer required) ---
     interrupt_on: tuple[str, ...] = field(default=("place_orders",))
 
+    # --- Fase-5 persistence: Store key the active ConstraintSet is cached under
+    # (namespace = (portfolio_id,)) so a Phase-4 ``ConstraintSetRef`` resolves. ---
+    constraint_set_store_key: str = "constraint_set"
+
     def langgraph_pool_kwargs(self) -> dict[str, Any]:
         """psycopg ``ConnectionPool(kwargs=...)`` for the LangGraph pool (D3).
 
