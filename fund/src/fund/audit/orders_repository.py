@@ -9,6 +9,14 @@ caller owns the transaction boundary.
 The idempotency key is ``(portfolio_id, asof, weights_hash)`` — :meth:`get_by_key`
 finds an existing ticket so ``place_orders`` can be re-run safely under the HITL
 ``Command(resume=…)`` gotcha (SPEC D3) without double-placing.
+
+Concurrency: the get-then-create is find-or-create, not atomic. That is safe under
+the D1 model (one daemon, one sync writer per run — see ``CLAUDE.md`` reaper is
+host-scoped). Should two writers ever race the same key, the DB-level
+``UNIQUE(portfolio_id, asof, weights_hash)`` is the backstop: the second insert
+raises ``IntegrityError``, which ``tool_envelope`` degrades to ``{ok: false}``
+rather than double-placing. The caller owns the transaction boundary (D1), so it —
+not this repo — rolls back that failed session.
 """
 
 from __future__ import annotations

@@ -59,7 +59,14 @@ class AgentRunRepository(RepositoryBase):
         llm_response_hash: str | None = None,
         hitl_decision: dict[str, Any] | None = None,
     ) -> AgentDecision:
-        """Append a decision with the next 0-based ``decision_index`` for the run."""
+        """Append a decision with the next 0-based ``decision_index`` for the run.
+
+        The index is derived from a ``count()`` of existing decisions. Safe under
+        the D1 model (one sync writer per run appends sequentially); a concurrent
+        appender would collide on ``uq_agent_decision_run_index``, which is the
+        backstop (IntegrityError, not a duplicated index). The caller owns the
+        transaction boundary and rolls back a failed session.
+        """
         next_index = self.session.execute(
             select(func.count()).where(AgentDecision.run_id == run_id)
         ).scalar_one()
