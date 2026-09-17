@@ -1,11 +1,11 @@
 """MiFID II suitability profiler — the deterministic answers → knobs mapping.
 
 Runtime *step 0*: turn a validated ``MiFIDAnswers`` (the four ESMA pillars) into a
-``ConstraintSet`` (the risk profile every later agent reads). This module owns the
-**pure, total, auditable** core; the LLM profiler agent + HITL persistence land in
-later Task-5 slices, and the ESG hard-gate / K&E universe filters / suitability
-record assembly land in Task 3 (here ``esg`` / ``universe_filters`` stay at their
-schema defaults).
+``ConstraintSet`` (the risk profile every later agent reads) plus a structured
+``SuitabilityAssessment`` for MiFID record-keeping. This module owns the **pure,
+total, auditable** core — the deterministic mapping, the ESG hard-gate, the K&E
+universe filters, and the inconsistency / anti-overconfidence check. The LLM
+profiler agent + HITL persistence land in a later Task-7 slice.
 
 Building a ``ConstraintSet`` imports **no** ``optimizer`` code — the mapping is
 plain dict/arithmetic; the optimizer only appears when the caller feeds the result
@@ -27,9 +27,11 @@ All maps are **total** plain-dict lookups (an unmapped enum member is a hard
 
 from __future__ import annotations
 
-from fund.schemas.constraint_set import ConstraintSet
+from fund.schemas.constraint_set import ConstraintSet, EsgPolicy, UniverseFilters
 from fund.schemas.enums import (
+    GicsSector,
     Horizon,
+    KnowledgeLevel,
     LossReaction,
     ObjectiveChoice,
     RiskMeasureChoice,
@@ -37,11 +39,39 @@ from fund.schemas.enums import (
 )
 from fund.schemas.questionnaire import (
     CapacityAnswers,
+    EsgAnswers,
+    KnowledgeAnswers,
     MiFIDAnswers,
     ObjectivesAnswers,
+    SuitabilityAssessment,
 )
 
-__all__ = ["build_constraint_set"]
+__all__ = [
+    "FLAG_OBJECTIVE_CAPACITY_MISMATCH",
+    "FLAG_OVERCONFIDENCE",
+    "FLAG_REACTION_TOLERANCE_MISMATCH",
+    "SuitabilityBreachError",
+    "assess_suitability",
+    "build_constraint_set",
+    "run_mapping",
+]
+
+# Named inconsistency-flag vocabulary the suitability check can emit. These are
+# surfaced (never auto-clamped) at the HITL gate in Task 7 (SPEC §8.3).
+FLAG_OBJECTIVE_CAPACITY_MISMATCH = "objective_capacity_mismatch"
+FLAG_OVERCONFIDENCE = "overconfidence"
+FLAG_REACTION_TOLERANCE_MISMATCH = "reaction_tolerance_mismatch"
+
+
+class SuitabilityBreachError(ValueError):
+    """A HARD MiFID breach that cannot proceed to a portfolio (SPEC §8.3).
+
+    Distinct from a soft ``inconsistency_flags`` entry (flagged and surfaced at the
+    HITL gate): a breach hard-blocks outright. Raised when the ESG pillar excludes
+    every GICS sector, leaving no investable universe. Subclasses ``ValueError`` so
+    a caller may catch it broadly or specifically.
+    """
+
 
 # ---------------------------------------------------------------------------
 # Resolved lookup tables (SPEC §8 — now contract, not re-litigated here).
@@ -168,6 +198,85 @@ def _nu_tiers(capacity: CapacityAnswers) -> tuple[float, float, float]:
 
 
 # ---------------------------------------------------------------------------
+# ESG hard gate (D9/D16) + K&E universe filters (D32).
+# ---------------------------------------------------------------------------
+
+
+def _esg_policy(esg: EsgAnswers) -> EsgPolicy:
+    """Client ESG exclusions → HARD ``EsgPolicy`` block (D9/D16).
+
+    Copies the declared GICS-sector exclusions verbatim (deduplicated,
+    order-preserving); nothing else feeds this, so an excluded sector can never be
+    re-admitted by another answer. Excluding *every* sector leaves no investable
+    universe — a legal breach that raises ``SuitabilityBreachError`` rather than
+    silently emptying the mandate.
+    """
+    exclusions = tuple(dict.fromkeys(esg.exclusions))
+    if set(exclusions) >= set(GicsSector):
+        raise SuitabilityBreachError(
+            "ESG exclusions remove every GICS sector — no investable universe."
+        )
+    return EsgPolicy(exclusions=exclusions)
+
+
+# Low K&E (none/basic) → complex/leverage banned + a tightened per-position cap;
+# informed/advanced stay unrestricted. Total over ``KnowledgeLevel`` (an unmapped
+# member is a hard ``KeyError``, matching the rest of the mapping).
+_FILTERS_BY_KNOWLEDGE: dict[KnowledgeLevel, UniverseFilters] = {
+    KnowledgeLevel.NONE: UniverseFilters(
+        no_complex=True, no_leverage=True, max_position_cap=0.05
+    ),
+    KnowledgeLevel.BASIC: UniverseFilters(
+        no_complex=True, no_leverage=True, max_position_cap=0.10
+    ),
+    KnowledgeLevel.INFORMED: UniverseFilters(),
+    KnowledgeLevel.ADVANCED: UniverseFilters(),
+}
+
+
+def _ke_filters(knowledge: KnowledgeAnswers) -> UniverseFilters:
+    """K&E level → ``UniverseFilters`` restrictions (unmapped ⇒ ``KeyError``)."""
+    return _FILTERS_BY_KNOWLEDGE[knowledge.level]
+
+
+# ---------------------------------------------------------------------------
+# Inconsistency / anti-overconfidence check (SPEC §8.3 — flag, never clamp).
+# ---------------------------------------------------------------------------
+
+# Appetite thresholds for the soft contradiction rules. All expressed on the
+# appetite scale ∈ [0, 1] so they read against the same bands as ``a_gamma``.
+_LOW_CAPACITY_APPETITE = 0.4  # below the Balanced floor ⇒ conservative capacity
+_OVERCONFIDENCE_GAP = 0.4  # attitude far outstripping financial capacity
+_HIGH_TOLERANCE_APPETITE = 0.6  # comfortable-with-loss attitudinal appetite
+
+
+def _inconsistency_flags(
+    answers: MiFIDAnswers, a_tol: float, a_cap: float
+) -> tuple[str, ...]:
+    """Flag contradictory answers (SPEC §8.3, deep_agent ``01:338``) — no clamp.
+
+    Pure over the already-scored appetites plus the raw objective / reaction
+    answers. Each rule is independent and additive; the flags are surfaced to the
+    adviser at the HITL gate — the binding ``a_gamma`` is left untouched.
+    """
+    flags: list[str] = []
+    objectives = answers.objectives
+    if (
+        objectives.goal in (ObjectiveChoice.GROWTH, ObjectiveChoice.MAX)
+        and a_cap < _LOW_CAPACITY_APPETITE
+    ):
+        flags.append(FLAG_OBJECTIVE_CAPACITY_MISMATCH)
+    if a_tol - a_cap >= _OVERCONFIDENCE_GAP:
+        flags.append(FLAG_OVERCONFIDENCE)
+    if (
+        a_tol >= _HIGH_TOLERANCE_APPETITE
+        and objectives.loss_reaction is LossReaction.SELL_ALL
+    ):
+        flags.append(FLAG_REACTION_TOLERANCE_MISMATCH)
+    return tuple(flags)
+
+
+# ---------------------------------------------------------------------------
 # The deterministic mapping (pure, total, imports no optimizer code).
 # ---------------------------------------------------------------------------
 
@@ -191,8 +300,10 @@ def build_constraint_set(
       the inverting 5-band lookup;
     * tolerance (attitude) and capacity (finance) scored from **disjoint** fields.
 
-    ESG exclusions + K&E universe filters + the suitability record are Task 3;
-    ``esg`` / ``universe_filters`` stay at their ``ConstraintSet`` defaults here.
+    The ESG pillar becomes a HARD ``EsgPolicy`` block (declared exclusions,
+    unoverridable; every-sector exclusion raises ``SuitabilityBreachError``) and
+    low K&E tightens ``UniverseFilters``. The ``SuitabilityAssessment`` record is
+    built by ``assess_suitability`` / ``run_mapping``.
     """
     a_tol = _appetite_from_tolerance(answers.objectives)
     a_cap = _appetite_from_capacity(answers.capacity)
@@ -214,4 +325,55 @@ def build_constraint_set(
         nu2=nu2,
         nu3=nu3,
         horizon=_HORIZON_BY_BUCKET[answers.objectives.horizon],
+        esg=_esg_policy(answers.esg),  # HARD gate (D9/D16); may hard-block
+        universe_filters=_ke_filters(answers.knowledge),  # low K&E ⇒ restricted
     )
+
+
+def assess_suitability(
+    answers: MiFIDAnswers, constraint_set: ConstraintSet
+) -> SuitabilityAssessment:
+    """Assemble the structured MiFID suitability record for a mapped profile.
+
+    Pure and LLM-free: recomputes the two disjoint appetite scores, records the
+    binding ``a_gamma`` and its named band, mirrors the ESG block, and runs the
+    inconsistency check. ``rationale`` is a deterministic, human-readable trail of
+    how the profile was derived (what MiFID record-keeping retains).
+    """
+    a_tol = _appetite_from_tolerance(answers.objectives)
+    a_cap = _appetite_from_capacity(answers.capacity)
+    band = _category(constraint_set.a_gamma)
+    binding = "capacity" if a_cap <= a_tol else "tolerance"
+    rationale = (
+        f"Risk appetite {min(a_tol, a_cap):.2f} "
+        f"(tolerance {a_tol:.2f}, capacity {a_cap:.2f}); {binding} binds; "
+        f"band {band.value} → a_gamma {constraint_set.a_gamma:g}."
+    )
+    return SuitabilityAssessment(
+        answers=answers,
+        appetite_from_tolerance=a_tol,
+        appetite_from_capacity=a_cap,
+        a_gamma=constraint_set.a_gamma,
+        band=band,
+        esg_exclusions=constraint_set.esg.exclusions,
+        inconsistency_flags=_inconsistency_flags(answers, a_tol, a_cap),
+        rationale=rationale,
+    )
+
+
+def run_mapping(
+    answers: MiFIDAnswers,
+    *,
+    portfolio_id: str,
+    base_currency: str | None = None,
+) -> tuple[ConstraintSet, SuitabilityAssessment]:
+    """Pure Task-3 wrapper: ``answers -> (ConstraintSet, SuitabilityAssessment)``.
+
+    The LLM profiler agent (Task 7) calls this after normalising free-text into a
+    typed ``MiFIDAnswers``; it runs no LLM and touches no DB. An ESG/legal breach
+    hard-blocks here via ``build_constraint_set``.
+    """
+    constraint_set = build_constraint_set(
+        answers, portfolio_id=portfolio_id, base_currency=base_currency
+    )
+    return constraint_set, assess_suitability(answers, constraint_set)
