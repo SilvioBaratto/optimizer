@@ -58,6 +58,25 @@ _EXPECTED: dict[type[Enum], dict[str, str]] = {
         "LOW": "low",
         "HIGH": "high",
     },
+    enums.KnowledgeLevel: {
+        "NONE": "none",
+        "BASIC": "basic",
+        "INFORMED": "informed",
+        "ADVANCED": "advanced",
+    },
+    enums.LossReaction: {
+        "SELL_ALL": "sell_all",
+        "SELL_SOME": "sell_some",
+        "HOLD": "hold",
+        "BUY_MORE": "buy_more",
+    },
+    enums.RiskToleranceBand: {
+        "DEFENSIVE": "defensive",
+        "CONSERVATIVE": "conservative",
+        "BALANCED": "balanced",
+        "GROWTH": "growth",
+        "AGGRESSIVE": "aggressive",
+    },
 }
 
 
@@ -88,7 +107,7 @@ def test_ledoit_wolf_is_the_first_moments_estimator():
     assert next(iter(enums.MomentsEstimator)) is enums.MomentsEstimator.LEDOIT_WOLF
 
 
-def test_all_lists_exactly_the_six_public_enums():
+def test_all_lists_exactly_the_nine_public_enums():
     assert set(enums.__all__) == {
         "ObjectiveChoice",
         "RiskMeasureChoice",
@@ -96,7 +115,17 @@ def test_all_lists_exactly_the_six_public_enums():
         "GicsSector",
         "MomentsEstimator",
         "UncertaintyLevel",
+        "KnowledgeLevel",
+        "LossReaction",
+        "RiskToleranceBand",
     }
+
+
+def test_new_mifid_pillar_enums_have_expected_cardinality():
+    # Phase-5 additions: K&E level, loss-reaction, and the 5 named risk bands.
+    assert len(enums.KnowledgeLevel) == 4
+    assert len(enums.LossReaction) == 4
+    assert len(enums.RiskToleranceBand) == 5
 
 
 def test_module_imports_nothing_forbidden():

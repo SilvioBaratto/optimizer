@@ -15,9 +15,12 @@ from enum import Enum
 __all__ = [
     "GicsSector",
     "Horizon",
+    "KnowledgeLevel",
+    "LossReaction",
     "MomentsEstimator",
     "ObjectiveChoice",
     "RiskMeasureChoice",
+    "RiskToleranceBand",
     "UncertaintyLevel",
 ]
 
@@ -79,3 +82,37 @@ class UncertaintyLevel(str, Enum):
     NONE = "none"
     LOW = "low"
     HIGH = "high"
+
+
+class KnowledgeLevel(str, Enum):
+    """MiFID knowledge-&-experience pillar (Fase 5). Low levels (``none`` /
+    ``basic``) drive the ``UniverseFilters`` restrictions (no complex / no
+    leverage, tighter caps)."""
+
+    NONE = "none"
+    BASIC = "basic"
+    INFORMED = "informed"
+    ADVANCED = "advanced"
+
+
+class LossReaction(str, Enum):
+    """Client's reaction to an extreme drawdown scenario (Fase 5). Drives the
+    downside ``risk_measure`` + tail ``beta`` (protection → CVaR/CDaR/MaxDD),
+    distinct from the attitudinal risk-tolerance Likert that scores appetite."""
+
+    SELL_ALL = "sell_all"
+    SELL_SOME = "sell_some"
+    HOLD = "hold"
+    BUY_MORE = "buy_more"
+
+
+class RiskToleranceBand(str, Enum):
+    """The 5 named MiFID risk categories (Fase 5, SPEC §8.1). The appetite score
+    buckets into one of these; the category name is recorded in the suitability
+    assessment alongside the derived ``a_gamma``."""
+
+    DEFENSIVE = "defensive"
+    CONSERVATIVE = "conservative"
+    BALANCED = "balanced"
+    GROWTH = "growth"
+    AGGRESSIVE = "aggressive"
