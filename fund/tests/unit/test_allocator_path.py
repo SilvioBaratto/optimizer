@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 
+from optimizer.moments import CovEstimatorType, MomentEstimationConfig
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
 
@@ -75,6 +76,18 @@ def _seed_panel(db_session) -> None:
     db_session.flush()
 
 
+def _seed_single_day(db_session) -> None:
+    """Seed one close per ticker — a panel too short to derive returns (<2 obs)."""
+    for ticker, params in _SERIES.items():
+        inst = _seed_instrument(db_session, ticker)
+        db_session.add(
+            PriceHistory(
+                instrument_id=inst.id, date=_START, close=params[0], volume=1000
+            )
+        )
+    db_session.flush()
+
+
 class TestEstimateMoments:
     def test_returns_mu_and_square_covariance(self, db_session) -> None:
         _seed_panel(db_session)
@@ -113,6 +126,26 @@ class TestEstimateMoments:
 
         assert result["ok"] is False
         assert "error" in result
+
+    def test_insufficient_history_is_error(self, db_session) -> None:
+        # A single observation can't yield returns → the <2-obs guard fires.
+        _seed_single_day(db_session)
+
+        result = estimate_moments(db_session, _ASOF, _UNIVERSE)
+
+        assert result["ok"] is False
+        assert "error" in result
+
+    def test_custom_config_is_honored(self, db_session) -> None:
+        # Passing an explicit config exercises the `config is not None` branch and
+        # swaps the covariance estimator away from the Ledoit-Wolf default.
+        _seed_panel(db_session)
+        config = MomentEstimationConfig(cov_estimator=CovEstimatorType.EMPIRICAL)
+
+        result = estimate_moments(db_session, _ASOF, _UNIVERSE, config=config)
+
+        assert result["ok"] is True
+        assert result["data"]["cov_estimator"] == "empirical"
 
     def test_missing_ticker_flagged_not_raised(self, db_session) -> None:
         _seed_panel(db_session)
@@ -164,6 +197,65 @@ class TestOptimizePortfolio:
 
         assert result["ok"] is False
         assert "error" in result
+
+    def test_insufficient_history_is_error(self, db_session) -> None:
+        _seed_single_day(db_session)
+
+        result = optimize_portfolio(db_session, _ASOF, _UNIVERSE)
+
+        assert result["ok"] is False
+        assert "error" in result
+
+    def test_min_weight_floor_constraint_is_applied(self, db_session) -> None:
+        # A min-weight floor forbids the optimiser from zeroing any asset out; if
+        # the override were dropped (default min=0) min-variance could do exactly
+        # that, so this pins that recognized constraint keys reach the config.
+        _seed_panel(db_session)
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints={"min_weights": 0.1}
+        )
+
+        assert result["ok"] is True
+        weights = result["data"]["weights"]
+        assert all(w >= 0.1 - 1e-9 for w in weights.values())
+
+    def test_max_weight_cap_constraint_is_applied(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints={"max_weights": 0.4}
+        )
+
+        assert result["ok"] is True
+        weights = result["data"]["weights"]
+        assert all(w <= 0.4 + 1e-6 for w in weights.values())
+
+    def test_unknown_constraint_keys_are_ignored(self, db_session) -> None:
+        # Unrecognized keys are filtered out, so the result matches the default.
+        _seed_panel(db_session)
+
+        default = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["weights"]
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints={"bogus_key": 123}
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["weights"] == default
+
+    def test_missing_ticker_reported_with_assets_and_n_observations(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        result = optimize_portfolio(db_session, _ASOF, ["AAA", "BBB", "ZZZ"])
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["missing"] == ["ZZZ"]
+        assert data["assets"] == ["AAA", "BBB"]
+        assert set(data["weights"]) == {"AAA", "BBB"}
+        assert data["n_observations"] == _N_DAYS - 1
 
     def test_deterministic_identical_seed_identical_weights(self, db_session) -> None:
         _seed_panel(db_session)

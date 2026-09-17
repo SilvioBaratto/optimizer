@@ -165,6 +165,19 @@ class TestGetPricesFlagsAndErrors:
         assert result["data"]["missing"] == ["AAA"]
         assert result["data"]["columns"] == []
 
+    def test_field_all_null_flags_ticker_as_missing(self, db_session) -> None:
+        # The instrument has priced rows, but the requested column is NULL on every
+        # one — the loader drops the None cells, leaving no values, so the ticker
+        # lands in ``missing`` (rows exist but the field is empty).
+        aaa = _seed_instrument(db_session, "AAA")
+        _seed_prices(db_session, aaa, {dt.date(2024, 1, 2): 10.0})  # dividends unset
+
+        result = get_prices(db_session, _ASOF, ["AAA"], field="dividends")
+
+        assert result["ok"] is True
+        assert result["data"]["missing"] == ["AAA"]
+        assert result["data"]["columns"] == []
+
     def test_empty_tickers_is_error(self, db_session) -> None:
         result = get_prices(db_session, _ASOF, [])
 

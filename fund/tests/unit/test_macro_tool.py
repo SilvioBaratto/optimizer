@@ -77,6 +77,28 @@ class TestGetMacroSeriesHappyPath:
 
         assert result["data"]["columns"] == ["VIXCLS", "T10Y2Y"]
 
+    def test_reports_requested_names(self, db_session) -> None:
+        _two_series_panel(db_session)
+
+        result = get_macro_series(db_session, ["T10Y2Y", "VIXCLS"], _ASOF)
+
+        assert result["data"]["requested"] == ["T10Y2Y", "VIXCLS"]
+
+    def test_unaligned_series_report_partial_coverage(self, db_session) -> None:
+        # Two series on disjoint dates → the union index carries NaNs where a
+        # series has no observation, so overall coverage drops below 1.0.
+        _seed_series(db_session, "AAA", {dt.date(2024, 1, 2): 1.0})
+        _seed_series(db_session, "BBB", {dt.date(2024, 1, 3): 2.0})
+
+        result = get_macro_series(db_session, ["AAA", "BBB"], _ASOF)
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["rows"] == 2
+        assert data["cols"] == 2
+        assert data["coverage"] < 1.0
+        assert data["na_counts"] == {"AAA": 1, "BBB": 1}
+
     def test_respects_asof_upper_bound(self, db_session) -> None:
         _seed_series(
             db_session,

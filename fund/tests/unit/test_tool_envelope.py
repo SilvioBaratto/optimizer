@@ -59,6 +59,15 @@ class TestToolEnvelope:
         assert "kaboom" in result["error"]
         assert "ValueError" in result["error"]
 
+    def test_mapping_without_ok_key_is_wrapped(self) -> None:
+        # A dict return that isn't already an envelope (no "ok" key) is wrapped by
+        # ok(), so it lands under data rather than passing through verbatim.
+        @tool_envelope
+        def payload() -> dict[str, int]:
+            return {"n": 1}
+
+        assert payload() == {"ok": True, "data": {"n": 1}}
+
     def test_preserves_wrapped_function_identity(self) -> None:
         @tool_envelope
         def named_tool() -> int:
@@ -95,6 +104,21 @@ class TestSummarizeFrame:
         assert summary["rows"] == 0
         assert summary["cols"] == 0
         assert summary["columns"] == []
+
+    def test_non_datetime_index_omits_span(self) -> None:
+        # A frame without a DatetimeIndex still summarises, but reports no span.
+        df = pd.DataFrame({"AAA": [0.1, 0.2]}, index=["a", "b"])
+
+        summary = summarize_frame(df, name="plain")
+
+        assert summary["rows"] == 2
+        assert "index_start" not in summary
+        assert "index_end" not in summary
+
+    def test_default_name_is_frame(self) -> None:
+        summary = summarize_frame(pd.DataFrame({"AAA": [1.0]}))
+
+        assert summary["name"] == "frame"
 
 
 class TestSessionScope:

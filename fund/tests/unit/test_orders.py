@@ -122,6 +122,58 @@ class TestPlaceOrders:
             assert line["effective_price"] > line["fill_price"]
             assert line["commission"] >= 0.0
 
+    def test_sell_side_receives_less_than_fill(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        # AAA long (pays up), BBB short (receives less) — budget still 1.0.
+        ticket = place_orders(
+            db_session, _ASOF, {"AAA": 1.2, "BBB": -0.2}, _PORTFOLIO_ID
+        )["data"]
+
+        by_ticker = {line["ticker"]: line for line in ticket["lines"]}
+        assert by_ticker["AAA"]["effective_price"] > by_ticker["AAA"]["fill_price"]
+        # Sells cross the spread the other way: effective below the raw fill.
+        assert by_ticker["BBB"]["effective_price"] < by_ticker["BBB"]["fill_price"]
+
+    def test_accepts_iso_string_asof(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        result = place_orders(db_session, _ASOF.isoformat(), _WEIGHTS, _PORTFOLIO_ID)
+
+        assert result["ok"] is True
+        assert result["data"]["fill_date"] == _FILL_DATE.isoformat()
+
+    def test_accepts_datetime_asof(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        ticket = place_orders(
+            db_session,
+            dt.datetime(2024, 1, 30, 16, 0),
+            _WEIGHTS,
+            _PORTFOLIO_ID,
+        )["data"]
+
+        assert ticket["fill_date"] == _FILL_DATE.isoformat()
+
+    def test_accepts_string_portfolio_id(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        ticket = place_orders(db_session, _ASOF, _WEIGHTS, str(_PORTFOLIO_ID))["data"]
+
+        assert ticket["portfolio_id"] == str(_PORTFOLIO_ID)
+
+    def test_cost_overrides_scale_the_totals(self, db_session) -> None:
+        _seed_panel(db_session)
+        other_portfolio = uuid.UUID("22222222-2222-2222-2222-222222222222")
+
+        base = place_orders(db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID)["data"]
+        # A distinct portfolio_id → a fresh ticket (cost params aren't in the key).
+        pricier = place_orders(
+            db_session, _ASOF, _WEIGHTS, other_portfolio, slippage_bps=50.0
+        )["data"]
+
+        assert pricier["total_slippage_cost"] > base["total_slippage_cost"]
+
     def test_idempotent_double_call_one_ticket(self, db_session) -> None:
         _seed_panel(db_session)
 
