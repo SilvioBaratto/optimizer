@@ -71,6 +71,18 @@ def _seed_panel(db_session) -> None:
     db_session.flush()
 
 
+def _seed_single_day(db_session) -> None:
+    """Seed one close per ticker — a panel too short to derive returns (<2 obs)."""
+    for ticker, params in _SERIES.items():
+        inst = _seed_instrument(db_session, ticker)
+        db_session.add(
+            PriceHistory(
+                instrument_id=inst.id, date=_START, close=params[0], volume=1000
+            )
+        )
+    db_session.flush()
+
+
 class TestRiskCheck:
     def test_long_only_fully_invested_passes(self) -> None:
         result = risk_check({"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
@@ -120,6 +132,27 @@ class TestRiskCheck:
 
         assert result["ok"] is False
         assert "error" in result
+
+    def test_nan_weight_is_blocked_not_silently_passed(self) -> None:
+        # A degenerate optimiser can emit a non-finite weight. Every min/max/budget
+        # comparison against NaN is False, so without an explicit guard the gate
+        # would wave it through (passed=True) — the gate must block it instead.
+        result = risk_check({"AAA": float("nan"), "BBB": 0.5})
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["passed"] is False
+        assert any(
+            v["type"] == "non_finite" and v["asset"] == "AAA"
+            for v in data["violations"]
+        )
+
+    def test_inf_weight_is_blocked(self) -> None:
+        result = risk_check({"AAA": float("inf"), "BBB": 0.0})
+
+        data = result["data"]
+        assert data["passed"] is False
+        assert any(v["type"] == "non_finite" for v in data["violations"])
 
     def test_deterministic(self) -> None:
         weights = {"AAA": 0.6, "BBB": 0.4}
@@ -183,6 +216,27 @@ class TestBacktest:
 
         assert result["ok"] is False
         assert "error" in result
+
+    def test_insufficient_history_is_error(self, db_session) -> None:
+        # One observation → no returns to evaluate → the <2-obs guard fires.
+        _seed_single_day(db_session)
+
+        result = backtest(db_session, _ASOF, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
+
+        assert result["ok"] is False
+        assert "error" in result
+
+    def test_unknown_window_key_is_ignored(self, db_session) -> None:
+        # Unrecognized window keys are filtered out, so the tool falls back to the
+        # default walk-forward window (too large for the seed → full sample).
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session, _ASOF, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}, window={"bogus": 5}
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["n_folds"] == 0
 
     def test_bad_window_is_error(self, db_session) -> None:
         _seed_panel(db_session)

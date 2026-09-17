@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import math
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -86,6 +87,11 @@ def risk_check(
     violations: list[dict[str, Any]] = []
     for asset, weight in weights.items():
         value = float(weight)
+        if not math.isfinite(value):
+            # A non-finite weight compares False against every bound, so without
+            # this guard the gate would silently pass a degenerate allocation.
+            violations.append({"type": "non_finite", "asset": asset, "value": value})
+            continue
         if value < min_w - _WEIGHT_TOL:
             violations.append(
                 {"type": "min_weight", "asset": asset, "value": value, "limit": min_w}
