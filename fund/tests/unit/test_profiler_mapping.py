@@ -21,6 +21,7 @@ Task 3 — here ``esg`` / ``universe_filters`` stay at their schema defaults.
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -319,9 +320,27 @@ def test_module_imports_no_optimizer_at_construction() -> None:
     import fund.agents.profiler as mod
 
     assert mod.__file__ is not None
-    src = Path(mod.__file__).read_text(encoding="utf-8")
-    # profiler MAY import optimizer (fund is the bridge), but the deterministic
-    # mapping does not need it — keep the module import-light.
-    for forbidden in ("optimizer", "skfolio", "deepagents", "langchain", "app"):
-        assert f"import {forbidden}" not in src
-        assert f"from {forbidden}" not in src
+    tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
+
+    # profiler MAY import optimizer / the agent stack (fund is the bridge and Task 7
+    # adds the LLM profiler), but the deterministic mapping must stay import-light:
+    # every heavy dep is imported lazily inside a function (or guarded by
+    # TYPE_CHECKING), never at module top level. Scanning only the module body's
+    # direct import statements skips both lazy (in-function) and TYPE_CHECKING
+    # (inside an ``if`` block) imports.
+    forbidden = {
+        "optimizer",
+        "skfolio",
+        "deepagents",
+        "langchain",
+        "langchain_core",
+        "langchain_ollama",
+        "app",
+    }
+    top_level_roots: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            top_level_roots.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            top_level_roots.add(node.module.split(".")[0])
+    assert forbidden.isdisjoint(top_level_roots)

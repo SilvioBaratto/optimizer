@@ -27,6 +27,15 @@ All maps are **total** plain-dict lookups (an unmapped enum member is a hard
 
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
+import json
+import uuid
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, cast
+
+from fund.agents.prompts import PROFILER_SYSTEM_PROMPT
+from fund.config import FundConfig, settings
 from fund.schemas.constraint_set import ConstraintSet, EsgPolicy, UniverseFilters
 from fund.schemas.enums import (
     GicsSector,
@@ -46,15 +55,25 @@ from fund.schemas.questionnaire import (
     SuitabilityAssessment,
 )
 
+if TYPE_CHECKING:
+    from langchain_core.tools import BaseTool
+    from sqlalchemy.orm import Session
+
 __all__ = [
     "FLAG_OBJECTIVE_CAPACITY_MISMATCH",
     "FLAG_OVERCONFIDENCE",
     "FLAG_REACTION_TOLERANCE_MISMATCH",
+    "ProfilerRun",
     "SuitabilityBreachError",
     "assess_suitability",
     "build_constraint_set",
+    "build_profiler_agent",
     "run_mapping",
+    "run_profiler",
 ]
+
+# The single HITL-gated persistence tool the profiler agent exposes (SPEC §8.5).
+_SAVE_PROFILE_TOOL = "save_profile"
 
 # Named inconsistency-flag vocabulary the suitability check can emit. These are
 # surfaced (never auto-clamped) at the HITL gate in Task 7 (SPEC §8.3).
@@ -377,3 +396,340 @@ def run_mapping(
         answers, portfolio_id=portfolio_id, base_currency=base_currency
     )
     return constraint_set, assess_suitability(answers, constraint_set)
+
+
+# ---------------------------------------------------------------------------
+# Task 7 — the LLM profiler agent + always-on HITL persistence (SPEC §8.5).
+#
+# The LLM *interprets* free-text answers into a typed ``MiFIDAnswers`` (via the
+# Fase-4 ``structured_call`` helper) and *decides* to persist; the deterministic
+# mapping above computes every knob. Persistence is a single ``save_profile`` tool
+# gated behind ``interrupt_on`` + a checkpointer, so the profiler *always* pauses
+# for adviser sign-off before writing. Heavy deps (deepagents / langchain /
+# langgraph / the audit repos) are imported lazily so the pure mapping above stays
+# cheap to import (test_profiler_mapping imports it without the agent stack).
+# ---------------------------------------------------------------------------
+
+
+def _coerce_uuid(portfolio_id: uuid.UUID | str) -> uuid.UUID:
+    """Normalise ``portfolio_id`` to a ``UUID`` (accepts a canonical string).
+
+    ``ConstraintSet.portfolio_id`` is a free ``str`` but ``mifid_profiles`` /
+    ``agent_runs`` key on ``UUID`` — so a run needs a real UUID (or its canonical
+    string), and the ``str`` form is threaded to the mapping / Store.
+    """
+    if isinstance(portfolio_id, uuid.UUID):
+        return portfolio_id
+    return uuid.UUID(portfolio_id)
+
+
+def _hash(payload: str) -> str:
+    """sha256 hex of a payload — the audit trail may keep the hash, not the text."""
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _normalise_messages(questionnaire: Any) -> Any:
+    """Coerce a bare questionnaire string into a one-message list; pass lists as-is."""
+    if isinstance(questionnaire, str):
+        return [{"role": "user", "content": questionnaire}]
+    return questionnaire
+
+
+def _prompt_text(questionnaire: Any) -> str:
+    """A stable string rendering of the questionnaire input for the audit trail."""
+    if isinstance(questionnaire, str):
+        return questionnaire
+    return json.dumps(questionnaire, default=str, sort_keys=True)
+
+
+def _persist_instruction(portfolio_id: str) -> str:
+    """The human turn that drives the agent to call ``save_profile`` once."""
+    return (
+        f"The suitability assessment for portfolio {portfolio_id} is complete and "
+        f"validated. Call save_profile with this portfolio id to persist it."
+    )
+
+
+def _interrupt_description(
+    portfolio_id: str, suitability: SuitabilityAssessment
+) -> str:
+    """The HITL pause message — surfaces the band + any inconsistency flags."""
+    flags = ", ".join(suitability.inconsistency_flags) or "none"
+    return (
+        f"Persist MiFID suitability profile for portfolio {portfolio_id}. "
+        f"Risk band {suitability.band.value}; a_gamma {suitability.a_gamma:g}; "
+        f"inconsistency flags: {flags}. "
+        f"Approve to write the profile, or reject to discard."
+    )
+
+
+def _extract_interrupt(result: Any) -> dict[str, Any] | None:
+    """Pull the HITL interrupt payload from a compiled-graph invoke result."""
+    interrupts = result.get("__interrupt__") if isinstance(result, dict) else None
+    if not interrupts:
+        return None
+    value = interrupts[0].value
+    if not isinstance(value, dict):
+        return None
+    return cast("dict[str, Any]", value)
+
+
+@dataclass(frozen=True)
+class ProfilerRun:
+    """Handle for one profiling run paused at the adviser-confirmation gate.
+
+    Carries the interpreted ``answers``, the deterministically-mapped
+    ``constraint_set`` + ``suitability`` (with any ``inconsistency_flags``), the
+    ``interrupt`` payload the adviser reviews, and enough state to resume:
+    ``resume("approve")`` persists, ``resume("reject")`` persists nothing.
+    """
+
+    answers: MiFIDAnswers
+    constraint_set: ConstraintSet
+    suitability: SuitabilityAssessment
+    run_id: uuid.UUID
+    interrupt: dict[str, Any] | None
+    agent: Any = field(repr=False, compare=False)
+    thread_config: dict[str, Any] = field(repr=False, compare=False)
+    session: Any = field(repr=False, compare=False)
+
+    def resume(self, decision: str) -> dict[str, Any]:
+        """Resume the paused agent with an adviser ``decision`` (approve / reject).
+
+        ``approve`` runs the gated ``save_profile`` tool (the write happens inside
+        it). Any other decision writes nothing but records the HITL choice in the
+        audit trail and finalises the run as rejected.
+        """
+        from langgraph.types import Command
+
+        from fund.audit import AgentRunRepository
+
+        result: dict[str, Any] = self.agent.invoke(
+            Command(resume={"decisions": [{"type": decision}]}),
+            config=self.thread_config,
+        )
+        if decision != "approve":
+            audit = AgentRunRepository(self.session)
+            audit.append_decision(
+                self.run_id,
+                agent="profiler",
+                step=_SAVE_PROFILE_TOOL,
+                hitl_decision={"decision": decision},
+            )
+            audit.finalize_run(self.run_id, weights={}, status="rejected")
+        return result
+
+
+def _make_save_profile(
+    *,
+    session: Session,
+    store: Any | None,
+    config: FundConfig,
+    answers: MiFIDAnswers,
+    constraint_set: ConstraintSet,
+    suitability: SuitabilityAssessment,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+) -> BaseTool:
+    """Build the closure ``save_profile`` tool for one run.
+
+    The write is driven entirely by the captured, deterministically-mapped values
+    — the LLM-supplied ``portfolio_id`` argument is advisory only, so no knob can
+    enter through a tool argument (the load-bearing rule). Idempotent per the HITL
+    re-run contract (SPEC D3): a second call for the same portfolio returns the
+    already-active row instead of appending a duplicate version.
+    """
+    from langchain_core.tools import tool
+
+    from fund.audit import (
+        AgentRunRepository,
+        MifidProfileRepository,
+        put_constraint_set,
+    )
+
+    store_key = config.constraint_set_store_key
+    portfolio_id_uuid = portfolio_id  # trusted UUID bound into the closure
+
+    @tool
+    def save_profile(portfolio_id: str) -> str:
+        """Persist the approved MiFID profile: append the ``mifid_profiles`` row
+        and cache the active ``ConstraintSet`` in the Store. Call once, after
+        adviser approval, with the portfolio id."""
+        repo = MifidProfileRepository(session)
+        existing = repo.get_active(portfolio_id_uuid)
+        if existing is not None:
+            return json.dumps(
+                {"saved": True, "idempotent": True, "version": existing.version}
+            )
+
+        profile = repo.add_version(
+            portfolio_id=portfolio_id_uuid,
+            questionnaire=answers.model_dump(mode="json"),
+            constraint_set=constraint_set.model_dump(mode="json"),
+            suitability=suitability.model_dump(mode="json"),
+            store_key=store_key,
+        )
+        if store is not None:
+            put_constraint_set(store, constraint_set, store_key=store_key)
+
+        audit = AgentRunRepository(session)
+        audit.append_decision(
+            run_id,
+            agent="profiler",
+            step=_SAVE_PROFILE_TOOL,
+            constraint_set=constraint_set.model_dump(mode="json"),
+            hitl_decision={
+                "decision": "approve",
+                "flags": list(suitability.inconsistency_flags),
+            },
+        )
+        audit.finalize_run(run_id, weights={}, status="completed")
+        return json.dumps(
+            {
+                "saved": True,
+                "idempotent": False,
+                "profile_id": str(profile.id),
+                "version": profile.version,
+                "store_key": store_key,
+            }
+        )
+
+    return save_profile
+
+
+def build_profiler_agent(
+    model: Any,
+    tools: list[BaseTool],
+    *,
+    checkpointer: Any,
+    store: Any | None = None,
+    interrupt_config: dict[str, Any] | None = None,
+) -> Any:
+    """Assemble the ``deepagents`` profiler agent (SPEC §8.5).
+
+    System prompt = ``PROFILER_SYSTEM_PROMPT``; ``tools`` is the single
+    ``save_profile`` tool, gated behind ``interrupt_on`` (always-confirm) — which
+    requires the ``checkpointer``. ``interrupt_config`` (allowed decisions +
+    flag-surfacing description) customises the pause; a bare ``True`` falls back to
+    the default gate. ``temperature=0`` / the DeepSeek route are carried by
+    ``model`` (built from ``FundConfig``), not passed here.
+    """
+    from deepagents import create_deep_agent
+
+    # bool | InterruptOnConfig (a langchain TypedDict) — kept Any to avoid a
+    # top-level import of the agent stack (the module stays import-light).
+    gate: Any = interrupt_config if interrupt_config else True
+    return create_deep_agent(
+        model=model,
+        tools=tools,
+        system_prompt=PROFILER_SYSTEM_PROMPT,
+        interrupt_on={_SAVE_PROFILE_TOOL: gate},
+        checkpointer=checkpointer,
+        store=store,
+    )
+
+
+def run_profiler(
+    model: Any,
+    questionnaire: Any,
+    *,
+    portfolio_id: uuid.UUID | str,
+    session: Session,
+    checkpointer: Any,
+    store: Any | None = None,
+    config: FundConfig = settings,
+    fallback: Any | None = None,
+    base_currency: str | None = None,
+    asof: dt.date | None = None,
+    thread_id: str | None = None,
+) -> ProfilerRun:
+    """Run the MiFID profiler to the adviser-confirmation gate (runtime step 0).
+
+    Orchestrates: (1) normalise free-text ``questionnaire`` answers into a typed
+    ``MiFIDAnswers`` via ``structured_call`` (retry once, then ``fallback``);
+    (2) run the deterministic mapping (``run_mapping`` → ``ConstraintSet`` +
+    ``SuitabilityAssessment``; an ESG/legal breach raises ``SuitabilityBreachError``
+    and blocks before any write); (3) build the ``deepagents`` agent and invoke it
+    so the ``save_profile`` tool pauses at the HITL gate. Returns a
+    :class:`ProfilerRun`; call ``.resume("approve" | "reject")`` to persist or not.
+
+    ``model`` must expose ``with_structured_output`` (normalisation) and be a
+    tool-calling chat model (the agent). Every write goes through the injected
+    ``session`` (caller owns the transaction) and, when given, the ``store``.
+    """
+    from fund.audit import AgentRunRepository
+    from fund.schemas.structured import structured_call
+
+    pid_uuid = _coerce_uuid(portfolio_id)
+    pid_str = str(pid_uuid)
+    run_asof = asof if asof is not None else dt.date.today()
+
+    audit = AgentRunRepository(session)
+    run = audit.create_run(
+        portfolio_id=pid_uuid,
+        asof=run_asof,
+        seed=None,
+        universe=[],
+        optimizer_config={"step": "profiler"},
+    )
+
+    # (1) The LLM interprets the client's answers into typed inputs.
+    answers = structured_call(
+        model,
+        MiFIDAnswers,
+        _normalise_messages(questionnaire),
+        retries=1,
+        fallback=fallback,
+    )
+    answers_json = answers.model_dump_json()
+    audit.append_decision(
+        run.id,
+        agent="profiler",
+        step="normalize_answers",
+        llm_prompt=_prompt_text(questionnaire),
+        llm_response=answers_json,
+        llm_response_hash=_hash(answers_json),
+    )
+
+    # (2) The deterministic mapping computes every knob (may hard-block).
+    constraint_set, suitability = run_mapping(
+        answers, portfolio_id=pid_str, base_currency=base_currency
+    )
+
+    # (3) Persist behind the always-on HITL gate.
+    save_profile = _make_save_profile(
+        session=session,
+        store=store,
+        config=config,
+        answers=answers,
+        constraint_set=constraint_set,
+        suitability=suitability,
+        run_id=run.id,
+        portfolio_id=pid_uuid,
+    )
+    interrupt_config = {
+        "allowed_decisions": ["approve", "reject"],
+        "description": _interrupt_description(pid_str, suitability),
+    }
+    agent = build_profiler_agent(
+        model,
+        [save_profile],
+        checkpointer=checkpointer,
+        store=store,
+        interrupt_config=interrupt_config,
+    )
+    thread_config = {"configurable": {"thread_id": thread_id or pid_str}}
+    result = agent.invoke(
+        {"messages": [{"role": "user", "content": _persist_instruction(pid_str)}]},
+        config=thread_config,
+    )
+    return ProfilerRun(
+        answers=answers,
+        constraint_set=constraint_set,
+        suitability=suitability,
+        run_id=run.id,
+        interrupt=_extract_interrupt(result),
+        agent=agent,
+        thread_config=thread_config,
+        session=session,
+    )
