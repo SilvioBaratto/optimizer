@@ -11,7 +11,6 @@ Guidance for Claude Code in this repository. These instructions OVERRIDE default
 **MANDATORY**, loaded proactively (not on request) for any finance-related or code task:
 - `/skfolio` skill — all portfolio optimization, risk models, skfolio API usage
 - `/yfinance` skill — all Yahoo Finance data retrieval and yfinance API usage
-- `python-pro` agent — all Python writing, reviewing, debugging
 
 ## Project Overview
 
@@ -21,7 +20,7 @@ Python-only **uv workspace**, three packages (one shared venv):
 - **`ingestion/`** — Headless **ingestion daemon**. APScheduler in-process, no HTTP API. Fetches market / fundamental / macro data into PostgreSQL on a schedule. Entrypoint `ingestion/app/worker.py`; manual runs via `ingestion/app/cli.py`. Dist **`portopt`**
 - **`packages/portopt-db/`** — Shared **DB layer** (import `portopt_db`): SQLAlchemy `Base` + all models + all repositories + `DatabaseManager`/`RepositoryBase` + the single Alembic tree. Dist **`portopt-db`** (internal; only consumer today is `ingestion`, a future `fund/` is planned)
 
-**Boundary (guarded, load-bearing)**: `ingestion/` and `portopt-db/` do **not** import `optimizer`; `portopt-db/` carries no sklearn/skfolio stack. The daemon **does** ship `scikit-learn` (scipy transitively): yfinance's price-repair path (`repair=True`) imports `sklearn.cluster.DBSCAN`, so without it ~22% of tickers return empty history and get dropped. sklearn here is a data-layer dep, not optimization. With a single shared venv there is no install isolation — three static import-scan tests are the **sole** enforcement: `ingestion/tests/unit/hygiene/test_no_optimizer_import.py`, `packages/portopt-db/tests/test_no_optimizer_import.py`, root `tests/test_no_portopt_db_import.py`.
+**Boundary (guarded, load-bearing)**: `ingestion/` and `portopt-db/` do **not** import `optimizer`; `portopt-db/` carries no sklearn/skfolio stack. The daemon **does** ship `scikit-learn` (scipy transitively): yfinance's price-repair path (`repair=True`) imports `sklearn.cluster.DBSCAN`, so without it ~22% of tickers return empty history and get dropped. sklearn here is a data-layer dep, not optimization. With a single shared venv there is no install isolation — static import-scan tests are the **sole** enforcement: `ingestion/tests/unit/hygiene/test_no_optimizer_import.py`, `packages/portopt-db/tests/test_no_optimizer_import.py`, root `tests/test_no_portopt_db_import.py`. The planned `fund/` bridge adds a second axis: `fund` **may** import `optimizer` + `portopt_db`, but `deepagents`/`langgraph` live only in `fund/` — guarded by `fund/tests/unit/hygiene/test_no_ingestion_import.py` (fund ⊬ `app`) plus `test_no_agent_stack_import.py` in both `ingestion` and `packages/portopt-db` (neither imports `deepagents`/`langgraph`/`fund`).
 
 Supporting dirs: `tests/` (library suite, mirrors `optimizer/` + `tests/scheduler/`), `ingestion/tests/` (SQLite in-memory), `packages/portopt-db/tests/` (SQLite in-memory), `scheduler/` (shell wrappers over the CLI), `scripts/` (CI helpers).
 
