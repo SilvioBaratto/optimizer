@@ -6,6 +6,7 @@ autogenerate and SQLite ``create_all`` in tests.
 
 from portopt_db.base import Base, BaseModel, TimestampMixin, UUIDPrimaryKeyMixin
 from portopt_db.models.agent.agent_run import AgentDecision, AgentRun
+from portopt_db.models.agent.mifid_profile import MifidProfile
 from portopt_db.models.jobs.background_job import BackgroundJob, BackgroundJobError
 from portopt_db.models.macro.macro_regime import (
     BondYield,
@@ -75,6 +76,7 @@ __all__ = [
     "MacroNews",
     "MacroNewsTheme",
     "MarketSummary",
+    "MifidProfile",
     "MutualFundHolder",
     "PaperOrder",
     "PriceHistory",
