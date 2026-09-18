@@ -82,12 +82,13 @@ fund = ["py.typed"]
 [tool.coverage.run]
 branch = true
 source = ["fund"]
-# No __init__.py omit: while the package is scaffold-only, src/fund/__init__.py
-# carries the single measurable statement (__version__). Omitting it would leave
-# --cov=fund with zero statements → "no data" → a spurious 0% gate failure. Once
-# tools/ ships real logic (Phase 3) an omit list can return if __init__ noise
-# ever matters.
-omit = []
+# Omit the skills/ tree: SKILL.md/reference.md are markdown, and the *.py support
+# files (e.g. optimization-objective-map/factories.py) live in hyphenated dirs so
+# they are NOT importable modules — they are text resources the agent reads via
+# read_file. Measuring them would report an un-coverable file at 0% and sink the
+# gate. Note `*/skills/*` matches the skills DIRECTORY only; the importable
+# registry `fund/agents/skills.py` (a file, not a `skills/` dir) stays measured.
+omit = ["*/skills/*"]
 
 [tool.coverage.report]
 show_missing = true
