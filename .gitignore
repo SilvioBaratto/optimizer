@@ -4,6 +4,9 @@
 # Cloned sibling repo (do not commit)
 optimizer-theory/
 
+# Runtime agent workdir (staged theory tree, regenerated each startup)
+fund/.runtime/
+
 # ═══════════════════════════════════════════════════════════
 # ENVIRONMENT FILES (NEVER COMMIT SECRETS)
 # ═══════════════════════════════════════════════════════════
