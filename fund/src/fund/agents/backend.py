@@ -1,15 +1,25 @@
-"""Theory-staged virtual filesystem backend (SPEC D2).
+"""Theory- and skills-staged virtual filesystem backend (SPEC D2, Risk R1).
 
 deepagents reads and writes files through a pluggable *backend*. Phase 7 roots
 that backend at a runtime workdir under ``fund/`` and — when
-``config.preload_theory`` is set — pre-populates it with the canonical
-``optimizer-theory/`` docs so the Phase-6 skills' theory citations
-(``optimizer-theory/docs/NN *.md``,
-``optimizer-theory/docs/architecture/OPTIMIZER-OBLIGATIONS.md``) resolve for the
-agent as it reads.
+``config.preload_theory`` is set — pre-populates it with the agent's read-only
+knowledge:
 
-The theory tree is the *gitignored* canonical source (a nested repo); the runtime
-workdir is regenerated from it on every call so it never drifts and is never
+* the canonical ``optimizer-theory/`` docs, so the Phase-6 skills' theory
+  citations (``optimizer-theory/docs/NN *.md``,
+  ``optimizer-theory/docs/architecture/OPTIMIZER-OBLIGATIONS.md``) resolve as the
+  agent reads;
+* the per-role skills tree (``skills/<role>/<skill-name>/SKILL.md``). deepagents'
+  ``SkillsMiddleware`` loads skills **through this backend** (no direct filesystem
+  access), and the backend runs in ``virtual_mode`` — which blocks any absolute
+  path outside its root. So the skills every role loads must live *under* the
+  staged root and be addressed by the root-relative
+  :func:`fund.agents.skills.skill_sources` (Risk R1). The per-role layout lets one
+  source dir (``skills/<role>``) load only that role's skills.
+
+The theory tree is the *gitignored* canonical source (a nested repo); the skills
+tree is the *committed* ``fund/src/fund/skills`` resource tree. The runtime
+workdir is regenerated from both on every call so it never drifts and is never
 hand-edited. ``fund/.runtime/`` is gitignored — nothing staged here is committed.
 
 ``deepagents`` is imported **inside** :func:`build_backend` so a bare
@@ -23,6 +33,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR, STAGED_SKILLS_ROOT
 from fund.config import FundConfig, settings
 
 if TYPE_CHECKING:
@@ -38,6 +49,10 @@ _REPO_ROOT: Path = _FUND_DIR.parent
 _THEORY_SRC: Path = _REPO_ROOT / "optimizer-theory"
 _AGENT_FS_ROOT: Path = _FUND_DIR / ".runtime" / "agent-fs"
 
+# Canonical (committed) skills source — the per-role staging reads each skill dir
+# from here (:data:`fund.agents.skills.SKILLS_DIR`).
+_SKILLS_SRC: Path = SKILLS_DIR
+
 # Fixed prefix the skill citations hardcode; the staged subtree keeps this name
 # regardless of the source directory's own name.
 _STAGE_SUBDIR = "optimizer-theory"
@@ -46,34 +61,65 @@ _STAGE_SUBDIR = "optimizer-theory"
 _STAGE_IGNORE = shutil.ignore_patterns(".git", ".obsidian")
 
 
+def _stage_skills(root: Path, skills_src: Path) -> None:
+    """Regenerate the per-role skills tree under ``<root>/skills``.
+
+    Copies each registered skill dir (``<skills_src>/<skill-name>``) into its
+    owning role's folder (``<root>/skills/<role>/<skill-name>``) so a single
+    root-relative source (``skills/<role>``) loads only that role's skills through
+    the backend (Risk R1). The whole ``skills`` subtree is wiped first so a
+    hand-edited or stale staged skill never survives (drift-free).
+    """
+    if not skills_src.is_dir():
+        raise FileNotFoundError(
+            f"Canonical skills tree not found at {skills_src}; cannot stage skills."
+        )
+    staged_root = root / STAGED_SKILLS_ROOT
+    if staged_root.exists():
+        shutil.rmtree(staged_root)
+    for role, names in SKILLS_BY_AGENT.items():
+        for name in names:
+            shutil.copytree(
+                skills_src / name,
+                staged_root / role / name,
+                ignore=_STAGE_IGNORE,
+            )
+
+
 def stage_theory(
     config: FundConfig = settings,
     *,
     source: Path | None = None,
     dest: Path | None = None,
+    skills_source: Path | None = None,
 ) -> Path:
     """Regenerate the runtime agent workdir and return its root path.
 
     When ``config.preload_theory`` is set, the canonical ``optimizer-theory/``
     tree (``source``) is copied fresh under ``<dest>/optimizer-theory`` — wiping
     any prior copy first so the result never drifts from canonical and the
-    ``optimizer-theory/docs/…`` citation prefix is preserved verbatim. When
-    preload is disabled, the workdir is created empty and left untouched.
+    ``optimizer-theory/docs/…`` citation prefix is preserved verbatim — and the
+    per-role skills tree is staged under ``<dest>/skills`` (Risk R1). When preload
+    is disabled, the workdir is created empty and left untouched.
 
     Args:
         config: Frozen run config; ``preload_theory`` gates the copy.
         source: Canonical theory tree. Defaults to the repo ``optimizer-theory/``.
         dest: Runtime workdir root. Defaults to ``fund/.runtime/agent-fs``.
+        skills_source: Canonical skills tree. Defaults to the committed
+            ``fund/src/fund/skills`` (:data:`fund.agents.skills.SKILLS_DIR`).
 
     Returns:
         The workdir root (``dest``) — the ``root_dir`` a ``FilesystemBackend``
         is rooted at.
 
     Raises:
-        FileNotFoundError: If preloading is on but ``source`` does not exist.
+        FileNotFoundError: If preloading is on but ``source`` (or the skills
+            source) does not exist.
     """
     src = _THEORY_SRC if source is None else source
     root = _AGENT_FS_ROOT if dest is None else dest
+    skills_src = _SKILLS_SRC if skills_source is None else skills_source
 
     root.mkdir(parents=True, exist_ok=True)
 
@@ -90,6 +136,8 @@ def stage_theory(
     if staged.exists():
         shutil.rmtree(staged)
     shutil.copytree(src, staged, ignore=_STAGE_IGNORE)
+
+    _stage_skills(root, skills_src)
 
     return root
 

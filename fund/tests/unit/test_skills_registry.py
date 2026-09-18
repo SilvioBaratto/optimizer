@@ -10,7 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR, skill_paths
+from fund.agents.skills import (
+    SKILLS_BY_AGENT,
+    SKILLS_DIR,
+    STAGED_SKILLS_ROOT,
+    skill_paths,
+    skill_sources,
+)
 
 # Directories under skills/ that actually hold a SKILL.md.
 _ON_DISK = {
@@ -49,3 +55,31 @@ def test_skill_paths_resolve_to_existing_dirs(role: str):
 def test_skill_paths_unknown_role_raises():
     with pytest.raises(KeyError):
         skill_paths("no-such-role")
+
+
+# --- Phase 7 (Risk R1): backend-root-relative skill sources --------------------
+# deepagents' SkillsMiddleware reads sources through the (virtual_mode) backend, so
+# a skill source MUST be root-relative — an absolute path outside the staged root
+# is blocked. ``skill_sources`` returns the per-role staged source dir.
+
+
+@pytest.mark.parametrize("role", sorted(SKILLS_BY_AGENT))
+def test_skill_sources_are_root_relative_per_role(role: str):
+    sources = skill_sources(role)
+    assert sources == [f"{STAGED_SKILLS_ROOT}/{role}"]
+    for src in sources:
+        # Root-relative: no drive/anchor, never an absolute path.
+        assert not Path(src).is_absolute()
+        assert src.startswith(f"{STAGED_SKILLS_ROOT}/")
+
+
+def test_skill_sources_unknown_role_raises():
+    with pytest.raises(KeyError):
+        skill_sources("no-such-role")
+
+
+def test_staged_skills_root_is_a_bare_relative_name():
+    # The staged skills subdir the backend populates; a plain name, not a path.
+    assert STAGED_SKILLS_ROOT == "skills"
+    assert "/" not in STAGED_SKILLS_ROOT
+    assert not Path(STAGED_SKILLS_ROOT).is_absolute()
