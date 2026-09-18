@@ -130,9 +130,7 @@ def get_prices(
     if not tickers:
         return err("no tickers requested")
     if field not in _PRICE_FIELDS:
-        return err(
-            f"unknown column {field!r}; expected one of {sorted(_PRICE_FIELDS)}"
-        )
+        return err(f"unknown column {field!r}; expected one of {sorted(_PRICE_FIELDS)}")
 
     frame, missing = load_price_frame(session, asof, tickers, field=field)
 

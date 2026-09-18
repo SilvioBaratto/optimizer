@@ -35,9 +35,7 @@ _EXCLUDE_DIR_PARTS = {"__pycache__"}
 # The ingestion daemon's import package is `app` (dist `portopt`). Forbid both
 # `import app` and `from app ...`; a bare `app = typer.Typer()` assignment or a
 # `fund.tui.app` submodule reference does not match (anchored on the keyword).
-_INGESTION_IMPORT_PATTERN = re.compile(
-    r"^\s*(from app\b|import app\b)", re.MULTILINE
-)
+_INGESTION_IMPORT_PATTERN = re.compile(r"^\s*(from app\b|import app\b)", re.MULTILINE)
 
 # The ingestion distribution is exactly `portopt` — NOT `portopt-core`,
 # `portopt-db`, or `portopt-fund` (the lookahead stops at the `-` those carry).

@@ -178,9 +178,7 @@ def backtest(
         else []
     )
     if splits:
-        oos = pd.concat(
-            [returns.iloc[test_idx] for _, test_idx in splits]
-        ).sort_index()
+        oos = pd.concat([returns.iloc[test_idx] for _, test_idx in splits]).sort_index()
     else:
         oos = returns
 

@@ -74,8 +74,7 @@ def test_setup_lands_six_tables_in_langgraph_and_none_leak_into_public(
         public_after = _tables_in("public")
 
         assert set(LANGGRAPH_TABLES) <= lg_tables, (
-            f"missing LangGraph tables in {SCHEMA}: "
-            f"{set(LANGGRAPH_TABLES) - lg_tables}"
+            f"missing LangGraph tables in {SCHEMA}: {set(LANGGRAPH_TABLES) - lg_tables}"
         )
         assert public_after - public_before == set(), (
             f"LangGraph leaked tables into public: {public_after - public_before}"

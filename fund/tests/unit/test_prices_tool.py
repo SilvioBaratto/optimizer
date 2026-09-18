@@ -45,9 +45,7 @@ def _seed_prices(
 ) -> None:
     for day, close in closes.items():
         db_session.add(
-            PriceHistory(
-                instrument_id=inst.id, date=day, close=close, volume=volume
-            )
+            PriceHistory(instrument_id=inst.id, date=day, close=close, volume=volume)
         )
     db_session.flush()
 
@@ -135,9 +133,7 @@ class TestGetPricesHappyPath:
 
     def test_field_selection_pulls_requested_column(self, db_session) -> None:
         aaa = _seed_instrument(db_session, "AAA")
-        _seed_prices(
-            db_session, aaa, {dt.date(2024, 1, 2): 10.0}, volume=555
-        )
+        _seed_prices(db_session, aaa, {dt.date(2024, 1, 2): 10.0}, volume=555)
 
         result = get_prices(db_session, _ASOF, ["AAA"], field="volume")
 

@@ -27,9 +27,7 @@ def _seed_series(
     db_session, series_id: str, observations: dict[dt.date, float]
 ) -> None:
     for day, value in observations.items():
-        db_session.add(
-            FredObservation(series_id=series_id, date=day, value=value)
-        )
+        db_session.add(FredObservation(series_id=series_id, date=day, value=value))
     db_session.flush()
 
 

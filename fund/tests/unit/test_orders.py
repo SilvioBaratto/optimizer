@@ -197,9 +197,7 @@ class TestPlaceOrders:
         _seed_panel(db_session)
 
         first = place_orders(db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID)
-        other = place_orders(
-            db_session, _ASOF, {"AAA": 0.6, "BBB": 0.4}, _PORTFOLIO_ID
-        )
+        other = place_orders(db_session, _ASOF, {"AAA": 0.6, "BBB": 0.4}, _PORTFOLIO_ID)
 
         assert first["data"]["order_id"] != other["data"]["order_id"]
         count = db_session.execute(

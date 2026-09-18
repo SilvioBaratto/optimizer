@@ -96,9 +96,7 @@ class TestUniverseFilter:
     def test_top_k_prunes_to_one(self, db_session) -> None:
         _seed_panel(db_session)
 
-        result = universe_filter(
-            db_session, _ASOF, _UNIVERSE, criteria={"top_k": 1}
-        )
+        result = universe_filter(db_session, _ASOF, _UNIVERSE, criteria={"top_k": 1})
 
         assert result["ok"] is True
         assert len(result["data"]) == 1

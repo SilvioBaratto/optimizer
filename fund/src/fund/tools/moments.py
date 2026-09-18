@@ -60,9 +60,7 @@ def estimate_moments(
     if not universe:
         return err("empty universe")
 
-    cfg: MomentEstimationConfig = (
-        MomentEstimationConfig() if config is None else config
-    )
+    cfg: MomentEstimationConfig = MomentEstimationConfig() if config is None else config
     frame, missing = load_price_frame(session, asof, universe)
     if frame.shape[1] == 0:
         return err("no priced assets in universe")
