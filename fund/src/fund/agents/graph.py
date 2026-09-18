@@ -32,7 +32,10 @@ needs no environment (mirrors :mod:`fund.agents.profiler`).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import json
+import uuid
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, cast
 
 from fund.agents.backend import build_backend
 from fund.agents.prompts import (
@@ -46,18 +49,28 @@ from fund.agents.skills import skill_sources
 from fund.config import FundConfig, settings
 
 if TYPE_CHECKING:
+    import datetime as dt
+
     # ``fund.agents.toolsets`` reaches ``fund.tools`` (the agent stack) at import;
     # keep it type-only here and import ``bind_toolset`` lazily inside the builders
     # so a bare ``import fund.agents.graph`` stays agent-stack-free (profiler style).
     from fund.agents.toolsets import RunContext
+    from fund.schemas import ConstraintSet
+    from fund.schemas.mandate import PortfolioMandate
 
 __all__ = [
+    "FundRun",
     "build_allocator_subagent",
     "build_economist_subagent",
     "build_executor_subagent",
     "build_fund_agent",
     "build_risk_subagent",
+    "run_fund",
 ]
+
+# D18: the moments/backtest lookback recorded on every run (mirrors the
+# ``RunContext.lookback_days`` default — 3y rolling, ~756 trading days).
+_LOOKBACK_DAYS = 756
 
 # One-line descriptions the PM reads (via the built-in ``task`` tool) to decide
 # when to delegate — each names the role's fixed pipeline position.
@@ -207,4 +220,294 @@ def build_fund_agent(
         interrupt_on=config.interrupt_on_map(),
         checkpointer=checkpointer,
         store=store,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 6 — ``run_fund`` + ``FundRun``: the one complete paper-run path.
+#
+# Mirrors ``run_profiler`` / ``ProfilerRun``: resolve the run's inputs, build the
+# PM agent, invoke it so the ``place_orders`` gate pauses for the adviser, and hand
+# back a ``FundRun`` whose ``.resume(decision)`` either commits the paper ticket
+# (approve) or discards it (reject). The agent stack (deepagents / langgraph) is
+# imported lazily so a bare ``import fund.agents.graph`` stays agent-stack-free.
+# ---------------------------------------------------------------------------
+
+
+def _coerce_uuid(portfolio_id: uuid.UUID | str) -> uuid.UUID:
+    """Normalise ``portfolio_id`` to a ``UUID`` (accepts a canonical string)."""
+    if isinstance(portfolio_id, uuid.UUID):
+        return portfolio_id
+    return uuid.UUID(portfolio_id)
+
+
+def _extract_interrupt(result: Any) -> dict[str, Any] | None:
+    """Pull the HITL interrupt payload from a compiled-graph invoke result."""
+    interrupts = result.get("__interrupt__") if isinstance(result, dict) else None
+    if not interrupts:
+        return None
+    value = interrupts[0].value
+    if not isinstance(value, dict):
+        return None
+    return cast("dict[str, Any]", value)
+
+
+def _optimizer_weights(session: Any, run_id: uuid.UUID) -> dict[str, float]:
+    """The latest allocator ``optimize_portfolio`` weights logged for this run.
+
+    The allocator's bound tool logs the load-bearing decision (constraint set +
+    mapped optimizer config + the optimizer's weights) inside its closure during
+    the initial invoke. Reading them back from the audit trail — never from what
+    the PM/LLM passed — keeps ``optimize_portfolio`` the single source of weights.
+    Returns ``{}`` when the allocator never produced a proposal.
+    """
+    from portopt_db.models import AgentDecision
+    from sqlalchemy import select
+
+    stmt = (
+        select(AgentDecision)
+        .where(
+            AgentDecision.run_id == run_id,
+            AgentDecision.agent == "allocator",
+            AgentDecision.step == "optimize_portfolio",
+        )
+        .order_by(AgentDecision.decision_index.desc())
+    )
+    row = session.execute(stmt).scalars().first()
+    if row is None or not row.llm_response:
+        return {}
+    try:
+        payload = json.loads(row.llm_response)
+    except (ValueError, TypeError):
+        return {}
+    weights = payload.get("weights") or {}
+    return {str(k): float(v) for k, v in weights.items()}
+
+
+def _run_instruction(
+    mandate: PortfolioMandate, portfolio_id: str, asof: dt.date
+) -> str:
+    """The human turn that drives the PM through one paper rebalance."""
+    benchmark = f", benchmark {mandate.benchmark}" if mandate.benchmark else ""
+    return (
+        f"Produce an allocation for portfolio {portfolio_id} as of "
+        f"{asof.isoformat()}. Mandate: capital {mandate.capital} "
+        f"{mandate.base_currency}{benchmark}. Delegate in order economist -> "
+        f"allocator -> risk -> executor, then commit the risk-approved trades "
+        f"through place_orders."
+    )
+
+
+@dataclass(frozen=True)
+class FundRun:
+    """Handle for one fund run paused at the ``place_orders`` adviser gate.
+
+    Mirrors :class:`~fund.agents.profiler.ProfilerRun`. Carries the resolved
+    ``constraint_set``, the load-bearing optimizer ``weights`` (captured from the
+    audit trail before the pause), the ``interrupt`` payload the adviser reviews,
+    the run ``status``, and enough state to resume. ``resume("approve")`` commits
+    the paper ticket and finalises the run completed; any other decision commits no
+    order, records the HITL choice, and finalises the run rejected.
+    """
+
+    constraint_set: ConstraintSet
+    run_id: uuid.UUID
+    interrupt: dict[str, Any] | None
+    weights: dict[str, float]
+    status: str
+    agent: Any = field(repr=False, compare=False)
+    thread_config: dict[str, Any] = field(repr=False, compare=False)
+    session: Any = field(repr=False, compare=False)
+
+    def resume(self, decision: str) -> dict[str, Any]:
+        """Resume the paused agent with an adviser ``decision`` (approve / reject).
+
+        ``approve`` runs the gated ``place_orders`` tool (the paper ticket is written
+        and the executor decision logged inside the closure), then finalises the run
+        as completed with the optimizer's weights. Any other decision writes no
+        order, records the HITL choice in the audit trail, and finalises rejected.
+        """
+        from langgraph.types import Command
+
+        from fund.audit import AgentRunRepository
+
+        result: dict[str, Any] = self.agent.invoke(
+            Command(resume={"decisions": [{"type": decision}]}),
+            config=self.thread_config,
+        )
+        audit = AgentRunRepository(self.session)
+        if decision == "approve":
+            audit.finalize_run(self.run_id, weights=self.weights, status="completed")
+        else:
+            audit.append_decision(
+                self.run_id,
+                agent="orchestrator",
+                step="place_orders",
+                hitl_decision={"decision": decision},
+            )
+            audit.finalize_run(self.run_id, weights={}, status="rejected")
+        return result
+
+
+def run_fund(
+    model: Any,
+    mandate: PortfolioMandate,
+    *,
+    portfolio_id: uuid.UUID | str,
+    asof: dt.date,
+    session: Any,
+    checkpointer: Any,
+    store: Any | None = None,
+    config: FundConfig = settings,
+    fallback: Any | None = None,
+    thread_id: str | None = None,
+    seed: int | None = None,
+) -> FundRun:
+    """Run one paper rebalance to the adviser-confirmation gate.
+
+    Orchestrates: (1) resolve the portfolio's active ``ConstraintSet`` from the
+    Store via a Phase-4 ``ConstraintSetRef`` — **missing raises ``RuntimeError``**,
+    routing the caller to the profiler (a fund run needs a risk profile). (2) open a
+    pending ``agent_run`` recording the seed + ``temperature`` + 3y lookback for
+    reproducibility (D31). (3) build the PM agent with per-run toolsets bound to this
+    run's ``RunContext`` (``asof`` bounds every price read; no look-ahead). (4) invoke
+    with the mandate + directive; the pipeline (economist → allocator → risk →
+    executor) runs and the run pauses at the ``place_orders`` HITL gate.
+
+    Returns a :class:`FundRun`. When the pipeline never reaches the gate — a blocking
+    risk verdict, or the delegation round cap tripping the recursion limit — the run
+    is finalised ``incomplete`` (no ticket) and surfaced for review instead.
+
+    ``model`` must be a tool-calling chat model. Every write goes through the injected
+    ``session`` (caller owns the transaction) and, when given, the ``store``.
+    """
+    import secrets
+
+    from langgraph.errors import GraphRecursionError
+
+    from fund.agents.toolsets import RunContext
+    from fund.audit import AgentRunRepository, resolve_constraint_set
+    from fund.schemas import ConstraintSetRef
+
+    pid_uuid = _coerce_uuid(portfolio_id)
+    pid_str = str(pid_uuid)
+
+    # (1) Resolve the active ConstraintSet first — fail fast, no orphan run.
+    constraint_set = None
+    if store is not None:
+        constraint_set = resolve_constraint_set(
+            store,
+            ConstraintSetRef(
+                portfolio_id=pid_str, store_key=config.constraint_set_store_key
+            ),
+        )
+    if constraint_set is None:
+        raise RuntimeError(
+            f"No active ConstraintSet for portfolio {pid_str}; run the profiler "
+            f"first to establish a risk profile."
+        )
+
+    # (2) Open the pending run; record seed + temperature=0 + lookback (D31).
+    run_seed = seed if seed is not None else secrets.randbits(32)
+    audit = AgentRunRepository(session)
+    run = audit.create_run(
+        portfolio_id=pid_uuid,
+        asof=asof,
+        seed=run_seed,
+        universe=[],
+        optimizer_config={
+            "step": "fund",
+            "temperature": config.model_temperature,
+            "lookback_days": _LOOKBACK_DAYS,
+        },
+    )
+
+    # (3) Bind the per-run toolsets and assemble the PM agent.
+    ctx = RunContext(
+        session=session,
+        asof=asof,
+        store=store,
+        config=config,
+        run_id=run.id,
+        portfolio_id=pid_uuid,
+    )
+    agent = build_fund_agent(
+        model,
+        checkpointer=checkpointer,
+        store=store,
+        ctx=ctx,
+        config=config,
+        fallback=fallback,
+    )
+    thread_config = {
+        "configurable": {"thread_id": thread_id or pid_str},
+        "recursion_limit": config.recursion_limit,
+    }
+
+    # (4) Invoke; the place_orders gate pauses the run for the adviser.
+    try:
+        result = agent.invoke(
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": _run_instruction(mandate, pid_str, asof),
+                    }
+                ]
+            },
+            config=thread_config,
+        )
+    except GraphRecursionError:
+        # Round cap: the PM kept delegating past the bound without committing. Stop,
+        # finalise incomplete, and surface the open issue for the adviser (D22).
+        audit.append_decision(
+            run.id,
+            agent="orchestrator",
+            step="place_orders",
+            hitl_decision={"decision": "incomplete", "reason": "round_cap"},
+        )
+        audit.finalize_run(run.id, weights={}, status="incomplete")
+        return FundRun(
+            constraint_set=constraint_set,
+            run_id=run.id,
+            interrupt=None,
+            weights={},
+            status="incomplete",
+            agent=agent,
+            thread_config=thread_config,
+            session=session,
+        )
+
+    interrupt = _extract_interrupt(result)
+    weights = _optimizer_weights(session, run.id)
+    if interrupt is None:
+        # The pipeline ended before the HITL gate — a blocking risk verdict left
+        # nothing to commit. Finalise incomplete; the executor never proposed.
+        audit.append_decision(
+            run.id,
+            agent="orchestrator",
+            step="place_orders",
+            hitl_decision={"decision": "incomplete", "reason": "no_order"},
+        )
+        audit.finalize_run(run.id, weights={}, status="incomplete")
+        return FundRun(
+            constraint_set=constraint_set,
+            run_id=run.id,
+            interrupt=None,
+            weights=weights,
+            status="incomplete",
+            agent=agent,
+            thread_config=thread_config,
+            session=session,
+        )
+
+    return FundRun(
+        constraint_set=constraint_set,
+        run_id=run.id,
+        interrupt=interrupt,
+        weights=weights,
+        status="paused",
+        agent=agent,
+        thread_config=thread_config,
+        session=session,
     )

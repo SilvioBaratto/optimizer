@@ -88,6 +88,13 @@ class RunContext:
     config: FundConfig
     run_id: uuid.UUID
     portfolio_id: uuid.UUID
+    # D18: the moments/backtest lookback — 3y rolling (~756 trading days), a
+    # run-config value (never a ``ConstraintSet`` field). Wired into ``backtest``
+    # (which accepts a ``window``); ``estimate_moments`` / ``optimize_portfolio``
+    # take no start bound in the frozen Phase-3 backbone, so it is recorded on the
+    # run but inert there (the ESG-exclusions precedent — R2, structural
+    # enforcement is ask-first). Additive default keeps existing callers unchanged.
+    lookback_days: int = 756
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +215,9 @@ def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 
 @tool_envelope
 def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
+    # D18: ``ctx.lookback_days`` is recorded on the run but inert here — the frozen
+    # ``estimate_moments`` takes no start bound, so moments use full history up to
+    # ``asof`` (the ESG-exclusion precedent; structural enforcement is ask-first).
     return _tools.estimate_moments(ctx.session, ctx.asof, universe)
 
 
@@ -237,7 +247,12 @@ def _risk_check_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
 
 @tool_envelope
 def _backtest_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
-    return _tools.backtest(ctx.session, ctx.asof, weights)
+    # D18: bound the walk-forward training block to the run's 3y rolling lookback
+    # (the one frozen tool that accepts a window). A panel shorter than the window
+    # falls back to the full sample inside ``backtest`` (no leakage either way).
+    return _tools.backtest(
+        ctx.session, ctx.asof, weights, window={"train_size": ctx.lookback_days}
+    )
 
 
 @tool_envelope
