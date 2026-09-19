@@ -73,7 +73,7 @@ jobs:
       - if: matrix.python-version == '3.12'
         run: uv run python scripts/check_branch_coverage.py coverage.xml 0.80
       - if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v5
         with:
           file: ./coverage.xml
           fail_ci_if_error: false
