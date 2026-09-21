@@ -4,6 +4,7 @@ The ``agent_runs`` / ``agent_decisions`` models live in ``portopt_db``; this
 package holds the fund-side ``AgentRunRepository`` behavior over them.
 """
 
+from fund.audit.mandate_repository import MandateRepository
 from fund.audit.mifid_repository import (
     MifidProfileRepository,
     put_constraint_set,
@@ -16,6 +17,7 @@ from fund.audit.repository import AgentRunRepository
 __all__ = [
     "AgentRunRepository",
     "LangGraphPersistence",
+    "MandateRepository",
     "MifidProfileRepository",
     "OrderRepository",
     "put_constraint_set",

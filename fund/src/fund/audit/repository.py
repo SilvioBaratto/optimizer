@@ -136,6 +136,42 @@ class AgentRunRepository(RepositoryBase):
         weights = payload.get("weights") or {}
         return {str(k): float(v) for k, v in weights.items()}
 
+    def set_thread_id(self, run_id: uuid.UUID, thread_id: str) -> AgentRun | None:
+        """Stamp the run's LangGraph checkpointer thread id; ``None`` if not found.
+
+        Phase 8 defaults this to ``str(run_id)`` at run start so the resume path
+        can rebuild the PM agent against the same thread.
+        """
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        run.thread_id = thread_id
+        self.session.flush()
+        self.session.refresh(run)
+        return run
+
+    def mark_paused(self, run_id: uuid.UUID) -> AgentRun | None:
+        """Flip the run to ``"paused"`` at a HITL gate; ``None`` if not found."""
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        run.status = "paused"
+        self.session.flush()
+        self.session.refresh(run)
+        return run
+
+    def list_paused_runs(self, portfolio_id: uuid.UUID | None = None) -> list[AgentRun]:
+        """Runs awaiting a human decision (``status == "paused"``), newest first.
+
+        Optionally scoped to one ``portfolio_id``. This is the pending-HITL query
+        the observers and the resume driver read.
+        """
+        stmt = select(AgentRun).where(AgentRun.status == "paused")
+        if portfolio_id is not None:
+            stmt = stmt.where(AgentRun.portfolio_id == portfolio_id)
+        stmt = stmt.order_by(AgentRun.created_at.desc())
+        return list(self.session.execute(stmt).scalars().all())
+
     def get_run(self, run_id: uuid.UUID) -> AgentRun | None:
         """Return the run by id, or ``None``."""
         return self.session.get(AgentRun, run_id)
