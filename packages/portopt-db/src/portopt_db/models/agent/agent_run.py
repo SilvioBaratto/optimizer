@@ -67,6 +67,9 @@ class AgentRun(BaseModel):
         DateTime(timezone=True), nullable=True
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # LangGraph checkpointer thread id for this run (Phase 8: per-run threads,
+    # defaults to ``str(run_id)``). Nullable — legacy rows predate per-run threading.
+    thread_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     decisions: Mapped[list[AgentDecision]] = relationship(
         back_populates="run",
