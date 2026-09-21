@@ -29,6 +29,7 @@ import textwrap
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -443,6 +444,208 @@ def test_get_mandate_rehydrates_pydantic_from_json(db_session):
 
 def test_get_mandate_none_for_unknown_portfolio(db_session):
     assert observe.get_mandate(db_session, uuid.uuid4()) is None
+
+
+# --- edge branches / Checkpoint-B review hardening --------------------------
+
+
+def test_pending_hitl_ignores_paused_run_with_null_thread_id(db_session):
+    # A legacy paused row predating per-run threading (thread_id NULL) can't be
+    # cross-checked against the saver, so it is never offered as Approve-able.
+    saver = MemorySaver()
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id=None,
+    )
+    assert observe.pending_hitl(db_session, saver, _PID) == []
+
+
+def test_load_run_transcript_empty_when_thread_id_is_none(db_session):
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="pending",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id=None,
+    )
+    assert observe.load_run_transcript(db_session, saver, run) == []
+
+
+def test_load_run_transcript_uses_message_name_and_flattens_block_content(db_session):
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="thread-blocks",
+    )
+    db_session.expire(run, ["decisions"])
+    _seed_thread(
+        saver,
+        "thread-blocks",
+        [
+            AIMessage(
+                content=[
+                    {"type": "text", "text": "hello"},
+                    {"type": "text", "text": "world"},
+                ],
+                name="economist",
+            )
+        ],
+    )
+
+    (entry,) = observe.load_run_transcript(db_session, saver, run)
+
+    # A named subagent message reports its name; list-block content flattens to text.
+    assert entry.agent == "economist"
+    assert entry.text == "hello world"
+
+
+def test_message_tokens_tolerates_malformed_tool_calls():
+    # _message_tokens guards against non-dict entries, name-less calls, and non-dict
+    # args — a malformed checkpoint must never crash the transcript merge.
+    message = SimpleNamespace(
+        tool_calls=[
+            "not-a-dict",  # skipped
+            {"args": {"subagent_type": "risk"}},  # no name; subagent captured
+            {"name": "place_orders", "args": "not-a-dict"},  # name only; args ignored
+            {"name": "task", "args": {}},  # name only; no subagent_type
+        ]
+    )
+
+    assert observe._message_tokens(message) == {"risk", "place_orders", "task"}
+
+
+def test_load_run_transcript_decision_payload_carries_constraint_and_views(db_session):
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="thread-cs",
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="economist",
+        step="analyze",
+        constraint_set={"max_weight": 0.1},
+        views={"AAA": "bullish"},
+    )
+    db_session.expire(run, ["decisions"])
+    # No message anchors "economist"/"analyze", so the decision trails at the end.
+    _seed_thread(saver, "thread-cs", [HumanMessage(content="narrative")])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    assert entries[-1].payload == {
+        "constraint_set": {"max_weight": 0.1},
+        "views": {"AAA": "bullish"},
+    }
+
+
+def test_load_run_transcript_decision_payload_none_for_unparseable_response(db_session):
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="thread-bad",
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response="not valid json{",
+    )
+    db_session.expire(run, ["decisions"])
+    _seed_thread(saver, "thread-bad", [HumanMessage(content="narrative")])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    # Unparseable llm_response yields no weights and no other structured field.
+    assert entries[-1].payload is None
+
+
+def test_portfolio_state_target_fallback_skips_run_without_a_proposal(db_session):
+    # Newest run has no allocator proposal; the fallback must skip it and read the
+    # older run's proposal rather than returning {} on the first empty candidate.
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+    )
+    older = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+    AgentRunRepository(db_session).append_decision(
+        older.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"XYZ": 1.0}}),
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"XYZ": 1.0}
+
+
+def test_metrics_uses_newest_allocator_decision_within_a_run(db_session):
+    # Regression for the confirmed review finding: a rebuild-to-resume appends a
+    # second allocator optimize_portfolio decision to the SAME run. The metrics must
+    # come from the NEWEST decision (aligned with the target-weights source), not the
+    # stale first one — and non-allocator decisions in between are skipped.
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    audit = AgentRunRepository(db_session)
+    audit.append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 0.5}, "metrics": {"sharpe": 0.8}}),
+    )
+    audit.append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 1.0}, "metrics": {"sharpe": 1.5}}),
+    )
+    audit.append_decision(
+        run.id,
+        agent="orchestrator",
+        step="place_orders",
+        hitl_decision={"decision": "approve"},
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    # Newest allocator proposal's metrics (1.5), not the first proposal's stale 0.8.
+    assert state.metrics == {"sharpe": 1.5}
+
+
+def test_message_text_stringifies_non_str_non_list_content():
+    # Defensive fallback for a message whose content is neither str nor block-list.
+    assert observe._message_text(SimpleNamespace(content=None)) == "None"
+
+
+def test_metrics_from_response_empty_for_unparseable_json():
+    # Best-effort: an unparseable allocator payload yields no metrics (never faked).
+    assert observe._metrics_from_response("not valid json{") == {}
 
 
 # --- agent-stack-free import invariant --------------------------------------

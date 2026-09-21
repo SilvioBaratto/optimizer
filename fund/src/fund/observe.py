@@ -28,7 +28,14 @@ import datetime as dt
 import json
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    # Annotation-only import: ``fund.schemas.mandate`` is agent-stack-free, but with
+    # ``from __future__ import annotations`` the return type is a string, so guarding
+    # it under TYPE_CHECKING keeps the module's *runtime* imports minimal while still
+    # advertising the SPEC §4a signature ``get_mandate -> PortfolioMandate | None``.
+    from fund.schemas.mandate import PortfolioMandate
 
 # LangGraph writes a pending dynamic interrupt to this reserved checkpoint channel
 # (``langgraph.constants.INTERRUPT``, now private). Kept as a literal so importing
@@ -166,7 +173,7 @@ def portfolio_state(session: Any, portfolio_id: uuid.UUID) -> PortfolioState:
     )
 
 
-def get_mandate(session: Any, portfolio_id: uuid.UUID) -> Any:
+def get_mandate(session: Any, portfolio_id: uuid.UUID) -> PortfolioMandate | None:
     """Rehydrate the pydantic ``PortfolioMandate`` from its JSON column, or ``None``.
 
     ``MandateRepository.get`` returns the DB row (JSON source of truth + scalar
@@ -312,9 +319,15 @@ def _target_weights(run_repo: Any, runs: list[Any]) -> dict[str, float]:
 
 
 def _metrics_from_runs(runs: list[Any]) -> dict[str, float]:
-    """Best-effort metrics from the newest allocator ``optimize_portfolio`` decision."""
+    """Best-effort metrics from the newest allocator ``optimize_portfolio`` decision.
+
+    ``run.decisions`` is ordered ``decision_index`` ASC, so iterate it reversed to
+    take the *newest* allocator proposal within a run — aligning the metrics source
+    with ``AgentRunRepository.latest_optimizer_weights`` (which feeds ``target``) so
+    the state panel never shows fresh weights beside a stale run's metrics.
+    """
     for run in runs:
-        for decision in run.decisions:
+        for decision in reversed(run.decisions):
             if decision.agent == "allocator" and decision.step == "optimize_portfolio":
                 metrics = _metrics_from_response(decision.llm_response)
                 if metrics:
