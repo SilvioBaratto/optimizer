@@ -18,6 +18,7 @@ LangGraph store:
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
 import uuid
 
@@ -304,6 +305,50 @@ def test_bound_optimize_appends_allocator_decision(db_session) -> None:
     assert decision.llm_response_hash is not None
 
 
+def test_optimize_logs_only_applied_config_not_mifid_knobs(db_session) -> None:
+    """Audit integrity: the logged optimizer_config reflects only what the frozen
+    optimize_portfolio actually applied (min-variance defaults + honoured bounds),
+    never the mapped-but-inert MiFID knobs. Full client intent stays in
+    constraint_set."""
+    _seed_panel(db_session)
+    cs = _constraint_set(
+        objective=ObjectiveChoice.MAX,  # would map to maximize_ratio if applied
+        risk_measure=RiskMeasureChoice.CVAR,  # would map to cvar if applied
+        a_gamma=7.0,  # would map to risk_aversion if applied
+        beta=0.99,  # would map to cvar_beta/cdar_beta if applied
+        l1_coef=0.1,
+        l2_coef=0.2,
+        cardinality=2,
+    )
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+
+    result = optimize.invoke({"universe": _UNIVERSE})
+    assert result["ok"] is True
+
+    (decision,) = (
+        db_session.execute(
+            select(AgentDecision).where(AgentDecision.agent == "allocator")
+        )
+        .scalars()
+        .all()
+    )
+    logged = json.loads(decision.llm_response)["optimizer_config"]
+    # Only min-variance defaults + honoured bounds shaped the weights.
+    assert logged["objective"] == "minimize_risk"  # FAILS today: "maximize_ratio"
+    assert logged["risk_measure"] == "variance"  # FAILS today: "cvar"
+    assert logged["risk_aversion"] == 1.0  # FAILS today: 7.0
+    assert logged["cvar_beta"] == 0.95  # FAILS today: 0.99
+    assert logged.get("cardinality") is None  # FAILS today: 2
+    assert logged["min_weights"] == cs.bounds.min_weights
+    assert logged["max_weights"] == cs.bounds.max_weights
+    assert logged["budget"] == cs.bounds.budget
+    # Client's full MiFID intent remains auditable in constraint_set.
+    assert decision.constraint_set["objective"] == "max"
+    assert decision.constraint_set["risk_measure"] == "cvar"
+    assert decision.constraint_set["a_gamma"] == 7.0
+
+
 def test_optimize_without_store_uses_default_constraints(db_session) -> None:
     _seed_panel(db_session)
     ctx = _make_context(db_session, store=None)  # no CS to resolve
@@ -326,6 +371,11 @@ def test_optimize_without_store_uses_default_constraints(db_session) -> None:
 def test_bound_place_orders_appends_executor_decision(db_session) -> None:
     _seed_panel(db_session)
     ctx = _make_context(db_session)
+    # An audited allocator proposal must exist first: place_orders sources the
+    # ticket from the optimizer's audited weights, never the model's arg.
+    optimized = _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
+        {"universe": _UNIVERSE}
+    )
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
     result = place.invoke({"weights": _WEIGHTS})
@@ -333,6 +383,8 @@ def test_bound_place_orders_appends_executor_decision(db_session) -> None:
     assert result["ok"] is True
     ticket = result["data"]
     assert ticket["idempotent"] is False
+    # The ticket carries the optimizer's audited weights, not the model's _WEIGHTS.
+    assert result["data"]["weights"] == optimized["data"]["weights"]
 
     rows = (
         db_session.execute(
@@ -350,6 +402,10 @@ def test_bound_place_orders_appends_executor_decision(db_session) -> None:
 def test_place_orders_idempotent_rerun_appends_once(db_session) -> None:
     _seed_panel(db_session)
     ctx = _make_context(db_session)
+    # Establish the audited optimizer weights the ticket hashes on both calls.
+    _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
+        {"universe": _UNIVERSE}
+    )
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
     first = place.invoke({"weights": _WEIGHTS})

@@ -9,6 +9,7 @@ session (D1). No ``commit``: the caller owns the transaction boundary.
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
@@ -105,6 +106,35 @@ class AgentRunRepository(RepositoryBase):
         self.session.flush()
         self.session.refresh(run)
         return run
+
+    def latest_optimizer_weights(self, run_id: uuid.UUID) -> dict[str, float]:
+        """The single authoritative read of a run's optimizer weights.
+
+        Returns the allocator's latest audited ``optimize_portfolio`` weights (the
+        skfolio output logged inside the bound tool). Both the paper ticket and the
+        finalised ``agent_runs.weights`` derive from THESE, never from what the
+        PM/LLM passed — keeping ``optimize_portfolio`` the single source of weights.
+        Returns ``{}`` when the allocator never produced a proposal (or the payload
+        is missing/unparseable).
+        """
+        stmt = (
+            select(AgentDecision)
+            .where(
+                AgentDecision.run_id == run_id,
+                AgentDecision.agent == "allocator",
+                AgentDecision.step == "optimize_portfolio",
+            )
+            .order_by(AgentDecision.decision_index.desc())
+        )
+        row = self.session.execute(stmt).scalars().first()
+        if row is None or not row.llm_response:
+            return {}
+        try:
+            payload = json.loads(row.llm_response)
+        except (ValueError, TypeError):
+            return {}
+        weights = payload.get("weights") or {}
+        return {str(k): float(v) for k, v in weights.items()}
 
     def get_run(self, run_id: uuid.UUID) -> AgentRun | None:
         """Return the run by id, or ``None``."""

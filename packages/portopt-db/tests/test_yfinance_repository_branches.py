@@ -412,6 +412,33 @@ class TestGetPriceHistory:
 
         assert len(result) == 3
 
+    def test_ascending_limit_returns_earliest_bars(self, db_session: Session) -> None:
+        ex = _exchange(db_session)
+        inst = _instrument(db_session, ex)
+        self._seed_prices(
+            db_session,
+            inst,
+            [date(2024, 1, i) for i in range(1, 11)],
+        )
+
+        repo = _repo(db_session)
+        ascending = repo.get_price_history(
+            inst.id, start_date=date(2024, 1, 1), ascending=True, limit=3
+        )
+        assert [r.date for r in ascending] == [
+            date(2024, 1, 1),
+            date(2024, 1, 2),
+            date(2024, 1, 3),
+        ]
+
+        # Default (DESC) still returns the latest three — backward-compat guard.
+        descending = repo.get_price_history(inst.id, limit=3)
+        assert [r.date for r in descending] == [
+            date(2024, 1, 10),
+            date(2024, 1, 9),
+            date(2024, 1, 8),
+        ]
+
 
 # ---------------------------------------------------------------------------
 # get_financial_statements — success + filter branches

@@ -207,6 +207,32 @@ def test_approve_writes_ticket_and_completes(db_session) -> None:
     assert executor[0].hitl_decision == {"decision": "approve"}
 
 
+# --- LLM weights are ignored: the ticket uses the optimizer's audited weights --
+
+
+def test_place_orders_ignores_llm_weights_uses_optimizer(db_session) -> None:
+    """Load-bearing invariant: skfolio computes the weights, never the LLM. Even
+    when the PM proposes a divergent vector, the paper ticket and the finalised run
+    both source the allocator's audited optimize_portfolio output."""
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    llm_weights = {"AAA": 1.0, "BBB": 0.0, "CCC": 0.0}
+    assert llm_weights != expected
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=llm_weights)
+
+    run = _run(model, db_session, store=_store_with_cs())
+    run.resume("approve")
+
+    orders = _paper_orders(db_session)
+    assert len(orders) == 1
+    # The ticket holds the optimizer's audited weights, not the LLM's proposal.
+    assert orders[0].weights == expected
+    finalized = AgentRunRepository(db_session).get_run(run.run_id)
+    assert finalized.weights == expected
+    # Ticket and finalised run derive from one source and cannot diverge.
+    assert orders[0].weights == finalized.weights
+
+
 # --- reject → no order + rejected + HITL recorded ----------------------------
 
 

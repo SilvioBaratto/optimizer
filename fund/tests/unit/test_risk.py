@@ -176,6 +176,37 @@ class TestBacktest:
         # possible, so the tool falls back to the full sample.
         assert data["n_folds"] == 0
         assert data["n_observations"] == _N_DAYS - 1
+        # Fall-back metrics are in-sample, not walk-forward — flagged truthfully.
+        assert data["out_of_sample"] is False
+
+    def test_full_sample_fallback_flagged_in_sample(self, db_session) -> None:
+        # Default window → min_needed (824) ≫ the 59 seeded return rows, exactly the
+        # real ~3y/755-row panel under lookback_days=756: no fold is produced, so the
+        # full IN-SAMPLE series is evaluated and must be flagged out_of_sample=False.
+        _seed_panel(db_session)
+
+        result = backtest(db_session, _ASOF, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["n_folds"] == 0
+        assert data["out_of_sample"] is False
+
+    def test_walk_forward_flagged_out_of_sample(self, db_session) -> None:
+        # A genuine walk-forward fold on the 59-row panel → metrics are out-of-sample.
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+            window={"train_size": 20, "test_size": 10, "purged_size": 0},
+        )
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["n_folds"] >= 1
+        assert data["out_of_sample"] is True
 
     def test_walk_forward_out_of_sample_respects_temporal_order(
         self, db_session

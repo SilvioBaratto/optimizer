@@ -536,8 +536,11 @@ def _make_save_profile(
     The write is driven entirely by the captured, deterministically-mapped values
     — the LLM-supplied ``portfolio_id`` argument is advisory only, so no knob can
     enter through a tool argument (the load-bearing rule). Idempotent per the HITL
-    re-run contract (SPEC D3): a second call for the same portfolio returns the
-    already-active row instead of appending a duplicate version.
+    re-run contract (SPEC D3): a second call for an already-profiled portfolio
+    never writes a new version (re-profiling is deferred to Phase 9, D11), but it
+    still finalises the (otherwise orphaned) run and records the idempotent
+    approve so the audit trail reflects what actually applied. A same-run replay
+    (already finalised) is a true no-op — no double-log.
     """
     from langchain_core.tools import tool
 
@@ -558,6 +561,27 @@ def _make_save_profile(
         repo = MifidProfileRepository(session)
         existing = repo.get_active(portfolio_id_uuid)
         if existing is not None:
+            # Re-profiling to a new version is deferred (D11, Phase 9). A fresh
+            # run that hits this branch (a manual re-profile) is otherwise
+            # orphaned at "pending"; finalise it + record the idempotent approve
+            # so the audit trail reflects what actually applied. A same-run
+            # replay (already finalised) is left untouched — no double-log
+            # (SPEC-D3 precedent).
+            audit = AgentRunRepository(session)
+            run = audit.get_run(run_id)
+            if run is not None and run.finished_at is None:
+                audit.append_decision(
+                    run_id,
+                    agent="profiler",
+                    step=_SAVE_PROFILE_TOOL,
+                    hitl_decision={
+                        "decision": "approve",
+                        "idempotent": True,
+                        "existing_version": existing.version,
+                        "flags": list(suitability.inconsistency_flags),
+                    },
+                )
+                audit.finalize_run(run_id, weights={}, status="completed")
             return json.dumps(
                 {"saved": True, "idempotent": True, "version": existing.version}
             )
@@ -692,9 +716,23 @@ def run_profiler(
     )
 
     # (2) The deterministic mapping computes every knob (may hard-block).
-    constraint_set, suitability = run_mapping(
-        answers, portfolio_id=pid_str, base_currency=base_currency
-    )
+    try:
+        constraint_set, suitability = run_mapping(
+            answers, portfolio_id=pid_str, base_currency=base_currency
+        )
+    except SuitabilityBreachError as exc:
+        # HARD MiFID breach: a terminal business outcome, not an infra error.
+        # Record it and finalise the run so no 'pending' orphan is left behind
+        # (mirrors run_fund's early-exit finalisation; the caller still sees the
+        # exception).
+        audit.append_decision(
+            run.id,
+            agent="profiler",
+            step="suitability_breach",
+            hitl_decision={"decision": "blocked", "reason": str(exc)},
+        )
+        audit.finalize_run(run.id, weights={}, status="blocked")
+        raise
 
     # (3) Persist behind the always-on HITL gate.
     save_profile = _make_save_profile(

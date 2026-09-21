@@ -12,14 +12,18 @@ a langchain ``@tool`` closure captures the run context; its args schema carries 
 The bound closures also carry the load-bearing invariant into the audit trail:
 
 * the resolved :class:`~fund.schemas.ConstraintSet` is translated **only into the
-  tools' existing arg dicts** (``optimize_portfolio`` via ``to_mean_risk_config``;
-  ESG exclusions → ``universe_filter`` criteria; bounds → ``risk_check``
+  tools' existing arg dicts** (``optimize_portfolio`` honours the ``bounds``
+  subset; ESG exclusions → ``universe_filter`` criteria; bounds → ``risk_check``
   constraints). The Phase-3 backbone stays frozen — no new tool business logic
   (Risk R2: structural ``nu``/ESG enforcement is ask-first, out of Phase-7 exit,
-  so a criterion the frozen tool does not model is passed but ignored);
+  so a criterion the frozen tool does not model is passed but ignored). The full
+  MiFID mapping (objective/risk-measure/risk-aversion/beta/l1/l2/cardinality) is
+  inert on the allocation today, so it is **not** logged as applied — the client's
+  mapped intent stays auditable in the decision's ``constraint_set``;
 * ``optimize_portfolio`` appends an ``agent_decision`` (allocator: the constraint
-  set + the mapped optimizer config + the optimizer's weights); the PM-level
-  ``place_orders`` appends the executor's execution decision + HITL outcome.
+  set + the *effective* optimizer config actually applied + the optimizer's
+  weights); the PM-level ``place_orders`` appends the executor's execution decision
+  + HITL outcome.
 
 The whole closure body degrades through :func:`~fund.tools._base.tool_envelope`,
 so a mis-resolved profile or a failed audit write returns ``{ok: false, error}``
@@ -140,6 +144,19 @@ def _universe_criteria(cs: ConstraintSet) -> dict[str, Any] | None:
     return {"exclusions": exclusions}
 
 
+def _effective_optimizer_config(constraints: dict[str, Any] | None) -> dict[str, Any]:
+    """The ``MeanRiskConfig`` ``optimize_portfolio`` ACTUALLY applied: min-variance
+    defaults (D17) + the honoured min/max/budget bounds. The mapped MiFID knobs
+    (objective/risk_measure/risk_aversion/beta/l1/l2/cardinality) are NOT consumed
+    by the frozen Phase-3 tool (R2, ask-first), so they are intentionally absent
+    here — the client's full mapped intent stays in the decision's ``constraint_set``.
+    Logging only the applied config keeps the audit honest (reuses the tool's own
+    ``_resolve_config`` as the single source of truth)."""
+    from fund.tools.optimize import _resolve_config
+
+    return dataclasses.asdict(_resolve_config(constraints))
+
+
 # ---------------------------------------------------------------------------
 # Audit — load-bearing facts logged from inside the bound closures.
 # ---------------------------------------------------------------------------
@@ -151,8 +168,8 @@ def _append_allocator_decision(
     optimizer_config: dict[str, Any],
     weights: dict[str, float],
 ) -> None:
-    """Append the allocator's optimize decision: constraint set + the mapped
-    optimizer config + the optimizer's weights (never model-emitted)."""
+    """Append the allocator's optimize decision: constraint set + the effective
+    (applied) optimizer config + the optimizer's weights (never model-emitted)."""
     from fund.audit import AgentRunRepository
 
     payload = json.dumps(
@@ -224,17 +241,20 @@ def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 @tool_envelope
 def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
-    optimizer_config: dict[str, Any] = {}
-    constraints: dict[str, Any] | None = None
-    if cs is not None:
-        cfg = cs.to_mean_risk_config()
-        optimizer_config = dataclasses.asdict(cfg)
-        constraints = _bounds_args(cs)
+    constraints = _bounds_args(cs) if cs is not None else None
     result = _tools.optimize_portfolio(
         ctx.session, ctx.asof, universe, constraints=constraints
     )
     if result.get("ok"):
-        _append_allocator_decision(ctx, cs, optimizer_config, result["data"]["weights"])
+        # Log the config the frozen tool ACTUALLY applied (min-variance defaults +
+        # honoured bounds), not the full mapped MiFID intent — that intent stays in
+        # the decision's ``constraint_set``. Keeps the audit honest.
+        _append_allocator_decision(
+            ctx,
+            cs,
+            _effective_optimizer_config(constraints),
+            result["data"]["weights"],
+        )
     return result
 
 
@@ -257,7 +277,16 @@ def _backtest_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
 
 @tool_envelope
 def _place_orders_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
-    result = _tools.place_orders(ctx.session, ctx.asof, weights, ctx.portfolio_id)
+    # Load-bearing invariant: skfolio computes the weights, never the LLM. The
+    # ``weights`` arg is the model's *proposal* only — the paper ticket is placed
+    # from the allocator's audited ``optimize_portfolio`` output, read back from the
+    # run's audit trail (the single source of weights). No audited proposal ⇒ empty
+    # weights ⇒ the frozen tool returns ``err("no weights to place")`` (safe
+    # no-ticket outcome).
+    from fund.audit import AgentRunRepository
+
+    audited = AgentRunRepository(ctx.session).latest_optimizer_weights(ctx.run_id)
+    result = _tools.place_orders(ctx.session, ctx.asof, audited, ctx.portfolio_id)
     data = result.get("data") if result.get("ok") else None
     # Log once, on the real placement; the idempotent HITL re-run (D3) does not
     # double-log (mirrors the profiler's save_profile).

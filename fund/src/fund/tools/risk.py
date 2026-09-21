@@ -14,7 +14,8 @@ through:
   future data leaks). Returns are computed **outside** any pipeline via
   :func:`optimizer.preprocessing.prices_to_returns` (linear returns); metrics come
   from a skfolio :class:`~skfolio.Portfolio`. When the panel is too short for even
-  one fold the tool falls back to the full sample (``n_folds == 0``).
+  one fold the tool falls back to the full IN-SAMPLE series (``n_folds == 0``); those
+  metrics are then in-sample, not walk-forward, and are flagged ``out_of_sample=False``.
 
 Contract (via :func:`fund.tools._base.tool_envelope`): every failure — empty
 weights, no priced assets, a bad constraint value, an invalid walk-forward
@@ -147,10 +148,12 @@ def backtest(
     Returns:
         ``ok`` with ``metrics`` (``mean`` / ``standard_deviation`` /
         ``sharpe_ratio`` / ``max_drawdown``), ``n_observations`` (evaluated rows),
-        ``n_folds``, ``sample_start`` / ``window_start`` / ``window_end`` (ISO
-        dates), and ``missing`` (weighted tickers absent from the panel). ``err``
-        on empty ``weights``, no priced assets, too little history, or a bad
-        ``window``.
+        ``n_folds``, ``out_of_sample`` (``True`` iff at least one walk-forward fold
+        was produced; ``False`` when the panel was too short and the full IN-SAMPLE
+        series was evaluated — the metrics are then in-sample, not walk-forward),
+        ``sample_start`` / ``window_start`` / ``window_end`` (ISO dates), and
+        ``missing`` (weighted tickers absent from the panel). ``err`` on empty
+        ``weights``, no priced assets, too little history, or a bad ``window``.
     """
     if not weights:
         return err("empty weights")
@@ -170,7 +173,8 @@ def backtest(
 
     # A test block strictly follows its training block, so evaluating only on the
     # concatenated test windows keeps the backtest out-of-sample. Fall back to the
-    # full sample when the panel cannot supply even one fold.
+    # full IN-SAMPLE series when the panel cannot supply even one fold — those
+    # metrics are in-sample, surfaced truthfully via ``out_of_sample=bool(splits)``.
     min_needed = config.train_size + config.purged_size + config.test_size
     splits = (
         list(build_walk_forward(config).split(returns))
@@ -195,6 +199,7 @@ def backtest(
             "metrics": metrics,
             "n_observations": int(oos.shape[0]),
             "n_folds": len(splits),
+            "out_of_sample": bool(splits),
             "sample_start": str(returns.index.min().date()),
             "window_start": str(oos.index.min().date()),
             "window_end": str(oos.index.max().date()),

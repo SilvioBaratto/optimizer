@@ -17,7 +17,7 @@ from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision
 
 from fund.agents.profiler import run_profiler
-from fund.audit import MifidProfileRepository
+from fund.audit import AgentRunRepository, MifidProfileRepository
 from fund.schemas.enums import LossReaction, ObjectiveChoice
 
 _MESSAGES = [{"role": "user", "content": "questionnaire ..."}]
@@ -131,3 +131,58 @@ def test_reject_records_hitl_decision_in_audit(db_session):
         d.hitl_decision and d.hitl_decision.get("decision") == "reject"
         for d in decisions
     )
+
+
+# --- idempotent re-profile still finalises its (otherwise orphaned) run ------
+
+
+def test_reprofile_idempotent_hit_finalizes_run_and_logs_decision(db_session):
+    pid = uuid.uuid4()
+    store = InMemoryStore()
+
+    # First profile -> writes v1, finalises run1.
+    run1 = _run(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        portfolio_id=pid,
+        store=store,
+    )
+    run1.resume("approve")
+    assert MifidProfileRepository(db_session).get_active(pid).version == 1
+
+    # Second profile for the SAME portfolio with materially different answers.
+    diff = make_answers(
+        likert=(7, 7, 7),
+        max_loss=0.5,
+        buffer=12.0,
+        goal=ObjectiveChoice.MAX,
+        reaction=LossReaction.BUY_MORE,
+    )
+    run2 = _run(
+        make_model(diff, portfolio_id=str(pid)),
+        db_session,
+        portfolio_id=pid,
+        store=store,
+    )
+    run2.resume("approve")
+
+    # Deferred-by-design (D11, Phase 9): no v2; v1 (run1's mapping) stays active.
+    active = MifidProfileRepository(db_session).get_active(pid)
+    assert active.version == 1
+    assert active.constraint_set == run1.constraint_set.model_dump(mode="json")
+
+    # Audit-integrity: run2 is finalised, not orphaned at "pending".
+    run2_row = AgentRunRepository(db_session).get_run(run2.run_id)
+    assert run2_row.status == "completed"
+    assert run2_row.finished_at is not None
+
+    # ...and run2's save step is recorded as an idempotent approve.
+    saves = [
+        d
+        for d in db_session.query(AgentDecision)
+        .filter(AgentDecision.run_id == run2.run_id)
+        .all()
+        if d.step == "save_profile"
+    ]
+    assert saves and saves[0].hitl_decision.get("idempotent") is True
+    assert saves[0].hitl_decision.get("existing_version") == 1

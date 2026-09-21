@@ -25,7 +25,7 @@ from _profiler_fakes import (
 )
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import MifidProfile
+from portopt_db.models import AgentRun, MifidProfile
 
 from fund.agents.profiler import SuitabilityBreachError, run_profiler
 from fund.audit import MifidProfileRepository, resolve_constraint_set
@@ -155,3 +155,22 @@ def test_esg_all_sectors_excluded_hard_blocks_before_persist(db_session):
 
     # Nothing was persisted — the breach hard-blocks outright.
     assert db_session.query(MifidProfile).count() == 0
+
+
+def test_esg_breach_finalizes_run_no_orphan_pending(db_session):
+    pid = uuid.uuid4()
+    answers = make_answers(exclusions=tuple(GicsSector))  # empties the universe
+    model = make_model(answers, portfolio_id=str(pid))
+
+    with pytest.raises(SuitabilityBreachError):
+        _run(model, db_session, portfolio_id=pid)
+
+    runs = db_session.query(AgentRun).filter(AgentRun.portfolio_id == pid).all()
+    assert len(runs) == 1  # the pending run was created
+    run = runs[0]
+    assert run.status == "blocked"  # finalised to a terminal status
+    assert run.status != "pending"
+    assert run.finished_at is not None  # no dangling open run
+    steps = [d.step for d in run.decisions]
+    assert "normalize_answers" in steps  # LLM audit trail preserved
+    assert "suitability_breach" in steps  # breach recorded

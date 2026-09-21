@@ -613,13 +613,22 @@ class YFinanceRepository(RepositoryBase):
         start_date: date | None = None,
         end_date: date | None = None,
         limit: int = 5000,
+        ascending: bool = False,
     ) -> Sequence[PriceHistory]:
+        """Return up to ``limit`` price bars for an instrument.
+
+        Ordering is DESC by default (``limit`` keeps the most-recent bars).
+        Pass ``ascending=True`` to order ASC instead — the ``limit`` then keeps
+        the *earliest* bars, so a ``start_date`` window returns the first bars
+        after it rather than the last (opt-in; the default is unchanged).
+        """
         stmt = select(PriceHistory).where(PriceHistory.instrument_id == instrument_id)
         if start_date:
             stmt = stmt.where(PriceHistory.date >= start_date)
         if end_date:
             stmt = stmt.where(PriceHistory.date <= end_date)
-        stmt = stmt.order_by(PriceHistory.date.desc()).limit(limit)
+        order_col = PriceHistory.date.asc() if ascending else PriceHistory.date.desc()
+        stmt = stmt.order_by(order_col).limit(limit)
         return self.session.execute(stmt).scalars().all()
 
     # ------------------------------------------------------------------

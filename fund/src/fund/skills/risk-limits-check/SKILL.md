@@ -23,7 +23,9 @@ the ConstraintSet limits and decides pass/block. It never edits weights itself.
 1. Call `risk_check(weights, constraints)` → passed + violations (drawdown ceilings
    nu1/nu2/nu3, sector caps, ESG exclusions, bounds).
 2. Call `backtest(weights, window)` walk-forward (`shuffle=False`) and check drawdown
-   / tail metrics against the ceilings.
+   / tail metrics against the ceilings. Check `out_of_sample`: when it is `False` the
+   panel was too short for a walk-forward fold and the metrics are in-sample — do NOT
+   count them as walk-forward validation of robustness.
 3. Confirm the ESG hard gate: any excluded GICS name present → immediate BLOCK.
 4. For prudent profiles, confirm the robust uncertainty set was applied.
 5. Emit pass, or block with the specific violations for the allocator to fix.

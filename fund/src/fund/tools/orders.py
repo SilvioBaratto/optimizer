@@ -25,6 +25,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import math
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -38,7 +39,11 @@ if TYPE_CHECKING:
 
 # Simple paper-execution cost model (D30): flat notional the weights scale, and
 # constant bps for slippage/commission. VWAP/Almgren-Chriss come later (needs
-# intraday). Overridable per call for the risk agent's what-ifs.
+# intraday). These params are NOT part of the idempotency key (which is
+# weights-only): overrides are honoured only for a FRESH key. A what-if with
+# different cost params for an already-placed key is rejected (vary the key —
+# e.g. a distinct portfolio_id) rather than silently re-priced from the stored
+# ticket.
 _DEFAULT_NOTIONAL = 100_000.0
 _DEFAULT_SLIPPAGE_BPS = 5.0
 _DEFAULT_COMMISSION_BPS = 1.0
@@ -68,12 +73,46 @@ def _next_close(
     instrument = repo.get_instrument_by_yfinance_ticker(ticker)
     if instrument is None:
         raise LookupError(f"unknown ticker {ticker!r}")
-    rows = repo.get_price_history(instrument.id, start_date=asof + dt.timedelta(days=1))
+    rows = repo.get_price_history(
+        instrument.id, start_date=asof + dt.timedelta(days=1), ascending=True
+    )
     priced = [(row.date, row.close) for row in rows if row.close is not None]
     if not priced:
         raise LookupError(f"no fill bar after {asof.isoformat()} for {ticker!r}")
     fill_date, close = min(priced, key=lambda pair: pair[0])
     return fill_date, float(close)
+
+
+def _cost_params_match(
+    order: Any,
+    *,
+    notional: float,
+    slippage_bps: float,
+    commission_bps: float,
+) -> bool:
+    """Whether a stored ticket was priced with the requested cost params.
+
+    The idempotency key is weights-only (SPEC D3 / ``uq_paper_order_key``), so
+    the per-call cost params are NOT in the key. This guards against silently
+    returning a ticket priced with *different* params than requested: it
+    reconstructs the stored slippage/commission from the persisted lines and
+    compares them (with a float tolerance) against the request.
+    """
+    if not math.isclose(order.notional, notional, rel_tol=1e-9, abs_tol=1e-9):
+        return False
+    for line in order.lines:
+        if not math.isclose(
+            line.get("slippage_bps", 0.0), slippage_bps, rel_tol=1e-9, abs_tol=1e-9
+        ):
+            return False
+        ln = line.get("notional", 0.0)
+        if ln:
+            stored_comm_bps = line["commission"] / abs(ln) * 1e4
+            if not math.isclose(
+                stored_comm_bps, commission_bps, rel_tol=1e-6, abs_tol=1e-9
+            ):
+                return False
+    return True
 
 
 def _ticket_from_row(order: Any, *, idempotent: bool) -> dict[str, Any]:
@@ -113,9 +152,12 @@ def place_orders(
             (no look-ahead). Accepts a ``date`` or an ISO ``YYYY-MM-DD`` string.
         weights: Target ``{ticker: weight}`` vector (from the optimizer).
         portfolio_id: Owning portfolio; part of the idempotency key.
-        notional: Gross book the weights scale (paper cost model).
-        slippage_bps: Per-fill slippage in basis points (buys pay up).
+        notional: Gross book the weights scale (paper cost model). Not part of
+            the idempotency key — overrides apply only to a fresh key.
+        slippage_bps: Per-fill slippage in basis points (buys pay up). Not part
+            of the idempotency key — overrides apply only to a fresh key.
         commission_bps: Per-fill commission in basis points of line notional.
+            Not part of the idempotency key — overrides apply only to a fresh key.
 
     Returns:
         ``ok`` with the order ticket (``order_id``, ``fill_date``, per-``lines``
@@ -132,8 +174,23 @@ def place_orders(
     repo = OrderRepository(session)
     existing = repo.get_by_key(portfolio_id=pid, asof=end_date, weights_hash=whash)
     if existing is not None:
-        # HITL re-run (D3): the ticket already exists — return it, don't re-place.
-        return ok(_ticket_from_row(existing, idempotent=True))
+        if _cost_params_match(
+            existing,
+            notional=notional,
+            slippage_bps=slippage_bps,
+            commission_bps=commission_bps,
+        ):
+            # HITL re-run (D3): the ticket already exists priced with the same
+            # params — return it, don't re-place.
+            return ok(_ticket_from_row(existing, idempotent=True))
+        # Same weights-only key but different cost params: the stored ticket was
+        # priced differently, so returning it would misreport the request.
+        return err(
+            "a paper ticket already exists for this (portfolio, asof, weights) "
+            "with different cost params; re-run with the placed params, or use a "
+            "distinct key for a what-if with different "
+            "notional/slippage/commission"
+        )
 
     prices = YFinanceRepository(session)
     lines: list[dict[str, Any]] = []

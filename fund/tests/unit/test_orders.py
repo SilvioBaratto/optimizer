@@ -174,6 +174,80 @@ class TestPlaceOrders:
 
         assert pricier["total_slippage_cost"] > base["total_slippage_cost"]
 
+    def test_cost_override_on_existing_key_is_not_silently_stale(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+        first = place_orders(
+            db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID, notional=100_000.0
+        )
+        assert first["ok"] is True
+        assert first["data"]["notional"] == 100_000.0
+        # Same (portfolio, asof, weights) key, different notional (a what-if).
+        second = place_orders(
+            db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID, notional=250_000.0
+        )
+        # The cost mismatch is surfaced instead of a stale ticket being returned.
+        assert second["ok"] is False
+        assert "error" in second
+        # No double-place either way: exactly one row for the key.
+        count = db_session.execute(
+            select(func.count()).select_from(PaperOrder)
+        ).scalar_one()
+        assert count == 1
+
+    def test_same_key_rerun_with_same_cost_params_is_idempotent(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+        first = place_orders(
+            db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID, slippage_bps=5.0
+        )
+        # A same-key re-run flowing the identical cost params still hits the
+        # idempotent path (the real HITL Command(resume=...) re-run).
+        second = place_orders(
+            db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID, slippage_bps=5.0
+        )
+        assert first["ok"] is True
+        assert second["ok"] is True
+        assert second["data"]["order_id"] == first["data"]["order_id"]
+        assert second["data"]["idempotent"] is True
+
+    def test_fill_is_earliest_bar_when_future_bars_exceed_repo_limit(
+        self, db_session
+    ) -> None:
+        ex = Exchange(name="EX-AAA")
+        db_session.add(ex)
+        db_session.flush()
+        inst = Instrument(
+            ticker="AAA",
+            short_name="AAA",
+            exchange_id=ex.id,
+            instrument_type="EQUITY",
+            asset_class="equity",
+            yfinance_ticker="AAA",
+        )
+        db_session.add(inst)
+        db_session.flush()
+        # 6001 consecutive daily bars starting at _START — more than the repo's
+        # 5000-row cap, so a DESC+limit fetch would truncate away the true
+        # next close.
+        for i in range(6001):
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=_START + dt.timedelta(days=i),
+                    close=_close_on(100.0, i),
+                    volume=1000,
+                )
+            )
+        db_session.flush()
+
+        ticket = place_orders(db_session, _START, {"AAA": 1.0}, _PORTFOLIO_ID)["data"]
+
+        # The fill is the first bar strictly after asof, not one ~1000 days late.
+        assert ticket["fill_date"] == (_START + dt.timedelta(days=1)).isoformat()
+
     def test_idempotent_double_call_one_ticket(self, db_session) -> None:
         _seed_panel(db_session)
 

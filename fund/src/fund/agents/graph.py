@@ -32,7 +32,6 @@ needs no environment (mirrors :mod:`fund.agents.profiler`).
 
 from __future__ import annotations
 
-import json
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
@@ -256,32 +255,16 @@ def _optimizer_weights(session: Any, run_id: uuid.UUID) -> dict[str, float]:
     """The latest allocator ``optimize_portfolio`` weights logged for this run.
 
     The allocator's bound tool logs the load-bearing decision (constraint set +
-    mapped optimizer config + the optimizer's weights) inside its closure during
+    effective optimizer config + the optimizer's weights) inside its closure during
     the initial invoke. Reading them back from the audit trail — never from what
     the PM/LLM passed — keeps ``optimize_portfolio`` the single source of weights.
-    Returns ``{}`` when the allocator never produced a proposal.
+    Delegates to :meth:`AgentRunRepository.latest_optimizer_weights` so the paper
+    ticket and the finalised ``agent_runs.weights`` derive from one source and
+    cannot diverge. Returns ``{}`` when the allocator never produced a proposal.
     """
-    from portopt_db.models import AgentDecision
-    from sqlalchemy import select
+    from fund.audit import AgentRunRepository
 
-    stmt = (
-        select(AgentDecision)
-        .where(
-            AgentDecision.run_id == run_id,
-            AgentDecision.agent == "allocator",
-            AgentDecision.step == "optimize_portfolio",
-        )
-        .order_by(AgentDecision.decision_index.desc())
-    )
-    row = session.execute(stmt).scalars().first()
-    if row is None or not row.llm_response:
-        return {}
-    try:
-        payload = json.loads(row.llm_response)
-    except (ValueError, TypeError):
-        return {}
-    weights = payload.get("weights") or {}
-    return {str(k): float(v) for k, v in weights.items()}
+    return AgentRunRepository(session).latest_optimizer_weights(run_id)
 
 
 def _run_instruction(
