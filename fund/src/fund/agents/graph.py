@@ -64,6 +64,7 @@ __all__ = [
     "build_executor_subagent",
     "build_fund_agent",
     "build_risk_subagent",
+    "resume_fund",
     "run_fund",
 ]
 
@@ -267,6 +268,51 @@ def _optimizer_weights(session: Any, run_id: uuid.UUID) -> dict[str, float]:
     return AgentRunRepository(session).latest_optimizer_weights(run_id)
 
 
+def _finalize_hitl(
+    session: Any,
+    *,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+    asof: dt.date,
+    weights: dict[str, float],
+    decision: str,
+    order_lines: list[dict[str, Any]] | None = None,
+) -> None:
+    """Finalise a HITL decision — the single write path both resume routes share.
+
+    Used by :meth:`FundRun.resume` (the live in-process handle) **and**
+    :func:`resume_fund` (the cross-process rebuild), so the two cannot diverge.
+    ``approve`` finalises the run ``completed`` with the optimizer ``weights`` and
+    replaces the portfolio's ``positions`` snapshot built from them (O1 = Option B
+    per-ticker row dicts; ``order_lines``, when supplied, carries the filled
+    shares/notional). Any other ``decision`` writes no order, records the
+    orchestrator's HITL choice, and finalises the run ``rejected``.
+
+    The ``agent.invoke(Command(resume=…))`` that actually runs (approve) or denies
+    (reject) the gated ``place_orders`` tool is the **caller's** job — inside that
+    invoke the executor's execution decision and the paper ticket are written. This
+    helper only stamps the terminal audit state + the current-holdings snapshot. No
+    ``commit`` (the caller owns the transaction).
+    """
+    from fund.audit import AgentRunRepository, PositionRepository
+
+    audit = AgentRunRepository(session)
+    if decision == "approve":
+        audit.finalize_run(run_id, weights=weights, status="completed")
+        holdings = order_lines or [
+            {"ticker": ticker, "weight": weight} for ticker, weight in weights.items()
+        ]
+        PositionRepository(session).set_holdings(portfolio_id, holdings, asof=asof)
+    else:
+        audit.append_decision(
+            run_id,
+            agent="orchestrator",
+            step="place_orders",
+            hitl_decision={"decision": decision},
+        )
+        audit.finalize_run(run_id, weights={}, status="rejected")
+
+
 def _run_instruction(
     mandate: PortfolioMandate, portfolio_id: str, asof: dt.date
 ) -> str:
@@ -309,6 +355,12 @@ class FundRun:
         and the executor decision logged inside the closure), then finalises the run
         as completed with the optimizer's weights. Any other decision writes no
         order, records the HITL choice in the audit trail, and finalises rejected.
+
+        Finalisation is delegated to the shared :func:`_finalize_hitl` so this
+        in-process path and the cross-process :func:`resume_fund` cannot diverge —
+        both stamp the audit trail identically and, on approve, upsert positions.
+        The run's ``portfolio_id`` / ``asof`` (which ``FundRun`` does not carry) are
+        read back from its persisted row.
         """
         from langgraph.types import Command
 
@@ -318,17 +370,15 @@ class FundRun:
             Command(resume={"decisions": [{"type": decision}]}),
             config=self.thread_config,
         )
-        audit = AgentRunRepository(self.session)
-        if decision == "approve":
-            audit.finalize_run(self.run_id, weights=self.weights, status="completed")
-        else:
-            audit.append_decision(
-                self.run_id,
-                agent="orchestrator",
-                step="place_orders",
-                hitl_decision={"decision": decision},
-            )
-            audit.finalize_run(self.run_id, weights={}, status="rejected")
+        run = AgentRunRepository(self.session).get_run(self.run_id)
+        _finalize_hitl(
+            self.session,
+            run_id=self.run_id,
+            portfolio_id=run.portfolio_id,
+            asof=run.asof,
+            weights=self.weights,
+            decision=decision,
+        )
         return result
 
 
@@ -404,6 +454,11 @@ def run_fund(
             "lookback_days": _LOOKBACK_DAYS,
         },
     )
+    # Per-run thread (Phase 8): default the checkpointer thread to str(run_id) (was
+    # str(portfolio_id)) so each run keeps its own verbatim transcript and the
+    # rebuild-to-resume path can recover it. Persist it on the new nullable column.
+    resolved_thread_id = thread_id or str(run.id)
+    audit.set_thread_id(run.id, resolved_thread_id)
 
     # (3) Bind the per-run toolsets and assemble the PM agent.
     ctx = RunContext(
@@ -423,7 +478,7 @@ def run_fund(
         fallback=fallback,
     )
     thread_config = {
-        "configurable": {"thread_id": thread_id or pid_str},
+        "configurable": {"thread_id": resolved_thread_id},
         "recursion_limit": config.recursion_limit,
     }
 
@@ -484,6 +539,9 @@ def run_fund(
             session=session,
         )
 
+    # Flip the row to "paused" so observers (CLI/TUI) can find awaiting-approval
+    # runs and the rebuild-to-resume path knows a gate is live.
+    audit.mark_paused(run.id)
     return FundRun(
         constraint_set=constraint_set,
         run_id=run.id,
@@ -494,3 +552,103 @@ def run_fund(
         thread_config=thread_config,
         session=session,
     )
+
+
+def resume_fund(
+    run_id: uuid.UUID | str,
+    decision: str,
+    *,
+    session: Any,
+    checkpointer: Any,
+    store: Any | None,
+    model: Any,
+    config: FundConfig = settings,
+    fallback: Any | None = None,
+) -> dict[str, Any]:
+    """Resume a paused fund run from a fresh process — the rebuild-to-resume path.
+
+    :class:`FundRun` is not serialisable across processes (its ``agent``/``session``
+    are live objects), so an observer (the CLI ``approve``/``reject`` commands, the
+    TUI HITL queue) resumes a paused ``place_orders`` gate by **rebuilding** the PM
+    agent against the *same* ``checkpointer`` + ``thread_id`` and issuing
+    ``Command(resume=…)`` itself. Approving executes the interrupted commit inside
+    the graph (so a ``model`` is required to resume); the shared
+    :func:`_finalize_hitl` then stamps the terminal audit state and, on approve, the
+    positions snapshot — leaving DB state identical to :meth:`FundRun.resume`.
+
+    Loads the ``agent_run`` to recover its ``thread_id`` / ``portfolio_id`` / ``asof``
+    (an unknown ``run_id`` raises ``LookupError``), re-guards the portfolio's active
+    ``ConstraintSet`` from the Store (missing raises ``RuntimeError`` — a run whose
+    profile vanished cannot be committed), rebuilds the ``RunContext`` + PM agent,
+    resumes, and finalises. ``decision`` must be ``"approve"`` or ``"reject"`` (any
+    other raises ``ValueError`` — HITL edit is an ask-first future item). Every write
+    goes through the injected ``session`` (caller owns the transaction). The agent
+    stack is imported lazily so a bare ``import fund.agents.graph`` stays clean.
+    """
+    if decision not in ("approve", "reject"):
+        raise ValueError(f"decision must be 'approve' or 'reject', not {decision!r}")
+
+    from langgraph.types import Command
+
+    from fund.agents.toolsets import RunContext
+    from fund.audit import AgentRunRepository, resolve_constraint_set
+    from fund.schemas import ConstraintSetRef
+
+    rid = _coerce_uuid(run_id)
+    audit = AgentRunRepository(session)
+    run = audit.get_run(rid)
+    if run is None:
+        raise LookupError(f"no agent_run {rid}")
+
+    portfolio_id = run.portfolio_id
+    pid_str = str(portfolio_id)
+    resolved_thread_id = run.thread_id or str(rid)
+
+    # Re-guard the active ConstraintSet — the run's risk profile must still exist.
+    constraint_set = None
+    if store is not None:
+        constraint_set = resolve_constraint_set(
+            store,
+            ConstraintSetRef(
+                portfolio_id=pid_str, store_key=config.constraint_set_store_key
+            ),
+        )
+    if constraint_set is None:
+        raise RuntimeError(
+            f"No active ConstraintSet for portfolio {pid_str}; run the profiler "
+            f"first to establish a risk profile."
+        )
+
+    ctx = RunContext(
+        session=session,
+        asof=run.asof,
+        store=store,
+        config=config,
+        run_id=rid,
+        portfolio_id=portfolio_id,
+    )
+    agent = build_fund_agent(
+        model,
+        checkpointer=checkpointer,
+        store=store,
+        ctx=ctx,
+        config=config,
+        fallback=fallback,
+    )
+    thread_config = {
+        "configurable": {"thread_id": resolved_thread_id},
+        "recursion_limit": config.recursion_limit,
+    }
+    result: dict[str, Any] = agent.invoke(
+        Command(resume={"decisions": [{"type": decision}]}),
+        config=thread_config,
+    )
+    _finalize_hitl(
+        session,
+        run_id=rid,
+        portfolio_id=portfolio_id,
+        asof=run.asof,
+        weights=_optimizer_weights(session, rid),
+        decision=decision,
+    )
+    return result

@@ -696,6 +696,11 @@ def run_profiler(
         universe=[],
         optimizer_config={"step": "profiler"},
     )
+    # Per-run thread (Phase 8): default the checkpointer thread to str(run_id) (was
+    # str(portfolio_id)) so each profiling run keeps its own transcript and the
+    # rebuild-to-resume path can recover it. Persist it on the nullable column.
+    resolved_thread_id = thread_id or str(run.id)
+    audit.set_thread_id(run.id, resolved_thread_id)
 
     # (1) The LLM interprets the client's answers into typed inputs.
     answers = structured_call(
@@ -756,17 +761,22 @@ def run_profiler(
         store=store,
         interrupt_config=interrupt_config,
     )
-    thread_config = {"configurable": {"thread_id": thread_id or pid_str}}
+    thread_config = {"configurable": {"thread_id": resolved_thread_id}}
     result = agent.invoke(
         {"messages": [{"role": "user", "content": _persist_instruction(pid_str)}]},
         config=thread_config,
     )
+    interrupt = _extract_interrupt(result)
+    if interrupt is not None:
+        # Paused at the always-confirm save_profile gate — mark the row so observers
+        # can find it awaiting a decision (symmetric with run_fund's fund gate).
+        audit.mark_paused(run.id)
     return ProfilerRun(
         answers=answers,
         constraint_set=constraint_set,
         suitability=suitability,
         run_id=run.id,
-        interrupt=_extract_interrupt(result),
+        interrupt=interrupt,
         agent=agent,
         thread_config=thread_config,
         session=session,

@@ -27,12 +27,23 @@ imports the helpers from here.
 
 from __future__ import annotations
 
+import datetime as dt
+import math
+import uuid
+from decimal import Decimal
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from portopt_db.models.market_data.yfinance_data import PriceHistory
+from portopt_db.models.universe.universe import Exchange, Instrument
 from pydantic import Field
+
+from fund.schemas import ConstraintSet
+from fund.schemas.enums import Horizon, ObjectiveChoice, RiskMeasureChoice
+from fund.schemas.mandate import PortfolioMandate, RunTriggers
+from fund.tools.optimize import optimize_portfolio
 
 # Distinctive opening-line markers of each role's system prompt (see
 # ``fund.agents.prompts``); matched as substrings so middleware appends do not
@@ -184,3 +195,93 @@ def _task_call(subagent: str, index: int) -> AIMessage:
             }
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Shared run-seeding helpers (reused by the Task-6 run + resume test files).
+#
+# A deterministic ``N_DAYS`` x 3 close panel extending past ``ASOF`` so the real
+# bound ``optimize_portfolio`` computes stable weights over a seeded SQLite panel
+# (the optimizer output, never the LLM). ``PORTFOLIO_ID`` bears hex letters: an
+# all-digit UUID gets coerced to a float by SQLite's numeric affinity when a UUID
+# column round-trips through ``refresh`` (see fund-test-uuid-sqlite-affinity).
+# ---------------------------------------------------------------------------
+
+START = dt.date(2024, 1, 1)
+N_DAYS = 40
+ASOF = dt.date(2024, 1, 30)  # decision bar (index 29); bars 30..39 are future
+UNIVERSE = ["AAA", "BBB", "CCC"]
+PORTFOLIO_ID = uuid.UUID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
+_SERIES = {"AAA": (100.0, 0.0), "BBB": (50.0, 1.3), "CCC": (25.0, 2.6)}
+
+
+def _close_on(start: float, phase: float, i: int) -> float:
+    """Deterministic close for day ``i``: a phased oscillation off ``start``."""
+    return round(start * (1.0 + 0.02 * math.sin(0.5 * i + phase)), 6)
+
+
+def seed_panel(session: Any) -> None:
+    """Seed an ``N_DAYS`` x 3 close panel extending past ``ASOF``."""
+    for ticker, (start, phase) in _SERIES.items():
+        ex = Exchange(name=f"EX-{ticker}")
+        session.add(ex)
+        session.flush()
+        inst = Instrument(
+            ticker=ticker,
+            short_name=ticker,
+            exchange_id=ex.id,
+            instrument_type="EQUITY",
+            asset_class="equity",
+            yfinance_ticker=ticker,
+        )
+        session.add(inst)
+        session.flush()
+        for i in range(N_DAYS):
+            session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=START + dt.timedelta(days=i),
+                    close=_close_on(start, phase, i),
+                    volume=1000,
+                )
+            )
+    session.flush()
+
+
+def make_constraint_set(portfolio_id: uuid.UUID = PORTFOLIO_ID) -> ConstraintSet:
+    """A minimal active ``ConstraintSet`` for ``portfolio_id`` (growth / variance)."""
+    return ConstraintSet(
+        portfolio_id=str(portfolio_id),
+        base_currency="EUR",
+        a_gamma=2.5,
+        objective=ObjectiveChoice.GROWTH,
+        risk_measure=RiskMeasureChoice.VARIANCE,
+        beta=0.95,
+        nu1=0.05,
+        nu2=0.10,
+        nu3=0.20,
+        horizon=Horizon.LONG,
+    )
+
+
+def make_mandate(portfolio_id: uuid.UUID = PORTFOLIO_ID) -> PortfolioMandate:
+    """A minimal ``PortfolioMandate`` for ``portfolio_id`` (100k EUR, cron+drift)."""
+    return PortfolioMandate(
+        portfolio_id=str(portfolio_id),
+        capital=Decimal("100000"),
+        base_currency="EUR",
+        drift_l1_threshold=0.1,
+        triggers=RunTriggers(cron=True, drift=True),
+    )
+
+
+def expected_weights(session: Any) -> dict[str, float]:
+    """The optimizer's weights the allocator will produce over the seeded panel.
+
+    Computed the same way (default bounds) so the ticket, the audit trail, and the
+    finalised run must all match these — the load-bearing "skfolio, not the LLM,
+    computes the weights" invariant.
+    """
+    result = optimize_portfolio(session, ASOF, UNIVERSE)
+    assert result["ok"] is True
+    return result["data"]["weights"]
