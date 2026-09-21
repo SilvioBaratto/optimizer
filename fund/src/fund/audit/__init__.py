@@ -12,6 +12,7 @@ from fund.audit.mifid_repository import (
 )
 from fund.audit.orders_repository import OrderRepository
 from fund.audit.persistence import LangGraphPersistence, setup_langgraph
+from fund.audit.positions_repository import PositionRepository
 from fund.audit.repository import AgentRunRepository
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "MandateRepository",
     "MifidProfileRepository",
     "OrderRepository",
+    "PositionRepository",
     "put_constraint_set",
     "resolve_constraint_set",
     "setup_langgraph",

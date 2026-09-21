@@ -82,5 +82,31 @@ class OrderRepository(RepositoryBase):
         self.session.flush()
         return order
 
+    def list_for_portfolio(self, portfolio_id: uuid.UUID) -> list[PaperOrder]:
+        """All tickets for a portfolio, newest first (by ``created_at``).
+
+        The read surface behind the report/transcript views (O2 = Option A, SPEC
+        §8). Portfolio-scoped only — ``paper_orders`` carries no ``run_id`` column.
+        """
+        stmt = (
+            select(PaperOrder)
+            .where(PaperOrder.portfolio_id == portfolio_id)
+            .order_by(PaperOrder.created_at.desc())
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
+    def latest_for_portfolio(self, portfolio_id: uuid.UUID) -> PaperOrder | None:
+        """The most recent ticket for a portfolio, or ``None`` when it has none.
+
+        ``report RUN_ID`` reads it as ``latest_for_portfolio(run.portfolio_id)`` —
+        the just-approved run's ticket is the newest by ``created_at`` (O2).
+        """
+        stmt = (
+            select(PaperOrder)
+            .where(PaperOrder.portfolio_id == portfolio_id)
+            .order_by(PaperOrder.created_at.desc())
+        )
+        return self.session.execute(stmt).scalars().first()
+
 
 __all__ = ["OrderRepository"]
