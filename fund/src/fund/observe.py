@@ -173,6 +173,49 @@ def portfolio_state(session: Any, portfolio_id: uuid.UUID) -> PortfolioState:
     )
 
 
+def interrupt_for(saver: Any, run: Any) -> dict[str, Any] | None:
+    """The pending HITL interrupt payload for ``run``'s thread, or ``None`` (§4f).
+
+    The value written to the ``__interrupt__`` channel (the same one
+    :func:`pending_hitl` cross-checks) is a ``list[Interrupt]``; its first element's
+    ``.value`` is the dict the gated tool raised — carrying ``action_requests`` (the
+    ``place_orders`` name + proposed weights the adviser reviews) and
+    ``review_configs``. The HITL-queue panel renders that dict when a paused run is
+    selected. Returns ``None`` when the thread carries no live interrupt.
+
+    Agent-stack-free by construction: a bare ``saver.get_tuple`` read of the
+    checkpoint's pending writes, mirroring :func:`_has_pending_interrupt` — no
+    ``langgraph`` import, no compiled graph, no model (SPEC R2). Accepts the same
+    kind of run object as :func:`load_run_transcript` (an ORM row carrying
+    ``thread_id``).
+    """
+    thread_id = getattr(run, "thread_id", None)
+    if not thread_id:
+        return None
+    tup = saver.get_tuple(_thread_config(thread_id))
+    if tup is None:
+        return None
+    for _task_id, channel, value in tup.pending_writes or []:
+        if channel == _INTERRUPT_CHANNEL:
+            return _interrupt_value(value)
+    return None
+
+
+def _interrupt_value(value: Any) -> dict[str, Any] | None:
+    """Unwrap a checkpoint ``__interrupt__`` write to its dict payload.
+
+    The stored value is a ``list[Interrupt]`` (each ``Interrupt`` exposing ``.value``);
+    a bare ``Interrupt`` or a plain dict is tolerated too. Returns the first dict
+    payload found, or ``None``.
+    """
+    items = value if isinstance(value, list | tuple) else [value]
+    for item in items:
+        inner = getattr(item, "value", item)
+        if isinstance(inner, dict):
+            return inner
+    return None
+
+
 def get_mandate(session: Any, portfolio_id: uuid.UUID) -> PortfolioMandate | None:
     """Rehydrate the pydantic ``PortfolioMandate`` from its JSON column, or ``None``.
 
@@ -373,6 +416,7 @@ __all__ = [
     "TranscriptEntry",
     "drift_l1",
     "get_mandate",
+    "interrupt_for",
     "list_portfolio_runs",
     "load_run_transcript",
     "pending_hitl",
