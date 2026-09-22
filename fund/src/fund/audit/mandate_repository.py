@@ -71,5 +71,21 @@ class MandateRepository(RepositoryBase):
         )
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def list_active(self) -> list[PortfolioMandateModel]:
+        """Return every active mandate row, ordered by ``portfolio_id``.
+
+        The enumeration the Phase-9 sweeps walk. Trigger filtering is *not* in
+        SQL — the ``portfolio_mandates`` table has no scalar trigger column — so
+        callers rehydrate ``PortfolioMandate.model_validate(row.mandate)`` and
+        read ``.triggers.cron`` / ``.triggers.drift``. Deterministic order keeps
+        the sequential sweep repeatable.
+        """
+        stmt = (
+            select(PortfolioMandateModel)
+            .where(PortfolioMandateModel.status == "active")
+            .order_by(PortfolioMandateModel.portfolio_id)
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
 
 __all__ = ["MandateRepository"]

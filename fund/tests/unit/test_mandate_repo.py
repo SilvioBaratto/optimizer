@@ -30,13 +30,15 @@ def _mandate(
     base_currency: str = "USD",
     drift: float = 0.1,
     benchmark: str | None = None,
+    cron: bool = True,
+    drift_trigger: bool = False,
 ) -> PortfolioMandate:
     return PortfolioMandate(
         portfolio_id=portfolio_id,
         capital=Decimal(capital),
         base_currency=base_currency,
         drift_l1_threshold=drift,
-        triggers=RunTriggers(cron=True, drift=False),
+        triggers=RunTriggers(cron=cron, drift=drift_trigger),
         benchmark=benchmark,
     )
 
@@ -120,6 +122,58 @@ def test_upsert_stores_full_mandate_json_that_round_trips(db_session):
 def test_get_returns_none_for_unknown_portfolio(db_session):
     repo = MandateRepository(db_session)
     assert repo.get(uuid.uuid4()) is None
+
+
+# --- MandateRepository.list_active ------------------------------------------
+
+
+def test_list_active_returns_only_active_rows(db_session):
+    repo = MandateRepository(db_session)
+    active_pids = {str(uuid.uuid4()), str(uuid.uuid4())}
+    for pid in active_pids:
+        repo.upsert(_mandate(pid))
+    # The sweep must ignore a retired mandate — upsert stamps "active", so flip
+    # one row's status directly to exercise the filter.
+    archived = repo.upsert(_mandate(str(uuid.uuid4())))
+    archived.status = "archived"
+    db_session.flush()
+
+    rows = repo.list_active()
+
+    assert {str(r.portfolio_id) for r in rows} == active_pids
+    assert all(r.status == "active" for r in rows)
+
+
+def test_list_active_orders_deterministically_by_portfolio_id(db_session):
+    repo = MandateRepository(db_session)
+    pids = [str(uuid.uuid4()) for _ in range(4)]
+    for pid in pids:
+        repo.upsert(_mandate(pid))
+
+    rows = repo.list_active()
+
+    returned = [str(r.portfolio_id) for r in rows]
+    assert set(returned) == set(pids)
+    assert returned == sorted(returned)  # deterministic ascending order
+
+
+def test_list_active_rows_rehydrate_to_pydantic_mandate_with_triggers(db_session):
+    pid = str(uuid.uuid4())
+    repo = MandateRepository(db_session)
+    repo.upsert(_mandate(pid, cron=True, drift_trigger=True))
+
+    (row,) = repo.list_active()
+
+    # Trigger filtering is not in SQL: the caller rehydrates the JSON payload and
+    # reads `.triggers.cron` / `.triggers.drift`.
+    rehydrated = PortfolioMandate.model_validate(row.mandate)
+    assert rehydrated.triggers.cron is True
+    assert rehydrated.triggers.drift is True
+
+
+def test_list_active_returns_empty_list_when_no_active_mandates(db_session):
+    repo = MandateRepository(db_session)
+    assert repo.list_active() == []
 
 
 # --- AgentRunRepository thread/pause extensions -----------------------------
