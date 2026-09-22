@@ -95,3 +95,62 @@ def test_config_module_does_not_import_optimizer_at_top():
     source = config_py.read_text(encoding="utf-8")
     assert "import optimizer" not in source
     assert "from optimizer" not in source
+
+
+def test_daemon_fields_default_to_the_phase9_contract():
+    # Phase-9 Task 1 daemon knobs: defaults present with a bare (env-free) load.
+    cfg = load_config(env={})
+
+    # Cron uses the weekday NAME `sat` — a bare `0` fires Monday under
+    # APScheduler `from_crontab` (0=Mon..6=Sun).
+    assert cfg.fund_rebalance_cron == "0 3 * * sat"
+    assert cfg.fund_drift_interval_seconds == 900
+    assert cfg.fund_heartbeat_cadence_seconds == 30
+    assert cfg.fund_orphan_timeout_seconds == 300
+    assert cfg.fund_shutdown_drain_timeout_seconds == 30
+    assert cfg.reprofile_interval_days == 365
+    assert cfg.summary_token_threshold == 170000
+    assert cfg.summary_messages_to_keep == 6
+
+
+def test_daemon_fields_parse_from_fund_env_aliases():
+    # Each daemon knob is overridable via its `FUND_*` alias; ints are coerced
+    # from the string env values.
+    cfg = load_config(
+        env={
+            "FUND_REBALANCE_CRON": "0 4 * * sun",
+            "FUND_DRIFT_INTERVAL_SECONDS": "1800",
+            "FUND_HEARTBEAT_CADENCE_SECONDS": "45",
+            "FUND_ORPHAN_TIMEOUT_SECONDS": "600",
+            "FUND_SHUTDOWN_DRAIN_TIMEOUT_SECONDS": "60",
+            "FUND_REPROFILE_INTERVAL_DAYS": "180",
+            "FUND_SUMMARY_TOKEN_THRESHOLD": "120000",
+            "FUND_SUMMARY_MESSAGES_TO_KEEP": "8",
+        }
+    )
+
+    assert cfg.fund_rebalance_cron == "0 4 * * sun"
+    assert cfg.fund_drift_interval_seconds == 1800
+    assert cfg.fund_heartbeat_cadence_seconds == 45
+    assert cfg.fund_orphan_timeout_seconds == 600
+    assert cfg.fund_shutdown_drain_timeout_seconds == 60
+    assert cfg.reprofile_interval_days == 180
+    assert cfg.summary_token_threshold == 120000
+    assert cfg.summary_messages_to_keep == 8
+
+
+def test_cost_cap_fields_unchanged_by_daemon_additions():
+    # The D22 cost caps are pre-existing and must not shift when the daemon
+    # fields land (max_pm_rounds is finalised — wired in — by Task 4).
+    cfg = load_config(env={})
+
+    assert cfg.max_pm_rounds == 10
+    assert cfg.recursion_limit == 50
+
+
+def test_no_prometheus_metrics_port_field():
+    # Prometheus is out of scope for Phase 9 — no FUND_METRICS_PORT knob.
+    cfg = load_config(env={"FUND_METRICS_PORT": "9100"})
+
+    assert not hasattr(cfg, "fund_metrics_port")
+    assert not hasattr(cfg, "metrics_port")

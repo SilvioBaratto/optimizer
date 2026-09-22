@@ -74,6 +74,21 @@ class FundConfig:
     # (namespace = (portfolio_id,)) so a Phase-4 ``ConstraintSetRef`` resolves. ---
     constraint_set_store_key: str = "constraint_set"
 
+    # --- Phase-9 daemon: scheduler cadences + heartbeat-lease + drain (OQ3). ---
+    # Cron uses the weekday NAME `sat`; a bare `0` fires Monday under APScheduler
+    # ``from_crontab`` (0=Mon..6=Sun).
+    fund_rebalance_cron: str = "0 3 * * sat"
+    fund_drift_interval_seconds: int = 900
+    fund_heartbeat_cadence_seconds: int = 30
+    fund_orphan_timeout_seconds: int = 300
+    fund_shutdown_drain_timeout_seconds: int = 30
+
+    # --- Phase-9 agent hardening: annual re-profiling marker + summarization pin
+    # (mirrors the deepagents built-in defaults so the daemon can override them). ---
+    reprofile_interval_days: int = 365
+    summary_token_threshold: int = 170000
+    summary_messages_to_keep: int = 6
+
     def langgraph_pool_kwargs(self) -> dict[str, Any]:
         """psycopg ``ConnectionPool(kwargs=...)`` for the LangGraph pool (D3).
 
@@ -120,11 +135,43 @@ def load_config(
             load_dotenv()
         env = os.environ
 
+    defaults = FundConfig()
     return FundConfig(
         database_url=env.get("DATABASE_URL"),
         ollama_api_key=env.get("OLLAMA_API_KEY"),
         fred_api_key=env.get("FRED_API_KEY"),
         ssl_cert_file=env.get("SSL_CERT_FILE"),
+        # Phase-9 daemon knobs: `FUND_*` aliases; missing → dataclass default.
+        fund_rebalance_cron=env.get(
+            "FUND_REBALANCE_CRON", defaults.fund_rebalance_cron
+        ),
+        fund_drift_interval_seconds=int(
+            env.get("FUND_DRIFT_INTERVAL_SECONDS", defaults.fund_drift_interval_seconds)
+        ),
+        fund_heartbeat_cadence_seconds=int(
+            env.get(
+                "FUND_HEARTBEAT_CADENCE_SECONDS",
+                defaults.fund_heartbeat_cadence_seconds,
+            )
+        ),
+        fund_orphan_timeout_seconds=int(
+            env.get("FUND_ORPHAN_TIMEOUT_SECONDS", defaults.fund_orphan_timeout_seconds)
+        ),
+        fund_shutdown_drain_timeout_seconds=int(
+            env.get(
+                "FUND_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",
+                defaults.fund_shutdown_drain_timeout_seconds,
+            )
+        ),
+        reprofile_interval_days=int(
+            env.get("FUND_REPROFILE_INTERVAL_DAYS", defaults.reprofile_interval_days)
+        ),
+        summary_token_threshold=int(
+            env.get("FUND_SUMMARY_TOKEN_THRESHOLD", defaults.summary_token_threshold)
+        ),
+        summary_messages_to_keep=int(
+            env.get("FUND_SUMMARY_MESSAGES_TO_KEEP", defaults.summary_messages_to_keep)
+        ),
     )
 
 
