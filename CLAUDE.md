@@ -108,7 +108,7 @@ Full tables and internals → **[`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE
 - **Import-cycle gotcha**: `app/services/_shared/__init__.py` must NOT re-export `bootstrap_benchmarks` — import from `app.services._shared._benchmark_bootstrap`
 - **Scheduler**: APScheduler in-process in `worker.py`, `SQLAlchemyJobStore`. Seven jobs; `universe_build` runs **before** `weekly_refetch` (every step iterates `instruments`, a stale universe caps yfinance). One public step function each in `scheduler.py` — **add new work as a step, not a CLI-only branch**
 - **Gotcha — sync steps need an explicit heartbeat**: only the heartbeat thread stamps `last_heartbeat_at`. A sync step outliving `SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS` (300s) gets falsely reaped and flips to `failed` mid-run. Wrap work in `scheduler._heartbeat()`
-- **Gotcha — reaper is host-scoped**: `reconcile_orphans` fails any active row whose `worker_host != socket.gethostname()`. Run exactly one daemon per DB
+- **Gotcha — reaper is a heartbeat lease** (NOT host-scoped): `reconcile_orphans` fails any active `(pending|running)` row whose `last_heartbeat_at` is NULL or older than the lease TTL — there is **no** `worker_host`/`worker_pid` reap predicate (those columns are observability-only; the removed host-scoped design is stale). Run exactly one daemon per DB
 - **Gotcha — JSONB in test-covered models**: use `JSON().with_variant(JSONB, "postgresql")` so SQLite tests can create the table
 - **Gotcha — transient-error detection** (`infrastructure/retry.py`): case-sensitive substring match. `"Too Many Requests"` trips the breaker; `"too many requests"` does not
 - **Cron weekday gotcha**: APScheduler `from_crontab` numbers days `0=Mon..6=Sun`. Use weekday names (`sat`); a bare `0` fires Monday
