@@ -10,6 +10,8 @@ known-first-party = ["fund"]
 [lint.per-file-ignores]
 # S101: asserts are the substance of a test, not a smell.
 "tests/**" = ["S101"]
-# E402: cli.py must `load_dotenv()` before importing modules that read settings at
-# import time, so its imports intentionally follow that call (mirrors ingestion).
+# E402: cli.py and worker.py must `load_dotenv()` before importing modules that
+# read settings at import time, so their imports intentionally follow that call
+# (mirrors ingestion's worker.py).
 "src/fund/cli.py" = ["E402"]
+"src/fund/worker.py" = ["E402"]
