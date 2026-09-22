@@ -80,6 +80,25 @@ class PortfolioState:
     metrics: dict[str, float]  # best-effort — empty when none persisted (never faked)
 
 
+@dataclass(frozen=True)
+class ReprofileStatus:
+    """Whether a portfolio's MiFID profile is due for renewal — annual-only (Q4).
+
+    A derived, model-free stale marker over the append-only ``mifid_profiles`` table.
+    Only the **annual** leg is wired: the active profile's age vs
+    ``reprofile_interval_days`` (a portfolio never profiled is due too).
+    ``"risk_drift"`` is a *reserved* reason — there is no persisted drawdown/NAV to
+    compute it from today, so it is never emitted.
+    """
+
+    portfolio_id: uuid.UUID
+    due: bool
+    reasons: tuple[str, ...]  # {"annual"} today; "risk_drift" reserved, never emitted
+    profiled_at: dt.datetime | None
+    profile_age_days: int | None
+    reprofile_interval_days: int
+
+
 def drift_l1(current: dict[str, float], target: dict[str, float]) -> float:
     """``Σ_i |current_i - target_i|`` over the union of tickers (D12).
 
@@ -232,7 +251,64 @@ def get_mandate(session: Any, portfolio_id: uuid.UUID) -> PortfolioMandate | Non
     return PortfolioMandate.model_validate(row.mandate)
 
 
+def reprofile_status(
+    session: Any,
+    portfolio_id: uuid.UUID,
+    *,
+    reprofile_interval_days: int = 365,
+    now: dt.datetime | None = None,
+) -> ReprofileStatus:
+    """Whether ``portfolio_id``'s MiFID profile is due for renewal (annual-only, Q4).
+
+    Reads the active (highest-``version``) profile via ``MifidProfileRepository``
+    (lazy import, mirroring :func:`get_mandate` so ``import fund.observe`` stays
+    agent-stack-free). ``profiled_at`` is that row's ``created_at``; a profile at
+    least ``reprofile_interval_days`` old — or a portfolio never profiled — is
+    ``due`` with reason ``"annual"``. ``now`` defaults to a tz-aware UTC clock and
+    is compared against the tz-aware ``created_at`` (a naive ``created_at``, as
+    SQLite yields on round-trip, is read as UTC). ``"risk_drift"`` is reserved and
+    never emitted — no persisted drawdown/NAV feeds it. Builds no model, issues no
+    ``commit``.
+    """
+    from fund.audit.mifid_repository import MifidProfileRepository
+
+    now = now or dt.datetime.now(dt.timezone.utc)
+    profile = MifidProfileRepository(session).get_active(portfolio_id)
+    if profile is None:
+        return ReprofileStatus(
+            portfolio_id=portfolio_id,
+            due=True,
+            reasons=("annual",),
+            profiled_at=None,
+            profile_age_days=None,
+            reprofile_interval_days=reprofile_interval_days,
+        )
+    profiled_at = _as_utc(profile.created_at)
+    profile_age_days = (now - profiled_at).days
+    due = profile_age_days >= reprofile_interval_days
+    return ReprofileStatus(
+        portfolio_id=portfolio_id,
+        due=due,
+        reasons=("annual",) if due else (),
+        profiled_at=profiled_at,
+        profile_age_days=profile_age_days,
+        reprofile_interval_days=reprofile_interval_days,
+    )
+
+
 # --- internals --------------------------------------------------------------
+
+
+def _as_utc(value: dt.datetime) -> dt.datetime:
+    """Read a persisted timestamp as tz-aware UTC (SQLite drops tzinfo on round-trip).
+
+    ``created_at`` is a ``DateTime(timezone=True)`` column stored UTC; Postgres
+    returns it tz-aware, but the SQLite test harness reads it back naive. Treating a
+    naive value as UTC keeps :func:`reprofile_status`'s subtraction from raising.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=dt.timezone.utc)
+    return value
 
 
 def _run_summary(run: Any, *, awaiting_hitl: bool) -> RunSummary:
@@ -412,6 +488,7 @@ def _parse_json_object(raw: str | None) -> dict[str, Any] | None:
 
 __all__ = [
     "PortfolioState",
+    "ReprofileStatus",
     "RunSummary",
     "TranscriptEntry",
     "drift_l1",
@@ -421,4 +498,5 @@ __all__ = [
     "load_run_transcript",
     "pending_hitl",
     "portfolio_state",
+    "reprofile_status",
 ]
