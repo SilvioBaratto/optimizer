@@ -761,7 +761,10 @@ def run_profiler(
         store=store,
         interrupt_config=interrupt_config,
     )
-    thread_config = {"configurable": {"thread_id": resolved_thread_id}}
+    thread_config = {
+        "configurable": {"thread_id": resolved_thread_id},
+        "recursion_limit": config.recursion_limit,
+    }
     result = agent.invoke(
         {"messages": [{"role": "user", "content": _persist_instruction(pid_str)}]},
         config=thread_config,

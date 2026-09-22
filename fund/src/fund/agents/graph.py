@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NotRequired, cast
 
 from fund.agents.backend import build_backend
 from fund.agents.prompts import (
@@ -179,6 +179,62 @@ def build_executor_subagent(
     )
 
 
+def _pm_round_cap_middleware(max_pm_rounds: int) -> Any:
+    """Build the PM-level delegation round-cap middleware (D22 cost cap).
+
+    Defined lazily — the class subclasses ``AgentMiddleware`` — so a bare
+    ``import fund.agents.graph`` drags in no agent stack (mirrors the builders).
+    ``after_model`` counts each PM model round; once ``max_pm_rounds`` rounds have
+    elapsed, ``before_model`` jumps straight to ``end`` (never ``Command(goto=…)``;
+    the ``@hook_config(can_jump_to=["end"])`` decorator is what makes the jump edge
+    exist) and stamps ``pm_round_cap_reached`` — which :func:`run_fund` maps to an
+    ``incomplete`` finalise (reason ``"pm_round_cap"``). This is a deterministic
+    cap distinct from the langgraph ``recursion_limit`` guard (reason
+    ``"round_cap"``): whichever bound is lower stops the runaway PM first.
+    """
+    from langchain.agents.middleware import (
+        AgentMiddleware,
+        AgentState,
+        hook_config,
+    )
+    from langchain_core.messages import AIMessage
+
+    class _PMRoundCapState(AgentState):
+        pm_rounds: NotRequired[int]
+        pm_round_cap_reached: NotRequired[bool]
+
+    class PMRoundCapMiddleware(AgentMiddleware):
+        """Bounds the PM's delegation rounds, jumping to ``end`` at the cap."""
+
+        state_schema = _PMRoundCapState
+
+        def __init__(self, cap: int) -> None:
+            super().__init__()
+            self._cap = cap
+
+        @hook_config(can_jump_to=["end"])
+        def before_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+            if state.get("pm_rounds", 0) >= self._cap:
+                return {
+                    "jump_to": "end",
+                    "pm_round_cap_reached": True,
+                    "messages": [
+                        AIMessage(
+                            content=(
+                                f"PM delegation round cap ({self._cap}) reached; "
+                                "halting without a paper ticket."
+                            )
+                        )
+                    ],
+                }
+            return None
+
+        def after_model(self, state: Any, runtime: Any) -> dict[str, Any]:
+            return {"pm_rounds": state.get("pm_rounds", 0) + 1}
+
+    return PMRoundCapMiddleware(max_pm_rounds)
+
+
 def build_fund_agent(
     model: Any,
     *,
@@ -218,6 +274,7 @@ def build_fund_agent(
         skills=skill_sources("orchestrator"),
         backend=build_backend(config),
         interrupt_on=config.interrupt_on_map(),
+        middleware=[_pm_round_cap_middleware(config.max_pm_rounds)],
         checkpointer=checkpointer,
         store=store,
     )
@@ -519,13 +576,17 @@ def run_fund(
     interrupt = _extract_interrupt(result)
     weights = _optimizer_weights(session, run.id)
     if interrupt is None:
-        # The pipeline ended before the HITL gate — a blocking risk verdict left
-        # nothing to commit. Finalise incomplete; the executor never proposed.
+        # The pipeline ended before the HITL gate. Two distinct causes: the PM
+        # tripped the delegation round cap (PMRoundCapMiddleware jumped to end) —
+        # reason "pm_round_cap" — or a blocking risk verdict left nothing to commit
+        # and the executor never proposed — reason "no_order". Both finalise
+        # incomplete; keep the reason distinct from the recursion-limit "round_cap".
+        reason = "pm_round_cap" if result.get("pm_round_cap_reached") else "no_order"
         audit.append_decision(
             run.id,
             agent="orchestrator",
             step="place_orders",
-            hitl_decision={"decision": "incomplete", "reason": "no_order"},
+            hitl_decision={"decision": "incomplete", "reason": reason},
         )
         audit.finalize_run(run.id, weights={}, status="incomplete")
         return FundRun(
