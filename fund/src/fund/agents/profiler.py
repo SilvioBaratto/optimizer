@@ -34,7 +34,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+from fund.agents.backend import build_backend
 from fund.agents.prompts import PROFILER_SYSTEM_PROMPT
+from fund.agents.skills import skill_sources
 from fund.config import FundConfig, settings
 from fund.schemas.constraint_set import ConstraintSet, EsgPolicy, UniverseFilters
 from fund.schemas.enums import (
@@ -68,6 +70,7 @@ __all__ = [
     "assess_suitability",
     "build_constraint_set",
     "build_profiler_agent",
+    "resume_profiler",
     "run_mapping",
     "run_profiler",
 ]
@@ -428,11 +431,47 @@ def _hash(payload: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+# Extraction guidance for step 0. A small tool-calling model ignores pydantic field
+# descriptions and hallucinates its own shape (e.g. a numeric ``horizon_years``
+# instead of the ``horizon`` enum), so the exact enum vocabulary is pinned in a
+# system message — the single reliable lever that made ``deepseek-flash`` emit a
+# valid ``MiFIDAnswers`` from free text.
+_EXTRACTION_SYSTEM_PROMPT = (
+    "You extract a MiFIDAnswers object from the client's free-text answers. Use "
+    "ONLY the schema's fields and exactly these enum values:\n"
+    "- knowledge.level: none | basic | informed | advanced "
+    "(knowledge/experience, NOT risk tolerance)\n"
+    "- objectives.goal: protection | income | growth | max\n"
+    "- objectives.horizon: short | medium | long. Map any stated duration to one "
+    "of these (< ~3 years -> short, ~3-7 years -> medium, > ~7 years -> long). "
+    "Never output a 'horizon_years' field or a numeric year for horizon.\n"
+    "- objectives.loss_reaction: sell_all | sell_some | hold | buy_more\n"
+    "- objectives.likert_items: a non-empty list of integers 1-7\n"
+    "- capacity.max_1yr_loss_pct: a fraction in [0, 1] (e.g. 40% -> 0.4)\n"
+    "- capacity.buffer_months: months of expenses (>= 0)\n"
+    "- esg.exclusions: a subset of the 11 GICS sectors, or empty\n"
+    "- base_currency: an ISO-4217 alpha code (e.g. EUR)\n"
+    "Fill every required field from the client's statements; do not invent fields."
+)
+
+
 def _normalise_messages(questionnaire: Any) -> Any:
     """Coerce a bare questionnaire string into a one-message list; pass lists as-is."""
     if isinstance(questionnaire, str):
         return [{"role": "user", "content": questionnaire}]
     return questionnaire
+
+
+def _extraction_messages(questionnaire: Any) -> Any:
+    """Prepend the extraction system prompt to the normalised questionnaire messages.
+
+    Pins the enum vocabulary so a small tool-calling model maps free text onto
+    ``MiFIDAnswers`` reliably (schema field descriptions alone did not suffice).
+    """
+    return [
+        {"role": "system", "content": _EXTRACTION_SYSTEM_PROMPT},
+        *_normalise_messages(questionnaire),
+    ]
 
 
 def _prompt_text(questionnaire: Any) -> str:
@@ -446,7 +485,11 @@ def _persist_instruction(portfolio_id: str) -> str:
     """The human turn that drives the agent to call ``save_profile`` once."""
     return (
         f"The suitability assessment for portfolio {portfolio_id} is complete and "
-        f"validated. Call save_profile with this portfolio id to persist it."
+        f"validated. Call the save_profile tool now with this portfolio id. "
+        f"save_profile is gated: calling it writes nothing immediately — it pauses "
+        f"the run for the adviser to approve or reject before any write. Calling it "
+        f"is how you reach that review gate, so you must call it now. Do not reply "
+        f"with prose and do not withhold the call pending approval."
     )
 
 
@@ -628,6 +671,7 @@ def build_profiler_agent(
     checkpointer: Any,
     store: Any | None = None,
     interrupt_config: dict[str, Any] | None = None,
+    config: FundConfig = settings,
 ) -> Any:
     """Assemble the ``deepagents`` profiler agent (SPEC §8.5).
 
@@ -637,6 +681,12 @@ def build_profiler_agent(
     flag-surfacing description) customises the pause; a bare ``True`` falls back to
     the default gate. ``temperature=0`` / the DeepSeek route are carried by
     ``model`` (built from ``FundConfig``), not passed here.
+
+    The profiler runs under the theory-staged ``virtual_mode`` backend and loads its
+    ``mifid-profiling`` skill through it (Risk R1), so the consultation protocol in
+    ``PROFILER_SYSTEM_PROMPT`` can reach ``optimizer-theory/`` — the profiler is
+    step 0 and must ground its suitability reasoning in the staged theory, not
+    parametric memory, like every other role.
     """
     from deepagents import create_deep_agent
 
@@ -647,6 +697,8 @@ def build_profiler_agent(
         model=model,
         tools=tools,
         system_prompt=PROFILER_SYSTEM_PROMPT,
+        skills=skill_sources("profiler"),
+        backend=build_backend(config),
         interrupt_on={_SAVE_PROFILE_TOOL: gate},
         checkpointer=checkpointer,
         store=store,
@@ -706,7 +758,7 @@ def run_profiler(
     answers = structured_call(
         model,
         MiFIDAnswers,
-        _normalise_messages(questionnaire),
+        _extraction_messages(questionnaire),
         retries=1,
         fallback=fallback,
     )
@@ -760,6 +812,7 @@ def run_profiler(
         checkpointer=checkpointer,
         store=store,
         interrupt_config=interrupt_config,
+        config=config,
     )
     thread_config = {
         "configurable": {"thread_id": resolved_thread_id},
@@ -784,3 +837,104 @@ def run_profiler(
         thread_config=thread_config,
         session=session,
     )
+
+
+def resume_profiler(
+    run_id: uuid.UUID | str,
+    decision: str,
+    *,
+    session: Session,
+    checkpointer: Any,
+    store: Any | None,
+    model: Any,
+    config: FundConfig = settings,
+) -> dict[str, Any]:
+    """Resume a paused MiFID profiler run from a fresh process (rebuild-to-resume).
+
+    The cross-process counterpart of :meth:`ProfilerRun.resume`. An observer — the
+    CLI ``approve``/``reject``, the TUI HITL queue — cannot hold the live
+    :class:`ProfilerRun` (its ``agent`` / ``session`` are process-local), so it
+    rebuilds the profiler agent against the *same* ``checkpointer`` + ``thread_id``
+    and issues ``Command(resume=…)`` itself. The run's inputs are recovered from the
+    audit trail: the ``normalize_answers`` decision carries the typed
+    ``MiFIDAnswers`` as JSON, and :func:`run_mapping` is a *pure* function of those
+    answers, so the ``ConstraintSet`` + ``SuitabilityAssessment`` are re-derived
+    deterministically (they are never persisted before the gate). On approve the
+    gated ``save_profile`` executes inside the graph — writing the ``mifid_profiles``
+    row, caching the active ``ConstraintSet`` in the Store, and finalising the run
+    ``completed``; on reject nothing is written and the run is finalised ``rejected``
+    (symmetric with :meth:`ProfilerRun.resume`). ``decision`` must be ``"approve"``
+    or ``"reject"``; an unknown ``run_id`` raises ``LookupError``. Every write goes
+    through the injected ``session`` (caller owns the transaction). Mirrors
+    :func:`~fund.agents.graph.resume_fund` for the ``place_orders`` gate; the CLI /
+    TUI dispatch on the run's recorded ``step`` so the two paths cannot diverge.
+    """
+    if decision not in ("approve", "reject"):
+        raise ValueError(f"decision must be 'approve' or 'reject', not {decision!r}")
+
+    from langgraph.types import Command
+
+    from fund.audit import AgentRunRepository
+
+    rid = _coerce_uuid(run_id)
+    audit = AgentRunRepository(session)
+    run = audit.get_run(rid)
+    if run is None:
+        raise LookupError(f"no agent_run {rid}")
+    if run.portfolio_id is None:
+        raise RuntimeError(f"profiler run {rid} has no portfolio to resume")
+    resolved_thread_id = run.thread_id or str(rid)
+
+    # Recover the typed answers logged at ``normalize_answers`` and re-derive the
+    # deterministic mapping — a pure function of the answers, so no ConstraintSet
+    # need have been persisted before the gate.
+    answers_json = audit.latest_profiler_answers(rid)
+    if answers_json is None:
+        raise RuntimeError(
+            f"profiler run {rid} has no normalize_answers decision to resume from"
+        )
+    answers = MiFIDAnswers.model_validate_json(answers_json)
+    pid_str = str(run.portfolio_id)
+    constraint_set, suitability = run_mapping(answers, portfolio_id=pid_str)
+
+    save_profile = _make_save_profile(
+        session=session,
+        store=store,
+        config=config,
+        answers=answers,
+        constraint_set=constraint_set,
+        suitability=suitability,
+        run_id=rid,
+        portfolio_id=run.portfolio_id,
+    )
+    interrupt_config = {
+        "allowed_decisions": ["approve", "reject"],
+        "description": _interrupt_description(pid_str, suitability),
+    }
+    agent = build_profiler_agent(
+        model,
+        [save_profile],
+        checkpointer=checkpointer,
+        store=store,
+        interrupt_config=interrupt_config,
+        config=config,
+    )
+    thread_config = {
+        "configurable": {"thread_id": resolved_thread_id},
+        "recursion_limit": config.recursion_limit,
+    }
+    result: dict[str, Any] = agent.invoke(
+        Command(resume={"decisions": [{"type": decision}]}),
+        config=thread_config,
+    )
+    if decision != "approve":
+        # Reject writes nothing, but records the HITL choice + finalises the run so
+        # no 'paused' orphan is left behind (symmetric with ProfilerRun.resume).
+        audit.append_decision(
+            rid,
+            agent="profiler",
+            step=_SAVE_PROFILE_TOOL,
+            hitl_decision={"decision": decision},
+        )
+        audit.finalize_run(rid, weights={}, status="rejected")
+    return result

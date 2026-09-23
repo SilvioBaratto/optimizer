@@ -9,9 +9,10 @@ over the model-free read model (:mod:`fund.observe`); the App owns every side ef
   dataclasses, and rolling back — the UI never holds a transaction or an ORM row
   across ticks.
 * **Resume off the event loop.** Approve/Reject dispatch :meth:`_resume_worker`, a
-  ``@work(thread=True)`` worker: the synchronous ``resume_fund`` (which drives
-  ``agent.invoke``) runs on a background thread so the event loop never blocks, then
-  marshals its UI updates back with ``call_from_thread``.
+  ``@work(thread=True)`` worker: the synchronous ``resume_run`` (which dispatches to
+  the profiler or rebalance resumer by gate and drives ``agent.invoke``) runs on a
+  background thread so the event loop never blocks, then marshals its UI updates back
+  with ``call_from_thread``.
 * **Lazy model, light import.** ``import fund.tui.app`` pulls only Textual + the
   agent-stack-free read model — no ``deepagents`` / ``langgraph`` / model, so it needs
   no ``OLLAMA_API_KEY`` and no ``DATABASE_URL``. The chat model is built lazily via the
@@ -190,13 +191,13 @@ class FundTUI(App):
 
     @work(thread=True, exclusive=True, group="resume")
     def _resume_worker(self, run_id: uuid.UUID, decision: str) -> None:
-        """Rebuild the PM agent and resume the gate — off the event loop.
+        """Rebuild the paused run's agent and resume its gate — off the event loop.
 
         The model is built lazily here (a missing ``OLLAMA_API_KEY`` surfaces as a
         clear status line, not a crash). All UI touches marshal back to the main
         thread via ``call_from_thread``.
         """
-        from fund.agents.graph import resume_fund
+        from fund.agents.graph import resume_run
 
         try:
             model = self._model_factory()
@@ -205,7 +206,7 @@ class FundTUI(App):
             return
         try:
             with self._session_factory() as session:
-                resume_fund(
+                resume_run(
                     run_id,
                     decision,
                     session=session,

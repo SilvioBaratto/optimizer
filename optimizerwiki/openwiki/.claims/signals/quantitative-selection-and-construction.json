@@ -1,0 +1,240 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:38751c363e14fba40e9007585d6709706bb0aa5da618e0432c5f3b4e289b6dba",
+  "claims": [
+    {
+      "id": "claim_9717d96338eb4b5d845b7cffb3b9d959",
+      "statement": "Theoretically correct equity valuation has never been made operational, so ad hoc quantitative methods are used, governed by the principle of humility (the market may be right and we wrong) and the fundamental law of active management (one need not be right much more than 50 percent of the time to add value).",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L16-L16",
+          "version": "repo-lines-v1:sha256:4879abf6a4ddca14bf485ffc111f3fd1b919084eb9b0fa70ba6f7574c44712a7:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDg3OWFiZjZhNGRkY2ExNGJmNDg1ZmZjMTExZjNmZDFiOTE5MDg0ZWI5YjBmYTcwYmE2Zjc1NzRjNDQ3MTJhNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDg3OWFiZjZhNGRkY2ExNGJmNDg1ZmZjMTExZjNmZDFiOTE5MDg0ZWI5YjBmYTcwYmE2Zjc1NzRjNDQ3MTJhNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjEwMTM0MjIwNTQ1MDcwNTMyMjE0NjYyMWJiNzMyOGY1YzZjMjhjMDI5NTU5OGEyMDBiMWY0NmJiZTgzZDRjNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTk3M2M2NDhhNTBjNTVlNjUzMzBkMTU2NDU2NjhhOWYxNWYyNWUyZmU5YTQ5YTY3ZDkzMGE2ZmMxNDVkNjNjOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_bf61949af59c45c4a9127fc58ec4543c",
+      "statement": "Modigliani-Miller theory implies dividend policy affects only the timing of shareholder cash flows (pay me now or pay me later) not their total value, and financing policy does not alter total firm value, so any valuation scheme placing magic in dividends or debt is dangerous.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L18-L18",
+          "version": "repo-lines-v1:sha256:e7c9f28ef473af44a02dd9ec550f9ff2b926b9488c254f9dcfaff723fb78650b:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTdjOWYyOGVmNDczYWY0NGEwMmRkOWVjNTUwZjlmZjJiOTI2Yjk0ODhjMjU0ZjlkY2ZhZmY3MjNmYjc4NjUwYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTdjOWYyOGVmNDczYWY0NGEwMmRkOWVjNTUwZjlmZjJiOTI2Yjk0ODhjMjU0ZjlkY2ZhZmY3MjNmYjc4NjUwYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTY3ZDgwMTkyMWE3NzI4MTgyZmJmZjg4YWUyNjBmNDAzYTY4NDI1OGMxZTg2ZTQ0ZDkzM2Y5MTc5ODRiZTA3NiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTZhNzk3ODM4Y2Y1MDdlOGE4MmJhM2QyYTc2NDM2MTE4ZDM4NDZmYWYwM2Q0NDk1M2RmNDFjMTIwMGY1NGI1MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_aef39727a1474fa89b3b63bdac8e2a95",
+      "statement": "The constant-growth (Gordon-Shapiro) dividend discount model gives p(0)=d(1)/(y-g), and decomposing return into yield and appreciation yields i_F+f = d/p+g = y with a simple growth model giving g=(1-kappa)*rho where kappa is the payout ratio and rho the return on reinvested capital.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L24-L32",
+          "version": "repo-lines-v1:sha256:f4fdf20f2c753a969172fca9a730a873f7ffbf96f4b7cafc1fe1c26504ccf9a9:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODkwNzgxOTJmZDJmYzIzN2U1MzBlMDkzYzYzZmZkNzE2MzVmZDNjYjE5ZGQ4YWY2Y2M1ZDM4MzY2ZGIwMzJmNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDkyZGRkNTMzNjJmZGI3MjhlMTc4YmU1YTcxNjEwZTRhZTdiOTY1NTg3ZTQwZDQxZTJjZWU2MzBiMDYyODcwOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjA2NjUxNmIwZWU5MDNiYTk2NzljY2Y3MGU0MjYxODcxZDc1ZTU5ZWZiZTU1MzcyNjk4ZDQxM2NjM2ZhYTI4NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTRlZmQzMjQwOTY3M2JjYjU2NjQ2OTg0Mzc1YzExOWU3YjM1YWVhYzc2ODZlNDY1ZTQ0ZGE4YTA5MDFkMDJjYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9ab19af4c982438c9fb6f0a6882ab747",
+      "statement": "Substituting f_n = beta_n*f_B + alpha_n into the per-stock relation gives the alpha model alpha_n = (d_n/p_n - i_F) + (g_n - beta_n*f_B), expressing the Golden Rule 'g in, g out' whereby each percentage point of input growth adds one point to alpha.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L34-L38",
+          "version": "repo-lines-v1:sha256:eea3f44771e6a9d501b049ec0c9a0a277e12b133c6f3d9582dfb3a4bf560cc43:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDk3Mzk3ZmRlMzhhMjBiYWU0MDY4ZDRmYWM3ZWVkMTMxN2EzNjU3OWQzODYwYzJiZmM4MGJmZmZjNWY2ZGRhNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGFiOWYxYzNkN2QwZWM5ZDI0MDdlNjAxMzczZjk1MzhhYjJkN2Y0OGNmOTMzYTgwMWM4NDBmYTc1MmY2NWE0YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2E2OGFlYzQ1NGQ3MzU0NDU0YzI3ZmQ1YThhMzIwZmRiZWVmN2M4ZTcyMGQ0MTg5OGI1ZjQ2NWVkODE0MjAzMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWQ1ZTIwZDk5Mzk4YzQzZjk1YWRjYzRhZjdkZDliYjQ0MTQxNWVkNjkxZGE1NDY4NmQ5YjIwNDRiZDBjMTA2MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_24c7a30e972749709bd1d1429ad50e2c",
+      "statement": "Setting alpha_n=0 gives the implied growth rate g*_n = (i_F + beta_n*f_B) - d_n/p_n, and combining with the alpha model gives the central conversion relation alpha_n = g_n - g*_n: the dividend-discount-model alpha is forecast growth minus the growth implied by the market price.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L38-L46",
+          "version": "repo-lines-v1:sha256:04ad5ed370a229b4f5fbc80ba75282d90c4aa46c7f597bb57512de0add396764:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGFiOWYxYzNkN2QwZWM5ZDI0MDdlNjAxMzczZjk1MzhhYjJkN2Y0OGNmOTMzYTgwMWM4NDBmYTc1MmY2NWE0YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmJiZDM5MWIyMzMyMTgzODI3NDQ0YWEzNzhkMTJlNzE1MTdiNzQzZDQ2NGQ2NDMyYjg1MDFlYjNmYTdiYTEyOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzgyY2Q3NzMxNmY4N2RmNWM2NDI1OTQ3MGUxOTQzZWM0ZTQxZTExMWFhMzI4YmFiNDdlZmRkMjA1Zjc2YTljOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWU2MTI3NDc4NDYzZWJkZjNlN2MwMmEwOTUxNzNiNTQzYTdkMzE0NzJkYjYzNTA5NjM2ZmViMzBjYzY2ODQ1ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ff783f63e28b4f3db377c2eaab228b80",
+      "statement": "The direct rebasing approach applies a linear transformation g'_n = Mean{g*} + (Std{g*}/Std{g})(g_n - Mean{g}) so revised forecasts match the sector's implied-rate mean and standard deviation, but because implied rates assume zero alphas it pushes sector alphas toward zero and can erase sector-timing information.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L52-L56",
+          "version": "repo-lines-v1:sha256:cb08ea0083bb6068906662a418b8981b7da0a71ac2cbb6f30bad7e01537f03af:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTJjNTRiOWEyZDU2NjQ5MGJiMjUzZTAyMDcwOTIyMjg2Zjc4YWY2ZGQ5NzI1YzE4NTgzNTk4YjU4MTE1YjcyNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWNmNGRkNjE2ZGU0MDY5NTMzMmQxMDUyNDg5MmRjOTNkZGY4NzdlMmRiZmEwZWRjMjg1NzQxNTdmZjFlOGUxYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjczOGQ4Yjg1NDYzYWM5NTIyOGQwNDM1OWEyMTg1MzAxMTg2Y2ZmZWZhNzNjOTdiNTM3YTAwNTFjM2M2MzYyNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzhhZmUwZTI1Zjc2Y2Q1ZDM2NjcxYjRkZTM1NDMyZmQ0NGNhNjYyZGQxZDMwYzE4ZjdhOTdkZDY5MGM3NTBjMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_10449d0e683c4871aaf15ea587b1c64d",
+      "statement": "The skill-based approach shrinks from the stock's own implied rate via g'_n = g*_n + c(g_n - g*_n), where c depends on the investor's skill measured by the correlation between forecast and realized growth; with no skill c=0 and revised growth coincides with the implied rate.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L58-L62",
+          "version": "repo-lines-v1:sha256:e3331809c17cd30c7169a7e14efd369196956102ea4949e2e8685bdf271da0d6:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDYyYzdhNmUyNTQ2ZDE2ODBiN2NmZTEwMTk4Nzg4NjYzODQ2ODYxYzVkYmQxYjZkZWE2NjNlMzQxYTZiMGM4MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzM0NTNlNTg5NmRiMGZmNWU4ZTAyODZlYjBmNThkOWU0MjM1MzhmNzIwMmEzOGY2MjJiYzI2NjhlMTEzNmY5MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDhiMGMzNzZkMzg4YzNjMDJlNjY4NjFjODg1ZWM0ODliMDg1NjhlMzVlNWFiZjgyZmYzZDM2ODgxNDcxMjU5OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTVmN2U4ODQ5M2ViN2E0YWVjOWRmYjVmMmI1ZjY3MzM0NjFjNDc3NDYyY2NhZGQ0OWE4NjIzNzg4OTgyN2UzZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_dc586b6d5b2145379cc0b4013810e466",
+      "statement": "In the internal-rate-of-return mode, alphas assume the mispricing persists: aggregate rates estimate f_B = sum y_n h_{B,n} - i_F, then alpha_n = y_n - (i_F + beta_n*f_B), because after a year the correct discount rate is still y_n not the fair i_F+beta_n*f_B.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L68-L76",
+          "version": "repo-lines-v1:sha256:3e940d75af07031e658cc0ccf3092084bb4f7390c98520892d4ebba00572d199:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODgyYmE1NzY4OGFlZjM0ZWIwOWEwMmE3MzdiMzQwMzgwYzU4N2RmMmVlOThkN2ZhZGQ2MTcyNWQzZDY0NDA5ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTk1ZWY2MzJmNzc1MmZhOTVmMGJmNGY1YmZmYWZhNzUwNzMxYTZiMTlmZWJmMmFjZDY2Y2U5YTZmZjExMGMwNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmVmYTdlZmZkOWJkZTYyNGI1ZmNhYjI3ZjQ2NGVlNzI4YWQyMjYyNmI4MzdjNmIzYWRmZjA4ZTM1NWZhYmJmOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGIwZGE3NjAxMWYxOWI4MzhiMWMyZmRlYzU1MmU5YjgwMTJmZTliOGY1MTlmYjQxZmQ4OGY5OTNlY2NiZDIyOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_aa28512d3ea4479d8bcd2d34d0dc0db9",
+      "statement": "In the net-present-value mode the fair rate y_n = i_F + beta_n*f_B solves for the fair price, and assuming the price error vanishes in a year the alpha is alpha*_n = [(p_model - p_market)/p_market](1 + i_F + beta_n*f_B), approximable by the percentage price error alone.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L78-L82",
+          "version": "repo-lines-v1:sha256:a75d053055140495d88e14d1825fdbd497844bc99e322a02442a4f1e858a00d8:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzMwZWRkYzQ3MmMxNmJlMjNjZjA0NTQyOTI0OTczMDNlMzY0ODNmYWY0Mzc2NmY5Y2NlZWNjNmVkOTllNTg4MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmQzYTAwZmUxODJiMzM3Y2I1ZDk3MzM3ZmQ0N2UyM2U2Y2M1M2JmNjQzMTU3OWI4NDEwMTQ3Yjg0ZjhmYjY5YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWQyYzZmODk4MWY2YmRjZDlmMDRkZWEyOTQzZmY0ZmUyNzY3MDEwYmQ0Y2NlNjc4YjgyMjM4NzRjNzBhMjE5YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2FlNDQ3OWY3NWIzZTRlMDc5Njg2YzRlMDFjMTYzYmMxYmNhZDQwMmNmODcwYWM1NzNkY2RjZGI0NDkwYWQ0MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_76a5201e1f0a4f2099191d15bf8cf0fb",
+      "statement": "Comparative valuation uses the clean-surplus equation b(t)=b(t-1)+e(t)-d(t) to express price as p_n(0)=c_1 b_n(0) + c_2 e_n(1) + eps_n with common coefficients, the error identifying mispricings and giving alpha = (theoretical price - market price)/market price, read as arbitrage between identical over- and under-valued meta-firms; an omitted attribute (e.g. brand value) can make price errors measure the missing factor rather than a true mispricing.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L84-L92",
+          "version": "repo-lines-v1:sha256:52944dbf9c93819423e9afb62945e1dfd38c684d67c7fd94db08173fca191a51:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWRmZTBkYWVhMWQ5YmVmZDc4MTk5ZmQ2ZTVkOGFhODgyMWM3MzcwODI4NWFkMzFkODk0MDBmZWEyNzUxZWEzNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjFiY2M0MjdlZWI0NWU5MjBhN2U4YmFjNDM2NmRkYzdhM2M3Yjg3MDZkZjExMDJiM2UzNjM1YjY2MGM4NmRiYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDFiMzBmNzE5ZDRjYjA3MmIzZGNjNjVhMDdmY2M0NjczYjc1MGIxMzUxMjFmYWNlNWFhYWJhYTgzNzYyNjUzNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTJmMGU5YmExOTAyZWQyNjkyNTUwOGEzMjA3N2FhZTlhOGEzMTJkYTBjZmUyZmEwM2QzMTdiZjIyMWRhZDIxOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c2afd42815344232892f70651e2bdb92",
+      "statement": "Returns-based analysis models r_n(t) = sum_k X_{n,k}(t) b_k(t) + u_n(t) in an APT-like form where in a GLS regression the factor return b_k(t) is the return of a factor portfolio with unit exposure to factor k, zero to others, and minimum risk; because least squares is outlier-sensitive, a practical rule compresses the X_{n,k}(t) within +/-3 standard deviations of the mean.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L94-L98",
+          "version": "repo-lines-v1:sha256:5b679e0606befc77160526814604c5ffafb9ec4dbab3d06597d7e1f43ba2c9b1:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmYxMjAwYjU3YTc0NzljNWNjYWExYzI0Y2JiNmVlZjliNTYyMzg1ZDUyZTFkMGMzNDZlM2IwNTk5MTg5MDRjNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzIzZTk2N2ZjZDEwZmEwMjE0ZmQxYTI2YWU3MzAxYWEyNTg0NTZjMWY1YzI1OGYwYmM3Y2E2YjUyMjQ3NDQzNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDQ1NzUwYjI2MDg1OWE1YTVhZDc1MWM5Nzc1ZGRmZWYxNTVhNWNlNjZkMzExNGZjMTNkM2IxNzcxODAzNzM1YiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjU0MDJjMDI5ZDIzMTUyMjAzZTZkNjU2YjMwYzdiNGJhODg1NDMzODljZjJhOTZjODA3ODRhNjllODIxMTM0NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1f72a2f97f6743daade5646091607efc",
+      "statement": "Every predictor is signal plus noise (the signal linked to future returns, the noise masking it; random numbers are all noise), and information analysis measures the signal-to-noise ratio; information classifies along four dimensions (primary/processed, judgmental/unbiased, ordinal/cardinal, historical/contemporaneous/forecast), with ordinal data ordering stocks into preference groups and cardinal data assigning meaningful-magnitude numbers.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L102-L104",
+          "version": "repo-lines-v1:sha256:bffb758f78a4e3126f575f2ea24693ff4b3508828b235420d38fe6d6f961845f:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTA5MTNmNTY3M2RjOWQ4YjI2NTkyMDk5NjI5OGJiNjhlZTM4NTI1MDExZTFiZTMyZTYzYzRhZDdlNzg4OTViNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjQ1YjI1MWE5YWMwNDRmNDY5MzIwZjhmMGJmMDNlZGIwZGE3Zjk0YjczMzdmOTQxMzhhYzkyZjE1YmNlNmEyNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjU0MDJjMDI5ZDIzMTUyMjAzZTZkNjU2YjMwYzdiNGJhODg1NDMzODljZjJhOTZjODA3ODRhNjllODIxMTM0NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzhjMDI0NTIxMTM0N2NiYTFlNWI4MTVlMDQzZjM5ZTE3YWFkODE5OTkxODRiOTk4ZmRjZTBlNzIzYjIyOTNjZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b469ba1c29ae4a54a5689f639f641e0a",
+      "statement": "The information coefficient is the correlation between the data and realized alphas: 0 for all noise, 1 for all signal, possibly negative for a perverse relation, always between +1 and -1, and the structural result used is alpha = volatility x IC x score with the score of zero mean and unit standard deviation.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L106-L106",
+          "version": "repo-lines-v1:sha256:c4d1cbc2bf039a2409d9967995e6c2e0cb6a850694438759d742ef0d5eb36d89:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzRkMWNiYzJiZjAzOWEyNDA5ZDk5Njc5OTVlNmMyZTBjYjZhODUwNjk0NDM4NzU5ZDc0MmVmMGQ1ZWIzNmQ4OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzRkMWNiYzJiZjAzOWEyNDA5ZDk5Njc5OTVlNmMyZTBjYjZhODUwNjk0NDM4NzU5ZDc0MmVmMGQ1ZWIzNmQ4OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2NkNGZjOWI5ZThhOGFhMTMwOTY4MzU2OTA5M2IzZDA4NjAzNjIzYTU4ZDU4MGJmOWJiYTRiZmI2NmQyMTAzMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTYxM2VkYTI1Y2EyN2YxODlmMGM3Y2QyZDIwODBiNjQ3NzhmOTQzZDExZDBhMTcxZDlkMjIwYjRiNjY0MjhlNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7fa3b87d2263457ab77e9394e0beb466",
+      "statement": "Information analysis is a two-step process (turn forecasts into portfolios, then evaluate them) generating a portfolio per period; buy/sell recommendations equal- or cap-weight the groups, scores build a portfolio per category (sorting book-to-price into quintiles 5 to 1), and true alphas are sorted and grouped into quintiles/deciles/halves to form score-portfolios.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L108-L112",
+          "version": "repo-lines-v1:sha256:a0fa0307c9ad2972524abd6d6c3e179efe0b968394ae3ed60e0088d4a555640d:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTI5ODA3Y2M0MDc0OGJhYTMwYTAxYjZjZmY0ZDljMTkyMGJiNTZjYzg4NTU4NjQ3MzUwZGNkYzBmMmIzMDQwNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWE3MGMzNmE3ZDRlNGM2ZjdmZmVjOTA1MTNjM2JmYjllZmY5Zjg5YTYyYjQ4ZDIzZjZjNDU5NTUxMWZiNWI0OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzhjMDI0NTIxMTM0N2NiYTFlNWI4MTVlMDQzZjM5ZTE3YWFkODE5OTkxODRiOTk4ZmRjZTBlNzIzYjIyOTNjZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTllMTZjNDQ2MjZjYzhlNWZhZDI2YzNiNGIxZWJhMTE4YTYwZTA4YzczMjdiMTIxN2IxZGUwYmViZjc4YzM2MiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1edfb55cf3404caba8f8409688acae6b",
+      "statement": "Factor portfolios isolate the signal without betting on the market: a long and short of equal value and equal beta such that the long has a unit bet on the forecast relative to the short (for book-to-price, one standard deviation above), optionally matching long and short on prespecified controls (sector, industry, small-cap exposure, beta); as a controlled experiment they are the recommended approach for analyzing any numeric score, and different construction approaches from the same base information give different observed performance and information-content estimates.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L114-L114",
+          "version": "repo-lines-v1:sha256:b6dc60966f026a111e687f25413a3c72dae19b9b1d5377eb47971dbece641139:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjZkYzYwOTY2ZjAyNmExMTFlNjg3ZjI1NDEzYTNjNzJkYWUxOWI5YjFkNTM3N2ViNDc5NzFkYmVjZTY0MTEzOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjZkYzYwOTY2ZjAyNmExMTFlNjg3ZjI1NDEzYTNjNzJkYWUxOWI5YjFkNTM3N2ViNDc5NzFkYmVjZTY0MTEzOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2Q4NzA3ZjI5Y2Y3MzUzZWM4OGExN2FmNDZjODcyNTY5ZDIzYzNmNDBkYTBmNTU3MGI2MDg0NDg3MTJlMjc5NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzMxMzBjMWQwZmYyZDRjYTY3NzNlZjc4MjkzYTNlOTQwYTc4NmVkZTlkYzQ4NDQzNTJhZGEyM2NiYjQ5NWJlZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d1c3a0e0b2424a5284af1c59ff79084a",
+      "statement": "Regressing r(t)=alpha+beta*r_B(t)+eps(t), the t-stat = alpha/SE(alpha) tests significance (a value above 2 means below 5 percent probability the returns are pure luck), the information ratio relates as IR approx t-stat/sqrt(T) over T years, and the t-statistic measures statistical significance while the information ratio captures the risk-return trade-off and value added.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L120-L134",
+          "version": "repo-lines-v1:sha256:3144f30735faa8e2941d8414c019faa4b8d5126e40819daaed99d1cb2f5a38e8:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImExOTM2YjRlYzVmZGM1NzcxZmY2MDNjNGU2MzI0Yzc1MWJiMWJmYjNlOWNjOGJiY2YyMjY3YjI3YjQzMjJlNmYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAzY2MzYzU0NTEwNjczYWIyOTFlMDI3YTcyMTY2YTQ2ZWM2YTkwYmMxMTFmZTc5MTJkNDNlYjA4MDFmNjU0OGMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjI0NjlhN2RiYzFmNTU1ZGRiYTNkODFlM2FhYWEwNjYyYzIxYzBhZjI3NmEyZmMwZmZkODlmMmZkNDU5ZmYxOTMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjRhZjBlN2U3Mjg0YTA3ODNmNDhkNzE1NTYwMTM5MDg1MDNiM2Q2ZTAxYjZjNmQwMzAyMTAyNDNiZGFmNjA4Y2YifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_45cbab8ce5e8425ba99d3ce99671c909",
+      "statement": "The information coefficient links to the information ratio by the fundamental law IR approx IC*sqrt(BR), where BR is the breadth (independent bets per year the information allows), which in practice is harder to measure than either the IR or IC because not all information items are independent.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L136-L140",
+          "version": "repo-lines-v1:sha256:0adf51e4001d3193dfda2ad033064059dcbf2726c209e704b10486fcc4d8e004:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTgzMDc1ZmQ4ZjMxNzMxOTEwZmE4MWFjYmZkZDk2OGUzMzg0M2M1ODNjYzg5NDU2OTkxOWYyYmM2NDE2NDQzYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjEwNTZmMThiZDgxMDgwNTU1MmQ3MDllODQ3ZDYzOTRiYTIyZTAxYTc3MjcxZmNmNjJjMzkzMDc5ZGQxODhhYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjBhZTRiNDU5NGJjYzA1NDg2ZTM3NmYyNTBiOGRhZmIxYTY1Y2QxNzk5OTY2ZGU3YjljYjM5OTcxOTNjZmVkYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjk2N2E3YTNjOThlNTAyMjQ0MGFjODJkYzRmYzA1MWRmNzIxODY5ODZiMTEyYjhkMDIxOWE4NDVmMTE2YjI3YiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3ced8d6082c54e628c102c262c474b3d",
+      "statement": "Any construction procedure can be replicated by refining alphas then running unconstrained mean-variance optimization: a constraint set giving active positions h*_PA, active risk psi*_P and information ratio IR corresponds to modified alphas alpha' = (IR/psi*_P) V h*_PA with lambda'_A = IR/(2 psi*_P).",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L144-L148",
+          "version": "repo-lines-v1:sha256:cd02da9ebd3f7fbef19701ce7ffdf7016e93a8881fe9f86db3b0aa513d504fd5:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDdhMjZmODYzOTM4ZjY5NjAyMDYzYmI4MGMyZWFiMzhiMzRlMTBlMmNiNmVkZDdmNTc0YWEzNTg3MzViNzAzMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTM5YWVlMzZhNGE5NWQwM2MzMWQ5NGJjMzIwYjdmYWQ5MGE3ZWJhY2FlZjJiNmYwMTBkODU4YWRhZmU5MmJjZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjk2N2E3YTNjOThlNTAyMjQ0MGFjODJkYzRmYzA1MWRmNzIxODY5ODZiMTEyYjhkMDIxOWE4NDVmMTE2YjI3YiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZWZmMzBmOWM4NjM1YzM5YmE4OGNlZTNjM2MzM2UxMjY4MTQxZmQ4ZDRiMTQ0MDg2MGNiMTdlY2Q0OWUwMDg2NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_afee689986a647eb9e8937641be6a65d",
+      "statement": "Alpha scaling follows Std{alpha} ~ volatility x IC: an IC of 0.05 and 30 percent residual risk give a 1.5 percent alpha scale (about two-thirds of stocks within +/-1.5 percent, about 5 percent beyond +/-3 percent); in one example original alphas of 2.00 percent standard deviation become 0.57 percent after constraints, implying the constraints reduced the IC by 62 percent.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L150-L150",
+          "version": "repo-lines-v1:sha256:a2a58c70a2fbb591f8fc3b1e53f2d4c612967e50fb301e5be5381b2468390345:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTJhNThjNzBhMmZiYjU5MWY4ZmMzYjFlNTNmMmQ0YzYxMjk2N2U1MGZiMzAxZTViZTUzODFiMjQ2ODM5MDM0NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTJhNThjNzBhMmZiYjU5MWY4ZmMzYjFlNTNmMmQ0YzYxMjk2N2U1MGZiMzAxZTViZTUzODFiMjQ2ODM5MDM0NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWU2MjRlZWVjZDA2NTA4MDU1ZTIyNDNmNzYyZmIzYmI5NjRlYWRhNWZjNTFlYTcyNjQxZGJkZTViZjM1NDZmMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTRlNWE1MjBkODNmMThhMGFlYTQxMmUwNjQ5NzBkNmNmZWMyNTk5N2QxMWU3NTUwNzAyM2M4ODg0YmZkMTRlMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b84d408c33714fd4b590366ac36d9132",
+      "statement": "Trimming (winsorization) examines stocks with alpha magnitude above three times the scale, setting to zero those resting on questionable data and compressing genuine ones to three times the scale; a more extreme approach forces alphas into a normal distribution with zero benchmark alpha and the required scale, using only ranking information and requiring re-verification of neutrality and scale.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L152-L152",
+          "version": "repo-lines-v1:sha256:2ccc38904e86566f48ca1b6a68b4afb33e938449a8c20460a574ab4e1278d1be:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMmNjYzM4OTA0ZTg2NTY2ZjQ4Y2ExYjZhNjhiNGFmYjMzZTkzODQ0OWE4YzIwNDYwYTU3NGFiNGUxMjc4ZDFiZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMmNjYzM4OTA0ZTg2NTY2ZjQ4Y2ExYjZhNjhiNGFmYjMzZTkzODQ0OWE4YzIwNDYwYTU3NGFiNGUxMjc4ZDFiZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWZmMzBmOWM4NjM1YzM5YmE4OGNlZTNjM2MzM2UxMjY4MTQxZmQ4ZDRiMTQ0MDg2MGNiMTdlY2Q0OWUwMDg2NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDg2ZGIwYTU0ODhkNjJmNmZmODI2NTBiZjkwMjYzYmYyYTM1MDQ0NTBiNjBhZThhODg2MDA0OTM0NzdhYzJkZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8cc68f2e44b346949f94c4a7ba393c19",
+      "statement": "Neutralization removes unwanted bets: benchmark neutrality (zero benchmark alpha, portfolio beta 1) is achieved by subtracting beta_n*alpha_B, group neutrality by alpha*_n = alpha_n - alpha{N_1} for covered stocks and 0 for uncovered, and industry neutrality by subtracting each industry's cap-weighted mean alpha; it is not uniquely defined, and deciding a priori how to neutralize works better than choosing the best ex post.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L154-L158",
+          "version": "repo-lines-v1:sha256:71b3ec574a28892c5fdffe4bf9f5f14e2a59d6acd97236810bd890a5399a6b48:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOGNkYzk0N2E4M2M5OGNhYjM3YzI0M2RmYzQ0NDYwNTZkZGRkMTQ1NTAwMmY4NWY3Y2Y0MzUzY2I0Zjg2NzQ3ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTk1NDI0YTRmZTg0NGVmMjFmYzQ4OTkwYjgyN2RjNTM1MzRjMWViMGRhZTQ4NDNiNjYxMTUyZmYwOTdmZDgwOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTRlNWE1MjBkODNmMThhMGFlYTQxMmUwNjQ5NzBkNmNmZWMyNTk5N2QxMWU3NTUwNzAyM2M4ODg0YmZkMTRlMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2FkMTJhYzE2MjMwMjhiOTJjYjUyMzE3ZDc4ZTBjODQ4YWUxNzI1ODRjZWUyZDU1MGY3MWJmYTEwMzIxMTM0ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_bc65e54c966c4d378c9a0fc6689d762e",
+      "statement": "Construction techniques fall into four classes (screens, stratification, linear programming, quadratic programming) sharing the criterion of maximizing alpha_P - lambda_A*psi_P^2 - TC; the screen sorts by alpha, picks the top N, and equal- or cap-weights, and supports rebalancing via buy/hold/sell lists whose thresholds govern turnover.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L162-L164",
+          "version": "repo-lines-v1:sha256:72f0b6d21c9cac5075c21b0cdff4318da09e249c844c736997d3c6da9bd04eb2:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDI5MWRkOGZjMzE4YjYwYmU3ZWE3M2IyNTMwMDI1MmYwYjYyNDllNjkyZWE0M2YxOThlN2E4ZGRhZDQ5NTFhYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTc3ODJhNDMzOThhMmQ2NWZhOWJjMGViNjI5ZTk5YjQzMTI0NWE1YWY0NTFjMzE0M2M5NzVlN2NmNmI4NTNkNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2FkMTJhYzE2MjMwMjhiOTJjYjUyMzE3ZDc4ZTBjODQ4YWUxNzI1ODRjZWUyZDU1MGY3MWJmYTEwMzIxMTM0ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTg3YWQyMzM3YjBjMzJjYjNjZWVhMDY5ZmM3M2NiODViYzRjNjhiMjJhMGMzNzJkMmUyZTc0ZmIxNzMwODg4ZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_36dffec537fd4a65ba03efbc967274a9",
+      "statement": "The screen is simple, transparent, automatable, and robust (depending only on ranking) but ignores all alpha information beyond the ranking, does not protect against alpha biases, and has piecemeal risk control so screen-built portfolios have proved considerably riskier than expected; systematic comparison shows quadratic programming consistently attains the highest ex-post information ratios while screening methods are more erratic and can produce negative returns in some periods.",
+      "evidence": [
+        {
+          "resource": "repo://docs/13_quantitative_selection_and_construction.md#L166-L168",
+          "version": "repo-lines-v1:sha256:3370e7b769010c51ff3dc88e1f627421676571b9448b11e30b831221f1878768:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2VjMGFjMGMyYjdjYzEwNTE2ZTMyOGRhNWQ1YzdmY2Q5ZDAzYTUwNTFhMzUzMGIzMmZjMzc1NTQ5NjkzYzRlMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWVlMGMwMWI1YzkxOTkwMTI3NzBkZWViZDg2ZTNhMDA4NWU1NGJhOGY2YjZiZmFjZGNlYWYzOGU5NDY2NTFkYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGY1ZWYzODRhNjAzOGE5YzVmYTk4ZGE5YmZhNDM1MTNiZGY4ZjUzYTI3OGMzODhkNzZmOTNlYTlhYjMzMDVmZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

@@ -1,9 +1,6 @@
 # Portfolio Optimizer - Root .gitignore
 # ============================================================
 
-# Cloned sibling repo (do not commit)
-optimizer-theory/
-
 # Runtime agent workdir (staged theory tree, regenerated each startup)
 fund/.runtime/
 
@@ -162,6 +159,8 @@ ideas/
 
 # Local planning & task tracking
 docs/
+# ...except the in-repo theory monograph's raw chapters, which are committed
+!optimizerwiki/docs/
 todo/
 plan/
 /SPEC.md

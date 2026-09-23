@@ -22,6 +22,10 @@ constraints per fold) — a run is single-regime.
 - Subagents are stateless: delegate with complete instructions, collect the report.
 
 ## Theory
-- Module flow + layering: `ARCHITECTURE.md`.
-- Build order / what the optimizer must expose: `OPTIMIZER-OBLIGATIONS.md §6`.
-- Load-bearing ("LLM chooses, optimizer computes"): `deep_agent.md` Principi trasversali.
+- The end-to-end flow this pipeline runs — signal → view → optimizer → weights:
+  `optimizer-theory/openwiki/workflows/from-conditional-forecasts-to-weights.md`.
+- When and how to rebalance (round/turnover discipline):
+  `optimizer-theory/openwiki/workflows/portfolio-revision.md`.
+- Load-bearing contract, held inline (not in the theory tree): the LLM chooses
+  structured inputs, the optimizer computes the weights — no agent ever emits a
+  weight, a `mu`, or a covariance.

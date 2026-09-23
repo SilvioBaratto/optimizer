@@ -1,0 +1,229 @@
+{
+  "schemaVersion": 1,
+  "pages": {
+    "/openwiki/estimation/dynamic-covariance.md": {
+      "pageVersion": "sha256:67d9f8bae1463cb316a600897f45b720af3b0f218065705fb7b7ac2b8039a830",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/estimation/estimation-error-and-shrinkage.md": {
+      "pageVersion": "sha256:8c88091832c18aee408cace3ddecd1357b35d5f29ee431448fa11eec5d1bd1fe",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/factor-models/factor-models.md": {
+      "pageVersion": "sha256:686f0f067df074ca876ac82212480a5c72298c2052b9c84b3cba490be95d2901",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/factor-models/factor-timing-and-rotation.md": {
+      "pageVersion": "sha256:667dc7d43dba53cb28c4ae669257afc2b384dfb0cd6868a3b89eb7d5d40e68fc",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/foundations/black-litterman.md": {
+      "pageVersion": "sha256:e0b60851d01917fdf79bd7bbd2a7f8ea8ff99841b39e508328763082a4a6a8bc",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/foundations/choice-under-uncertainty.md": {
+      "pageVersion": "sha256:aec1675e85ae5493e4a6f7b594503a42b858aa65c3244977a7558c0cf3d8ef55",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/foundations/mean-variance-selection.md": {
+      "pageVersion": "sha256:126c3ffcb5625d180df70cb2de11293461c7b88f31f2b31ab37ad37126c6aafc",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/optimization/constraints-and-metaheuristics.md": {
+      "pageVersion": "sha256:8aed1980884f17cbf16dbbe2b1dcc2f0c783a8ca7bcff73ad32ef09c0691c7d6",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/optimization/convex-optimization.md": {
+      "pageVersion": "sha256:f6257525bde21a1e3dc429bb128488356ac5b4b80d1cda5c95ea29e174c9ddb0",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/optimization/cvar-optimization.md": {
+      "pageVersion": "sha256:c411874ebd4210d2ae8e447de66a6f7b6b0d913e61889ec3fa100e33c0a65858",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/optimization/maximum-diversification.md": {
+      "pageVersion": "sha256:8c226d8c614ebd13980cc2e9439b02b685a2f778549a3c176010498639e4aa54",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/optimization/risk-budgeting-and-risk-parity.md": {
+      "pageVersion": "sha256:3750ef80e0eac94c971e8f653a53b274e8fcf2ea384cc0363365037d7dee6baf",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/optimization/robust-optimization.md": {
+      "pageVersion": "sha256:fe9f26f5e3f73e648178db6dd17afa3f121595077a000a8c13afbaac12bed870",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/overview.md": {
+      "pageVersion": "sha256:684310296577112f21c044a9bcb8a125482331821066ed2da6ac85c2f9cb2166",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/quickstart.md": {
+      "pageVersion": "sha256:9120c30ba2d87bef1ce3e058dd56d2662d87647e91325ba005dc528cc0d67b4b",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/regimes/macro-signals-and-risk-premia.md": {
+      "pageVersion": "sha256:8259baa35444ff521c5a74e8d4f03078bb5a606508691ef2f06140a3ec145ffd",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/regimes/market-regimes-and-views.md": {
+      "pageVersion": "sha256:5414ee80e190b06dd9b09cd43947e497da5a7304c806b79f3ec05d75774ea917",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/regimes/market-states-and-the-cross-section.md": {
+      "pageVersion": "sha256:f5ee941b1d1d3f1f7b73e6ac752911b3bb9a95fd3b7ffd41d7ad07a9aedc4a24",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/regimes/turbulence-and-systemic-risk.md": {
+      "pageVersion": "sha256:0eb872737b32e636316f2bd213e4ca862b641f136b3dc6ceafeb62a0325bc9b5",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/risk-management/risk-attribution-budget-limits.md": {
+      "pageVersion": "sha256:409330939f4675e50e895f08919efa9646269842c2c9d3e60a6988f6df4dbec7",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/risk-management/stress-testing-and-scenarios.md": {
+      "pageVersion": "sha256:991842e101de075029c26fe0f02f96c25869888a696f54633e0d8d46b1142d4f",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/risk-measures/coherent-risk-measures.md": {
+      "pageVersion": "sha256:a2e339927e73ed86629c0197fc14893cb76a40a95d74ccaeef0832af12eac8da",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/risk-measures/drawdown-risk-measures.md": {
+      "pageVersion": "sha256:99a09c28bef1a338f08b3a85d7d12199c5edaf2e5640eb7132a338d8bf62c602",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/signals/alternative-data-and-sentiment.md": {
+      "pageVersion": "sha256:394bf9d1d94f7da8bec6a0edf2167809d67c70250fda5357fd0f37613fd0b365",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/signals/fundamental-stock-selection.md": {
+      "pageVersion": "sha256:ad5dbafafc4dadff45f2f4b90d9c08fd17150b99d9542eb44d15ba34d59f09ca",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/signals/quantitative-selection-and-construction.md": {
+      "pageVersion": "sha256:38751c363e14fba40e9007585d6709706bb0aa5da618e0432c5f3b4e289b6dba",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/signals/signal-decay-horizon-turnover.md": {
+      "pageVersion": "sha256:bfdb90165e0760c3ae093f6c5d8bc8b95f4920d99d3ad1b6f2c3f51b6c46b02d",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/signals/signal-to-alpha-fundamental-law.md": {
+      "pageVersion": "sha256:066009d5b86d68cb5d3d78d81a44817d51ab323cb4df1581a7009ec23297490d",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/validation/validation-data-snooping-overfitting.md": {
+      "pageVersion": "sha256:f839325bd36629d393343e89691a89b522b3228c7cf97a5e08e25bebfaf68493",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/workflows/from-conditional-forecasts-to-weights.md": {
+      "pageVersion": "sha256:34eeb2806cbd8dc22b48d57b93da8b27ab3d4468c2cad21445b9094c622271cc",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/workflows/optimal-execution-and-market-impact.md": {
+      "pageVersion": "sha256:3fad62b5341ea9a713a302cfdb0198f470c2039e045c3dd3eae10f74e6c31e14",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    },
+    "/openwiki/workflows/portfolio-revision.md": {
+      "pageVersion": "sha256:c46223f4bf6fccac8787c3a6ea4ff2489b5179caa92c99301fc2e1b5d9884fbc",
+      "completedBy": "claude-code",
+      "completedRunId": "9af74346-1b45-41d5-91d9-b742c55fa46f",
+      "gitHead": "0f0750c129655beeb14afb8dce971a3e71de6fcb",
+      "sourceFingerprint": "sha256:fff077f756bbeb4ca1e0f41e003b8f16b8c23c45ed575a732b1be8da3409a450"
+    }
+  }
+}

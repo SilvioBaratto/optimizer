@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:a2e339927e73ed86629c0197fc14893cb76a40a95d74ccaeef0832af12eac8da",
+  "claims": [
+    {
+      "id": "claim_1ca71ff0b6544303ab0192eda4216774",
+      "statement": "The Value-at-Risk, widely used since the 1990s and approved mid-decade by the Basel Committee for market-risk capital reserves, is qualitatively the minimum loss at a given confidence level over a predefined holding period, with recommended confidence levels of 95% and 99%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L16-L16",
+          "version": "repo-lines-v1:sha256:7c9d68ba64db0f541b68cabe6b3431398bb29dc8e6c087d8067c142fc1775dad:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2M5ZDY4YmE2NGRiMGY1NDFiNjhjYWJlNmIzNDMxMzk4YmIyOWRjOGU2YzA4N2Q4MDY3YzE0MmZjMTc3NWRhZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2M5ZDY4YmE2NGRiMGY1NDFiNjhjYWJlNmIzNDMxMzk4YmIyOWRjOGU2YzA4N2Q4MDY3YzE0MmZjMTc3NWRhZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzQyZWIzYmM0MTJmZTVhMDRiYTc5M2RjZGJiNTM4MzM2M2I1NGMxNzlmMGM0MTEwYjYyYjhlZjYyMDBlNzFjOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDE3OTU2ZWM3ZDJmMmQyMjM4NDNiYmI2ZDRkNjQ4OWY4ZGYyOTU2ZWI1OWZiOWI2YTY1YmNmYmZlZmE1ZGM5NiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9140521d7b484fd2a45899c5a937a78e",
+      "statement": "Formally the VaR is VaR_ε(X) = −inf_x {x | P(X≤x) ≥ ε}, equivalently the quantile leaving tail probability α to its left, VaR_α = inf{x | Pr(X>x)=α}.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L20-L24",
+          "version": "repo-lines-v1:sha256:b6df97431afbe61114ab39ceafcc06664677d0a96630681f692975e12b922ee8:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGM5Y2RiN2RmNzM5YTA1ZGIyNjI4OTg2ZDRiNTQ2YTg4N2EyMDZhMDU3ZThlNTdhZjFjOGY2YWUyNDZmMjE5OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjUzZGM3ZWFjMjE4ZmQ4ZTZlOGY0M2QyZWNhNjZlMjIyNjY3YjhiNjA2NmI5NTgyZTAxY2YwNTEyMWMzNTFlNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDE3OTU2ZWM3ZDJmMmQyMjM4NDNiYmI2ZDRkNjQ4OWY4ZGYyOTU2ZWI1OWZiOWI2YTY1YmNmYmZlZmE1ZGM5NiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjVmZjVhYjhlY2VhYTMwYzg5MGUwMThlYzcyOTliMTViNTg0MzkxMjA5MTUwY2Y2YzMxNmU2ZjdhZjI0ODQ2MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_49000bdf1edc4e93a3f0b89ec4722833",
+      "statement": "VaR satisfies two properties failed by variance: for a riskless payoff C, VaR_ε(X+C) = VaR_ε(X) − C, and for a positive constant λ, VaR_ε(λX) = λ·VaR_ε(X).",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L28-L36",
+          "version": "repo-lines-v1:sha256:9df6815bc220f462f264e58828b8a2cb3cc0dc85a0dcd90c978a68241648cb59:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmYzYjRhNzE1YTAxNDNjNTkzNGQxMTA1YTAxNGFhOTVjYzY4OGY4ZmViZGQ2ZDU4NGQzZjYxY2VjYTEwNzBjMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjcyZmE3ODdhYWEwMDI4MGJlMTNlNzA1N2FkZWExY2I2YmI1MzI3ZDM2Mjg0YTk4NzJmYzBlOWM5MDQ5ZjVmMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjVmZjVhYjhlY2VhYTMwYzg5MGUwMThlYzcyOTliMTViNTg0MzkxMjA5MTUwY2Y2YzMxNmU2ZjdhZjI0ODQ2MSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWRiOWQ3ZTI1OGEyMzYzNjhjMGU3NGVjMzZiZWNjZDQ5YjBiOGI1ZjkyY2NiOWJkOTJhNWRhOWJmYmNkOGRiNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5abb996c0e2441de9cce11c39409bfb4",
+      "statement": "VaR is indifferent to how large the losses beyond the threshold actually are, saying nothing about the magnitude exceeding the level, so portfolios with the same VaR_α can have dramatically different loss levels in the worst (1−α)% of cases.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L46-L46",
+          "version": "repo-lines-v1:sha256:bacd60f6b5371bd83f1e1bcdf7a2987566727471824a1a0c1532a29ce56606a2:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmFjZDYwZjZiNTM3MWJkODNmMWUxYmNkZjdhMjk4NzU2NjcyNzQ3MTgyNGExYTBjMTUzMmEyOWNlNTY2MDZhMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmFjZDYwZjZiNTM3MWJkODNmMWUxYmNkZjdhMjk4NzU2NjcyNzQ3MTgyNGExYTBjMTUzMmEyOWNlNTY2MDZhMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGVlZWUxZWJhMDk4NmVjMjNjNjRmZDNiNWM2N2EyN2YzMWYzOTA5MjdmMDJmODk2YzMyMWE3NDI4MGUzMjY2ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGQ5MGVkZjUwMDEyZDY0YTAwYzVlODBlNzJlMmQ1MmI0YTFhYjI4ZTkyYTU4OGY1NTZkNmIzODU2MWJiODk4ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_407bf2fab496422d8bc86c2a3d9357ff",
+      "statement": "VaR is not in general subadditive — VaR_ε(X+Y) can exceed VaR_ε(X)+VaR_ε(Y), contradicting the diversification effect — and since subadditivity is required of a coherent risk measure (Artzner 1999), VaR is not coherent; one of the few cases where subadditivity holds is a jointly Gaussian return distribution.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L48-L52",
+          "version": "repo-lines-v1:sha256:02d22fe5cdaee45b17e89f75f9b3bda9aa67b46bc64111951680539492ac4dca:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMGQ2NTBiNmQ1MzVlZjc0Nzc2YjUwYTk5NzBkNTM4ZjIwNGYwMTYwNjM2ZDYxYWE3MjIwZGIyNGU3YjIxZDY5ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDkyNzFmNmYxYjk2MzdkNzQwYjY4YWIyNTJjMTc3NWVmODYyZGMwZGJmZjA2ZDM3ZjNiNDc3YWNhZWM2YWFhMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2M5NmZmNGViMTk3YWQwNTIwMGQ3OGNmZWZkYzFlM2QxNDQ5ZjcyOTRjYjU0ZDNiM2MyOGM0NjJiNTQ3ZTQ4YyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWRiMTViNWQ3YTgxNTZkNzhiOTVhOTVlM2Y1Yjg0MmIxMDIyZjAyNGRlMGUyYTNhZWUwZDY4MDBiMDRjYTQxZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f425fa70ec2247b1ac0db9c220711467",
+      "statement": "The RiskMetrics Group approach assumes multivariate-normal stock returns and computes VaR_ε = z_ε·σ_return + μ_return using the standard-normal quantiles z_0.01=−2.3263 and z_0.05=−1.6449, while the alternative historical method derives VaR directly from empirical return realizations without a distributional assumption.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L58-L68",
+          "version": "repo-lines-v1:sha256:79486fc28020eb2dc752ed93a2de6aebb7d16150a186aa48cd43ee4742c31940:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZkMmEwODlhMDI1NDkxMjJlYjQyMTQ4MWM5MTI2ZjJhYWU2OTU3ZTAzNGMwMWUxOGI0NDBiMDg3NzhkNTBlYzgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk1NjQwYjdhN2Y5ZmVmMDYzNWY2ZDM0NmYxYWM2ZWVlYjkyMTNiMjRkYzAwZmIxOTdmNmM4ZDc5ZWNmZjhmMGMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjUwZmIwZmRjODAwZDhmM2ZlZjcwZWUwZTlmNzQ2OGMzN2JhMmFjODQwNzEzYTc2ODIzZjljYmU1Yjk2NzJlZWUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIwY2I0ZGNmNWE0ODQ2ZDI1YmQxMjZmNmZjNzllN2UzZjhmY2EwNWRjNGE3MDc3NWE5ODU0YWNhMGFhOWQ3YmEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_42e67b0370a14943b5487d65f889779a",
+      "statement": "The Average Value-at-Risk (also Conditional VaR or Expected Shortfall) is a coherent measure defined as the average of the VaRs at all tail levels below the chosen one, AVaR_ε(X) = (1/ε)∫_0^ε VaR_p(X) dp.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L72-L74",
+          "version": "repo-lines-v1:sha256:6841ae1320c86303caad8766f6f55a914afcc0a804e935bdbdb66a4a044c02bd:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjRjNjYwZTNjNmEwOGRhZjUzMjYzZThjZDU0Y2Y0NzI4YTJhMDkxYTRmZmE3MTZkNWQ1NDU2OGJhMmYzNWU1ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDc2ZTBhM2VkNDM4YzZkMWM3ZWQ4NDI1YWE0Y2IwYjkwYmM1YTRiYjY4NTI2MGI4NGZmNWY1OGE2NzZhOWFiMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjBjYjRkY2Y1YTQ4NDZkMjViZDEyNmY2ZmM3OWU3ZTNmOGZjYTA1ZGM0YTcwNzc1YTk4NTRhY2EwYWE5ZDdiYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWYxYjcwZDMwMWEyNWUzNGYyYTBmZTg0M2I1ZTI5ZTkxMTAxMzZjYTI0MTZkMDg5Y2E3YmE5NTI4ODkxMjE3MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_19a801b48f704c42a22d94e413533169",
+      "statement": "Where VaR answers how often the portfolio could lose at least a given amount (frequency of breaching the threshold), the CVaR answers how much it could lose when it loses more than that (the average tail loss beyond the VaR threshold), sitting deeper in the tail between the VaR threshold and the maximum observed loss.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L76-L76",
+          "version": "repo-lines-v1:sha256:84bd68f18e0c321744961e0d78cd674496ca3ad68dbdb049bc169d91ecfb1dd0:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODRiZDY4ZjE4ZTBjMzIxNzQ0OTYxZTBkNzhjZDY3NDQ5NmNhM2FkNjhkYmRiMDQ5YmMxNjlkOTFlY2ZiMWRkMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODRiZDY4ZjE4ZTBjMzIxNzQ0OTYxZTBkNzhjZDY3NDQ5NmNhM2FkNjhkYmRiMDQ5YmMxNjlkOTFlY2ZiMWRkMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGNlN2FhMTA4Mzg2MmVjOTM5ZmJiZGI3ODFiNWVmNTVkMDE5MWYzZjc4MDhlMmYwODk4ZTE3NWI5ZmYzNDEzMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGE3NTE0NGM4NDU2YTJiYzdiYWE5MGZjOTI2MWEzNmY3M2JmNzc5MzNmM2MzMzEzYTM3YzkxYWQzZjMxNWUwMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6440a3bb69fb486caf67cfb03e643ecf",
+      "statement": "The Expected Shortfall admits the equivalent quantile-average form ES_α(X) = −(1/α)∫_0^α F⁻¹(p) dp, and for continuous random variables (as generally assumed for returns) the ES coincides with the CVaR.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L86-L92",
+          "version": "repo-lines-v1:sha256:9cc69c1e9f0c6d093a11a6168a95f4894e93343a55ab219611d7e1bedd2a3003:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjFhOTRiOWU1ZmM5OTczMWY5NzdlYzBiMjU3MjYzN2M5MzE1MTM5ODllMGYyMTI4ZGI1ZDRkOWYzNzRiZTU3MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzhlYWRlOWI5NTZkNDFlZTJjZmM0Y2E3MzBmZTc4ODMwOWU1M2NhMTU0ZDAzNGVjYmVmNjUzMTIzYWYzYWQ1NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzg1NjM3MTBkOTM2YjQ1ZmY2N2QxY2YyZmI0OWE3MjRkN2FjZjBhZGE1YTNiZmRkNmIwZGVlN2RiM2I0ODhlNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGM1ZDA3OGVjYTg2OWRkZDc2Nzg2ZjA0ODIzZTBiN2M1OWNiNmM5ZjA2OWNjNzY2MTlmZDJhYzA0YWZkYWQxYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_008ecc83c7854801b853e149465d6a15",
+      "statement": "Empirically the ES orders the n realizations and averages the worst (1−α)% losses, ES_α(X) = −Σ_{i=1}^w X_{i:n}/w with w = max{m | m ≤ n(1−α), m ∈ ℕ}.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L92-L96",
+          "version": "repo-lines-v1:sha256:4a9509c30682fb06052ac110c9eb635527563f70e56540a9567cd605bcaab906:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzhlYWRlOWI5NTZkNDFlZTJjZmM0Y2E3MzBmZTc4ODMwOWU1M2NhMTU0ZDAzNGVjYmVmNjUzMTIzYWYzYWQ1NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDdiZWNiNTI1NjZjMjAyOTEwYjg3NjA3MGU0M2M1NzcyOGE2YWE1NGViMjViMmZkMzhlZDhmNTViNDc5NWEzOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTA2ZTJmOWY3NWI2OTA4ZTJmM2NjNjE3MTgzNzJjZGRmMjI0ZWYwMjM1ZTdkOWFjOTBhNDA5YjUzNGQyNTdmZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTgzODdmZjE2YmRjOTNiMjQ0ODAzMDBkYjkwODA4NTY1Yjk4MmM4ODRkZjg2ZGYxNDk2ZGFkYjI3ZjIxMzAzMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b6ac348954724205929db82cb0e85c6f",
+      "statement": "The ES is universal (applicable to any instrument and risk source), simple and complete (one number even for multi-risk portfolios), and robust: unlike VaR, TCE and WCE its results converge even when the confidence level shifts by a few basis points.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L98-L98",
+          "version": "repo-lines-v1:sha256:95002d12d30098d9b0858d646f0432332c3336a39052eec7d869f4eb43b79111:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTUwMDJkMTJkMzAwOThkOWIwODU4ZDY0NmYwNDMyMzMyYzMzMzZhMzkwNTJlZWM3ZDg2OWY0ZWI0M2I3OTExMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTUwMDJkMTJkMzAwOThkOWIwODU4ZDY0NmYwNDMyMzMyYzMzMzZhMzkwNTJlZWM3ZDg2OWY0ZWI0M2I3OTExMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmNkOGEyYzcyNjdlM2NkNWFhZWE5MDkwZDQxOGZjMGZhYzczNThmMmNmZTcwNjcyZGZmM2Q2N2Q3MjU4NjhiNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmYwY2VhZjYyZDhiMzk3MTYyNWFlZGQzNzJmYTc5NGQyNDI4YmI3OWE2YzVhMDk3ZTI3MjM0YTI1Yjc0ZjZiMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2dfe8b1a8fe24d42a3f0543ade9a5275",
+      "statement": "The Tail Conditional Expectation is TCE_α(X) = −E[X | X ≤ −VaR_α(X)] and the Worst Conditional Expectation is WCE_α(X) = −inf{E[X|A] | P[A]>α}; for continuous variables the TCE coincides with the CVaR (1/α)∫_0^α VaR_γ(X) dγ, and TCE_α ≤ WCE_α.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L104-L118",
+          "version": "repo-lines-v1:sha256:34b92274c414ba3435e1f2fc8c266b2fb1475d99d31981ab6a64b16d72994de1:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFjZDQxZjYwNWNiNzAzNWE0Y2I0YzU2NjczYjM0NTkwOGE2Yjk1M2M5ZjdjMmE0ZmRiZTk2NjI5M2MxNjk0NDQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJlYmU1MGM5ZjY2ODJiZjhkMmYyZjY1MTlkM2UwMDAxYTI5ZTAxYTFmZTY0Njc1ZDdmMjc5NmZiZGU5ZjljYzUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjU4N2FlNzEzODQxYWRjOTNiNTFmZTYwNmE1Y2IxNDY2MGFiNTI0NTg0ZGFjZDc2YzY1MzUyY2M1ZWIyN2U5N2QiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjY3Mjk4ZjQ0NmIzYjk0YzEyZTdmNWVmOTc2YmJjZjUxZWQ3MjViMzhkMzExZDE5M2M2NWM2YTAwNThhMTFmODEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_4a07fde7b6584a669c10620025c9b835",
+      "statement": "The WCE fully satisfies the coherence axioms but is almost purely theoretical since it requires knowing the entire underlying probability space, while the TCE is more tractable in practice but is not always subadditive and hence not fully coherent.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L120-L120",
+          "version": "repo-lines-v1:sha256:2460f359a397fdec900e868dee9097792f951b6a8f0b9f87a0ca506f215dac2f:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjQ2MGYzNTlhMzk3ZmRlYzkwMGU4NjhkZWU5MDk3NzkyZjk1MWI2YThmMGI5Zjg3YTBjYTUwNmYyMTVkYWMyZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjQ2MGYzNTlhMzk3ZmRlYzkwMGU4NjhkZWU5MDk3NzkyZjk1MWI2YThmMGI5Zjg3YTBjYTUwNmYyMTVkYWMyZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2I0MDBiMmQ2NDE3MWJkOGY3ZTJkOTdiZTIyMzE1MzIzMDZiNzhjYjM4YTYzZDA2YTU0ODcxM2QzODE1ZThhZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmY2ZDYzZDViZTlmOTk1NGMxMDA0MGUyMDgyMTMxZTRlYzEzNzYwNDBjOGQ4MjJlODExZDA5MjdjY2RjYzk2ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7788fd2ebaf24149bb6d8d0a2b49b0e5",
+      "statement": "The two-sided coherent risk measure ρ_{a,p}(X) = a·‖(X−E[X])⁺‖_1 + (1−a)·‖(X−E[X])⁻‖_p − E[X] combines the 1-norm of the upside and the p-norm of the downside, with a ∈ [0,1] a global risk factor balancing positive and negative volatility and p ∈ [1,+∞) a local factor growing with risk aversion and incorporating skewness and kurtosis.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L124-L137",
+          "version": "repo-lines-v1:sha256:4ffccce7b23106936ea8cf8679f08ac3b08b22ff6feb247f73b0ef2cec091b73:eyJzZWxlY3RlZExpbmVDb3VudCI6MTQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUyYzA2NTVjNDVkNDJkZGY2YTMxNWZhYjZjYWU4Yjk2NDc4MWMzMTdhNzhjZDgwOTg2NTZmZjRiZjNiYTQ2MjgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhiOWU4ZGY3ZTdjOTJlYmI2OWU3MWVlNjRkMDQyZDhiNzZhODRiNzhkYWJhNzUxNGEwYTVjNGEwZTU1ZGJjNjYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjZmNmQ2M2Q1YmU5Zjk5NTRjMTAwNDBlMjA4MjEzMWU0ZWMxMzc2MDQwYzhkODIyZTgxMWQwOTI3Y2NkY2M5NmUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUyNmJhYzg3ZGYzMmFjNTNkYWYxZTk4ZTk5MjYzNzgyZmJkNzE4MDY1MGI3ZTE3NjRlMTA0ZWE4Nzc1MjI2MTgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_91482ee8235e49e485948f68b2fbf93c",
+      "statement": "The empirical histogram of daily returns is sharply concentrated at zero with a high central peak and fat tails, motivating the Lévy-Pareto stable distribution (infinite variance, fat tails, higher risk) against the normal (finite variance, normal tails).",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L145-L153",
+          "version": "repo-lines-v1:sha256:0da32c327bca5476e212301db9244b7637d4d35b38b50c2418dff8eef547123c:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzUwMmQxNjU2ODRkODg3ZWE5NWNjMjdjNTJjNGQyNThiZmJkMjc0MDcyN2JmZjQyZWI4NDBjZDcwNzZiZTIxMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGIzMWY1ZGEyMjk4Y2U5Y2EwZjA3MzYzZTg0NmE3YTFmYTQ3MGU5MTk4YmUwZmI5ZDk2MjdlMTBmMThiYTc3ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTZlYzUwMTRkMTk4YTQzMjk5YjM0Njg0YTg2NzU3MDNlYzI2ZTUwZWRiMDM3MzYyZWVkZjcyMmY4MWFiOTYyNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTg3ZjUxOGI5MGIwYTIzNGVmNzdmYjdhOGE0N2E1YWJlOTA5M2EyZWFmZGUzYmM0NzkyNDRiMmY0ZWRlMDY1ZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0a72babefa8944099c0b5c04652191b6",
+      "statement": "Four equivalent definitions characterize stable random variables; by convolution, the sum of stable variables is stable (Definitions 1-2) and the normalized sum of a sufficiently large number of even non-stable variables is stable (Definition 3, domain of attraction), and normal variables satisfy all three.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L159-L177",
+          "version": "repo-lines-v1:sha256:7fab3f0944cce87fd8a2b65dbdf0df59117f175421e66698d8168146034b90db:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhlYzU4YjAzNTRkMjQ1NmU5NGI3NmZiZDBlZDc0Njg0NjFjY2U5NTdiZDUxZjQ3YjBiNjI4MTIwMzZmYzQ0MDAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBhMTEwMmZlMjg3NDk4YzNhN2ZjYzYzMzg2ZmE2NWQ2ZmY1NmZkZjE3NzY3NWRhYzRjZjYzYzc2YjdhNzIxODEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijk1NzVjYWVmYjgxYjgzNzhjMWZkYTk5MzNhNGRjYjQ2NzU3OWVkMjVmZmJiZjgzNjc3ODMyYjY2NmQyNzFmNmIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQ4YjZjMjJiYWYxODI0OTU4YTRhMTViN2Q5MjYwZGZkM2ZiMjFhN2QyYTVkNTVjYzc5MzE2NDgyM2U4NjgxMjkifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_5f5e071a53c844e1b7ff847c6c72f3dc",
+      "statement": "Financially the weekly return telescopes into a sum of daily returns so stable daily returns give a stable weekly return (Definitions 1-2), and the annual return sums about 250 daily returns so even non-stable daily returns give an approximately stable annual return (Definition 3).",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L179-L187",
+          "version": "repo-lines-v1:sha256:173465c0342ed89a78f2e4c2573dbe18dcf13f828ae4659278c02d786a11a4a1:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjYzMmFiNDY0ZmVhMzY2MjhlMmUzYmM0OWFjNGI3MTI4YWUxY2Q2OWNkYjAxZmUwMTA5ZmVhZjk0ZjAyYmYzOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGUxZGZlMjQyN2EyODM2MzBjZGU4NzAwOWFmZTlmMTE5NGY2OTY5NTgxMjFlNDIzMjk5YWNlYTcwYzIyYmRhYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzgxODY2ZjhhNjUwZjE2MTUyMjE2NmE5OGViZjNhMzI2YWIzMjBkYWMyYTIzOTg0MDVhZGZjNzk1YmY4Zjg4YyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTBhNDkwYjU3OTlkMDljZDc2Y2I5MGNjZjM4MzU1MWIxZGE1MTg1OWM5NGExNGRlMjJiODM5Y2VkYTkwOWE3YiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a968017bc8024d6b8dc72aec0dc998e9",
+      "statement": "Definition 4 characterizes stability via the characteristic function with parameters α∈(0,2], β∈[−1,1], μ∈ℝ, σ∈[0,+∞), written X~S(α,β,μ,σ); the density is rarely closed-form, with the Cauchy S(1,0,μ,σ) and the normal N(μ,2σ²) at α=2 as notable exceptions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L193-L201",
+          "version": "repo-lines-v1:sha256:4df415ee363155993cd8b30ce86be105a890d3599f0015ab18b9ace952541d95:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjM1ODI4MjgyMTEzZDFhZWQ1M2YwNDliZGM5NThkYzVhMjkyNzNiYWM0ODIxZGI2MTE1M2NlMzhmMzQwNDBkMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODA1ZmFkZDlmZWNkMmFjY2IxNzAzNzg3MTQyNTY1OWU4ZWI4ZThkMTFjMDk4NjAxZjExZmExODU3ZTdjNzE4OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWEyYTM5ZTQ1MzkxMWQ5MTMyMWM3MjMzYmQ3NzViZDcwYjc2ZDNkODRlZDZiMzk1NDIzMDkzZDhiMmE5NGU2NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTNiZGUzOTlkZmZlOWZiMWZjMWRjZmRhMGI0OTMxMjYxNjA2NTI5OTgyODQyMTFiODlhNDZlNDg3MDRjNWM2ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6e1e73dc8e3f4e75a52b0f2ddbf5d854",
+      "statement": "The characteristic exponent α is tied to kurtosis and tail probability: if α<2 the variance is infinite (so the normal α=2 is the only finite-variance stable law) and if α<1 the mean is infinite too, meaning not that risk is infinite but that the variance is not a good risk measure; the scale parameter σ behaves like a standard deviation and is usable as a risk measure.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L205-L215",
+          "version": "repo-lines-v1:sha256:178396d764bf1e0d56cc4ed9be5e88115e724ce9a0353420b59e49c98ef285fc:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdlMTU4ZTNmYzM1MjE4ZDZjMWE3YzZkY2Y3ZjA1YmFmYzdkNGU4OTNjN2QzMTQ1ZTRkNGExNWZkMTJhYmIxYTEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjVlZGI3NjU5MzMxODYwZTBmMjMyNWI2NzI1M2ZiYjI1YTI5MzAzMDM2YmMwZjcxNzUzZjMwNTIyM2ViYjYyNmQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjEzYmRlMzk5ZGZmZTlmYjFmYzFkY2ZkYTBiNDkzMTI2MTYwNjUyOTk4Mjg0MjExYjg5YTQ2ZTQ4NzA0YzVjNmUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImI2ZDMzYjE3MjQ5ODE5MGFkMDc4N2Y5MTA5M2M4NWVjMWM1NTYwNTFjZjBjZmQ3YWU5NmQ4YWNjNGVhMzViMjIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d3b7e971fe624d0da807cfcdd4ff61e2",
+      "statement": "The distinction between the stable Paretian distribution and hypothesis is that both the Gaussian and stable-Paretian hypotheses assume a stable underlying distribution, the conflict being over α, set to 2 by the Gaussian and strictly below 2 by the stable-Paretian.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L223-L223",
+          "version": "repo-lines-v1:sha256:8d01fc38e6e1064b412759112ea9dd61711039a4f013840cd7e194e6eb0ed105:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOGQwMWZjMzhlNmUxMDY0YjQxMjc1OTExMmVhOWRkNjE3MTEwMzlhNGYwMTM4NDBjZDdlMTk0ZTZlYjBlZDEwNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGQwMWZjMzhlNmUxMDY0YjQxMjc1OTExMmVhOWRkNjE3MTEwMzlhNGYwMTM4NDBjZDdlMTk0ZTZlYjBlZDEwNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWIwMmFmNzU5ZmQ2ZWI5MWY1OGQ3NjkyOGUzYzAyNWY3OWQzMTEyODBiZmQ1NGYwOWZiNWFiZTg1ODZlN2Q4ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjQ0YTUxNjVhOGI5MTNjNDBjNzM4M2JlMGU4NjUxODYxMWZkNTk1ZGI0YmExY2NkYmVkNWJlMjFmN2I0Mzg2YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_05cffeb4128a4fcb8f8f316c0c948a9e",
+      "statement": "An iterative regression-type estimator on daily returns of six COMIT sectoral indices (1984-1992) and four Italian stocks yields α estimates such as 1.729 (Banking), 1.631 (Communications), 1.504 (Ansaldo) and 1.719 (FIAT), showing returns are generally stable, rarely normal (α≠2), and typically α∈(1,2) with finite mean but infinite variance.",
+      "evidence": [
+        {
+          "resource": "repo://docs/04_coherent_risk_measures.md#L236-L258",
+          "version": "repo-lines-v1:sha256:2a8cca8e0cd99350cb0df77ffc5cb016835e2a5f14c8759357e7b4396e3a8c51:eyJzZWxlY3RlZExpbmVDb3VudCI6MjMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFjNGZkN2Y1MGY2MDgxY2VmZGY3NTQ0MDI1MjI3M2RhYTg4MDlhOTZiMGEzYmY0ODQ1ZGQzZjkzNWQyYjRlNWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEzNGMwOGMzOWJjYmY3ZDg0NTdkOGM3OGNkNjJlMDAwMTQxYTNmYmZiNjI0ZGI0OTM2YzY5MWU1M2M2OGExN2UiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQxZjM1ZjkwNjc1N2MyOTg2MDE2MWFmNzk4NjNmNjQwOTE1Mjc0MTA3NmYyMDEzZDk1MjM0YjA1NDMyNGVkYzgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjYzNzEyYWVhOTUyNjFlMmY5YTNiZjM4OTFiYjBmODJkMGZkNjhmMThhN2ZmOWRmODhmOTAyMjAxN2ZiNDQwZDUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

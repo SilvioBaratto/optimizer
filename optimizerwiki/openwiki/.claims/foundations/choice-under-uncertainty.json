@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:aec1675e85ae5493e4a6f7b594503a42b858aa65c3244977a7558c0cf3d8ef55",
+  "claims": [
+    {
+      "id": "claim_3677dcc57a1d4a8b92c7ab823f6c9c5d",
+      "statement": "Following Knight, risk (outcomes with assignable measurable probabilities) is distinguished from uncertainty proper (no assignable probabilities), and portfolio theory lives in the domain of risk, attaching a probability to each of S future states of the world.",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L16-L16",
+          "version": "repo-lines-v1:sha256:573e3613b6cc4ed5e1392fc1dc26b7b11623c0e1023e734b914389f0bba8a0e7:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTczZTM2MTNiNmNjNGVkNWUxMzkyZmMxZGMyNmI3YjExNjIzYzBlMTAyM2U3MzRiOTE0Mzg5ZjBiYmE4YTBlNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTczZTM2MTNiNmNjNGVkNWUxMzkyZmMxZGMyNmI3YjExNjIzYzBlMTAyM2U3MzRiOTE0Mzg5ZjBiYmE4YTBlNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmNhMTYwNTVlYmJjY2RhZTUzZWJiYmY0ZDk5NjM5ZjZkMTY5MGYwN2MyZGU5YTY1Mzk0NjJiM2Y0YzFkYmY5OSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDU5NGU4OTBmMmI5YWQyMmY4MDZlY2E0MzA1OWZkZDM3YTMwZjcxZGM2ZjFiZjBiMGRiMzFjNWZjOGZmYzgzOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_85b2ce8c65374cec842c5c98b25b959c",
+      "statement": "The expected-utility paradigm assumes a von Neumann-Morgenstern utility that depends only on consequences and is additive across states, so investors maximize U(W) = sum_s pi_s*u(W_s) = E[u(W)].",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L22-L24",
+          "version": "repo-lines-v1:sha256:2b9d03c12c6ac67b207e845f02714e9b7fd6182385e7a92a2e09779c5a0d0e0d:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjViOTJiZmU0NGRkYzlmMGU3OWJiYTVhODA2OWMwMjc1ZThkOWUxMjg0OTc0MjM0ODJlMWExY2Q1ZjY4MDA4YSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZThlNmQ4ZTVmMjYzY2JlMjRlYWU5NmFhYmE4ODVmNTdhMTJlN2NkYWRhOGQ1NTRkY2M4Y2VjMjI0NjMwYTFjZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjE2YjdhODFiZjkzNjE3ODQ5ZGJlYjQ1NGU3ODg4ZWY3MzQwZWY4NmFhOWQxYTIwNTNhMDIwZDg1NDA1YmQwYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjBmMmRkZWIxOTE0YWFjNmUxMjY5YmI4NGQ5MWUzZjM0ZmE0N2JmNGIzNjg5Nzk5NDI4NTA2NWM4MTE1OTY4NyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d8460704fe40486a8a4b9283be013fc3",
+      "statement": "Risk aversion corresponds to a wealth-utility function that increases less than proportionally, i.e. concavity (u''(x) < 0), while non-satiation corresponds to u'(x) > 0.",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L45-L51",
+          "version": "repo-lines-v1:sha256:56f868f3520a629a77c0dd032c85cc0ac0e02035733b229d3cdf52fbb06b5c20:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzc2YjQ1OTlmYTVkMzM4NWZiNTBlMzQ1NmI5YzFkMzkwM2MwOWMxOWM0Yzc4NmQ0OWMxMzJjNzM5YThkMjY1NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjg4NDljODlhNTc5M2EzZjlkYTE4ZmY2M2U5Njk3OWVmOTZiZTExMzYwOGMwMTgwOTU4OWJjNjBjMjMwMDk0NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTBkOTQ5MmQyOWJhNzc5Mzk4ZTRkZTQ4NWI4ZDM2ZDI5NGE4YjhkNzhjNTI1NzFmZDQxNWRlM2Y4NjI0MGNlMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzkxYTc5OTA1ZDM5ZGU2MjllMmYyYWQ4Y2VmMGM1ODJmZTI4OWQ3ZTIwNWVkOGE5MGQzYmMxMDA1ZWZmMGYxMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_98a0be5a13f34ed99771624209e5cc47",
+      "statement": "Under the five axioms (reflexivity, transitivity, completeness, Archimedean, substitution) the vNM theorem guarantees a utility function u with X1 preferred to X2 iff E(u(X1)) >= E(u(X2)), unique up to a positive affine transformation a + b*u(x) with b>0.",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L62-L73",
+          "version": "repo-lines-v1:sha256:deb41c35319fdc4d276ac4924520ec09eecca47deebca2d15cfb5e1516f6aa34:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImYwNTk4OGI5ODc0Y2EyY2U1NWI4Y2Y5OThiYTQ5OGNkYzc4YjUxZDEwYTQ4MjUzNDBlNjg5ZTI1MGViY2ZjNmUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBhZjNlYjlmNjg3MDI2YzljYWRmNjQ5MTcwYWZiZjZkYTQxZGRlOWQ2MTIzNDlkNmM3YWM2YjEzMTY0YmJmZjkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImM2ZjQzNTUyZDg5ZGVlNmM0ODZhZDUzZmUyZWNmODUwZGQ5ZmFmNTQwMzhiOTA4NjRmNzY2ZmEzYzg4MGQ3MTEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhhM2Y0MjFiMzFjNmE2NzAyNTczN2RkODhkNmFjYzljZmUzYmRmODZiNDUxOWVmNzVjYzFkMjg3ZDgzZTJhMDQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_42e80fd0bfc64f5c813bd17f7247ebca",
+      "statement": "The certainty equivalent CE = u^{-1}(E[u(W)]) satisfies, for a concave utility, Jensen's inequality u(CE) = E[u(W)] < u(E[W]), so CE < E[W] and a risk-averse investor prefers the certain E[W] to a lottery of equal expected value.",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L79-L83",
+          "version": "repo-lines-v1:sha256:e648f35c1cf6ee343cf55ad14ef9bcb12bea4133f0f3b821ed84a8482f5b68e2:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTE5ZjhlNTI2ZGE3NGRkZmZmMWQ2MmQxYzk3NDVhZDc4YWFkNjE0YzdmMzhiZDgzM2E0MWM0Y2FkYWY5ZjJlNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODJhNjYzYTllMDJkODAzNmFiZmRjMjNkZGU4MzEzODI3NTc5M2U5ZjQxMDAxNWVmNmY0OTcwZDM0ODA4OTcyNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzBmMDY5ZjU4NWY1Nzk2OGVlZTc4MmM5OGE5OGQyZjhkNjA4MzVlZGZhZDljMjFjZjU3M2M2NDcxM2I3MjZmNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDFhNjcxZjJkNTEwNjc3N2NhZDk3MjQxOGEzYWJhM2FmZmJlNmFhODBjM2MzOWE3MmI3YmY2OTEwOTEyYjM1MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e287e531564d4f4b8692b63b37aa112e",
+      "statement": "The risk premium is defined as E(W) - CE, the expected value an investor will give up to eliminate randomness.",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L85-L87",
+          "version": "repo-lines-v1:sha256:c5af4db502ff320dde87eb6ac4438006e76439441a3238ec05df1370a3cd732b:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTFhNmU0NGFmZTgwMmYwN2M2MmY0YjBlZThhZjA3MzZjMjYxN2QyMmEyMDZkNWI3ODNjYWU4MTRjNmM1YjE5ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzZjOTc2MGY5NDE2NmRiOTIzNWIwNDVmNGFjMGVhODVjOGQ2OGU2MWZiY2ZlNDVkYmY1ZGFkMmMzMDQ0OTczNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWI0ZTE3NTljOGIzM2YxMGIzNDQ3MGMyZDczNThhNjgwYjJmZDZmNDNlNTIwMjFhOWY5NDkxMjYxNmY4MzI4MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjNiMmY4YjczZWNmZGM5Y2UyMjM3YzEzNTM0Njk2YjI2MjYxYmE1YzA2ODE0ODdkYTAyZTc4NzdlMTY2ODVhMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a334402599074b079917f685dd259266",
+      "statement": "The Arrow-Pratt measures standardize the second derivative by the first: absolute risk aversion ARA = -u''(W)/u'(W) and relative risk aversion RRA = -u''(W)*W/u'(W).",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L91-L94",
+          "version": "repo-lines-v1:sha256:342efb08b6d0d3e06ea7c725ef4521b99f1f4f75376e35f603c2ac5d2b935c24:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDg0NTJlZThhOTk2NzUxYzYzYTYwYTgwMjYwNWM4NjA3YzhkMzRkOWNiOTBiZjY0NDY4YjFhZjQwMGU2M2JhOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODM2MmNkNWU1MTkzMmUzYmEyZWE3ZWVjMmIzZGI1ZWYwMGY4M2Q4NDM1N2I1YzExNTVlYWVhNzhkM2FlZDUwZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjNiMmY4YjczZWNmZGM5Y2UyMjM3YzEzNTM0Njk2YjI2MjYxYmE1YzA2ODE0ODdkYTAyZTc4NzdlMTY2ODVhMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDIzYWQ4ZTY1MzQ0YWQxYzk5ZmMyODA3YWM1OWMxODY1ZTlmOTJlZDJhZTgyMmVhMDM4NDk4NjljN2NlMjQ1YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_34f76716ff3f4854af9b189d361027b8",
+      "statement": "The CARA family u(W) = -e^{-rho*W} has constant ARA = rho, and the CRRA family u(W) = W^{1-gamma}/(1-gamma) (or ln W at gamma=1) has constant RRA = gamma.",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L96-L100",
+          "version": "repo-lines-v1:sha256:360081bf94e513492e7aa315868d08a59fd51ec59d03890507629816c4b46e78:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjExMjkwMDRkYjZmOTFlNTQ2NGZkMGE5YzdlMTk1MWQwMzA1MmYzMzA0MzZiMGNlYWUxZTgwZjZkZmNkNjg0YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGFjZmM4ODA4MmE5YjdmM2I2NmMzMzEwMmZkYTE4NDZhZTI3MjQ0Y2NmMzI0OWZhNzM3MGUyZWFlZDlmMTEyMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWI2OTU2NGVkYzc0MTAzYjg1M2FkYjVlYzNhNWRlYWUwNDVjNTJhYzFhZWY4MTE4YWQzMTAyMTI3MzI0M2M1ZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjVjYzdlYjA0Zjc0ZmI0YmJkYWMyZmRmMzAyY2RiMzZmNmZkZDI2NDQ3ZDAyNTRjODkyMDBhNGMxZWZiNjFjYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_dff907e8c9ed4c30b4a96bd78be00102",
+      "statement": "Quadratic utility u(x) = x - (a/2)x^2 is concave (u''=-a<0) but satisfies non-satiation u'(x)=1-ax>0 only for x < 1/a, so unlike log and exponential utility it is not increasing over the whole positive domain.",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L102-L104",
+          "version": "repo-lines-v1:sha256:4f292cf810d076e6fba3b6d0396375d32d76f9fe87da544115a133cb97acb38d:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDE2ZmM4ZmI5OWI0NzkyNmI4MDRlMzhlZmM5NmZiZTQ4NjExMjZlNDFjYTY1OWZjOTY1ZDljYTRmYTdiMjBlYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNmM1MWY0Mzg0MDdiMDE3ZjNlNDhiOTE1MDlhNTViMDRhM2NlOWUyZjVhYmEwNWVkZTg2ZDVmNGNkNjU3YWZiMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjBhZDFmYzhhMGMzMjU3ZmJhZGZiY2VjYmUzNjAyNTQyZTVlZTBlOTk0MWVhOTEzOWI1NjBkMDVlNWQ1ZmEzNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGMzODI4ODdiMmUxMmRiNzI1YWE1NmY0YzQwMTI3NTNiZTVlNmEwNjhjZjI1ODgxY2U3ZjIxYjhlOGQ5YmZjZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2257a6dc18844a3fb3e31b8055c349a1",
+      "statement": "Expected utility depends only on mean and variance in three circumstances: approximately for small risks, exactly if returns are normally distributed, or exactly if utility is quadratic.",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L108-L113",
+          "version": "repo-lines-v1:sha256:39cd2d9d13ceeeb56699d296e7e720249360adcea9de0555420aa7df1c0d9fa0:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGE0NzJjM2JlN2I2ODBlMThjNjRhNjZjMzc5OTg3MmJlMDUxMzJlNTAzODIxYjFlMTJjN2Y3ZmNmOTU4NzhkZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGNiZjVmZDA5ZmI5MjZmNTI2MzlhZTJlZDU3NmQyZTA3NzI5YjFkMTYyNjA2ZTE5ZTUyNGE0NjNlMTZiNmUyZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGMzODI4ODdiMmUxMmRiNzI1YWE1NmY0YzQwMTI3NTNiZTVlNmEwNjhjZjI1ODgxY2U3ZjIxYjhlOGQ5YmZjZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjNiNmI2MTc5Y2E0NWJiNTM3ZDJlNmE4MzhhNTk3YjM2N2FlYzMwMjA0YjY1NTM1OGFiODU5NTNlYjZkMTNmYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e1c2e49fc9454140b68e769df554acae",
+      "statement": "Quadratic utility has a satiation maximum beyond which investors prefer less to more, and its absolute risk aversion is increasing, ARA = a/(1-a*W), making it a tractable approximation rather than a complete utility specification.",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L115-L119",
+          "version": "repo-lines-v1:sha256:11475eb9c18272d7dc21eec8da50a4c09e1c6fa3e65a3589cd0421700f236fd3:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjViOTA3MmFkMGZjNWNjMTk0YjE1YzBmYzMyNTM0OTY2OTk4NjM3ZWViNmFjYWY4MGI3YTZhNDY2NWY2MTdiYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzBlZDUyYTMyZDM1NTFlMTFlNDU4ZGNhZTliM2YwMDJmMzY3YmZjNDljMDI1NjJlODI3ZWU3NjAwNjY2OGM5NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTZjOTVkNjQ2NDc1ZTE1YWQwMmRkMWRkNzI5NjU1NjE3Yzc3MmJjYmZhYTNjYWRkYmRlMzg2NDY2ZTFmNzE5NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmExZjI0NjZmYTcwOWEwODdlYmZkNTkyOGU4MTY4NGZkMDJmNGQ2NGJhMWQ2NzhkNTQ4OTkzZTI2MzE3NWNkMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_55ed4c119ddc448e82f736358acedd1a",
+      "statement": "Mean-variance dominance is consistent with expected utility only under two mutually exclusive conditions: quadratic utility over portfolio return, or a multivariate elliptical joint return distribution (of which the multivariate normal and Student-t are special cases).",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L121-L125",
+          "version": "repo-lines-v1:sha256:fabe8ba8758a595c82c4b79c2d61baf2b9b8530d068be155f28831c6ccb17bdb:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWYyZDljNWRhOTFmYjUxNWVhZDkyOWMyMGY5ZWZhMDU2ODc0MzJhY2NhMDhlZmIyMmU2NTg1NDViOTQ2ZjUxYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjJiMTE4MTM5OWQ5NDQ4YmQwMDg2MjJhYjJkZjBjMDVjNThkNTRkNThjZTUzNDQ2ZDljZmViZTQ5NTMyZmMyZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODVjYzlkNTRiNzhkNTI4MWU1N2RhMTZiNWNjZDQyNjdlOWMzMTZkNjdiNWNhYjA0NzgxMzBhOTFiZDZiNTNkYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzhkYzEyYTM0MWM3NTc3NDUyMmM1NjkyZjI5NzQ3M2I4MWM4MDE4MzMwNWI1MGMxOTYzNTI3M2M3OTY0NzkxZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5c32e725ac9e4a8b990c9dd270478430",
+      "statement": "Using a variance-covariance model for non-elliptic distributions can severely underestimate the events that cause the most severe losses.",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L125-L125",
+          "version": "repo-lines-v1:sha256:22b1181399d9448bd008622ab2df0c05c58d54d58ce53446d9cfebe49532fc2d:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjJiMTE4MTM5OWQ5NDQ4YmQwMDg2MjJhYjJkZjBjMDVjNThkNTRkNThjZTUzNDQ2ZDljZmViZTQ5NTMyZmMyZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjJiMTE4MTM5OWQ5NDQ4YmQwMDg2MjJhYjJkZjBjMDVjNThkNTRkNThjZTUzNDQ2ZDljZmViZTQ5NTMyZmMyZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjFkYzNiMWQ3N2VmZDZiZGZjZWY2ODYxNjZhMGQ5MjU3ZDI4Njk5Mzc0NzMyMzkzMjc3YzI2MzdjNDEwYWE5NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzhkYzEyYTM0MWM3NTc3NDUyMmM1NjkyZjI5NzQ3M2I4MWM4MDE4MzMwNWI1MGMxOTYzNTI3M2M3OTY0NzkxZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c24aabd034244b2b97c8609a999b80d1",
+      "statement": "Mean-variance indifference curves E(r) = c + (1/2)A*sigma^2 have slope A*sigma > 0 and second derivative A > 0, so they are increasing and convex, and are steeper for higher A (a more risk-averse investor demands more compensation for the same added risk).",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L151-L155",
+          "version": "repo-lines-v1:sha256:a18da5849f55048e5a693f5a5d193a8202209b87968008fa0e88e7aa179f164d:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjEwOWE4ZGJlYWM0NzZhY2RlZDNiZGMzNTgxZmI4ODZhNzhiNWExMjQ5MWQxN2YxNTQ2MTk5MzFkNjdjNDk5NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGI5NDgyMjg1MzkxNmVhMjA1MWQxOThkODhiNDY3MjViOTgxYjcxOWE5MDBhYzdlMjM0N2JjNTJkMGIxNThmNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2MxNWUwOWVmY2U1ZjQ1ZTdjNzQwYWNmMzJmY2I3M2Y5NDZhMTJjZjY0YTQwNTQyYzI1ZDRiMGIyZDFlYjNiNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZWM3YjYwYThjYzkzN2FlYzcxMmNjM2NlYmE0YTcyZmFhMGJiMzgzYWRjOWMyMDczYTk2OThjODE5Y2IwM2NkOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3090f031d17149789747bbe3ced58f66",
+      "statement": "With a risk-free asset, maximizing mean-variance utility over the complete portfolio gives the optimal risky share y* = (E(r_T)-r_f)/(A*sigma_T^2), inversely proportional to risk aversion A and variance sigma_T^2 and proportional to the excess return.",
+      "evidence": [
+        {
+          "resource": "repo://docs/01_choice_under_uncertainty.md#L167-L175",
+          "version": "repo-lines-v1:sha256:db522443fbcea3b0022ff29924cce2fd11f0c2e96f13d74893bbe0b97eb74a4c:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzZjZTM5OTZjMzE3N2IwMDdiMWY0MjcxMzUzNDZhZjNjNDNhNjJmNWQ2YTI3ODYyZTU4MDAwYjJmMGM4MGVhNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTMxYmFkNjM5MzY0ZWM4ZjlkYWZlNmQ0ZTA5Y2ZiZjI1YmIxMjAxZDNhN2U1Njk4ZDFhNjNiZTBjM2E0YzYyNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDQ2ZWIwYWNiYjRiNzdjNTNjMzdmOGI1MjNlZTgyNWMwN2E3MjRiYWE5YTM4Y2M1ZmM5MGYxMDhmN2QxODRjZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

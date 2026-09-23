@@ -1,0 +1,260 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:bfdb90165e0760c3ae093f6c5d8bc8b95f4920d99d3ad1b6f2c3f51b6c46b02d",
+  "claims": [
+    {
+      "id": "claim_db9911b6b5204a679a131d543dbc5ef6",
+      "statement": "Information decay is measured with three information coefficients, all cross-sectional correlations between factor values and returns: the conventional IC matching the factor at t with the return from t to t+1, IC_{t,t}=corr(F_t,R_t).",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L18-L20",
+          "version": "repo-lines-v1:sha256:c345346e8de800170993ea453f0097769aa1459b99ec1b88db2352946f874d4e:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzJmM2Y4OGU4YzJkNGJmY2FmOGU3MTY4NmUwNGUyYWVhYTc5YWM1NWI5MjhlYmZiNzFhZjQxMmY4YjhkNTRjYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDVkNTUyZWIwMjIwNTM4YzkxYzFlMjI2MWQ0ZjZhYTBiMjg3MTQwMTcyNzA2ZGM0NmI2ZjdhMzVjOTY0MzAxNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWY0NGQ5Yzk0MjVhMjA3MWUwNjQxNjYyMDZhODdmM2VlY2IwY2RmMzlkMDAwOGY4MTBiOGQ4ZWE2N2Y1NWY2NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWIwMDQ1MWY1MmZhM2QyODY0YTdkMTJlMzJmNGRiOGEyYTllMjYzMjlmMjQ5MDRjNzFkNmEyMzI3NmE2YTQ2MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a5b63d146ba54e71909060ce72e658e1",
+      "statement": "The lagged IC matches a factor already known at t-l with the later return from t to t+1, IC_{t-l,t}=corr(F_{t-l},R_t), and directly measures information decay: a factor with positive conventional IC may retain or lose that IC one or more periods later.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L22-L26",
+          "version": "repo-lines-v1:sha256:90290c050852b74cbbe41b9a1f39e57b98b03ad49af06c8efa0b9064b8131b4a:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDI2MTBlNWJlY2UwNDY3NTAzOGQzZjg1ODdhMWQ2MjU0Yzk2MjlkY2M5MTJlZmViMzg0OTg5ZGE3NzZiYzIyMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODFmZDZjOWI5NDA5YTM1ZmE5NzNhM2M2NjBhMjAyMzQ5ZWU4OTE0NGY2MjVhMTY1NjhhNWQ4MGExYWY2Njg1OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmZmYzAwOTM4MzBmMTk5MTU4NzFhYjQwZGE2NzczMmJkYWRhMjk4YTYwZTdkZDczN2NiYzYyNGI1MGY5M2UzZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWEyNjAyMzMxNjBmOGYxMmJiZTdkNTVhODlhNGMxYmU5ZDYxYjdmMzJiM2Y5NTdhOWRiMjNkOTM0NDBkZDAyNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c38c69cc9edd47af86d956e1634af2f2",
+      "statement": "The horizon IC matches the factor at t with the return cumulated over h periods forward, IC_t^h=corr(F_t,R_{t,t+h}), and the information horizon is how far into the future the signal keeps predictive power.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L28-L32",
+          "version": "repo-lines-v1:sha256:6753a7daff2a70fdd2deeaa3bf7188fad51b0d9bdbe0a53797c784a3b8de6f49:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWRmOTIzN2YzY2I1MTcwNjBkYmE0MTk4OTlmZGMxZDUwZWZkNWU2MzgxYzYyNGI4ZGM4YzRjNjQ1MDQwZDk4NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODI3YTQwOTM0MDFmN2I2OGM5MTU2YTY3NmMyMTg2NmExYTAxZTQ0MTgxODEzMzFiZTUzOTQ1YjM4ZDhiNWE1MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmI4ZWMyNGNhOGM5ZWI5YTE2YjQ3OTg1YTUxMTZhZjkyMzVmYjA4YWI2YmUyNjg1YWQxOGRmMjRjYzI1YWNmMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTgxOWE5YjZhZTYyNTYyODI2YmZhOGMwNDMyNWI2NGIxZDQ0MzBiOGEyYTQyZmRjY2Y5MDljZmFjNmViMjgxYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_547e5af27691414fbc2ff8114da2bbba",
+      "statement": "Because the cumulative return is the sum of the single-period returns, the horizon IC relates to the lagged coefficients as IC_t^h ≈ (IC_{t,t}+IC_{t-1,t}+...+IC_{t-h,t})/√(h+1) = avg(IC)·√(h+1), so the horizon IC grows as the square root of the number of periods covered.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L34-L38",
+          "version": "repo-lines-v1:sha256:1b56c32aa26fba233f09e4d5cd738ee494d03160e75b1c8edd0b883b2db800c4:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzQ2OGJlZjhlZDJiYmMwYTMxM2JjM2RlYTQxOWFiOGFlZDI5ZDlmYmQxODFjZWRkOGMxNTJkZjc5ZTRjOWVjZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDQ1NGJiYzM5YjVkZDJjYjYyYTBhODkxN2MyNjhmNTlmOTNiNTJkYWJmNTk2MmNkZjk0ZWUwMTg4NDdiZGQ5MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzRlNGU5ZGE1ZDgxOWVkNDY1OTJlZDdhYjk5ZGI1MWU4ZWVmM2EwMTcxOWE5YjA0MWRjODVmN2U1ZGQ4MWMxOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzZhZTkzNjZlMmU1ZTUxNmViM2M2YmU3N2MzZGJmZDIzZWVlMjM3MDczMTM4MjU3ZjBhNmFkYWFjZDlhYzI5NyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ef7509ab9cd44c47b613066a7179d686",
+      "statement": "Empirically, price momentum's average IC starts high at lag zero and decays rapidly to near zero within a few lags while earnings-to-price starts lower but stays nearly stable at later lags — the value signal keeps information over a long horizon while the momentum signal exhausts it quickly.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L40-L40",
+          "version": "repo-lines-v1:sha256:29fb49c1550c26e58d55f632bb75f15b2d5538076fa66077c5cb3d9edd319a1a:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjlmYjQ5YzE1NTBjMjZlNThkNTVmNjMyYmI3NWYxNWIyZDU1MzgwNzZmYTY2MDc3YzVjYjNkOWVkZDMxOWExYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjlmYjQ5YzE1NTBjMjZlNThkNTVmNjMyYmI3NWYxNWIyZDU1MzgwNzZmYTY2MDc3YzVjYjNkOWVkZDMxOWExYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTYxN2YzZmJjYzc0NGFhNzg2MGFmNTVlNTQwNTk4ZjE1ZTBjMTEyMTY0YmQ1YzA3MGM3ZjA4OTU2MDUwYjc2NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjBlNTU5NGUzMWU3MTYzODQwMTU2NmI4OTc4MzA5NWRiYjlmZjM2NzYwNWZjYTA4OWYwMDNmY2VlNjg2M2VhYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5094d6fc3c0d40fb83b7ba2d27140944",
+      "statement": "Repositioning is measured by turnover T = ½ Σ_i |w_i^{t+1} - w_i^t| summed over the N stocks.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L44-L46",
+          "version": "repo-lines-v1:sha256:f2e2f51748e39519ef668d8db6239d7292c08018d553ff17a4d1f786d047c6d4:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMGI1ZmRhZGM1MWY0Mjc1NjI1MmEyZDY5YmQxODQ3MzVlOTdiMjdlNmRhYjYwYzNmMjRlNGY4ZmJjZTEzMjlmMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMmE5MzY5MmFkYTdjZTc4MzczYzJiZjk5NWZhODMzMmU4ZTVmODM4ZThkYTQ2ZjVkNWNlMzJmODI3NDhmNmU2NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjBlNTU5NGUzMWU3MTYzODQwMTU2NmI4OTc4MzA5NWRiYjlmZjM2NzYwNWZjYTA4OWYwMDNmY2VlNjg2M2VhYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmMxYzc2NDNjM2Y1MzJlNmIzN2IzODExNDIyM2ZkZTE5MGE2NDhhNjA0NDgwZWZkYjg0MjVmZmIwNjQwYjJiMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f998a373cf804be3bcfd5cfb462f1295",
+      "statement": "The forecast autocorrelation ρ_f is the cross-sectional correlation between the signal's values in two consecutive periods, corr(F^{t+1},F^t).",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L48-L50",
+          "version": "repo-lines-v1:sha256:253c1c4afba95a57f4a993130c5b44d30102e36a6ce2914195450370c5f044fc:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDBkMjhlMDg0MmRkZWFhOGMzNTdmYTI5MjQzYWY3NGNkYzc5OTZmMmJlYjQ4NzYyN2EyOWY2NmMyZTRkMDM5YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTNmMjRhNzg1ODRhZTkyNmQ1MzgxYTgwZjU0MmM3ZWM1ZDFkZmQ2ZTZkYmIyZWQyOTIzMzY1MjM1MGRiNWVmMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDYzOGRkZTYxYmZkMmM2MDgwYjFiYTk4NzA5YzZlMWVkNTM4ZjkyMGVhNmYwMWE1NmZiZDliNmUxODhiNDZjMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTQ3NTk2MTA0ZjNlZjE4MGJhZjNlZGZmZThhMjIwOGNlOWJhOGQ5NzlmNzA2YTllM2VjMjE0NDVkOTBhYWMzMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_29012cc3e32c441e9688034c0bbe1653",
+      "statement": "For an optimized portfolio the turnover is T = √(N/π)·σ_model·√(1-ρ_f)·E(1/σ), so it rises with the target tracking error and the number of stocks (as √N), falls with average specific risk, and grows as the forecast autocorrelation falls (via √(1-ρ_f)).",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L52-L63",
+          "version": "repo-lines-v1:sha256:5bee7660228472b4a1dacbe5778c0b3654edde01eb28c57f0ca0fb67dd50f863:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImMzNGM3MmUyYWJjZDI1NzVmYWRhN2E1YTMwNjI5MmFkMzA3NDZiNzk5Y2IzNDdiMzdlZThjMWY5NzRjNGFjOGUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFkMDllMDFiMzg4ZmI1NzdjOGNlOTVkMWQxMjkwNzQxYzc3MjM0MDUyNWUxNDdmZjZhNDQzMGNhOGQ0Y2YxN2UiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjE5YTk1ZDY0M2FjNzQyYTE3MGI5ZjkzMmE0Mjc0ZmYxYzBjNTI5MTg3N2I2Zjc5ZmM1YjliNjVjNDJjNzUxMWMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBlMjgyZGQ3ZjgwMWYzNTk0ZmI5YjMzZGEwNjgwYzc0NTZhOWRmNzhhZTE3OTZjYmM4ZTJlMWQ2MmRmODY3MDEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_eb6f58e16b96412ba518e7103eed1d6a",
+      "statement": "Ranking average forecast autocorrelation by category gives high values for value factors (E2PFY0 0.96, B2P 0.93, CFO2EV 0.84), low values for momentum factors (EarnRev9 0.64, Ret9Monx1 0.60, LtgRev9 0.37), and intermediate values for quality factors (RNOA 0.89, XF 0.76, NCOinc 0.80).",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L65-L65",
+          "version": "repo-lines-v1:sha256:711e70a595afd530ff10c37c46054119611e2ea8df741eeaf6b866e2e481fbe3:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzExZTcwYTU5NWFmZDUzMGZmMTBjMzdjNDYwNTQxMTk2MTFlMmVhOGRmNzQxZWVhZjZiODY2ZTJlNDgxZmJlMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzExZTcwYTU5NWFmZDUzMGZmMTBjMzdjNDYwNTQxMTk2MTFlMmVhOGRmNzQxZWVhZjZiODY2ZTJlNDgxZmJlMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmRlNTA4ZGEyODdhOTU4MmYyODk1MTIzYzJmNTI4NTJmYmJlZWMxZjc1N2FkNWE4ZjNiYWVlOTk0MzMyOWQ1NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmU4ZDYyZThiNDcwOGM2MDQyOGZkNmIwYjgzOGE1NmEwYzJlMmUxMTFjNmZmNjk4M2VkMmQ1MGYzYjc0ZTgyOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4c3565d6d5094eb7a46f3199d066b732",
+      "statement": "A two-term moving average of factors combines the current value with its lag, F_ma^t = v_0 F^t + v_1 F^{t-1}, which increases autocorrelation and hence reduces turnover.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L71-L73",
+          "version": "repo-lines-v1:sha256:4e73e21095f92336859b11ab458bb727df09ce03f697a1f944a3fe386b040407:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmZlOTQyOGIxNzkxNTc2ZTNlYmUzOTg3NDg5MjMzNzUwZGVmYmEyYzg2ZDk1NGEzODExNzllYjQ4MjAxN2QwYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2M2MGFiMDUxY2E5YmFmNjZmM2Y1MjFkYTg1OTAzYjE3N2FjZGRiZjJiM2EzY2VjMTYwMThiM2UwNTExZjVlNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTAyN2Y1ODllNWRiZDYyODY0M2IwNjdjNGM1ZGFiMmJmNmJlMTgwZWM5MWU2MDYwZmUzMGM5ZDRkYmQyNWM1ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjljODNjOWNiZWZmN2EzN2UxNWQ2Mjk2ZjI1MGE2Njk5MjMwMmI1NDVlZmEzOTIyYTU1Y2I2NTJjYTAxMWI0ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_eed516da85fd40baa9076e9d811bc00c",
+      "statement": "With a factor of lag-one autocorrelation 0.90, the moving average's autocorrelation peaks at about 0.95 at equal weights v_1=0.5, and since turnover scales with √(1-ρ_f) the moving average's turnover is √(1-0.95)/√(1-0.90) ≈ 71% of the raw factor's turnover.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L75-L79",
+          "version": "repo-lines-v1:sha256:378eea39033e510b00fc07b7d23cd71a325e791a71d9f88ec5b8e17206491fc8:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjA3MmVjYzc4MGJlYWIwNDljMmNjZGFlZDE4YTYzMmJkMTIyODE5MTUxN2U4Y2Y4OWVhOWNiYmFkMzVhODkxYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTYxN2ZjYTIxZjJlOTViMmQ5ODRjYzMzNDkwNzg4YzliOTZjMDg1ODdlMjg2OTQ5MjkzYWY4NGMzNTFhMzgwYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjg0OTBmNWJmZmEzMzllMDExZDIzNmQ5MDRiMjMzZWQwNGI5NjE0MWU1MmVjYjIzODRjMDdjNjlkMmVjM2MwOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWQxMDgwZDc1MjRhYjkzMGVhYTcwMjZiNGI3NzFhODQ4ZTRmYzU0MTc2MjllOTQwMjRkNGQ0NDQyMDEyYWRhMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_45f0be8d9de446a6a426c0b60e3cf0fd",
+      "statement": "The combination weights are chosen to maximize the model's information ratio IR = v'·avg(IC)/√(v'·S_IC·v), with avg(IC) the vector of average ICs and S_IC their covariance matrix; for E2P and PM (IC correlation -0.4) the unconstrained optimal weights are PM 36% and E2P 64%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L83-L87",
+          "version": "repo-lines-v1:sha256:59afb4cf0fcafdb8051908fdb51cf3e71f60afa50b4bb25a32e48b363bd49e90:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTc5N2RmMWUyYjExNzM2ZThjYmZkNmQxOWYxMzZjM2UzYzI3YWM1YzNmNjdhODAyOTk1YjU0NTQ4ZDM4Nzk5OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGM4OTE1YTI1OGFjYzIxNWQ2MTBhMTg0MThhNDA2NTVmMGMxODE1YjVkYzczMTA2OTg0ZTE2ZTdjOWI1MWUxYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWQxMDgwZDc1MjRhYjkzMGVhYTcwMjZiNGI3NzFhODQ4ZTRmYzU0MTc2MjllOTQwMjRkNGQ0NDQyMDEyYWRhMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiM2M2YjgyZGYyMjE5OWMwYzlmZWJjYWJjMGVmYzRmMzFkNzhlZGIwMjY5NWE4Y2Y2NTM2MjA5ODQzOGM2NGIwMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_470638ba404f486bb32b9aab3c1de046",
+      "statement": "Maximizing the information ratio subject to the combined moving-average forecast's autocorrelation equalling a target traces the responsiveness–stability trade-off: as the target autocorrelation rises from 0.85 to 0.97 turnover decreases monotonically while the IR peaks at 2.39 at ρ_f=0.89, with weight shifting to the lagged factors only when higher autocorrelation is required.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L89-L97",
+          "version": "repo-lines-v1:sha256:ea14a73ac697fe5b9e317553ed13f8a2919270a59a55a1b84cdedb36d3229df9:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDM2ZDBiZDYwYTk4YzA4ODdiNjY0NzVmMGFlYmNkNmI5MGZlYmI4YjIzNTRmMmEyNjJiMzFlNjk3ZGY3ODA2MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjA5Y2YzZDk0MDAxYzA1Mzk5MTJkNTgxZTM0NTUwOWU4YTU5NDcxOTgwMGE2YmVmMzI4ZjhkYzk0OWU1Y2E3NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTg1Y2NmNmY3M2ZmYWE3OGU3ZDQyMmUyNzIyNjllYzI0ZDk2ZGU1MDQ5MDY2ODJjYmRkMjVkOGU1NGY0YTZlZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODQzMTJjNDQ1NjA2NTMwNGZlNDQxZDU5OWVmOGQ0NGIxMDA1Y2Q4Nzc5M2M4Yzg5NGExOTVkMDRlNDVkZTAyMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2c2e9bb6b257466ab74454e159f353c4",
+      "statement": "In the Gârleanu-Pedersen model, excess returns are generated by r_{t+1}=Bf_t+u_{t+1} with f_t a K×1 vector of return-predicting factors known at t, B the S×K loading matrix, and u_{t+1} zero-mean noise with variance Σ.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L103-L107",
+          "version": "repo-lines-v1:sha256:93e2a6d8c8a1549210b20a17b4795391659401001713e30876f61c07f1ccb51f:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGQwZTRkNmE3MTM0ZGMxZGJhMzBkZDk2YmIyOTJhOTM1ZDFlMzBhYmJmM2NmMmJmODY0MTYzNTc3M2M4OGU2YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2VkYzY2YjliZjYwMDk1YjdlODlhYjQyOGRiZjNhZGY0OWU4ZjgxZDhiZWNjYjU0MWUyMjY0OWJhNjA5YmM2OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDYzNTIyOTg5NmUzNmM3MDlmZWMyZGNlZDhmYjVlYTc3ZWE2NDM4YzViOWI5ZjBjYTk4YmE2M2ZiZmNhNjM0ZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODRjMjAxZmQ2YmMxMzhlMjkwNzNlNmFlODFkMTY5MjM3OWEzODNhMGY3NmI5NGJlMTVhMTY1N2JlZjg2NTA2MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8fb2f9067a0d464c9e5376685b3fd0c1",
+      "statement": "The factors mean-revert as Δf_{t+1}=-Φf_t+ε_{t+1}, where Φ collects the mean-reversion coefficients (the continuous analog of alpha decay) and ε_{t+1} has variance Ω.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L109-L111",
+          "version": "repo-lines-v1:sha256:ed6cc8d7172d35f6218479586c5fe8a74741174f07076410e840dac11aae1c20:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjEyODcwYmQ1MmY4ZGU1ZjA1YWE2ZTIxZjBjMzNhZWJmZGRjMmI4ODY3MTVjMTA3YjRlODZmMDhhYWE3MDI0NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYWFhNzJmOTU4NGIzYzBkYzMzOTQ4YzkyNWYyZGQxMjA5MmI5MTExMjkwZGIzYzczMGRlODBjMDYxMGI2MTIwOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjlhYzM0ZDhiYzczMTMyYjcyZDZkZmQ2Yzc4ODA4ZWMwMmQ5NmY2NmY1OTQyZTdlNzlhMjVjMDA0N2Y4MzVhNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGMyNTk2NWMzOTY1NDA5ODViZWEzNjNhNDQwMzhlYmI0MWJmMzljYjgzMmMyOGE2ZTc2NWY0OGEwOGExZGVkZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4394fe78f8d843a8ac6207fac2a47e7c",
+      "statement": "Trading cost is quadratic, TC(Δx_t)=½Δx_t'ΛΔx_t with Λ symmetric positive definite (a multidimensional Kyle's lambda); in the special case where costs are proportional to risk, Λ=λΣ for a scalar λ>0.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L113-L117",
+          "version": "repo-lines-v1:sha256:6d3f66c672baa994f243e0271c77f8430e714c6785f9ce23a2e09a85d02606ee:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2JhMDYxNTcxYjVhNjFlZjY3NmZhZmZlZmNiYzAxMjg1YzU5MDQzNGU0ZDAzZWJkZjg4NGQzZTM5YTU5MjI1ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjExM2YwNWYxNjdlZmUwODlhZGExZGFmMTJmNTJhODRkMTFhYzdhYzYyYTY0NmZlYjc1ZGJkMmNhZTljOGI4ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWE2NmYzNzhhM2ZmNmRmMmQxMTRhYmIyOGQwZWM5M2FiYTEzYzI3MDhjYjNiOWEzMmE3ZTM0MmJlNmY3YzJkMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTk4YzIxNWUxOTUyNjM1ZmIwYTM0YzNkNWU4YTdkMTg0YWQ1YjYyMGE0MGE0MGU5YTdhYmZiNzdmNmI1Y2NlMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2fb04e6063ae4ac5be7c687060625d39",
+      "statement": "The investor maximizes the discounted present value of future expected excess returns net of a risk penalty and trading costs, solved by dynamic programming whose value function is quadratic with A_xx positive definite; without transaction costs the future would be irrelevant, so it is the costs that make signal decay matter.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L119-L131",
+          "version": "repo-lines-v1:sha256:67e3387ad0d72c36cc2d0e77ad47c5ec73e9f37b00619742b86546eed49c31c8:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjYzMDE5NWFkMTY3ZTE5ZjlmNzYyNGQ2ZTc1YmQ5N2QwZGYyZjQ4M2M4NTM2MTFhMjRkM2I0MmU5MzBjNDE5NDUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxZTA0ZjI4ZmI1MmY0NTQ5YTg2MzBjMzJmYzBlNGE1ZWI4ZTZjMGU3MWNhODc1NzY3Nzk5YWE3ZjcxZDgwMTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjlmNTIwOGQ1ZjQxODEzOTJhNDIzYWE3NTY0NDk3Y2U0ZGM0OTVmMTFkMjQwNGJiZWQ0N2YzNWE5YzBhMDYyMmEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjFkODk1NTg1Mzk2NWU1NDNjOTIzNmMzMDYzMmE4NGM5OWZiZTk2NWU3YThlNzMwMTJkZDgxMDQ3ZGRjOGY4Y2EifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c0abfe555830422a8efc60f5ded46506",
+      "statement": "The optimal policy trades toward an aim portfolio at a proportional rate, x_t = x_{t-1} + Λ^{-1}A_xx(aim_t - x_{t-1}) with aim_t = A_xx^{-1}A_xf f_t; under proportional-to-risk costs the trading rate is the scalar a/λ<1, giving x_t=(1-a/λ)x_{t-1}+(a/λ)aim_t, a rate independent of the current portfolio and higher the lower the costs and the higher risk aversion.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L135-L147",
+          "version": "repo-lines-v1:sha256:7f4a7916c301bd2aef7c05d7304d201b624920011a70d634444ce769d57b8512:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM2YzM0Mzg3MzY1NjEyMWE0MmViYWE0ZTVlMjI1ZjcwZGNhZTJlOWI1ZmYzYmU3NTFlMGIwYjRjYmFhNjhhNWQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ2YTAyYmYyZjMzMzgyZGQ1ZDE3NWNmZjNlZjU5MDg1M2UxYzMwNWQ1M2ZlMTZjZjU0ZWVmYTBhNzMwNjk5MTgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFkODk1NTg1Mzk2NWU1NDNjOTIzNmMzMDYzMmE4NGM5OWZiZTk2NWU3YThlNzMwMTJkZDgxMDQ3ZGRjOGY4Y2EiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIyYmU2OGI5MzFlMWE5YmU0OWU0ZDZiN2U5NmIzODBmNWNkZDgwYzk3M2RiZGQzOWFlZjJkMjhkNjJlMTMwYjkifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_1eb0e5ca08234b46a5d5d9997949f998",
+      "statement": "Without transaction costs the investor would hold the static Markowitz portfolio Markowitz_t=(γΣ)^{-1}Bf_t every period, but because the predicting factors change it is a moving target; transaction costs make it optimal to move only partially toward an aim rather than chase it fully.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L149-L153",
+          "version": "repo-lines-v1:sha256:9800fa1855c054d3f0e695551579f4d06ee048f4b0f61c30a9b9ed412188158d:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzE0MTliMTE3MmRmNzkyMGQwZTkxMzg1NWNlMmMyY2I2OTcyYTA2NmVkOWMwMjIxZjlkMDVkODgzMzNkNzA5OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDJjMjc3M2M5MjBjOGExNTVjMTI0MzExMDllZGVmNzVlM2U4ZThhZTcyMzJiNzQ1NzI5N2UyNWM0MDJlMzAxMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWI3NzBjNGEwZjU2ZjU3ZWVjNzM5MWQ3YTdiMDVhMTYyOTM1YzIzZjZhMmM5NmVlNTQyYzBiYTQ0OTdlZmI2MSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWZmMjM2MWIxYTJkMTM5ODIxOGEzM2VhOTVlMjQyY2VlOTlkZTk4OGIzODMyNGY4ZjM0NWRjZDEwYmM4YThmNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9f722790e2fd4bbcb9c71c76e34ad5b6",
+      "statement": "The aim is not the current Markowitz portfolio but aims in front of the target: aim_t = z·Markowitz_t + (1-z)·E_t(aim_{t+1}) with z=γ/(γ+a).",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L157-L159",
+          "version": "repo-lines-v1:sha256:d0aee9f787d7f42fe8a3f4b9aa97862fa51eda7c9bbcade0a7a50e7c8dbdb93d:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTlhNmZhZDJhOGI5NWMyZWViOTBjYTJjZGQ2OGI5YTAwYzRkZGI3MWMxYzNmMjJiN2I0ZjM0OGQxOTQxNzBlZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTVjZTJjYzNlZDJmZTc3N2E5MzAyYmQ5MTZlYTYzYWI5NzBlZTMxOThhMjNhNjQ5NTM2ZDg4N2Y5NWY5YTk5YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWZmMjM2MWIxYTJkMTM5ODIxOGEzM2VhOTVlMjQyY2VlOTlkZTk4OGIzODMyNGY4ZjM0NWRjZDEwYmM4YThmNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjQ1NmFlNDYxMWNmYTViYjk2NGYzMmUzYjk4ZTNlMzkxNzM5M2E4ZDViODU1ZTBlNWM2MDBmYzkxMWNiZWNjMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_66c1c82559b647398b33e0563f2c3df4",
+      "statement": "Iterating forward, the aim is an exponentially weighted average of current and expected future Markowitz portfolios, aim_t = Σ_{τ≥t} z(1-z)^{τ-t} E_t(Markowitz_τ), with the weight z on the present opportunity decreasing in transaction costs and increasing in risk aversion.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L161-L163",
+          "version": "repo-lines-v1:sha256:b9338f3eb4c5287dd85a38c4d96005e9ac4dd0cec37cc0ca205414e7395f68d2:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTMwZjIyMTRjMTQyYzc0OTlmZDIyYTUxNGY1Y2QwY2Q3YmY2YzYxNWYzMDExMDBlMzg2NmQ0N2MxOTQ3NWY3ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2QxYjI4NWUxMjM0OGQzMWRmYTM0ZDQ5NzllNDA5ZjViOTczMjdhOWUwMGRjMmZhMzk4OTYzNmExYjcxMTIwMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWFiMDY4MjUzNzYyZjI0MzljNjM4MGFmOWI2MmM1MTgyNGUwYjI0MDM5NjAzM2RkZjhmZmY2OWMyZmI1Mjk3MSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjgyMDQ4YTEzNmY2YjczMjUzNzc0YTc4NDNiYWY2MjgxMTk0YTA5OTIxYWM2OTgwYjcyYTY0M2IyZWNkNzk4MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_429475e48205499a931309d72870a2ca",
+      "statement": "Using the factor dynamics, the aim equals the Markowitz portfolio with signals rescaled by their mean reversion, aim_t=(γΣ)^{-1}B(I+(a/γ)Φ)^{-1}f_t; when Φ is diagonal each factor f_t^k is divided by 1+φ^k·a/γ, penalizing high-alpha-decay factors and giving more weight to slower-mean-reverting predictors.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L167-L179",
+          "version": "repo-lines-v1:sha256:a240c266572ebd22df58772b4f3dbfe97642a0dd783a16d9f87b5b3029334bf9:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE0MTRkMTkwNWJkOTg5YTJiN2VhM2YxZjIzNDI5OGJmNmQwNmE1YWRlZjJhNDQxMjllM2VlODQ0NDcyMWM2NDIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI2MmE3YjZhYTVjMDFiYTUwNDM4YzIzZDZiNTU0YWE3Nzg0NmU3M2EwNDk1NDk4NWE3NzBhNWFiNjJhMzEwM2MiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjI4MjA0OGExMzZmNmI3MzI1Mzc3NGE3ODQzYmFmNjI4MTE5NGEwOTkyMWFjNjk4MGI3MmE2NDNiMmVjZDc5ODAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImYwOTQwNDZiYzFkNzZjM2VhZTgzN2RkZjlhNTNjMWY3NTRkYjlmOWIyYjZkOGJmNzE5ZGI3YTRiNTk3MTZjMmMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_8419476d2dc7417298f0af83acc8356b",
+      "statement": "Followed forever, the strategy drives the position toward an exponentially weighted average of past aims, x_t = Σ_{τ≤t} (a/λ)(1-a/λ)^{t-τ} aim_τ; in the single-market past-returns case the portfolio weights each signal by the length of its residual horizon (most weight to yesterday's return, next to the day before, and so on).",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L181-L189",
+          "version": "repo-lines-v1:sha256:f57454e879958cf60aff5aab0b63baa923d53dbf014c63c3f32d7e5e94a90c67:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjU3ZjRjMzMxODY1ZDQ3ZWYyYTAwOWFmMjY1OTJjNzNiMjFiMWNlYjM1N2I2MTc2ZjYxZTNiY2I5ZTBiNGI2MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDRhMGMxNmQ4OTZjZGJhMmFlZDljMDYzYTUxZWYyNTkzMTU2ZmNkODVkN2FlYWY0MGMyMDE1ZjY4NzJkMGJjOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2UzY2Y1OGUxYzQxZDdiZWQ3OGNkZTFiMTZmYjM4MTUyNjMzMWNhMzI4ZWQ3NDQ2YmE5MGYxNmY2MGEzZjE5YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzMwNjAyZGY1ZGZjMmZjOTU1ZmQzMzEzMWNiZTllNGE4YWJlOTgzZWQxNGNjZGUwNzZjZTZlMjFjM2IxODY0ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_73db9caaa8c149cc91f36f632cfb6d75",
+      "statement": "The static one-period optimization (ρ=1) yields x_t = x_{t-1} + (γ/(γ+λ))(Markowitz_t - x_{t-1}); it differs from the dynamic solution because its aim is the Markowitz portfolio, and with several predictors no choice of γ and λ recovers the dynamic solution, which gives more weight to slower-decaying factors.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L193-L201",
+          "version": "repo-lines-v1:sha256:1e20d3ea62148cb3834257aa50f3a18f0c2c3f0b2240972d0f4222f2f456438a:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmI2ZDEyNjdiOWFkN2E5YzU5NzgxYTFkMjQ1ZjhiY2Q4ODMxNDg5Yzg0M2VjMDg4N2UzZGI3ZDQxMmUyOWMwZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGRmMTg2ZmNiNGEzYzEwY2E2NTllZWI4MGY3NWExYWQyMGU2YjBjNmQ5MjUzYjBlNjFlMjgzZjBlMTk2NzQ2ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzMwNjAyZGY1ZGZjMmZjOTU1ZmQzMzEzMWNiZTllNGE4YWJlOTgzZWQxNGNjZGUwNzZjZTZlMjFjM2IxODY0ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzYyMTk2MDY5ZmI1YmJlYzY3Y2Y2YmM1NGIwMzdjM2YyOTUxMjlhMWRmMWEwNDVmNGQxMDIxMDk5YTdlMWNmMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ad1084e43c714edfa0e4e914d207e803",
+      "statement": "Empirically over fifteen liquid commodity futures (01/01/1996–23/01/2009) the three predictors have half-lives of 2.4 days (5-day signal), 206 days (1-year signal) and 700 days (5-year signal); net of costs the optimal dynamic portfolio's Sharpe ratio is about 20% above the best static strategy's because it down-weights the fast-decaying 5-day signal, while the cost-free Markowitz portfolio is best only gross of costs.",
+      "evidence": [
+        {
+          "resource": "repo://docs/11_signal_decay_horizon_and_turnover.md#L203-L215",
+          "version": "repo-lines-v1:sha256:f2273ca28ab0ca5c0675e7a79960c45d4266aa4b218e2aee3fdabb0b013948a0:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjRiNzhhYmMwNzAyYzczMzYzZWY0MmI1NTljZjBhMTkxNDE1NTRhYjEyMTY3Y2JiMTA1NDkyMzUwMDUwYjU4M2QiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFmNjk0MTY2NDkzZjllODQ0NGNlZDAxY2ZmZjBhOWVjZmYxMDNjMGRiZDc3NDQwYzllNWIyNmE3YzQxODNjYjMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjM3ZjIyMThiZWM1OTIxMjk5YmMzMDEyMWYyZDM4MTEyY2NiMjBkODY1Yzg4M2JhYjdkYjBhZjYyNGU5MDAyZTYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg4YmViMWM3YmRmNmM4MTRlZTJhYmJlNmU3NjRhZmU5NjdhNmRmOGQ4NWYyMzczY2IwZjg0Yjc4OGJhZGJlZTAifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

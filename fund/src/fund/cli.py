@@ -2,13 +2,15 @@
 
 The complete headless human driver, mirroring ``ingestion/app/cli.py``. Every
 command is a thin wrapper over :mod:`fund.observe` (the model-free read model),
-``run_fund`` / ``resume_fund`` / ``run_profiler`` (the orchestration), and the
+``run_fund`` / ``run_profiler`` / ``resume_run`` (the orchestration; ``resume_run``
+dispatches a paused run to the profiler or rebalance resumer by its gate), and the
 ``fund.audit`` repositories. The seven commands span one cycle::
 
     mandate set|show   persist / display the per-portfolio mandate (no model)
     profile            drive the MiFID profiler to its approval gate
     run                drive a paper rebalance to the place_orders gate, detach
-    approve | reject   resume a paused run (commit the ticket, or discard it)
+    approve | reject   resume a paused run — profiler save_profile or rebalance
+                       place_orders gate (persist the profile / ticket, or discard)
     status             runs + statuses + awaiting-HITL flag (no model)
     report             tabular audit of one run (no model)
 
@@ -28,9 +30,11 @@ first, then the model/pool are built per command).
 from __future__ import annotations
 
 # Load .env FIRST, before importing anything that reads settings at import time.
+# override=True so the project .env wins over ambient shell pollution (e.g. a conda
+# env exporting SSL_CERT_FILE to a cacert.pem without the corporate CA).
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 import datetime as dt
 import logging
@@ -41,7 +45,7 @@ from typing import Any, NoReturn
 import typer
 
 from fund import observe
-from fund.agents.graph import resume_fund, run_fund
+from fund.agents.graph import resume_run, run_fund
 from fund.agents.model import build_primary
 from fund.agents.profiler import run_profiler
 from fund.audit import (
@@ -343,14 +347,19 @@ def run(
 
 
 def _resume(run_id: str, decision: str) -> None:
-    """Shared driver for ``approve`` / ``reject``: rebuild-to-resume a paused run."""
+    """Shared driver for ``approve`` / ``reject``: rebuild-to-resume a paused run.
+
+    ``resume_run`` dispatches on the run's gate — a profiler ``save_profile`` run
+    resumes via ``resume_profiler``, a rebalance ``place_orders`` run via
+    ``resume_fund`` — so one command drives either HITL gate.
+    """
     _boot()
     rid = _uuid(run_id, label="run id")
     model = _build_model()
     persistence = setup_langgraph(settings)
     try:
         with get_session() as session:
-            resume_fund(
+            resume_run(
                 rid,
                 decision,
                 session=session,

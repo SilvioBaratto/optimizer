@@ -1,0 +1,250 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:f839325bd36629d393343e89691a89b522b3228c7cf97a5e08e25bebfaf68493",
+  "claims": [
+    {
+      "id": "claim_f4c244b810534b458a3b802bb9955187",
+      "statement": "William H. Miller's Legg Mason Value Trust beat the market every year from 1991 to 2005 then fell nearly 65% (about twice the market) in 2007-2008, handing back essentially all the accumulated advantage; Forbes' Honor Roll of top funds tracked over 19 years returned 11.2% annually against the market index's 13.1%, so superior past performance did not predict future ability to beat the market.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L16-L16",
+          "version": "repo-lines-v1:sha256:0507715da0569e86b4bcaa6bea1558b7a0bb74e75a4333de1f5bdab9e223dfb6:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDUwNzcxNWRhMDU2OWU4NmI0YmNhYTZiZWExNTU4YjdhMGJiNzRlNzVhNDMzM2RlMWY1YmRhYjllMjIzZGZiNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDUwNzcxNWRhMDU2OWU4NmI0YmNhYTZiZWExNTU4YjdhMGJiNzRlNzVhNDMzM2RlMWY1YmRhYjllMjIzZGZiNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDJlNzEzNThlZjNlNTc2OTgxYWZkNThkZTY0NzRjMThkNjBkYmJhZjA4OTY5MTk2ZThkNmVmN2YxNmNiYTEzMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmJhMjI4YTA2OTNkNWYzZDI0ZmZkODYzY2Q2NmZkNGRmN2Q2YWI5ZmE4NzZjZjNiNGY2MjAzNjdiNWFhOWQ1MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_23ff52cc609f42f78a4f99b3de9917ac",
+      "statement": "A backtest deceives because random samples contain patterns: a systematic search over a large strategy space finds one that profits from the random configuration of the data (backtest overfitting), like concluding from ten fair-coin tosses {+,+,+,+,+,-,-,-,-,-} that heads is optimal on the first five and tails on the last five — a rule with zero predictive power on the future.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L18-L18",
+          "version": "repo-lines-v1:sha256:f0fd885a849668d1457befaaa3d578d15f268d8ff107b16f23531060e4f84ab4:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjBmZDg4NWE4NDk2NjhkMTQ1N2JlZmFhYTNkNTc4ZDE1ZjI2OGQ4ZmYxMDdiMTZmMjM1MzEwNjBlNGY4NGFiNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjBmZDg4NWE4NDk2NjhkMTQ1N2JlZmFhYTNkNTc4ZDE1ZjI2OGQ4ZmYxMDdiMTZmMjM1MzEwNjBlNGY4NGFiNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjdjMGFhNTdkMTZiYjQxMzNiODUxMDYyNzRmMzg2NGM2ZGU4MjJhNDRiOWIwNDExNmUzNjFjMGUzNWYzYWUxYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWQ0NGI4MDJiODgyMjJmMjlhOGE1ZTg4ZmZjMGRlNDZjM2Y5OTA1ZmEzYzE5YTRmODYwMDJmYzlmY2U5NTRkOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ccaaba1615f84550b41d53f4545822d8",
+      "statement": "Because financial returns have a low signal-to-noise ratio (lowered further by competition), and memory effects make extreme random patterns get violently undone rather than diluted, backtest overfitting leads not only to zero expected gain but to the maximization of out-of-sample loss.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L20-L20",
+          "version": "repo-lines-v1:sha256:217dd83d5b62c557aaaf8802aa5dfca423aec2f02773ef72ae610dcd343b5481:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjE3ZGQ4M2Q1YjYyYzU1N2FhYWY4ODAyYWE1ZGZjYTQyM2FlYzJmMDI3NzNlZjcyYWU2MTBkY2QzNDNiNTQ4MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjE3ZGQ4M2Q1YjYyYzU1N2FhYWY4ODAyYWE1ZGZjYTQyM2FlYzJmMDI3NzNlZjcyYWU2MTBkY2QzNDNiNTQ4MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmJhMjI4YTA2OTNkNWYzZDI0ZmZkODYzY2Q2NmZkNGRmN2Q2YWI5ZmE4NzZjZjNiNGY2MjAzNjdiNWFhOWQ1MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzVjZGI2ZDM0YTVkNTdjMmMyYTUwMzQ1ODRjMTdjMjAxNWYyZDA0ZjE1NjBiZDlhM2ZkN2RjZGMyNjVlZjQyNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_970d1c1df2114bf6800824046f856b39",
+      "statement": "The size effect (positive alphas for low-cap or high book-to-market stocks) documented by Banz in 1981 was attributed by many to a data-snooping bias: given enough characteristics one will always be correlated by pure chance with the estimation error of mean returns; many well-established anomalies are overturned once data-mining biases are accounted for.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L24-L24",
+          "version": "repo-lines-v1:sha256:348fc4f151672378f37380d4dce93310e54dddc4a9c6a8c9b2c9387459750537:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzQ4ZmM0ZjE1MTY3MjM3OGYzNzM4MGQ0ZGNlOTMzMTBlNTRkZGRjNGE5YzZhOGM5YjJjOTM4NzQ1OTc1MDUzNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzQ4ZmM0ZjE1MTY3MjM3OGYzNzM4MGQ0ZGNlOTMzMTBlNTRkZGRjNGE5YzZhOGM5YjJjOTM4NzQ1OTc1MDUzNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzVjZGI2ZDM0YTVkNTdjMmMyYTUwMzQ1ODRjMTdjMjAxNWYyZDA0ZjE1NjBiZDlhM2ZkN2RjZGMyNjVlZjQyNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODQzZTI0NThhNDIxNWE4Y2IyNjMwNjJmZWE4ZDE0YWU2YzViZjJmYWI2MTVmNzA5N2M3MTA4NmIyODY5YWYwNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_bb75421f21b2419285804f8ba4d5ffaa",
+      "statement": "Selection bias takes many forms — the file-drawer effect (analysts not reporting all experiments), publication bias (journals publishing only positive outcomes), survivorship bias (indices tracking only surviving hedge funds), and self-selection bias or backfilling (managers publishing only profitable histories) — all withholding critical information and yielding a Type I error probability far larger than expected.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L26-L26",
+          "version": "repo-lines-v1:sha256:56f69575def05fc79d9289a9cbf29f0f58be6c13f399ea259169c0adb2f79d36:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTZmNjk1NzVkZWYwNWZjNzlkOTI4OWE5Y2JmMjlmMGY1OGJlNmMxM2YzOTllYTI1OTE2OWMwYWRiMmY3OWQzNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTZmNjk1NzVkZWYwNWZjNzlkOTI4OWE5Y2JmMjlmMGY1OGJlNmMxM2YzOTllYTI1OTE2OWMwYWRiMmY3OWQzNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWZlM2UxZTliMzExNmNhM2IzMzBkNjdiZWExMTk2OWYyNzRlNzJjYWI0MmJiZDcwNGMzNDFlZDdjODNhMTgwYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzRjODRhNjlkOTNkOWM5NDNhZjQ4ZGYzMjYzOTI0N2Q0OWVmNDE4YTExYzExODNkMmY4NDRlZmI2NjllMmZlOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_267ae7d206b4405a95a0a9336ee01b05",
+      "statement": "A 5% false-positive (Type I error) probability holds only when a test is applied once; applied to the same data many times (potentially millions or billions in modern quant research) false positives become almost certain, so selecting the best of many strategies incurs the winner's curse and an inflated Sharpe ratio that disappoints out-of-sample (regression toward the mean).",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L28-L28",
+          "version": "repo-lines-v1:sha256:d44707d9658dc1e47f70ef772d06a8e04b3bebf5948dde404de02920e2cfdba7:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDQ0NzA3ZDk2NThkYzFlNDdmNzBlZjc3MmQwNmE4ZTA0YjNiZWJmNTk0OGRkZTQwNGRlMDI5MjBlMmNmZGJhNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDQ0NzA3ZDk2NThkYzFlNDdmNzBlZjc3MmQwNmE4ZTA0YjNiZWJmNTk0OGRkZTQwNGRlMDI5MjBlMmNmZGJhNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODQzZTI0NThhNDIxNWE4Y2IyNjMwNjJmZWE4ZDE0YWU2YzViZjJmYWI2MTVmNzA5N2M3MTA4NmIyODY5YWYwNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWFmMmU4MjA3NWE4NTg0MTU5MTQ0M2MyZDM2N2Q2MzZjNDczNWRjODMwZGY4MDVlNjMyYzRmYjk0YmZmYTlmMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1fc5b74dcc164c83897472af3a57103e",
+      "statement": "Multiple-testing methods split into those controlling the family-wise error rate, FWER = Pr(N_f ≥ 1), the probability of at least one false discovery, and those controlling the false discovery rate FDR = E[FDP] with FDP = N_f/R (0 when R=0); FDR procedures let false discoveries grow with the number of tests and are more permissive than FWER procedures.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L32-L36",
+          "version": "repo-lines-v1:sha256:d7368eb456f87bbad6c61ce8393ac62cf6b25100a78e113bbbb02e6e18c722fa:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjJhMzg2OWJhMzVmZTM4YzhhNjAzYTk4NzljM2VmMDU3YzQ2YTJiYTVlMGQzZDE4NDllY2VlMGQyNDkxMTZkNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDQ1NjQ5NThlYWE4NmE0NmJhYzc2MjI5OGNiODYwYzJhNjNlNzAzZDJhMzdlMzdhZTVjYzk5MWQzMDM1NzdkNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOWFmMmU4MjA3NWE4NTg0MTU5MTQ0M2MyZDM2N2Q2MzZjNDczNWRjODMwZGY4MDVlNjMyYzRmYjk0YmZmYTlmMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWNiOGUzYzgwZjZkNDVmZjkwNzNmMjUzNDUxMzMyZTRhZTFiNDIyODIwOWFkYWY4NjhlNjBmNWQxODhiNWViYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_022ae9b32e124509a0818903a77f0f21",
+      "statement": "On ordered p-values, Bonferroni gives p_(i) = min[M·p_(i),1] and Holm p_(i) = min[max_{j≤i}{(M-j+1)p_(j)},1] (both FWER, Bonferroni stricter since Holm ≤ Bonferroni), while the Benjamini-Hochberg-Yekutieli method controls FDR sequentially from the largest p-value with c(M)=Σ_{j=1}^M 1/j, making it valid under arbitrary dependence; for finance Harvey and Liu recommend BHY.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L38-L44",
+          "version": "repo-lines-v1:sha256:bb66c908b7cea23da6f2cab0ddf3d0a1f0ec5065afe7b425ec12cb0c97b1a6eb:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjk0NDI3ODU5ODc0Mjg4Yjc0MDlhNWUzYTA0OTUyNThlZDc4OWQ3YTRlYTZmOGY0MGFkOGE2NjBkYTZiOGNkYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODZiYTQ5MzZiNjJiODFhN2FkZTBmMGMwNTgxMzA3ZDJkODhjMGI3NzVhZGU5MmJkMDA5MDlkNGJhMjhjYmQ0NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjk3MDdjZDAzNzJhNDY3YWQxOWJlODEwODk2N2NmMjJmMTgzMTJiYzBhYzRmYjlhZjNhZDY2YmQxMWMyMjE2YiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGQ0NThhZGVkYjk0ZTc2NDg1ZDljNWI4NzAxYmU5ZjViZGIxM2UzNTAzM2ZkNGIwMjk2YmNkN2YxMjBjNjJiOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b185a5034687456fb725663b9b8d0426",
+      "statement": "For a zero-cost strategy, the t-statistic for zero mean return is μ̂/(σ̂/√T) with T-1 degrees of freedom under i.i.d. normal returns, and since SR̂=μ̂/σ̂ one has SR̂ = t-ratio/√T, so at fixed T a higher Sharpe ratio means a higher t-statistic and lower p-value; for monthly inputs the annual Sharpe is √12·μ̂/σ̂.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L48-L52",
+          "version": "repo-lines-v1:sha256:1bd7c17039baed514b49e7038b55093b68b6a247a7d1caee7447484903e66abb:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2Q5YzdlYmIwYmYyMmY3Njc1NjY5ODUzMjY3ODgzMjQxOTM0NzE1YjVhM2Y4NTdkMWM2MzI0ZjcyZjY5YzY3MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2M2YTgyN2ZmNjA2MTk0MzMxMTdlZjk1ODA0ZDFiMmMwNzliODA1NTA4YmRiN2VkZjg0M2M0ZTE2NjY2OGM4ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGQ0NThhZGVkYjk0ZTc2NDg1ZDljNWI4NzAxYmU5ZjViZGIxM2UzNTAzM2ZkNGIwMjk2YmNkN2YxMjBjNjJiOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWVhMjRkODU0MjE3M2QyZDk1NzU1Y2MzNTkyZDlkNWY0OTBhZDE2YTRiZTZiZDliOGQ4MTg5MjczOTgzNDVhNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_85d947117a3b4aba804d2852239627c3",
+      "statement": "If a researcher tries N independent strategies and presents the best, the multiple-testing p-value is p^M = 1 - (1 - p^S)^N, so with N=10 and p^S=0.05 one gets p^M=0.401 — about a 40% chance of finding by chance a strategy with an equally high t-statistic; equating a single test's p-value to p^M defines the haircut Sharpe ratio HSR̂ < SR̂.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L56-L60",
+          "version": "repo-lines-v1:sha256:d6239fb0fe6212e96325c64977745133b18376aca1554811fccee8725ae98bc2:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmRlZjEzYTUxYzg3MDFkNjE2ZjUxY2Q4YjBmMzA3OTIwM2YxZTgzNTg1NDU1ZWFkMTE1NDY2OTU1Y2M0MzQyMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjI0NTQ1MDZmYzg5ZjkyMzM3YTgzOWE0MzNkMWFiNGE2YWEzYTE1MzU0NDgzZmFhYzVjZWMzZmM0MGJiZjM2MyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOWVhMjRkODU0MjE3M2QyZDk1NzU1Y2MzNTkyZDlkNWY0OTBhZDE2YTRiZTZiZDliOGQ4MTg5MjczOTgzNDVhNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWNmNjFjYWI3ZjQwOTRiM2E1NTQxZjQxNTQyNjQ2MTlmNWY1NTYzNzFmYzRkYWI5M2JkOWE5NmQxZTc0NTYxZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0f2672ed63b246a2bddff3e0722cf79d",
+      "statement": "On twenty years of monthly returns (T=240) an annual Sharpe of 0.75 gives p^S=0.0008, and with N=200 tests p^M=0.15 implies an adjusted annual Sharpe of 0.32 — about a 60% haircut.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L60-L60",
+          "version": "repo-lines-v1:sha256:22454506fc89f92337a839a433d1ab4a6aa3a15354483faac5cec3fc40bbf363:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjI0NTQ1MDZmYzg5ZjkyMzM3YTgzOWE0MzNkMWFiNGE2YWEzYTE1MzU0NDgzZmFhYzVjZWMzZmM0MGJiZjM2MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjI0NTQ1MDZmYzg5ZjkyMzM3YTgzOWE0MzNkMWFiNGE2YWEzYTE1MzU0NDgzZmFhYzVjZWMzZmM0MGJiZjM2MyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2Q2M2Q3NTc2MzBiZDU1OGMyYzc0NDIxMDMwYzhiNjAzMmE1OWVjNzMyZmJjMDhkY2FlMWJlMmUwOTIyNDM4YyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWNmNjFjYWI3ZjQwOTRiM2E1NTQxZjQxNTQyNjQ2MTlmNWY1NTYzNzFmYzRkYWI5M2JkOWE5NmQxZTc0NTYxZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1438d4aa8b5f485aa39e5862eec84872",
+      "statement": "The multiple-testing discount is nonlinear, so the common 50% Sharpe haircut is a serious error: with N=50 tests the discount is nearly 50% for the least profitable E/P strategy (annual Sharpe 0.43) but only 7.9% for the most profitable betting-against-beta (annual Sharpe 0.78); annual Sharpes below 0.4 are almost always discounted more than 50% while those above 1.0 are discounted at most 25%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L62-L62",
+          "version": "repo-lines-v1:sha256:53cfd205aef889bd87ac8ec3399e607b38e2330d059a9ae7dc401be908fa8cba:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTNjZmQyMDVhZWY4ODliZDg3YWM4ZWMzMzk5ZTYwN2IzOGUyMzMwZDA1OWE5YWU3ZGM0MDFiZTkwOGZhOGNiYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTNjZmQyMDVhZWY4ODliZDg3YWM4ZWMzMzk5ZTYwN2IzOGUyMzMwZDA1OWE5YWU3ZGM0MDFiZTkwOGZhOGNiYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjVhOWFmODc0NjhhZDk4Nzg5M2QyZGIxODAzZjVhNTU4NDg2MzdlYmU5MjVkYTU2ZDlmNmM4NDZkMDkyZmRlYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2RhOGM0ZDFkYzk4Yjg5NzU4ZjEyNjI0ZDcyZGM4N2EyMTgwYTUzNWYzNDFjNWQzYzQyZmVmZDAwNTJjZTAzOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7b51318f09c14c84a217981fe972b043",
+      "statement": "Inverting the problem, with 240 observations and 10% annual volatility the minimum monthly mean return for a single test is 0.365% (about 4.4% annual) but rises under BHY to 0.616% (about 7.4% annual).",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L62-L62",
+          "version": "repo-lines-v1:sha256:53cfd205aef889bd87ac8ec3399e607b38e2330d059a9ae7dc401be908fa8cba:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTNjZmQyMDVhZWY4ODliZDg3YWM4ZWMzMzk5ZTYwN2IzOGUyMzMwZDA1OWE5YWU3ZGM0MDFiZTkwOGZhOGNiYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTNjZmQyMDVhZWY4ODliZDg3YWM4ZWMzMzk5ZTYwN2IzOGUyMzMwZDA1OWE5YWU3ZGM0MDFiZTkwOGZhOGNiYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjVhOWFmODc0NjhhZDk4Nzg5M2QyZGIxODAzZjVhNTU4NDg2MzdlYmU5MjVkYTU2ZDlmNmM4NDZkMDkyZmRlYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2RhOGM0ZDFkYzk4Yjg5NzU4ZjEyNjI0ZDcyZGM4N2EyMTgwYTUzNWYzNDFjNWQzYzQyZmVmZDAwNTJjZTAzOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ad720d1d85744918a5b59334fa5278b3",
+      "statement": "The expected maximum Sharpe ratio over N independent trials is E[max{SR̂_n}] ≈ E[{SR̂_n}] + √(V[{SR̂_n}])((1-γ)Z^{-1}[1-1/N] + γ Z^{-1}[1-1/(Ne)]) with γ≈0.5772 the Euler-Mascheroni constant, so the expected maximum grows with N even with zero skill (E[{SR̂_n}]=0, V[{SR̂_n}]>0), making good backtests a pure consequence of random behavior as more candidates are examined.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L66-L68",
+          "version": "repo-lines-v1:sha256:688b37b7afa5e5f4d484000826e41ebf463f32d3c071471fb0657246b15d5860:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZThjZjBhMWY4NWRkMjkyN2ExNDlkODVkYTg5MGM1NTk1NTM5MjJmYWZhN2YzODRhZGQ1ZDExOGIzNGY0NGIzMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2YyYjk3MDM5OTViMWU1OTg2NTliMGUzN2E1ZDdlODllNDA0ZDVlOTliMDJhZWQyMmZkZTU3NzkxMWU3NTcyNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2RhOGM0ZDFkYzk4Yjg5NzU4ZjEyNjI0ZDcyZGM4N2EyMTgwYTUzNWYzNDFjNWQzYzQyZmVmZDAwNTJjZTAzOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWQzNjUwMWRjMDI3ZDE3NmMxZDQ5ZmNlZGI1MzI5MzZiMGJlODliMGRhMDNkMjljZTQ1YzNiNTM1OWYyYjQxOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2045e4c3fa3f400280839d1774fc0213",
+      "statement": "The deflated Sharpe ratio is a probabilistic Sharpe ratio whose rejection threshold SR̂_0 is the expected maximum under H0: SR=0, DSR̂ = Z[(SR̂-SR̂_0)√(T-1)/√(1-γ̰3·SR̂+((γ̰4-1)/4)SR̂²)], discounting the Sharpe using five extra variables beyond mean and standard deviation: skewness, kurtosis, series length T, the variance of tested Sharpe ratios, and the number of independent trials N.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L70-L72",
+          "version": "repo-lines-v1:sha256:6ce4a190980c9bb5867d6fdbb7311fa9ac5ab7696cea0da45039e76acac6f1e5:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzYxN2QxYjdiOTdlOWIwZmUzOTM5Yjk0ODhmOTM2ZmM5MmFkODI4ZjNjZGFiYzljNDVlOGY5ZTgzNjIxN2UzNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTdjYTdjNjlmMmE5YjVhMjU2NDEyMjM2MWJmOWQ4ZGZlZTc4NDM1M2ZjNjFlZDI0NDJkNDJiMGU0ZDE2ZTdkZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTYyNDJhODZhMzM3NWU1ZTg1ZDBkMWZmYTJmYmExZTNiNWU2ZjdmYTNlMzUxYzhiYWJlOGFkZmYyYjU5MjBjNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmY3NzZiMzczNzJkOGU0YzE2MWFhZWI0OTVjYjU5ZTA3NWNjNWM2NDVlZGIyZWIyYzJiZGMyM2JmZjQ3NTZjMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2233ef1afbcd4447a9276b074947b739",
+      "statement": "In the Treasury seasonal example, an annualized Sharpe of 2.5 with declared N=100 trials, backtest variance 1/2, T=1250 and moments γ̰3=-3, γ̰4=10 gives threshold SR̂_0≈0.1132 and a deflated Sharpe ratio ≈0.9004 < 0.95, so only 90% probability the true Sharpe exceeds zero and the investor declines; with normal returns the investor would have accepted up to N=88 trials.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L74-L76",
+          "version": "repo-lines-v1:sha256:79e98b0a305c63766a240921c2b0a6c1e612714cacd73e836c7819820118b868:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTEzY2RkMDU3YTFkYzExZjdkYzEwZDQwMmEzOGNlMjE5MGE0ZjZhYTlhNDIzN2ExYjZiYTQzM2I1ZDU3YmMwYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNmNiZTlmMzIyZDI0ZjYyZDBiYjEyOTE1YzRiNGM4NDJjMmZhNDY4ZjUzNDY3Y2NiMzk5YTJmN2IwMDgzNmZjNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWZlNmNmZTZmNGU2MmJmNDQ0NzA1MDcxMmRhMTViNTA5ZDg5ODA2YjNhYWNiZTNjMWM1YmMwOWQzZGYyZTdkNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2UxOTJmMzAyODFmMTg2ODljMmZhODUxOWJlNGViNGNjNGRkNTY5MDJiYmEwZjQwMmIzZjA3YmZjNjJhYWNmNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b0cd67d2638c46f5b995885c2638bd16",
+      "statement": "The relevant trial count is independent trials, not total trials M; with ρ the average off-diagonal correlation of the M×M correlation matrix (bounded in (-1/(M-1),1]), the implied number of independent trials is N̄ = ρ̂ + (1-ρ̂)M, so N̄→1 as ρ→1 and N̄→M as ρ→0, and correlation reduces the effective number of independent tests.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L78-L82",
+          "version": "repo-lines-v1:sha256:d6c09ccd2390e1f6076a4dcf4469417beb05c83b61bf5069508a626f5a9b6ad7:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTA5NmI4ZTAwMzQ4YWZmYjk5MmQzMGI1NmUwODc5YzIxODQxY2M4MDFmMTVmYmZjMTgxMjZjYWFiNDRiZWY1YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzUzZjUyYmE0NTRlODJkZDc1NzRlZmI5NmQzZjI3ZTlmM2ExZGYyMDc2ODhkZjk4NGNkOGQ2NWMwZjRiNzRmMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTY4MGMxNWQ1YzViZjNjNGI0NzNiNGNmZGQ3YTVlNTc0NWQ3N2FkZmE1NWZhZGMyY2M0YTVjNzc5OWI5YWUwNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTEwMTk5ZjkzMTRkNWZjOThmMmMzYjcwOTczZjUyODRiNTliNDllMmE0MzdiYjIzNmFmZDJmNjExMmFkMmExYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_cb550bf9cc454da7ab2c5a0e4970b6bb",
+      "statement": "The probability of backtest overfitting evaluates the selection process: over the rank space of N! permutations, the process overfits if the IS-optimal strategy has expected OOS rank below the median, PBO = Σ_n Prob[r̄_n < N/2 | r ∈ Ω_n*]·Prob[r ∈ Ω_n*]; 'in-sample' means the subset used to select the optimum, not the model-estimation period, so the PBO is model-free and non-parametric.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L86-L88",
+          "version": "repo-lines-v1:sha256:b8d0b20f36bcdc10677bf129b56eba61ab80cbfe5e8d557d35816a2b68c108ef:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGQ3MjQxZWIwMDYyMDVkNDA5YzY2NjYzY2U2ZTExMjYyMjgzZDA3MzUyZWU0MDk2ODViZjM4ZjU0OTM1MjA5MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTZiOWU4YjUzZjNiNTYzNzUxNmNlMDM1MGZjZjg5NDk0YzhlYjU3NTgyMDdiMDljYjZmYjk5YjEyNmQ2NzI3NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTEwMTk5ZjkzMTRkNWZjOThmMmMzYjcwOTczZjUyODRiNTliNDllMmE0MzdiYjIzNmFmZDJmNjExMmFkMmExYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTkwYmE2NzBkYzk2OWVjYzM1ZGIyZDY1NjVhMTZmYzA3MjczNjY4M2FlYmZiYWMwZWU4NWI0ZmZjMzUyMGFiYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_02aa4949c6bc4a40aa0d6937c702ec2a",
+      "statement": "The PBO is estimated by combinatorially symmetric cross-validation (CSCV): a (T×N) performance matrix is partitioned by rows into an even number S of equal submatrices, all C(S,S/2) combinations split into training set J and complement test set J̄, the IS-best strategy's OOS relative rank becomes a logit, and the PBO φ = ∫_{-∞}^0 f(λ)dλ is the mass left of zero; per Neyman-Pearson one rejects models whose PBO exceeds 0.05, and S=16 (quarterly partitions for a four-year daily backtest) generates 12,870 logits.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L90-L94",
+          "version": "repo-lines-v1:sha256:4888461ce4e3af872d020048cd52f8ee6780c657a2615d0857755d1e25d50f4a:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjU5OWVmNjJkZjA3NTAwZDY0NzQ4NzlhMDdhYzIyYWRkZjU2Y2QxZDk0ZDNmNDdjYzk0ZGZiMzU1OWNlYTg4NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2VkY2E3ZDI1NWU1NzM0NjFlMTY0NzM1ZmY4NWExZmI5MzVlNGRjMzI4NWNhMzdjMDk1MWI0ZmM0MjhjNDI4MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDhlODNhZjFjMDhlNmQ5ZDI0NzVkNDIzZDBlMmI3ODI4Zjc0MzVlZDg4MTIxMzc3MWQ0ZTk2NTUwZWI0OWEyMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTI5MmMyYzFkMjA0YWNjZmUxNmRhMWRkNTlkMjU5YmQwMjBiZTBmZjY4ZjNjMTUwNzc1ZWU5YjI0OWY2NTY3ZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6b41ef9315cd45848c7acaad239cdd2a",
+      "statement": "Regressing OOS on IS Sharpe of the selected strategy usually gives a negative slope — overfit backtests minimize future performance; in one example with all IS Sharpes between 1 and 3, about 78% of OOS Sharpes are negative and the PBO is 74%, while a contrasting real case shows ~3% loss probability and a PBO of 0.04%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L96-L96",
+          "version": "repo-lines-v1:sha256:f4b0d92c49c3bc6292832569185d50bed81fcfebcdee945978f49c03a6226e05:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjRiMGQ5MmM0OWMzYmM2MjkyODMyNTY5MTg1ZDUwYmVkODFmY2ZlYmNkZWU5NDU5NzhmNDljMDNhNjIyNmUwNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjRiMGQ5MmM0OWMzYmM2MjkyODMyNTY5MTg1ZDUwYmVkODFmY2ZlYmNkZWU5NDU5NzhmNDljMDNhNjIyNmUwNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWI5YmRhYjNhZWMyOTkyOTJjNTBiMmE2YzA1YTJjNGNhYTczZTU3ZTM2YzUzODBiZmNiOGQ2MThmMDZkNTE4MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2Q1YWIzYjgzMzA0Mjk0Y2Y4NzMwMDQzNjM3YzBmYzJkMThiNzFjNjQ2NjdlZDQyOGY0NjdjNzEyYTJmMjFkNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_656d1e9ba9a44662bba4ed8189e6a6b8",
+      "statement": "The most important and almost always missing information in published backtests is the number of trials attempted: without it a backtest is worthless however excellent the reported performance, and the disclaimer that past returns do not guarantee future results is too lenient when joint selection bias and overfitting make adverse outcomes very likely.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L100-L100",
+          "version": "repo-lines-v1:sha256:eb6e96f9754a1a055d5125b3e961181de2862be89109d1deaea3859639b640c1:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWI2ZTk2Zjk3NTRhMWEwNTVkNTEyNWIzZTk2MTE4MWRlMjg2MmJlODkxMDlkMWRlYWVhMzg1OTYzOWI2NDBjMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWI2ZTk2Zjk3NTRhMWEwNTVkNTEyNWIzZTk2MTE4MWRlMjg2MmJlODkxMDlkMWRlYWVhMzg1OTYzOWI2NDBjMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2Q1YWIzYjgzMzA0Mjk0Y2Y4NzMwMDQzNjM3YzBmYzJkMThiNzFjNjQ2NjdlZDQyOGY0NjdjNzEyYTJmMjFkNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGZmOTQ4ZTcyYWI5YTBhMjNkNzNlMzFmZjQwY2YwNGUzMjI5NDVmNTkzZWYzZWUwMjZhNTgwMTc3NjFmZWRlYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_559a545518254ee2974b696861289a74",
+      "statement": "The holdout method (and k-fold cross-validation) does not prevent backtest overfitting: it assesses generality as if a single trial occurred, so applied enough times (twenty for 95% confidence) false positives become expected, and it is inadequate for small samples with high estimation variance where different holdouts reach different conclusions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L102-L102",
+          "version": "repo-lines-v1:sha256:1c8eafe802854312319a9e7b36826e0eec568186332452a49b6882171dcfb7c0:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWM4ZWFmZTgwMjg1NDMxMjMxOWE5ZTdiMzY4MjZlMGVlYzU2ODE4NjMzMjQ1MmE0OWI2ODgyMTcxZGNmYjdjMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWM4ZWFmZTgwMjg1NDMxMjMxOWE5ZTdiMzY4MjZlMGVlYzU2ODE4NjMzMjQ1MmE0OWI2ODgyMTcxZGNmYjdjMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWViZDdlNDNkZDVmMDQ3NzMyODBmNjQzNGQ3NzZjOGI5OWFjZTk1N2ZmMWEzOWQxNjNjMThkZTgxODEwNmE2MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGU5YjU0OWNkZGFjOGI1N2U1YjU1ZjYzNjA2ZGJlNWI2YmJlYTM4OWI5Y2U4MjEzMzRiYzUwNDI1NGRlZWRmZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_46cd0fb0474849e5b4e22317c045de5d",
+      "statement": "Even a true out-of-sample test has intrinsic limits: iterative try-fail-revise-retry is not truly OOS; the test holds only probabilistically (success can be luck); and since the researcher already lived through the data period, no true OOS on historical data exists, especially with economic variables — plus a Type I/Type II trade-off in splitting, since withholding OOS data raises the chance of missing true discoveries in the shorter in-sample.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L104-L104",
+          "version": "repo-lines-v1:sha256:b6d4dfe1b019e967757774aa9a43f5b3dc2787e58f9c2c475544f73da50a1096:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjZkNGRmZTFiMDE5ZTk2Nzc1Nzc3NGFhOWE0M2Y1YjNkYzI3ODdlNThmOWMyYzQ3NTU0NGY3M2RhNTBhMTA5NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjZkNGRmZTFiMDE5ZTk2Nzc1Nzc3NGFhOWE0M2Y1YjNkYzI3ODdlNThmOWMyYzQ3NTU0NGY3M2RhNTBhMTA5NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGZmOTQ4ZTcyYWI5YTBhMjNkNzNlMzFmZjQwY2YwNGUzMjI5NDVmNTkzZWYzZWUwMjZhNTgwMTc3NjFmZWRlYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWY0MzBlMzJkZjQ0Mzg1MjNmYzA1ZGIyMDE2NWMwY2U2Y2UyNjViMTgxOTY2YmUwMWE2MzE0NGI0NDBkMjMwMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_28ab01ce3f844ea3a338402af09b91aa",
+      "statement": "The second validation criterion is that investment theory, not computing power, should motivate which experiments to run: a single-test p-value is meaningful only when strongly motivated by economic theory and directly proxied, and the economic rationale must be independent of the statistical evidence the strategy generates, not deduced after the fact from the backtest it is meant to validate — the optimal-stopping (secretary problem / 1/e law) samples a random ~37% of justifiable configurations then keeps the first that beats all earlier ones.",
+      "evidence": [
+        {
+          "resource": "repo://docs/10_validation_data_snooping_and_overfitting.md#L106-L106",
+          "version": "repo-lines-v1:sha256:fecd02e49d3a9119896b8ead72f402addfe88c055ea23e1c041b7c3c70453144:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmVjZDAyZTQ5ZDNhOTExOTg5NmI4ZWFkNzJmNDAyYWRkZmU4OGMwNTVlYTIzZTFjMDQxYjdjM2M3MDQ1MzE0NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmVjZDAyZTQ5ZDNhOTExOTg5NmI4ZWFkNzJmNDAyYWRkZmU4OGMwNTVlYTIzZTFjMDQxYjdjM2M3MDQ1MzE0NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZGU5YjU0OWNkZGFjOGI1N2U1YjU1ZjYzNjA2ZGJlNWI2YmJlYTM4OWI5Y2U4MjEzMzRiYzUwNDI1NGRlZWRmZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

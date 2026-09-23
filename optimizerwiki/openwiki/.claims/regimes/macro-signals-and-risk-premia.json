@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:8259baa35444ff521c5a74e8d4f03078bb5a606508691ef2f06140a3ec145ffd",
+  "claims": [
+    {
+      "id": "claim_788baa97b5d5476984d103312af80006",
+      "statement": "The standard test for return predictability is the predictive regression r_{t+1} = alpha + beta x_t + epsilon_{t+1}, with r_{t+1} the asset's excess return, x_t the predictor known at t, and null hypothesis beta = 0.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L18-L20",
+          "version": "repo-lines-v1:sha256:b19d2ed4e98fe094bd56aa28cefe23d81225f4729e24ae1f856081e0247c1e28:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjI4NGEyZWEyODliNzI2ZTk1ODI4MTViNGI5NjNhOWJkNDkyNTA3YmQ5ZWZkYjEzNWIyYzQxYTdmMjY0Njk5ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNWRmZjA0ZmViMzI1NzhkMDMzM2NmYWRhYzg5Mjk1YTE1MDBmY2MwMjFiNzZjMzkwYWM1MDI5NzUxMDAyYjYzOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWY5YWNkMjFmMWRhMGJhMDVmMjZiYzdiYzU4ZTY3NzA4YmNmOGJhYzVjZjcxYWI5ZjNlMzgwNjJiYWFmMWE1OSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2I1ZWQ1YzVjYTViMzI1MGRkYTgzODZlMTViYzFhNTIyMjkxYThlNDgwYTEwOGUzNmNmYWM2N2Q5NTU0NzU0NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_67745eb9c3ea4b0ca5d9940f464fd5ac",
+      "statement": "The out-of-sample R^2 is R^2_OS = 1 - sum(r_{t+1}-hat r_{t+1})^2 / sum(r_{t+1}-bar r_{t+1})^2, comparing the recursive model forecast against the historical mean; because estimating an extra coefficient injects noise, under the null the expected value of R^2_OS is slightly negative, so even a zero R^2_OS is weak evidence for predictability.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L21-L22",
+          "version": "repo-lines-v1:sha256:585183510515482084c067f486b1921b2315e80b49b99c77833f1ed2a98c45a4:eyJzZWxlY3RlZExpbmVDb3VudCI6MiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzcyNmE1ODk3MjI4Nzg3OGRmNjQ3Njg1MTI0MWFhYzEwMjRhOWNiMWI5ZDI5NjJmZmJkMTcxYzY2MzBhY2Y4MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmEzODZhZTYyNDI4ZmNkOTI0YjNmZDk1MmM5NTllOTkwZmY3YmNkMWE1YjcyYWM5MjRiNjdkZWZiNDIzYWQ2OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjE5ZDJlZDRlOThmZTA5NGJkNTZhYTI4Y2VmZTIzZDgxMjI1ZjQ3MjllMjRhZTFmODU2MDgxZTAyNDdjMWUyOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGY2NGUzMmZlMjg2MjEzMTdjNGJiMWI0MmYzOTI5OGEwYjk2NDc2YzQyMzQyM2Y2NDRjYjhmNzg0ZmU3NmM5MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c105fbbf947b44eb97c81c219824eff8",
+      "statement": "The yield-curve slope is the spread SPREAD_t = R^L_t - R^S_t, defined as the ten-year Treasury yield minus the three-month yield; a flat or inverted curve (SPREAD_t <= 0) tends to anticipate a real slowdown.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L28-L30",
+          "version": "repo-lines-v1:sha256:7570411d2951e02b23e126d36285a4ef63e8e0771e86b5f8fcd289f437a77f3e:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTAyOGI4ZDI3MmJhZGJkMjRjNzlhNjhmNjEwZWUyZmM5MDhjYzExYjFiNDhlNmQzNTgxOTFkNzBmZDhhMjBlMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDU4Mzk3OTY5NWFlNmY0MjdjZjkwN2EwYWMzMGIzYmQyMjNhMmE4Yzk5MDllMTc4YWQyN2FmMDg2ZjgwNWYzNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjhmMjdjOWJlNWE0YzljM2QxNzkxNDQ2OWU1YjA5NGFlODVlOGQ5N2Q5NmFmOTAyMjE1ODZhNjhmYjBiMjkyMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZWRhNGY3YWQzNDI5NTRkOTVjY2FiNzMzNDU4OWE0MzJiMzdiOTA4ZTE2OTY4Y2RmZDczNThjZThiMDNiZGY1OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1b543879b11c48beab002d260b6b5e2c",
+      "statement": "The benchmark four-quarter recession probit on 1960-1995 quarterly data is Pr(R_{t+4}=1) = Phi(-0.66 - 0.81 SPREAD_t) with pseudo-R^2 = 0.296 and t about -4.99; a spread of 0.76 points maps to a 10% recession probability, -0.82 to 50%, and -2.40 to 90%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L34-L36",
+          "version": "repo-lines-v1:sha256:fef575432bb67a71720cf9ee2fc29f4303dd8082e5dd251713491d11c97575ec:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjIwYjI5MWNhNmYxOGUzMTlmMDZjZjgyZDlmZjM2ZmUxNDgxNWY4ZjYwNDUwMjMzZjIzZjM3NGNhNGY1ZWNjMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2NmMDM5NzlhZjVkY2U2ODQ4OGE2MWYxMWFmNGE4M2VkMjg0ZmVkZTYyNTU1NGJlYTkzNTg4YzJiNzBiMWFlOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWRhNGY3YWQzNDI5NTRkOTVjY2FiNzMzNDU4OWE0MzJiMzdiOTA4ZTE2OTY4Y2RmZDczNThjZThiMDNiZGY1OSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTcyOTFkNzdlZWI0Mzk1YTU1MTE1NzEzMGU1ZjJjZjRjOTFmMThjZjlkNzdhOTkzNGQyMWU4MzJhYTEyN2I1MiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ec263872da504fb9b0fd4b23cd520527",
+      "statement": "Across leading indicators no single one dominates at every horizon, but the term spread is the clear choice beyond two quarters out to roughly four-to-six quarters, while equity indices are competitive at the very shortest horizons; adding a third regressor generally hurts.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L40-L40",
+          "version": "repo-lines-v1:sha256:75ca822a4457f6e3181dd94b82e76d730ed5817024c429bee9d1c8a6b6d7b9c7:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzVjYTgyMmE0NDU3ZjZlMzE4MWRkOTRiODJlNzZkNzMwZWQ1ODE3MDI0YzQyOWJlZTlkMWM4YTZiNmQ3YjljNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzVjYTgyMmE0NDU3ZjZlMzE4MWRkOTRiODJlNzZkNzMwZWQ1ODE3MDI0YzQyOWJlZTlkMWM4YTZiNmQ3YjljNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTcyOTFkNzdlZWI0Mzk1YTU1MTE1NzEzMGU1ZjJjZjRjOTFmMThjZjlkNzdhOTkzNGQyMWU4MzJhYTEyN2I1MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTQxMmI0YzU0MWU4ZTZlYjNmYTY1YTE0NjFhMWQ5ZDAyZTI3ZjYxM2JmYjE0NmQxZjE2MTRiMWFjZmQ2MTEzYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3d2bfac7ae224473a49a2d7d679a02da",
+      "statement": "The term structure predicts continuous future real growth: with cumulative annualized real output growth Y_{t,t+k} = (400/k) log(y_{t+k}/y_t) regressed on the current spread on 1955-1988 quarterly data with Newey-West errors, the estimated slope is positive.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L44-L48",
+          "version": "repo-lines-v1:sha256:96ee9b65c28ae1c70772aa05765334569013a57097ed190d8b31bbf1f0c35728:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWYzNmYwMWIyMmYzMDkyODgxNzBjYzhjYTVjMjI3ZWRjNjQzNmU1ZDA3ODM4YjU0NjExYTM0NTI1NmM0NDE5ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzIwOWFlYzZkNTZlMTEyOThhMWU4YjBjNDgwNmVlZGFhYmFiOTU1OTNhOTEwYzI4Njg2OWI4NTM3MDhhN2FkNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTQxMmI0YzU0MWU4ZTZlYjNmYTY1YTE0NjFhMWQ5ZDAyZTI3ZjYxM2JmYjE0NmQxZjE2MTRiMWFjZmQ2MTEzYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjk4ZmUxMGI0OTc5NGY2NmRiMzc5MWM5ZjJhMDgxNjU5YmQzOGNlNWNmNzViNjQ1MGY2ZjNkMGE3NmQ4ODdjOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_090c7ebfd20042efbc64c0c14b4ea4ce",
+      "statement": "At four quarters the real-growth regression gives alpha_0 = 1.70 and alpha_1 = 1.30, so a 100-basis-point spread predicts about 3% annual real growth; predictive power peaks at five-to-seven quarters where the spread alone explains more than a third of output variation (R^2-bar about 0.38), and the signal holds for private demand components but not government spending.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L50-L50",
+          "version": "repo-lines-v1:sha256:34344b0a20df6b8f7de347cb0a4e7f3a32f107fa11a1ecae447741953f92aeff:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzQzNDRiMGEyMGRmNmI4ZjdkZTM0N2NiMGE0ZTdmM2EzMmYxMDdmYTExYTFlY2FlNDQ3NzQxOTUzZjkyYWVmZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzQzNDRiMGEyMGRmNmI4ZjdkZTM0N2NiMGE0ZTdmM2EzMmYxMDdmYTExYTFlY2FlNDQ3NzQxOTUzZjkyYWVmZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGI2ZDUyMjY5NWMwY2VmOGZmMDBiODliY2FiYTI3ZjM2ZTdhMmQwMWVkODY0ODc5N2RiZTc2MWFmOTgxMmNiNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjE4ZTVmZDQ0Y2RiY2RjNWM5Yzg0ZGRlZmIxMDU5NjVhMDlmZmIxMTk4ODM0NjVlMGEzY2QzZDlhMDgwNjRkNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f8ba2efa7ea94bf6945bb71d167bdfc1",
+      "statement": "The GZ credit spread is built by discounting a corporate bond's exact cash flows on the zero-coupon Treasury curve to form a synthetic risk-free bond, giving S_{it}[k] = y_{it}[k] - y^f_t[k] and the index S^GZ_t = (1/N_t) sum_i sum_k S_{it}[k].",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L60-L61",
+          "version": "repo-lines-v1:sha256:509433f88340bd9299fb4ed8d3bffc4d1c69012b5920e1dafe56a94be0c33d7c:eyJzZWxlY3RlZExpbmVDb3VudCI6MiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzMxMzUzZjk2YjYzY2YyNjZlMjgwM2IzMWFkMWU1YWViZWZkYWRiNjE5N2FhZWM3M2FmNzczN2ZmNjI5YmY1NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDU0NzM5M2U5MWZhOTZhNzczMmI5ODAyNzA2NjBmZjAzNWNkOTg2M2QxMjVhNjhiYmM3ZGFiNzAwMmExYWUyYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTU4MDMzYjM0ZjM0YmVmODcwN2VjMzhjODE4Y2JlZGQzZTQ2OGQ4NzRiMjcwMzlhNjdkN2Y2YzkwNDI4MDQzZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTE1MmZjYzk0YWZkOTI2YWM1Y2ZlNjQ3ZmYyMzEzMzgzZTllYWQzODU2NGI3MDBiMmYwYzI2NWE0NWZmMjc2OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_42e40a775f4a41a9a36da5a1023f00cd",
+      "statement": "Default risk is measured by a Merton-style distance-to-default DD_{it} = [ln(V_{it}/D_{it}) + (mu_{V,it} - 0.5 sigma^2_{V,it})] / sigma_{V,it} with implied default probability Phi(-DD), where the default point D is current liabilities plus half of long-term liabilities.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L62-L64",
+          "version": "repo-lines-v1:sha256:a152fcc94afd926ac5cfe647ff2313383e9ead38564b700b2f0c265a45ff2769:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2NiZmRlZGU1MDUxZmYwNzY2YjllMzE3YTdkMmIyYzdkN2QzMjFkYjg5ZmZjZDE3MzZlZjZmZTBmYjlmYmIwZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODM4M2RmZWU2NmE1MDdhNGFhYmNjMDdjOTZlMzAwY2E1NGFmMDgzZjU4OGUzNGI5NzIyZmExMWU4Njk5NjM5MyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmU2Y2E4Yjg2OTI2ZGVmZGI5ZjgyNmU5ZDkyOTA4MWY5ZTdiZTQ3OTYyOGIwNzkwMWM2OTg3ODk1YmMwZmZkZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODZhNzRmMmU0YzQ5MDg3YzY1Y2MyZTA1OTY5OTdhOWRhMTBhN2EzMzhkNDhkYTEwNjk5OWVkODViNWJjNjYyOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_52137a39c0bb47f7aa3825fb659de27e",
+      "statement": "The excess bond premium is the residual EBP_t = S^GZ_t - hat S^GZ_t, where hat S^GZ_t is the expected-loss spread predicted by projecting the log spread on distance-to-default and issue characteristics (adjusted R^2 about 0.65-0.70).",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L66-L70",
+          "version": "repo-lines-v1:sha256:7885e671df261506232c2d5e31d6dc5a309693793cba7bfe0b143275e737f216:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmRmMTI3NDEzNTE2MDQ1ZjIyY2I1NWRhYzUxZDVjNzM4NGI5MTdmMGM4YzkyZTZjNjY5MzA1NWE5ZGY1MTJmMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYWZiYzY0ZjI3MTRlYzJkYWZhMzQ0YWE2YzYzYjJlNjdkMDU1Y2YyYzA2N2Q2YjM3ZjQwODMwNGIzM2E5N2FjMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWY1MjAzOTBhZTI1ZDQ4MWI2OTYwODZlYWYzNGUxY2YyMGViZjhiMzFlZjNmZmY3NzU4NTc2YmViM2FlZjdiMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWY3ZTk4YzU2NjEzODVjMzA1ZmExODcxODE3NTExY2NiOThkN2IwMjVmMzE2ZTE0OWVhMDQxOWY4ZGM4NDEwMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3090a30b55d54503821540bb874ace5a",
+      "statement": "The EBP predicts future consumption, investment, industrial production and employment with coefficients larger in absolute value than the expected-loss component; since the mid-1980s essentially all of the GZ spread's predictive content for output growth is attributable to the EBP, and a one-standard-deviation EBP shock (about 20 basis points) triggers a cumulative equity-market fall of roughly 7%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L72-L72",
+          "version": "repo-lines-v1:sha256:d140ea575de18290d74567b739f507237e0ffef34302c273767bd81e32efcf58:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDE0MGVhNTc1ZGUxODI5MGQ3NDU2N2I3MzlmNTA3MjM3ZTBmZmVmMzQzMDJjMjczNzY3YmQ4MWUzMmVmY2Y1OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDE0MGVhNTc1ZGUxODI5MGQ3NDU2N2I3MzlmNTA3MjM3ZTBmZmVmMzQzMDJjMjczNzY3YmQ4MWUzMmVmY2Y1OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmUwNTBjN2E4NzVmNTQxNGI3Y2U1NDUyYjY3NDRmODJkMjcwYjMyODM1YzA3YjNkZWYyY2EwMWY4MTY3ZTY0ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTczYWZjNjFiOTU0ZWQ4MjUzMWJkYTI4ZGFlY2Y2Zjc5Mjc3ZWZlNGJjNTJjOWQ2OTI4MWNjY2NjOGQwOWY2ZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_07496b38439f405cb01078da8b082515",
+      "statement": "The volatility-managed portfolio scales the factor inversely to its expected variance, f^sigma_{t+1} = (c / hat sigma^2_t(f)) f_{t+1}, with c set so managed and original strategies share the same unconditional variance and hat sigma^2_t(f) = RV^2_t = sum_d f^2_{t,d} estimated from the prior month's daily realized variance.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L76-L78",
+          "version": "repo-lines-v1:sha256:27c765a9fec7822b0d9f635eff6ff030520888bed20aa58c20dacd02737185e5:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjQ0MzhhYTVhY2E5YjlhMjU3ODAxNzA5OGM4M2I4YTgzNDA0ZDdmZWZhZDFkNjBhZjM5MGNhMzA2OWJjZDE4MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGMyNzVlOTRhY2ZmZTI5YmVjNjE2Y2Y0ZmFhNGVkMTU1MmFjYWQ1MjZmYjE1OWUyY2IwZDI5MWE1MDRmYTRiZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTczYWZjNjFiOTU0ZWQ4MjUzMWJkYTI4ZGFlY2Y2Zjc5Mjc3ZWZlNGJjNTJjOWQ2OTI4MWNjY2NjOGQwOWY2ZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDdlZDk0ZTY1Mzg2NWNhYjA2Zjg3M2I0ODA2NWU3YTE0MjU2MGZkZmNkM2M4ZWRmZmNhMDhiNDI3NDA0NjA5YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f32df227b12a4decb9f6ff3cd9d967f5",
+      "statement": "Regressing the managed strategy on the original yields positive significant alpha for the market (about 4.9% annual, beta about 0.6) and for value, momentum, profitability, investment and currency carry (size excepted); the appraisal ratio alpha/sigma(epsilon) is about 0.33 annual for the market, lifting Sharpe to S_new = sqrt(S_old^2 + (alpha/sigma_epsilon)^2), about a 25% increase, with mean-variance utility gain Delta U = (S_new^2 - S_old^2)/S_old^2 of about 65% for a market-only investor.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L80-L86",
+          "version": "repo-lines-v1:sha256:0affa325f0cb280abd1db0af92724790f978a1983c6216f1d0a69a84e6e635bb:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzY2YjM1N2E5MTQxNDRmZWYzYmQ2OGVmYTgzODliYTE5MTQ2YTk3MmE2MmViZGJiNWQwNDI5MTlmZDY2OTk3ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzFlNTc4YjI4NWIxNjNjMTk3ZGVkNzc5ZTRlYzUzYmJkOWMxOWQwMmU0MTA5NDE4YjVmN2Y2MGEwMzhjNzEzZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjg3MjhhMTg2YmQwNTQ0YjNlYzlmYWM1ODAzY2ZkZWZhNjI3ODczYmFlOTM2MDA4MDk2NzhjYzNlNmQ3MDRmYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGUyOTQ1M2MzMzU1Y2RmOTUwN2M3YWI1MjRlMzAxM2FlZWY5YjM4NjVjYzg1NjZlNDFjYjI5N2JiNDQzMTE3MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c93683b638d84715b626da00847b8be7",
+      "statement": "A panel of 132 macro series is compressed by principal components into r = 8 dynamic factors (first explaining 17.7% of panel variance, the eight together about 50%) via the factor structure x_{it} = lambda_i' f_t + e_{it}.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L92-L94",
+          "version": "repo-lines-v1:sha256:7582adbdc50424b909d5e076ff19fe1e0b9d943fd70d3887be955ad23407024c:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjEyZGVhMmM4ZDk5MWFmYmYxYzA4YmUxODkxMmE5MzAxNTNmZjdkOTZlZGM1NmUyNDVjYWNiMzdmZjYwYWQxOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNWE2OTdhMjg4Y2VlNmQwYjJjZTdkZTkzYjE3OWFkZDliMjhhZTYzYmM1YjkyMTU3YTFhYjRkZmU3M2ExOTE3YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzA5MzBiZjA0ZjFjMTMyYjhkYTE5MmYwZmYxYjgyNzIxMGNhNzEwMjliOGIyOGM4ZDk0YjI0ODcyNjI0OTg5NiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGZlMTA4YTU4OGVmMjkwZTdkYTQ2ZWJhNjVmYTM3NzE3ZDBiNmJjM2Q2YjM4OWU0ZTkwYmY2ODFmZWNmZmFhOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7646e08a7a4c428d808b559114a8c421",
+      "statement": "Macro factors add bond-premium content beyond the Cochrane-Piazzesi factor: alone they explain 21%-26% of one-year excess-return variation, and with CP_t they raise R^2-bar to about 44% for the two-year bond versus 31% for CP_t alone; the resulting premia are strongly countercyclical, with the real factor correlating over 90% with industrial-production growth, and the result holds out of sample with RMSE 79%-93% of the constant-premium benchmark.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L96-L100",
+          "version": "repo-lines-v1:sha256:44f74806a729e921a84f7a304e90055b5e730fa7c3abb9e80290adabc07ad3df:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzQyNmRiM2MyNzEwZmI2YmQyMTQ1NjNmOTQ1ZjlmNjkyYzJkZWM4ZmY3NTIzNzZkNWQ1NDM1MTA2YWVmMmEwMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWVkZTIwZGY4MWMzYmRhODM5ZGZkMjViOGUzZWEzMzZiZDQ3NWY5MjNmMzFhOTY3MTEyNWRkNjYyMmFkNmRkZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGI5NjMwZDM3MzUwMjExYzJlNGEzMDk1NTg1NGQ2ZjYzMDZlMTlkZDdmNGQxZmMzMTg5MjY0MmE0N2ZkZGJkNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGNkOGRkMWM4ZGQ4YmM2ZjI4ZTA1MjcxMGE0YzRkOWJlZjJlYjc4M2RlM2RiMjZiN2ZhZGE4Y2JmN2E5YjhhOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_dc27b3e68609445cb478e7dff0ddd495",
+      "statement": "Combining fourteen macro-finance variables with fourteen technical trend rules via principal-component diffusion indices shows in-sample additivity: PC-ALL's R^2 (2.02%) equals the sum of PC-ECON (1.18%) and PC-TECH (0.84%), and PC-ALL reaches out-of-sample R^2_OS = 1.79%, above either family alone.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L104-L110",
+          "version": "repo-lines-v1:sha256:d948a4dca33fd3ce0a03d92f7ad4007b3dc397838b61d9dbe4872445b1530b33:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmUwYWE0M2I3NGQ3MjA0MDEyYTkxMzgyNDQ1MmFkMmI2NTE1ODkwMGQ1ZTJkZjhkZmEzY2FlZmQ4OTM0OThiYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGVmMmE2M2E0Zjc5MjFjMjhhYWQ0ZDdlZTI3MWM5NGIxMWZmMzZlMjQ3ZjcyMTQ4YTIyZjVmYjRlMGNhYmVjZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZGNkOGRkMWM4ZGQ4YmM2ZjI4ZTA1MjcxMGE0YzRkOWJlZjJlYjc4M2RlM2RiMjZiN2ZhZGE4Y2JmN2E5YjhhOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGRjMDZhNGJiMzlhNWU2NTcyM2YwNzMzZWUzNmE5Mjc3ZDkxMWI3MjdlNGM1NDc0N2ZlZDE3NDVlOGFhN2Q1YSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_502e558f3b454e008d373cccf1313997",
+      "statement": "The combined-forecast predictability is strongly countercyclical, with PC-ALL R^2_OS of 11.24% in recessions versus negative in expansions, and a mean-variance weight w_t = (1/gamma) hat r_{t+1} / hat sigma^2_{t+1} yields a certainty-equivalent gain of about 4.9% annual.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L112-L112",
+          "version": "repo-lines-v1:sha256:3e6fe1eac1a7d9f4a3581ed903217fe73e3dc8b91edacd82ec4422c0aaa6b28f:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2U2ZmUxZWFjMWE3ZDlmNGEzNTgxZWQ5MDMyMTdmZTczZTNkYzhiOTFlZGFjZDgyZWM0NDIyYzBhYWE2YjI4ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2U2ZmUxZWFjMWE3ZDlmNGEzNTgxZWQ5MDMyMTdmZTczZTNkYzhiOTFlZGFjZDgyZWM0NDIyYzBhYWE2YjI4ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2NkNGU3NmZjMzhhNjI3ZmU1ZmQ2YmY1Y2Q1YTIwOTZmMDEzZjlhNGM3Y2RmMzhjOGYwZjcyNjRjOTI3YWJmYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODBlMjdlNDY2MjdkMGNmOWE2YTAyMzg1MTM5MDcyNTMxNDAwN2FjYmQ1Yjg2ZDM2MmFmMWQ3MzdmMjljMmJiNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_432f4b974a834e86bf4544a885016e33",
+      "statement": "A systematic exam of equity-premium predictors using the cumulative squared-error difference Delta_t = sum(r_s - bar r_{s-1})^2 - sum(r_s - hat r_s)^2 finds that for most variables Delta_t does not rise steadily: in-sample predictability does not survive out of sample, coefficients are unstable, much apparent success concentrates in a few episodes (the 1973-1975 oil shock), and out-of-sample R^2-bar is often negative.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L116-L118",
+          "version": "repo-lines-v1:sha256:4ca0fe0407f76e928c628c9f48179d034d2b10a5f4cd8727d73304b144c65cfa:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTQ2Y2QxZTdjZjdmYmFkNjgzNzRiYzMyZjk1YTYzYWY4Nzk1M2FmNWRlZTUzNDI2OWQ0OWViMWUzYjZlNTc1YSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTdiM2JlZDY5Y2UzMGJlMTRjYTY3NjQyOGJkN2I5YjJiOWE2MTNiNDBiNjdhN2Q5NjA1ZDA0NWE3NTg5YzIwMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODBlMjdlNDY2MjdkMGNmOWE2YTAyMzg1MTM5MDcyNTMxNDAwN2FjYmQ1Yjg2ZDM2MmFmMWQ3MzdmMjljMmJiNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTNmZjMzOWRiNWFlMWZkZjU5YTgzNDNmODg3ZTk2MWJiYjQ5ZmVlOTVmNWI3NGY5NjQwNzQ3NTc2YjNhMTI0NiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1e6a6a602862481cbd6c154db6c2db42",
+      "statement": "Theory-motivated restrictions make predictors useful: wrong-sign coefficients are set to zero and a negative premium forecast is truncated via hat r_t^restr = max(0, hat alpha_t + hat beta_t x_t), and a Gordon-growth valuation anchor builds the expected return as hat R_EP = (D/E)(E/P) + (1 - D/E) ROE; with these restrictions many predictors beat the historical mean out of sample with small but positive R^2_OS.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L120-L124",
+          "version": "repo-lines-v1:sha256:092ac7e54c382e2281abbc8f7babd54c2e36211ec768113f0ac6bcbf37b236f1:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODI3MzVlM2FmMzcyNDIyZGU2NjFlZThjMjcxNjdiODU1ZTdkYjJkZGI5MWIyOWRkYzFiNGJkYmIzMjk1ZmE0MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGNmNDEyMTdkZDg4NjJmY2QzYTU2NzViMWM1YjAzNDUzOGIzZjE2NTEyNmQ5NDM1NTUxYTk0NGExYTJhMmI2ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjc5OWFlODFiNTY5N2E3Y2Q3MjIxMmUyNmI0YTk4MmE5NmE4NzE3NGZmNzA0NDcxMWU5YTQzYmZhMWU2NjQ1ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDVlNjQ4MDBlMWI0MzljYjA0MjkyNjFmYWE3MmFmNWQ1ODMyOGIwZWZlOTliZGQ0NDc3ODg2YzczYzZmOTU2MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_20116c2e10df4b78886cc2baf3105b49",
+      "statement": "Small out-of-sample R^2 is economically relevant because the proportional increase in a mean-variance investor's expected portfolio return is (R^2/(1-R^2))((1+S^2)/S^2), so the right yardstick for R^2 is the squared Sharpe S^2; with a monthly equity Sharpe near 0.11 (S^2 about 1.2%), a monthly R^2_OS near 0.43% raises portfolio return by about a third.",
+      "evidence": [
+        {
+          "resource": "repo://docs/29_macroeconomic_signals_and_expected_risk_premia.md#L126-L128",
+          "version": "repo-lines-v1:sha256:70ed4ac56e0e577e599ee66b22a2ff2c474b2dd1db653899d112eb9cf4b8e40a:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2UxMDg1ZjUzYTE0ZDFlYzAwNWZmN2JmYTExMzBkZWRlZGQxYTU4MTMyYzBkZmRlZDUwNGYzMzc4NTU0MjJhMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTg1NTExMTc0MDE3ODc0MmVlM2Y2YTc4ZjlhM2I4ZmQyMGE5ZDA3ZTkxOTQxZmE4ODdiMDZmNzBkNjM5OTRjMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjY2MWQyMjhjMWU1MDAxYjg0ODAyOTliMWFmOWQzZjQ0Nzg5YzY2MWNlY2IyOWMxZjFiYWE3MGNkNzM2ODdhZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGVjZTk2MDZjYWY4YjdkMTI4ODhjYTRhMjgzNTBhMGY3MGIzYTcyNTNjMjczNTAyY2UyNDE2ZWU5OTQyYTAxOCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

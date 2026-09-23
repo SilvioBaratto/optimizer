@@ -38,9 +38,11 @@ so a bare ``import fund.worker`` stays agent-stack-free and imports no
 from __future__ import annotations
 
 # Load environment variables FIRST, before any other import reads them.
+# override=True so the project .env wins over ambient shell pollution (e.g. a conda
+# env exporting SSL_CERT_FILE to a cacert.pem without the corporate CA).
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 import logging
 import signal

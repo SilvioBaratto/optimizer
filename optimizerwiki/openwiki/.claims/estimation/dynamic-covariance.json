@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:67d9f8bae1463cb316a600897f45b720af3b0f218065705fb7b7ac2b8039a830",
+  "claims": [
+    {
+      "id": "claim_7a3cb4e7c8ac45778427464456694a26",
+      "statement": "The chapter establishes that the return covariance matrix is not constant over time, motivated by conditional heteroskedasticity (time-dependent variance) and volatility clustering, which make a static sample covariance inadequate and require conditional estimators.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L16-L20",
+          "version": "repo-lines-v1:sha256:687732bbf991b28c6fe2a4af931563f640d18c171253e75ffbe8f216b457da9b:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmFmN2QzZDE1NzUyNGE0Y2U2OTI5MzA3NGVmZjczZDg3ZWZiZDVkYmQwNDYxODY0Y2NhZGRjNzllMzRlMGE1ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzU2YjQ1OTZjNDRhNDI5NDc0Y2Q0MmMyZmVhOTZmMDQ4ZjEzZGEyOTMxMTJjZTczZjgxOTUzNWUwNjBiMWUyNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGE1YjdmZmE5OTJlNDY1Mjc1NmFmMDdlMTY4NGUzMzdiMjY0NjkwZTVjZTQzNDc0MGNjMjY0OGEyODI2OWZhMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzQ3ZTg4ODIxZmQxY2JkMzQ3ZTI3MzExYTViMDE3NmE5MWIyMGJlNmFlOGRmMmE5ZmQwNGQ2YjUyZjRiZTlmNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9862c2ee0f8844329ce58df0b0b635bb",
+      "statement": "The RiskMetrics EWMA forecasts conditional variance with the recursion σ²_{t+1|t} = λ·σ²_{t|t-1} + (1-λ)·r²_t, an exponentially weighted sum of past squared returns that reacts faster to shocks than a simple moving average and then decays exponentially.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L24-L32",
+          "version": "repo-lines-v1:sha256:b444151baea4ac4f9a2164a73faa0782a300c2fe7d97bd2abe3df2ce4af73c07:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTY2ZDk4MmFjYjc3OTEyNGUwYWNiM2JiNWNjMTZlMWZhMjYyZmZjOGE1MTM0M2VjM2NmZTUxNWI5MmU0NWE4NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmZiNWRmNzczOTY3YzI3ODZiMDNmOTYzNDQwZDM0MTgyMWNlN2QyOTFmZjJiODFkMDI0OTIxYTBjZTBhZmU3YSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzQ3ZTg4ODIxZmQxY2JkMzQ3ZTI3MzExYTViMDE3NmE5MWIyMGJlNmFlOGRmMmE5ZmQwNGQ2YjUyZjRiZTlmNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTYyYzY1ZWQyMGM0OTZlNTNiY2FjYWI1ZTI0YmYwNjVlZTZkZTlkM2JhM2Q2NGExNmI5NTczY2YyMTJmYjEyMSJ9"
+        },
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L34-L40",
+          "version": "repo-lines-v1:sha256:c10d03fedfc2bcb773fb2265e775ba88a1fa5de22a973345c76b68d9888e8f10:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWJlMjE2OTFkNzQ2OWRiZTRjMmEyZGU5NTRhNDg4ZWMzY2Y0NTMxNDEwZDYwOTg1MThjMzRjMGNlYjQ0MDZkNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWVhM2JkNThhODM0YjFkMmQzNzE3NWJkY2MxMzQ5MWQ3ZGZiMjhiZmMxODlmZTk5NzQzYjM0MzQzOGYxZGMzNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNmMzk0ZWRmNGE4YmMxM2E3YmRmMzc2MzFlY2FmMDU2NGVhODc1NmU1MjQyMGY3MjUyNTZmODRiNTQwZWRmNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGMwODM2OWNjNzUwNDc2OTQ1ZmEzYjNlYzc2ZTUwM2Y1NTYzMWM5Y2UwMGMxZDY2NDMyMmI0NjVjY2ZiMjBkNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7802558060e84231af3983229bea98e4",
+      "statement": "EWMA covariance uses the same recursion with the cross-product r_{1,t}·r_{2,t} in place of a single squared return, and the conditional correlation is that covariance divided by the product of the conditional standard deviations.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L42-L48",
+          "version": "repo-lines-v1:sha256:2e8e66c3949ee542fb1b4e29c876fe78e1c08523609f7c11af0b735cb45cfec8:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjc4ZTY4MDI2ODBmMTQyODY0ZGY3ZjE4OTU3MGQ1NDdjYjFlYjk4YTlhZWYyNGZlYTNjYTU3ZmMyMTM4ZTM3ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2IzN2Q3YzY0MmI5NGZmNzI5NzRlZDlkYWNkNWFhNDdiYWI4MTcwYjk1ZjBiMzliNzNkYjJkOGJjMGMwZDBmOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTE0NzVkMjE0OTk4N2NkNzU3OWM3YzFiMGNkYjBjZjM5MzU0Nzc4NzkxZWNiYjgyNzc2NDYyNWEwNWYxOWFmMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDRhMmMzMGYyMjRiMGYyYmVmYzcwY2FiZWQ5ZTFhNzhlNTFmYmViYjg5Y2M2MTQ0YTdhM2U0MjY4MjUyMjM4MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0c03e00a022145539d09989034dde754",
+      "statement": "The EWMA effective sample length is K = ln(Υ_L)/ln(λ), so a λ closer to one uses more observations; at λ=0.97 with 1% tolerance the estimator uses about 151 days of data.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L54-L58",
+          "version": "repo-lines-v1:sha256:d4ff495a993da3c0fb7ee3c39211c7aae3b1c1364e13134903c13052099d0181:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmI5NDIwOGU4ZTAyMTFkMmEzMTE4YTRjMzJjZjZiNzFkZWMyYjM4NDZlMTA4MmE0MjViNmQwZjg3NTFhOTEwYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmQ5OWNmMGRhNGExYjEwZjFjMWI0NDdmYmQwZmExNzhlNDg4YzkzYzJkY2I1NjViYmYxZGJlMWFmM2VhZWM2MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzcyYzg4ZTAyMTBmZjUxNmFhYmNkZDg5ZWJjY2MxZDJmMjIxMjFkNmRiZDI4NTBlMGExNGUwOWVmYjc5ODBmMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmMxOTQ2N2VmNDJkZDk1MjBiMjc3ODRiYmI4MmJjY2NjODA2YWZjZGM2N2RjNjMwMTQ3ZGRhOTNhYjJhMGU5OCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1511dcdd4cb6469b9eefe620ec60c7b0",
+      "statement": "Because element-specific decay factors would violate covariance-matrix validity and induce distortion, RiskMetrics applies a single optimal decay factor (minimizing forecast RMSE) to the whole covariance matrix, obtaining 0.94 for daily data and 0.97 for monthly data as an accuracy-weighted average over 450+ series.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L60-L70",
+          "version": "repo-lines-v1:sha256:d8b717c96b76caddf8ec317a830c942dbc325afc8837d15ac2a2f0dbb6b476ce:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAyM2Q4MTFmNTU1NDJkYWRhNzg4MDRlNDgwYjI0ZmNlODdiYWZjYmE0YWQ1YjAwM2FiMjVhNTRkYTA3ZGNkNWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjIxYzM1MmU4NzhkMjMyMGJhYWNiMDA4MjEzZTA3YmRkNjE1MzQ5ZGFlYTc1MjA2YzZmYzFkZTEwYTM5NTU2NDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjkyYmY0MzhiZmVlMjQxZDg2ZDIzZDJlZjMxZWIwMDllYWQ3N2YzYWM1MGU3MmI5NmIxODM3YzYzNDhiNDYwN2MiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY2OTY4MWI5OGNhY2IxZWYyYmY3ZWJlY2FmYmZjMjQ2ZTY5ZmI3N2I2NjVlY2M2ZTM0ZjQ3NWVmZDY4YTBlYTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_157b02556bfb4eba8ac415e83b8011ab",
+      "statement": "EWMA multi-step variance follows the square-root-of-time rule σ_{t+T|t} = √T·σ_{t+1|t} with horizon-invariant forecast correlation, and this implies EWMA is essentially an IGARCH (Integrated GARCH) without intercept, i.e. a non-stationary variance process.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L74-L80",
+          "version": "repo-lines-v1:sha256:e42f3367dce0be3698107ef8ce2a790a4fafaf4ec094f0c070b2a718ce84450f:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDA2MTI5ZGU0NGI2YmI3YzZhN2Q1NzUxNDBlMjkwMmU5YWJlYzgzY2EyMzlkZmJjNTFjM2Q4ZWUxYjM3ZmU1ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzg1OTg2MWVkYjcwODQyMWU1ODkyZGE2Y2IzZjFkYmE5YjQ5OWFiNGZkYjEzOTkwMGNhODNiNzA4OTQ2YmIwZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjY5NjgxYjk4Y2FjYjFlZjJiZjdlYmVjYWZiZmMyNDZlNjlmYjc3YjY2NWVjYzZlMzRmNDc1ZWZkNjhhMGVhNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmIxMTYxMTEzZDk4YzgwZTE0M2Y3YTgyYjM1ZTM3MmZhOTE1ZjRmZWI2NjcyNmYwN2ExNzIwNjZiMGZlZTg3OCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5dda073dc1d64d06be3bc78bb1435c4f",
+      "statement": "The general multivariate GARCH (vec model, and its positive-definite BEKK restriction) suffers a parameter explosion — O(k⁴) parameters in general, reduced to O(k²) in diagonal/scalar form — which limits practical use to few assets; variance targeting mitigates this by fixing the long-run covariance to the sample covariance.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L90-L94",
+          "version": "repo-lines-v1:sha256:5efde02ccc469251c5c9a7d5e0127b389eb6c830848a985a4d29896fc0d99a4f:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzg3MmQ0ZTU4MzU5NDlkNzFiYWIzZjE2ZWI0NmQxODdmM2M5ZjFhNzg4ZTY2ODQ2ZThkNGZjYzdkMGZkYzlmZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGE2YTNlYzc2MGRhODMyY2I5NWVjZGZjZGU3ZDRjNmVmZWQ1ZWYwMDllNjIzZDJiZDY5ZTJlMWY0YTg5MTdjNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzg4ZTUwOGMxMjBiMmZmZjJmNDIxZjRlNWUwODViYThmNzBjY2Q4NTVjNzM1NTc4ODQzYWY0OTk1ZDVkNDYwYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTI2MDc3ZmMyNDg4MzRjYjI3NGM3ZTBkZDE4MzM4ODY2YjU0NWM5YWQ3OWMyNjg3NmJiYmZkNTliMWJhODYxMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5a1a9114955043eb9f08a8189753f53d",
+      "statement": "The DCC model decomposes the conditional covariance as H_t = D_t·R_t·D_t, where D_t is the diagonal of univariate-GARCH conditional standard deviations and R_t is the conditional correlation matrix, which equals the conditional covariance of the standardized residuals ε_t = D_t⁻¹·r_t.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L100-L104",
+          "version": "repo-lines-v1:sha256:afe11f6b569e2c1f38cd4016d247db6995233cbde82eda5d1a0fd504ba570b06:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTA1NWIwMzNkMmZjZWJhN2RlNTdkZDIxODZkMGNlM2U2ZDA5Mjc5OTY3ZGUyMDYzNjI3OTYyZGEwZjA1NjJmNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzliNjlmYjZiNDFjODdlNTk1MzMxYmMzMjgxOGM2ZDk0MzU1ZDNlZmI5YWNhOGEyNGZlMWQ2YTBmNjkxNTZhOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTE1NTg5YzBkN2MzZmMwMDkzOTQ0Yjg0YTQzN2VmYjhkNTQ4NzdhMjU4NTAxZGM4NDVkOGFkNjMxNDYzZmM2ZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTE4ZjIzZjM2MzNhOWM1Y2JjMDE1Nzc5NGJmZDM1MjZiNzU1MmVjNTg0OTZmODAxYjQ3NDA3OGJiZTJhYjBjOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2d723ee023f14c02908c1b838061e5c6",
+      "statement": "DCC drives correlation dynamics through an auxiliary matrix Q_t updated by either an integrated exponential smoother or a mean-reverting GARCH(1,1) form (mean-reverting while α+β<1), then rescales Q_t to a valid correlation matrix via R_t = Q*⁻¹·Q_t·Q*⁻¹ with Q* the diagonal of sqrt of Q_t's diagonal.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L112-L128",
+          "version": "repo-lines-v1:sha256:b09861a8abd9b6fbd67fdeb234d4baffdd6c48b032de1270ea82c6d63ebc61dd:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJmZGNiZjhkYzMzNTUxZmMxNWRkOWJjYmMwZjI5NDA5ZTFjOWEwNTE5YWMwMTU2OTBjZDRjNGEyODdlNTM3N2MiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNmZDhlZTQ4MjU3MGU3Y2M2YmQ3ZWRkMTQ1OGExN2ZkNGI0N2Y2OWY5NTk3MGVjNGFlYTgzZGEzZmJkNmIzOTYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhjZmRkMWEwZDk3ZTA5YzliMDcwNjFmOTZiNWE3YTk4MWFjYjFkYTQzYTc0MGU2ODUyMTRmNTRiZWZkNmUxMGUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjVkMGY4ZTRkNDExMDgwZjE4ZTI1NjZmNjdlM2RmMTYwYzE1NTJhNWI3MzgwOTI4NDI3NGFhZjNmMGMwYmUyYjkifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_ac53501eafd44011821adc8b397399d2",
+      "statement": "DCC positive definiteness holds under the same conditions as a univariate GARCH process (α_m,β_n ≥ 0, Σα_m+Σβ_n < 1, positive minimum eigenvalue of the unconditional correlation), and these conditions are sufficient but not necessary.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L136-L136",
+          "version": "repo-lines-v1:sha256:37c4ca9b62a40762fbdd20caa6e4554f31a7d25b0893ea16ef4e3468149ee613:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzdjNGNhOWI2MmE0MDc2MmZiZGQyMGNhYTZlNDU1NGYzMWE3ZDI1YjA4OTNlYTE2ZWY0ZTM0NjgxNDllZTYxMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzdjNGNhOWI2MmE0MDc2MmZiZGQyMGNhYTZlNDU1NGYzMWE3ZDI1YjA4OTNlYTE2ZWY0ZTM0NjgxNDllZTYxMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODMxZDcxMmYxZjc2NzBhMmM1OGU5MGM0NDkxNWVlM2U3OTJjYjZkNzgxZjQ4YmQ5Nzg4MzU3YjQ3NDg2Y2FmOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWM1ZTAzNmE0NzQ4NjdmYzE1ZWEyZTgyMzg3NzIxMjU3NTdkMDhiZGFlMThkNDM5YTk4ZTRjNDU0NDBhNDg3YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_34e4d4528d244ae6bde96ee8fbfb9dc4",
+      "statement": "DCC's key advantage is that the number of correlation parameters is independent of the number of series, achieved via a likelihood that splits as L(θ,φ)=L_V(θ)+L_C(θ,φ) and a two-step estimator: first fit univariate GARCH variances, then estimate correlation dynamics from the standardized residuals.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L140-L158",
+          "version": "repo-lines-v1:sha256:c6d67ffd3188d7756599af1f718998b8844f600b01b91e1073d919b158a0e17d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc1M2YwZDQyZDMyOGRlM2I3YjU3YTBkOGVlYWNkNWFjMzI5NGEzNzU2ZjNjZmY5ZjRmMmE2NjhjNjEwZmIzZDYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI1NmRlZjI3MmIxYWYxOThkODM0MTI2ZWMxYmU0ODdlODVhOTQ2OGM3ZWM4ZmI3ODZkY2FlZjIxMmNjNzAzYjMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImFjNWUwMzZhNDc0ODY3ZmMxNWVhMmU4MjM4NzcyMTI1NzU3ZDA4YmRhZTE4ZDQzOWE5OGU0YzQ1NDQwYTQ4N2MiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjM0OTEzNmM3MzA1NzUxODE1MmRjMGNiMDIyNjZjMThmNzU2YTdiMGNkOWEwNWUyODlkM2YwM2JlODdjMmE0NzYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_22a7c9956d5b4397a5c110c7d35ec0da",
+      "statement": "The DCC two-step estimator is consistent and asymptotically normal with a quasi-maximum-likelihood interpretation (first-stage standard errors coinciding with the Bollerslev–Wooldridge robust estimator), and the Engle–Sheppard constant-correlation test rejects constant correlation in every model considered.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L160-L164",
+          "version": "repo-lines-v1:sha256:2bbbf00af707318ebb2ea7f7cfc5ff9166196b754637cf50ac6c33053a9d78e9:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmQyMWE1M2MyMjdkODI0NDRhZWE1NjEwNjUwMDYyODE1ZDRmZjQ1NThkNmZhYWY1YjQwMWQwOWZkM2M3NGQ1ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzBkY2RlODQwZWZlN2Y0OTdmYmI3NWJhNjM3ZDNlYWFlMGUyMTFmNzgzNDQzYTQ2ZjQ5ODA0ZDgyNzNlMzJlZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDQ3MmIwYTgwZDJjMjBjYTI1NmM1YWY0MDI5ODY1ZDNhNjNhOTEyMzE4Yzc4YTc4MDcxZjQwNDMzOGI0ZThjYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjQyYTQzMTZjY2E5ZWM5Nzg4OWVjOTMzNDcwNjUyNTZjMzYxYjdmZGJiYTllMjZmMDI4NGYzMTY1NTBjYjA2MiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_065962f9aac544a8a72a49715a5c01d7",
+      "statement": "Empirically the mean-reverting ML-estimated DCC has the smallest mean absolute error in most Monte Carlo cases, and on the minimum-variance-portfolio specification test it keeps standardized-residual variances inside the confidence band where the RiskMetrics smoother does not.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L168-L176",
+          "version": "repo-lines-v1:sha256:0f442c9633cf72c670dac618b05b484e43a72d9984425155211320ae1893e066:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWY2NmYzMTMwZjY5NjllMjdhMmM3YTJhNWNjODM5ZDc0N2MxZGEwOGM3MGQ4Y2MzYWJlMjA5MGEyZDg0ZGYyZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmUxZTE3YTFhNDkwNjg0MGIwMWJlZWVkZTliZTdhZTcyYjhiZWZhOTE0ZjkwZWU2OGQ4NWRmNmI4NjM4OTI1MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjQyYTQzMTZjY2E5ZWM5Nzg4OWVjOTMzNDcwNjUyNTZjMzYxYjdmZGJiYTllMjZmMDI4NGYzMTY1NTBjYjA2MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjNmOGVkNTM5MmMwMDY1ODJmNWQ5ZTM2M2I1NDY3MWQ5YTFmYTBlYjZhMzY3ZTFhNGI3Zjc0N2MxOGViZjQ4OCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_06acbe5832e34700bf903acb90e157b7",
+      "statement": "Dynamic conditional covariance is a direct alternative input to the static sample covariance for optimization: the minimum-variance weights w_t = H_t⁻¹ι/(ι'H_t⁻¹ι) depend entirely on the estimated H_t, so substituting a dynamic forecast makes the optimal weights time-varying and places covariance estimation upstream of the portfolio-optimization problems.",
+      "evidence": [
+        {
+          "resource": "repo://docs/18_dynamic_covariance_estimation_ewma_and_multivariate_garch.md#L180-L184",
+          "version": "repo-lines-v1:sha256:952daae5d258cf60ef2176c90dce58805d9ccf6afdab785dd2f11687a920faa3:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjU0OGFmMTVmN2QyNTJkYjA4NTgwNzRkODc3NzkxZWM5ZGJkN2VkZWZkOWYxZjlmMDNkMDY1MGI3OWM5MGU1MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzRkMDExNzJkMmNhZmY5NjUxOTg4NDIzZjBhMTI5NzRlNjU4YTNhMDgxYjI4YmNiNzY5ODhlZTI5OWQ2ZDE1YSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjNmOGVkNTM5MmMwMDY1ODJmNWQ5ZTM2M2I1NDY3MWQ5YTFmYTBlYjZhMzY3ZTFhNGI3Zjc0N2MxOGViZjQ4OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

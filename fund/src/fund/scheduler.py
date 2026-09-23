@@ -591,7 +591,9 @@ def main(
     """``python -m fund.scheduler {rebalance-sweep|drift-monitor}`` — one manual run."""
     from dotenv import load_dotenv
 
-    load_dotenv()
+    # override=True so the project .env wins over ambient shell pollution (e.g. a
+    # conda env exporting SSL_CERT_FILE without the corporate CA).
+    load_dotenv(override=True)
     logging.basicConfig(level=logging.INFO)
     args = argv if argv is not None else sys.argv[1:]
     if not args:

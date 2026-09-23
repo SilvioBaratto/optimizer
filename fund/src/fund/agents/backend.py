@@ -5,10 +5,11 @@ that backend at a runtime workdir under ``fund/`` and — when
 ``config.preload_theory`` is set — pre-populates it with the agent's read-only
 knowledge:
 
-* the canonical ``optimizer-theory/`` docs, so the Phase-6 skills' theory
-  citations (``optimizer-theory/docs/NN *.md``,
-  ``optimizer-theory/docs/architecture/OPTIMIZER-OBLIGATIONS.md``) resolve as the
-  agent reads;
+* the canonical ``optimizerwiki/`` monograph, so both knowledge layers resolve as
+  the agent reads: the curated ``optimizer-theory/openwiki/`` map (``index.md`` +
+  ``quickstart.md`` routing + per-topic pages) the consultation protocol steers
+  every role to first, and the raw ``optimizer-theory/docs/NN_*.md`` chapters the
+  Phase-6 skills cite by ``NN:line``;
 * the per-role skills tree (``skills/<role>/<skill-name>/SKILL.md``). deepagents'
   ``SkillsMiddleware`` loads skills **through this backend** (no direct filesystem
   access), and the backend runs in ``virtual_mode`` — which blocks any absolute
@@ -17,10 +18,10 @@ knowledge:
   :func:`fund.agents.skills.skill_sources` (Risk R1). The per-role layout lets one
   source dir (``skills/<role>``) load only that role's skills.
 
-The theory tree is the *gitignored* canonical source (a nested repo); the skills
-tree is the *committed* ``fund/src/fund/skills`` resource tree. The runtime
-workdir is regenerated from both on every call so it never drifts and is never
-hand-edited. ``fund/.runtime/`` is gitignored — nothing staged here is committed.
+The theory tree is the *committed* in-repo ``optimizerwiki/`` canonical source;
+the skills tree is the *committed* ``fund/src/fund/skills`` resource tree. The
+runtime workdir is regenerated from both on every call so it never drifts and is
+never hand-edited. ``fund/.runtime/`` is gitignored — nothing staged here is committed.
 
 ``deepagents`` is imported **inside** :func:`build_backend` so a bare
 ``import fund.agents.backend`` drags in no agent stack and needs no environment
@@ -45,8 +46,9 @@ __all__ = ["build_backend", "stage_theory"]
 _FUND_DIR: Path = Path(__file__).resolve().parents[3]
 _REPO_ROOT: Path = _FUND_DIR.parent
 
-# Canonical (gitignored) theory source and the regenerated runtime workdir.
-_THEORY_SRC: Path = _REPO_ROOT / "optimizer-theory"
+# Canonical (committed) in-repo theory source and the regenerated, gitignored
+# runtime workdir it is staged into.
+_THEORY_SRC: Path = _REPO_ROOT / "optimizerwiki"
 _AGENT_FS_ROOT: Path = _FUND_DIR / ".runtime" / "agent-fs"
 
 # Canonical (committed) skills source — the per-role staging reads each skill dir
@@ -57,8 +59,9 @@ _SKILLS_SRC: Path = SKILLS_DIR
 # regardless of the source directory's own name.
 _STAGE_SUBDIR = "optimizer-theory"
 
-# Editor/VCS cruft never copied into the staged tree.
-_STAGE_IGNORE = shutil.ignore_patterns(".git", ".obsidian")
+# Editor/VCS/CI cruft never copied into the staged tree (the OpenWiki repo carries
+# a ``.github`` workflow dir and ``.obsidian`` vault config that are not theory).
+_STAGE_IGNORE = shutil.ignore_patterns(".git", ".github", ".obsidian")
 
 
 def _stage_skills(root: Path, skills_src: Path) -> None:
@@ -95,7 +98,7 @@ def stage_theory(
 ) -> Path:
     """Regenerate the runtime agent workdir and return its root path.
 
-    When ``config.preload_theory`` is set, the canonical ``optimizer-theory/``
+    When ``config.preload_theory`` is set, the canonical ``optimizerwiki/``
     tree (``source``) is copied fresh under ``<dest>/optimizer-theory`` — wiping
     any prior copy first so the result never drifts from canonical and the
     ``optimizer-theory/docs/…`` citation prefix is preserved verbatim — and the
@@ -104,7 +107,7 @@ def stage_theory(
 
     Args:
         config: Frozen run config; ``preload_theory`` gates the copy.
-        source: Canonical theory tree. Defaults to the repo ``optimizer-theory/``.
+        source: Canonical theory tree. Defaults to the repo ``optimizerwiki/``.
         dest: Runtime workdir root. Defaults to ``fund/.runtime/agent-fs``.
         skills_source: Canonical skills tree. Defaults to the committed
             ``fund/src/fund/skills`` (:data:`fund.agents.skills.SKILLS_DIR`).
@@ -128,7 +131,7 @@ def stage_theory(
 
     if not src.is_dir():
         raise FileNotFoundError(
-            f"Canonical optimizer-theory tree not found at {src}; cannot preload "
+            f"Canonical optimizerwiki tree not found at {src}; cannot preload "
             "(set preload_theory=False to run without it)."
         )
 

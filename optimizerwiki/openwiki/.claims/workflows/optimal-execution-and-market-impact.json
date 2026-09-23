@@ -1,0 +1,280 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:3fad62b5341ea9a713a302cfdb0198f470c2039e045c3dd3eae10f74e6c31e14",
+  "claims": [
+    {
+      "id": "claim_145200132ac9429a919bac1fb31f7df9",
+      "statement": "The implementation shortfall is the difference between the value of the ideal portfolio executed instantaneously at the decision price and the portfolio actually obtained, inclusive of the cost of any unexecuted quantity, and is the natural objective of the execution problem — a loss depending on the trading trajectory, not an exogenous commission.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L18-L18",
+          "version": "repo-lines-v1:sha256:99707e40a8205168572716054356c33485e94b0a5f6e3e7adafabfe19a428bea:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTk3MDdlNDBhODIwNTE2ODU3MjcxNjA1NDM1NmMzMzQ4NWU5NGIwYTVmNmUzZTdhZGFmYWJmZTE5YTQyOGJlYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTk3MDdlNDBhODIwNTE2ODU3MjcxNjA1NDM1NmMzMzQ4NWU5NGIwYTVmNmUzZTdhZGFmYWJmZTE5YTQyOGJlYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmVhYTBlMzUyNzRhZThlZGE5YjNhNzJiNGM5MTdiYTZjOTQ0YTUzMzUzNDFmMmYxMWU5ODlmNGNiN2QwZWEzMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2Y2MDdlZTYwOTc3OGY0ZjRlYzE1MzI2N2RjOTQ3ZjZiZTAwMzc4NGNkYmM5NDE2ZjhjM2MwY2QxOTkzMGYzOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3158a9131dc54a5ebe4858fb1350d46f",
+      "statement": "Execution faces two opposing forces: trading fast concentrates the order and pushes the price a lot (high impact cost), while trading slowly dilutes the order but exposes the open position to price volatility for longer (high timing risk), so expected cost falls and its variance rises as one slows down and the optimum is a compromise between the two.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L20-L20",
+          "version": "repo-lines-v1:sha256:14bf6d48197d5a1f2a5253710b86749cbe8294427d65f2e1a1382befae7a55b9:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTRiZjZkNDgxOTdkNWExZjJhNTI1MzcxMGI4Njc0OWNiZTgyOTQ0MjdkNjVmMmUxYTEzODJiZWZhZTdhNTViOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTRiZjZkNDgxOTdkNWExZjJhNTI1MzcxMGI4Njc0OWNiZTgyOTQ0MjdkNjVmMmUxYTEzODJiZWZhZTdhNTViOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTAxYWE1MzZkYzg4ZmNkZGI1MjM2YzQ1MDNmMzYzYmJjNTA2NDY4YmFhODFjMmExMDU0NWUwNDlmMDIxZWVkZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTE3ODFlNjdhYWE0ODk5OTdkMGNjNDVhNTI1MGNmYjM4MDA2OWUxYzgzYjkwMzM2MDZjNGRjNDUzZmUwZDM1YSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_af17e9d1f32c4db7ae2a3050cc697b22",
+      "statement": "In Kyle's single auction with v~N(p0,Σ0) and u~N(0,σu²), a risk-neutral insider maximizing (v-p0)x-λx² chooses x=(v-p0)/(2λ) so β=1/(2λ), and combined with the market maker's efficiency condition λ=βΣ0/(β²Σ0+σu²) gives the unique linear-strategy equilibrium β=σu/√Σ0 and λ=(1/2)√Σ0/σu.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L26-L31",
+          "version": "repo-lines-v1:sha256:b982184f9520339ba5efacc66571324cccd6ba581196129f86860f991246688f:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmY4MWZiNDBjMmE3MTEwZjQ0NWI3ZTVhZDkwNTRkMTFkODEyNjE5NWUwOWJkZDI2ZWZiYTY2OGJkOTJhNjNlNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzdmMTJiYzcwMGI3NGJhNDNhOGFiZWUzMGUyYWY0MzQxZDAxMWU0NDJjMzU1OTUwODc2YTAzZjVmZjRiODMyZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDM1ODdkYWU4NGZkNzFlN2ExZmQwZTVkZWRhYjhlMzMyOTgzZGIyMzdiNjlmNDFiYmFkOTI0OWY5MGIxNGJkMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODdmZDM4Nzk2ZmU3ZmU2NTRkODQ0YTQxYWFhNmY2NTM0OGM0MGIwMTllNmZmN2FmMTNmZGU1MGNlZTQ0ZmFkMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7bf812c10b964eacb9a0a7c2b4156030",
+      "statement": "In Kyle's equilibrium the residual value variance after observing the order is exactly halved, var(v|x+u)=½Σ0 — half the private information is impounded into the price — and the insider's ex ante expected profit is ½√Σ0·σu.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L32-L34",
+          "version": "repo-lines-v1:sha256:87fd38796fe7fe654d844a41aaa6f65348c40b019e6ff7af13fde50cee44fad1:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2JjNmU2MTFiNzg1MzAzZDJjYzExOTE1OGI4NjdlZjA2ZmZmZjhiODY0OTdlMDAyZmMwNGZlYWUzNTNmNDViNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTgyMzM5MWNhMWZkNTY2MThlMjA5ZGI5MGI3NTQ4Y2I2N2JkMGQyZDE1YTA2MWZkNGExNmIzZWIyMDA2Y2JiNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzRhOTg0M2IxNDYwNjRlOWUxOTBmYzlkYTdkOTdiMDMzMjhlZGU2Yjc1NGJjNTVjMWFkYjJkNDNjMmE3M2Q4NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzM4MDBmOTllMjk4Mzg4NmU2NWIxZjc5YzBmMjdjNjY2OGFhNmM5Y2U3N2Y2YTQzYWYyZmQ2YWMyNWEyNTVlZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5f412c6a80434c0d9bb18f3b90bc61da",
+      "statement": "Kyle's pricing rule p=p0+λ(x+u) is a price impact linear in quantity and permanent (the price does not revert); λ is the illiquidity measure, growing with fundamental-value uncertainty Σ0 and falling with the noise-trading variance σu², and its reciprocal 1/λ is the market depth — the order size needed to move the price by one unit.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L36-L36",
+          "version": "repo-lines-v1:sha256:0290620a4b56933cc1b10babdfb9a7a1621b32815740734bfa3800bfa9c92118:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDI5MDYyMGE0YjU2OTMzY2MxYjEwYmFiZGZiOWE3YTE2MjFiMzI4MTU3NDA3MzRiZmEzODAwYmZhOWM5MjExOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDI5MDYyMGE0YjU2OTMzY2MxYjEwYmFiZGZiOWE3YTE2MjFiMzI4MTU3NDA3MzRiZmEzODAwYmZhOWM5MjExOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjc3NWQ0NzdlOWVjYTllMWEwMzBjMmMwMGZiMjExYjhiNDcxN2MzYWVjNDQzYjVjMDgxN2U2MDM0Y2I2YjFkMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzRkMDY5OWM5MzY1MWQ3ZWU1N2FiODE2ZWQ0YmNmOTU4ZmM4OTI4ZjBjNmFmZDJmYzE2NTA4NzA5OThhMTc4MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0915bbad35344dde9becf6eb72c01923",
+      "statement": "In Kyle's continuous limit market depth is constant in time (λ independent of t) while the residual variance decays linearly Σ(t)=(1-t)Σ0, so information is impounded at a constant rate and the price equals the value at t=1; the insider trades ever more aggressively (β(t)→∞ as t→1) but the market maker keeps depth unchanged because his growing knowledge exactly offsets the acceleration.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L38-L40",
+          "version": "repo-lines-v1:sha256:de8874ba68760bdd2b49ec74c7809fd952e64e1015c86ba612e9273437412926:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmVhMzg2ZDcyZTViZjc3YjlkNzk4NDBmMDliNTk2OGY0NWViY2UxZjIxOWZjZTNhMjY3NGMxOTVlYTA3YTQ0OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNjFmMzU2OGZiZjg1YWIxMTgzZDBhYzk2YWRiYWFlZTA4OWQ0YWE1YjUzYjUwZDE4NzY4MGZjM2I5ZGE2Y2EzOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzM4MDBmOTllMjk4Mzg4NmU2NWIxZjc5YzBmMjdjNjY2OGFhNmM5Y2U3N2Y2YTQzYWYyZmQ2YWMyNWEyNTVlZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTk5MDc5ZmEyZGNmYmExMDgyMDRkNmM5Y2ZkOTI4ODdkOTA1ODg1ODZkYjA1MTY3OGU1NmJhYTRjNzM4ZWNkZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5aa8d242491d4e9092aa3ccf6d045df7",
+      "statement": "Almgren-Chriss build a trading efficient frontier formally analogous to the mean-variance frontier, with the implementation shortfall in place of return and its variance in place of risk, liquidating a block of X units within horizon T split into N intervals of length τ=T/N with holdings x_k (x0=X, xN=0) and trade list n_k=x_{k-1}-x_k.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L44-L46",
+          "version": "repo-lines-v1:sha256:51240a9d45566aa2ca95c003cb6dcd959dd248265d56c1bec15c71660a0cb53c:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDU1NTRmMjY4NzZiOTNhMGQ1ZjZmNDNlOTMxN2Y4ZWVlOTRlMDhiM2E1ODVlMTZkNWM5ZDU1YWZlMDA3M2E0NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjQ2ZjhhOGYzN2E2YWZmMTEwMDM5ZDBiZDkwZTM1YmFkMzk4OGMwMzU2ZGQyOTRkNDI5NGZiZTk5MGE5MDY3YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTk5MDc5ZmEyZGNmYmExMDgyMDRkNmM5Y2ZkOTI4ODdkOTA1ODg1ODZkYjA1MTY3OGU1NmJhYTRjNzM4ZWNkZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGUyYmFkYjk5YTkzZjdkYmQyMzE1OWJkYTM1NmY5YTk0MzY3Mzc2M2E2MjRhODc3MWQzNGZiNTViOTEzNTFlOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3d7ab59795e34f308be033593c3c5826",
+      "statement": "Almgren-Chriss separate a permanent impact g that shifts the equilibrium price and persists from a temporary impact h that dies within the interval, with linear forms g(v)=γv and h(v)=ε·sgn(v)+ηv where γ is the permanent-impact coefficient, η the temporary one and ε a fixed cost tied to the half bid-ask spread.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L48-L50",
+          "version": "repo-lines-v1:sha256:0352ea7c3ee1325c43441f98d0ba0b0f95949a3329f5ac5151fb9b2d846ce3a4:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWFjNGVmYTc1NzczMjQwNzlmZWJiYjY3Njc5YjdmZTRhYTYzYTYwZGRjNDhmNjlkMGQyNDk2MzNiN2Y2MGU5ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzU4YWY0NzYyNTNhYTBiNjM0NmEyMjhmOWY5ODgwYjczNDc0ODVmNjFjNGJkZmE1MDJmNjQ4NWMyNWVkY2U3MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2MwN2EzYTZhN2NhZWI2NGJiOTUyZGZkNDY5ZmY1NWM3YjkzZjFjODA5YTk0NTk2MWJlM2RhODI3NGQ1NTViZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzAzYzExZTNkZWY0MDVlMWI4NzkxN2RhNzdkZTEwMDExMjMzZTUyMDlhZjdjZjZiMmFiNWEwODVhMmE4MzZkNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_df81cf7955274f9d9462f416b3d35b39",
+      "statement": "In Almgren-Chriss the expected shortfall with linear impact is E(x)=½γX²+εΣ|n_k|+(η̃/τ)Σn_k² (with η̃=η-½γτ) and variance V(x)=σ²Στx_k², so the permanent term ½γX² is independent of the trajectory (depending only on total quantity) and the variance comes entirely from price volatility on the still-open position.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L52-L56",
+          "version": "repo-lines-v1:sha256:b19ccae6607a758379a7635b00f8644371b324f5198566311a5b04303ee4edd0:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTdjZTJjOGFhNTY1ZjljY2FmNzVmYzZiMjhiYWI5MTlkMzg4MWE1ZmRmN2ZkYWY0MzlkNWE1MGEzMGI3MTRjNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDRlMGU5Zjg5MDNkNjM0MjE1ZDFkMTE5MmM4MDdlZDlkYjQwM2I1NWZkYzkwZDYyMmM3OWI0MDFmNWVhMzU2YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmFkMWYyYTE5MGUyOGE5NzgyOTc4N2NlYjM1ZmRjMzdkYTQzOGIwMTYzMjQxNjNiNDRjZWQyM2E4MWU5YzhhNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjM5MWJlNDU4MTFjYzU5NTgxYmZmZjY1NTZmYWVhODk5M2I1ZWJkNWM2ZTU2MTkzNGE2YWQ0YWMzOTJkYzRiZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2bdebf74bed443fe9a3a97d0f33e1c1a",
+      "statement": "Minimizing E(x)+λV(x) (λ a risk-aversion parameter) yields the optimality difference equation (x_{j-1}-2x_j+x_{j+1})/τ²=κ̃²x_j with κ̃²=λσ²/η̃, whose solution under x0=X, xN=0 is the hyperbolic trajectory x_j=X·sinh(κ(T-t_j))/sinh(κT), decaying exponentially with half-life 1/κ that depends only on the asset's liquidity and risk aversion, not on the imposed horizon T.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L58-L64",
+          "version": "repo-lines-v1:sha256:363cd0717535e9cf13b815c94b66bac4ca8adbfe9a54f98418631231e3f028c1:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzg3MDEyODNhNTBmM2FiNDU2NmQ2ZDgzZDY0YmVjNjg4NGIxMWJmZDRkZjc2OWM2ODVjMDMwZmQzOTQ4YmY3OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWIyZjAyMjllZmY1ZmIxOWJkZDhjZjkwYjFiYjNjOTlkZDZlYmM4NWQyYTdmMTQ5ZjE0YWYwNTk5OTRkMTczMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjQ3YjYwOWU0NDFiMmQ3NjRmZjc2NzBlMzVkNDZmMTQ0MTQ5MjAxZjc0Yjc5NDQyNjk5OTMzZjIzNTIwNWRjMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmNkZTY1ZDc0ODY2NmI2OWQ1ZTM3MzY3NTc1ZWY3NDZmZDk1NTM5MjYzMTA1YTk1ODRkZmFmMGMwZGE0NGUxNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_aee825d9ab51498196d716769b479e99",
+      "statement": "For λ→0 Almgren-Chriss gives the naive constant-rate strategy n_k=X/N with maximal variance ¹⁄₃σ²X²T(1-1/N)(1-1/2N), for λ→∞ it liquidates everything in the first interval (n1=X, zero variance, maximal impact), and in between traces a smooth convex frontier in the (V,E) plane whose naive-point tangent is horizontal so the first variance reduction costs almost nothing (second order).",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L66-L66",
+          "version": "repo-lines-v1:sha256:05a36fc407acdec26dc4ca97703fc10749d71ad9420a685ad53cece0c8787575:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDVhMzZmYzQwN2FjZGVjMjZkYzRjYTk3NzAzZmMxMDc0OWQ3MWFkOTQyMGE2ODVhZDUzY2VjZTBjODc4NzU3NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDVhMzZmYzQwN2FjZGVjMjZkYzRjYTk3NzAzZmMxMDc0OWQ3MWFkOTQyMGE2ODVhZDUzY2VjZTBjODc4NzU3NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzY5YTQ0MmViMzZmODZlNTQ2NzM0NDk1MjY3NDJjYmU2YjczMGRkZTEyMzIzN2Y5Njg3N2Q5ZmRkMDgzOWI2YyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWI2NjlkYWVjZjlkNjg1OTI0OTA0OWFiMTU5OWUyZjVlODVlMDUzZjQ5MDI0NGY3ZjI0YjAzMzZmYWI4MmU5NyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8fcf22e1715a4dc89c7e850b81e4edf2",
+      "statement": "The Almgren-Chriss frontier also minimizes a cost quantile: the liquidity-adjusted VaR VaR_p(x)=E(x)+λ_u√V(x), with λ_u the normal quantile at level p, is minimized by setting λ=λ_u in the efficient problem, linking execution to coherent risk measures.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L68-L68",
+          "version": "repo-lines-v1:sha256:75ce624e5f982fd774bfe19e357d41fa4833f0a77c3b120194b68143f80f3c98:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzVjZTYyNGU1Zjk4MmZkNzc0YmZlMTllMzU3ZDQxZmE0ODMzZjBhNzdjM2IxMjAxOTRiNjgxNDNmODBmM2M5OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzVjZTYyNGU1Zjk4MmZkNzc0YmZlMTllMzU3ZDQxZmE0ODMzZjBhNzdjM2IxMjAxOTRiNjgxNDNmODBmM2M5OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmNkZTY1ZDc0ODY2NmI2OWQ1ZTM3MzY3NTc1ZWY3NDZmZDk1NTM5MjYzMTA1YTk1ODRkZmFmMGMwZGE0NGUxNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGM3YjliNTVjZWRkYTM5YjQ5ZDdkYWNlNTNjYzYxODcwZmYyMWUzMDI2ZTQ3NGZhN2IzMDA3YmQwOTRiNjQ3NiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_57c1ca24759e4155a4112f7e73698bc4",
+      "statement": "With a directional view (drift α) the Almgren-Chriss optimal trajectory superimposes a target level x̄=α/(2λσ²), the per-period gain from a serial correlation ρ is ρ²σ²τ²/(4η) which is independent of portfolio size and negligible for large blocks whose impact grows as X², and the multi-asset problem couples through the covariance C and diagonalizes in the eigenbasis of η̃^(-1/2)Cη̃^(-1/2), decoupling into m independent liquidations only if C is also diagonal.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L70-L70",
+          "version": "repo-lines-v1:sha256:d3ae594ec001f3933e538a4e53038e355cdcc359cf0bce3509d3b9000fff1b88:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDNhZTU5NGVjMDAxZjM5MzNlNTM4YTRlNTMwMzhlMzU1Y2RjYzM1OWNmMGJjZTM1MDlkM2I5MDAwZmZmMWI4OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDNhZTU5NGVjMDAxZjM5MzNlNTM4YTRlNTMwMzhlMzU1Y2RjYzM1OWNmMGJjZTM1MDlkM2I5MDAwZmZmMWI4OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWI2NjlkYWVjZjlkNjg1OTI0OTA0OWFiMTU5OWUyZjVlODVlMDUzZjQ5MDI0NGY3ZjI0YjAzMzZmYWI4MmU5NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDQ5YzNhNDkwZGIwNGRhY2NlZThmOTA2MDVkMTQ3OTEwOTIzNmM0NjI4YTcxMmFiNTAwZWVlMjk1NGJkZDZmZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_740ffdb4e08842058c4f28091af44a0d",
+      "statement": "Bertsimas-Lo solve the execution problem by dynamic programming with linear permanent impact P_t=P_{t-1}+θS_t+ε_t (θ>0): the last-period value forces buying the remainder, backward induction gives S*_{T-k}=W_{T-k}/(k+1), and propagating from W1=S̄ yields the equal-slice policy S*_t=S̄/T with expected cost P0·S̄+½θS̄²(1+1/T).",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L76-L82",
+          "version": "repo-lines-v1:sha256:2d7cc693691ab5e72dc6a5669739f02c471a79b41c0209f50adfce6ab408d12b:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTE3NzVlMGRmYWM2NDU1MGQzZDYyMTM3ODI1YzllZThiMTgzMjkyNWMwYTNhMTFiOWI5NWJlYmY1YzdjOTFkYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNWMyMGY0NmNmMGZkMTI2N2UwNDMxMmFhMGM0NmIxYjIzNGQ1ODdhMjZjYTBlODIxMGI0MGNjY2JhODUzMDU3MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjBhZGQzOGI5Y2Q4YmEyMDIxOGJhMDA2NWFkZDczMzllZDcxMTgzYTFiNTA3ODM0NmJlZGQ3OTYyYzhjMzI1ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODJiOTYzN2RhZjliOTg0NjdjYmFkNDAzZTUxN2MwMzdjMzJiOTNlMjhjMjRiMTMxZWM5YjVlZTI3N2U2MmNlMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_21fab1f280284398b3e53800a628edbe",
+      "statement": "Adding an AR(1) information variable (P_t=P_{t-1}+θS_t+γX_t+ε_t, X_t=ρX_{t-1}+η_t) makes the Bertsimas-Lo optimal strategy linear in the state S*_{T-k}=δ_{w,k}W_{T-k}+δ_{x,k}X_{T-k}: trading anticipates information, buying more with ρ>0 (persistence) when prices are signalled to rise and procrastinating with ρ<0 (reversion).",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L84-L88",
+          "version": "repo-lines-v1:sha256:0fbc64e5fcc7f683a68546bdfdb8a81b8759215bd069d2ec81749ad2f80cea01:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjI2MmUyZjg0Y2U1MGQzZGZlMzM2NTBiYjdlZTc0YTFlOTc4MmNhN2ZjZDQzZGVhMWUyYTBjY2M2OTA4NmFjMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2U0Yzc1MWE5ZDg0NDI5ZDk4NzJjY2M2YWUwYjU0N2Y4OWUyYmM2ODU3NzkyZThhMWNkMzUwZmFiMTc2ZDRmNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWI4ODA0MjNkMjY3NGRkMGVhNzNiNzRiMGU5YzllMjg4NTQzNGY0YWQyM2VlOGQ5YjI4OWI5Mzk1OGM0ZWQwZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGExNmI4YzhiYzI3YjlhNzNkODBmYTRlOWQ1NTc0MTM5YWUzOGI5MTBmMTY1ZjY3NDVlMWI1OTdlNTAyZDk3MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f81a87c78bf2429986c7508328339073",
+      "statement": "In the Bertsimas-Lo multi-asset model, off-diagonal terms A_ij of the positive-definite impact matrix A quantify cross-impact (trading asset j moves asset i's price); the optimal strategy stays linear in the state with Riccati-type recursion matrices, decomposing into n independent executions if A is diagonal but making each asset's order depend on all others' residuals when cross-impact is material.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L90-L94",
+          "version": "repo-lines-v1:sha256:09ff6be23ab8fb352d4482578045498ea3ea8a50cb10b0e6823a0480f869b7b7:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2VhYjQ2MDVjNmU1MzJjMzM0OGU3Y2JiYTQwMTdlZjdmMDBmNmIxNzYwMWQ4ODUyNjFjZDZlZWIwMjU3MmVkNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzA0YTAwYjIyOWVmNzg3MDg0NmRiODdjOWYwZjYwNWVhMGJhYzJhMTUzZGMxMzlmM2YyOGZiZTE3M2NhY2UyYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTZkZWI5YzFlZWQ4ZDdjMTI5NGVmYmUxODYyY2U0NmExMzljMmIzNWQ2ZWNlNzQ3ZGIxNDgzMGQwMDU4NzM4ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzk0MDdlMzQzMmQzODExOGUyYzJlMzVkODk0YjliOWQwYjExZjExYmY2Yzc4M2M3YjM2NGNiNGVhNjk4M2I5YSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6f68a442c05d4e96ad05eb58b54b99cc",
+      "statement": "Obizhaeva-Wang argue the permanent/instantaneous dichotomy is incomplete and that the optimal strategy is governed by the dynamics with which supply and demand rebuild after a trade — the resilience of the order book — not its static spread and depth.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L98-L98",
+          "version": "repo-lines-v1:sha256:745fccac0d1920065bca541f9f8dbd69c45853502886843e020493ab8265fd2f:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzQ1ZmNjYWMwZDE5MjAwNjViY2E1NDFmOWY4ZGJkNjljNDU4NTM1MDI4ODY4NDNlMDIwNDkzYWI4MjY1ZmQyZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzQ1ZmNjYWMwZDE5MjAwNjViY2E1NDFmOWY4ZGJkNjljNDU4NTM1MDI4ODY4NDNlMDIwNDkzYWI4MjY1ZmQyZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzk0MDdlMzQzMmQzODExOGUyYzJlMzVkODk0YjliOWQwYjExZjExYmY2Yzc4M2M3YjM2NGNiNGVhNjk4M2I5YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzFiMDJkYzE3ZDFlYmY3YmJiZGQzYWJmZjJiZWQ1ODdlMTRiZTQ2YWJmNmRmZTMxNzViZWY1MzcxMjk5YTUwMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5deae69f843d44bd9ba86238b0dd618a",
+      "statement": "In Obizhaeva-Wang the ask is A_t=V_t+s/2+Σ_{t_i<t}x_i·κ·e^{-ρ(t-t_i)} with V_t=F_t+λΣx_i, where κ=1/q-λ is the transient-impact amplitude and ρ≥0 the resilience rate: each past trade leaves an exponential tail that sums linearly, ρ=0 making impact permanent and ρ→∞ making it vanish instantly with recovery half-life ln2/ρ.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L100-L102",
+          "version": "repo-lines-v1:sha256:320f1f867e5168343a397e3b81cfc677f5b0388a4a60ba6814a1697c40db79b4:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTI3ZGQyZjViMjdjNjc1MjI1ODhjMDRjM2Y4MGMzYzFlODVkNzI2ODlhN2JiOTQ3M2M1OTc0MTg5OTQxOGFhYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDQ3M2U4NTgxMzJkMjFkZGE0YTcwMmY3ZjE5MmRjYWQ1YmNlYmJkOTI2MmI1N2RkMGQyNWQ3NzczZGVhMjk3NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTIyMDA4OWIzYmU2NzFlY2VkZGI3OWU0MTE0MGJlNTM0MmE2MjMxNzRlNDcxNzU4ZjBhMDY2YmY0YWYxN2Y3NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDdlNWE3ZDQwZTBhMjRkNGU4YzM1ZDNjNjI1MDhjNDIwM2E5N2IyYWI3YjcyYzU4OTdmYjc5MTcxYmM1ZTZiMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6357c42527b942a89abbf9b704923dbc",
+      "statement": "The Obizhaeva-Wang optimal strategy in the continuous limit is x0=xT=X0/(ρT+2) with constant continuous rate Ẋ_t=ρX0/(ρT+2): a discrete initial block, a constant-rate continuous flow, and a discrete final block of the same size, with continuously executed fraction ρT/(ρT+2).",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L104-L106",
+          "version": "repo-lines-v1:sha256:4c5b2f1fe497e89ddb66142b517f4fe18f58efcbf99fcbde03f283f3b5062576:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTE3MmY2OWI3NThiZWYxZDgwOTRhZGEwMGRjNzlkNzkwOTRjZGM1NjQyY2ZhZWJhY2Q1NTY0ZThjNmJjOTM2ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNmJhOWU1MzZkZTAwYzJiMDAzZDk0YWRmZTM4OTQ3YjU2ZDg1NmFiOGFiNjUyMDc4NzllYTUwNjAzYzk2NDFhNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTMwYWM5ZWE4ZWY4OTg1ZmZiZDFlM2Y1MjhkZTIzYzc3YjczNjcxZjAyNWMwODAyMDZjNzU3ODZkNDNmOWNlMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzNmNjNjMGJmNGU4MjVlNzZhMDE3ZTIxOWFlYWQ1MmZiNDhmYTgwNGFhNWU1NmQ1ZDQ5N2IxNDE2OTM4YmY3MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_fc6536896b2145e68c4ca1be0be8265e",
+      "statement": "As ρ→0 the Obizhaeva-Wang strategy collapses to two equal blocks x0=xT=X0/2 with no intermediate trading, as ρ→∞ the blocks vanish and one recovers uniform execution, and relative to uniform, exploiting resilience yields cost savings largest for intermediate ρT that can reach ~10% when permanent impact λ is small.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L108-L108",
+          "version": "repo-lines-v1:sha256:cf8c0a6fdf5da57a1616cc0f74bfc1ff59b40f85f23187e39ad64595c0252557:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2Y4YzBhNmZkZjVkYTU3YTE2MTZjYzBmNzRiZmMxZmY1OWI0MGY4NWYyMzE4N2UzOWFkNjQ1OTVjMDI1MjU1NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2Y4YzBhNmZkZjVkYTU3YTE2MTZjYzBmNzRiZmMxZmY1OWI0MGY4NWYyMzE4N2UzOWFkNjQ1OTVjMDI1MjU1NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWQwNDY5YWZjMjYzYjI4YTllMDZjNWE3NDYyNjMyYTAyNmRiOTM0MzY3ZDg0OWQ5MmMzZTY3Y2U4NjZlZTA1NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTg4YWRmNjY2MzY3Zjc0NjExODQwZmZjNDgzZDg3MDZiNGZkOTU5YjMwMjcxMTMxNWViMzcyYjdmOTA0NDVhMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_fac690ffc65a41749f64b1dca5654a90",
+      "statement": "Empirically a single trade's impact is concave, E[r|v]∝v^ψ with small ψ≈0.2-0.5, while a metaorder's total price change follows approximately a square-root law Δp∝√(Q/V); the propagator model with order-flow memory exponent γ≈0.5 predicts a metaorder power ~N^(3/4) (β=(1-γ)/2≈0.25), so splitting a large order reduces its cost more than proportionally and impact non-linearity founds scheduling.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L114-L116",
+          "version": "repo-lines-v1:sha256:786e1b49cd86a927ffaf44bd917fb4ec234cb31df2e1d11fe7f14e365a330382:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTFhMDY0OGYxZmRjMTdmZmNmYzUwMjg1ZDJiNjU3YTQzMWZiNzY5NjJkNWNmYTZhMjA4MDE4M2FlZjdmZWFjNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTAzNmQ3MGQ5N2E3ZTE5NTEyMWEwYmRiOGE1NDNlOGE4ZjQyNTc1MWYzODg5YjAzMjIxZWYwOWQyYmI3ZTQ0MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWI1MTQzYzU1Y2FhMjc2OTM2NjdjYzc1OTJkZmViZDY2Y2I2NjVkNmYyODNlMzYxYmY0M2JhZmNkNWY5NDBmZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjkwNDA4YzEwY2I0MDM5OWU2YWNiZTczODExMDI4NzYyYTgyNjAwNWUzOGIxNWUxNjFjNGQ2NzI0OGU2ZmFkYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0cde161a71a4401c816eebefd0f38424",
+      "statement": "Order signs ε_t∈{-1,+1} are strongly autocorrelated with power-law decay C(τ)=E[ε_tε_{t+τ}]~τ^(-γ), γ≈0.5, a long-memory process (Hurst H=1-γ/2>½) reflecting the fragmentation of large orders: power-law-distributed metaorder sizes automatically generate slowly decaying sign autocorrelations.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L118-L120",
+          "version": "repo-lines-v1:sha256:263c1f803a7dcdb7b7d40e9e406d67798d9d0698b681aa8185f9b4af69cdb894:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODU0YTU3NjQ4YjRlNjI4ZTdmZmU3YjIyNWI4ZDY4MWE2ODJkZDhhMjEwOGVlNTE1NjEzMjcwYWUxMWQ0MmE2OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTYxZGQwODAyZWI4ZDRjNGY2OGE5MWVkMDYxM2FmYjE3NjcxNjM4MGZkYzM1YzNlZmU2OGJjYjVkZTMwNTAxZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzFkMDlhMjJkZmMwYjJkNzlkNGM0MTMwZWNiOWZkMWNhNGY1OTg5M2U0MjI4NWRjZWNiZTkyNzllZGEzM2Q3YiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjIzNTkyYTA1MjNhYWVmYmExMWI2Y2RjODMxM2M2MTQ5N2U1MTY1ZjVkMDlhODFiZTI2N2FmNGFhMzZkNjMwMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_27ddcbfa11db4f10bb8d97e1c9a42ed4",
+      "statement": "The paradox that predictable order flow coexists with nearly diffusive prices is resolved because each order's impact is transient and its decay offsets the flow's persistence; the propagator model p_t=Σ_{t'<t}G(t-t')ε_{t'}+noise with G(ℓ)~ℓ^(-β), β=(1-γ)/2, has this critical exponent balance long sign memory against impact decay, making price variance diffusive and returns nearly unpredictable.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L122-L124",
+          "version": "repo-lines-v1:sha256:2b15ec3c90a495351c5a265514722a73f903d882807a4c557fc2bc71bae39c54:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWE5NzkyNjY3M2RjZTA2Mzg4OWE3NDQ0ZjZjMDEzZjFiMTE2MWRlOTBmM2M2ZTIyZGRmYTI5NDQ3NDE5MDM0NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzZlYjA1NWNhYzU0MTA3NGE1NjdkMzU4NDNmNzlkNTc1MDlkNDJlNDUwYjhmYmY3NGI1MjNkZDVlZTI2YTZlNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZGMwZDZhMGIzNTNiZmIyNzBmZjVkMTRlNjFmZTJkYzkzYjQ4YjFkZWY1NmY5OGU3ZDRkYTdmZTBhZThiMjFmMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTJmOTBjMzQzY2I5YTZhYzNiZmQ2N2E5NDY0MjFmNTJhOTczZjE0NzhjYjU3ZWRlMDRhYzE2NTUyYWNiYTU2OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8fe9e5e1d94043ca8c2cb76978064bf5",
+      "statement": "The power-law scheduling problem minimizes ∫_0^T[η|ẋ|^(k+1)+λσ²x²]dt with exponent k>0 (k=1 reproducing Almgren-Chriss quadratic impact and permanent impact contributing only a constant ½γX²); the time-independent integrand yields via the Beltrami identity the first integral λσ²x²-kη(-ẋ)^(k+1)=-kηv0^(k+1) with v0=-ẋ(T).",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L130-L134",
+          "version": "repo-lines-v1:sha256:8d84bc2144d726a2722cc377a2d4a6ed25e4a45edd1eb2aa314cf2afe8ec138d:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOGJmYjllZWI1NTc3ZGYzZDJmOThkMDI4NDBiNjE5MGYzN2M4ZTBkN2FlM2RiNTcwZjFkYWQ0NTBhODRiMDFkMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDIxZTc2NDE0ZmQwNjcxY2Y4MTJhNWVlZGVjMTk0MzM0YWNiNWM2MjNkOWU0ZmU0Y2Q1MTYxMmQ2YzM4MDgyZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDgwOTQ1MzdiZjc2OTlmNzAwYmM0MzMwNmE5MGRkNmJhNzVkMmNiZTc4YTNhM2Y2NzQ3ZDgzODk2MDZhOWNlOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDZlMTQ3NTgwMzI3N2VjNjBhNGU5ZWQ2ZjhhODMxM2ZlMWY3NTZmNDY3ZTg2OTM5YjEzYTM4NjhlZGVkZGUwMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_00d87d51b9344c7cb6057f27bd8f4c2f",
+      "statement": "The power-law scheduling solution gives (-ẋ)=(v0^(k+1)+(λσ²/kη)x²)^(1/(k+1)) whose integration is an implicit x-t relation through the Gaussian hypergeometric 2F1, with the strictly decreasing map x↦x·2F1 making it invertible for x(t) and the Legendre condition ηk(k+1)(-ẋ)^(k-1)>0 ensuring a minimum.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L136-L140",
+          "version": "repo-lines-v1:sha256:7b594797a06f2336a3bffb543724e901b09dc0f01f5a7b4a685dcb9c76602bca:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjU1ZGU5MDVlOGZlY2NhZTVhNzg5ODEzNmRkMjI1OGRhZDRiMzIzZGE1M2ExMzk2NDc1MDlhMDZkZmQxMWE4NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjMyNmQ3MTIwMjMyNzdiYWZlY2Y0Nzk0ZGZlZGU3MmI2NTQ2YWVlOGQzOTJiNDFjNjVmNzE5ZTg0NDA4MDIxYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjFlMTg0ZTBiN2QyOTdhN2VmNzY4NzgyNzdlZWQ0ZmM1YTYwYzViYzdlY2Y1MGJlMDNjNTAxZDAxMDgzZjRkNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjA4YWI3ZTc2MjkwMTVlNDZiM2I1M2RkNzJlODlhOTdkM2Y0NWJiYWUwZGExOTY1YjMzNDJhZDdjZTUzM2UxNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_486a472003ec4fdaa049d43eafe217ca",
+      "statement": "For k=1 the Euler-Lagrange equation reduces to ẍ=(λσ²/η)x and, via 2F1(½,½;3/2;-z²)=arsinh(z)/z, the hypergeometric solution collapses to the Almgren-Chriss hyperbolic trajectory x(t)=X·sinh(√(λσ²/η)(T-t))/sinh(√(λσ²/η)T).",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L142-L143",
+          "version": "repo-lines-v1:sha256:bb6162ad91d7ee6404f39f419154af4238b31e2bc73948305e44bfa212410a89:eyJzZWxlY3RlZExpbmVDb3VudCI6MiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDM3MDM4ODllZGNiMGYzNTVlZTY1NGQxODUzNWZkODg3ODg2Nzc0ZThhODM1NzA2ODVkYjIxNDE4MDUwMjZjMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2VhZjJmZjY5MjE3MTlkOTUwMjZlNjVkZDg5NGNjOTVkMmU5MWQxNjY3N2ViNTAxOWY4NjZkNTg5NTUxMjliNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmU4Y2U1YmM3OWFmNGIzNDMyMGY0MWU0NDg2MzlkYWQyMzU0NWU4OTA1NWM0MTE3OTQyM2QxNzI5MmUzZmYzNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmM0MzI3NTkxMjA1MzUxZjA1MWM3OWZlNzI1M2RiOTM4MmY4NzEyOGIxYzI1YjNlOTdhMWFjODI2YTRjZTA2ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6c5ea7f945e44d0880512b519f46094e",
+      "statement": "Imposing zero initial velocity (v0=0) in power-law scheduling is compatible with the constraints only if k>1, in which case the zero-velocity starting position is finite, x(0)=((k-1)T/(k+1))^((k+1)/(k-1))·(λσ²/kη)^(1/(k-1)); for k≤1 no zero-velocity solution exists and the trader must trade from the initial instant with v0>0, so the exponent k determines the very nature of the optimum at the horizon endpoints.",
+      "evidence": [
+        {
+          "resource": "repo://docs/22_optimal_execution_and_market_impact.md#L144-L146",
+          "version": "repo-lines-v1:sha256:6c4327591205351f051c79fe7253db9382f87128b1c25b3e97a1ac826a4ce06e:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjNlODZlMmE3NmQ1YzMwMmVhNzEwOTdiYmQyMmI0OGZhYWY1ZThkNWQxZWMyNDY4NDg4YWIxMjRiNDNlYjYzNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTE0NTI5NzkxM2UwNjFhNDQzNzU5ZjUzYWE2MmE2MTBlMDQxODZkYTUxMDY4NGE1NDNmMzY1YzAzY2QxMmI4ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjA4YWI3ZTc2MjkwMTVlNDZiM2I1M2RkNzJlODlhOTdkM2Y0NWJiYWUwZGExOTY1YjMzNDJhZDdjZTUzM2UxNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjI2MTU3NTZlZGE4OTE2MWQyODU1ODFjNTg5YTU0ZmVmMGRlNmVkMGZlY2Y3ODQyMjQ4OWQwOTM5Mjg4NWM5NyJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

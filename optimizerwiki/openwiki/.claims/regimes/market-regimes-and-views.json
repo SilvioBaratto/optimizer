@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:5414ee80e190b06dd9b09cd43947e497da5a7304c806b79f3ec05d75774ea917",
+  "claims": [
+    {
+      "id": "claim_ec08ce61cb5c412996dc633f832a292d",
+      "statement": "Markets change behavior abruptly and the new behavior often persists — mean, volatility, and correlation structure of equity returns can shift and stay at the new level, as at the onset of the 2008-2009 crisis; some shifts are recurrent (recessions/expansions, calm/turbulent, bull/bear) and others unique structural breaks, such as the 1979-1982 interest-rate regime of altered US central-bank operating procedure.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L16-L16",
+          "version": "repo-lines-v1:sha256:70e82ea4d2c6becaf8df8679f67225c54826f0de3a39cb566e990f1b29d8d5e2:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzBlODJlYTRkMmM2YmVjYWY4ZGY4Njc5ZjY3MjI1YzU0ODI2ZjBkZTNhMzljYjU2NmU5OTBmMWIyOWQ4ZDVlMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzBlODJlYTRkMmM2YmVjYWY4ZGY4Njc5ZjY3MjI1YzU0ODI2ZjBkZTNhMzljYjU2NmU5OTBmMWIyOWQ4ZDVlMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODZjOGM0ZmUyNzc2MjU5M2RkY2JmMDkxMTdjOTdhNzQ3NjEwN2U3YTNhZWMyYmE3NDFlZTA4NzdmZDJjNzBhMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2FjNzlmMjQ5M2I4NDVjNzljYzNiNTRhOGUwOGY1NjAzZTNhNjNkYWU1N2UzNGE5ZmU2ZjEwZWYwZGM4ZDQ5YiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_bfab21437bb84d7b9203a657c9374bfc",
+      "statement": "The appeal of regime-switching models rests on three grounds: the regime idea is natural and intuitive (originally recessions/expansions); the models parsimoniously reproduce fat tails, persistent turbulence (ARCH effects), skewness and time-varying correlations by mixing conditionally normal distributions and contain jump models as a special case; and conditional on the regime normality is recovered, keeping pricing analytically tractable and often closed-form.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L18-L18",
+          "version": "repo-lines-v1:sha256:1a1662698c28248ae6b46f44d783e28b839a7067bfb2ebd63f7f5c3a4e0c5358:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWExNjYyNjk4YzI4MjQ4YWU2YjQ2ZjQ0ZDc4M2UyOGI4MzlhNzA2N2JmYjJlYmQ2M2Y3ZjVjM2E0ZTBjNTM1OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWExNjYyNjk4YzI4MjQ4YWU2YjQ2ZjQ0ZDc4M2UyOGI4MzlhNzA2N2JmYjJlYmQ2M2Y3ZjVjM2E0ZTBjNTM1OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWUxYzE0MDExMjU2OTFmYzE2YWQ0MjRmMjZiMjY1N2NhMmVmODljMTBiNjRlMDllNDBiMGE4YjYxM2E3ZGY3NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjIyMmYyM2MyMjRkN2QwZTdkZGE3ZmY5ODVkNjdhNzczMjRiOWMyODQyYjk5ODdmODRmZGYzNmE4MmYwNDY0YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_286b7348e4124be5bc6f3d134cd0f51e",
+      "statement": "Whereas linear pricing models imply a positive monotone risk-return relation, discrete regime shifts with different consumption growth rates can produce risk-return relations that are increasing, decreasing, flat, or non-monotone.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L20-L20",
+          "version": "repo-lines-v1:sha256:fe73581e71d8ee9f4202550eeb3431de7149f191db5d9e1fdc9354c35c5247b0:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmU3MzU4MWU3MWQ4ZWU5ZjQyMDI1NTBlZWIzNDMxZGU3MTQ5ZjE5MWRiNWQ5ZTFmZGM5MzU0YzM1YzUyNDdiMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmU3MzU4MWU3MWQ4ZWU5ZjQyMDI1NTBlZWIzNDMxZGU3MTQ5ZjE5MWRiNWQ5ZTFmZGM5MzU0YzM1YzUyNDdiMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2FjNzlmMjQ5M2I4NDVjNzljYzNiNTRhOGUwOGY1NjAzZTNhNjNkYWU1N2UzNGE5ZmU2ZjEwZWYwZGM4ZDQ5YiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzM3MTRhNDM4YjVlNzdjNWUzNjNmZGI3ZTlkNWM3YTc4ZWRlNmVmMGU4OGMxMzQzMDI2ODVkODllNWY0NWU3YSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_89b3b949560440dbba9cb7743dd13336",
+      "statement": "Hamilton's model treats an autoregressive process's parameters as the outcome of a latent state on a discrete Markov chain: a Markov trend in levels is n_t = alpha_0 + alpha_1 s_t + n_{t-1} with s_t in {0,1}, transitions Pr[S_t=1|S_{t-1}=1]=p and Pr[S_t=0|S_{t-1}=0]=q, an AR(1) representation s_t=(1-q)+lambda s_{t-1}+v_t with lambda = -1+p+q, and unconditional limit Pr[S_t=1] = (1-q)/[(1-p)+(1-q)].",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L24-L32",
+          "version": "repo-lines-v1:sha256:3bfc4873f11dec7f30fdc43fa0d17fdcb04fefb636f51300fea543d8a3d940dc:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjVkZmZkMDg5YWYxNGMxZmI2YmFiNDQ5ODhlN2EzNjc2YWYxZjQ4YmI4YzhmM2JjMzFiYTdjMThiMzdjYTIwMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjliYTgyYjNmOTQzNTNmNjExZDljYTQwMmQ3MTY3MGQxMDU3N2MwNzFlYzgyMjgzMjg3ZGQ1OWFlOGQzODRmMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzM3MTRhNDM4YjVlNzdjNWUzNjNmZGI3ZTlkNWM3YTc4ZWRlNmVmMGU4OGMxMzQzMDI2ODVkODllNWY0NWU3YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzIyMzAzZmMzOTE3MThiOGUwZjRmMzcxNjc2NWU5YTQxYWNlMGNkMDczYTJlZmM2NDQyZDg5NWI4YWY0NTBkYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a22f17b1957f4d4d92a9bf0c05fdea4f",
+      "statement": "Hamilton maximizes the marginal likelihood of the observed series over population parameters and then uses those parameters to infer the unobserved state, in contrast to earlier work that maximized the joint likelihood of series and states assumed observable; the method's root is the Markov switching regression of Goldfeld-Quandt.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L33-L33",
+          "version": "repo-lines-v1:sha256:ecf13615f0fa3febc9a4f6cfd345bf34c3998cfc69301b6d92af5900f4f4b3bf:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWNmMTM2MTVmMGZhM2ZlYmM5YTRmNmNmZDM0NWJmMzRjMzk5OGNmYzY5MzAxYjZkOTJhZjU5MDBmNGY0YjNiZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWNmMTM2MTVmMGZhM2ZlYmM5YTRmNmNmZDM0NWJmMzRjMzk5OGNmYzY5MzAxYjZkOTJhZjU5MDBmNGY0YjNiZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGMzZTU3NzU0OTEzNjRiZjFlMDZlM2Y2MWQzZmQ2NmM0YTAyZTc0OWM4MWI1NjlmOWJmYTBjNjAzYjRkYTM2ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWFiZWEwMGRmOWRhZGJhYWUwYTY3YWE0YjczNjdjYTA4YzE5NjFjNzE5Nzg2MDVlYThjZTRiZWE2MmEwZmEwNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6ddbd66c429d48d8b0ff58ba7c34d447",
+      "statement": "Combining a Markov trend with a cyclical ARIMA(r,1,0) component and differencing gives y_t = alpha_0 + alpha_1 s_t + z_t with z_t = phi_1 z_{t-1} + ... + phi_r z_{t-r} + epsilon_t, epsilon_t i.i.d. N(0,sigma^2); the growth rate changes only in response to discrete occasional events and the alpha_1 s_t term makes the observed series nonlinear.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L35-L37",
+          "version": "repo-lines-v1:sha256:48d7dd98dbf0042b17aa7d024a9b0f249c979e78f54209ac65e001c82a02769e:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTQ4Nzg0NDVkYzRhYzcwZWZkYTljZGM3OTQ2YmYwZDcwOGEwMjM5NGVhYTkwOGRkMGU2YjBlZTEzMDA0NmU2NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmRkMDRhOGY4YTNmN2Y4M2VhYzEwNGVjMTI4MDcyNmM5YzVkZDczMzBlNTk1NTZhMTM1YjVmOTkyM2QzMTE2OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzBlZjAzNDY2NmUyNDI1MjBjOGRlZjdmNjRmYzIyMjJiMjI0ZDg3OGFhN2JkM2JmZjJlNDUwODI1ZTg4YWIwZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZWQ5NzQzNmMwNjNlNDQ3NjA4ZDNmZjU2ZmNhYTVlMjBjY2EyNjRkNGZhYWE5ODE0MmFkN2RjMTliZmY5YmQyZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6a6e1508ec7d4f7ba12e8a63b93b883e",
+      "statement": "The Hamilton filter recursively estimates regime probabilities in five steps (form the joint probability at t via transition probabilities, multiply by the Gaussian conditional density of y_t, sum over states for the marginal likelihood, apply Bayes' rule to update the state probability, sum out s_{t-r} for the next iteration), with all probabilities in [0,1] summing to one, and the sample log-likelihood sum_t log f(y_t|y_{t-1},...) is maximized numerically.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L41-L62",
+          "version": "repo-lines-v1:sha256:e20d43f02cbbdf8f839239616753ce079495a694e4792e715ce41bd1b06be12b:eyJzZWxlY3RlZExpbmVDb3VudCI6MjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImYwZjFjZTQ5YjUxYzk5ODlkNjU3YzliZjRkYTQ1YjYxZDJiNWVhMTE3YWNjN2JhMTQ4ZDMyNjk5ZDNlMTE0ZTIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVkY2IzNjZhYzc3NWFjZjRjZjNlODlmOTY3MzkwN2Q5NDM5NzQ2NGI0ZjY5NTA0MGNmZjk0OTcyNjg2MzlkN2IiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImVkOTc0MzZjMDYzZTQ0NzYwOGQzZmY1NmZjYWE1ZTIwY2NhMjY0ZDRmYWFhOTgxNDJhZDdkYzE5YmZmOWJkMmYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBlZGEwOGY4NjQyZTQ4YzgxZDYwZDE4MzQ2NjI3YWUyOTZkMzc3NjUwNWExMDY2YmZhZTc1ZGYzYWEyODdjM2IifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_40adf1c197474b8d97f1be8b1e309bb5",
+      "statement": "The model is identified only up to state labeling (fixed by convention such as alpha_1>0), generalizes immediately to more than two states and higher-order dependence, and a smoother provides full-sample state inference.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L62-L62",
+          "version": "repo-lines-v1:sha256:edcb366ac775acf4cf3e89f9673907d94397464b4f695040cff9497268639d7b:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWRjYjM2NmFjNzc1YWNmNGNmM2U4OWY5NjczOTA3ZDk0Mzk3NDY0YjRmNjk1MDQwY2ZmOTQ5NzI2ODYzOWQ3YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWRjYjM2NmFjNzc1YWNmNGNmM2U4OWY5NjczOTA3ZDk0Mzk3NDY0YjRmNjk1MDQwY2ZmOTQ5NzI2ODYzOWQ3YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzNkZmYzNjFjZTQ2ZmRhY2YwNWYyYTE3N2I1NDlmNTY1MGZiMmVmNDlmNzU5NzdiZDIwMGZlYTNlZmIyYzYzYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGVkYTA4Zjg2NDJlNDhjODFkNjBkMTgzNDY2MjdhZTI5NmQzNzc2NTA1YTEwNjZiZmFlNzVkZjNhYTI4N2MzYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1ea85b71c8b343818ef7ead7b6897f8a",
+      "statement": "Applied to quarterly US real GDP (1952:II-1984:IV), maximum likelihood gives hat alpha_1=1.522, hat alpha_0=-0.3577, hat p=0.9049, hat q=0.7550, hat sigma=0.7690, implying growth of -0.4% per quarter in state 0 and +1.2% in state 1; the state sequence matches official recession dates, expected recession duration is (1-q)^-1 about 4.1 quarters (vs 4.7 historical), expected expansion (1-p)^-1 about 10.5 quarters, and the expansion-to-recession transition ties to a permanent GDP fall of about 3%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L64-L64",
+          "version": "repo-lines-v1:sha256:413f4877b346c3fbb0903eeae5de227ed42946cb5d22662c1a6a79437c95b8a5:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDEzZjQ4NzdiMzQ2YzNmYmIwOTAzZWVhZTVkZTIyN2VkNDI5NDZjYjVkMjI2NjJjMWE2YTc5NDM3Yzk1YjhhNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDEzZjQ4NzdiMzQ2YzNmYmIwOTAzZWVhZTVkZTIyN2VkNDI5NDZjYjVkMjI2NjJjMWE2YTc5NDM3Yzk1YjhhNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTVhN2NmNTRhMWZjZThlZDJmMzUyOGQ2ZTVmYWRlMWJkMDIxNzBkNjdkYWM5N2U5NDE0ZWU5NGMzMjc2MWZhMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZWExMThlMmFiMjQ0MDg1YWMzMjU0ZWUyODE3MDFjYjMwNjE0Njc2MzMwNjY3MTQ0MDc1NmM5ZjZjY2MxNzEwYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c320105bc68847a6ab53c503f5ba5c07",
+      "statement": "For a two-normal mixture y_t=mu_{s_t}+sigma_{s_t}epsilon_t, variance is pi_0(1-pi_0)(mu_0-mu_1)^2 + pi_0 sigma_0^2 + (1-pi_0) sigma_1^2 (not the simple average of variances) and skewness is pi_0(1-pi_0)(mu_0-mu_1)[(1-2 pi_0)(mu_0-mu_1)^2 + 3(sigma_0^2-sigma_1^2)], so skewness arises only if mu_0 != mu_1; for a mixture of N(1,1) with probability 0.8 and N(-2,2^2) with probability 0.2 the mean is -0.50, standard deviation 2.18, and skewness -0.65.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L72-L76",
+          "version": "repo-lines-v1:sha256:780ddb0cdc316e40c7e5e007d6895f42b96c16250bb742bd5b2b0f1ff80b6f34:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzYxNDViYWU1ZTA1MThhYTQ1MTg1OGQxOTg5NDJjNjlmZmRmMWE5MThjMWJlZWFjOWRiMTBlYzA1OTViYWVmYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzU2MjY0ZjRiOTkzNGVkYTU5Mzc3YjZlNmE5M2QzODI4MDZlZTUwMzNhNDY3M2RiOGY4NzcxNDExNGU2MWRmZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODQ0MDQxYTQ1Mzc0MWQ0YWNiMDk2OGVhNDRlYTlmMmI1OWUzYjI4M2IzODI3Zjk3ZjEzNGZkOTYwN2I3OTRkMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWJhMWNlMjIzNGI1NWNhZmVlZDBlOTNmZDkyOWYyNzQyZTEzZWFkNmVjMTRlNWY3ODkxN2JkOWE4YjkyNTJkOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d1cb3fb250824bcca84aa970bf8c3501",
+      "statement": "The autocovariances cov(y_t,y_{t-1})=pi_0(1-pi_0)(mu_0-mu_1)^2[p_{00}+p_{11}-1] and cov(y_t^2,y_{t-1}^2)=pi_0(1-pi_0)(mu_0^2-mu_1^2+sigma_0^2-sigma_1^2)^2[p_{00}+p_{11}-1] show that level persistence requires mean differences while volatility persistence can come from mean or variance differences, both scaling with combined regime persistence p_{00}+p_{11}-1.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L78-L81",
+          "version": "repo-lines-v1:sha256:ea394f5dab77037a12269a26de195c0d1cf1124b418240223939a28f1cc07658:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWMxNTZjYzJkMGFjNjBhYjUxOGQxODk1ZWE5ZTQ2ODQ0NTU3ZmU4YjE4OTAyN2Y3YzNkOWI0M2VlMDZjYzNjNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGJlMDIzZmY5YjA3YzM2ZjQ0OWU2NzNlZDlmYzQyMmI0NjgwMmUyMzdiNTk4OWYzNTIyZjU2MjQzYTJiNDAyMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWZiZGE5OTE5ZWZhNWNhMjE4Nzg1MzAzNWI0MjljMjA3ZWNjMTgxMmJhZjAyZmYxYWU0N2I5MDA0Y2JjMjNiMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDUyYzg1OGY3YjBjNGE3ODVmYTMzN2Q5NmFkNWIyNjg0ZTBhYmMxNzAxNTkzNjY0YzY0MGI4MjU4NDllMzYwNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_995218b0f14d4a039abe1ea9cdefef39",
+      "statement": "The exceedance correlation, computed on the subset {(y1,y2) | y1 >= (1+theta) mean y1 and y2 >= (1+theta) mean y2}, is asymmetric in equity data with negative exceedance correlations higher than positive ones; a regime-switching model replicates this pattern where neither a normal distribution nor an asymmetric GARCH can.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L83-L83",
+          "version": "repo-lines-v1:sha256:be90d77814d0a270e566d6ddb5e102f25439041e86a549ed1cac7b399385fe97:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmU5MGQ3NzgxNGQwYTI3MGU1NjZkNmRkYjVlMTAyZjI1NDM5MDQxZTg2YTU0OWVkMWNhYzdiMzk5Mzg1ZmU5NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmU5MGQ3NzgxNGQwYTI3MGU1NjZkNmRkYjVlMTAyZjI1NDM5MDQxZTg2YTU0OWVkMWNhYzdiMzk5Mzg1ZmU5NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDhkOTlhYjM0YjQyYTU5NzY2NjdlZjEwMjVkMzVmZmE3Njc3YzcxZGQwYmI0YmE1Yzc0Y2QyNmFhMTM4YjMyYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjNkMGZhZDFjODZiZmY1NWRmN2QxNDY3MWFkYmFmZDlkMmVlMTE4NzdhNWMwY2QyYzlhNWU5NWY2NDIyOTRhZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_350a61fa7a8a4d6c9c62142a60cd3db1",
+      "statement": "In a Lucas economy with power utility and consumption equal to the dividend, a dividend process switching in mean and volatility yields a closed-form solution P_t = rho(s_t) D_t with the price-dividend ratio constant within each regime, taking a finite number of values equal to the number of regimes; at gamma=-1 (log utility) the price is regime-independent, for gamma>-1 the intertemporal relative-price effect dominates and for gamma<-1 the consumption-smoothing effect dominates, so near gamma=-1 mean return can peak in the high-growth regime while variance peaks in the low-growth regime.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L87-L93",
+          "version": "repo-lines-v1:sha256:4b8aa477bcca3afc0780c0882b93bd804b03da6c98c630716b7fd153edc6c8a2:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzJiMDc4NmViNzM0MzUzOTVlMzY4NTgwZGUxMmVmNDc5NTM1MzIwMGU5MjBlMzE2MDE5MWUyNGJkMDQyYjAzYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTUyYmJhMWUxYTJkZWU0YzhjYmMyOWUwYTRjMjdlZjczNzAxMTdjYjVjZWQxMDg1ZTU4NWY2NGRlMzU1NWI1NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjNkMGZhZDFjODZiZmY1NWRmN2QxNDY3MWFkYmFmZDlkMmVlMTE4NzdhNWMwY2QyYzlhNWU5NWY2NDIyOTRhZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzZmNWVjMWViNDNhNjMxYjEzMzdkNDRhZjYzMDFlMzNiNDhiYWU3ZjNhZTFiZDk4MDhiYmNhNzVhODA1YTFjMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b926783b32e24cdf9f7c12d283951b84",
+      "statement": "When regimes are not identifiable in real time the state is latent, agents update beliefs by Bayes' rule, and hedging regime uncertainty can generate over- and under-reaction and higher price volatility in high-uncertainty periods around recessions; filtered probability tracks the underlying regime well but sometimes misses a shift or raises false alarms.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L95-L95",
+          "version": "repo-lines-v1:sha256:303667af2c41ab80e4dbd7d85a59d13a41207375b870c91d5757eed94f089213:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzAzNjY3YWYyYzQxYWI4MGU0ZGJkN2Q4NWE1OWQxM2E0MTIwNzM3NWI4NzBjOTFkNTc1N2VlZDk0ZjA4OTIxMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzAzNjY3YWYyYzQxYWI4MGU0ZGJkN2Q4NWE1OWQxM2E0MTIwNzM3NWI4NzBjOTFkNTc1N2VlZDk0ZjA4OTIxMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGUyOWIwYTllN2RhNWRkY2FmN2JlNmFiMjU3Mjk5YjMxYmJiNmY2NzUxOWEzYjRlMTRkMDQ5M2M5ODIzMGEyMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTRhNGExOWVjNDYwYjQ1ZTZhNWFlMDQzNjg2MzUzOWRlMTk3Mjg3MWI3YTYyMWQ1MGQ0MDAzYjc3MGI1MDFlNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_60c1769f3692430dadc68d437e6f7b51",
+      "statement": "With i.i.d. returns CRRA optimal weights are constant and the T-period problem reduces to the myopic one-period problem, but with regimes the optimal weights become state functions alpha_t*(s_t) and regime persistence induces intertemporal hedging demands; the estimated two-regime US/UK/German model has a bear regime 1 (expected duration about 6.9 months) and a regime 2 (about 4.25 years), and because US volatility is lower in regime 1 risk-averse investors hold more US equity in both regimes and more in the bear regime.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L108-L110",
+          "version": "repo-lines-v1:sha256:802c442838873f094372480e4f6fc304e80695b3d9e08f3bb3003c25e3a003d9:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMmQyZjBjNDhiNzZmOTQ2ZTM2MGZmYjg5YjBiYjVlYTJhZTk3ODgyZmNiOGU4Y2ZkZWM3ZjJmMjdkNWMxNjBlOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2YwZTNmZGZiYzM4ZDM3YTc2N2ZmMzU3YjkwNDU0NzU1YjA4ZjRhNjY2NjQ3YTNmMTY4ZTg4ZGVjZWU3NzA5YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTM5NzkyMTkxOTkwNjc3NTE1NWNkOWFhZjY3ODYxNTBhNGNiMDcyYzhlNzNhMTA0MTJhNjczZWVlOGY5ZDc3NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2U0ZDBlZjIyYjJlZGM1NmM4NjQ4M2QyMTkzM2MzZmRhMTU1ZTkwMTVhNDU0NzhmOWFhMGVkNjc4ZGUzZjU2OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_995926333e3549f195e61ebe9f38bbb4",
+      "statement": "The cost of ignoring regimes (using i.i.d. weights) is small for all-equity portfolios but rises sharply when a conditionally risk-free asset is available because the high-volatility/high-correlation regime induces a flight to cash, becoming the same order as the cost of not diversifying internationally (about one cent per dollar at the annual horizon for risk aversion 5); the cost of myopia is negligible, and a high-volatility bear regime does not eliminate the benefits of international diversification.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L112-L112",
+          "version": "repo-lines-v1:sha256:b74fd30e4e98b16f1c82dc2598f95e4624796059cf3151d6541a0a94ab0df320:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjc0ZmQzMGU0ZTk4YjE2ZjFjODJkYzI1OThmOTVlNDYyNDc5NjA1OWNmMzE1MWQ2NTQxYTBhOTRhYjBkZjMyMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjc0ZmQzMGU0ZTk4YjE2ZjFjODJkYzI1OThmOTVlNDYyNDc5NjA1OWNmMzE1MWQ2NTQxYTBhOTRhYjBkZjMyMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTA5MmM1MTExNzNkMDE3NDRmMzEyZDllOGQ2YjBmMmQ1MzUxZDdkOGU0MmY3YjVhOTU2YjViN2ExYWRkMGRmZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYThhZGI0NzQ5YWE3MjNkYTI1Njg1YTI4Y2JlNGQ1ZWM0NzQ0MDViYjk4MGNkMGQ3YTRhZjlmN2Y4NmI3MmY2MiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_acbacba8a2124cc5804dd70c8fd6bd65",
+      "statement": "The Guidolin-Timmermann regime-switching VAR over large caps, small caps and long-term bonds selects four economically interpretable states: crash (large negative mean excess returns, high volatility), slow growth (low volatility, small positive returns), a persistent bull, and recovery (strong rebounds, high small-cap and bond volatility), with large- vs small-cap correlation from 0.82 (crash) to 0.50 (recovery), stock-bond correlation from -0.40 (crash) to positive elsewhere, and stationary probabilities 9%/40%/28%/23%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L116-L120",
+          "version": "repo-lines-v1:sha256:c89dbf246468ddec929df8a172427c671bd4709ffdd24870e45a66b7656b680b:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGI5MjZiNGFiNmE5MTdmZTEzNGU1ZWEwZmJlNzAzZTEwZTk1NTdlZGZmNDRiZTE3MWFiODQyN2U3OWQ2NjA1MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDA0YjA0ZWI4YTc3NjU2ODQ3ZGM2MzZkODQ0MmU0MzA2YjA5MzkyZTg1YmViZGI0YmUxMGRjZGJmNzZmMzc4YSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYThhZGI0NzQ5YWE3MjNkYTI1Njg1YTI4Y2JlNGQ1ZWM0NzQ0MDViYjk4MGNkMGQ3YTRhZjlmN2Y4NmI3MmY2MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzA0NDU4ODBlZTk5MTI3Yjk1ZjRjZjE1ZmRhMDhlYzYxNzNlYjA0NzZmNDI5ZTIwZmFkOGFlZTlhMzg1OGM3ZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_bf409a38c6a544479c6f4a62a24ff812",
+      "statement": "Optimal allocations vary considerably with state probabilities: because equities are unattractive in the crash state the short-horizon investor holds little there but the equity allocation rises with horizon (crash is transient and likely to move to recovery), whereas in persistent slow-growth and bull states large equity positions decrease with horizon, so the demand-horizon relation is non-monotone and the advice to raise equity exposure with horizon holds in only one of the four regimes; the cost of ignoring regimes reaches 3% at short horizons and about 130 basis points annually at long horizons.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L124-L126",
+          "version": "repo-lines-v1:sha256:f4effe8522f3af04533aa5404c5caf059a932400997830f6f41313def15a3a0b:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTgzNTcyOTAyY2ExOGI0NzNjZmY1NmU1OWEzNTc2ZWE3MzZjZGY3ZTQxZDVhM2RmZTljYWM1ZGU3NTczYjczYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjYxY2JjYWQxMWM5M2EyNjkzZTg5NzZiNzI3ODQ1NzUxZGZiOGM2Y2FhNmViOWRkMjZlYjAzYmY3YzU2MWY2MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzA0NDU4ODBlZTk5MTI3Yjk1ZjRjZjE1ZmRhMDhlYzYxNzNlYjA0NzZmNDI5ZTIwZmFkOGFlZTlhMzg1OGM3ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzI5NGY3NmY2OTMwZjAxM2IyODMyZGIxMjI3NmViYjMxNGIxNTE3ZjMyYzc0OTg1OTU2Njg2NmYxOGY5NjVhYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e51a745a08fa4a378f14630adcd551f7",
+      "statement": "Nowcasting projects Proj[GDP_t | Omega^n_v] over about 200 monthly US series on an unbalanced end-of-sample panel using a parametric dynamic factor model y_{it|v_j}=mu_i+lambda_i F_t+xi_{it|v_j} with F_t = A F_{t-1} + B u_t (empirically r=10 factors, q=2 pervasive shocks); factors are estimated by principal components, the Kalman filter updates on the unbalanced panel assigning zero weight to missing series via infinite idiosyncratic variance, and empirically intra-monthly information matters, business surveys have large marginal impact because they arrive early, interest rates affect GDP precision but not inflation, and asset prices affect inflation but not GDP.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L130-L142",
+          "version": "repo-lines-v1:sha256:201844bbd91fc9f26f24e5485693944457e893b9492dab61a4d1207f81483e50:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg0MWM5ZTJhYTlhOWI3OTQ2Nzg2NGIzY2JlYjFlNTZjZmM4MTRhMTQyMTIxZTRhMmMyYzQ1NGY4NDNkOGQ1MmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMwYzZlMzJmYmZkNjM3ODdjZmJlNjdmNzNmZWFmZWVkOTdmZDVjNzAwYzE5MmI5Nzc1ZDRmM2FmMGUyNWJmOGEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjcyOTRmNzZmNjkzMGYwMTNiMjgzMmRiMTIyNzZlYmIzMTRiMTUxN2YzMmM3NDk4NTk1NjY4NjZmMThmOTY1YWIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImRmNGE2ODFlNDczNzIxY2Y2NjJkNDA4MzM5MWFjM2U5YTFjODYxNTY1ODIyZWEwYjE2M2I0N2U5ZDBjOGQ4MTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f4b595b4b96e4aefb52a08c1442cfbac",
+      "statement": "The diffusion index estimates common factors by principal components from an approximate dynamic factor model rewritten in static form X_t = Lambda F_t + e_t, giving a feasible forecast asymptotically first-order efficient as N,T to infinity; on 215 US monthly series the first six factors explain 39% of variance and the first twelve 53%, and out of sample diffusion-index forecasts clearly beat univariate autoregressions, VARs and leading-indicator models.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L144-L150",
+          "version": "repo-lines-v1:sha256:1406947a816e2cacf92f5bfa8461a55f3b3de0bd984972642fe43bf72bd3a153:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzkwZWJmODI3ZmNmZDg5ZTFjZGVlY2MyOTVkYzM2NDE4NjIzMzRmMTQ2MjI2YmExNTg4NDIwZTdjZjI3MWYzOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2EzNGVjYmQ4ZmNiNDZlOWEwNjY5YmExNjg4N2FlOWU2MzIxNmZkYTJkNzhhNmZiYWY2ZjUxOGZmOWIxZDhjOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTFiYjkzZWZlNWNjYWI2YmE0ODQ3YTFiMTVlYTQ2NDc2ZjBiMzUwODJiYzhkZjlkMDQ5MGYxNjY0MWRlMDhlMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjNkOGE4NTkyZDljOTRjODEzNGFjN2JhMzdjYzM2Y2JkNGNiMzI1YTgyODc2MDMyMTE4NzI4YzQ1ZWRmN2E5MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9c0595dd46be4c46930a88409c221d4e",
+      "statement": "The estimated market regime is what forms the Black-Litterman views on expected returns and covariances that the model combines with market equilibrium: the filtered probability of a bear regime justifies a view of lower expected returns and higher correlations, which the Black-Litterman update translates into a tilt away from the market portfolio, so recognizing the market state is the first step in the chain to allocation.",
+      "evidence": [
+        {
+          "resource": "repo://docs/21_market_regimes_and_view_formation.md#L156-L158",
+          "version": "repo-lines-v1:sha256:92fbad34ca0f325cf2a30467359618f142dcc186834603860eeb932e49ddcc07:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWViZGUyYzU1YWQzN2M0YmMzNmYyYmU4YjNmNDFmOTY2NmYyYzEzMWIwYTJjZTgwMzA3NjdjMTI5ZmI2ZjJkOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2M0MGVjZjAyM2I5N2QxNzU1N2FhYTEwNjQyNTgwMzQxMmYzNWI2NWIwNTIxYzZkMDgzNWM3ZmVhODBmMjllNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDhmNDNlZGUzYzA4OWYyNDc2OWFkNWQwMjFlNTRlYmMyYTMzYTMyMzJlMjY2YTNkZGY2MmE2ZGIxOGU2NWU1ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

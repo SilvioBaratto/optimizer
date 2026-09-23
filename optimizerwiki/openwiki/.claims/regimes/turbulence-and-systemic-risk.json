@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:0eb872737b32e636316f2bd213e4ca862b641f136b3dc6ceafeb62a0325bc9b5",
+  "claims": [
+    {
+      "id": "claim_0527bf09c5ef4c37a1c1b788ac83c697",
+      "statement": "Equally weighted historical estimates likely understate variances and correlations during periods of stress or financial crisis, because in such periods asset returns become more volatile and more strongly correlated and diversification vanishes when most needed.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L16-L18",
+          "version": "repo-lines-v1:sha256:fca2f114d6d674a0948a314a22544fe9b61a099b73acd3d072352675e97dd297:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDg1YWU4ZmQyM2JkODg2ODlhNGYzMWY3NTkyNmQxNmRiMWQ1NTdiNDg3ZWEwYTc2ZWI1ZWM2MmEzZDViYjQzZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2RmMWIyNGMxYjYzYzU5Y2NlYjlkOGNkMGFjZTQ2NTlmMjRhODQ2ZWM5NTgyOGZmMDI2MGI2ZDgyY2RjZjgwYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTAxMzU4MTA1NDVjYzJiNzNhODdhZDViZDk1NGZmM2ExYmViMDRiMTA5Y2YyZjU4OGU1NDNlZjRiNjU0MjM4MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2Y5ODRjY2NjNzE5YzhhODFkOGQzMzdkYjM2Mzc2OTZhODNmZWY3NTRjM2IxNWVjZGM3OTIxYTBiZmI1Nzk2NiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_cbde3452e59d44b4ac7c3ac9d8a84c66",
+      "statement": "The chapter is organized by two ideas: a return vector can be judged usual or unusual by its distance from typical behavior (Mahalanobis distance, giving financial turbulence), and market fragility can be read in the compactness of the covariance structure (PCA, giving the absorption ratio).",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L20-L22",
+          "version": "repo-lines-v1:sha256:551c47312a3a20556154adbcb443e882cc138ee734cc87ef6d2152355cbab83b:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzExYThlN2FhOTllOTJlZTk5OGZiYWI5ZGUzNGE3NjgzMzRjYWUzMzhiNzhhNjEwMzI4NGJhMmI0NzdlZDRmNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODA3ZmQwZDFlNWNjNWY2ZTM0ZDY4MDNmOGFhOTlhZTc5NzIwNjYxNDFjOTY1NDA0OTEwNGI5MTlkMjkxMWM4NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGRlZGEwNjQxODhmNGQxYTc1MTdlMTI2MDhjZTAxODUyNTFiODY1NzUzZjQ0NTJhNWZjMmE3YmFlMGE5ODY1NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjBmNDBjZmY2ZWFmNDhlNzRmMjlkYTIzZjIyZDBlYTg3ZmFkZGM1NjNlZmJiY2MwMGZhYjE3NjY0YmFhZjAzYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b6382f32dfd64f4eb4a67f3633576e84",
+      "statement": "For P independent variates with equal dispersion differing only in means, the Mahalanobis distance is P·Δ² = Σ (α_i − α'_i)² / α_ii, weighting each mean gap by the inverse of the corresponding variance.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L24-L28",
+          "version": "repo-lines-v1:sha256:a0711e005aefd168c913158e3b891bd34ce8065ed3426595d50d3d74648f5fa0:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2Q0OGRlMTdjMWFhZjU3ZWY5Mjk3NzEzZDQ3N2FkYmE1YzM2YzA4MWI4NmQyNTQzYmY3NTgwMmFmZTBhYWEzMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTU3Y2I5YWFmNWVjMTViMzlhMWE4YzgxNjEyZjIxYTIxYzk3ZTMyMjFjODJmN2NiNGNjM2RmYWNmODAxNTBkYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDhiZDkzZjU4NmFiYmE0N2YxYmZkMjc1YjZiYWM0MTAxMzVhNDJkM2U3OWRiZGJkZDY1YWFhMTVlMDYzYjc3YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWZjMzIxNjY4ODYzODBhZjc4NGQ0YmIwNjMxZjM3YmJmZmQ4NDFjMDM2MzY5YTQxYTI4Y2FlYTcwNWVmM2Y2YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_69369a96fd774c37b21f1310132bc0b0",
+      "statement": "For correlated variates the generalized Mahalanobis distance P·Δ² = Σ α^{ij}(α_i−α'_i)(α_j−α'_j) is the exact statistical analog of the line element ds²=g_{μν}dx^μ dx^ν, with the inverse dispersion matrix playing the role of the metric tensor.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L30-L34",
+          "version": "repo-lines-v1:sha256:9fb7c94c6cce09d67f4d75b1fc6915339985caaef434681c2cda8c7ec7721ee1:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWVjNzgxNjMwOWZhY2Q0MmM5OTgyZGE3ZTE4NjQyZWZjNThhYTA2OTBmYjJlZDY4MWVjODMzOGNjOTg4NTI2MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2RkZWY1YWVmMDBiOTcwNDQ0MjFjZmZmOWQ1Mzk2Zjk4N2M5MTYxZDMwMDg4MTBkMGUxNDU3OTYwNjM1YTFmOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTk2MmI4MDcyNzRjMmU1OGZiZGViZTliMmFjMjVlNGYyMDU4MzRjMzMyMGYxZWQ4YTE1NjUyMzEwYWE3YzIwYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmM2YzUzMmM4YmVmM2UyYTBkYzQ2OTkyNmE4OGNiMmRiZGU4ZWZhZGJjZGVjYjFlYmM1NDhhM2JkYjQxN2E3ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_db147710122a428593f30106fb4959f1",
+      "statement": "The financial turbulence distance of an observed return vector from the multivariate mean is d_t = (y_t − μ) Σ⁻¹ (y_t − μ)', which for two uncorrelated series reduces to the equation of an ellipse (a circle when variances are equal).",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L40-L44",
+          "version": "repo-lines-v1:sha256:5fe748506c9a758644e05e63511658904bc4b29e1030a61efaca8b7a1350a249:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNWJjOTQ3YTlmN2U3ODVmMjQ0ZjE3NDZmMzhiZmEzMjIyMDlkMjRiOWU3MzIyNjYyZDZkYTI4OGExNDQyY2NlNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYWI1ZWVlOGQzMjBiMzFkNDcyYWExYzY5NjNhODliNTAwZWFhMDI1NTE4MTc1Mzc4NDBjNmMzY2E4YjE5ZjA2NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTY4NDA1ZDE5NmZiOWU0NDM3OWY4YTMxNjAxMzY1NWZkZmIyZWMzYmM2MmIxYTc0NDVkOGUzZTFkYmQyNGMxNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjM4MjhlY2YxZTlhY2ViZWVlNDVkMTczMDdjMzJiNjAzNmQzOTVhNjMzMTY1MzFkODU1YTBiMmJhODhjNTEwZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e7bc2ddd2f61442c84aa4bc854cec0f8",
+      "statement": "For n normal series d_t is distributed χ² with n degrees of freedom; defining an outlier as an observation in the outer 25% of the distribution, for 12 series the tolerance boundary is a χ² score of 14.84.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L44-L48",
+          "version": "repo-lines-v1:sha256:bb69d2d3cf2d6fe4108fa1fb5a5f2805ad2b92763ee33401a6a77338da9a7927:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWI1ZWVlOGQzMjBiMzFkNDcyYWExYzY5NjNhODliNTAwZWFhMDI1NTE4MTc1Mzc4NDBjNmMzY2E4YjE5ZjA2NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2U0NTlkMWQ4OTFlMmM2YTk2Nzc3ZDEwNTZkZTQxZGI2ZDFiOGNhZjE1ZDhjYWFiZjEzMTE5MTNhOGU5ZmZlMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTJjNmE4ZWZmMDNmYmVhOWI5MDZlZjI3M2Q1N2M4MWQ0NThmNGFmNjc4NzlhMjAyZmQ5NmU5ZjdlNTg4MDQyNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTVhOTllZDY4NzgwYzVlMTY4NTg4OTU0YTgxZmM3NWMyNTFmYjQzYWE3M2MyMWYwZTNkODM4MzQyM2VlOTNjOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1d6d78db8b8042e3990b54f09896b6eb",
+      "statement": "Turbulence measures unusual — not merely loss-making — periods: a multivariate outlier can arise from one asset's unusual performance or from an unusual interaction among assets none of which is individually unusual, and turbulent episodes are persistent and cluster in time.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L38-L50",
+          "version": "repo-lines-v1:sha256:3efb1406bf10cee96c817bec592ddbefd5db9d50feb047239e7135ab7408aecd:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEzNDk2ZWNmZDk2ODkyZTMyOTdiOTAzNmViNTI0ZWFhMmE0OWY2NjE4NjU1MmI3NDAwMmQ1MzY3ZGFmOGMwZjciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY3MzIzOWI4NTE1Y2VkOGM1MDRjNDczZTYzYTgxNDQ2NTAxYzg5ZGUzOGI3YTJiMDYzMTY2Njg4MWZmMmY5NmUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjJjNmM1MzJjOGJlZjNlMmEwZGM0Njk5MjZhODhjYjJkYmRlOGVmYWRiY2RlY2IxZWJjNTQ4YTNiZGI0MTdhN2UiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImE4ZGJiMzc5NmVjYjc4MDgwNWY0ZDIyODg0NTY0NTBmZDYyYmRhYjZkNGU0M2U2YTlkZTBjYTgzZDczNmMzZGUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_4932a2f8d0bc44f5be690e1b2d289c00",
+      "statement": "On eight asset classes the outer-25% criterion flags 27 of 129 months as outliers, with the outlier sample's average standard deviation rising to 18.27% versus 11.67% for the full sample — a 57% increase.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L54-L54",
+          "version": "repo-lines-v1:sha256:52569c749b1af5acecdb637a0a4daa0a221664c69bacf785dac2f8264d4c9c38:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTI1NjljNzQ5YjFhZjVhY2VjZGI2MzdhMGE0ZGFhMGEyMjE2NjRjNjliYWNmNzg1ZGFjMmY4MjY0ZDRjOWMzOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTI1NjljNzQ5YjFhZjVhY2VjZGI2MzdhMGE0ZGFhMGEyMjE2NjRjNjliYWNmNzg1ZGFjMmY4MjY0ZDRjOWMzOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYThkYmIzNzk2ZWNiNzgwODA1ZjRkMjI4ODQ1NjQ1MGZkNjJiZGFiNmQ0ZTQzZTZhOWRlMGNhODNkNzM2YzNkZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGJkOWJiOWNkOTA3OTE5MTE2YjJlNjIxNmZlYjg0YmM1MTk3YTdlZjIwYTdhYTk1N2Q2MzAyZmUwMDNjY2FlYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_250972fefe6945d1a90e15e1cda58b0f",
+      "statement": "Returns are modeled as a mixture of an inner and an outlier distribution with covariance Σ = p·Σ_i + (1−p)·Σ_o, and specifying separate inner and outlier risk aversions rescaled to sum to two yields a blended covariance Σ* that recovers the standard mean-variance expected-utility form.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L56-L68",
+          "version": "repo-lines-v1:sha256:7c4e4c4296ac254412d2015df791ece5ad2eeada5139860d2580b3d934b9447a:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3NDUxZTU1Y2IwZjFhNTZmMzdhMTgxYTg0OWY4Y2RiY2FkMWU3N2Q1NGY5NTc0YzFlNGI4NzMyNjU0ZGI2ZDgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI3ZWY5NjI2OGM1NTQ4M2RjMTRkZjE5OWYwMTcwZmQyYjI2NWIyYjY3MzI1YThmM2JlMDk0M2FiNGNkNjZkMjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjNlZjkxMWQ3MTJmMTA2NWQ2NTM2MWQxOTk5N2UzOTU3OWNiNzQ4N2JlMmFjOTMyYTNjMzI0OWY0YTFjM2QyNzAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjdiY2Q3YTQ4YjcyZDdiNGU4NmU0ZDU3MGQ5OTBkYjFiMTlhNDE5MzIyNGU2ODI3NWM4YzhiNTY0ZmM5ZmVkMzMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_86f9b8c9a27e4d5ca0203d83b5e892b7",
+      "statement": "The full-sample optimal portfolio's standard deviation rises nearly 70% (from 7.27% to 12.32%) when subjected to the outlier covariance matrix, motivating a compromise portfolio built from the blended covariances.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L56-L68",
+          "version": "repo-lines-v1:sha256:7c4e4c4296ac254412d2015df791ece5ad2eeada5139860d2580b3d934b9447a:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3NDUxZTU1Y2IwZjFhNTZmMzdhMTgxYTg0OWY4Y2RiY2FkMWU3N2Q1NGY5NTc0YzFlNGI4NzMyNjU0ZGI2ZDgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI3ZWY5NjI2OGM1NTQ4M2RjMTRkZjE5OWYwMTcwZmQyYjI2NWIyYjY3MzI1YThmM2JlMDk0M2FiNGNkNjZkMjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjNlZjkxMWQ3MTJmMTA2NWQ2NTM2MWQxOTk5N2UzOTU3OWNiNzQ4N2JlMmFjOTMyYTNjMzI0OWY0YTFjM2QyNzAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjdiY2Q3YTQ4YjcyZDdiNGU4NmU0ZDU3MGQ5OTBkYjFiMTlhNDE5MzIyNGU2ODI3NWM4YzhiNTY0ZmM5ZmVkMzMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_e4a9e6ec0eaf49dca6b6db9b6e61a314",
+      "statement": "Dividing the distance by the number of assets gives a multivariate z-score; the magnitude surprise is the correlation-blind turbulence (off-diagonal covariances zeroed) and the correlation surprise is the ratio turbulence / magnitude surprise.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L72-L80",
+          "version": "repo-lines-v1:sha256:00b3118907fbbeb54723fcdea96ad6b214db078093c9bfc3a99b0374ab76b2b7:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2UyOTcwY2IzOWNjMGY2OWM3ZTdhOTMxNDM0OTZjZmQzNDcwNzAyMDUwZjI1YjEwODg2MjBmODc4ZWFiNmYwNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDUwOTVlMTFiZDhkNjdjY2ZhMmNlMjgyN2NmNjlmY2NhNTBiYTg5ZDczNjUxM2JhZjhjNTJlZjQ3ZmJhZWUyOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2JjZDdhNDhiNzJkN2I0ZTg2ZTRkNTcwZDk5MGRiMWIxOWE0MTkzMjI0ZTY4Mjc1YzhjOGI1NjRmYzlmZWQzMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTU4Mzg0YzI1OTNlMDM4MjhmNGQxMWI0N2E3ZDYyZjI3MjU3NzA4MWI0N2QzZjg3ZTJmOTY3OTI5NTEwNmY5NyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5707aa018dff4f4d8d0ce9884480a373",
+      "statement": "For two assets the correlation surprise ranges between (1−|ρ|)/(1−ρ²) and (1+|ρ|)/(1−ρ²), both equal to one at ρ=0; a value above one signals correlation breaks (correlated assets diverging, negatively correlated ones converging).",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L82-L90",
+          "version": "repo-lines-v1:sha256:dc22e14ea64c304111c9cd2d49de7fc35ccde3c6e882b661b1fa98f75de83f5a:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTg3Yzc1NTFkZThmOWM5NmY1YTk3ZjBkZDlmZjEyMTk1MDk3ODlmNmE1YmVhZjE1ZTEyMjA3YmY2ZjdhYTk0MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWIzYWUzOWU1YjBkZmRjYmU2MTdhY2JmZTAwYThlN2EwMmY1ZGJhYjIzOThiMmVlZDNmMmU1NDU4MTEwMjY4ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjkzZmNkMzgxMzk5YTk3YTZhYTI0MjBjNTA0NzE1Y2FhYjJlZjQ0NGE0Nzc1ZTJlNzVkYjEwYjliOWI1M2YzMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDc4ZTk5ZjZiMDBjMjZjMDhjZGFjMDlkYzQxMDFmYjA1M2NmZjI3YmUxZGI2NzE5MjZiZjZhMDIxYjYwZGNjZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a44062bed9784b4aaa4c35eb73f7e8b0",
+      "statement": "Correlation surprise is orthogonal to volatility and carries incremental forward-looking information: elevated volatility with atypical correlations foreshadows higher next-day volatility than elevated volatility with typical correlations.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L92-L92",
+          "version": "repo-lines-v1:sha256:3dd878d3fd9bb762e1530b54ca6f9ed8c3b3cf648ba07761202149494623d491:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2RkODc4ZDNmZDliYjc2MmUxNTMwYjU0Y2E2ZjllZDhjM2IzY2Y2NDhiYTA3NzYxMjAyMTQ5NDk0NjIzZDQ5MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2RkODc4ZDNmZDliYjc2MmUxNTMwYjU0Y2E2ZjllZDhjM2IzY2Y2NDhiYTA3NzYxMjAyMTQ5NDk0NjIzZDQ5MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjkyNmVmN2VhMGM0NzliYzkzOGI1NmQwZmMyZTAwYzQ2N2VlMGM3MGYyMzA0MTVkYjZhNWY4ZWIzYjNjZWVhZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzg3N2FhZWFkODJkZTY5MjRmNTU5NDM1YTRjOGFhNzBjNzhkMzQ5MWZiY2FlNDAyNzRlZTBiNjc4ZmViNjEwOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7d15faee4abe4378a3ebdc7c0ff77116",
+      "statement": "The absorption ratio AR = Σ σ²_{E_i} / Σ σ²_{A_j} is the fraction of total variance absorbed by a fixed number of eigenvectors; a high AR corresponds to high systemic risk and fragility because risk sources are more unified.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L96-L102",
+          "version": "repo-lines-v1:sha256:a7f54c0471bc73f1182737dc82bf54534cc808a18646dbf8b07660398726d198:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDIyNWVhYjhhMGQzZjc3YzM1NDRlZmM3OTZjOThiNzA1ZjE2ZTRjOWMxMDc4YmJjNDMxNTE1Yzc1MGYxNjJkMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjcxMzU3NjM0YzY3ZWExMjMzYTMyOWY1YTc3MTJlNWI5ZGMzOWYyN2E1MWM2NTNiMTllNjE4ZGJhMzc0Yjk2NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzg3N2FhZWFkODJkZTY5MjRmNTU5NDM1YTRjOGFhNzBjNzhkMzQ5MWZiY2FlNDAyNzRlZTBiNjc4ZmViNjEwOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTM2YjRlMzdkNzAyZjhlZDliNWQ1NzE2YTExMDYwMmVjZGU2NDMzYzhjYWY5MWRmOWFhMWRhZmVhZWRmNDI0OCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6c10912d71404905a07f9d921a5563b2",
+      "statement": "The absorption ratio differs from average correlation: in one example raising two high-volatility assets' correlation and lowering two low-volatility assets' correlation drops average correlation from 0.36 to 0.32 while AR rises from 0.55 to 0.80.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L104-L104",
+          "version": "repo-lines-v1:sha256:8445ae9bf5308ae09dc5606767d5879db1ae67db5210b679b3de9ca7af882761:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODQ0NWFlOWJmNTMwOGFlMDlkYzU2MDY3NjdkNTg3OWRiMWFlNjdkYjUyMTBiNjc5YjNkZTljYTdhZjg4Mjc2MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODQ0NWFlOWJmNTMwOGFlMDlkYzU2MDY3NjdkNTg3OWRiMWFlNjdkYjUyMTBiNjc5YjNkZTljYTdhZjg4Mjc2MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTRlNjUwMDk3NzA4YzJjZTc5OWZlZmJkNWM5ZGUwZjBiNzRmYzFjMTcxNTQ5MDIzZDlhY2RiN2I0OWU3MmJlZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmI2NWVkMTA0NjgxYmM0MGI2MmFlYmJkY2I0NGY3MzRmNTI5ZmZlZDhkZTE0NzIyZGVkZTllM2ExZWQ1NDAyMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_87f658394f4e4ad4bcb4b17a451572e6",
+      "statement": "Empirically the absorption ratio uses a 500-day rolling window, eigenvector count fixed at about one-fifth of the assets, and variances exponentially weighted with a 250-day half-life; on 51 US industries ten eigenvectors are used.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L106-L106",
+          "version": "repo-lines-v1:sha256:00b6320efc4d8ea4b86ee6df6f1394ce20348ed43d0344f936261efe44974696:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDBiNjMyMGVmYzRkOGVhNGI4NmVlNmRmNmYxMzk0Y2UyMDM0OGVkNDNkMDM0NGY5MzYyNjFlZmU0NDk3NDY5NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDBiNjMyMGVmYzRkOGVhNGI4NmVlNmRmNmYxMzk0Y2UyMDM0OGVkNDNkMDM0NGY5MzYyNjFlZmU0NDk3NDY5NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTM2YjRlMzdkNzAyZjhlZDliNWQ1NzE2YTExMDYwMmVjZGU2NDMzYzhjYWY5MWRmOWFhMWRhZmVhZWRmNDI0OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDIxZjQ5YjljOTE2NWI3NzcxMDcyYjczODA5MDAwY2Q3NmQ5ZGIyYjNkMjBjMzBmYTMzYWMzZGMzNWFlZjhlZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_705c76513cb249e8becd0841e26a4705",
+      "statement": "Standardizing the absorption-ratio shift as ΔAR = (AR_15d − AR_1yr)/σ, all of the worst 1% of monthly drawdowns were preceded by a one-standard-deviation AR spike; the global AR oscillates in a 65–85% range, leads turbulent episodes by about 40 days, and correlates 81% with a structural contagion model.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L108-L112",
+          "version": "repo-lines-v1:sha256:dc93afc049aebefd6194cb935153ef70df936ad6fa7d558de63756d3d728766f:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmNjNWY0YzY2ODdlOTM4NjQ2NzQ3MmE4MGU4ZmQzN2ViN2EwNGYzNDkxYTY4NTg4OWE4YWQ0MzE3ZWNkOGUxZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTQzOGYzZjc3NzJkYWYyNTA5MjlmODlhZDM3MmM0NzA3YWViYjdiNGU2NzAwZDdkNTQwMzM2ZmZjZWMzYTc1OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmI2NWVkMTA0NjgxYmM0MGI2MmFlYmJkY2I0NGY3MzRmNTI5ZmZlZDhkZTE0NzIyZGVkZTllM2ExZWQ1NDAyMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiM2U1Y2UzZDAzNzlhNjQ0N2FhOTYzYjI1MzMxYWMwYzE5M2JhNzUzZGI1MGI3NmNkMjEzNzRhMjliOWFhYzc5MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_990988e1677243bb9075deb539b9d3fc",
+      "statement": "The effective rank erank(A)=exp{H(p_1,…,p_Q)} with p_k = σ_k/‖σ‖_1 satisfies 1 ≤ erank(A) ≤ rank(A) ≤ Q, equaling 1 iff one singular value is nonzero and the rank iff the singular values are uniform, giving a real-valued measure of the number of significant dimensions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L116-L124",
+          "version": "repo-lines-v1:sha256:ccc813bad60b07f077b8cc30b2aa38ac3555869d311f597ff9386cd3a1674337:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTdjMDUwMWFlMjQwMzMzNjNmOWI3YWY2ZTlhNzdjMjU1OTkwMWI5ZTIyYTVkYjNlMWQzMjljNjZmYjBlYWM2ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzU1ZjJhNjE4YTUyNjI0NTc2NmU2Njk5ODkyMTg0OGU3NGMzZjNjZWY0ZmFlMjc4NzQ1YjkzYjRlNDU3YzQ1OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2U1Y2UzZDAzNzlhNjQ0N2FhOTYzYjI1MzMxYWMwYzE5M2JhNzUzZGI1MGI3NmNkMjEzNzRhMjliOWFhYzc5MSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmVkMjljNTBiZGIyZTcwN2NjOTc4ZDJmYjQzZjVlZWU1MWNlMGQ4ODNkYmY1ZmRlMjU0ZmZhYWNlOTAxNGM4MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b8e5f93226c04b5cb83ad944f72f2a8d",
+      "statement": "On ten US and ten European sector indices, the rate of increase of the first principal component ΔPC1(t)=PC1(t)−PC1(t−m) is a systemic-risk indicator; for the US sectors PC1's explained variance rises from 41% in early 2007 to 86% in 2011, with the largest increase falling in August 2007 when the interbank market froze.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L128-L134",
+          "version": "repo-lines-v1:sha256:660f2f9d16ead4544770b40e32d984a460ea7a19b2a131fb493635aeb7a0a8fb:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmQzODU0ZmQzMmU0YWFjYzNmOTkwODY4ZDIwYmMxYzA2OWU4ZDliZDMxZDE5YzY1YzkzY2JmNjU5ODhiZTVmNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzU1ZjA5NDBlMzMxNmUwZGYzYWNhZDgwMmI3ZjlkZWFkYzExYmY0ZmZlY2ViOTQxNmQ4OTE2MWIwMWQ1NmJkMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmVkMjljNTBiZGIyZTcwN2NjOTc4ZDJmYjQzZjVlZWU1MWNlMGQ4ODNkYmY1ZmRlMjU0ZmZhYWNlOTAxNGM4MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODI5NDZjYzIxOGE1YWQ2NGZkMDg0ZDUzZWY1NmY1YzAzYWQ0M2JiMWQ1MmI2ZDgzZmVmNmM3YjcwZjc2Y2Q5ZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a2cf3612ad284ed784ada4f319af897e",
+      "statement": "On N=98 financial products the empirical correlation matrix R = (1/T) Ẑ Ẑ^T rolled over T=100 windows (475 matrices) shows many eigenvalues exceeding the Marchenko-Pastur upper edge γ_+, incompatible with random price changes; in the NBER recession-declaration week the first component explained nearly 40% and by 2010 five components sufficed versus twelve in 2001.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L138-L148",
+          "version": "repo-lines-v1:sha256:0d93b66adb5eeb45ea88b490376e88bf8fd63b5d76b205dc871b6e5ec60f8465:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQxMDg2NzVlOWFkY2I1NmI2MGU1YWNiZGM1ZjMzMDBiZjU0ZTY0ZTUzYzI1ZjM3MjNmOWJlNDIzMzI2MDQzZjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3NDI1ZDM0ZjZjYTg2OTRjMWQ4ZWYzODMyZGZkNDE3NWZkZWE4MzNkMTczMWRjNjEzMWI0MGZhMTQ0MzRiYzUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjgyOTQ2Y2MyMThhNWFkNjRmZDA4NGQ1M2VmNTZmNWMwM2FkNDNiYjFkNTJiNmQ4M2ZlZjZjN2I3MGY3NmNkOWYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjUyMDQ2ZWVjYjAzZTE4YWVkOGZjMWYxYmEwYzNhZjYzZDI2Mjk0MmM2NTE1OGIxYzg5YzFmNzk3ZTc0NzQ5NDYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_48513997ad8946f9808a329d35f13860",
+      "statement": "The inverse participation ratio I_k = Σ_i ω_ki⁴ (participation ratio 1/I_k) distinguishes localized from market-wide correlation increases: after the Lehman collapse the first component moves from a localized state (mainly bonds) to an extended one (nearly all assets), and the number of significant components by the Kaiser-Guttman β>1/N criterion decreases from 2001 to 2010.",
+      "evidence": [
+        {
+          "resource": "repo://docs/28_turbulence_absorption_ratio_and_systemic_risk.md#L150-L154",
+          "version": "repo-lines-v1:sha256:35f1701b2fe61066a660dc9a37c7fc0a84961da60ad6409598ee07cf0ff11216:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmI2ZjU4N2Y5MzNkMTZhODIzNmE5NTBjNmQxNTczZjdmYmZhYzY5NzM5MjA5NzljYjFiMmQ2NTJmMjdjNzJjOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzc2N2U5MjIzYWU1ZTI0NWIzNDVmYWQyN2ViZTY3OThmZWM4ODE1M2U2YTU4OThkZTlkMWVhYWZiNjM1MDAzYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2M5YTE2MjkyYzY5ODE2ZTZkYTExNjg2M2ZlNzQ2ZWU0YTg1YWEwN2IzZmM4OWQyM2JiOWRiYmEyZTFmZDVlNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

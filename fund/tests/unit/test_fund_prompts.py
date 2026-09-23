@@ -31,6 +31,7 @@ from fund.agents.prompts import (
     PM_SYSTEM_PROMPT,
     PROFILER_SYSTEM_PROMPT,
     RISK_SYSTEM_PROMPT,
+    THEORY_CONSULTATION_PROTOCOL,
 )
 
 _ROLE_PROMPTS = {
@@ -40,6 +41,10 @@ _ROLE_PROMPTS = {
     "RISK_SYSTEM_PROMPT": RISK_SYSTEM_PROMPT,
     "EXECUTOR_SYSTEM_PROMPT": EXECUTOR_SYSTEM_PROMPT,
 }
+
+# The profiler (step 0) is bound by the same theory-consultation rule as the five
+# orchestration roles, so it joins them for the consultation-protocol checks.
+_ALL_SIX_PROMPTS = {**_ROLE_PROMPTS, "PROFILER_SYSTEM_PROMPT": PROFILER_SYSTEM_PROMPT}
 
 
 # --- shared shape: every role prompt is substantial English --------------------
@@ -146,6 +151,33 @@ def test_executor_prompt_forbids_fabricating_weights():
     lower = EXECUTOR_SYSTEM_PROMPT.lower()
     assert "fabricate" in lower
     assert "weight" in lower
+
+
+# --- theory consultation: every role grounds decisions in the staged tree ------
+
+
+def test_every_role_prompt_directs_to_the_staged_theory():
+    # The second load-bearing principle (todo/deep_agent.md line 7): an agent must
+    # consult the staged theory, not decide from parametric memory. Every role —
+    # including the profiler — carries the consultation protocol.
+    for name, prompt in _ALL_SIX_PROMPTS.items():
+        assert THEORY_CONSULTATION_PROTOCOL in prompt, name
+        lower = prompt.lower()
+        # Points at the mounted tree and the openwiki entry map.
+        assert "optimizer-theory/" in lower, name
+        assert "openwiki" in lower, name
+        # Tells the agent to navigate it with the filesystem tools.
+        assert "read_file" in lower or "grep" in lower, name
+
+
+def test_theory_protocol_forbids_writing_under_the_theory_tree():
+    lower = THEORY_CONSULTATION_PROTOCOL.lower()
+    # Read-only: the tree is reference, never edited.
+    assert "read-only" in lower
+    assert "never" in lower and "write_file" in lower
+    # Steers to the routing map first, then the raw chapters.
+    assert "quickstart.md" in lower
+    assert "docs/nn" in lower or "nn:line" in lower
 
 
 # --- public surface ------------------------------------------------------------

@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:8c226d8c614ebd13980cc2e9439b02b685a2f778549a3c176010498639e4aa54",
+  "claims": [
+    {
+      "id": "claim_31f9454679c14af89e8f1ef34b0eb725",
+      "statement": "Maximum diversification treats diversification as the explicit objective of portfolio construction rather than a side effect of utility optimization; the concept and the diversification ratio were introduced by Choueifaty (2006) and popularized by Choueifaty and Coignard (2008), needing no expected-return estimates and avoiding bets founded on return forecasts or on cap-weighted benchmarks.",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L14-L18",
+          "version": "repo-lines-v1:sha256:c537ef3259189572c7ef30b9644959fdd880133b843bedaef81a76fd1f9d7583:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzRjNzRkYzE5Yjk4YTYwMzlmMzViOTY2YjYzOGFmY2EyZjljYzg3NTU5NjJiMjIxYmQ5MTJhMDNlOGYzZmZkMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjQwNmQxMmFmNzk3YmQzNmYwYzI3OWUxMWZmMGE3MzY3Yjc2MTIwMTlkNjllYzkyZjdmOWNjN2NmMGI0ZmJkOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjI3MmE2M2JjMTc0OGMxOTczMGVkMDVjM2QyZGQ4MjFiZTQxODFhNTI0ZmVmZDJiYjVhZDk5MDAwZjg4ODA4ZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2Q4ODk3YTQ4MzExYWJiMmE0YjIzYjVhMWNkNmE0OTQ5YTJkNDI4NDQ4Y2Q4YWZhNzYwNjAyNTRkZjU2ZGZlZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7fc777b2eb174fa9b78356c0abc67746",
+      "statement": "The diversification ratio of a portfolio is D(w) = <w|sigma>/sigma(w) = w'sigma / sqrt(w'Vw), the weighted average of asset volatilities divided by portfolio volatility.",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L22-L28",
+          "version": "repo-lines-v1:sha256:1d42895e2ad048a42e6e3e5a6395f5b6c5d2c59941f8a56ff491565dfe14fd0e:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDEwNDA3ZTUzMzMwYWZkMDdmODZjODQ1NWZhNmI4ZDJiZDIxZmJmOTVlNTE1YmViY2E0MWQyMWM5ZmQ2ZDk0ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjFiMTdlYTk0MmRiN2QwYjBhMzMxZWY3MTBiNzkyMTZhN2Q2MTVjNDhkMmFiMjllZTU5YWFlZTM5MDRkOWNlZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2Q4ODk3YTQ4MzExYWJiMmE0YjIzYjVhMWNkNmE0OTQ5YTJkNDI4NDQ4Y2Q4YWZhNzYwNjAyNTRkZjU2ZGZlZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzRmMjYxZmRiMmM2ZDExZmQ3M2VhYjRhYTgxNGM0OWZkYzRjOTk5Y2I5ZmRmNzEzZTM2Nzc2OTBjMTlhMWU2OCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_dde38becc14c45fcb3452115bf1740bb",
+      "statement": "For a long-only portfolio the diversification ratio is always >=1, equals exactly 1 for a mono-asset portfolio, and is strictly greater than 1 unless the portfolio is equivalent to a mono-asset one; N independent assets of equal volatility give D=sqrt(N).",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L28-L30",
+          "version": "repo-lines-v1:sha256:ab0d803fac607ed86bf5410cc456ba2e86b8c553065cdac8c32151b177692b8e:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjFiMTdlYTk0MmRiN2QwYjBhMzMxZWY3MTBiNzkyMTZhN2Q2MTVjNDhkMmFiMjllZTU5YWFlZTM5MDRkOWNlZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDk5ZWFjZTIxODgyMGM0YWYwZGJhZDZjNzU1NjQ5MjE3OTFmY2EzNDQyOGIxZjg2NzZlNmVlMjliYTlhNWM2YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGEzMDhiZjQ0Y2NmMmNkMThiODlhZTViMzU4NDQwNTJhNmZmNjEyY2FhYzU5NzY1Yjc1ZGIxODc5NzM1ZDllZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmIzMTM5YzQ4ZDEyMzczYmEzMGVhYjEwYjliMmJhYmM5NzYyZWY4MjZmMmM2NTExMTEyMGMyNWM3MDJjZTk0NCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5ccd6a1d40534b7881e8f1579d92ed32",
+      "statement": "For two assets of volatility 15% and 30% with correlation below 1 the diversification-maximizing weights are inversely proportional to volatilities (66.6% on A, 33.3% on B); for two strongly correlated banks (rho=0.9) and one weakly correlated pharma (rho=0.1) of equal volatility the weights are 25.7% each bank and 48.6% pharma.",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L32-L32",
+          "version": "repo-lines-v1:sha256:0d730dc9f3c8c69356e3cf482c90e9ae5c07d2663491ace9a9f7debfa1ebb9c0:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMGQ3MzBkYzlmM2M4YzY5MzU2ZTNjZjQ4MmM5MGU5YWU1YzA3ZDI2NjM0OTFhY2U5YTlmN2RlYmZhMWViYjljMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGQ3MzBkYzlmM2M4YzY5MzU2ZTNjZjQ4MmM5MGU5YWU1YzA3ZDI2NjM0OTFhY2U5YTlmN2RlYmZhMWViYjljMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzRmMjYxZmRiMmM2ZDExZmQ3M2VhYjRhYTgxNGM0OWZkYzRjOTk5Y2I5ZmRmNzEzZTM2Nzc2OTBjMTlhMWU2OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTdlMTViNDA1NGM2M2IxMTA5NmY3ZjgwZjAxMDY4Mjg0YjZmZTA2MTM1ZDk2ZmE1MTRlM2VlYWY4OWM4Y2UyYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e7fd49f7fcb843d9b84e4e88fc94dc90",
+      "statement": "The diversification ratio decomposes as 1/D(w)^2 = (1-rho(w)) CR(w) + rho(w), where rho(w) is the volatility-weighted average correlation and CR(w) = sum_i(w_i sigma_i)^2 / (sum_i w_i sigma_i)^2 is the volatility-weighted concentration ratio; a mono-asset portfolio has CR=1 and a volatility-equal-weighted portfolio the minimum CR=1/N.",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L40-L52",
+          "version": "repo-lines-v1:sha256:8a213fe2d9d369a16023e30f1d92f92b4abd885dab31851683904dbefd27c32b:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZiY2M5ODAzMWE3NDUyMjk0YTU0YjFlNzQ4OTliMTE3OGU4NmQ2NTIxMTZkMzNiNmZiNTVjMDA2NzAwOTA0YTgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVlMmVkOWE2ZjYxMTIyYWM3MzExYzlmMjZjY2UwNzI0NWEzNjRlMWQ0ZTExNGFhNjUwNWYwNjQ1NTY2NGEzMDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjJhOTM0NjQ5ZjVhMTJjOWI0NmI1YjhhMzZmY2E4MDVjYzYwNmU5NTE1MjIwODA4NmQ4NDJjNjkxMDc4N2I4ZWEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhjMGMyYWMyYzE3NTVmNjdlOGNmZDVmNzA3NDViMzg0ZWQ2ZmY2N2Y0ZDgxYzdiNzY2MGNiM2I3ZDgxZjQ0MmEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_007b360d073646be803982814857fe9b",
+      "statement": "D grows as average correlation and/or the concentration ratio fall; if correlations tend to 1 then D=1 regardless of CR, and when pairwise correlations are equal maximizing D reduces to minimizing CR. D^2 reads as the number of independent risk factors (degrees of freedom): MSCI World had D=1.7 at end-2010 (about 3 factors), and maximizing would reach D=2.6 (about 7).",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L54-L56",
+          "version": "repo-lines-v1:sha256:d75d18db5405d5f7578d9ae743825a5c47434c8e90c2a2338e619a1d2d166871:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjVhZDQ3OGVjY2QyY2I1ZmVlYTlkZjY1YTZhYTE3MGJkZTc4NmU3ZDZiZWQyNTkxZjlkZjBmM2Y5ZDQ3OTg1MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWNhMTJmOGFjNWNlYTk1NzI1YmNhNTMyMjFlYmE3YzU4YzMyNThhNDk2ZjBhYzA1MzdhNTU2OWU3NWVmODgyNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTVkM2E1NTFiY2U4ZWE2NWFkYjVlMzBkMDk3YmNjZTYzNjQ3NWEzNjcyNGEyNTE5ZWFhYzcwNjAzZmE1NDBiMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODA1ODE3NzFjNTk0YTdlMWUwMDJhNzVjNTJmMzE0ZWI5YjQ2YmMwMDliZmI5YWNiMjJmNzhmYzk2OThlNTY3MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a3815ecab1504e6e914206a58fbfe889",
+      "statement": "Because the diversification ratio is invariant to scalar rescaling of the weights, maximizing it is equivalent to the quadratic program min (1/2) w'Vw subject to w_i>=0 and sum_i w_i sigma_i = 1 (with weights rescaled to sum to 1 afterward); this QP over a convex set has a solution, unique if V is definite.",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L60-L70",
+          "version": "repo-lines-v1:sha256:b6e4f9e44b91b1b7a2a0a3cc3f5c4b122a8ec0dc997c56c610bfdd850a6c0281:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRmMTMxMzQzYmZlNDBlNzg0MjBlNzdkZjZjNjc5MGFhYjA2YWMyY2IzZGIyMzMzZjNjYTk0ZDhmMWVkODQyN2MiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjUyYTY1MDY2YjA2ODc4NzUyYzUyYjg4ODhkZjI1ODA3YWQzZDNhY2E1MjQyMWI1MmE4OThjOGRlZmI5ZTE1YzciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjgwNTgxNzcxYzU5NGE3ZTFlMDAyYTc1YzUyZjMxNGViOWI0NmJjMDA5YmZiOWFjYjIyZjc4ZmM5Njk4ZTU2NzEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImM4Mzg3NjViYzczZjkwMjEzOTJjMWM2YjQ4YTA4ZWJmMjI0MTFkNGQ5YWYxZGI3MGFkNDE5MDg1YTEwNGExMzAifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_7ce3566732b74ddbaa475cf507ba21d8",
+      "statement": "Applying the KKT theorem to f(w)=ln D(w), the Most-Diversified Portfolio optimum satisfies V w^MDP = (sigma(w^MDP)/D(w^MDP)) sigma + lambda with min(lambda, w^MDP)=0 and non-negative duals, and the stationarity condition is independent of the sum-to-one constraint.",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L72-L84",
+          "version": "repo-lines-v1:sha256:a159462bf064fd634f50548b4021cbc4cd1b009a0c87e81ab0a00c599d85694e:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ2ZTZhM2Y4MjFmYzcxODlmNDEyZGY0YzFkNGQzYWQ2MThmNGZkNTUzMWM4ZmJhMTUxZjE2ZTkyZjc0YTY1ZWYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk2NjBhMTJkODVlMDU2Mjg2ZmYwYTM5ZjMyZmY0MjQ0NzYyZGMzMWUxYzQ0NDk3ZjY2NWNiODMzOTExZWNlMDkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjdlODY3MjI5ODlhNjg0OWExYzllOGQyMThjMGEwNTcyMzU1NDM4ZTNkOWRkNTUwYTllZGQ2ODQyYzMzZTA2YTIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjY3ODlmMDg4NGJlNGU0YTlmOWU3ZjBiMjUyYjhlMDg4MWZlYjQxOTJkNjQ2MDljNzE5YmRhYmExZmI1YzZkYWEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c216b173b49a4b369a26cae4b8d9f722",
+      "statement": "The Most-Diversified Portfolio is the minimum-variance portfolio computed on the correlation matrix: defining synthetic unit-volatility assets Y_i = X_i/sigma_i + (1-1/sigma_i)$ makes the synthetic covariance matrix equal the original correlation matrix C, so maximizing the synthetic diversification ratio is minimizing S'CS.",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L86-L98",
+          "version": "repo-lines-v1:sha256:cd7cdbe656183e868fb1baa5d26189ec9c746d50287ce3bf5a8ec0f61645c431:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhiYjk2OTg0NTIwMGFhNDVkMjQ3NjRiNWUyYmI0NDQ0YWNkMTlhZDkxNDkwMmRjNzRiZjQ2N2RhMGM3ZmIwNGQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNhN2FlYTkwYTVjNjNjMzdlODJkODA3MWU2ZTBiZmU3MjU4ZDQxNDRiYjQ5MjlkMDdhZWFmNjRiZTg3OGEwZTYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjVmMGZlZTE0YjMyMTc5Y2JhYmQ0Nzk4MGYwOGY0MjM4NTIyYTUxYWRkZjhkMmI4M2RjNGIwMDQ0MjhhNTU4MTYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjljMDQ2YjczZjY5ODUxNzVlZjMzY2ExODljOThjNThkMzc2MmEwMDJlNTA2MGE0ZDY3NjMxOTAxYWVlMDc0MzYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_ff4678e2264b4965a9035c94b69ec62a",
+      "statement": "When C is invertible and unconstrained the synthetic solution is S proportional to C^{-1} 1, and reconstructing the real assets by dividing each synthetic weight by its volatility and rescaling to 100% invested gives M proportional to sigma^{-1} C^{-1} 1 (sigma the diagonal volatility matrix).",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L100-L108",
+          "version": "repo-lines-v1:sha256:ab0fdba5ac4b38a617195b9410b4d8da3c019c7d9b3201c26020b29e8e4a76b1:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjM5OGNlMjhhYzQ3MTM4MWVmMDg3ODU4N2UyNGY1M2ViYWYwODYzNzQzMjk0YTMzNDkyNmJjM2Q5NzZlZjk0NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGU2MjJmNzJjMzQwOWJkMGQ0OTUwYmFjZjE1OTllMWM3ZGM2YzVjYTljMjYzYWQwYTRhMGM2M2M1NTU3Zjg4YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjBhZDUwNTIwM2MxYTA0N2Q4NTM1Y2NiZTdhZWI1MTJkNzdkMTFlYWY2ZmMxYTg0ZDhkOTBjNTZiNDNmYTgwOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTdlZGZkOWUwZTIyNTI4YzQwODNiNDUwZDE5NDJhOTk0YjQ5M2M3YjFmOGI3YTRjMmEzZTBiMDkwZjU0YTMxZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_24026053c8474e0bb065b32f23173765",
+      "statement": "Since V M = kappa sigma, the correlation of any portfolio P with the MDP is rho_{P,M} = D(P) kappa/sigma_M, proportional to P's diversification ratio; applied to a single asset (D=1) it gives rho_{i,M} = kappa/sigma_M identical for every asset, so the MDP is the portfolio in which all assets share the same positive correlation with it, and rho_{P,M} = D(P)/D(M).",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L110-L130",
+          "version": "repo-lines-v1:sha256:fab61c97e3a9f3614b09f3cd26d19496e50c4cfc77ff79c392cb929b6b65405e:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFhMjE4Njg0MjdhZjVlZTRlZTY5NWQyMzg5YzQyZjhjZTQ3Zjc2YWRhOTM1NjhmZjJlYWNhYWU1MDdkNjVlNTciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY4MGQxNDk3MTZjNDExM2I5ZjJlN2Q5MTc5NTMxNDQwNWI2NWRmZDc3NTRkMDBlOTI2ODMzZGMwYWMzN2RmOGIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjQ1NTc4Njc2Nzc5ZjA1YWNlNDE5ZjY4Y2M4MzRlNzllOWRjMDIzMzdiOTQ0MzA1ZmY1MTU5ZDM3NzlmYzA0YTEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjlmOTZhNjE0ZDc3NTBiNDMzOGJkN2RkOWU2YzMyMGMyZTkyM2E2MDlmMGMyNDMyYzdmOWJiMjgwNTdiZTE0ZjYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_e2e83773e93b483ab1cdca4e0da65c80",
+      "statement": "The core property (constrained long-only case): every asset not held by the MDP is more correlated with it than any held asset, and all held assets share the same correlation with it; equivalently, for any long-only portfolio w, rho between w and the MDP is at least D(w)/D(w^MDP), so all universe assets are effectively represented even if not physically held (an MDP on a 500-stock index may hold about 50).",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L132-L140",
+          "version": "repo-lines-v1:sha256:5ce269295f972d93926260b7cff6ec17bd8de8f8202fbe00e5d209a2db6fdb6b:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWQ4OGNiMzZhNGEzNDQxNTA1ZGViM2YxNDE5YzViNThhNDBhZmQwOGRhOTEwMjhmZTY3YjlmNWQ0MzRkYzYyMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzA4YWQxMTdiYzdhYmZkNWJmYjA1YjJkMTYzZWIwYTkzMTA0ODJjMzAyZTU1NjA2YTgzYjlkNDNkODk3MjhjOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTdhOWZiNzdkMTFlMWZkZGNiOGZlYjNkZTM1ZDBhZGJlZWJhYjg5ZDJkNDkwYjc3YTU3Yjg4YzQxZWM5Njk5MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDU2NzE0YjRiZjQxMGQ1MjUyZjZlM2NkYzZiYmQ4YjM2OTAxOWQxZmVmZGZhN2FmYzQ3MDYzMDZmNDFhZmUwMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0a8b73999bbb464080ff9f4a66087a39",
+      "statement": "The MDP satisfies three invariance properties formalized by Choueifaty, Froidure and Reynier (2013): duplication invariance, leverage invariance, and polico (positive-linear-combination) invariance; in a two-asset comparison the MDP satisfies all three while minimum variance is duplication-invariant only, ERC is leverage-invariant only, and equal weighting satisfies none.",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L142-L152",
+          "version": "repo-lines-v1:sha256:88927bb58d5d05fa8eb7f44091a45ccc9526f34600e1380232cab4b9ebb4de2f:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjRhNmFjZTUyZmY0NWYwNDNjNzlkNTRjMmFjY2FhMTJjMDg0NmY0OThlMjlkYTg1NTQ4NjQ0ZmM2NTI1ZWIzOTciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU3NTBkMjJiOGQzNmVmODc4Y2ZjZmUzN2UwNTUyMzZhNDZjYzUwYzZiMTY4NDgwYTVmZThkOGVkY2U2NDQyNjYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjgyNmQxZjNiOTdkMWNkYTNlNDhkN2VhYWYyNWExMjg1ZThkNGUxN2EwY2U0ZTk0NTlmODVjNzQ0YTVmZDZjYzUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhhYmJmZjk2OTI5NzI1N2ExNjY1Mzk3YjJkY2NlNTcyZDUwNTBhMjIxMDA4MWYyMzk3ZmE4MjAwNWZlZmY5MGUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_26137558643b4239960d2a536b76105a",
+      "statement": "If all assets share the same volatility the Most-Diversified Portfolio coincides with the global minimum-variance portfolio, because minimizing S'CS on the correlation matrix then equals minimizing w'Vw on the covariance matrix up to scale.",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L156-L158",
+          "version": "repo-lines-v1:sha256:b7aa4af33eb4f280756f7650dc12f6e0119859fb86491dfd7d42f946d4c44afd:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMmM2MTI2ODFiOGI0OGU5YTc1MmQzOTI3NDQ4ZDUzNTU1Y2Q3NjFjNTE1OWUxMDdiOGM2ZWUxZWU5MDRmMjYyMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTc1OWU0ZTQ3YTkzMjQ1ZmU1NWJkOGU0NzQwNGUxZGRjMjI0NzY2Nzg1YjMzNWE1NjFjNTk5MmYwMWZjYTJjZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGFiYmZmOTY5Mjk3MjU3YTE2NjUzOTdiMmRjY2U1NzJkNTA1MGEyMjEwMDgxZjIzOTdmYTgyMDA1ZmVmZjkwZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjAyN2Q4YmEzMWFhODk1MjJmZWRjYmU1ODQwZjdlMWMyMDA1ZTIyNmZlN2M4ZjBiODY0YmExYjI0YmEwZjM0MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_facdbb7f5999437d98e7c981eb21fd1f",
+      "statement": "The MDP is mean-variance optimal exactly when assets' excess expected returns are proportional to their volatilities (E(r_i)-r_f = k sigma_i): then E(r_w)-r_f = k sigma(w) D(w), so maximizing the diversification ratio equals maximizing the Sharpe ratio and the MDP is the tangency portfolio, with a security-market-line relation in which the MDP plays the market portfolio's role.",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L160-L172",
+          "version": "repo-lines-v1:sha256:a4b57c26a5ad239fedb40cb67ee2e395ecf30f125cdef767f61502e0a09e9efb:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3ZjMyNjVkMDVhYTA5ZWEwM2MwM2Q2YjBhMWUwZGRjYzZlNmZiMzViMmY5MzBmODdiYzM2OWNiNDExYzZjMmMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE2ZDY0YjI3YjdmMWZlODlmODBjYmZhZjJmMTRmYjQ3YzBmZmE3OWM4MGVlZjA0OWI0MDY3MTZmYzIwMjBhMGEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijg0MjM5ODE3OTViNzkzMmU2NWM5NmI3YTMwOTljNTJlN2Y5MzVlYzhkNGM4Y2FhZjgxNzQ2NzJhYTA5NjhmNDgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjMxMTM2MmVlMWFiNjY3MjA5NzcyNzMyNWVmOTRhNDU1YTc4ZGRlNzllMTRjZWQ1MWIzMjUwYTAyNmVjZmI0NmYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_69d11cda819a4b2cb725265f0b8e892a",
+      "statement": "Empirically, long-only MDPs built monthly on US and Eurozone equity universes (1992-2008) with covariance from 250 daily returns and a 4% per-asset risk-contribution cap earned higher risk-adjusted returns than the cap benchmark, minimum variance and equal weighting at lower volatility than the index (13.9% vs 17.9% Eurozone; 12.7% vs 13.4% US); on MSCI World (1999-2010) the MDP had the highest diversification ratio and Sharpe ratio while minimum variance realized the lowest ex post volatility.",
+      "evidence": [
+        {
+          "resource": "repo://docs/19_maximum_diversification.md#L174-L180",
+          "version": "repo-lines-v1:sha256:7bcdc04bdd3ccf11a14d0c99e1b9fa634bc387a1e5d81a16bbd1aaa7572ed0a6:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjE4NDg2OWJlZjFiZWU3NWQyN2QyZmVmOGRhMzc2ZTcxMzNhNjlkM2Y1ZTlkYTNiNDUyMmQ5MDgxMGY5ZWM2NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYWU1Yzc0NjdhZTI5ZTY2ZjViOGEzNzFlZGRkNzEyODM0OWY3Y2JlMzc0MWMyM2UxOTBkYTJjM2RlZjM5OWIzNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzE3ZTc0NGY1ZDZlNmIzY2U0MDZhNzU0ZTcxZTNlNWZhNDY0NzA5ZTBjYThhMDU4NzAzNTNlOTlmZGU2YzAxZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

@@ -1,0 +1,320 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:126c3ffcb5625d180df70cb2de11293461c7b88f31f2b31ab37ad37126c6aafc",
+  "claims": [
+    {
+      "id": "claim_3098f98ec5214a1ca7a764df5b531c57",
+      "statement": "The mean-variance portfolio-selection problem is due to Markowitz (1952), was developed independently the same year by Roy, and was anticipated by de Finetti (1940).",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L16-L16",
+          "version": "repo-lines-v1:sha256:7a925813f405edac3a0936691e37a642881f0cc176c81a88fbc532d421d976ba:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2E5MjU4MTNmNDA1ZWRhYzNhMDkzNjY5MWUzN2E2NDI4ODFmMGNjMTc2YzgxYTg4ZmJjNTMyZDQyMWQ5NzZiYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2E5MjU4MTNmNDA1ZWRhYzNhMDkzNjY5MWUzN2E2NDI4ODFmMGNjMTc2YzgxYTg4ZmJjNTMyZDQyMWQ5NzZiYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzcxYzQ1OTM3MjcwNWU0OWJmYzkyZDYzYzI1YzIwMjk4YWY0ZjU2ZmY1YjBkMjIyOTM1MjQyMWIyNzE3YmQwZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDdhNzYyZmJjNmU0NDMyYzFkNDM5NjU5MWFhMjU0OTEwNmFhZjE3N2IwYzkwNTNkOTFiYmNmOWQxMmQ4ZjJhMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_28d2872040bf4efbab14e72f00efcdaa",
+      "statement": "A portfolio is mean-variance efficient if it has maximum expected return for a given variance and minimum variance for a given expected return; portfolio i dominates j when E(r_i)≥E(r_j) and σ_i≤σ_j with at least one strict inequality, the preferred direction being north-west in the mean-standard-deviation plane.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L24-L26",
+          "version": "repo-lines-v1:sha256:6e640ccd0253a9d819225628d02c191ad77937075787f9079bda5160f3e93bb2:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTdhZjg1NGJmYTE5ODkxZjEzMTcwNjgxNjkzMTcyNWExNDEzMWMwNTU5NWQ2Y2YwOWRkZTM0OWEzMjRiMDVlYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzZkZDQxYjQzODk2MTE1NTUzNzA4NWJmZmQzNDAyNWI5MDJjMjg3MDgwMTEyZTI1NjYxNWI4OTZkZWU2NjQyMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjJiZjJhMDRlOTZjYzM4OTUwNTNhNGZjNjM5YTQ3ZTlmYzEyYmI1ZmY2YmE4OTUyN2QzOGM2OWRjOWY3MmQ0ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmNjMGU4YWY5NWNhZjM2MTU0MWM0NjI5ZTUyMDlmMDQ3YzdiNWE2ZDZhODIyZWY5M2QzNmQ0NjAzOTU3NzhhOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_52033a43acdb44f584b16e3add496e44",
+      "statement": "The full selection procedure has three stages — the risky-only efficient frontier, the frontier with a risk-free asset and its tangency portfolio, and the risk-aversion-dependent choice of the optimal portfolio — of which only the third depends on preferences.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L28-L28",
+          "version": "repo-lines-v1:sha256:ca43cad2b2355944fcd1d452d19088b348d8a8f6aed3e69c027e0327283e49c0:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2E0M2NhZDJiMjM1NTk0NGZjZDFkNDUyZDE5MDg4YjM0OGQ4YThmNmFlZDNlNjljMDI3ZTAzMjcyODNlNDljMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2E0M2NhZDJiMjM1NTk0NGZjZDFkNDUyZDE5MDg4YjM0OGQ4YThmNmFlZDNlNjljMDI3ZTAzMjcyODNlNDljMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjJiNTcxZjAwMjQ0MjlkNjJlNjRkMTYxOWE1MTQxNTQwY2I3ZThkMjFhYzlkZDY5ZWQ1ODNiZGYyOTRjMDQ1NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWEyZDkwZjg1MTZjZDlmZTk5YjQ0ZDVmZDU2YjhkZDZkN2Y2Y2I1ZGUwOGY3ODIwYjdjZTk1Yjk5M2MwYWUxZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9a8bf53ce2074c008029248058a5667f",
+      "statement": "Portfolio weights x_i are the fractions of total value invested in each asset, must sum to one, and a negative weight represents a short position.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L32-L33",
+          "version": "repo-lines-v1:sha256:560a73eb6a94f819d8b71f093532eed51f6914b8c495954705918828f7dff242:eyJzZWxlY3RlZExpbmVDb3VudCI6MiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzk5ZTE0YWM0ZjE2MDcwZmM4NzAwMDQ3M2UyNGZlNTYzOGExMWIxZThlZmU1ZWM5ZTRiOWNiZDg0MTJiOTBmOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWMzOWFmZDc2YWU0OTgzYzE4MWQ0OWRkNWRjNDlhNDg5ZDVjNWRhN2Q1YmMwZGQ4NDE2YTFkODcxZjI1NDZlZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWEyZDkwZjg1MTZjZDlmZTk5YjQ0ZDVmZDU2YjhkZDZkN2Y2Y2I1ZGUwOGY3ODIwYjdjZTk1Yjk5M2MwYWUxZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGZjZTVhNzU5OTkwOTg5YjM4YzRiNmViNzhjMWUxZmFiYmIzMGYxMDY2Y2RmMGI4NmI0YmZjMmIyNWZiNjZkMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_680996dac68841e982614478c4d047aa",
+      "statement": "Expected portfolio return is linear in the weights, E(R_P)=Σ x_i r_i = x'r, because arithmetic returns are additive across assets and expectation is a linear operator.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L34-L37",
+          "version": "repo-lines-v1:sha256:199dba95bf2a174ea9c75444ea623ccc40a6069211cc1d211898fd40b92d2b88:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDk0YjkzZTE3NGFlZGVkODA3NTlmN2ZhOTc0MjQzOGI3NTZlZmQ3YjQ3OTg0NGFmNTBiMzQ2NjFhZjQ0OWZhZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODU3M2Y2MjNiYjI4NzM5ZjBhOWMwYjAwMzEzYjk3MTRiOTQxZjk0OTM4ZGFkYWU4NTI5YWI2MmZhZjRhYmIyZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTJkYmYyZTEzODc0N2QzMGU0MmM3NjE5N2JkNjNkNjc1YTIxNDQ1NmQ3ZjhkY2VlMmY0NWE5YmFjYzRlYzRmMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjFhOTQ0ODU4MTMyODkxY2M4N2QzMWI2MmM2Mzk4YTMxNDZhNDhiM2U5ZDhiZmVhNTNiYTFmOGEyYmU5NzFlNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_fd16b0e36dac4c869fd02799544c580f",
+      "statement": "Portfolio variance is not linear: σ_P² = Σ x_i²σ_i² + 2ΣΣ_{j>i} x_i x_j σ_{ij} = x'Vx, where V is the variance-covariance matrix.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L39-L43",
+          "version": "repo-lines-v1:sha256:dba0a590f15cfca17811ee603bbb1852ed319e0c242d2f75a8e8f80e35f763a9:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzQwMjIwNjgyN2RjMDljN2JiZDE5NjkyY2MwMTg0NTQ2MTBlYWQxMjljY2NhZDE2MjVkN2NmN2E4ZjI0ZTcxZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNmEyM2FjZGQyZWFiYTJjYTc2ZDBkZGI4ODU0MDU0YzBhMjU2MTQ2MDQzYjNlNjBhMWRlZDk2NzAwYTQ3MzRkMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDViYzYxM2UwNTM0MDZiNDMxZDg3OGY3MzdjOGM3YzdlNDJiZTBjYjEwMjZhM2E0ZTk0NDJkNzQ1ZjA2MjFlZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmU1MTIwOWYzM2YzN2QwYmZjYTAwYjdhMmVlODY2MzU3YzZhNDc3ZWUwZDM5N2UyNzQ5MzllMzNiY2VkOTMzNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_30e59a0aaba343c783db96b1260b167f",
+      "statement": "The linear correlation coefficient of Bravais-Pearson ρ_{ij}=σ_{ij}/(σ_i σ_j) lies in [-1,1] — +1 for co-movement, -1 for opposite movement, 0 when uncorrelated — normalizing away volatility so it isolates the strength of the link.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L45-L47",
+          "version": "repo-lines-v1:sha256:6cb1662cd8cba4e9a09d462d5958c08c5e93edd196c6951a812e0c3c2a92c6e4:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMmE5NTdlODg1MTcwOTMwMjMzYmU2NGZkMjFkOTA4MTliMGQzNmY5YzAwOWYzZjg1MTU1NDAzN2ZkNzIxZDEyZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDBkZTcwNzQ1NmY0NGM4MWEwMjk5ZTgyNTVjMjhiNzBmMzY4ZjdiMmZjYTczMzY0MzhjYTMyZDQ3ZWFhZWI2ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWE2N2RkYzg3ZWExM2JhMjZiYjMzMGZhMjc1NGZhMTZmZDBmODM2NWY4NjRiMTc5NWE4YzA2ODMyMWYxYzJjOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDU4ZGU2MGQxMjdjYTM4YWEwNmM5MjQ5YTJmZGQwMDI1MjY0NDc1MzU1N2YyYzVlNzRjNjA3ODkyZGVmMjQzYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_399349e846dc46d0a13b38edfc3d09c8",
+      "statement": "Same-sector stocks typically show higher correlations than stocks of different sectors, because returns are more correlated the more similarly they respond to economic events.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L49-L49",
+          "version": "repo-lines-v1:sha256:6e0d9186058df872315bd3fa2f9dd0f96bbcb316685d6d350774a32d43cc4447:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmUwZDkxODYwNThkZjg3MjMxNWJkM2ZhMmY5ZGQwZjk2YmJjYjMxNjY4NWQ2ZDM1MDc3NGEzMmQ0M2NjNDQ0NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNmUwZDkxODYwNThkZjg3MjMxNWJkM2ZhMmY5ZGQwZjk2YmJjYjMxNjY4NWQ2ZDM1MDc3NGEzMmQ0M2NjNDQ0NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTA0NjRkOTUxNDJhMTcxMDA0ZjM0MmVhZGNlYzg0NGYwM2NhMzdjMGJjN2JlNTViOGM4YTcyZGVmNmEwMGM0YiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYmM2OTc1NTY3NjU1MDU3MWRlMTIxNjFlZmJkZmFhMmRlNzFhYzEwMjNmZGZlNGRlNWRhYWYxN2ViMzQ1NTBmNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_203dd95313784c59a21a5bd84a8be5df",
+      "statement": "Because true moments are unobservable, means and (co)variances are estimated from realized returns treated as equiprobable scenarios, applying the T-1 degrees-of-freedom correction to make variance and covariance unbiased.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L53-L56",
+          "version": "repo-lines-v1:sha256:bd0c3fddf534591caa55e7d40496800f44ef565668b8982a5b4e51f3c4063f3b:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTY5ODI5ZjUwN2M1ZDEyMmQ0MWJkNDAxMGU3YjNkNGQ3ZjAxZTQ3YTAwYjU5MDMyMzRkODdkZWQ4NjU0OTNkMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmJlMWY3N2RhMWZlMmI2ODdjODViZTQ3YWUwNzM1ZGYyZmRkNmE1NTVmOWI0MjUxOGJlZjg4N2E1YzVlMGI4NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmM2OTc1NTY3NjU1MDU3MWRlMTIxNjFlZmJkZmFhMmRlNzFhYzEwMjNmZGZlNGRlNWRhYWYxN2ViMzQ1NTBmNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTkyZDZhYTcwYjJkMzFlNDg0Njc1MWIzOTg1NGZhMWVmZTQ3Yjc4NDFhYzA2ZGE1ODkwOWE3NjA2OWU3YmJhZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ea7b42fe619747a6a4b65cc16ff29087",
+      "statement": "Data frequency affects (co)variance accuracy but not mean returns; absent serial correlation per-period variances add, so σ²_annual = 12 σ²_monthly and the standard deviation grows at rate √T.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L58-L58",
+          "version": "repo-lines-v1:sha256:d68fce7cad5b14a32d3bf12f1811d3594ee2ccfb12553dea65be5a03160aedc7:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDY4ZmNlN2NhZDViMTRhMzJkM2JmMTJmMTgxMWQzNTk0ZWUyY2NmYjEyNTUzZGVhNjViZTVhMDMxNjBhZWRjNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDY4ZmNlN2NhZDViMTRhMzJkM2JmMTJmMTgxMWQzNTk0ZWUyY2NmYjEyNTUzZGVhNjViZTVhMDMxNjBhZWRjNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzBmM2RlZjllY2E5ODIxNzIzOTdhZDkxOGE1M2RiZmY0YzU3NjYxMzBlZWEyMjI3OGQ3YWVkNzZlOWZjNDEzNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjM2Mzc5ODY1ZmFiZTA1MWNkOWYyOTViNmJmMjRkYWQ5ODA2YzEzZWJhYTEwMTkzNTI0YWRmZTIwNzJlNDI4NCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5859c61a31ce43848c686bfbf7a4b3d1",
+      "statement": "With two risky assets, portfolio volatility falls below the weighted average of the individual volatilities whenever ρ_{1,2}<1 — this is the benefit of diversification.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L64-L66",
+          "version": "repo-lines-v1:sha256:a1233166f2a174cb4ce043d4d185283ef04fb6509d1ffab767e2411917e3a1b8:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDk5ZTRlZjdkOTYwOTcwOTUyYzE1YjFkNWEzODI5MDhlY2Y1ZjQwZjIzNzNhMzY1YjMyYmRmZGYxZTU3ZmY1ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTBhOTJiNjU0MmFhYjA0OWQ2YzA4OTIyMzc0OGEzYmM2MjQyODZlZWFiNjVmZjZhNjQyOGU3YzI1YzNjZTQ1ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGZkZDY1ZTUwOTQ1OTk4Mzc0ZDQ5ODRmMWU0OWFhODU4ODJmZTA2YTk2ZTNjNWU4MGVlYzdhNWY2OWNlN2Y5NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDdiZWUzNjEzZGVlZjIxZDNiMmFlNTVjMzZlNWU3MmJjYWE4NmVhZGE0MDZlY2VhN2I4YWE2MDZlM2I1MTIwMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7f3f46389c404b9e9cdf7b6253de7809",
+      "statement": "When ρ_{1,2}=+1 the frontier is a straight segment (σ_P = x_1 σ_1 + (1-x_1)σ_2) with no diversification, and a risk-free portfolio requires x_1=σ_2/(σ_2-σ_1)>1 and x_2<0, obtainable only by shorting the more volatile asset.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L68-L72",
+          "version": "repo-lines-v1:sha256:dfee7252fd8509cb35d42dbc85c858443b4bed78c9364d9a31d1b93d9931b6af:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDc0NTE0MTY4NzJiNmM4OTE5NDMwNGEzYmI1YzUyNTU2NGYxZTYwODllNjdjMWU5N2Q5YTU0NjNiOTMwZDBhYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDg1ZWIzMDQyNzUzNzRkNGU1ZTczOGVlMGVlZGQyMzkzMjE1NmIyNTczN2UzYjNkNjA4YWIxNjg5ZmZhNDgzMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWUxNzQ5MDY5NTc2YTk4NjEzZjMwMGVjODY5NDliYzU3ODE1MzAyMDA5YjNiM2Y1NmI0MDYxYWQ1NTQ2NGNiYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2QyMDk1ODdiMzZjNTc4NWIyZDQxYjA2ZmFkNThkMWM4NzM1MzlhOTNiYThjZWQ4NDUwOTIwYmZhYzFjMmVlMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9fc7936d203f49f384cb4f9f24c2d221",
+      "statement": "When ρ_{1,2}=-1, σ_P=|x_1 σ_1-(1-x_1)σ_2| vanishes at x=(σ_2/(σ_1+σ_2), σ_1/(σ_1+σ_2)) for any variances, giving a zero-risk perfect hedge achievable with long-only weights; the frontier is two half-lines meeting at σ=0 with the higher-return branch efficient and the other dominated.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L74-L78",
+          "version": "repo-lines-v1:sha256:ac140837626914a3cea75fe404fb1b8074349561123d88388bdad0f8416a6bb8:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjNkOGNiMjgyZTA2Njk5YjE5MDQyNjYzOTJjMTJhMjIwNmFhNzk4MTZlZDM2MWJkNDhjNjg3ZTVkOGQwYjk3ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWU1YzRmMTUxMTRhMzM2MGM1NDZiY2YxMjQyNzdjNGEyZWIwZTAwODUxNjI3YjU5ZWFhZjgwM2Y2NWZhYjlkYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzFhZmZjODc3MDc1MDI4NmQ5MjM4MTIxZWU4YTcyYzJlZjYyNTI5ZjNkZmZjYTM3YTk3OTAyNzY4ODg2MGViOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTk4ZjAxNjBmYWNhOThlMDkxMjM3NTYxYjA3NmU4ZjllNmViYmY3NTY0NmYyOWE2MGJkM2ZiZGNjYzRiYmEwNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c7adfc7d63474c99bb8f7c627d088d8d",
+      "statement": "For intermediate correlations ρ_{1,2}∈(-1,1) there exist portfolios with σ_P² < min{σ_1²,σ_2²}; the curve bows further left as ρ falls, while correlation has no effect on expected return, which stays linear in the weights.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L80-L82",
+          "version": "repo-lines-v1:sha256:7dfbe908cbc1c7b7060bb37939ee4bdcf9ad75b4ce84ff8d0d4e2b8de4267216:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYThmMmM3YjE4OGE1NGY0YWUyNmE5NmU1M2ExYTdlZjI5NDM3YzNkN2RmOWU1Y2E0OWUzNmY3N2E2N2M1ZmE0MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2YzOGZjODk1NjQ0Yjc2NWJhMDYyYzliOTZlMzQ4ZDljOWVhNWNhZDU5NzI4N2IwNjBlODA5MGI2MmFhYmYwYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjVjMWJiMWFmM2Q1YmNiYTViYjA4NjBkOTk4ZWViY2JhNmM2MzgzMDEzZDYyOWVjZjVlZDJlYTdjMzMxMGUyNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjk1NTcwM2JkYTkyNzQzYzhhMGVmZWNjYWQ3MzlmYzkyNDRmMzYwYjY0ZWE5ZWMzZmI2YzNkMTc5N2JhNTBiMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0113225ae6d343d8a6430f00ebdab224",
+      "statement": "The base problem minimizes x'Vx subject to x'r=π and x'e=1; since V is positive definite the objective is convex and the two linear constraints define a convex set, so the problem has a unique solution obtained from first-order conditions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L86-L88",
+          "version": "repo-lines-v1:sha256:ffa794ad3fecbe39a0eab36cf4b50059003f5397c99647028de2c7f8fead4a39:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2ZjNWJkMWQ0MzI2MGY5NDQzMmE1NDBiNDc0MzYyMWVmMDJmMzg5MDZhZGEzNjM1NDA4ZGNmYzZkZmU3MTIwMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGExNzNkMzA3OGUzMjQ5MjIyNTEyYmU4NjY4YmNjZWRhOTU1YzUyMWNiYzkwYWM3ODgwMGM0ZTJjZWUzMWU1NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjk1NTcwM2JkYTkyNzQzYzhhMGVmZWNjYWQ3MzlmYzkyNDRmMzYwYjY0ZWE5ZWMzZmI2YzNkMTc5N2JhNTBiMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDJmYTVjOTBkOTRmMWVkMTI1YjAxM2I0YjYwODI4MjUwMjA1ZTNhZDY1MThmZGZjNTI5Mjk2ODkyMjdhOTZmZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3c90d4726d5644d0af64d06b59620dbf",
+      "statement": "The unique optimum is x* = [(γV⁻¹r − βV⁻¹e)π + (αV⁻¹e − βV⁻¹r)]/(αγ−β²) with α=r'V⁻¹r, β=r'V⁻¹e, γ=e'V⁻¹e, derived from the Lagrangian L = x'Vx − λ₁(x'r−π) − λ₂(x'e−1).",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L90-L96",
+          "version": "repo-lines-v1:sha256:1043f89d26766101fd54ed5c8e8fc7046a938252911c11b724d8e2f8ded2bec7:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDk1NTYwYWY3YTY1MzBmZjIxYWFlMzZhNDU5ZjJhMGNlMzk5YmRlOWE0YTA5YWU4MzJiMjNlNGY2Yzk0ZDVlYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODM3ZjczODIwNTIxODgzM2Y2ZTIxNjAxY2VlMWY3NTI3ZjIzZWY1ODNlMGZlNWU3OWEyODk4NDY5NzIwYmE4NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOWZmNDIzYTA0NTgxYzEyZTM0NTM5ZDIwNDQ1MGM1YzBjZDQyOWQzMTE0MGRhNzdiM2Y4YWU2NzQyMzc4Y2RmNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGY1ZTFkZGI5MDcxYjEzZGRlY2UwMWM5ZDIyZDBiNTYyNDk1ZDU4Zjc1MjIxMzUyOTdkN2VhODRhZDEwMmJlYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_110456dc7204488e996f79b64e4cc750",
+      "statement": "The optimal variance σ_{P*}² = (γπ²−2βπ+α)/(αγ−β²) traces a parabola in the variance-mean plane and a hyperbola in the standard-deviation-mean plane, whose vertex at (σ²=1/γ, r=β/γ) is the global minimum-variance portfolio (GMVP) separating the inefficient lower branch from the efficient upper one, with weights independent of expected returns.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L98-L100",
+          "version": "repo-lines-v1:sha256:9d32627b003dea2a642513fee2462f41b41f0f281cc4f0418f6486ab433b0f9d:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDM5MmQ0YjgwMGRhMDBhYTMwNmRlODMwZDQ5OTY1ZWNjMzRkOWZkMzMwOTM1YWU3MGYxYmI4ODhhOWE5OTVkYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDJkNTJlODZmMWNhZDFjYjU5OTVmODkwNTlmYzZiODk2NGZlZGNmZWYyZWNjYzJjNTdkODRlMGNiNTg1YjcxZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDQ0NzNhODg2YzJlZjBhNGVjMzVhMjg1MjA5OWMyMWJlNjhkMjIyNTQ0MDdjYmUyYTg1NDg5MmJiYWJiMWU0ZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODE2ZjkwNmNjZWIzZjg4MjljM2IwNjhiYzVjNWE5N2QyN2NlZjg0MTg1ZjgxZDkxNWRmYzExYWNmYWE0ZjM0YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_58ba2b50f3e74b94b2b7871014a2905d",
+      "statement": "Adding investment opportunities can only improve the frontier (the old frontier is contained in the new); individually dominated assets can still receive positive weight through low or negative correlation, since it is an asset's covariance with the portfolio — not its standalone risk — that sets its incremental risk; with non-negativity constraints the closed form is lost and the problem is solved numerically.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L102-L102",
+          "version": "repo-lines-v1:sha256:48e9cc9fb364501ddbd1e8dfbd07264a1aec1a442f93e7658b19136c287141eb:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDhlOWNjOWZiMzY0NTAxZGRiZDFlOGRmYmQwNzI2NGExYWVjMWE0NDJmOTNlNzY1OGIxOTEzNmMyODcxNDFlYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDhlOWNjOWZiMzY0NTAxZGRiZDFlOGRmYmQwNzI2NGExYWVjMWE0NDJmOTNlNzY1OGIxOTEzNmMyODcxNDFlYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWFjNmYxMDdlNTYzOTFhMGNkYTU3NDZjNjFmNzI3ZjAxNGNkNTA2OTIzYWY3M2E0YWNjODAzMDFkZTA1MjFjNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTdhZDM5YjVjYzNjZWQ5MWI5YzVkOWNkYTA4NGI4ZWY0Nzk5MjkxMmNkZjM1YTA4ODAxMDYwYmI1ZTFhMjQyNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8e6b291a38e342d4b18641698ecb5485",
+      "statement": "For the equal-weighted portfolio σ_P² = (1/N)σ̄² + ((N-1)/N)·avg-covariance, which converges to the average covariance as N→∞ when variances stay bounded.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L106-L110",
+          "version": "repo-lines-v1:sha256:aa2feb961f97a861c57e72bea95b5b19db16601543082cc0f952f9149306ccd9:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGQzZmRkYmRmYTI2M2I3ODhkNzdjYjY2ZWM5MTdhMzZkNGU4ZTMzOTVmNWFmZjE4YmQ0OWY4N2Y1YmEyODgyNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWRhNzFhYWVjY2QwOGEzMWVjM2IzNjk2YzNmMjNlYTBkODFjZjY4YTk2NDQxYjc5NmY2OGQzMTdkM2JjZjA3ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTdhZDM5YjVjYzNjZWQ5MWI5YzVkOWNkYTA4NGI4ZWY0Nzk5MjkxMmNkZjM1YTA4ODAxMDYwYmI1ZTFhMjQyNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmI5NjIzNDQxMDJjNjg0ZDM1YTUxMTQ4MDk3M2U2ZmQ1OTc2ZTdiMTk5NGYzMGZhYzYyNTBjNzYyZGRlZjllZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_20ace09e3ad648059e14ed6a6b856bb1",
+      "statement": "Risk splits into firm-specific (diversifiable, idiosyncratic) risk removable by diversification and market (systematic, non-diversifiable) risk that persists even in a large portfolio.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L112-L115",
+          "version": "repo-lines-v1:sha256:b74d65b0a1722f8f0e34796f57b38ee19cf28870e6168c9dc9580e087e0587f6:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2I3MTk3MGVmZTBlYTA0NTU1ZTY3MDI1Y2MzNDlmZGY4MGY5Yjc5MTM3NzNmMjk1OWNiNzQ0MDA4ZGQwZjE0YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjI4MTkwMmJmZjc3YjY0N2UwMGM1MGUzYTUyYTE5MjlmOTgxOTY0YTExYmU1M2E2MTIyNmFlM2JlMjBkYTI4MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjllZmYzYTI2MjBmMGFkZTM0OGI0YTQxMjJmNGQ0ODEwODQ1MGMyODMxOGUzYzRlNmRjNzViNDZjYzQxMTRjYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTY4ZTg4Mjk1NmM5OWM2NDFkYmJjZmI4ZTBmYmI4ZTdmOGE4NmMxN2U1NTcwOGQ0OGI0Nzc0Yjg2N2MwNzExNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e6b09382afd7438583fdd582fd124cd2",
+      "statement": "With a typical 40% volatility and 25% correlation, the equal-weighted volatility converges to √(0.25×0.40×0.40)=20% rather than zero, with most of the diversification benefit achieved by about thirty stocks and the largest reduction occurring from one to two assets — making diversification a free lunch.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L117-L119",
+          "version": "repo-lines-v1:sha256:9d1a69cca7ff5413d4cdc00df0c7bf68f686d0915c0472103bb41f647dfc4903:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzU5ZWE3Y2FjMjc3MDU4NjhkZjQxODBjZTExMTJhN2RkNGU0MThiZGNjNzBmNTJhNWE5NmQzNTg3ZDUzMTg2NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODUxY2UzMTQwYmFkMTVlNTUyYjNhZmUyMDQxNmYzZjFkNmQwN2UyNDBjZmFlYTFhMjRmOWVmZDc3ZDA5YzgxMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjY3NzQxZmQ4NTBkNDc5ZmZlMzk4MjU1YjFkM2NiZmI2M2VkZDMyMDM0ZTk4Zjk2MTgyOTg2MTcyYjMyMzhjNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGZjZjIyYTlkZDI4MDM2ZTVjYTAyMDQ0ODYyNzcyY2QyMmMwZmE0Zjk1ZTc2ZTRhZTJiMGU5NDZkYWE3Zjg2MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_77c79c3e97064664980f610560459090",
+      "statement": "The risk-free asset has zero return variance and is uncorrelated with all others; mixing fraction x into risky portfolio P gives E(R_xP)=r_f+x(E(R_P)−r_f) and SD(R_xP)=x·SD(R_P), placing combinations on the capital allocation line E(R_C)=r_f+((E(R_P)−r_f)/σ_P)σ_C, with x>1 meaning borrowing at r_f (a levered portfolio).",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L123-L129",
+          "version": "repo-lines-v1:sha256:713f23d43bde980c76c7bf43a23357d47f4bebbdf0678e4c646786dc4b411d50:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDNkZDI4YjNjNjFkOTZlYjJlYzhkMzA0NDJhYmYzMjYxZmFiZDIyZmIyM2FhMjY4MTc1ZjFjNjQzMTQ1YTg3YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjhiOTMyODgwYmUzYzg4ZWI1MjZlOTI1NjdjOGVkM2IxOGNjYjBiZWUyNDc2YzZhZDlhMmZkZmU5ZjJlNzI3YSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGZjZjIyYTlkZDI4MDM2ZTVjYTAyMDQ0ODYyNzcyY2QyMmMwZmE0Zjk1ZTc2ZTRhZTJiMGU5NDZkYWE3Zjg2MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjZjNTFiM2NhMzQ0YjI3NWU5MmVkYzJlM2FiY2Y4MDQ0MjRiYjQ4OTk4Y2IyMWI1NWJkZDE4N2E3MmViZDVjMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_58828121759d4497970cd5afcd2a77e7",
+      "statement": "The CAL slope is the Sharpe ratio SR_P=(E(R_P)−r_f)/σ_P; the tangency portfolio generates the steepest CAL tangent to the risky frontier and has the maximum Sharpe ratio in the economy, so once the risk-free asset is introduced the efficient frontier becomes the half-line from r_f through the tangency portfolio, dominating the Markowitz hyperbola at every risk level.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L131-L135",
+          "version": "repo-lines-v1:sha256:b8ad15582d791cb0585916c1e5f2740619ae78ebc45279a17702a1e05ef2a3c5:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzk0ZTZlNDc2ZDE4NmEyZGE5NmY4ZTY1MWE0NDEzNmQyZTNjNmU1N2U0OGU3YjI4YTgyMjUxYjQ2YmQxNjcwZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWIxYTJjNmIxODVmNDM4ZmMzNTIxMDhkMTQ1Y2M4YTJhODkzZWM1ZTcyMTgyMzVmMjVkMzQxODAwNjg4MDNiOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTY5NGQyN2VhZGJkNGQwMDI2ZjA1YjIyZjU0NWZiZDExNDNmYmQ3NGI5OTg1NDc5NzQ4ZjE1MDY0MzdjN2MwNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjNiM2M5MjA0ODJlNTIyZDM4ZDJmMTBmNjJlN2E2MGFjOWY1MGQ4ODJhODkwM2E3Y2ZjOGY1MmRhMmI4NmJiMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3537218dae5347e7810d1ddc4da0481b",
+      "statement": "The two-mutual-fund theorem states any efficient-frontier portfolio is a linear combination of any two efficient portfolios on that frontier; for target w_c=αw_a+(1-α)w_b the combination weight is α=(E(r_c)−E(r_b))/(E(r_a)−E(r_b)).",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L137-L141",
+          "version": "repo-lines-v1:sha256:688cca66d6fec22df3ccbe1fcd506b571fe4eb9a52d155785935d01494af2d2e:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTM5NWZkMjA5ZmNhZjk4YmZiYzhiZWU0NmEyZGVhN2Y1MjU5NDI5MjdhMTg3NTIwZDYxMzE2ZTc4NGMyNzYwYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTc3MDgwMWJhYmIxM2QzYmY2MmMzZTAyYmU4OGFmZjg2YzNhOTY5MzhkZmE2NGVhNWQ4YmFlM2M5MWY0ZTUzNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTMzYjgxOTE0NWIzMDllMDZkODA2MGEyNTQ3ODk0NzQwOWVlMzkxNjFiZjkyYmI2ODIwYmVkOGZhMzdhZjU2MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmQ5OTIzOTI1M2ZjNWZmM2Y3NDJjMTcxOThmMDczYTZlYjg0NWE0NDhiZTQ1MThjMjFkZmJlZDZjMDU2NzZkMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_528ed55c46a142ac86b16eb43de47305",
+      "statement": "Taking the two funds to be the risk-free asset and the tangency portfolio, all investors hold the same risky tangency portfolio regardless of risk aversion — the only subjective choice being the split between risk-free and tangency — a separation result due to Tobin (1958) that recovers E(R_C)=r_f+SR_T·σ_C via y=σ_C/σ_T.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L143-L145",
+          "version": "repo-lines-v1:sha256:40d21916a9c548cca899799ee983916a740583026c833782a2c986401d8be398:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWI4OTdlZWIxNDUxNDBmMTQ3YWNkZmU3MzFmODQyMzc3YmU2NzQ4MGY4ZDYyNGQ3MjM0ZmFhOWIyZTJkMGViMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTcwNTJiNGVmMzA5MTgzNDFmNzMwYTdlZjVkZmNlZjVhNjk3NGM0MDk5YTE3OGQ3YzRhYzk5YTI5Y2M2MjdmZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2FhOTUzNTNkZTBmZDk4M2YzNzlmZWZjNzM2MDNjOTRlZDBiYjU1MmRkOGQyZjYxMzcyYTA3MmY2ZWM4Njc3MSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGI4MWQ1ODNmNzQyMDQ5YTI3N2U2M2U5YTc3NjkzOGQwNmIyMjNmZmNmN2JhMzUyNjA3NmYzZjRhZjExNTY5MiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_62741a1f9c0343c590af4f9ce26d9f82",
+      "statement": "With a lending rate below the borrowing rate (e.g. lend at 7%, borrow at 9%), the CAL breaks into two slopes at the fully-invested point y=1, producing two distinct tangency portfolios and a three-part efficient frontier: a lending half-line, a stretch of the risky frontier between the two tangency portfolios, and a borrowing half-line.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L147-L155",
+          "version": "repo-lines-v1:sha256:fe6d43ea843275acb429a61c93e4fdf13ce3b40e9826b80809cd026eed7374f7:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzY2ZDBkNmQ0MDFhYTBjNzZkNTEwM2E5OTE0N2Y1OWI5OWIxY2NhZDZjZThlNTU2ZDk2NzMwYzdlMTNkMjk2YSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjE2MjE1ZWNiNTQxYjg1ODg3OGMzYTg4YzBhMGY2NzI2M2RmM2M5ZGIwMThiMjczOTlhNDUyZGZhZGI4YmQ1ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzYwMzBiNjY4OGI3ZDM5Mjg4ZWFmYTJmZjYxZjk4NTE4YTRkMmJkZDUxZWU2ZDMwYTZmMGUyNzgzODE1MjhkNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGRlZWJhZTY2MGEwYTU5YmYyNDkzMGMwODIwMmVmYTczNGRkMzJmZjRjYWZhNDRiMGI2ZjY0Nzk1OGZkZWZkZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4a700d3c216d4e92aad3645b203c9456",
+      "statement": "Short sales extend the risky frontier beyond the extreme assets, whereas imposing non-negativity (w≥0) generally removes the closed form and turns the efficient frontier into a bounded arc reaching the individual assets as endpoints, unable to exceed the maximum-expected-return asset above or drop below the feasible-set GMVP.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L157-L165",
+          "version": "repo-lines-v1:sha256:b002e1d35fa04b49b921d144d006cac4244847c6ef74dad4630cf1854b2edd2d:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjJiN2RmMDU1MTUzMGFjNDdlMTdiZjE2ZmQ0YjIzNTdjOWNlMDg4MDU4NDMxY2JjNjk4NGQzYmU5NTgwNGE0NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGM4ZTczYTk4YzgyMTE2NmQ2ZjRlNWMzY2JiMzU5MDhlNDBlYzUxNDQ4Njk4MzBhNThmMDVjODE4MTVmNDAwOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmY2YzcwNjA4NmJlOWJhYmYwNTA3OTZhNzAyYzhkMTJhNWFmMjZkNTE4MmI0MzQxNjgxYmYxY2QyM2U0YjJlMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzc0NjNmNWQ1Yzk0MzY3YTlhZWMzZjE1NzE5MDc1OTg4MzE3OTFiOTkwODJkNTVmNzcyNGY0Zjc5N2FlMDkwNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ff45be4b49a44989b383401150166a86",
+      "statement": "Portfolio variance is a weighted average of each asset's covariance with the portfolio, Var(R_P)=Σ x_i Cov(R_i,R_P), so Cov(R_i,R_P) is the marginal risk contribution — the marginal variance increase from a small increment in asset i financed by shorting the risk-free asset.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L169-L171",
+          "version": "repo-lines-v1:sha256:2cd9c2a249e5d1c107be6c1345963d618cc43c2193e3fccab03d72128e708c19:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWI5ZTcwOTgyMmYwNTJjMGNlMDUzYWFlYTZjMTFlMjdjZmY3MjY1ZjdiZWQ3YTRhZmM2MzdjNzU1ZWZhNTI3YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGJmYTc2NzQ1NDE5ZTkyZGViNWQzMzFlMGU2ZGIwMzgzYzVmMDQxYjQ0OGRhZjk4ZjgwMDIxM2M2ZjI0OTZiYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzc0NjNmNWQ1Yzk0MzY3YTlhZWMzZjE1NzE5MDc1OTg4MzE3OTFiOTkwODJkNTVmNzcyNGY0Zjc5N2FlMDkwNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjNhNDU2ZDQ2Yjc2MTU1Nzc4M2QxNzM1YmFjZDEyYjEzOWViZDU2NDg0NDY2NzQ0M2MxZTlhYmJjYThhNDhiMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_deb47a7cb0a247cca362fe93d7ae7a3e",
+      "statement": "The volatility decomposition SD(R_P)=Σ x_i SD(R_i) Corr(R_i,R_P) is strictly less than Σ x_i SD(R_i) unless every asset has correlation +1 with the portfolio, so part of the volatility is diversified away.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L173-L177",
+          "version": "repo-lines-v1:sha256:5d9981e496832aaeeca14beb996249f365bf777d2ca11c17069dcff863e7f8dd:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTRkNmNhZDY0NGNhMjU2MTJlMmQ2YmNiM2ZkNmJmZDM3OWMwMGI4N2ZlNDM5NWRhMGM1OWNhYWMxOGExZmZjMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGVkY2I0NDE3MTE1YzFiYzhhM2ZhN2YzMmYxMzk3M2E3NjQxN2ZlZjBmYmVmOWNkYjgwNjljMmY0Y2RkMTc2ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTlkZGJjYTUwMDA3YjUzMDkzYmY3ZWMyZDNmZmI0M2Q5YzcwZTA3YTZkZGJlNGJiODNlMmM1ZTRhNzQyZWE0MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjE2YWQ2OGQ0NGM2NzAwOTljYmM5NzAwMWIwZTk2Y2Y0OGJmNDc5NjU2ODI3ZDViMWFkOTVhYTBjNzhhMWY5NCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_220b53513ab3425281494212905dfa2b",
+      "statement": "Increasing an asset's weight (financed at r_f) improves the Sharpe ratio iff (E(R_i)−r_f)/SD(R_i) > Corr(R_i,R_P)(E(R_P)−r_f)/SD(R_P); defining β_i^P = SD(R_i)Corr(R_i,R_P)/SD(R_P) this is E(R_i)>r_f+β_i^P(E(R_P)−r_f), and a portfolio is efficient iff E(R_i)=r_f+β_i^eff(E(R_eff)−r_f) holds for every asset.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L179-L185",
+          "version": "repo-lines-v1:sha256:679006a3a01a06fca02130f186dab162c4c71f5351448304446e86a023401c37:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMmE4MzgyYzI0MzcxODBiMzlmZWNlNmNiYjAyNDUwY2Q4NDIwNDdkOGUyNWNjMGEzMWQ5MmM4ZTk3NDUwNzNlNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzI5MjQ2ZTM3YTMwNWU5NjU2MDJkMWFjNzM0ODE4MDJlMDY5ODFmMjhiYTczODQyN2JjNTE3MDliMDFhNWM0OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTU2YmZiZTAyZmZjZGFmNTYzNmMwMTg4MzNhYjU2NzY4MGU0YmRjMmViNmVlN2E5Y2NjY2I1ZWJlZTkxNDNkMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3d256e225dce410cb8d3e71598ab176f",
+      "statement": "Because risk contributions split as x_i β_i^P, this decomposition of total portfolio risk into single-asset contributions is the basis of risk budgeting — apportioning a risk budget across assets by their marginal contributions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/02_mean_variance_selection.md#L185-L185",
+          "version": "repo-lines-v1:sha256:329246e37a305e965602d1ac73481802e06981f28ba738427bc51709b01a5c48:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzI5MjQ2ZTM3YTMwNWU5NjU2MDJkMWFjNzM0ODE4MDJlMDY5ODFmMjhiYTczODQyN2JjNTE3MDliMDFhNWM0OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzI5MjQ2ZTM3YTMwNWU5NjU2MDJkMWFjNzM0ODE4MDJlMDY5ODFmMjhiYTczODQyN2JjNTE3MDliMDFhNWM0OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjcyOWI4YTBiMGIzODQ4YjYwYmRiZTRjYzE0OTJjNTUyZGNhNzRjMDBjOWFjMTk3Y2RkMDdmMGRkMjYwNjUwZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

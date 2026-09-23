@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:e0b60851d01917fdf79bd7bbd2a7f8ea8ff99841b39e508328763082a4a6a8bc",
+  "claims": [
+    {
+      "id": "claim_54d06afbdc864ea2bf1a2cecf6b4811c",
+      "statement": "Base short-sale-admitting MPT rests on six assumptions: no transaction costs, no taxation on trading gains, perfect divisibility of risky assets, short sales allowed, agents knowing the first and second moments of returns, and agents' trades not influencing return distributions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L16-L23",
+          "version": "repo-lines-v1:sha256:55b18a542c7515a3cbe220ae6668ab4d62b84a2e30fe56244afb5cbbe8ad246a:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzk4ODE2Y2M3NGI5ODRhZWMxNmM3YzkxYWMwZjJhNzIxMmE0YTU5YmE1Yzg1Mzc0ZjhlZWQxZDQzZDdiNTQ2MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNWZhYzc3NzRkZmU0MDA4OWQyNDQ0ZTU5ZDk3NTI2NDRmNWZiZTI1NDQyNjc5MjA4ZTk3OThkNTk4OGMxMThjYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzEwMDFkZTVjZDMwODdiNTMxOGIyNWM3NGU5NGNhZDBlMWE5MmY0NDBlNmU0OTE3MTZkMDllNTBmNjdhZTlkMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzVmM2UyNDg4NjNhYWJmYzZjZWFmNGUyNDQ0ODA1ZDRkZTM5MTRkNGNjMWIxOGI3NGM1YjlmNzBiOWE3MDlhOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4aafc8baf89a4a76b11f7555c23d7a8d",
+      "statement": "The divisibility assumption fails structurally because assets trade only in integer minimum lots (e.g. a one-share minimum for many Italian-market equities), so treating structural features as negligible frictions can understate their impact on portfolio selection.",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L25-L25",
+          "version": "repo-lines-v1:sha256:45f4f415f76f3d6d2f2d2b48e15d3a28b34bc708e77134eb29122dbae4377af7:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDVmNGY0MTVmNzZmM2Q2ZDJmMmQyYjQ4ZTE1ZDNhMjhiMzRiYzcwOGU3NzEzNGViMjkxMjJkYmFlNDM3N2FmNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDVmNGY0MTVmNzZmM2Q2ZDJmMmQyYjQ4ZTE1ZDNhMjhiMzRiYzcwOGU3NzEzNGViMjkxMjJkYmFlNDM3N2FmNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGY1MjNkNTg1ZDRmYjU1ZjZmZWI0MjQ1YWIxOTJjMTg4NTc2ZWY1ZWQ0NWM0MGU0ZmY1MjExOTA4YzkzN2VlZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmU4M2UyYjljZmRkYjY5MDQzMzliMTE5OTNhMjE4NjMwNTNkMjlhZTU2MjI3ODFiMTRiZjcxOWNmNmI4NDAwYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_06aea1180ac64dca8419deacdd64f184",
+      "statement": "The moment-knowledge assumption implicitly requires return distributions to be describable by their first two moments alone (symmetric and mesokurtic), and even presupposes those moments exist, which fails for Pareto-Levy stable distributions whose second moment is infinite.",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L29-L29",
+          "version": "repo-lines-v1:sha256:7fcb82258fb06b4c25a5a6339977a16b494fb66ebe66fbaa230866d0758730b8:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2ZjYjgyMjU4ZmIwNmI0YzI1YTVhNjMzOTk3N2ExNmI0OTRmYjY2ZWJlNjZmYmFhMjMwODY2ZDA3NTg3MzBiOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2ZjYjgyMjU4ZmIwNmI0YzI1YTVhNjMzOTk3N2ExNmI0OTRmYjY2ZWJlNjZmYmFhMjMwODY2ZDA3NTg3MzBiOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmU4M2UyYjljZmRkYjY5MDQzMzliMTE5OTNhMjE4NjMwNTNkMjlhZTU2MjI3ODFiMTRiZjcxOWNmNmI4NDAwYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzQwNWFkZGQwMjEzYmM0NjhkZTllODg4OTZjNzc1NjVkYWYxMDNmZDQzMWVjMmZlYmJmZDdhOGNiNmNlZWQ0MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_09048073050348e297bf2c6743fd6815",
+      "statement": "The price-taker assumption treats all investors as small, whereas real markets contain medium and large price-makers able to move prices by trading large quantities.",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L31-L31",
+          "version": "repo-lines-v1:sha256:8e8d72ccc84187a26901b37678f0d33d075011f14262484d529ae32c4e592745:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOGU4ZDcyY2NjODQxODdhMjY5MDFiMzc2NzhmMGQzM2QwNzUwMTFmMTQyNjI0ODRkNTI5YWUzMmM0ZTU5Mjc0NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGU4ZDcyY2NjODQxODdhMjY5MDFiMzc2NzhmMGQzM2QwNzUwMTFmMTQyNjI0ODRkNTI5YWUzMmM0ZTU5Mjc0NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzYwNmYyZjI5M2RjYTM5NDkyM2RhMmVkMzViYmU3YzdhNWVjOGMzMzQzMDhjMmFlNmJiMjIyNmM1MDk2Y2IyNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWI2ZDcyMTZjNTE3OTE2N2M0ZWQ2MDQ0MmFmMWE1NTkxOTUwYmViZDdkZWIxZTUzNzUyZmIwZWYyMjgyMWUwMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ca38a42923c94b85b6f5eb6b35b4e81d",
+      "statement": "The central practical obstacle to mean-variance use is choosing the target return pi: too high a pi carries excessive variance and too low a pi leaves expected return on the table.",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L37-L40",
+          "version": "repo-lines-v1:sha256:456a86a866a0e2f02732348ff113afb1fa37863a8d1953e08859a1a1c1d437fd:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDU5N2ZmMjllNzcxNDU2N2FkMmUxMjA0MjdmMmY1MmQzODQwZjNiNDc5MzkzOTRiNjMxYjY5MmE0ZGNiZjcyOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjY2MjJkYTkzMzlmODQ3MzhlYTM5MjE0ZDI5ZjlkYjI3NjM4YzUzYzIyYWI2Y2NkYjYwYjAzNjQ4YzNmY2UzNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2I1ZDQ4MDFhNmNhZmFiZTA1Y2EyZWFkZjRiNjMxOTZhZjQ2Y2FmM2MwOWRlODdmMTU0MDBlMWRmMWQ5NDI4YyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzJlNDkyMjdhZjUxOTAzY2VkMGNlOTEwZmYxNzA3NTFlMWRiZGQwMDdhOGM4MDBlMjM2OTFkZDQ3MjRmMmE2MiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_84f17fdf54d0431a9a823c02280b82c4",
+      "statement": "Under the fund separation theorem the investor holds a mix of the risk-free asset and the tangency portfolio x = V^{-1}(r - r_c*e) / [e'V^{-1}(r - r_c*e)], which implicitly fixes the frontier point without specifying a target return, but sample tangency portfolios perform poorly out of sample.",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L44-L48",
+          "version": "repo-lines-v1:sha256:6d1e15be699dfd5aa8b49a3f37a4cad4f43af12e4c6f3b12d2cd9b3e647e5d2e:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDViZjI3MzE1MWUzYzQ4Y2QzMmVjMDBkZWNhMjRiNjk0OGU2MDhhYTM5N2U2NzZiZjRjNzI2YTdiNzVlN2E0ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTY1M2U5NGI5YzE3MGEzNDY2M2M1OTBiNzM5NTc3OTgzNzA3ZTlkZjdkNjg1NTQyNjBiMjY5YjVjMjNhM2UwYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzJlNDkyMjdhZjUxOTAzY2VkMGNlOTEwZmYxNzA3NTFlMWRiZGQwMDdhOGM4MDBlMjM2OTFkZDQ3MjRmMmE2MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjA2MzViOTUzY2M2ODhiZmY1Zjc1ZWU5MDhlYzQ4MTkzMmY1ZGZlNGE1NzZiMmVkNDVlYmRjYmY0NWNmMmM4YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_216ab24fc87e4e2ba3188105de1981db",
+      "statement": "The global minimum-variance portfolio solves min_x x'Vx subject to x'e=1 with solution x = V^{-1}e / (e'V^{-1}e), and a third target-free procedure sets the target return to max(r_{1/N}, r_{GMV}).",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L60-L70",
+          "version": "repo-lines-v1:sha256:ca8b66b4fa3b7598a2eee1f4329144a37f9a248aaffabd4f8b5601f4f6ae56e9:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIyNDU4ZDFkYjQyNWE2OTQyMmQ1MDE3OWU0MWU4YmM0NmNkZjQxYTZiMTFjNWQ4Y2E0ZDk4ZDM2ZTQwYjZmNjYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE2NzQzNzFkNTU2MmM0MTNiNDg5NDY1ZTBiNWNlNTJlYWJjMWU3ZDk0N2MwOTY0OTNmYzg3ZTZmOTNjNmU4MzEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImViZGZiNGY0NGU5ZDE3Mzk0NDRmOTEzOWUxYWQxMGMzNDhkNGIyYTA5NzA2N2EzZjQ1YTMzNDljYzhkYWY4NDciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImFiMmNjNzdiN2FjYTQ4NmEwMWEyNjBiOWU5NjdmZjAxZmQyYjQ5ZTI2ODRmNDBhZDIzZmMxOGQ4OWM1ZTE1NjYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_17e840fc4db144baa8271630c354b6d3",
+      "statement": "The GMV portfolio is unaffected by estimation error in expected returns because, under i.i.d. normal returns, the confidence interval for the means is about 40% wider than that for the standard deviation.",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L87-L90",
+          "version": "repo-lines-v1:sha256:99c2e3287b6eaf2c444a142eaafb9096e35f03a031d6c217edffbff9653db282:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmRjMzAzYzc5YWUwMjQ2OTgzYWUyZDRiMTAwMjdhZjI0YTcxYmMwN2Q4MzdhYmIxNmJhODRjNmYyZjZkMTkzNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGVjMGViOWUyOTI0MDU2NDFmNWY0NTkyODNlMDA4Zjg0ZDM1YTNhNDAyN2I1NDEwOTVlNjIzYmQ5MmNmMDk4YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWQ0YTVjMGU3M2JiYTJlOGZiOTc4OGM0NmI3ODI5ZGQyNjljNzIxNWY1ZTBjZjNhYzRhOWE4Mzc0ZmU2MmQwOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTAxY2Y2NjkzNDdkODNmN2VjYTVjYjM0NjExYTgzOWQzNDk1NTgwYjYwNmM4ZmM3NWVlZGM3MjQ1MGQ5ZDA3YSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f341fae32f3c4916acdb8f64235f4b72",
+      "statement": "Under large estimation error the equal-weighted 1/N portfolio is expected to outperform mean-variance optimization itself, and it never performs worse than the worst asset while avoiding concentration.",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L78-L85",
+          "version": "repo-lines-v1:sha256:5a5368cb5c6096bc9cc698c6175e4d824612ca76b33e6be38566d47b971d5682:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDQ0NGRiMTM3ODM1ODIxMTk4YmM0ZDY2MWEzYTYwOTgyYjk3YzY4YzdlOWVjNDM5ZGE2YjE3ZTg1MWNhOTM2MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjRhOGUwYTE1MjcxMDIxZWQ3NDMyNzkzYmUwYjkxMzRlNGNhOTBkYWIzMjUzMTkyOWM0MjcyOTlhZjBhZDQxZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTVlMTRiYmZkZDUxOWRkNDJiZTI3ZDA1MGZmYzBmY2MwZDc1NGM3MDdmOWNhZTllODAxY2MzNzY0YjgxZGE1YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWI2ZmMyOTFlMzVlMWQ4M2JjZDU0YWQ3YmMyYzUwNWEwMmY4YjBiZjlhOTkzOTllN2YzYmU0MDI1ZDgwNzdlZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ea2da5aef2f343e0b2314ee23017be4e",
+      "statement": "Black-Litterman is built as an application of Bayes' theorem: the prior return distribution implicit in market equilibrium is updated by the investor's views to produce a posterior, Pr(M|W) = Pr(M)Pr(W|M)/Pr(W).",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L105-L109",
+          "version": "repo-lines-v1:sha256:0ffd68433048635e2af626d905d4aa23898505cafcf65390152a45dacced57a2:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjAwYzZiYjA3OWRiMzBhZDYzNTJlNjlmMjg5ZTJjZDFkZDhkZTNiYjcyMjYxMTk5YjhlYzEyYTE0NzM4YzZmNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYWQ0MmY5ODE4NmQxYjYzYzYwOGQzZTllMzFkOWE4ZTI4NjAxODBkYjRjYTMyNzlkNTkwY2Y3YjA3NjM4YjViNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGM3YWZhNzI1YTE2YmM3OTk5YjNlNzY3M2FlODZiMTgyMDdhZmFjMjc1M2I5M2FjMjMxNzJlYjRhMjExZTE4MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmEyZTU3YTY0MmQxYzA2NzFhNjBjYTdhZDM3MGQwODJkM2JkYjU4ZTVkZWZmMTNkM2Q4YmRmODJiOWFmMDFlOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ef2ae43e44664d2284c6f4461a26ac8a",
+      "statement": "The prior assumes normal returns R ~ N(r, V) and a normally distributed expected-return vector r ~ N(Pi, tau*V) with an uncertainty scalar tau in [0, infinity).",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L115-L125",
+          "version": "repo-lines-v1:sha256:fe5e2246910bef4ded43c8878a27c2e25b3ced7031dff2c3424085ecf927a56d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdiYjc3Y2JhMDFkNDI0ZWM2YjMyNmQ2YTg3M2FhMWViZTNkOTZiMTI2MmU4NjE2YmJmMjc2NTlhZjJjYzhhZTIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMzOWY0ODJhMmQzZTZlYTg1MjQ0NGQ5OTljNGYwMDBiYjA4NzM3NzVhNjc1YjAwOTRkM2NlMjQzZjU5MWZjYTQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImNiMDU0YzFkOWU1MTlkYWMwOGRmNTlhZGI1Yjg5MDc2ODhhZmQ1ZjY5M2RjM2IwZDE0ZDFhYTE4ZTg5Y2JlZWYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImNiOWQyMmJiNzE5OWM5ZTZiNGU4MzNjYThiMmNkZGUxZDQ3MmE1YmM2YTI5ZDFiYTJkYzkwYTUyNzlmY2M3ZjYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_e1d7a67f07fa4cdaaa2a9220983b7a6a",
+      "statement": "Black-Litterman uses the inverse (reverse-optimization) process: starting from known CAPM market weights x_M, maximizing quadratic utility gives the first-order condition Pi - a*V*x_M = 0, so the equilibrium expected returns are Pi* = a*V*x_M, the mean of the prior.",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L127-L147",
+          "version": "repo-lines-v1:sha256:e93addf2e2886e5c83978a51fc41500c6bac5b568626f9d7d1773076cded4896:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg5ZWI5NWI3ZTMyZDJjYzM4ODBiMGFkZTZlZDNjNmQ5N2IzMDM1MzkzNzRhMmU4Zjc1ZWM3ODU5ZmVhZWZmODUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ2NGQzYmM0OTFlNDk4ZGVjZGFmY2I2OTdkYWMyYTJlNzcxOTNhOGE3OGI1NGEzNzliYWU5Mjk0NjkxMGVlODgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjY3YTljMDdkMTczMmRkOGI4NGY2Mjk4M2UyMjcxNmJhNGMxYWIxYmNlNmFiZDg5MTlkZmUwZTVmY2Y1MjgxZTciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjM4NjFiNjg0MDEzMTY2MDZmNmVmMDFiYzk1NzcxYThjOTk2NWZkOWE5ODg1NmFlMGYxZDVhYzFhMGNiMjcwZWIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d264e1261b2748bcaad2ddd581c99834",
+      "statement": "Views are specified as P*r ~ (Q, Omega), where P is the (K,N) view-mapping matrix, Q the (K,1) vector of view returns, and Omega the diagonal (K,K) matrix of view variances with K <= N, and can be absolute (one asset's expected return) or relative (one asset versus another).",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L151-L155",
+          "version": "repo-lines-v1:sha256:543be9a6b2b3863d9fb8c8670fc2f439ecb60d948543f63ce3234066b9a231a6:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmM3ZDRiYTUwNDEzNWExMGIzYzM3ZTVhYTUwMzQ0Zjc5ZjYyMDdhMzA3NWNiOTY3ZTI0NDQxNmRlNjcwODgwMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTg1YmIwYzNhNzI4ZTFmNTQ4YWQwZDNhYzg3Y2QyMmUyZjFhMGI4NzA2N2I3MTYyMTFiZmY5NGM0MDg0OWZlMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzg2MWI2ODQwMTMxNjYwNmY2ZWYwMWJjOTU3NzFhOGM5OTY1ZmQ5YTk4ODU2YWUwZjFkNWFjMWEwY2IyNzBlYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjIxOTY1ZTQ5NDZmMmZlMDYzNzRmMmU2MTRlNmI0NTcyM2U0MjlhODgyZDQwNWJlMDRjNWM4MDI0OTJjZGQ3ZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9e2cce42a20847e6a407a426aee3cba9",
+      "statement": "The Black-Litterman posterior mean r_BL = [(tau*V)^{-1} + P'Omega^{-1}P]^{-1} [(tau*V)^{-1}Pi* + P'Omega^{-1}Q] is a precision-weighted average of equilibrium returns and views: smaller Omega (higher confidence) pulls r_BL toward Q, larger Omega pulls it toward Pi*.",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L157-L167",
+          "version": "repo-lines-v1:sha256:020a6a38a649dbbb2184982650c4e6533e2be77e153543c9e08034879c2b517e:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM0ZDNjYzk3ZGQ5YzMzMzE2MzhiMTkwNjUxYzQyNzAzZjg1YWU0MTY0MDcxODRjMzkyN2MzOTg2MGY4NmFjYTciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVlODI1YzY3NWNlMmQzOGEzODRlNTEwYzIxZmIwMWVmNzBkYzYyNGZkMmM2NWNhY2Q2NTgwMmE3YzU0ZmIyNzgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjQwOWYyOWEzYmJjNGFlMjdhYzBjNGFlMTkyZDlkNGQxNTE3M2JiODZlNTgxMDRjM2QzMDZmMDcwZTRiNjRjNzYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBkMWVhODllYjQ1OWU2YzlkZDNlYjU1YWM1YTFjOGRmZWY3OWM2Zjg4Yjg5YjQwMTQxMzIxNWU1ZTUyOGVlN2EifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c3063b5d31e64ae89d3590572fc4b3e7",
+      "statement": "In the worked N=3 example (market weights (0.50,0.30,0.20), a=2.5), reverse optimization gives equilibrium returns Pi* = (0.0340,0.0420,0.0263), and after the two views (absolute E(r1)=0.06, relative E(r2-r3)=0.02) the posterior mean is r_BL = (0.0532,0.0478,0.0281) with optimal weights (0.627,0.230,0.143), raising Asset 1's weight above its starting 50%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/03_mpt_limits_and_black_litterman_model.md#L171-L204",
+          "version": "repo-lines-v1:sha256:3357d87ee2aeb597d627666ab557dc02733807ff93218322dc71c99841fee467:eyJzZWxlY3RlZExpbmVDb3VudCI6MzQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNhMDZiNGM0NTNmNDhjZTMxNzU2M2Q4MDZjYWFjZmIzNGU0MDYwMmM1N2ViNjJjNTM2MTU0Yzc5NTQ1ZWYyYTkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ3OWVlMDZlZTFkODRmMTQ4MjZkZjRjOWI0YzY4MTNjNjRmMTJhOTg5YmUwYTJlMGZmZTVkMTcxM2I0ZmZkNzkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjBkMWVhODllYjQ1OWU2YzlkZDNlYjU1YWM1YTFjOGRmZWY3OWM2Zjg4Yjg5YjQwMTQxMzIxNWU1ZTUyOGVlN2EiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg4YmViMWM3YmRmNmM4MTRlZTJhYmJlNmU3NjRhZmU5NjdhNmRmOGQ4NWYyMzczY2IwZjg0Yjc4OGJhZGJlZTAifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

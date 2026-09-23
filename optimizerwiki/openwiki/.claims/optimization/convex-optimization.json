@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:f6257525bde21a1e3dc429bb128488356ac5b4b80d1cda5c95ea29e174c9ddb0",
+  "claims": [
+    {
+      "id": "claim_df8acf8229304913b535d1efe2729734",
+      "statement": "An optimization problem in standard form minimizes f_0(x) over x∈R^n subject to inequality constraints f_i(x)≤0 and equality constraints h_i(x)=0, with the optimal value p* the infimum of f_0 over the feasible set, taking p*=+∞ when infeasible (infimum of the empty set) and p*=−∞ when unbounded below.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L16-L32",
+          "version": "repo-lines-v1:sha256:3ff41c0ce553fd8f4170090c0aa71835665790799f6e3b1be55449ad4bc061eb:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRlMDQ5MTYzMzhjZDZlODY4MWI4ODdkMDI4NWIxNWUyNDkxMTUzZWI0NzdjMDFmOWI2YzkwYzAzYTg3NmFjNmEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjViODU0OTUzM2MxYTIyNjYwY2MwNjk1ODM3NGU1MDZhZTBhYjU3NzliMjc5MDBmMjFjMjg4ZDVjODRmMjg5NzgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhhMGI2OGQzMGMzZGNiNWY0OTJmZTNjNjA2MzUwY2RmZjk5MGY2NWZkNTA4MmUzNTNjZGM1MDk0MTQxZThjM2MiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg0MGNkNmI1ZjUxYjAwNGM3NTgzMDllODMwOTMzMGU0MWUxYWU5MzY1YWMwMjcwNDljMDFjZDg4MjM0ZWFkMzUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_28aba09ee77c4c39b6b67d81f5bbf7e0",
+      "statement": "A point is locally optimal if it minimizes f_0 among feasible points within some radius R, and the zero-objective special case is the feasibility problem — deciding whether the constraints are consistent and exhibiting a satisfying point — while maximization is handled by minimizing −f_0.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L34-L44",
+          "version": "repo-lines-v1:sha256:393e73e9aba377f7da0cb490222f364367a999645cae06100523dde0aa349443:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE3ZjQ2ODJkMjJmOWI5MmI1ZWZjYjE4YmE0NjdkNzNiODRjYTE4YzIzNWIwY2E0MGUxZDFlZTU0ODViZTk4ODciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFmYzI4NmM0M2FmMWEwYjU1YzM3ZjYwOTczMzRhZDM5NjIxZmRiNWMyMTY1NjI0YWZjNjQzM2NmOWIwMDVmZTciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijk5OWViOTkzOTk1OWQzMTZjMWJlNmMzOTcxNzgxZTYzOTIyYTFhMDgwMzE1MWMzZjY0NmNhZmFlZjk1NmUxMzQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImIwZGQ1NGVlNWViYmQxMjA1ZWEzNmIwNzc4MjM5MzMzNjllOGYwZGQzYWU3YThhNDVmMjIzNmM3OWVjNTg3ZmQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_ee875fbe35da43d1aad41b0f04ceac86",
+      "statement": "A convex optimization problem requires a convex objective, convex inequality-constraint functions, and affine equality constraints a_i'x=b_i, from which the feasible set is convex; if the objective is strictly convex the optimal set contains at most one point.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L48-L58",
+          "version": "repo-lines-v1:sha256:12a3526a55885bf701ea66e6a8a27946ebf2dc4fb5d990d472b858355baba70b:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI2ZjBjNjZkZjIyNTU0MjAyOGUwOWNmNTY1NTk4Yzg3NDRiNTM1MDZmMGVkYmFmYTYwNWNmYTIxN2UxNTA5ZWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRkMzc3MTIxNTJmZDc4MTM0ODU0MjhkZjlmODRmYWUzYmU2MDkwNDBkNGZlMmVjMTgwMzI3ODdlNWVmNDAyZjciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImIwZGQ1NGVlNWViYmQxMjA1ZWEzNmIwNzc4MjM5MzMzNjllOGYwZGQzYWU3YThhNDVmMjIzNmM3OWVjNTg3ZmQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzMWMwMGMzZThlODA1ZjZlZjAyM2ZjM2ZjNDQ5NzQ0YTdiMzIxN2Q1NWNhMGU0MDdlYTFmZWVjMzBhYjgzMzEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_e2fbce7c58884f59ba5a216ea6996b64",
+      "statement": "In a convex problem every locally optimal point is globally optimal, proved by taking a convex combination z=(1−θ)x+θy with θ=R/(2‖y−x‖) of a hypothetical better feasible point y with the local optimum x, which is feasible, within R/2<R, and by convexity strictly better — contradicting local optimality.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L60-L72",
+          "version": "repo-lines-v1:sha256:f44a191c6a7327a7d12df779a9e0ce5b6af9782ee9711667e500427996dd3abd:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjVkMDNjODFiMDg2ZjVlN2Q5OTdjN2YxZWE2ZWZkNTQ4ZGRjNGQ4MjkyYzFkNzUxOTI5MGE0ZjBkMDdjNDgxMzgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI3OGNhMGY3MDkwNTRiNmU3YzljYmFhYjAxNWQyYWYwMzExOWNmZjViMzEyOWI4MGQyYTc3OThiMjM3M2JiZWIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImI1NmRmYzhmZWI2NzZiNWUzNmU0Y2QxNjExZWE2OTc5NDU1ZjU5YWJiOTFiZjljOTQ0NGRkMDQ0ODFiMjE0NWQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijc5OTE3OTdhODk2MzdlYTQ5YmJkYzhlNDZlYmNiNjk0MzBmZTQ2YjY1ZjU2NDEyM2FkYjYzMmY5OTRiNjUzMWYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_01146e4b6c0b4de0b20be7104cd431ca",
+      "statement": "For a differentiable convex objective, x in the feasible set X is optimal if and only if ∇f_0(x)'(y−x)≥0 for every y∈X, reducing in the unconstrained case to ∇f_0(x)=0.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L74-L78",
+          "version": "repo-lines-v1:sha256:bec5d51551da3b6bf75d1d1b059bdfae013f327d941ebcaba2f6b0f5da21975c:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGM5NTFiMTdmMTNiZWYzOGVkN2MwMGJiZjk5OGNkNzBmNDk0MzYxMmEzZmVkNzkxNDBhZjAxMTQxN2IzNzMxMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzViYTIyNmQyZTEzOWMzMDhhMzExMmU1MmMxMWJmNDBjNzViODc4OWU4ZTgwMmQ4ZmZiMGZjYzNkOWQwMGYwOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOWZjZTg1YmZjYTNhOTBmOTlhYjViZmU1MjQyOTQ5OTdjNzcyYzY0NmFkYzRjZjU0M2M3MzljNDUxYWRmNDQxYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjk3Zjk4ZjM1MDZiYWY5YWFlZTg3NTI1NzVjZDJkMzQ3YWZmYjM1NmIxMzg3Y2Y0NmIyMTJlMWUyM2Y1NjM1MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b8ba004a74dc4508be4d94022c6860cf",
+      "statement": "The tractable convex classes nest by increasing generality: LP (affine objective and constraints, polyhedral feasible set), QP (convex quadratic objective with P∈S^n_+ over a polyhedron, LP being P=0), and QCQP (convex quadratic inequality constraints too, an intersection of ellipsoids when P_i≻0), with QCQP including QP and hence LP.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L84-L100",
+          "version": "repo-lines-v1:sha256:5fa26d04a0c1aa05cc39ad54cf6e3e92b6d7178f6cd36dc10a7be99b56ec4364:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNiMjUxMWM1ZGFhNjY4Y2RhNjgyYjlhZjEwZmM0YTRiMjY2NWNmODZiMjc2MGQ3NDFiNDAxNWVkYzc1MGNjMGMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFmOWIzZGFlMTE2NjgwYTM4MWFkMWUwNzg1NDgyMDBiMmU1MGJkNjQ5N2E2ZDllNzVkM2U2NDM5ZmU4NGZkZWQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjliYWNkNmJjYjUxZDlkMzdjMGQzMmVhMGFmM2NkZWI4MGRmZWI3Zjc2MDYxZmEwNmZjNjdhNDQ1ZTM5ZDBiNzYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImMwN2ZkYjlmMThlNDc2ODdhNmY0ZjcyNmRkZWY2ZWFmNjMyODYzNWY2NjQ2ZTZlOGE3NGVhZGU4ZDNhMWE2MjgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d99f563956bb4439a0fced69102bb355",
+      "statement": "An SOCP minimizes f'x subject to second-order cone constraints ‖A_i x+b_i‖₂≤c_i'x+d_i, equivalent to requiring the affine map (A_i x+b_i, c_i'x+d_i) to lie in the second-order (Lorentz/ice-cream) cone C_k={(u,t):‖u‖₂≤t}, making the feasible set the convex inverse image of a cone under an affine map.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L102-L114",
+          "version": "repo-lines-v1:sha256:fe782d3354077a2a41815bf3f225576a2f59fc390c4d3ec35cc126eb1629cb1b:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNkNTY3YjY3YjQ4ZTA4NzQzMjczNWVmN2MzODBlN2VkYTJjZjcwZTk0MGMxNjQwM2VhNjA3MzFhZmFhNTFkMjYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI0NjJkMzQwOTkwNGUwODg0ZGYwOTcwZjkyNzE1YjI2YjA1OWE1NjA0MTVjZjhlMWZiY2NiZGVkOWJmZjdhNGEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQwYmViZjZlYjdhOWQ1MmExNmI2ODA3NDdjNTg3MzRlMzYxNmQ3YzRlNjY0NDI5MjcyZTQyNDM2NzQzZDRmODEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImYyZTBiYzJhMWU5NDFlOWU2MTY0OTY2MWIzNmIwOGM0ZjVjNzc0NmY5ZTg0NGE1YzNkYjZkYzNiZTIyYjJjZWMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_782ea86bf90a497896491d4f4f846ca4",
+      "statement": "Setting A_i=0 reduces an SOCP to an LP and c_i=0 reduces it to a QCQP (via squaring ‖A_i x+b_i‖≤d_i), a QCQP with P_i≻0 converts to SOCP by completing the square x'P_i x+2q_i'x+r_i=‖P_i^{1/2}x+P_i^{-1/2}q_i‖₂²+r_i−q_i'P_i^{-1}q_i, and because each class is a special case of the next an SOCP algorithm automatically solves QCQP, QP and LP.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L116-L124",
+          "version": "repo-lines-v1:sha256:afe95fbcf5e91e81f46dba69518b8fcf9fa3cdf131f34392de042c22079fdd14:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTk0MDY3ZGE4NzZmYmViZGE4MDA1ZjMwYzM2MmQxZDA1ZjczOGJkNTE2ZjZmZmQ0NTRiM2UyNDYzNzQxY2EyYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTBmMzgxNDA5OWNmZmFkYTVlN2M1NmY2NGQ3NTkyYzMxYjdlZmQyODI0ZjBmOWM5MDgyMGNhODg0ZDA1ODM2MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTViMzU4ZjhiMDI3ZGQ3OGI0NjkwODg4Nzk0ZTU0YTE0MzI2M2EyNDg0NjI0Zjk3Mjc4ZTYzNmM2MjQwMjZlYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDY0ZjBiMGRjODM3YjlhYmRiNTg3OGEyMGU2ZGIyMjZhZTBmODFjMDhmOWI4ZjljZTIxYmRjMjk4Zjg2ODgwMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3b4cd2105aba415c9b795b0e3d5d46ee",
+      "statement": "Markowitz's problem minimizes x'Σx subject to p̄'x≥r_min, 1'x=1, x⪰0 and is a QP because the objective is convex quadratic (Σ⪰0) and the constraints are affine.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L128-L132",
+          "version": "repo-lines-v1:sha256:81dbcc1d1414728d1f7d4c522206ee8364f78084442da1267aa6edb6af3402de:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTY0NTUyZDkwOWI2Zjk5NTdkN2U3M2VjMWIwNTU4YzdmYjg4MTVmZWI0Yjg0ZTRiMTc2MGZjMTAxZGZmYjhkOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODM1NjkxNGViOTZiYjcxOGE0ZWUxYWZlNjEzZjZkNTk2YzY2ZjVjYzE0Y2IyNDMyNTk1OGQ0OGVmZjlkZWYwZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDY0ZjBiMGRjODM3YjlhYmRiNTg3OGEyMGU2ZGIyMjZhZTBmODFjMDhmOWI4ZjljZTIxYmRjMjk4Zjg2ODgwMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDIzZTRmYmU4ZjFkMWExNmQ1ZDhmNzAwZThjZTZlNzBhZjAyYTdlMWI3ZWZiNjVmZWU4ZmZmNjAyNTVhMGVkMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9354a59d90a74668962fd2543c9ea97e",
+      "statement": "Extensions staying within QP include short positions via x=x_long−x_short with a cap 1'x_short≤η·1'x_long limiting total short to a fraction η of long, and linear transaction costs with buy/sell variables and a self-financing constraint keeping the problem a QP.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L134-L134",
+          "version": "repo-lines-v1:sha256:080caeeaa4c0bbc3bd34e63ed7d958bc74877056cb21d045b61eb9254ca29e6f:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDgwY2FlZWFhNGMwYmJjM2JkMzRlNjNlZDdkOTU4YmM3NDg3NzA1NmNiMjFkMDQ1YjYxZWI5MjU0Y2EyOWU2ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDgwY2FlZWFhNGMwYmJjM2JkMzRlNjNlZDdkOTU4YmM3NDg3NzA1NmNiMjFkMDQ1YjYxZWI5MjU0Y2EyOWU2ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODFkZDljZTk4ZmQ2YjljMWM0NjcyYmRmMzkyZDI0Y2JlMTFmM2EyMDM5MTRiNDFlMmM1OWIwZWVmMzMyZjQyNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGMzNjNjOWM0ODE4YWY5MGRlYzJhYWU0MmIxZWYwYmM2OTYyZGJkN2E1YzUyNmZiYzc0MTNmYzA0OThkMWQzNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d320317d65194b1fa9d3fe40f007b5e3",
+      "statement": "Under Gaussian price changes a loss-risk constraint prob(r≤α)≤β becomes p̄'x+Φ⁻¹(β)‖Σ^{1/2}x‖₂≥α, which is a second-order cone constraint whenever β≤1/2 (so Φ⁻¹(β)≤0), making the maximize-return-under-shortfall problem an SOCP.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L136-L148",
+          "version": "repo-lines-v1:sha256:a93de81a858ebc9c9afda46898479daf581dd1dd933a77da339916bf7932a927:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM5MjFhOGYwMzY1ODViZjNiOTQwMjI4M2Y5MTFlNzk3NmU2NWFlYjFmNjdlMmZjN2FlYzBhNmIyNTAzNTA2YzEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBiNjEyZDJkNWM0NjBlZWNkNmZhOGU5YWUwMDk3ZWI2NTk2OGUwZGE3Mzk0ZTA1NmQ5MDZmNWZmMWEyMmMzYjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQyM2U0ZmJlOGYxZDFhMTZkNWQ4ZjcwMGU4Y2U2ZTcwYWYwMmE3ZTFiN2VmYjY1ZmVlOGZmZjYwMjU1YTBlZDIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUwY2E4MjhkOWUyZWRhZTk5N2Y5YzkwYWQwYzAxNTA1NTc0YTYwOGVhMWY1MGI2OGU1ZjRjMGYwYzczM2Q5NzQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d4f39358a7a246f09da369165cba5945",
+      "statement": "In robust optimization, if each a_i lies in an ellipsoid E_i={ā_i+P_i u:‖u‖₂≤1}, the robust constraint sup{a_i'x}=ā_i'x+‖P_i'x‖₂≤b_i is second-order conic and the norm term acts as regularization, discouraging x from large values in directions of high uncertainty.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L148-L152",
+          "version": "repo-lines-v1:sha256:2f454991f5d5983979d0fd1adab455a11843718da95917f262615a2ba13b421d:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMGI2MTJkMmQ1YzQ2MGVlY2Q2ZmE4ZTlhZTAwOTdlYjY1OTY4ZTBkYTczOTRlMDU2ZDkwNmY1ZmYxYTIyYzNiMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDIwMGRjNWRlM2EyZDFkMWZjODQ4NTQ4YTkyMzdkOTNiYWU0YWJkOWM0NjVjMGViMDYyYzg4ZTMyYTExMDRhOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZGJhM2RmMjU2Y2QwNjkzZGE3OTJiMGFjMmY0ZmRmMjdiOGNiODBlNzA4ZjgzZGY1ZWJmMjRmYmNhM2E2ZDUyMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDI0YWEwMTM3ZjNjMTc0ZDEzMDJiNGFjZDlhNmEyNWU0YjkwNjY1ZTM3MWU2ZjY1NjFmNTYyZDBlYjc1Y2YzNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3546d4ae3baa4cc1ab095d6d1569e4ce",
+      "statement": "The Lagrange dual function g(λ,ν)=inf_x L(x,λ,ν) is the pointwise infimum of affine functions of (λ,ν), hence concave even when the primal is not convex, and lower-bounds the optimal value g(λ,ν)≤p* for every λ⪰0 and every ν.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L156-L176",
+          "version": "repo-lines-v1:sha256:fa096320461fbf340646bbb3ee930a8c46b9b85c9841002abc38c9941dd06411:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM1MGNjNTBkMmFjMTAyY2Q0YmQ3MDY5MjE1ZGI4ZmI2NDlhMmZkZWI3OTNjMDY5OTAyYTExZjdlYjIxOWU5NjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI5NWFhMGJiNTlkMmEzYjgyZTE1MTUxNDJkZGYzMzQ1MzU3NmQwZDU1MmIwMzM1ZmVkMTBiYmQzOTUyZjNjMjQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjAyNGFhMDEzN2YzYzE3NGQxMzAyYjRhY2Q5YTZhMjVlNGI5MDY2NWUzNzFlNmY2NTYxZjU2MmQwZWI3NWNmMzQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImJiYzI2Nzg1ZDg2YjM3ZmUyYTY2NDhhZGJiNjhiMDU1MTdmYzNkYzZkNzhkNDE2ZDg3YmFkODg0MjZjM2YyMmYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_bf0ce2e2ba2240b78e676ee317808896",
+      "statement": "The Lagrange dual problem maximizes g(λ,ν) subject to λ⪰0 and is always convex regardless of the primal; weak duality d*≤p* always holds (even nonconvex or infinite), with p*−d* the optimal duality gap.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L178-L188",
+          "version": "repo-lines-v1:sha256:ef29d417a76b17cf380b42ba6106761bd892c1c69d382cd208f8eaaaf439cdc8:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY4YTAzMGI2OTRkNTdlNTkzOWNmMWE5ZDZlMWNkNmEyOTNjZWVjOTIyOGZlNTVjMGY3NDM1OTk1MGFjMjVkYWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE2NDViNzU2MDQ0MWQzNGYwNGNlNzY1MTUxNmI4YTUzOTM3MzI3NTQyYzNkYTEwZTVkYzZmYjY1YzAxZDVkOTUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImIxZTZiNGNmZGMzZWY2OTE1ZmEwMTU4ZGY1N2QzOGIyMjJhZDliODNhMjVjOTE2OTZiODM1YmE0ZDk3NWMxZTAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImZiMjQ1NDBiYmNkNTRhZjdkNDc4YzZlMTRiMTZkYzg0YzQ0MDMyYmIxZGNjMGEwMjZkNmRkOTQ5ZTA2YzE4Y2UifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_5a73430e60e54b9baff8ad97b610fd30",
+      "statement": "Strong duality d*=p* does not hold in general but usually holds for convex problems, and Slater's condition — a strictly feasible point x∈relint D with f_i(x)<0 and Ax=b — guarantees strong duality for a convex problem, can be relaxed so affine inequalities need not be strict, and ensures the dual optimum is attained when d*>−∞.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L190-L202",
+          "version": "repo-lines-v1:sha256:afc03fd15f71ba6946a7977123c6b3587250749a37cbbfdb4a02551721695c4d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk1YzVhYjlmMjQyOTgwMjhkNDlkYjUxMzdhNjNmMWRjNTZhM2ZkODhhZjY3NTU2Y2U0YTMyM2I0NjgxZTUyMjEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdhMGE1NDIwYzZmZjAwOGJlMmU5YTRmMmZiZjFjNTI5MmUzOTdmOGNhMDBmNDBiNTlmNTliMzRiOTFiMmQ1ZjkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImVkODYyNDFlYmQ1ZmVlZGE3MzEzN2U3ZThiNmQzNzBiZTE2OWViOGEwN2VhZjk0NDkyMjNhMmM5ZTc2MmY1Y2MiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImVlMjQzNGI0OGRlZGIxOTAxOTNlZWFmZDgzNWY2MTVkMzdkYzMyMzk1MTg5Mjc0OGUzOGViYzg1MzcyZGUwMDcifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_ce87240de16e4d4e9543368261ae72b1",
+      "statement": "A feasible dual point certifies suboptimality via the duality gap f_0(x)−g(λ,ν), localizing p*∈[g(λ,ν), f_0(x)], which underpins non-heuristic stopping criteria for optimization algorithms.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L204-L204",
+          "version": "repo-lines-v1:sha256:9b2da663241dc3fbb861f7f8146872dd93ae73a40dc57c3f6768619d41afbe8d:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWIyZGE2NjMyNDFkYzNmYmI4NjFmN2Y4MTQ2ODcyZGQ5M2FlNzNhNDBkYzU3YzNmNjc2ODYxOWQ0MWFmYmU4ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWIyZGE2NjMyNDFkYzNmYmI4NjFmN2Y4MTQ2ODcyZGQ5M2FlNzNhNDBkYzU3YzNmNjc2ODYxOWQ0MWFmYmU4ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjlkOGRhMzkxYjc2ZjM0ZDM3YTc5ZTlmMDAzMmU4M2UzM2UwNzYxYTQ3MTkwMjQxMjU3YzYyYjJkYzkzNzE5NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmQyMTA0MzZmOGQxZGZiMjFhMGQyNDI1ZTVmMzRmOTg0MDBhMjdjOGI2NTliMjU0ODdiYTAyYzdjNWZlODQwNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5af7825aa0be4476bf80a625f1b546d0",
+      "statement": "When strong duality holds, every primal-dual optimal pair satisfies complementary slackness λ_i* f_i(x*)=0 for all i, so each optimal multiplier is zero unless its constraint is active at the optimum.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L208-L218",
+          "version": "repo-lines-v1:sha256:a6a42946d0cad6d64fe6f1e2c491a14f5b38d303b7eb5dc8abb02f24fed4db7c:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg4OWM0NDgwZTgxNTk0ZDUzZDM1YWE5MjRmYmRmMGY3N2Q2NDQ3ZDIwZDZmNTE3MWZiOTYzYTJkODAxZGM4ZDgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM3NWQwNmFiNmE3NTE3NTFhYTRlOTRiZDZhMDAyMDUzMWY5NDAzYjhhYmU3M2E1N2UyYjI0M2ZlZDhmMWMyZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZkMjEwNDM2ZjhkMWRmYjIxYTBkMjQyNWU1ZjM0Zjk4NDAwYTI3YzhiNjU5YjI1NDg3YmEwMmM3YzVmZTg0MDUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY1Y2RiZmI3ZDFjNzE0ZWZhMWFkNWJjYjRmZmRiY2RiMmYzYjJhYmE3N2U1ZDRiYjM5NjY1YjZjYjVkNDM0NjQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_bce975d837f040809eed9604f61cc354",
+      "statement": "The KKT conditions — primal feasibility, dual feasibility λ_i*≥0, complementary slackness, and stationarity ∇f_0(x*)+Σλ_i*∇f_i(x*)+Σν_i*∇h_i(x*)=0 — must be satisfied by every primal-dual optimal pair of any differentiable problem for which strong duality holds; they are due to Kuhn and Tucker (1951) and earlier to Karush's 1939 thesis.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L220-L224",
+          "version": "repo-lines-v1:sha256:ef2db39bf7900f8d4e672e6cdb5440cd064b8b4aa2d370517718b4b5c085f0da:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjNmNGYyMDc3ZTEwYWFmYzE2ODc5OWVkNTVlMjU2YWE4NTA3NTQ5Y2M5MzZkYWVlMjhhMzQ2ZmZmOTE1NTU5MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGJjNDlmMTI5MWQwNTJlMGVlNTJjMDQ3YzY4ZTMxNzkwOGVmOWUxNDgzZjJmODY2NjgwZmFkZGVhZDU2NjNhYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWU0OTgzMzQ1MjRjZDQxYzUxY2M2ZGYxZDVhYzMxOTM0N2Q2YmExNTA4NmUyNDIyYmQyYzhkYzc3NzQ2ZWUxNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjdkZjFmNWNhNTUzMzMzY2QxNDNjMTc0ZmE1MWFmZjkxNjVmYTM1Yjc4OTM4NTExYTQ4NGQ1Zjg3YmE1NTdiNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8021ce01e46d44a2a4191c9a74b3b2c4",
+      "statement": "When the primal is convex (f_i convex, h_i affine) the KKT conditions are also sufficient: any (x̃,λ̃,ν̃) satisfying them are primal and dual optimal with zero duality gap, because λ̃_i≥0 makes the Lagrangian convex, stationarity makes x̃ its minimizer, and complementary slackness collapses g(λ̃,ν̃) to f_0(x̃); under Slater's condition KKT becomes necessary and sufficient.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L226-L234",
+          "version": "repo-lines-v1:sha256:926a5b729c595d729e1603bf950f73d708428263abbec2974c9ce4dadd5f72cd:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDdhYTE0ZTVkOGZiOGNmNTY0NTc0NmU2MjU2YWNjMWY3ZDc2ZGI2ZDE3ZmY3NjBmMmVlNjViNzdlNjE0ZjVkYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDI5MzYzNDg2NWU2OGFiMWQ2MzgyOTYzYTBkZmQ1MGUyYmFiZTA3OTEzY2QyY2E5NWI0YzhkYmI5NmEzMmU2YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzg3YWI3MzZkMTAzMjk5M2Q4ZTNiNTNhNzE5MmI1OTk5OTQwNzhiMWEyMDJiMmNlNzFlMjYyMjdhZTNlN2JkNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjE4MTFjNjUxY2VjZWI3OTIxNzcwY2JiNDRiMjIzNWI4OGQ4MmVhYmY2OTFhYzNjZjE2NzAyYTg1Y2E4ZGYxNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c83128b9afc74660aad148c5dcf749fe",
+      "statement": "Equality-constrained convex quadratic minimization has KKT conditions Ax*=b and Px*+q+A'ν*=0, i.e. the linear system [[P, A'],[A, 0]][x*;ν*]=[−q; b] whose solution gives the optimal primal and dual variables, though in most cases KKT has no analytic solution and many convex algorithms are methods for solving it.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L236-L244",
+          "version": "repo-lines-v1:sha256:f1ce9df914d8446fe00e809d5a9eea38e70c823a470286f061b3b1185f0d9f30:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTQ1M2FmNjQ2NGNkMmJhMzI3NzgyZDFhOTY3ZDc0NDMzZTEzOWVlNjViNGRkNjY0MDEyNWY0NWI5ZjRmYTljNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGJmNmJiNDRhNjI4OWFjNWQ0ODAyODY1YzVkMmEwMzM0Zjc5ZDZiMjA0MWU1MzUyMTU2MjgxZDUyNjEwZTc5NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzg2YzJiYjc1ZTMwMTUwYzYwNGUwMTU1MGEwNWJkZjZiYmE4ODRlZDlkMTIxMTA1ZjM4YWE1YmIyMWZkY2Y3MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWI3OTUxMDY0MzAyMWNkNTkxNjg4ZDlmNWYwYWNkMzg4ZDMzMmFhOGEyNjZkM2RmZWVkMmU2NjI1MTY2YzY5MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d575600863844a739bcc7fdc9d5975ef",
+      "statement": "SOCP has its own duality theory — its dual is again an SOCP, weak duality follows from a nonnegative Cauchy-Schwarz gap, and strong duality holds if primal or dual is strictly feasible — and interior-point methods use the second-order cone barrier φ(u,t)=−log(t²−u'u) in a primal-dual potential-reduction method specializing Nesterov-Nemirovskii.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L246-L254",
+          "version": "repo-lines-v1:sha256:6ab432a2d715b775b2300ea6300bc0d2592ef51e6d508b479eb452af6e1df21b:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOGI0ODZmOWRhOTRlMWM4NTIxOTk4ZWNiYTJjZmZhZTk2NzliYmViMzQ0OTliYjZlYWIzZGFlZjFkOGY0MjNiNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTQ5YzA0ZDZmM2U4NjVmOWZlMTg1YmY0NmVmYjI1ZjI5NzU0NGQ5M2E2OTdmZjc2MzEyZjE5YzU0MDBlMjgwNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODRiZTI3N2Y5MDEwNzhiOGUwMzc3ZmY5NTc4YzAyZGMxMzAwMDMzNDZmMWYyYzk0ZGU4MTQ0YmFkMTk5MmM5ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGVjZTk2MDZjYWY4YjdkMTI4ODhjYTRhMjgzNTBhMGY3MGIzYTcyNTNjMjczNTAyY2UyNDE2ZWU5OTQyYTAxOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a5a64bf7d55f431586c3ca13dae126f6",
+      "statement": "For interior-point SOCP methods, worst-case iteration count grows at most as the square root of problem size while in practice the typical count is between 5 and 50, almost independent of problem size, which is why optimization libraries return the global solution of LP, QP, QCQP and SOCP portfolio problems.",
+      "evidence": [
+        {
+          "resource": "repo://docs/14_convex_optimization_cones_duality_and_kkt.md#L254-L254",
+          "version": "repo-lines-v1:sha256:949c04d6f3e865f9fe185bf46efb25f297544d93a697ff76312f19c5400e2804:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTQ5YzA0ZDZmM2U4NjVmOWZlMTg1YmY0NmVmYjI1ZjI5NzU0NGQ5M2E2OTdmZjc2MzEyZjE5YzU0MDBlMjgwNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTQ5YzA0ZDZmM2U4NjVmOWZlMTg1YmY0NmVmYjI1ZjI5NzU0NGQ5M2E2OTdmZjc2MzEyZjE5YzU0MDBlMjgwNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDEyN2U4MjRiMjhjMDA1ODFhMGFkMWMzNTc5YmIzMDM2OWRiMDQ5ZmM3MzgzMWZiNjYwZDM3ZDZhYjgyZjE3NiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGVjZTk2MDZjYWY4YjdkMTI4ODhjYTRhMjgzNTBhMGY3MGIzYTcyNTNjMjczNTAyY2UyNDE2ZWU5OTQyYTAxOCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

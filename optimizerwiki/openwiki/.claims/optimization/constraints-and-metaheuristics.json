@@ -1,0 +1,244 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:8aed1980884f17cbf16dbbe2b1dcc2f0c783a8ca7bcff73ad32ef09c0691c7d6",
+  "claims": [
+    {
+      "id": "claim_f7dfc730ce4c458a8dd8ca099e79bf6b",
+      "statement": "Static equity portfolio selection distinguishes three mixed-integer constraint families: minimum trading lots (assets traded only in integer numbers of lots), a maximum number of distinct holdings, and a minimum number of lots that must be bought if a stock is selected.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L16-L20",
+          "version": "repo-lines-v1:sha256:f897a7236cb50be9e302e1cc1ccbcd6f96e69816effbaada39c4e9f53c099c86:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjJhNDYyZjhhNGMzNmZlZmU0NmUwMjY4Y2M2MjdjODc1MjMzM2I1ODhjMTQzYTc3ZGQ4ZTY0M2YyOWE5Njk0YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOThlYWZjNWUwNGFmYjUzOWFjODFiYjJiMjk3YzA4ZGJjZTFjYWZlMWM2Y2JlYTUyZTgzY2ZjMjJlMGE4ZGI0ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGNkYzNlM2Y5M2FiNDIxZmE2ZWQ4MTUxYWMzZjBjZWQ0ZWMzMWEzZGJiNjJhZGY4ZmY1MmNkYTVlOWZjMDg4MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWU3Y2NiYTdkYzkwNzUxZTRhMGNhMTA3YWZlZWQ5NTk1ODZlNzJmZGNlMjkyMGQzZTA0ZjdmNmY2ZTUzOWZlNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_133ae9fa8bbc4f368914e3120beb181e",
+      "statement": "Introducing mixed-integer constraints makes checking feasibility of the constraint system in general NP-complete and solving the problem in general NP-hard, where NP-hard is at least as hard as NP-complete and NP-complete problems admit no polynomial-time solution algorithm.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L22-L27",
+          "version": "repo-lines-v1:sha256:813d24e751a3efec2ed8fe8c8d8fb707c1df56626d6d4f22f7d8d6458d1f51d0:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjhkY2Y2MWVjZjVhMzY0ZmNhODg3ZTNmMGZmY2NhZWEyMzRhN2IwZDQ5ZTMzMWY3NmEwNTk5MDYyYTQ4Y2FmYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjFkY2U3M2M0MjcyNjc1YzFlNmMyNTc3NGJjYzI0YmY3YjAzOTZiMjNhODA1ZGUyY2YwNjQ1ZTJmNTk1OGIxMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjE2NzgxOTUyMjQ3NTIzNWUyNWIxYTkxNmRmMTgxOTdhMzQ0MzAzMTM3NzJhMjBlOGM3NjAzNTUwMDQzMDg0NiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjIyMzIzNDMzYWVlNDk3ZDhhMjk5MzVmYTZlNzFlZjBjMDQzY2Q4YTlhNmEzMjZhZjcyMjQxNGRkY2Y1MjNiNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_87ef2cf0e8ce462c984433cbdddc0433",
+      "statement": "For the system Ax≤b, #{i:x_i>0}≤K, 0≤x_i≤u_i with a single cardinality constraint, verifying feasibility is NP-complete already when M≥3 (three linear inequality rows), so the difficulty comes from the joint cardinality-plus-few-inequalities structure, not from the portfolio dimension N.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L31-L47",
+          "version": "repo-lines-v1:sha256:d970d96a5c1bce66f8316dcce753511045c2ed4c6769cbf12bfa211d14172d84:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3MzE4NDJiMjgyODY5ZThmMTgzYzlhN2YxNjk3YWY1NDgzODczZDdmMmRlMjJlNzM3ODVhNjZlZWE4NTUzNzAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImViOWJiODVlMjYxMDFkMmJjNjRkZDU3ZmVmODQ3MDdhODM3MjNmZDFhNWE0YTMxMGYzOWU5NDU1MWJjZDgzYTciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjIyMjMyMzQzM2FlZTQ5N2Q4YTI5OTM1ZmE2ZTcxZWYwYzA0M2NkOGE5YTZhMzI2YWY3MjI0MTRkZGNmNTIzYjQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjVkY2NjZmUwNTUyZmJkNmRiZjBkNzdmZGYzMjk2N2NmZjY0MzgzNTY4OWQ4NjYzOGE0ODIwMTA3Nzc3Njg3YjMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_ea7d211cd66d4507aa0b9889c4785f99",
+      "statement": "In the minimum-lot Andramonov-Corazza model the objective (PLx)'V(PLx) rewrites as the quadratic form x'(L'P'VPL)x, and a two-stage branch-and-bound / cutting-plane / sub-gradient scheme has a termination guarantee: if at least one asset is infinitely divisible it either finds the optimum or reports the feasible region empty in finitely many iterations.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L55-L78",
+          "version": "repo-lines-v1:sha256:a996b144af6ba85d9fabfc3344d2c214a4a31f86b8ad092c3a2cf354dd01f814:eyJzZWxlY3RlZExpbmVDb3VudCI6MjQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIyNDhjNmM4ODI3YzJkYjZlY2IyZTU2YWU0YTFiNzBlZWY0YzIyZTc4MmJjZjcxZmNiZmY5MmY4ZmM3MjMzNzgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjEyOTg2ODAzMzlkMWQ4Mzg1NmE2NTE5MTg1MjhhZDI0NzJjMGM5YzFlYTE1OGExMmQ5NTVhMzAyODZkZDBkMTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjRiYWI2NWUwNmNkYmVjOTUzNWMzOTJiZTc4MDQ5N2E1MWY5YzVkMzQzNDMwNzg0MWJlMjdmMGE5NDNhNTEwY2EiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjkyNGE4ZDM1OWNhMWJiYWZhZjY3OGZjYjc4YTFkNTkxMzkxYjcwODhhNTgwZTlhNDlhZGNhMjhlZjQxMTQwYWMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_fbcab149355142509f9fff53c5cb726a",
+      "statement": "The Corazza-Favaretto integer-lot model has a feasible solution if and only if r_1≥π (the reference asset meets the required return), or else r_1<π and there exists a stock ī in I={2,...,N+1} with r_ī>r_1 dominating the reference asset in mean return.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L106-L128",
+          "version": "repo-lines-v1:sha256:c5b701c424ec94629efeedc0042591e94d9a5e699c15a030b3113dfe5a0b2af3:eyJzZWxlY3RlZExpbmVDb3VudCI6MjMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVjODZhZmVmOWY0ZTc2YjlkYTZhNjRkM2ZlNWQ3YzRmZDFkOTY4ZGRlMzQyNWQwZThmMTVmOGY4ZTk2ZmE2ODciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ2NzFiZmVkNGQwY2ViMTliMWFjMTA2ZmVjYTlmMzc0YWY4OWFkNzQ1Nzc0MjI2MmEyM2FmOGQ1NGViNDVlNTgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjI5YjIyOTc5NTE5OWI3MGVhZjQ2MDNjNzU1MzY1YzFkMzg3NGFlODAzYWQwNTg5ODIxZTg2ZjMxZDE5YzNiNzEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjY0MjA1NGFmMTBkMjQyNjBkMTIwMzI5ZmMyNjQzMDk5NmI3NjJjNTQwNGNjZmE5OTk0YjVmZjYxNWQ1YWI2MDQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_af4451a8bf0249fdab33b55bec36d276",
+      "statement": "The Jansen-Van Dijk index-tracking model minimizes tracking error volatility TEV(x)=Var(r_portfolio−r_benchmark) subject to x'e=1, an exact cardinality #{i:x_i>0}=K and x≥0, and is approximated by moving cardinality into the objective (weighted by c≥0) using #{i:x_i>0}=lim_{p↓0}(x_1^p,...,x_N^p)'e with a small p.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L136-L180",
+          "version": "repo-lines-v1:sha256:f6bddff61adf04a1ce87d9694927cf79f82d778f8583c9980a724b1a9edf802e:eyJzZWxlY3RlZExpbmVDb3VudCI6NDUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjIxMzI3Y2E4MDVmYzQ5MDY4OGY0MjljMzdmOTgzYWNlNDU0MzcwNjY4M2M4YTFiMTc1MWE2YWQ5YzFkMWNkMzkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBjOTQ2YzIxNzgzNmZkNTIwYzQ0M2M1NDQ5ZjZjODkwYTIzZTE4Y2M4MDU0ZDNhY2ZiODhkOGUyNzI5YWY0ZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFiYWQ2ZTE3ZWJhZTYyMGNkNjhjMTc4ZGM1YTFhN2ZjNWVhNTM0ZTIyZGEzMjhhZDNiODFhYjJmMjE3M2U3NWUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjRmMGEzNDE1ZTU5N2QxYjY5MzZhMzdiYTM3YWQzZjlkNDc3NDFiNjkzYzk2YmM3ZTI3MTcwZTQ1ZjQ0ZWVjNzQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_22ce51b5ad0d4df8bfba1bdaadce19eb",
+      "statement": "Cardinality constraints can make the efficient frontier discontinuous: on an N=4, K=2 example the mean-variance frontier is two separate, unconnected arcs, exemplifying that integer constraints destroy analytic properties the classical continuous frontier possesses.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L182-L184",
+          "version": "repo-lines-v1:sha256:2dae1c9962fdf37dc0baf4fdb0d02e1f887ea8e904964d00e3ec99fe3fa7a55c:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjVjMTcwODkzMTJmYWVjMDRmZDQxZWYzNDU3MTNiMDJjMzZlODExZGJlM2ZkOWIxMTg4ZTA1N2ExZjIxNDVhNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2Y2Njc4ZTBjNWRiNmRhYmZkMzBkMzRlZTcwZmMxZGVjZjgwMjE5Y2VlNTExMWI0YWJkYWJhN2M1NjM1YWJhNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTM4ZTI2YmQ1NTJkNzk4YWI0YzBlNzE0ZDIzZmYzYmFmMTA2ZjE2ZDE3ZDU4YWI2ZThlZTg2NmZjNGUzMmU2ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTA3ZTVhNjVjMDg5NGYxNjMyMjhlMjIxOGExN2I0NGJjZWJkNmMxZTg3ZjYzZDhlNzViOTE0NGQ4NDY0YjhmZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_dad01109c41d4013a657a4317e48ced6",
+      "statement": "The Jobst et al. model uses binary switches δ_i∈{0,1} where l_iδ_i≤x_i≤u_iδ_i forces x_i=0 when δ_i=0 and confines x_i to [l_i,u_i] when δ_i=1, so a lower bound l_i>0 realizes the minimum constraint and Σδ_i=K caps holdings, solved by branch-and-bound tree search.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L190-L208",
+          "version": "repo-lines-v1:sha256:52f7b0e9f5945e9a409b4c63ab193d36791dd5c25574f371b23562afd53dbf80:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJiZjE4ZjYwN2M3MDRiN2Y5ZjE1MDJjMmY1MmEwN2RhYzkyYWNhYmY5YzRiMzU1YmEyNDFlNDU1MGJiMmVlNmQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJkZjM3MDFlYmQ5YjM1MjBjZmM0NTE3ZmZjZTExY2ViOWNkNDc5OTczNWE5OWJjOTIxNGQyMjhkMWZjODEzYTAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQzMjhlOGFlYWRmN2I5NGU0NWMxNDBjNzAyNDg2MTIzNjE2NGQzM2U4YjNiNDAyYzY3ZjJhYTI1ZjlmOWE3YTciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhhOGI4Yzk0NmU3MDY2ZDJkYmM1NWU2ZGEzMGRlNWJjMDNmMmU0Y2ZmNmNhOTRmNWJiNWE5OTk5NTY2MjJkYzQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_077d2f29520248609b1a9849d67f94bb",
+      "statement": "Semi-variance is a downside-risk measure summing only below-benchmark deviations Σ_{t:r_t<r̄}(r_t−r̄)²/T; it equals variance for symmetric returns but is not analytically tractable.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L216-L222",
+          "version": "repo-lines-v1:sha256:7760c52927d148d7b1fc4b1b7017c8ded9530fcca9ea67c307168e62a927a359:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTcwZDNjNzIzM2VmODUzYTFiYjUyYTM0MmQ5ZGY0NmEzMWM5OTA4MGE5ZDQ3YWE4YzEzYjhjYzQyZmViODBhOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTUxMDI3ODE3NTI0ZjkzZjg0NTUxNTU0OTQ3NjBmMDhjYWI1ZmQxY2I4ZjJhODc3ZDNkYTg0ZTE4YTQ2YjVlYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzJiMGY1NDA3NjU3MGZiNmU1YmI4YTFjNTlkYmE5ZTFlNjI3M2Y1OGQ1OTlmZWRkNDdkZGViZWE3ZDdiYjhiYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTYwMTQzNzNlNGZjMDY0YTUyNGQ0ZWFlOGI2Y2E3ZjllOGRhZWQ5ZDRmODNlOTZlMzVmZDgwZDIxMzc2NWM0NiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d0010b979b75430381d18d896e5c8332",
+      "statement": "Mean absolute deviation MAD(r)=Σ_t|r_t−r̄|/T is outlier-sensitive but less so than variance; because of the absolute value its optimization problem is linear whereas the variance problem is quadratic.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L224-L230",
+          "version": "repo-lines-v1:sha256:160e1565cb891884bd361aff05d1c493ac9378ddaf9fb9c4a7bb565de7530bd5:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTY5NDk2OTUyMDFmMjlmM2U1MzQ0YmNkMzk2NWU5YWNiZmZjODBiMzU2YjEyYjNiYjE1MjU4ZGI4NjQwOTljMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOThjMDI5MGJiZjQ5ZGJkNjIxOGY0YzEwZjI5ZTU4NGNhMzIxYTkyMjdmNjlhN2FhZjBhNTBjNDZkNjA1Y2U5NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDQwZDkwOTE4NDI5ZWM3YTUzMmQ3YWZiOGJmNDExZDBmODliMzQyYWNhZTRhZTIzNzk3Y2I4ZWY2MmJlNzE3ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDRhN2Q4YWEyY2U5MTljNjc1ZWQ5YTlmYzBjN2FhN2M1NmRkNzMzMGY4MTg4OTM4OWNmOGU4NzJiODg1Yzg3ZiJ9"
+        },
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L253-L253",
+          "version": "repo-lines-v1:sha256:d6ad114e64e1d8d5fb3c823bdea2121c5ff6577902df6a5582936d3e7fad634b:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDZhZDExNGU2NGUxZDhkNWZiM2M4MjNiZGVhMjEyMWM1ZmY2NTc3OTAyZGY2YTU1ODI5MzZkM2U3ZmFkNjM0YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDZhZDExNGU2NGUxZDhkNWZiM2M4MjNiZGVhMjEyMWM1ZmY2NTc3OTAyZGY2YTU1ODI5MzZkM2U3ZmFkNjM0YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDc1MWVhMmQzNzUzNjc2ZDU5MTcyMDM5ZTIxMzNkZTBmYzlkMTY0NjIzNGZmMDJhMTYwMTZhYTY1ZWY4NDZjYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjVlM2E5MTI3ODk4ZmQ1YTg3NTAwNGQzZDE0YjI4NTUwOTVlNDM1NGQ1N2Q4MWFhYzcyYmRhMWQwZjM5ZmRjZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_11e0237ed43e472cbc2443f109871e55",
+      "statement": "Investors prefer positive skewness (the third moment), which indicates a fatter right tail so returns are more likely to exceed the mean.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L232-L232",
+          "version": "repo-lines-v1:sha256:3302589683e43ee49dc3545beb495f6380a2cc634aefc070c3adcaf801c17f94:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzMwMjU4OTY4M2U0M2VlNDlkYzM1NDViZWI0OTVmNjM4MGEyY2M2MzRhZWZjMDcwYzNhZGNhZjgwMWMxN2Y5NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzMwMjU4OTY4M2U0M2VlNDlkYzM1NDViZWI0OTVmNjM4MGEyY2M2MzRhZWZjMDcwYzNhZGNhZjgwMWMxN2Y5NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWVlYjEyNjcyY2VjYmEzNWFhOTBmZGVjMTMzNzI3Yjc2MzBiN2FiNmY4MjA0ODFhNGE0Yzk0MzRhMTEwMGJhNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjI5ZDllNzFkMTFlZDQ4YmNlOTYzYjBlMjE1YzM4MzQ5Y2Q4YzdjYTVmY2UxYWQ4ZDM0MWFlNzY0NGU5ZGViMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_dfc54756e6b248c6b8a38e1e59a5a0e3",
+      "statement": "The mixed-integer mean-variance model minimizes λΣ x_i x_j σ_ij − (1−λ)Σ x_i μ_i subject to x'e=1, Σz_i=K, ε_i z_i≤x_i≤δ_i z_i, z_i∈{0,1}, with λ=0 maximizing return, λ=1 minimizing risk, and intermediate λ a trade-off; swapping the risk term yields mean-semi-variance and MAD models and adding the third moment yields mean-variance-skewness.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L244-L261",
+          "version": "repo-lines-v1:sha256:bab044e064e3b0946bc2b4afb399f6ab2b1910e5253856f9ec4ebd374649702e:eyJzZWxlY3RlZExpbmVDb3VudCI6MTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjExZmZjNzE5MTU4ZDUzNzFiYmQ5MWVmMjVjODRhMDBmN2E1ZWExZWU0OWNkMjc3MGFhYjQ2MzEyZjUxYjVlZjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjRhOGEzMGZmNDQ2ZTkzY2YzNzZhNTk2NDgwM2ExYzZmNmI5M2M4Y2U1MWZiZmQ1YzQ5NjE4YjJiOWRjZTM0MTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijc4MGEyNDRlNDkwMGRjYmQxM2E0NjI0NGEyNjQyNzcwNGU3MTBhZjg2ZTljOTgzZDczY2NlNTA1YTFkNWU3ZmQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQ4N2Y1Zjk3YmI2OWI3YjYxYjQ0ZDkzNTE5MjI4NmQ4ZWQwYzRlZjFlZTBlMDZjM2ZlZmQxYmY4NzViNmNmMGEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_b20e37f2aa2843a78b874aed5fb86c7e",
+      "statement": "The physical-quantity (x_i) and wealth-proportion (w_i) formulations of the constrained model describe exactly the same feasible set, and the w_i form is the one used in the mixed-integer models.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L263-L277",
+          "version": "repo-lines-v1:sha256:f4f497e0da9eb9c235e5a75c79dcede7c896c568740e9d70c1919234232c249d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUyMDBkNTJiMjIwNmIyNzU4N2NjMTlkOWM0ZGQwMzEzNDc5NjIyNDRiYzdmOTdmNDBmZjg0MmQzYTRjMWE4NjAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI1YzNhNDNhNDYxYjFiZTZhYzJmZDI0YjEwNDE4ZWVhZjRmMzQ2NGJiNjAwYmVmOTExNjIxZGI1MTZlOWJlMzMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjRjZGZiNjdiZDE3NGY2NzI0MmQ1OWQzOTc1ODNlY2MwZGQxMGNmN2RlZWIxOWM2ODAxOTc1MDMwZDg4ZTRiYjciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImJhMGRlODliMGEzZTU0NWQwNmRkZmYyNDJhZGVkZmVhZTk1ZTAyOWI3YjUxMTUyN2Y4M2JiZmJlMzU0ZjE1MWQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_484b9a34a9b24ec89200e4d463cfa210",
+      "statement": "Metaheuristics are an iterative generation process guiding a subordinate heuristic that balances exploration (visiting diverse regions) against exploitation (refining a promising area); they are problem-agnostic, approximate, stochastic, can escape local minima, may use memory, and are classified as population- vs trajectory-based and by inspiration (evolutionary, physics-based, human-based, swarm-based).",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L279-L281",
+          "version": "repo-lines-v1:sha256:f181a9742872ba364b43c5b00e3ae872108b2b93c6f76703eb657e1201a67c48:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzk3Yzk2NzE0Njg2NzczNmI2ZTJlYmI0MGUyZWQ0MjYwYzgzZjFhOGEyNmU5NDI3ZDcxZjA5Y2UzMThhZDRmYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDk5Mzg5MjRjMjNjNTA2NTAzZTE4MDdhMWY0NGY2MjYxOGZkNzMyNzQ2YzMyYzE1ZjUyYjViN2U0NTQ5MzE5NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTM0N2JhNjViOTljODRhMmNjNDU4MjU0YmNlNTRkYmYzZDEwZjU5NjYyZDQyYzhhNzUxMTYxOTU4NDBiZTc4NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDdlZTFlMzI1YjI4NmQ0ODk4NjFmNzllNTk0NGZmYmI0MmE2NDcyMWIyNzliYmI2NTU5OTU0Y2FlYTA0MmYzOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2d9936204620449faea84aff78bc859b",
+      "statement": "The Exact Penalty Method rewrites min f(x) with equality and inequality constraints as min f(x)+(1/ε)[Σ|g_r(x)−a_r|+Σ max(0,b_s−h_s(x))], and is 'exact' because a finite threshold of ε (rather than ε→0) makes the constrained and unconstrained optima coincide.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L283-L297",
+          "version": "repo-lines-v1:sha256:fd644fa9d8669893448127507960c983d4b05bcedc2d38259660461344adb2ff:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjA4NDZiY2FiNTkxM2U0MTRlMWU4NWJkODA5Nzc2OGQ4ZGQ2Nzg1MmZiNmU3YzBjYzEzNGRiYzFjMzcwMjVhOTUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU4ZDhmOTBkZWU1NmMxODE0Zjg2YTEwYTlkYWViNjU1M2Q3ZjRmMGE3OGVhOTExNmQ0YjFjNjEzZmZiNzAxZTUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjVlNDg4MTZhYjllZWE0MmFjN2QzMGZkOTA4YTM5ZTljZTRjNGViZjc1MjFhNjk2ZDU2NGFlZDY2ZDcwZGZhOWMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjM5NjM3MDExNzIxYjM5NzNhMDgzOGI0Nzg3YTMyMDk1ZTRjOTQwZDcwMDgyOTQ0YTU5YzQ1ZjY2MzY4OWMyOWMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_eff46c957f5747cb9f7e54dabedaef4b",
+      "statement": "The binary constraint z_i∈{0,1} is enforced by the ad-hoc violation term z_i(1−z_i), which is zero exactly on {0,1} and positive for any other real value, letting the whole mixed-integer mean-variance model be reformulated as a single unconstrained penalty-weighted objective.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L299-L324",
+          "version": "repo-lines-v1:sha256:83d885e7204ab9bd598719eea3f26967fcf7b1a48d7a917653788de17bc38854:eyJzZWxlY3RlZExpbmVDb3VudCI6MjYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBhNmNkMTRiNzNmYWE0ZTMyMWZiYzdkZjhlNDc3N2VlMjcwZDUzYWI2NWViNDQxMzNiMjY3MzI0MGZlMzJjYzQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBjOTQ2YzIxNzgzNmZkNTIwYzQ0M2M1NDQ5ZjZjODkwYTIzZTE4Y2M4MDU0ZDNhY2ZiODhkOGUyNzI5YWY0ZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjM5M2U1MmQxMDllOGVkNmExNmZjZjY5ZDhhOWY0N2NkOGU0MzQ4YTZlMjYyMjkxOGQzNmNkOWVhN2QwMGY2MjQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhkMjI2ZTk1YzlkZGI2NTFmYjQzZmZiMTQwYmYwMTgwY2VlNDBmMDhiN2VkODFlNjliNDYzMzMyNDZhMDk0NzIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_9d93bf22345f4e22b49c98fe76691f40",
+      "statement": "Particle Swarm Optimization is a nature-inspired, iterative, population-based, memory-using, derivative-free metaheuristic for unconstrained global optimization that mimics foraging birds, each particle a candidate solution randomly placed in the feasible set with a random initial velocity.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L328-L330",
+          "version": "repo-lines-v1:sha256:db53e6ada9be1095822ae5df1f9136b4a5fa19079616299e54b285c99ae62eee:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGVkMzdiMTFkNjRjYjYwOWY4YjllOTliOGU4MDYzZWRlN2JkMDcwMjgwN2I3MTIyZTYzNDFmOGM4NjY2ZDJhZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGMwODk5YzEwYjNjYTAwMTg3ZjI3MmIzNDVjYjE3MTUyNjk2MWM5Y2M1ZmRhN2E5Yjg4MWU3MmEwZWI4OTdjYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGQyMjZlOTVjOWRkYjY1MWZiNDNmZmIxNDBiZjAxODBjZWU0MGYwOGI3ZWQ4MWU2OWI0NjMzMzI0NmEwOTQ3MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmVhM2Y5YjFmNTdmMjI3MDMxM2Q0ZmRkYjJkOWEzNTRhMmI0NmYyZGVlNTNmMmQ1M2RiNjk2NzNlMmQxNjgyOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_df4300ad74094718933dcdcab0125584",
+      "statement": "In PSO the velocity update v_j^{k+1}=w^{k+1}v_j^k + U_{φ1}⊗(p_j−x_j^k) + U_{φ2}⊗(p_g−x_j^k) combines an inertia term, a cognitive term toward the personal best, and a social term toward the global best, with the neighborhood best determined by the topology (fully connected, von Neumann, or ring).",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L340-L353",
+          "version": "repo-lines-v1:sha256:d15e0d55f5c4e573329db295cbedcaa060f1eff4a5eb8672fb791a21cf42a040:eyJzZWxlY3RlZExpbmVDb3VudCI6MTQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc3N2NkMDIzNzRhMTE5ZDE4ZGE2ZWQxOGMzODk4MzAwNWMwZWU2NGQ2MGVkZTY3NmRhYmMwMDNiMDZjZjM4NGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJlYWY0NzA0NmJjOGY3Mzg5MTdhMDk1ZmQyM2E0MmEwZmRkZmYyN2E0ZDIxMTc5YWQyNjg3NWFkYjY1YWRkZmEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImIxN2UxMjc5ZjY1ODhjYzdmZDY0NDYyNzMwYjkxMGNjOTQ0M2ZhY2ViZjdkYjU1ZDA4NmFmNjM0OTg0YTI3YTIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU2MjA1ZWJiMmUzN2JkNGFiN2Y2ODNlNDdiMTA1MzNjZTUxOTY2ZmI5ZWY1MmQ2MTRhMDFjYjNiMGM4MWUyMDIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_55eae694658c4d99a7ab73cb8c9dcb47",
+      "statement": "The inertia weight is typically linearly decreasing w^k = w_max + ((w_min−w_max)/K)k with w_min=0.4 and w_max=0.9, or constant w=0.7298 in which case a velocity cap prevents divergence.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L355-L361",
+          "version": "repo-lines-v1:sha256:1207252ccf23716164dd58829157df57f3488d55395e1bbf4b9cb666924ec0cc:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzNhYjQ5ZmZlZDAwODUyMWNiZDJhNDEyYjZmYTM0ZDA4MjI4Y2Y4NjFmNjc1NjMyNDg5MDNkMzA2ODI0NjFiYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2M3ZTQxZmZhNjg3NGVmYWNkYmY2NjRlNmIyZjk4N2IzN2RlMjU0YmY4NDE3NWZhMjY3ZDUxMWNjMGNmNmZiYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjU0YjY4NjdiODIzOTAxYWEzODEzMjUwMWIyM2I2YmEzMjMzMzMxYzkzZjIxMzJjNWEzOTgyOTQ1MTgyNjI5YyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGJlMjEzZWQ5YzE4MjIzMjYwNGIxNmI4YzI5ZDEzNzY2ZjQyYzQ2ZDAzOGNhZjBjYmIzYjgxZmE0MTZjY2YwZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e91ea0cded7247fc84d1e5d8865aa196",
+      "statement": "Standard PSO reaches the global optimum in probability — a probabilistic guarantee consistent with the stochastic nature of metaheuristics, not deterministic finite-step convergence.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L363-L365",
+          "version": "repo-lines-v1:sha256:fc84a78c41d6de660a4d80672918e99f73e5e0660f73d2c41f31001e3941985d:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWI3MjQ4MmNkMzhjOTFmNjFjMDA2MzJmN2E4ZjZhNzhjMTBhMGY4YTlmNDAwY2QyZmE2MmFhN2Y4YmU2OTNiYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTY0MTRiYTI5YThmZTk0NTMwOTkwZjFlZmNmOTNiMzgzMGIyOWZiMmZmYzhiMDYzNzM3YjQyNjU5ZDcyOTA4ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTk2ZGMyYWY2NzgzYzNlNWJkMjYzNDVkNGY0MThhM2VjMjc2YjE0OWE1YzM4OWMwMDRhMmRhYWY2N2Y3YTM2ZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjkyYTk4MzMzN2YxNGFhN2U5OTY4ZDIyYzczMzA4NjU5ZWM3N2MzOTMyNzFhZjA0MjNiNjM0ZTdmOWU1NjUyNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c193003e5798462e847bf36ee321283d",
+      "statement": "On the base D=3 mean-variance problem reformulated as min x'Vx + (1/ε)(|x'r−π|+|x'e−1|), ε=0.0001 is too small to balance variance against constraints while ε=0.001 concentrates the PSO cloud around the Markowitz optimum, and more particles (N=30) improve both speed and quality of convergence.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L377-L391",
+          "version": "repo-lines-v1:sha256:9217f000faab620baf9aa0a92eb7f0c5837fe6b91742c1c2d3004b7dec178cd7:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNmYjczYmVlY2NkOWEyMGVhOWVlNmFmYzBjNTg3ODJmZWViMmZiMjc1ZTE5YmQzZGZlN2RmMmNkMjAyMDlhYjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM4OWFlYjFkODZiYzI0ZGI5NmY2ODQxMDFjYzA2NmNhMGViYTQzNDJhNmFhNGQ3ZGFlN2JhMjdjNjkyNTA4MTgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjAwMjkzNjNlY2MyZTExZDI3MDkwOGE3OGQzY2U3ZTZjNmJiMTIxMjYzM2IyZjA0NDBlOTAxY2JiY2VlNmUwNjUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijc3NTk5ZWE0ZDYyZGJhMDc2YmM5OWJlMmNlZGMxOTE1OTA2YzQwM2U2MmJiZGVhODY0OTYzYTI4N2M3NmRkMmQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f32b8171241a44dea3e67828b46ab650",
+      "statement": "With N=30 and normalized random initialization the budget constraint x'e=1 holds exactly in 100% of simulations while the equality return constraint holds between 0% and 90% across scenarios, and relaxing the return constraint to an inequality x'R≥R_P concentrates the PSO points even more tightly since a particle may exceed the required return without penalty.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L393-L399",
+          "version": "repo-lines-v1:sha256:db153d855e50791325b1f45c25657a465f0240e3a97808920fc92da3551e967d:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMGJhMTYyZmJjZTYxM2Y0MTNmMTVkMWZhNWM5ZTFlNTZjMDhlY2FiOTJmMzg2YjEyNWY3ZWFmZmE1ZWQ3NGVjYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2Q4Mzc3YWI0ZmFkNTgxYTQwZjNhZDkwNTBhMjAyMWIxNGEwODY5Yjc5NDlmNjYwNDZmYmIwYzdlOTg3OGNmMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjEyYTQ2NjAxNzhmZTEyNDA3OTUyYTcwOTVmYjFjMDc3MDYzYzI3ODdlMmZkNzI1ZDVhNWRmYWEzMzI1MzZkMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTJlMzM4N2U3OTAwNGM0NDRjNGU4MmMzMjkxYzVkYmE4ZmQ3MTA1ZjExZjFiZDNiOTE0NjMwM2FhMWQyMGQwNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e763dcd53dfb46e59c80136cdd2c579b",
+      "statement": "On the FTSE-MIB mixed-integer mean-variance experiment (40 particles, 4000 iterations, penalty 0.0001, w=0.7298, c_1=c_2=1.49618, ε_i=1%, δ_i=50%, λ=0.5), exactly K assets get z_i≈1 and x_i>0 with the objective value 15.2432 at K=10 versus 11.5738 at K=20, convergence stabilizing near zero after about 1200–1500 iterations, and the K=10 portfolio reaching about 1.47 out-of-sample (Jan–Jun 2009) from a unit base.",
+      "evidence": [
+        {
+          "resource": "repo://docs/06_constraints_and_metaheuristics.md#L401-L414",
+          "version": "repo-lines-v1:sha256:b3252f05037343727e7e3c817f7324739b48aab8e6a042c0fbb7f0ed004d7f8b:eyJzZWxlY3RlZExpbmVDb3VudCI6MTQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdlYjcwMjU3NTkzZGEwNmY2ODJhM2RkZGE1NGE5ZDI2MGQ0ZmM1MTRmNjQ1MjM3ZjVjYTc0YjA4ZjhkYTYxYTYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdlYjcwMjU3NTkzZGEwNmY2ODJhM2RkZGE1NGE5ZDI2MGQ0ZmM1MTRmNjQ1MjM3ZjVjYTc0YjA4ZjhkYTYxYTYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjY2MmE0NzNkY2I3NDQ5MmIzZmVkMTI3OTU3NmE5MmJlMGJmNmZmYTc0NTkzMGYwMDBhNGVhMzM5ZGQxYmJjODAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjliMDFjYTliNWZmODJkZjM2Y2ZjNzA4Mjk1M2M3NWUzODgwODBmNmZhMDBhYjdlMTU4ZjIxYjc5OWY0ZmMwMjcifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

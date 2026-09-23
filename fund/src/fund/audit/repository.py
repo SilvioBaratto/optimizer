@@ -136,6 +136,30 @@ class AgentRunRepository(RepositoryBase):
         weights = payload.get("weights") or {}
         return {str(k): float(v) for k, v in weights.items()}
 
+    def latest_profiler_answers(self, run_id: uuid.UUID) -> str | None:
+        """The typed ``MiFIDAnswers`` JSON the profiler logged at ``normalize_answers``.
+
+        The single authoritative read of a profiler run's interpreted answers — the
+        cross-process :func:`~fund.agents.profiler.resume_profiler` recovers them
+        from here. The MiFID→knob mapping is a *pure* function of these answers, so
+        the ``ConstraintSet`` need not be persisted before the HITL gate: it is
+        re-derived on resume. Returns ``None`` when the step never ran or its payload
+        is missing/empty (a caller treats that as an unresumable run).
+        """
+        stmt = (
+            select(AgentDecision)
+            .where(
+                AgentDecision.run_id == run_id,
+                AgentDecision.agent == "profiler",
+                AgentDecision.step == "normalize_answers",
+            )
+            .order_by(AgentDecision.decision_index.desc())
+        )
+        row = self.session.execute(stmt).scalars().first()
+        if row is None or not row.llm_response:
+            return None
+        return row.llm_response
+
     def set_thread_id(self, run_id: uuid.UUID, thread_id: str) -> AgentRun | None:
         """Stamp the run's LangGraph checkpointer thread id; ``None`` if not found.
 

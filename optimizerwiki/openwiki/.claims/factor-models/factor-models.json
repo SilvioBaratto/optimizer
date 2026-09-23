@@ -1,0 +1,240 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:686f0f067df074ca876ac82212480a5c72298c2052b9c84b3cba490be95d2901",
+  "claims": [
+    {
+      "id": "claim_bbea103f338f4bf99cb5eff6c3ccd8d2",
+      "statement": "The Markowitz mean-variance input set has N(N+3)/2 parameters, of order O(N^2): 150 assets require 11,475 inputs and 350 assets exceed 60,000.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L16-L20",
+          "version": "repo-lines-v1:sha256:2cae24b9b940b91392ebbf64a7acb28703bf92f5b8352c2386ad46d20fe32329:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODdiNWQxYmZkODkwMWFlMjA2N2M5N2QwYjE3YzQ1ZDEwMjExZjdkNzEyMGFkMjdiM2RhMzgwMWNhMzBiZGMwMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODgxN2ZiYjg2MWNkNThlZjU1OGNjMmM4OTQ3Zjc4ZDIwMDlhNTM4NzA4MzVlNzQyNTgwYTBiNmVlZjRjOWIzOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjQ4MWZmMWY3NTdjOGZhNWQ1MTQwYjVjOGViYzY0NDU0YmJiNmVjMWYyMTA5ZTUzOWUzODU3ZWRjZmZmYjJlZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzE4ZWYyYWRhZGJjNGUwYjdiYzMxMWUxYmFiNzViMGQ0MWIxZDAwMzA2MjZjNjRlMDUxN2U4MmQ0OWFkZjY0ZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_24baf1d736b74822834386d9b59d8576",
+      "statement": "Correlations estimated pairwise need not form a jointly valid (positive-semidefinite) covariance: three assets with rho12=0.9, rho13=0.9, rho23=-0.9 give a correlation matrix with determinant -2.888, and weights w=(-1,1,1) produce a nonsensical negative portfolio variance of -0.1405.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L22-L30",
+          "version": "repo-lines-v1:sha256:401a3f281f0d6baac721d749007987056d0d55a5ffbd9e705a8a3f759825a6c2:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODg3ZTYzMjM2OTg5NWI1YzI5MGIxZmY5ZmQ0MWNmNTYxOTMwZmYxYTFmZjMyZmJkYzgwMjlmZGE4ZDc4OTJmOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWRiMWRjOGMxY2ZkNzFjM2IzNzU5MzI5NTVlYTY2ZTAxZWE2MGEwMWY5N2IyZmYzMmZiZDQ0NzcyMDJkYzE1NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWZlZTExN2IxNGI1ZDlkZTk4MzE5NjFjYTkxODQxZDhkMjRiNzM3MDUyYjhlNjM5YjBjNzllY2ViNDI3YTQ0NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDliZGU3ZjFhNjBhODk1Y2E0YzA2YWQzNDlmYTllMmY5NjNiMDNhMDZiYmM0YWEyMjhiNGM4MzNkOTg1MmVkZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4a04f626350f4d6bbe41c77ba21470ba",
+      "statement": "In Sharpe's diagonal model the covariance between any two assets flows only through their factor loadings: Cov(Ri,Rj)=Bi*Bj*Q_{N+1}, so the N(N-1)/2 pairwise covariances need not be estimated directly.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L52-L56",
+          "version": "repo-lines-v1:sha256:d0f2bc3e48a528cd173517485564f9b701efe15570f434ea6120e909f80f6325:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTYyYjVmYzVhODBlYWY2MmNiZTJhYzMzZWJlOTZiYjhmMjQzMzQ0ZWE3MTJiMDMxZGIzZDU4YjkxYzdhMjExOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTA3NGEyZGIzNGI0ZTJjNDI5ZWM1ZjUzZWQ0ZGIyYjQ0ZGUzNjIzODMyNjc3NTdiNmY1YTFmOTFmODY2ZjlkOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmExNTExZGQ0NGYzMjQzNjczNTBjZWQzZTc3ZmMxODA0ZmE5MDFkMGU5MjRiYjk2YmU1ZjIzNmE5NDI4YTVmZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjE5M2NlODYzZTlmNDI3OGZhOWFhOGQ5MTQxYWU0ZGY5Y2I0YTkyZjllMjJiYTFhNzgzNjAyNTQ3MDUzNDMxZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_484be34823854c8cbfc66b1801e5a45b",
+      "statement": "The diagonal model needs 3N+2 parameters versus Markowitz's (N^2+3N)/2 — under half already at N=10 (49.2%) and just 1.7% at N=350.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L58-L58",
+          "version": "repo-lines-v1:sha256:fd9fce57a368792f53be191f6233bf7b5da9e7230a329d41b86254167f5ded21:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmQ5ZmNlNTdhMzY4NzkyZjUzYmUxOTFmNjIzM2JmN2I1ZGE5ZTcyMzBhMzI5ZDQxYjg2MjU0MTY3ZjVkZWQyMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmQ5ZmNlNTdhMzY4NzkyZjUzYmUxOTFmNjIzM2JmN2I1ZGE5ZTcyMzBhMzI5ZDQxYjg2MjU0MTY3ZjVkZWQyMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDljYjI3NWNjNWJmZGNkNzZkNjQ1ZWEyYWJkNjNiODJjN2ZmNGRkYmQ5NDcyNDcwZTkzN2VjZjE4OTBlODFkZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDY4OWU0MjViNzA3ZTIyYzA5NTJhMTgxMWQ1ZDFmZjc2ZTA3N2ZiZWE4YzQ3MGEyYTgwYjBlZjNmZjhmN2E3ZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6d8d483f494a44d390e63d5ccc9f7f54",
+      "statement": "The single-index model yields the compact covariance Sigma = sigma_m^2 * beta*beta' + diag(sigma_ei^2), requiring 3N+1 parameters of order O(N) — a rank-1 market term plus diagonal specific risk.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L93-L97",
+          "version": "repo-lines-v1:sha256:41edcaeec97d99f62378f23e255e95402d6293b795d47631867341b24af4508e:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzI1ZGI5ZjA2ZDQ4ZTA1OTYzOTcxNzZkYjI1NGM5NzM5NzZhNWNhYzg3YjE5ZWI4YWZmMWZhMzI4ZTFiNDY4MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYWY4MjAxZWEzMTY5NzIxOTE1ZjJkY2NhZWU3OWNlMmUxNzg4ZWU2MmZjMjM2ZTc5YTcyYWRlNjZlNzVmYzViMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmJhZjI0NmJmZjI4YmI3ZDUwOWY4MDhjNDQ3YzE2ZDIwNjNkY2UzYjk1YTc2NTQxNzYzZjMzNzMzNzk0ZmVhMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjkyZDQ5YTY0ODk1MTU2YzU5NjU5ZWRjNDAyNzI4ZTIyYTQ3NWQ1ZTVjZGNmMDY5MDUyMmQ0NTBmMjg1ODIzYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b175d26bc3614e5ba40478c1398972f6",
+      "statement": "In an equal-weighted portfolio under the single-index model the idiosyncratic variance is (1/N)*mean(sigma_e^2), which tends to 0 as N grows, leaving only the non-diversifiable systematic risk beta_p^2*sigma_m^2.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L99-L107",
+          "version": "repo-lines-v1:sha256:20a8bb9dab8da08d18c68596f478337adcce28922abe082354b75c8b5cafd182:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2EyYjcyMzAzZTBlODhjM2IxYzk1YzhiN2RhZjIyNDBiZjM0YWZiZTMyMzNlYjhmMjI4YmRmM2RkOTFhZmJhMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTUyZjIyN2FmMDY4ZDk2MWY2MzQ1MmVkMWI2M2VhNzFjZDA5ZTVkNzViZDBjZWU1YTY4MGRkNjRmZTc1NjM2OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjI4YWMwYmNiNjVjZGY2Y2Y5Y2I1YjhjZjEyZmNhNzU3ZWZmMGNlMTUzM2I2ZTQ4MjU1YWJjYTg0NWVmMjMxNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWNkZjJiNWU0OGYxZTdkZDczOTkzYzhiMDhjNWJjNzFhNzJkMDNkNjgxZDkyMjUyMzcyZDU0N2I1OWRlODVjYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9b5b5841fef844b5a8b8dbd07f150fcc",
+      "statement": "Centering a factor (setting E[f]=0) changes the intercept but leaves beta_i unchanged because the covariance with the factor is translation-invariant; traded factors like r_m-r_f are often left uncentered so the return relation exposes the market risk premium directly.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L109-L119",
+          "version": "repo-lines-v1:sha256:cdc8fbf3ec79fceb9f1f3f9e4378906e6d4baaf97fdeef264367b3528460d100:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ5YzE1MmUxZTY1ODQ3NzZlNzI5MjBkZTgwNzQ4NWM1YzZjMzMzNzk0MzliYjAzMGI0YjQ5NjBkYjI0MWExNjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ1M2FiYTAzMTYxNTQ3Y2ZlNDlkYmViOGE2Y2U1MDRjNGYyZjk4YWU1NTQzY2MwMzEwOTJlYWExODc0YjA4YjUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjExZGQzNDJkNjViMTM1MjZkOGMwYjVlZDkyZmNjYmI3MmExN2M1ZjViMWZkZDY5MjNhYzE2NGM5ZDQ5Mzg1MmMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjFhNjBkYzVhYjA1MGZmM2FlZGU0NWJhMDIyNDc3YmVhNTBkMjcyMGI2MzczNzc4YmFmZGQ2MWI4ODY2ZDYyNjcifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_aa5c9766f54e4408bff4f28fc1b14913",
+      "statement": "The K-factor covariance decomposes as Sigma = B*Sigma_f*B' + Sigma_e with Sigma_e diagonal, and the systematic term B*Sigma_f*B' has rank at most K, so systematic risk lives in a K-dimensional subspace of R^N.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L129-L141",
+          "version": "repo-lines-v1:sha256:1379a4c815cfdabe893ee42ae474b02da6d9b3ef8469e71c5767aa9f261ed061:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIyNmVkNWI1OTE5YjU4M2Q2OWU2Y2FkN2FlZTFkZDI2YWI2Y2M1NzYyYzJkNjFhZGUwNDRhZjJlZDJlMzg2N2IiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE2M2MwODUxOThlMzY4OTUxNDRkMTVmMzI0Nzk0Yjg2NTNlNmExNWRlODM4ZGExYTMwNmFiZjU0MTNmNWNlZTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImJjMjdkZmM3OGQyMGQ0YTBkNmZlOGEzYzhhZDYwYzdjZDgxN2I2YTM3Y2ZiNjEwNjZhYTI4NTdmNzBhMjA3YjAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjE4ZTgzYmJjNDZjNDBlZGJhYTMzNmY0MTJlNzU3NzA4ZWQ1ZmQ3NGZiMDUzNjY3ODIxOWZmMDJiZTc5ZTYyNTcifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_3f5924b673a64149bc95361d9b8b2126",
+      "statement": "Portfolio factor betas are weighted averages of the asset betas: beta_pk = sum_i w_i*beta_ik.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L143-L145",
+          "version": "repo-lines-v1:sha256:b378523df0489efd63f51e364413c994d88f94c0b3a3ae0e2bf4e2b0a355fd7e:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjNhYjA2OTI0MDY0ZmY0MDkzYzg0YTQyNDU5NDkzZTgwYWMxYTkxOTNkNmJhMWMzZjVmOGI0ODZlOTE5NTQ0YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2MxMjQyOTUwNjQ0MmMyYTk2ODNiOTJkODhlYzkyYjAyZGMxMmNhMDZjNTcyYmNjOWZhYzJiYzVkZGQ3NDk1MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmE0YzE3NzhkOWEwM2UzNTAxMWE0MWVmZjZjMmEzMzNiOTEwNzgyOTk2Yjk0ZjdkNjBkYjBiZjIxNzVkYWMzNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODEzYWY0NjEyYjNhNjQ0ZmVjYTllYTAzZmViZmY1ZjIzZDU2ZmY3YTBiNTA0OGExMGIzYjdmODVkYTJiYmRmNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e94349a3a3174256896dcc447a271111",
+      "statement": "For N=500 and K=5 the factor model needs about 3,500 parameters against 125,750 for the full covariance, cutting dimensionality from O(N^2) to about O(NK).",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L147-L147",
+          "version": "repo-lines-v1:sha256:68c40455e9721d4227abd724450fffaddd4fc137cae156850c49b85f4463bf61:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjhjNDA0NTVlOTcyMWQ0MjI3YWJkNzI0NDUwZmZmYWRkZDRmYzEzN2NhZTE1Njg1MGM0OWI4NWY0NDYzYmY2MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNjhjNDA0NTVlOTcyMWQ0MjI3YWJkNzI0NDUwZmZmYWRkZDRmYzEzN2NhZTE1Njg1MGM0OWI4NWY0NDYzYmY2MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTYwZGMxNThkN2I1NmI0ZDkzMThkMmE1NDVmNTVkMDc0OWU5NDlhMjM4Yjk4MDM2ODQ5ZjhlYjVhNWQyOGIyNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjc0Nzk4MTcyMGJiMjQzOTNkMjg4YTdjYWEyZWIzNmQ4MzUyMGZkOGJkMGU0NzI4MGY2ZTA4NDg4YTA1NTBkYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3e1783f1141b4b7793ed7d01e4fb0368",
+      "statement": "Under PCA of the S&P 500 excess-return covariance, the first principal component alone explains about 30% of total variance and the first five components about 50% cumulatively.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L157-L161",
+          "version": "repo-lines-v1:sha256:4737b27c6e2d7638fbfe4eb898e4dc20c69a8df15d4f8abecc842d5950cae4f1:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjQ3NTk2OGFhNzQ1Njg0NDU5ZmQ4MGFiNDFlMzYwNGNlYTA1ZDhkNmY0ZTI4ZThlNTVkMzJjNmJmNmYxNWIyZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmZkZTFkMTY5YjYzYzU5MTEwZTRmZTIyOWYzNTA4ZDg1N2YxNTQ0YmUwMGQxZDUwMGVkYmJlYWVmMjgwZTFkOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDQ1M2MzYWMzMjRiNWJmOWEwYTIzNmY2NDRlZDgzNmE1MDY1MjI2YmE1YWIxM2IzYzlkNTMxMjY0OTRmMDVjYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2U0ZDY1OWJmMTc0YWE5MzdkZmJmZmI4ZmViMjg4ODNlNTcxMmMzNGVkNDBmZWUyNTYyN2E2MWEyNmNhNTE5OCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_fdbc013f2d8b49f0b28a741796dac885",
+      "statement": "Under linearity, exogeneity, homoskedasticity and random sampling, the Gauss-Markov theorem makes the OLS beta estimator the Best Linear Unbiased Estimator (minimum variance among linear unbiased estimators).",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L175-L181",
+          "version": "repo-lines-v1:sha256:0c8c357784a68d92f73f538fec91a3033d63ed59094fe0dd718d1ab66859be77:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjFkZWZiY2QzMjY3MGMwNTU2Nzk2OGVkMjVkNDM3ODQwM2VkODYwYzlmNTIwMmUyODg0MDUwYWFlNGJlNjIwYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTBkMGE4ZjRiNGQ4MGMyMDk2NmRjMzlmNDEyYWZkZGNkOGMzYmZmNzk0ZjM4MGQ3ZWYxZmY5MmI2ZjZmNmM1OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2ZjNmJmNGQ2ODllYjE3NDYxNTg4YjE2NjZmODQ5N2VlMDg5ZGUxZmIxNDM1NzdlYjViZmE0ZDVhMWM5ODU0ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWZlYWEwNmFhOTMyNmY1MDA0YzM5ZTBkZWZkYjlkZTkwMDBjODE1ZjU1YjMyNTViYzEwNzllMDA2ZGI3MDE3NyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_94b4138714244afd876b22fa186a6e07",
+      "statement": "The Frisch-Waugh-Lovell theorem shows that in a multifactor regression the estimated beta on one factor measures the relationship net of the other factors' effects.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L183-L183",
+          "version": "repo-lines-v1:sha256:a575bb72a1f23e22fc19a9b6ab6c7d295c39cf9384ad1d864f468ed449f49f32:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTU3NWJiNzJhMWYyM2UyMmZjMTlhOWI2YWI2YzdkMjk1YzM5Y2Y5Mzg0YWQxZDg2NGY0NjhlZDQ0OWY0OWYzMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTU3NWJiNzJhMWYyM2UyMmZjMTlhOWI2YWI2YzdkMjk1YzM5Y2Y5Mzg0YWQxZDg2NGY0NjhlZDQ0OWY0OWYzMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZGExZDMzNTgzOTgxMTFjYTFhYzZhZDJjZTU5ZTc2YjdlNDRhMGI0NGRiZWEyOTJhOTc0OGE5ZjZkOWFjOTk1ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWFlZmFiZThlM2RjMTNiNTEyYTViNWNkNGJiZjkxYmY0Y2QwNWE0YjMzYjlkMzQ1MmYzYWZiNzBkZmFlMjI1YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_36e04296a1af45799a2cd81cf398ff44",
+      "statement": "The Blume correction beta_{i,2}=0.67*beta_{i,1}+0.33 shrinks estimated betas toward the mean beta of 1, e.g. a raw beta of 0.743 becomes 0.828.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L185-L189",
+          "version": "repo-lines-v1:sha256:92262e57a12ebc6baca958e1be89fc3ed870456d37c6a294c678453117644c08:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDdjMjRhOWRlZTZlNWMxNGYwZDUwMzA2YjVkZTRkMWI3YWQ0ZjVhODMzYjQ3ZDY1ZjI3NDkwZDFlODQzZWFlOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDMzOWIzZjY3NjE4OTMwYjVmMGQzMjVkNTY3NWFkZDcxZGU0ZDM3ODBjODNmNTA2NGZmMzIxODc3ZmNmNDRkYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWZlYWEwNmFhOTMyNmY1MDA0YzM5ZTBkZWZkYjlkZTkwMDBjODE1ZjU1YjMyNTViYzEwNzllMDA2ZGI3MDE3NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGMwYzI0ZmE4Yzc2OTE1YmY0YTZiM2E1NTk3NjU1OWMyNWYxYWJmYjUwZThlM2MyNDE3NzZjNDNlY2VhNTMwYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_667fe7609b1b4ce6a6276e747861a6d8",
+      "statement": "The CAPM's market-clearing tangency portfolio is the cap-weighted market portfolio, and the capital market line through it has the maximum Sharpe ratio, providing the theoretical basis for passive indexing.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L195-L201",
+          "version": "repo-lines-v1:sha256:ac662968ad94557081decf35afe9524cffcae8c404935be425577b408357b072:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTgyNTcxMDQwYjE4MDYyMDBhYmQ5MWJkOTM2YjRjMDNhM2RhODQ1ZGJjMTYwNzZmYTFlOWY5MmM5MDM3NWM3MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjExMmU2N2UyMGM4ODllYmFmZTZmZGI4OTVjN2NiNzMwODJmMTNiODM4ZGZjYWRiMDFmODVmN2I1NTg4ODBlOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmYxYmRjNDY5ZDY3NjkxNjI5MGU5M2MxYmZhMjFjMTZkZWQyOTQ1NmE0ZWM5YTUwNDU2YWE0ZWQ5YmY1YTJiYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzhlNDMyZjI1MzFkYWE0MzJlOWY3YjFiN2I1MGVkZmUxZjA3OWY4NTk5ZDMxMTE1YzY4NzM4OTkwMThiMjJmNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1c86b9da58d1461c9dcc839379792cca",
+      "statement": "The fundamental CAPM equation E(rs)-rf = beta_s*[E(rm)-rf] with beta_s = sigma_sm/sigma_m^2 prices only systematic risk, not total volatility; graphically it is the security market line, which unlike the CML applies to every asset.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L211-L219",
+          "version": "repo-lines-v1:sha256:cb113fafa2f697302b8ad97e01fce3198fb41a1699b114001e72bb80cadf7115:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjQ4YjcxYmRiNjRmNGM4NzZhZjM1NDFiOTdkNDEzYmQ2NDVmNTMyMzE3NjlkZDM3YTllYjQ5YjVkZWNmNmI4YSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNWQ5M2RiMjE1NGRlYjVkMzU1MTRiNzZlNWQyOWFjOGU0YWRkMmE2NDVlYTRmNDNjNjczMGVjYTAyNTI0YTVmZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmM2YzM1YzliY2JlN2I5MzZkMDc2YzFkMGQxNDcwNmE4ZDYzN2VlZTAxY2EyMzM3YTQ0M2ZjOTI0MGM2Mzc3NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTE3ZTI5MmQyM2NhYjAwOGYwNWU0MGY5MWFlZTg0MzFmM2FjMDQ2Yjg2OTc3ZDk3Yjc5NThmNWJmNDRiMmU0OCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ba62e9cc093b41f4928fb8815cc96047",
+      "statement": "The APT requires only a linear factor structure, no arbitrage, and enough assets to diversify idiosyncratic risk; imposing alpha_p=0 on well-diversified portfolios recovers the same SML as the CAPM but without its restrictive assumptions and without the true market portfolio.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L227-L241",
+          "version": "repo-lines-v1:sha256:d702e72f6b5376defc6a1702364efeb18bba952d60659209d76a8af34573edc1:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY2YWUwZjEyNzY2NmNmMGI0YzYyNzA3NzliMmJhNzhmYThiYjY3NWZjZDQ2OTExZTMwMjBjNjE4MjYxZTM3ZmMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQwYmVhMjBiNjJjMmYxOGUwNzAwYzczMDZlYmYzMzFhYTZiNTk0YWYwOWM1N2E3ODUzZmQ0YWRjYjAyMDVmYTciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImMyMWI5MGQ2ZjYwNzdmOGNiZTJhYTUzNzE5MmQ1MmY1YTQxYzlmZTc3N2MzN2RhNjE0ZDg0NWI1YzNkYzVkMDAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjI0ZjY4NTE1YWQ1YjI5YTIyYWZmYzFmODhiY2NmNzIzNDM0MDkzMzgyNDcyMDY3NzdkMTM5ZjQyNzI1MThmNmMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_4364196271184ce29e8d2427cb8be1b8",
+      "statement": "Generalizing the APT to K factors yields the multifactor SML E(ri)=rf+sum_k beta_ki*lambda_k, where lambda_k are factor risk prices and a factor portfolio (unit exposure to one factor, zero to the rest) satisfies lambda_k = E(r_k excess).",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L247-L251",
+          "version": "repo-lines-v1:sha256:a6320ca4ea71d78bf0349175bdf74af60600118c87c641026dc401f8314f7698:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2JkY2M3ODUxYjFiNjRmMTUwNDkxNzUxNmMyNjAxMTk0ZmNiMTRmZDJhNzZiMWM1NzYzZDUzZDRiODQxMTliOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDg4NWRiMTc4MDE0ZGEzYmM2OGNiOTc3NjllYTVhYTc3N2QxMGEwMmQ2YjZiOTk1Mjc0NGY3Y2Q1Njc2ZmE3ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTNjY2YxNTNjYjNlOGY2MjFhYmI4ZWU0MzZjZGU5ZGE1ZGZiZGI1NjU3ZDJlNDJiYzk1YTgwZjVhZDQyYmJiMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWU5YjBlMjU1YTE3OWNmYmY4ZWM5MzJjMGExMTlhZWFjYTM1OTQ4YmJkYTRhZGMwMDFiYWJiNjM4ZTk0ODI3MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_20d36265be694335a7438e28d1043f91",
+      "statement": "The first documented CAPM failure was the small-firm effect (small-cap portfolios earn more than their market beta predicts), and the Roll critique notes the unobservable market portfolio makes CAPM tests joint tests of the model and its proxy.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L263-L265",
+          "version": "repo-lines-v1:sha256:a40c2f82d4471fb0dad04920ecc434d2feeefe1944309ca54497ac0c1a00a5c3:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWNmYzNjYzczNDIzMGUzMDQxZjY2MDI5OTQ0ZjA2NzcyMDk3Y2FhMWQzYjQxYzlkMTc5YzVjMzg4NzA4NDE0NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDVhZDE2MjMyODFkZjM4YjcyMjVlM2NmNGZhZDQ4ODZkODk2YzU5ZWFkMTZiZjdkNzliZDBjYjY1ODA1YmRmNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjM0MTJhMmVjODY4N2RjNmY3Mzk3NDY5Yjk4MTM4MWY3NTVhYzAwZjZlYzg3ZjI3Y2E2Y2M2ZmZkZTU0OGMwZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGE5YTM4NjRlMjRhZDAyMDhiMjdiNzFlZTRiM2VmODRkNDhjNDA4ODM0Zjc1NDIyZGI5MWI0ZDdkOGNjOWVjZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_527ab81344b943469bc8e43ebb84982b",
+      "statement": "The Fama-French three-factor model adds SMB and HML to capture the value premium the CAPM misses, reaching R^2 of 90-95% and readable as an APT implementation, while proliferating predictors produced the 'factor zoo' with data-mining and multiple-testing concerns.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L267-L273",
+          "version": "repo-lines-v1:sha256:c0fdd56b942e9ba4268469adc322ce4ff1bb007a7ccff502cb5676c2e85dd40a:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTRkNjdkMWMwZjYxNGNlMWEyMjY0MTM2NTRjZmM5YjllOWJkMmRiNTg5MTBmZmUyY2Q0YzM5YmNjZGYwZDYyMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDY5YTJmZDRkMWJlMTlkYTVhMmM4MzNmMzA0MWI1N2MyMzAyYzI2MmZiODhiNTc3Mzk0ZTNjZjc3ZDM3YjI1NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZThmNTcwMWQwNzA5MGY4MTkwMTJkZGRiYTQyNGE3NTkxYzFmNWU2NDFmZjE0M2QzM2VhMzYxZGMwMDUwNGMxYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmE1YWQwNzY2YWU1OWI3NzhkN2EyM2I4N2IyNDlkNzQyMGExZDYyNjdlNzc4Njk0YTQ0OTJjNGE2ZTI1YTRkNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2a9f327ebccb43098ba4201894169d7d",
+      "statement": "On five assets with the three Fama-French factors, the full-Markowitz, single-index and three-factor tangency Sharpe ratios are nearly identical (35.30%, 34.46%, 34.73%), and accumulated estimation error in the full covariance can make it perform worse than the factor model.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L275-L277",
+          "version": "repo-lines-v1:sha256:b6a4d32739e36ae504deb431e7e3f7b3f99e8928a69f95001ce93caf6999c060:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzhhNDYwZDU0OGQzNWJhOGU0NjE5MWQzMGFiMzQ0YmFjZDc3MjZlNmE3M2FkMTIzNTczMTY0YTRjZjRkNDQ2OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjM1M2VkMDhjMGYzOWY5YTMwYjljMmUxOTJiMGJkMDhlNTkxZjA0YzY3ZGUwNjRlNWZhOGZmZTY2YWYxZTc0OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2E2YTliYjI5NTYwN2QzMmZlMWIyNjQ1MTM5YmZjYTc5YmEzOTVjNmM5NmQ2M2ZlMWNiMjNiZTUxYzA2MDUxNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzMwY2VkNTU3N2Y0ZDNhZDhhZDM4YmU3Yjc3YjM5MjNhN2FjYWU5MmMxOTU1ZTAwZGQ5MWQ0NDM2YWVlYjFhMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a2792c8c55c74fe8bec42667acd4649b",
+      "statement": "Smart-beta strategies deliberately tilt portfolio betas beta_p=w'B toward priced factors, e.g. by maximizing beta_pk subject to 1'w=1 or a factor-structured mean-variance program with Sigma=B*Sigma_f*B'+Sigma_e.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L279-L283",
+          "version": "repo-lines-v1:sha256:98d99f6c4c14574220ddd3271c7365472364981671de3469598c7da25a3c4d3a:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjU1MGVmOTc0MGI0OTk3NTcyYmFlYzI2ZDBmNWFjMGE5NzJhZjEyOTBjOTllN2ZlMDljOTMwY2EwNjU1NWY1MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTJjNjViZDFjMjIwNzY2ZmUyOTg1ZTJkMGQ3YjJlODU5NmRlZDc4MDkzN2M0MjdiNThlOWYxZTM5NGIyYzIxMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjBjNzM2N2MzMmQzZGU2NTZkY2E2YzlmOThjNTE0ZjUwODI4NTA3YWRkN2Y2ZGIyM2M1YWVjM2M1Y2M2Yzg1NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjllNmUwMzdiNzE5ZDY0MTdiZmEzMmU4OTg2YjIzNDA3OTUyNmRjMjcyNzkyYmE2ODIxMjY3Njc1ZmE5NmU3OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8b9a90d71f694b95829f70bb7b555597",
+      "statement": "Ridge regression (L2 penalty) shrinks all coefficients proportionally toward zero without zeroing them, while LASSO (L1 penalty) drives negligible coefficients exactly to zero, performing variable selection; the Blume beta correction is a special case of this shrinkage principle.",
+      "evidence": [
+        {
+          "resource": "repo://docs/05_factor_models.md#L293-L303",
+          "version": "repo-lines-v1:sha256:087942b6ee77d94f3764e400bb720d4693c12d1e6112814871cc8e70d9a3b8a0:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk3MmY3ZDEzZWViMjk2NzdjMmEyMzE3YTIyOGI4NDRiODMyMjU3ODBjY2VlMGVhYTdjNTFjYTFmMDRjOTk2MTYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE5NDQyZGQwZTFiODRhMDMwODMwZWU2NWUxYmMyNTc4NjVkNjM5ZDAwYzlhYzI5MjY4YzY4NjJiNTQ0MWZlZTkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZhYWU0MzEwNmVlOWQyOTc3MWUwOGJiODNkMjA5NDg3NThkZWRlYzllMDg2ZjYwM2VmZDI1N2I1ZjNlMjI4M2UiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg4YmViMWM3YmRmNmM4MTRlZTJhYmJlNmU3NjRhZmU5NjdhNmRmOGQ4NWYyMzczY2IwZjg0Yjc4OGJhZGJlZTAifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

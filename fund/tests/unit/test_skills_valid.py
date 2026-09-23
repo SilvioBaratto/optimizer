@@ -22,7 +22,7 @@ import yaml
 _FUND_ROOT = Path(__file__).resolve().parents[2]  # …/fund
 _FUND_SRC = _FUND_ROOT / "src" / "fund"
 _SKILLS_DIR = _FUND_SRC / "skills"
-_THEORY_DOCS = _FUND_ROOT.parent / "optimizer-theory" / "docs"
+_THEORY_DOCS = _FUND_ROOT.parent / "optimizerwiki" / "docs"
 
 # deepagents built-in tools a skill body may legitimately name.
 _BUILTINS = frozenset(
@@ -143,9 +143,11 @@ def test_theory_citations_resolve(name: str):
     citations = [t for t in _inline_code_spans(text) if _CITATION_RE.match(t)]
     for cite in citations:
         chapter = cite.split(":")[0]
-        assert list(_THEORY_DOCS.glob(f"{chapter} *.md")), (
-            f"{name}: citation `{cite}` → no optimizer-theory/docs/{chapter} *.md"
-        )
+        # The canonical docs are underscore-named (``00_introduction_and_scope.md``);
+        # tolerate a legacy space-named tree so the check tracks the real filenames.
+        assert list(_THEORY_DOCS.glob(f"{chapter}_*.md")) or list(
+            _THEORY_DOCS.glob(f"{chapter} *.md")
+        ), f"{name}: citation `{cite}` → no optimizer-theory/docs/{chapter}_*.md"
 
 
 @pytest.mark.parametrize("name", _SKILL_DIRS)

@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:3750ef80e0eac94c971e8f653a53b274e8fcf2ea384cc0363365037d7dee6baf",
+  "claims": [
+    {
+      "id": "claim_227ca60c90a84525b8eb7f7519849f92",
+      "statement": "Risk budgeting manages a portfolio in terms of risk contributions rather than capital weights; the risk contribution of a component is the share of total portfolio risk attributable to it, computed as its allocated weight times its marginal risk contribution (the change in total risk from an infinitesimal increase in the position).",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L20-L20",
+          "version": "repo-lines-v1:sha256:a4c8581918d2307cee57b769d546f8ef5c5a2fa14dae2304695eacd6b2d447ee:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTRjODU4MTkxOGQyMzA3Y2VlNTdiNzY5ZDU0NmY4ZWY1YzVhMmZhMTRkYWUyMzA0Njk1ZWFjZDZiMmQ0NDdlZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTRjODU4MTkxOGQyMzA3Y2VlNTdiNzY5ZDU0NmY4ZWY1YzVhMmZhMTRkYWUyMzA0Njk1ZWFjZDZiMmQ0NDdlZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTQzN2NiZmQyZDRjZDg4MzA3YzRmYzc3MzNmYTc0NGQyNDI4NTdiNWMwYWM0MmY5YWYyZWFkODkwMjNlNDlkNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiM2I5MmVjYmQzYTdlZTcxOGM1NmFmNmVkZmUyODJiMTIzMGU5ZDQwYjc1MDhlNzQyNTcwODE4OWZlYWIzZDFlOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ee4a867513b741feb523fe64adb78672",
+      "statement": "Qian (2006) showed that risk contributions are not a mere ex-ante mathematical decomposition of risk but carry financial meaning as good predictors of the ex-post contribution to losses, especially large-magnitude ones.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L20-L20",
+          "version": "repo-lines-v1:sha256:a4c8581918d2307cee57b769d546f8ef5c5a2fa14dae2304695eacd6b2d447ee:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTRjODU4MTkxOGQyMzA3Y2VlNTdiNzY5ZDU0NmY4ZWY1YzVhMmZhMTRkYWUyMzA0Njk1ZWFjZDZiMmQ0NDdlZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTRjODU4MTkxOGQyMzA3Y2VlNTdiNzY5ZDU0NmY4ZWY1YzVhMmZhMTRkYWUyMzA0Njk1ZWFjZDZiMmQ0NDdlZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTQzN2NiZmQyZDRjZDg4MzA3YzRmYzc3MzNmYTc0NGQyNDI4NTdiNWMwYWM0MmY5YWYyZWFkODkwMjNlNDlkNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiM2I5MmVjYmQzYTdlZTcxOGM1NmFmNmVkZmUyODJiMTIzMGU5ZDQwYjc1MDhlNzQyNTcwODE4OWZlYWIzZDFlOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2a53e71cd17d476db4b1658a3f7a1f77",
+      "statement": "For a portfolio x with covariance matrix Sigma and volatility sigma(x)=sqrt(x'Sigma x), the marginal risk contributions are the partial derivatives d sigma/d x_i = (x_i sigma_i^2 + sum_{j!=i} x_j sigma_ij)/sigma(x), given in vector form by Sigma x / sqrt(x'Sigma x).",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L24-L28",
+          "version": "repo-lines-v1:sha256:fd1acbad94d314aaadf817d5d85b2bcb70bd7233e5c2024143450abf2b70e8e7:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDcwMTRmZjFmMGEwOTA4ZWExZmY0ZWU3MzdlZjE3ZmJjM2E0NGNiYjlhYWNiMWUxNWRmMzExMTEzYjY0ZjkxNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTc5MzFhZGFlNjM3NmI5NDJhNjA3ZjBhOGEyZTQ0ZTU5NjU0Y2Y5ZDU0OGNiMTUzMzU3Yzk2MWE3M2IzY2YzYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2I5MmVjYmQzYTdlZTcxOGM1NmFmNmVkZmUyODJiMTIzMGU5ZDQwYjc1MDhlNzQyNTcwODE4OWZlYWIzZDFlOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWEyZWUzYTA0OGM2OTZhMGU5ZWU2YzFiODk1YzUzMTFiNWU0NjI1NTk4MDY5M2E4OTI1N2VlMzM5MzMwNzZmZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8142f2c800814a638461b85248eab429",
+      "statement": "Defining the total risk contribution sigma_i(x) = x_i times d sigma/d x_i gives sigma(x) = sum_i sigma_i(x); the additivity follows because volatility is homogeneous of degree 1, so by Euler's theorem sigma(x) = sum_i x_i d sigma/d x_i, verified in vector form by x'Sigma x / sqrt(x'Sigma x) = sqrt(x'Sigma x) = sigma(x).",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L30-L33",
+          "version": "repo-lines-v1:sha256:994dde4f926b7c92f059902107f684a7d4b1fa290de5fca59eb8e2be34dce691:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjg5MTNjNTc0MzgxMTc0ZjhlY2E2ZDcxNGZjNmQzMDg0OTQwMzczZTZlY2YzNjIzZTlmNDYzZDEzNDhkNzU5OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNWRiNzg2MWE3ZGUyZGI1MmZhY2FjMDZhNGFjZTQzMjc0YTM0ODQ2NmFiOTgwZjQzOGFhNDk4YTYzMzU2Y2Y2OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjIxNDYyNWRiYWY0ZTM1ZTNlZjllMzk4MGFmYzk0MWE2ZmVkZjZjZDU0YTQ1ODQ4OGQ5MDkwNmY4NWU5OGRjOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmFlNDY2N2EzOTllYTM4ZDRlNTY1OWY0MmYzOGU1ZmM3Yzg0YjJjNzNjYjFiN2EyOTRhNTgyNjBhYzU0ZTQ0MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_941785f8e64c490e9b16927d0aac454d",
+      "statement": "The risk-contribution principle applies to any risk measure that is linearly homogeneous in the weights, so total portfolio risk is fully decomposed into components; under suitable assumptions this holds for Value-at-Risk (Hallerbach 2003).",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L35-L35",
+          "version": "repo-lines-v1:sha256:a8c2d06c2932c75a602b03553b5f23e3607f103f692bb9c9b654aa5bad08851b:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYThjMmQwNmMyOTMyYzc1YTYwMmIwMzU1M2I1ZjIzZTM2MDdmMTAzZjY5MmJiOWM5YjY1NGFhNWJhZDA4ODUxYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYThjMmQwNmMyOTMyYzc1YTYwMmIwMzU1M2I1ZjIzZTM2MDdmMTAzZjY5MmJiOWM5YjY1NGFhNWJhZDA4ODUxYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGI5NGM1NDQ4NWE1OWViNjY2ZjlmZjUxOTRlZGI4ZDA0OTE2NmJhMDRjNDAzN2I0NWM0ZTVmZWQwNjFiMDllYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzViY2MxMTAwYTY3YzA2ZTFjYmY5YmU5Mjk3ZjhkM2I0MmIzOWE2Mjg0YzU1YjEzNDFlZDk5YWMzZjcyOTE4MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_45d8bd6d87a84791af73f3344cec9095",
+      "statement": "The ERC (Equally-weighted Risk Contributions) portfolio, restricted to the no-short case 0<=x<=1 with sum_i x_i=1, is defined by x_i (Sigma x)_i = x_j (Sigma x)_j for all i,j, and the budget constraint sum_i x_i=1 acts only as normalization since any non-negative y satisfying the equal-contribution condition can be rescaled to x_i=y_i/sum_j y_j.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L37-L43",
+          "version": "repo-lines-v1:sha256:cb5687a8a6bc9cd92f3c45b7e5601bf19530b30e1204479f8e70fdba674f0cc1:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWI0Yzk4MjNlYTkxMDM0NDQ2ZmU4MTM3ZDQ4NTcwNTJlODNmMDE0NjQyNTc3YjE1NDY3ODRiMWQ0YTRlNDE3MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDIxY2RiOWRjN2Q4YWQ2NDI2OWM4N2I2NDBkMjlkNDYzM2VhYTcwMTcyMTU1ODcxMzNkN2I3YTg3MjRlOTZhZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmFlNDY2N2EzOTllYTM4ZDRlNTY1OWY0MmYzOGU1ZmM3Yzg0YjJjNzNjYjFiN2EyOTRhNTgyNjBhYzU0ZTQ0MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTlhMzE5NGEwYjUyYTJlMjViNDUzMmQ2ODEyMjA0NjY1OGZmZjhmMDhhOWU0MjRjMGE0ODVjZDM3YTU3NjZmZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_aea6c72f042e43fdb712078ca9eda69c",
+      "statement": "In the two-asset case the ERC portfolio is x* = (sigma_1^{-1}, sigma_2^{-1})/(sigma_1^{-1}+sigma_2^{-1}), the unique solution of w^2 sigma_1^2 = (1-w)^2 sigma_2^2 in [0,1], and it does not depend on the correlation rho.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L45-L49",
+          "version": "repo-lines-v1:sha256:eb291892b42301c1c5e919604c6387914e4ba32b77e1f2924f7a419135d00d2b:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWJmZTVlNGNlOTExZmIyOTQ2Y2M0ZGNlMzAxMzYwZjc4NDA0YjU5YjM0OWYxNmJmNmM4YmFhODY0YTA3MTRkNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTY4OTUxMmNmNTc4NGU1MTc2NDY5YjQ2ZjBmMjExMWU0NmRkZTZiZTY5MmRkOGM0M2IyYjQyYzdmYWI5OWM5YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjA2ZTA1ZWUwYjg0MjU5OGNmNDNiYzlhYzY3MWE4MWFlMDc1ZGI0Y2VkMGJhMWJmNmQ1NzE2YWZjZDgwMGEyZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODBmMWU3OTk2ODBlYTEzMGQ5MDY2YTE0OTJmMmI3MjY1MDc5YzhiMGM0M2Q0MGFlZmIxNDUwNjY4YTcxYjgwOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4519ef0b64084094a94a9c01e9f95721",
+      "statement": "Under constant correlation rho_ij=rho the ERC condition reduces to x_i sigma_i = x_j sigma_j, giving x_i = sigma_i^{-1} / sum_j sigma_j^{-1}, so each weight is the inverse of its volatility over the harmonic mean of volatilities: higher volatility means lower weight.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L51-L53",
+          "version": "repo-lines-v1:sha256:9daed9eb317ccedff09fed1ae1808b087be8e685cd3ca7fff698ce23e1ecc10f:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTMwMDQ5Yjg0ZmViYjgyNTYzOTMxNzJjYjVjYjZjYTIzZGRkYjZlMGE1MmFlZGE1MWQxOWU4ZTcxMmVlYzIyNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNWMzNDdiOTdiYzYzZDkyNTE3ODZiMzk1MjIyYTU1MDAyMzcyZmJlNjJhN2Y1Y2M1NGI3NTA3MmQ2NmViZGI5YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmE4ZjVkODY1YzcxZTM0NzI3NTJhY2QyZTMxOWYwOGNjZjE4OGNkZGZmNjA0OTE1Y2Q1YmZlMWZmMWE3MDQ4NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDg3NDhkYzliNGQwZDM5YWM0N2IzMGNlMWUzZTI5ZmFlMGEyNzVjN2JiNTA2ZTgxYWRkOTc0MTAxY2JlNzQwMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_661bc5f1c86745a4b3bb6e3de099a325",
+      "statement": "In the general case, introducing the beta of component i to the portfolio beta_i = sigma_ix/sigma^2(x) gives sigma_i(x)=x_i beta_i sigma(x), and equalizing contributions to sigma(x)/n yields x_i = beta_i^{-1}/sum_j beta_j^{-1} = beta_i^{-1}/n, weight inversely proportional to beta; this solution is endogenous because beta_i depends on the portfolio x.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L59-L61",
+          "version": "repo-lines-v1:sha256:a88cbae8f77a6ad8f62729d631e8b1e9665e0d3d244615dbdfa9f5b6b641c558:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWU2YTgzY2FmNjI3ZmYxODIxYzJhODU4OGRiYjQzMGFiNjFlMmQ5ZjY3MzgyNDVlZTMzMDA3MzRjZTJmNDlkNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGViNDhjMDdkZGEzMzNjNTFmODg0NmYxYjRlMGMzYmZhNGY5Zjk4ZjU5MGJmZTdiMzQ1MzExNzU4OGZiY2E0NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDEwZWFiMjJlMWE4ZjU1ZmQ2ZGRkZmI5ZDBjMDdjMzhmNjg4ODUyMGFmNGQ0ZWMzMWJhMzg5YzNjZTk0YzM5OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODgwYmVhYzE3ZTkyMzhhMWU1N2YyYjBmNTM2MGNlZTQyYzNmMGE0OTZhZDA0ZGEwMTc5YzZkNzU5YzZlZWE0OCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8e6f4bf263ea483aafabe3fdac468b62",
+      "statement": "The ERC portfolio can be found as y* = argmin sqrt(y'Sigma y) subject to sum_i ln y_i >= c and y>=0 (with x_i* = y_i*/sum_j y_j*); this is minimization of a convex quadratic subject to a convex constraint, so the ERC solution is unique as long as the covariance matrix Sigma is positive definite, whereas relaxing the long-only constraint can yield several ERC solutions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L73-L75",
+          "version": "repo-lines-v1:sha256:80f18137f9548c919cd012bc7e4ab200f71134171e83d90cc565dad8e5ea4a15:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2IwYTRhMDYwODQzY2Y5MDZhODY5NjcyMzJjMmVhNWZhZWQ2OTc3YjdlZTljYjBhYTc3NjNkNDk2YTUzNzI2OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNmFiNmQ0YTBiOGMwNDZlZGM3ZmI5OThlOWU0N2U4NzkwNjBiMWFlZTY0ZjEyNzUwNmJjZTk5N2M5NDkzNjA3YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMThkYjllZGQwNTc0YmYyOGJkYjQ4YmMxYzRlMjdkNDYwMWVmNTgyOWFmOWU2YmQ5YjhlOGE0M2YxNjczYWRhMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGNhNzM3ZWQ2MzVhZWNiYmM4Y2IzZGZhMTkxMGM1MjFkZWIwNDdiMzY1NDRjMDI4ZTlkNDg2OGZmMzExNzliOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b3641a9def41454a919d06c040b47632",
+      "statement": "The three strategies differ as: 1/n equalizes weights (x_i=x_j); minimum variance equalizes marginal risk contributions (d sigma/d x_i = d sigma/d x_j); ERC equalizes total risk contributions (x_i d sigma/d x_i = x_j d sigma/d x_j), so ERC sits between 1/n and MV.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L83-L85",
+          "version": "repo-lines-v1:sha256:d0d7d430879bcd481b4ff57a640f93ae115f2d879caaf118e474bbc4b9ba21be:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDFmYzYwZWEwYjE3ODczN2UxN2UyYWU5Y2VhZjJjZGJmMGNhNWVmMzhmMzhkYjg1NGI5YmRlNjBiYzk2NmE3MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzFiNDQ3NDZhNzFiYzY5YmQxN2I1OTYxZTRkNGIwYjViNmZlNjQxMWNlYTJhZTMyYmYwNDFjODgxNWUyNDU2MyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTQ0YTMzMzU1NjZmYzBjZmY4MTY0YjI1ODI0MWY3N2UyNmE5OTM5M2FmYTUxZmIxYmEzZGI1OWVhM2MxMmEzNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODk5MjUwZmVlMjI4ZDk3MmFlZDk1OTI1MzFkNGRiNzE2NTA0OWNlM2MxYjI3NzQ0ZGNlM2Y4NGFiOGI3YTZmYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_df39d0b3c5cf4476bc8c705f36b768c0",
+      "statement": "The log-constrained program min sqrt(x'Sigma x) subject to sum_i ln x_i >= c, sum x_i=1, x>=0 recovers the MV portfolio at c=-infinity and the 1/n portfolio at c=-n ln n (since sum_i ln x_i under sum x_i=1 is maximized at x_i=1/n), yielding the volatility ordering sigma_mv <= sigma_erc <= sigma_1/n.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L87-L93",
+          "version": "repo-lines-v1:sha256:489dc9625cb63a2ba2a1c9b8131831684fd0803ee0cf61be53aa4d6af3608a15:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmZlMzQzMWUyZmMzMjFjNTY1MTExNTIyOTU5ZWUzMmYzZGExODY5YzE0OGJkNDE1MGRkNDRmZTM0ZTgyOTMwZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNjVmMmYxMWFjYjI3NTEwZTMyNTIyOGJmNmJiMTAwOTVjZDczNzI0NDc2OTMzYmFjN2EwMDdhMTdlNGE4MzRiMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTI0NGM0ZDIyNjU4MTkwODI3NjgzMGRlZDU1MDcyZjkyMmNlMWVjZWI2MjM0NWEyODcxYmQwZmM4ZjE2NDNiMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmIxMTE0ZmJhYmE4ODBjYWUxZWI2YWJiNDY5MWI5NGIzYzI3MjM0ODBkNGUzZGExZGJiYjFmNDU4NjcwYTkwMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7930f2764bd44ac1b5b78502bfe63206",
+      "statement": "With four assets of volatility 10%, 20%, 30%, 40% and constant correlation, the 1/n portfolio assigns 25% each, the ERC gives 48%/24%/16%/12% (inverse-volatility proportional), and the minimum-variance solution at zero correlation is (70.2%, 17.6%, 7.8%, 4.4%), far more concentrated than the ERC.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L95-L95",
+          "version": "repo-lines-v1:sha256:2e3e9a09ad1fa6dd57c880b79ebe80e18b8c22d68ca6cecbe5787c80469cc48e:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMmUzZTlhMDlhZDFmYTZkZDU3Yzg4MGI3OWViZTgwZTE4YjhjMjJkNjhjYTZjZWNiZTU3ODdjODA0NjljYzQ4ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMmUzZTlhMDlhZDFmYTZkZDU3Yzg4MGI3OWViZTgwZTE4YjhjMjJkNjhjYTZjZWNiZTU3ODdjODA0NjljYzQ4ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTJlZmJjNzUxY2RlNjYzNmI2OGU4ZTdlNTUxNGMwZjMxYmJlZjJjNDczZDliZTMyYTA0NGMxYWVjOTYwYWU3OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTA5N2MxNTk1Y2U1YTVmN2UzMTU4ZjE1YTU3NWZhMTkwMjJjM2M2ZmI3ZmY4OWIwMTAxZmVjMGMxNDUwMDUzZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_15f75d6a69df48afae83e9f944faf0c9",
+      "statement": "The ERC portfolio coincides with the maximum-Sharpe-ratio (tangency) portfolio if one assumes a constant correlation matrix and identical individual Sharpe ratios s_i=(mu_i-r)/sigma_i; when correlations differ or Sharpe ratios differ, ERC departs from the MSR portfolio.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L99-L105",
+          "version": "repo-lines-v1:sha256:c1a3df4965c01cb7c2f21dc8a8313eac0671e5ff8ccb40ba8a1ac4bf30baa42b:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzYwOGQ5MWE1NDU4NmZhOGNkMzUxNDUxODhlZDc1YWRjNTVmY2FhMTU4Y2E0YjJiZWQzMzA1NzQwMDk4Njg4NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjJkZWIxMzEwYjlkNDczY2VmYTYxNDBiOGQzODU4MDQ5NTZhYmI5Mzc4ZjU0ZTI2MGM0NjUxMWE1ZDcyOTMwYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTA5N2MxNTk1Y2U1YTVmN2UzMTU4ZjE1YTU3NWZhMTkwMjJjM2M2ZmI3ZmY4OWIwMTAxZmVjMGMxNDUwMDUzZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGJmNzVmMDA2NzYzOTU3NjI4YmUxNjNiMzA5ODYxOTYzYTVkNTg4MjIxOGQ5MDY0YjJiZGI5NTY4OTY2ZDBkMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4da0b1ae092a4fcdb8c6949c689a9665",
+      "statement": "In Qian's example a balanced 60/40 portfolio places over 90% of risk in equities because equities (15% volatility) are nine times riskier in variance terms than bonds (5%); empirically 1983-2004 the Russell 1000 had 15.1% and the Lehman Aggregate 4.6% volatility with correlation 0.2, so the 60/40 drew 93% of its risk from equities and correlated above 0.98 with the Russell 1000.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L119-L121",
+          "version": "repo-lines-v1:sha256:b484c032eec8d85fc758879bb771b00d996a3b3792733a6ee22c6b2bc6ac9fe8:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDcxODFlMjNlMDcwZWM0N2ZkNDlkMzYzNzg0MTE1YmM5YjA4ZTFhOTRmZDBiNGM2Nzk4YmIwYjU0N2IyODM5MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWE3NTllM2M3ZmRhN2IwOTgwMjExZmY0MDFkNzQ0MWQwMjU1Y2U0Y2M3MzNhODM5NmU5YmVhNTc5OTIxMTI1YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjlmNzZmNWZkZDdlNGJiZTdkZjMwNWY1MjJiMjQ4MDQ4ZjM3OTgzMTA2YzM3NGI5MWM0ZDJhZGI1MmFkMWNkOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGI3MDE0OTExODA1ZTY1ZjI3MTdiNjhhNjZiOTNiOTM0ZTNmNDA0NzE0YjRlMDMwYzVmMzVlY2MxZDdkZDc1MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c62b532ce72c4ebbbf07e4f0a272d17c",
+      "statement": "For the 60/40, on losses above 2% equities averaged 95.6% of the loss and bonds 4.4%, close to the 93% risk contribution, giving empirical support that risk contribution approximates the expected contribution to losses when computed from variances and covariances.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L123-L123",
+          "version": "repo-lines-v1:sha256:fd90a36cc3c760871e8f4cd2bc9268bfab5944aff43bafc014e20a751aaad99e:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmQ5MGEzNmNjM2M3NjA4NzFlOGY0Y2QyYmM5MjY4YmZhYjU5NDRhZmY0M2JhZmMwMTRlMjBhNzUxYWFhZDk5ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmQ5MGEzNmNjM2M3NjA4NzFlOGY0Y2QyYmM5MjY4YmZhYjU5NDRhZmY0M2JhZmMwMTRlMjBhNzUxYWFhZDk5ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjZlNmQzZjlhNGRhYTU0YWM4MDViNTBiOTc5ZTA3M2MzYTJlNzA0NzlkZTZjNjlhYmNjOTM5YzlmYWM5ZWFkZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmQ1MWYyOWJkZDU1YzgxODYyOTM5Yzk5NWQ2Mjk3OTY0ZjkyMjU1MTEwNmYxYjc1Yjk5ZGFiOGJhZmVhNzM2OCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_23406e6e1f3241b78ec78a7a26bd9170",
+      "statement": "Equating the risk contribution of equities and bonds gives a 23% Russell 1000 / 77% Lehman Aggregate parity portfolio; over 1983-2004 (excess over 3-month T-bills) the Russell 1000 had return 8.3%/sd 15.1%/Sharpe 0.55, Lehman 3.7%/4.6%/0.80, the 60/40 6.4%/9.6%/0.67, and the parity portfolio 4.7%/5.4%/0.87 — the 60/40 Sharpe being below the bond Sharpe while the parity Sharpe exceeds both components.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L125-L127",
+          "version": "repo-lines-v1:sha256:ddc276b99410a836b82c6eeabba3ced855821b14f1f41268fa2cf3020e8648eb:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzkwOTAyODVjNWM4NWZhNGYwNDkzZmMxOTViYjI1ZjllMzNjZDgwYWY3ZmM1Y2JkMDg4NzZiZTQzNjQ4OTU0OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODc4NTVjN2U1NDUxN2I4NWNlNzY5ZDIzZDUzODZlNTkxYjc5MzhhODRiZTM5ODI5ZjZlYzkyNTRhOTQzYjVjMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGI3MDE0OTExODA1ZTY1ZjI3MTdiNjhhNjZiOTNiOTM0ZTNmNDA0NzE0YjRlMDMwYzVmMzVlY2MxZDdkZDc1MSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDM4MjdlYjgxMzZhMGQwMjdlZGQ4MmZiOTFiNzEzNDM4MzU5MjE0MWRmZTEwMzA5Mjc4ZTczMjk0MjgyNjAwYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4867489d7ace4b7fae29c6fe89e4c744",
+      "statement": "Risk-parity portfolios are mean-variance optimal if the underlying components have equal Sharpe ratios and uncorrelated returns; a leveraged parity portfolio at 1.8:1 matched the 60/40's risk with 8.4% vs 6.4% return (about 2% p.a. more), a 2.8:1 version at equity risk beat the Russell 1000 by nearly 5% p.a., and backtested risk-parity portfolios had a Sharpe ratio of 1.1 over 1983-2004.",
+      "evidence": [
+        {
+          "resource": "repo://docs/17_risk_budgeting_and_risk_parity.md#L129-L133",
+          "version": "repo-lines-v1:sha256:f62c2bbafc319c0cd2264546e2e1481903123722790b97298be9b44bfa17918e:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGFiN2U0MTE0NDA5ZDUwZmQ4MTYwOTkzMjdkMWQwZjFiMzkzOWRkMTFmYTMyOGY4ZGZkOGNjOTdjYmExMjk5YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGZjZGRiNzM1N2Y1M2JhNDFmODg1ZmE0ZTc3MDc5NGI3NGYwZDYwMTQ5MWRiYzczYzhkZjJkNTg0NTk0OGMxZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjM2NzVjNDA4ZjdkMzA5N2JlZjI5YWU5NWUyMDQwN2Q0NTgzMDlkNGMzMDgzZTgwNjgxZjQxYjQwODM5YjNlMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYmIxNzJmYjEzMmNhN2IxYmQ5NDlkMjljYjBmNWEwNDJkNDZhOWNiOTJiODRjZDY3NDIxZmM5YmNiNjYxNTdiOSJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

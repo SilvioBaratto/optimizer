@@ -1,361 +1,347 @@
-# portopt
-
-[![CI](https://github.com/SilvioBaratto/optimizer/actions/workflows/ci.yml/badge.svg)](https://github.com/SilvioBaratto/optimizer/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/portopt)](https://pypi.org/project/portopt/)
-![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
-[![codecov](https://codecov.io/gh/SilvioBaratto/optimizer/branch/main/graph/badge.svg)](https://codecov.io/gh/SilvioBaratto/optimizer)
-![License](https://img.shields.io/badge/license-PolyForm--Noncommercial--1.0.0-green)
-[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/c47694dc-b34e-481e-8907-2766ff13d4cd.svg)](https://oosmetrics.com/repo/SilvioBaratto/optimizer)
-
-Quantitative portfolio construction and optimization built on [skfolio](https://skfolio.org/) and scikit-learn. Every component follows the **frozen-config + factory** pattern and composes in standard sklearn pipelines.
-
-The repository is a **`uv` workspace** with three packages:
-
-- **`optimizer/`** — the pure-Python optimization library, published to PyPI as **`portopt-core`** (import package `optimizer`). DB-agnostic, no API keys, no I/O.
-- **`ingestion/`** — the **`portopt`** app: a yfinance-centric ingestion daemon (PostgreSQL + SQLAlchemy + APScheduler) plus a `uv`-installable CLI and install wizard. No HTTP API.
-- **`packages/portopt-db/`** — **`portopt-db`** (import package `portopt_db`): the shared database layer — SQLAlchemy models, repositories, connection manager, and the single Alembic migration tree. Consumed by `ingestion`; carries no sklearn/skfolio stack.
-
-The optimizer library is independent of the data side: neither `ingestion/` nor `portopt-db/` imports `optimizer`, and the daemon image carries none of the sklearn/skfolio optimization stack.
-
-## Installation
-
-The **`portopt` CLI** (ingestion daemon + install wizard) installs via [uv](https://docs.astral.sh/uv/):
-
-```bash
-# mac/linux
-curl -LsSf https://raw.githubusercontent.com/SilvioBaratto/optimizer/main/install.sh | bash
-# windows
-powershell -c "irm https://raw.githubusercontent.com/SilvioBaratto/optimizer/main/install.ps1 | iex"
-```
-
-The bootstrap installs `uv` (if missing), runs `uv tool install portopt`, and launches
-`portopt setup` — an interactive wizard that verifies Docker, validates your API keys,
-encrypts your secrets (`~/.portopt/secrets.enc`), and migrates the database. Re-run any time
-with `portopt setup`; manage the stack with `portopt start` / `portopt stop` / `portopt status`.
-
-The optimization **library** is a separate distribution, `portopt-core` (import package `optimizer`):
-
-```bash
-pip install portopt-core
-```
-
-For development (tests, linting, type checking):
-
-```bash
-git clone https://github.com/SilvioBaratto/optimizer.git
-cd optimizer
-pip install -e ".[dev]"
-```
-
-## Quick Start
-
-```python
-from optimizer.optimization import MeanRiskConfig, build_mean_risk
-from optimizer.pre_selection import build_portfolio_pipeline
-from optimizer.validation import WalkForwardConfig, build_walk_forward, run_cross_val
-from skfolio.preprocessing import prices_to_returns
-
-# Build an optimizer from a frozen config
-optimizer = build_mean_risk(MeanRiskConfig.for_max_sharpe())
-
-# Compose pre-selection + optimizer into one sklearn Pipeline
-pipeline = build_portfolio_pipeline(optimizer)
-
-# Convert prices -> linear returns OUTSIDE the pipeline (semantic change)
-returns = prices_to_returns(price_df)
-
-# In-sample fit / predict
-pipeline.fit(returns)
-portfolio = pipeline.predict(returns)
-print(portfolio.weights)         # asset weights
-print(portfolio.sharpe_ratio)
-
-# Out-of-sample walk-forward backtest
-cv = build_walk_forward(WalkForwardConfig.for_quarterly_rolling())
-population = run_cross_val(pipeline, returns, cv=cv)
-```
-
-## Features
-
-### Composable pipeline
-
-`optimizer` is a **library of composable primitives**, not a fixed end-to-end
-runner. Every stage — preprocessing, pre-selection, moment estimation, views,
-optimization, validation, tuning, rebalancing — is a standalone sklearn-compatible
-component. `build_portfolio_pipeline(optimizer)` flattens pre-selection + the
-optimizer into a single sklearn `Pipeline`:
-
-```
-returns -> [validate -> outliers -> impute -> select -> optimize] -> Portfolio
-           \_______________ sklearn Pipeline _______________/
-```
-
-Prices are converted to returns **outside** the pipeline (semantic change).
-The composed `Pipeline` is a single estimator that can be cross-validated and
-tuned as one object — pre-selection runs *inside* each CV fold to prevent leakage.
-
-> Opinionated, DB-connected orchestration (FX conversion, delisting correction,
-> universe/factor selection, rebalancing decisions, persistence) is **not** part
-> of this library — it belongs to the separate `fund/` bridge layer, keeping
-> `optimizer` DB-agnostic.
-
-### Preprocessing
-
-Four sklearn-compatible transformers for return data cleaning:
-
-- **DataValidator** -- replaces `inf` and extreme returns (|r| > 10) with `NaN`
-- **OutlierTreater** -- three-group z-score methodology: remove data errors (>= 10 sigma), winsorize moderate outliers (3-10 sigma), keep normal observations
-- **SectorImputer** -- leave-one-out sector-average NaN imputation with global mean fallback
-- **RegressionImputer** -- OLS regression from top-5 correlated assets with cold-start fallback to sector imputation
-
-### Pre-selection
-
-Assembles data cleaning and asset filtering into a single sklearn pipeline:
-
-`validate -> outliers -> impute -> select_complete -> drop_zero_variance -> drop_correlated -> [select_k] -> [select_pareto] -> [select_non_expiring]`
-
-All steps run inside CV folds to prevent data leakage. Pipeline parameters are exposed via `get_params()` for hyperparameter tuning.
-
-### Moment Estimation
-
-4 expected-return estimators and 11 covariance estimators:
-
-| Expected Returns | Covariance |
-|---|---|
-| Empirical, Shrunk (James-Stein, Bayes-Stein, Bodnar-Okhrin), Exponentially Weighted, Equilibrium (CAPM) | Empirical, EW, Ledoit-Wolf, OAS, Shrunk, Denoised (RMT), Detoned, Gerber, Graphical Lasso CV, Implied, Regime-Adjusted EW |
-
-**Regime-adjusted EW**: short-term volatility uplift applied on top of an exponentially weighted covariance (multiplier internal to skfolio, clipped to `(0.7, 1.6)`).
-
-**Log-normal scaling**: multi-period moment projection with Jensen's inequality correction (`apply_lognormal_correction`, `scale_moments_to_horizon`).
-
-Separately, `build_variance_estimator()` returns 1-D `BaseVariance` estimators (`variance_`, not `covariance_`) — not interchangeable with covariance estimators inside priors.
-
-### View Integration
-
-Three frameworks for incorporating forward-looking views:
-
-- **Black-Litterman** -- Bayesian posterior combining market equilibrium with absolute/relative views. Omega from He-Litterman, Idzorek confidence, or empirical track record (`calibrate_omega_from_track_record`)
-- **Entropy Pooling** -- mean, variance, correlation, skew, kurtosis, and CVaR views via KL-divergence minimization
-- **Opinion Pooling** -- linear and logarithmic combination of multiple expert priors
-
-### Optimization
-
-13 portfolio optimization models across 4 categories:
-
-| Category | Models |
-|---|---|
-| **Convex** | MeanRisk, Risk Budgeting, Maximum Diversification, Benchmark Tracker, DR-CVaR |
-| **Hierarchical** | HRP, HERC, NCO, Schur Complementary |
-| **Naive** | Equal Weighted, Inverse Volatility, Random |
-| **Ensemble** | Stacking Optimization |
-
-**Robust variants**: ellipsoidal/bootstrap mu and covariance uncertainty sets (`RobustMeanRisk`), distributionally robust CVaR over a Wasserstein ball, and `RegimeBlendedMeanRisk` which consumes externally-supplied regime probabilities (the library does not fit HMMs itself).
-
-**Constraint helpers**: `build_sector_constraints()` and `build_region_linear_constraints()` emit skfolio `linear_constraints` strings for group exposure bands.
-
-Every model uses frozen `@dataclass` configs with named presets:
-
-```python
-MeanRiskConfig.for_max_sharpe()           # maximize Sharpe ratio
-MeanRiskConfig.for_min_cvar(beta=0.95)    # minimize CVaR at 95%
-RobustMeanRiskConfig.for_conservative()   # 99% uncertainty-set confidence
-DRCVaRConfig.for_moderate()               # Wasserstein ball radius
-```
-
-### Validation
-
-Temporal cross-validation strategies that respect the time-series nature of financial data:
-
-- **Walk-Forward** -- rolling or expanding window (monthly, quarterly presets)
-- **Combinatorial Purged CV** -- multiple non-overlapping test paths with purging and embargoing to prevent leakage
-- **Multiple Randomized CV** -- Monte Carlo evaluation with asset subsampling
-
-Plus covariance-forecast evaluation (offline and online).
-
-### Scoring and Tuning
-
-Ratio measures (Sharpe, Sortino, Calmar, CVaR ratio, ...) for model selection. Grid search and randomized search with temporal CV enforced by default. Nested parameter addressing via sklearn's double-underscore syntax:
-
-```python
-param_grid = {
-    "prior_estimator__mu_estimator__alpha": [0.01, 0.1],
-    "risk_measure": [RiskMeasureType.CVAR, RiskMeasureType.SEMI_VARIANCE],
-}
-```
-
-### Rebalancing
-
-Three strategies for determining when to trade:
-
-- **Calendar** -- fixed intervals (monthly, quarterly, semiannual, annual)
-- **Threshold** -- drift-based (absolute or relative)
-- **Hybrid** -- calendar-gated threshold (check drift only at review dates)
-
-Plus utility functions: `compute_drifted_weights()`, `compute_turnover()`, `compute_rebalancing_cost()`.
-
-### Factor Research
-
-Complete factor research pipeline with 17 factors across 9 groups:
-
-**Construction** -> **Standardization** (winsorize, z-score, sector neutralize) -> **Scoring** (equal-weight, IC-weighted, ICIR-weighted, Ridge, GBT) -> **Selection** (fixed-count or quantile with buffer hysteresis) -> **Regime Tilts** (GDP/yield-spread classification with multiplicative group tilts)
-
-**Validation**: Information Coefficient analysis, Newey-West t-statistics, VIF collinearity, Benjamini-Hochberg FDR correction, out-of-sample rolling block validation.
-
-**Integration**: factor exposure constraints for MeanRisk, Black-Litterman views from factor premia, net alpha after turnover costs.
-
-### Synthetic Data
-
-Vine copula models for scenario generation. Decomposes the multivariate return distribution into marginal distributions and bivariate copulas organized in a tree structure. Supports conditional sampling for stress testing:
-
-```python
-# What if SPY drops 10%?
-prior = build_synthetic_data(
-    SyntheticDataConfig.for_stress_test(),
-    sample_args={"conditioning": {"SPY": -0.10}},
-)
-```
-
-### Universe Screening
-
-8 investability screens with hysteresis entry/exit thresholds to reduce universe turnover: market cap, 12m/3m average daily dollar volume, trading frequency, price floors (US/Europe), listing age, IPO seasoning, financial statement coverage, exchange-relative percentile.
-
-### FX
-
-Multi-currency handling: `FxPriceConverter` (sklearn transformer) converts a multi-currency price panel to a base currency (EUR/GBP/USD, optionally crossing via USD), and `decompose_fx_returns()` splits total return into stock-only and FX components.
-
-## Design Principles
-
-**Config + Factory**: Every module uses frozen `@dataclass` configs holding only serializable primitives and enums. Factory functions create estimator instances. Configs can be serialized, logged, and swept over; non-serializable objects (estimators, arrays, callables) are passed as factory kwargs.
-
-**sklearn compatibility**: All transformers follow `BaseEstimator + TransformerMixin`. The full preprocessing + optimization chain composes in `sklearn.pipeline.Pipeline` and can be cross-validated, tuned, and serialized as one object.
-
-**skfolio foundation**: Optimization models wrap [skfolio](https://skfolio.org/) estimators. portopt adds robust uncertainty sets, factor research, rebalancing, universe screening, and FX on top.
+# Optimizer
+
+> A portfolio-optimization platform in one **uv workspace**: a composable
+> optimization **library**, a headless market-data **ingestion daemon**, a shared
+> **database layer**, and an agentic **fund manager** — four packages, one shared
+> virtual environment.
+
+![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
+![License](https://img.shields.io/badge/license-PolyForm--Noncommercial--1.0.0-orange)
+![Lint: Ruff](https://img.shields.io/badge/lint-ruff-000000)
+![Types: mypy | pyright](https://img.shields.io/badge/types-mypy%20%7C%20pyright-2a6db2)
+
+---
+
+## What's in here
+
+`optimizer` is not a single program — it is a workspace of four cooperating
+Python packages that share one virtual environment but keep strict import
+boundaries:
+
+| You want to… | Use | Needs a database / Docker? |
+|---|---|---|
+| Build and tune portfolio-optimization pipelines in your own code | the **`optimizer`** library (`portopt-core`) | **No** — pure Python (numpy/pandas/skfolio) |
+| Keep a PostgreSQL store of market / fundamental / macro data fresh on a schedule | the **`portopt`** ingestion daemon | Yes — PostgreSQL (via Docker) |
+| Share models, repositories and migrations across packages | the **`portopt-db`** layer | Yes — it *is* the DB layer |
+| Run an LLM-driven fund manager that decides and lets the optimizer compute | the **`fund`** bridge (`portopt-fund`) | Yes — PostgreSQL + an Ollama model endpoint |
+
+The **library installs and runs with zero Docker/DB dependency**. Docker +
+PostgreSQL are required only for the ingestion daemon and the fund bridge, which
+persist data. If all you want is optimization, install `portopt-core` and skip
+the rest.
+
+---
 
 ## Architecture
 
-```
-optimizer/            Pure-Python library (DB-agnostic, sklearn/skfolio-based)
-  pre_selection/      Asset filtering + build_portfolio_pipeline composition
-  preprocessing/      Return data cleaning (validation, outliers, imputation)
-  pre_selection/      Asset filtering pipeline (completeness, variance, correlation)
-  moments/            Expected return + covariance + variance estimation, prior construction
-  views/              Black-Litterman, Entropy Pooling, Opinion Pooling
-  optimization/       13 optimization models + robust variants + group constraints
-  validation/         Walk-Forward, Combinatorial Purged CV, Randomized CV
-  scoring/            Ratio measures for model selection
-  tuning/             Grid/randomized search with temporal CV
-  rebalancing/        Calendar, threshold, and hybrid rebalancing
-  factors/            17 factors, scoring, selection, regime tilts, validation
-  synthetic/          Vine copula scenario generation + stress testing
-  universe/           Investability screening with hysteresis
-  distance/           Distance estimators for hierarchical optimizers
-  cluster/            Hierarchical clustering wrapper
-  uncertainty_set/    Mu / covariance uncertainty sets for robust optimization
-  linear_model/       Cross-sectional regression (factor IC)
-  online/             partial_fit-based incremental workflows
-  fx/                 Multi-currency conversion + FX return decomposition
+Four workspace members, one shared venv (`uv sync` resolves them together):
 
-ingestion/            Ingestion daemon (PostgreSQL, APScheduler) — services/scheduler/CLI
-packages/portopt-db/  Shared DB layer (models, repositories, engine, single Alembic tree)
-scheduler/            Shell wrappers over the daemon CLI (fetch, refetch)
-scripts/              CI helpers (branch-coverage gate)
-tests/                Library test suite
+| Directory | Dist name | Import name | Role |
+|---|---|---|---|
+| `packages/portopt-core/` (declared from the repo-root `pyproject.toml`) | `portopt-core` | `optimizer` | Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based) |
+| `ingestion/` | `portopt` | `app` | Headless ingestion daemon (APScheduler in-process, no HTTP API) + the `portopt` CLI |
+| `packages/portopt-db/` | `portopt-db` | `portopt_db` | Shared SQLAlchemy `Base` + models + repositories + `DatabaseManager` + the single Alembic tree |
+| `fund/` | `portopt-fund` | `fund` | deepagents/langgraph bridge: *the LLM chooses, the optimizer computes* |
+
+### Import boundaries (enforced by static import-scan tests)
+
+Because there is one shared venv, install-time isolation does not exist — the
+boundaries below are guarded by source-scan hygiene tests, not by what's
+installed:
+
+- `ingestion/` and `portopt-db/` do **not** import `optimizer`.
+- `portopt-db/` carries no sklearn/skfolio stack.
+- `optimizer` (`portopt-core`) does **not** import `portopt_db` — the library
+  stays DB-free.
+- `fund/` is the **only** member allowed to import both `optimizer` **and**
+  `portopt_db`; `deepagents`/`langgraph` live only in `fund/`.
+
+> The ingestion daemon *does* ship `scikit-learn` — not for optimization, but
+> because yfinance's price-repair path (`repair=True`) imports
+> `sklearn.cluster.DBSCAN`. Without it ~22% of tickers return empty history and
+> get dropped. It is a data-layer dependency there.
+
+### The optimization library
+
+`optimizer` is a set of **composable primitives**, not a fixed end-to-end
+runner. There is no `run_full_pipeline`; opinionated, DB-connected orchestration
+lives in `fund/`. Every module follows the same convention: a **frozen
+`@dataclass` config** + a **factory function** + **`str, Enum` types**.
+Transformers are sklearn `BaseEstimator + TransformerMixin` and compose in
+`sklearn.pipeline.Pipeline`.
+
+**Module flow:**
+
+```
+prices → preprocessing → pre_selection → moments → views
+       → optimization → validation → tuning → rebalancing
 ```
 
-## Development
+Plus the cross-cutting modules `factors/`, `synthetic/`, `scoring/`,
+`universe/`, `distance/`, `cluster/`, `uncertainty_set/`, `linear_model/`,
+`online/`, `fx/` — **18 submodules** in total.
+
+The `optimization` module exposes **fifteen optimizer builders** (each a frozen
+config + `build_*` factory): Mean-Risk (`build_mean_risk`) and its
+regime-blended and robust variants, HRP, HERC, NCO, Schur-Complementary, Risk
+Budgeting, Max-Diversification, Distributionally-Robust CVaR, Stacking,
+Benchmark-Tracker, and three naive baselines (Equal-Weighted,
+Inverse-Volatility, Random). Full per-module inventories (covariance/mu
+estimators, factor definitions, investability screens, presets) live in
+[`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE.md).
+
+---
+
+## Requirements
+
+- **Python ≥ 3.12** (all four packages; the numpy 2.5 / pandas 3.0 pins make
+  3.12 a hard floor). CI runs 3.12 and 3.13.
+- **[uv](https://docs.astral.sh/uv/)** — the workspace resolver / runner.
+- **Docker + the `docker compose` v2 plugin** — only for the ingestion daemon
+  and the fund bridge (they need PostgreSQL 16). Not needed for the library.
+- Optional API keys (ingestion): `TRADING_212_API_KEY` (+ secret),
+  `FRED_API_KEY`. Absent Trading 212 ⇒ the universe-build step skips cleanly.
+
+---
+
+## Installation
+
+### 1. The optimization library only (no Docker, no DB)
 
 ```bash
-# uv workspace: one venv for all three packages
-uv sync --all-packages --all-extras
-
-# Tests (per package)
-uv run --package portopt-core pytest tests/ -v       # optimizer library
-uv run --package portopt-db   pytest                 # shared DB layer
-uv run --package portopt      pytest                 # ingestion daemon
-
-# Lint / type check
-uv run --package portopt-core ruff check optimizer/ tests/
-uv run --package portopt-core mypy optimizer/
-
-# Everything (lint + typecheck + test)
-make all
+# From a clone, into the current environment:
+pip install -e packages/portopt-core        # editable install of dist `portopt-core`
 ```
 
-`pip install -e ".[dev]"` still works for the library alone if you are not on uv.
+Then `import optimizer` works with nothing else running.
 
-## Ingestion daemon
+### 2. The full platform (ingestion daemon)
 
-`ingestion/` is **yfinance-centric**: it builds its instrument universe from the yfinance
-Screener and fetches market data, fundamentals, and macro series (FRED, Il Sole 24 Ore,
-Trading Economics) into PostgreSQL on a schedule. APScheduler runs in-process; there is no
-HTTP API. Job metrics are exposed to Prometheus, which is also the container healthcheck
-target. Trading 212 is an optional add-on — when configured, its tickers are mapped onto the
-yfinance universe *after* the build (it no longer sources it).
+The daemon ships an install wizard. The one-line bootstrap installs `uv`, runs
+`uv tool install portopt`, then launches the wizard:
 
 ```bash
-# PostgreSQL (host port 54320) + Adminer (18081) + scheduler (metrics 9000)
-docker compose up -d
-docker compose logs -f scheduler
-
-# Or run the daemon directly (uv workspace)
-uv sync --all-packages --all-extras
-(cd packages/portopt-db && alembic upgrade head)   # migrations owned by portopt-db
-uv run --package portopt python -m app.worker      # blocks until SIGTERM
+# macOS / Linux
+curl -LsSf https://raw.githubusercontent.com/SilvioBaratto/optimizer/main/install.sh | bash
+# Windows (PowerShell)
+powershell -c "irm https://raw.githubusercontent.com/SilvioBaratto/optimizer/main/install.ps1 | iex"
 ```
 
-Seven scheduled jobs: `daily_pipeline` (07:00), `midday_news` (14:00), `universe_build`
-(Sun 02:00), `weekly_refetch` (Sun 03:00), `fred_monthly`, `news_refresh` (30 min), and
-`orphan_reaper`. Cadence is configurable via `SCHEDULER_*` env vars.
+Equivalently, by hand:
 
-Any step can be run by hand through the same job-slot and heartbeat path the scheduler
-uses — so a manual run is refused rather than double-fetching if the scheduler is already
-running that step:
+```bash
+uv tool install portopt      # installs the `portopt` CLI on your PATH
+portopt setup                # interactive wizard (see below)
+```
+
+**`portopt setup`** verifies Docker + the compose plugin, validates your
+Trading 212 / FRED keys live, encrypts them (Fernet + scrypt) to
+`~/.portopt/secrets.enc` (mode `0600`, passphrase never persisted), brings up
+PostgreSQL (`docker compose up -d --wait db`), and runs `alembic upgrade head`.
+It seeds no data. Re-run any time with `portopt setup`.
+
+Lifecycle:
+
+```bash
+portopt start     # decrypt secrets → render as compose secrets → docker compose up -d
+portopt stop      # docker compose down + delete the rendered plaintext secret files
+portopt status    # report Docker + service health (non-zero exit if anything is down)
+```
+
+> `portopt start` renders the encrypted secrets into git-ignored
+> `./secrets/<name>` files only for the lifetime of the stack; `portopt stop`
+> deletes them.
+
+### 3. Developer setup (all four packages)
+
+```bash
+git clone https://github.com/SilvioBaratto/optimizer
+cd optimizer
+uv sync --all-packages --all-extras     # one venv with every member + every extra
+docker compose up -d                     # PostgreSQL (54320) + Adminer (18081) + scheduler (metrics 9000)
+cd packages/portopt-db && alembic upgrade head   # apply migrations (single owner)
+```
+
+---
+
+## Usage
+
+### The optimization library
+
+Feed **linear** returns (never log returns), keep temporal order, and compose
+pre-selection + an optimizer into one flat sklearn `Pipeline`:
+
+```python
+from skfolio.preprocessing import prices_to_returns
+from optimizer.optimization import MeanRiskConfig, build_mean_risk
+from optimizer.pre_selection import PreSelectionConfig, build_portfolio_pipeline
+
+# `prices`: a wide DataFrame — DatetimeIndex, one column per ticker.
+X = prices_to_returns(prices)            # linear returns; runs OUTSIDE the pipeline
+
+estimator = build_mean_risk(MeanRiskConfig())          # frozen config + factory
+pipeline = build_portfolio_pipeline(                   # flattens pre-selection + optimizer
+    estimator,
+    pre_selection_config=PreSelectionConfig(),
+)
+pipeline.fit(X)
+weights = pipeline[-1].weights_          # fitted skfolio optimizer exposes weights_
+```
+
+`build_portfolio_pipeline` flattens the steps so nested params are tunable via
+`get_params()` (e.g. `"optimizer__l2_coef"`, `"drop_correlated__threshold"`).
+`sector_mapping`, `expiration_dates` and an `outlier_protection_mask` are
+optional keyword arguments (plain values, not queried from any database).
+
+See [`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE.md) for every config,
+factory, preset and shape contract, and the `skfolio`/`yfinance` skills under
+[`.claude/skills/`](.claude/skills/) for API-level guidance.
+
+### The ingestion daemon
+
+Run the daemon (blocks; SIGTERM to stop) — normally via Docker Compose, but it
+can run in-process:
+
+```bash
+uv run --package portopt python -m app.worker
+```
+
+It schedules seven jobs with APScheduler in-process (a `SQLAlchemyJobStore`):
+
+| Job | Cadence |
+|---|---|
+| `daily_pipeline` | daily 07:00 |
+| `midday_news` | daily 14:00 |
+| `universe_build` | Saturday 02:00 |
+| `weekly_refetch` | Saturday 03:00 |
+| `weekly_market_wide` | Saturday 04:00 |
+| `fred_monthly` | 1st of month 08:00 |
+| `orphan_reaper` | on an interval |
+
+`universe_build` runs **before** `weekly_refetch` (a stale universe caps
+yfinance). The reaper is a pure **heartbeat lease**: it fails any active
+(`pending`/`running`) job whose `last_heartbeat_at` is NULL or older than the
+lease TTL — so **run exactly one daemon per database**.
+
+Trigger the same work manually (same job-slot / heartbeat path):
 
 ```bash
 docker compose exec scheduler python -m app.cli daily
+docker compose exec scheduler python -m app.cli refetch-all
 docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
-# also: refetch-all | universe | macro | fred | news | reference-indices
 ```
 
-Run **exactly one daemon per database**: the orphan reaper fails any active job whose
-worker host is not its own, so two instances will reap each other's jobs.
+Full CLI surface (`portopt <command>` or `python -m app.cli <command>`):
+`daily`, `refetch-all`, `universe`, `yfinance`, `macro`, `fred`, `news`,
+`market-structure`, `calendars`, `market-summary`, `options`, plus the lifecycle
+commands `setup`, `start`, `stop`, `status`.
 
-See `ingestion/README.md` for the full picture.
+### The fund manager (`fund`)
 
-### Environment Variables
+The `fund` bridge lets an LLM (DeepSeek via Ollama) make portfolio decisions
+and delegate the numeric work to `optimizer`, persisting runs to PostgreSQL via
+`portopt_db`. CLI (`fund <command>`):
 
-`portopt setup` collects and encrypts these; for CI / manual runs the daemon also reads them
-from the environment (and Docker-compose `secrets:` at `/run/secrets/*`):
-
-| Variable | Description |
+| Command | What it does |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `FRED_API_KEY` | Federal Reserve Economic Data |
-| `TRADING_212_API_KEY` / `TRADING_212_SECRET_KEY` / `TRADING_212_MODE` | Optional Trading 212 add-on — mapped onto the yfinance universe after the build |
-| `METRICS_PORT` | Prometheus port (default `9000`) |
-| `NOTIFICATION_WEBHOOK_URL` | Discord/Slack webhook for job-failure alerts (optional) |
+| `fund profile <portfolio_id>` | Build/refresh an investor profile from a questionnaire |
+| `fund run <portfolio_id> --asof <date>` | Run a decision round for a rebalance bar |
+| `fund approve <run_id>` / `fund reject <run_id>` | Resolve a paused (human-in-the-loop) run |
+| `fund status [portfolio_id]` | Show the paused-run queue |
+| `fund report <run_id>` | Tabular audit of one run |
 
-Il Sole 24 Ore and Trading Economics are scraped from HTML and need no key.
-Scheduler cadence is configurable via `SCHEDULER_*` env vars — see `CLAUDE.md`.
+Also ships `fund-worker` (the drift-monitoring daemon) and `fund-tui` (a watch
+TUI).
 
-## Disclaimer
+---
 
-This software is provided for **educational and research purposes only**. It is not intended as, and shall not be understood or construed as, financial, investment, tax, or legal advice.
+## Dependencies
 
-**No investment advice.** The authors and contributors are not registered investment advisors, broker-dealers, or financial planners. Nothing in this software or its documentation constitutes a recommendation to buy, sell, or hold any financial instrument.
+Each member declares its own; the single shared venv installs one version of
+each shared pin. Exact runtime pins:
 
-**No liability for losses.** The authors and contributors accept no responsibility or liability whatsoever for any loss or damage arising from the use of this software. You may lose some or all of your invested capital. Use this software entirely at your own risk.
+**`portopt-core`** (library): `numpy==2.5.2`, `pandas==3.0.5`, `scipy==1.18.1`,
+`scikit-learn==1.9.0`, `skfolio==1.0.6`, `jinja2==3.1.6`.
+*(`arch` is **not** declared — it reaches bootstrap uncertainty-set classes
+transitively via skfolio. Code importing it directly must guard with
+`try/except ImportError` or declare it.)*
 
-**Past performance is not indicative of future results.** Backtesting and historical analysis produced by this software do not guarantee future performance. Simulated results may not reflect the impact of real market conditions including liquidity, slippage, fees, and taxes.
+**`portopt-db`** (DB layer): `SQLAlchemy==2.0.52`, `psycopg2-binary==2.9.12`,
+`alembic==1.19.1`, `pandas==3.0.5`, `pydantic==2.13.4`. Owns the SQLAlchemy pin
+the whole workspace inherits.
 
-**Seek professional advice.** Before making any investment decision, consult with a qualified, licensed financial advisor, accountant, or attorney.
+**`portopt`** (ingestion): `yfinance==1.6.0`, `scikit-learn==1.9.0` (declared,
+for DBSCAN price-repair), `numpy==2.5.2`, `pandas==3.0.5`, `APScheduler==3.11.3`,
+`SQLAlchemy==2.0.52`, `exchange_calendars==4.13.2`, `httpx==0.28.1`,
+`beautifulsoup4==4.15.0`, `requests==2.34.2`, `prometheus-client==0.26.0`,
+`typer==0.27.1`, `questionary==2.1.1`, `rich==15.0.0`, `cryptography==45.0.7`,
+`pydantic==2.13.4`, `pydantic-settings==2.15.0`, `python-dotenv==1.2.3`, plus
+`portopt-db` (workspace; psycopg2-binary/alembic arrive transitively).
 
-By using this software, you acknowledge that you have read and understood this disclaimer and agree to be bound by its terms.
+**`portopt-fund`** (bridge): `deepagents==0.7.14` (the only exact pin),
+`langgraph`, `langgraph-checkpoint-postgres`, `psycopg[binary]`, `psycopg-pool`,
+`langchain-ollama`, `APScheduler`, `typer`, `textual`, `pydantic`,
+`python-dotenv`, plus `portopt-core` + `portopt-db` (workspace).
 
-## Star History
+---
 
-[![Star History Chart](https://api.star-history.com/svg?repos=SilvioBaratto/optimizer&type=Date)](https://star-history.com/#SilvioBaratto/optimizer&Date)
+## Development
+
+`uv` drives everything. Run per-package with `uv run --package <name> …`.
+
+```bash
+# Library (portopt-core) — tests, lint, types
+uv run --package portopt-core pytest tests/ -v
+uv run --package portopt-core pytest -k "test_name"
+uv run --package portopt-core ruff check packages/portopt-core/optimizer/ tests/
+uv run --package portopt-core mypy packages/portopt-core/optimizer/
+uv run pyright                              # scoped to the library via [tool.pyright]
+
+# Ingestion daemon (portopt)
+uv run --package portopt pytest
+
+# Shared DB layer (portopt-db)
+uv run --package portopt-db pytest
+cd packages/portopt-db && alembic upgrade head     # head: b3c4d5e6f7a8
+
+# Fund bridge (portopt-fund)
+uv run --package portopt-fund pytest
+```
+
+There is a root `Makefile` (`make lint | format | typecheck | test | all`), but
+note that it and the CI `lint`/`typecheck` jobs currently pass the bare path
+`optimizer/`, which no longer exists after the library moved to
+`packages/portopt-core/optimizer/`. Use the explicit paths above until that is
+fixed.
+
+**CI** (`.github/workflows/ci.yml`, push/PR to `main`, Ubuntu, Python 3.12 &
+3.13, uv-driven) runs seven jobs: `lint` (ruff check → ruff format --check →
+pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.398`), `test`
+(`--cov=optimizer` ≥ 90% + branch ≥ 0.80), `ingestion-test` (`--cov=app` ≥ 80%),
+`portopt-db-test` (`--cov=portopt_db` ≥ 90%), and `fund-test` (`--cov=fund` ≥
+80%). `release.yml` builds `portopt-core` on `v*` tags.
+
+---
+
+## Repository layout
+
+```
+optimizer/
+├── pyproject.toml                 # root = dist `portopt-core`; declares the uv workspace
+├── packages/
+│   ├── portopt-core/optimizer/    # the optimization library (import `optimizer`)
+│   └── portopt-db/                # shared DB layer + the single Alembic tree
+├── ingestion/                     # the `portopt` daemon + CLI (import `app`)
+├── fund/                          # the `portopt-fund` bridge (import `fund`)
+├── tests/                         # library test suite (mirrors optimizer/ + scheduler/)
+├── scheduler/                     # shell wrappers over the CLI
+├── scripts/                       # CI helpers (e.g. branch-coverage gate)
+├── docker-compose.yml             # db + adminer + scheduler
+└── .claude/ARCHITECTURE.md        # deep per-module reference
+```
+
+---
 
 ## License
 
-[PolyForm Noncommercial License 1.0.0](LICENSE)
+[PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/).

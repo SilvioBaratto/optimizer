@@ -132,7 +132,11 @@ def load_config(
         if load_dotenv_file:
             from dotenv import load_dotenv
 
-            load_dotenv()
+            # override=True: the project .env is authoritative over ambient shell
+            # pollution. Notably a conda-activated env exports SSL_CERT_FILE to a
+            # stock cacert.pem lacking the corporate CA; without override that
+            # shadows the correct .env value and breaks TLS to Ollama Cloud.
+            load_dotenv(override=True)
         env = os.environ
 
     defaults = FundConfig()

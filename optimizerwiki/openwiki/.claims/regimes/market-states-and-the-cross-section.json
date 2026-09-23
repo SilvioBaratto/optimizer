@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:f5ee941b1d1d3f1f7b73e6ac752911b3bb9a95fd3b7ffd41d7ad07a9aedc4a24",
+  "claims": [
+    {
+      "id": "claim_48298d0b39374ebf81a9cb77c7bb6ecf",
+      "statement": "The common thesis is that the expected return of a zero-cost long-short signal portfolio is time-varying and tied to state variables: for momentum the relevant state is the market's past return and volatility, for value it is the business-cycle phase measured by a volatility regime or state variables proxying the expected market premium, and across asset classes value and momentum share a common factor structure traceable to a single funding-liquidity state.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L18-L18",
+          "version": "repo-lines-v1:sha256:97936f3120098c7ca8cd5871ff894dc75120be2db9e4cf6fc9af774048d2b89c:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTc5MzZmMzEyMDA5OGM3Y2E4Y2Q1ODcxZmY4OTRkYzc1MTIwYmUyZGI5ZTRjZjZmYzlhZjc3NDA0OGQyYjg5YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTc5MzZmMzEyMDA5OGM3Y2E4Y2Q1ODcxZmY4OTRkYzc1MTIwYmUyZGI5ZTRjZjZmYzlhZjc3NDA0OGQyYjg5YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjQ5YTBiMmYwN2UxN2IzZWM4OTE5ZWE1OWI0YTU4MTdlNjA5YzdhNTJmMzdhYjQ2NmRkNjFiODdiNDk0ZmUxOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmMxMzNhYWJlZjA4NDc0NTQ3MGI5NzFhNWE0NzQyZmEyMDlkM2QwZjNhZTUwMTJhZTg1YzkxZTQ5MjE4MGI0YiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f636abb3fe0940db99269f179ee5cf54",
+      "statement": "The market state is defined ex ante by the sign of the market's past cumulative return (value-weighted CRSP) over a long horizon, typically 36 months (results hold at 12 and 24): state is UP if R^m_{t-1-J,t-1} >= 0 and DOWN otherwise, and state-conditional mean momentum profits are estimated as the coefficients alpha_UP and alpha_DOWN of a regression of the cumulative holding-period return on state indicators with HAC standard errors.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L24-L28",
+          "version": "repo-lines-v1:sha256:45513f7faabdc9564e6c2887617f367e04e0d00996c14e5684ba4dbe9dc3766d:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWUwMzU0NjM0YWQxMmM0YThlNWI4NzMyM2NlODkxYmYwODE0Y2QwMzhlNjQ1MzljODFiMmI5YzdkMTQwYTM3MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTBmMDA2MjNjOGRlOWFiYzJkNGMxYjYyNjRkNDUwNjBkYjRiYzg5ODVkZmE4ZTFjMjYzZTYzZDAwM2JmYzE5YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2RiY2U0NzFhZGU3MDljNzNmNWNiMDY5NjdiYzJhYjRjOTYzMDEyZDM5ZmRiOWM4MWFmYTQ4NzllY2E3MTVlYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTZjZWM4NGRkNTI0MDViMjhmMjkyMTUxN2I2NDU3OWJhNTAzMWU5ZWEzZTM1ZDg2ZTExNzY1YjM2NTIxMmExNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_59a2d9e6a0b141949658a8716e126135",
+      "statement": "Momentum is profitable only after up markets: in the first holding semester after an UP state the mean profit is about 0.93% per month raw (t about 8.4) and about 1.12% CAPM-adjusted, while after a DOWN state it is about -0.37% raw and 0.01% adjusted (indistinguishable from zero), with the between-state difference significant (t about 2.3).",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L30-L30",
+          "version": "repo-lines-v1:sha256:ef3339aac3ef1166719059ff507b51421e19494a3de496f682ac7f3ba5a54006:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWYzMzM5YWFjM2VmMTE2NjcxOTA1OWZmNTA3YjUxNDIxZTE5NDk0YTNkZTQ5NmY2ODJhYzdmM2JhNWE1NDAwNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWYzMzM5YWFjM2VmMTE2NjcxOTA1OWZmNTA3YjUxNDIxZTE5NDk0YTNkZTQ5NmY2ODJhYzdmM2JhNWE1NDAwNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjQyMjAxMTE1ODFlZTg1NmVjYWY2Y2Y4ZGYzZTExODExOTkyNGY3M2FhZWEyMjkwOTlhYWRjZWU0MmM0MzI0MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWNkYTEyMjgzNmNlODVmOTNkOGY3NTNmY2E3MTQ0Y2ExYjdkYzAyZWNiOGYyNTUzZTcxNjkwMmMwMzNhMDliZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_87f656a47d8a42efbddb5ee2f6c56c3e",
+      "statement": "The momentum profit realized after UP states reverses over the long horizon: over holding months 13 to 60 the winner-minus-loser portfolio following a bull state returns about -0.36% per month raw (t about -3.2), a short-run-momentum-then-long-run-reversal pattern that is the empirical signature of behavioral overreaction theories.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L32-L32",
+          "version": "repo-lines-v1:sha256:5161efed4260f8305ca1dbcea371009a9175fedc32f4065a3b06e9bc396004e1:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTE2MWVmZWQ0MjYwZjgzMDVjYTFkYmNlYTM3MTAwOWE5MTc1ZmVkYzMyZjQwNjVhM2IwNmU5YmMzOTYwMDRlMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTE2MWVmZWQ0MjYwZjgzMDVjYTFkYmNlYTM3MTAwOWE5MTc1ZmVkYzMyZjQwNjVhM2IwNmU5YmMzOTYwMDRlMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTZjZWM4NGRkNTI0MDViMjhmMjkyMTUxN2I2NDU3OWJhNTAzMWU5ZWEzZTM1ZDg2ZTExNzY1YjM2NTIxMmExNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjYwYjFlZmY1ZWJhYTgwNDM2ZjJlYTA0YzNkNTBjZGFjYmYyMTA2ZDIxNDA3ZjNiYzcwMDM3NzY4NjBkNGI1ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_40291d27a2744afba292cd7895383125",
+      "statement": "The state dependence resists risk-based controls: comparing the lagged market return against a macro-factor model (dividend yield, default spread, term spread, yield spread) as predictors of momentum profits, the lagged market return is the best out-of-sample predictor while the macro variables do not significantly reduce forecast error.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L34-L34",
+          "version": "repo-lines-v1:sha256:269d9919f5e3b13e063e545cbcd590bea8f666bfd77229eb95ececa4179e9616:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjY5ZDk5MTlmNWUzYjEzZTA2M2U1NDVjYmNkNTkwYmVhOGY2NjZiZmQ3NzIyOWViOTVlY2VjYTQxNzllOTYxNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjY5ZDk5MTlmNWUzYjEzZTA2M2U1NDVjYmNkNTkwYmVhOGY2NjZiZmQ3NzIyOWViOTVlY2VjYTQxNzllOTYxNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWNkYTEyMjgzNmNlODVmOTNkOGY3NTNmY2E3MTQ0Y2ExYjdkYzAyZWNiOGYyNTUzZTcxNjkwMmMwMzNhMDliZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzAwZjMwYWQyM2M4ZTdjN2Q4M2ZlMzY2YjRjOWFiM2M2OGI1YjgzZWZiOGE5NDkzZGY4OGNiM2NmY2RlN2M4MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_fdd51e42c8a04d779bfd2e14fe645c4f",
+      "statement": "The winner-minus-loser (WML) strategy has a high mean return of order 17.9% annual with Sharpe above the market's and an unconditional CAPM alpha of about 22% annual, but suffers infrequent extreme momentum crashes: its monthly distribution is strongly left-skewed and of the fifteen worst months fourteen fall when the prior two-year market return is negative.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L38-L38",
+          "version": "repo-lines-v1:sha256:a9f64442b251ea4c61d85c3d19c9a7ec1138ec2e6c50cb5a3273041fa44316df:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTlmNjQ0NDJiMjUxZWE0YzYxZDg1YzNkMTljOWE3ZWMxMTM4ZWMyZTZjNTBjYjVhMzI3MzA0MWZhNDQzMTZkZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTlmNjQ0NDJiMjUxZWE0YzYxZDg1YzNkMTljOWE3ZWMxMTM4ZWMyZTZjNTBjYjVhMzI3MzA0MWZhNDQzMTZkZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzAwZjMwYWQyM2M4ZTdjN2Q4M2ZlMzY2YjRjOWFiM2M2OGI1YjgzZWZiOGE5NDkzZGY4OGNiM2NmY2RlN2M4MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMThkZmExYzVmNzRiNTA3YmE2YjhlNzU0YjExNTIxZjUwOTE2NzljZDI3NGFiMmEyYThjZGM5YWEyNDYzM2Q5ZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a753952174d3466d9d90d346860eadb1",
+      "statement": "Momentum crashes occur in panic states (after strong market declines with negative two-year past return and high volatility) alongside market rebounds: in July-August 1932 losers returned about +232% vs +32% for winners, in March-May 2009 losers returned about +163% vs +8% for winners, and August 1932 was the worst month at about -74%, because distressed past losers gained far more than winners in the rally.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L40-L40",
+          "version": "repo-lines-v1:sha256:3ff4547b406ef7168d6c02b30c0ee8023b0267a72ea54db9028984d5193ef5f4:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2ZmNDU0N2I0MDZlZjcxNjhkNmMwMmIzMGMwZWU4MDIzYjAyNjdhNzJlYTU0ZGI5MDI4OTg0ZDUxOTNlZjVmNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2ZmNDU0N2I0MDZlZjcxNjhkNmMwMmIzMGMwZWU4MDIzYjAyNjdhNzJlYTU0ZGI5MDI4OTg0ZDUxOTNlZjVmNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjQ4NjQyNmZlNjA1ZjUyMDU1NWUyYjk1ZTI2MmE4YzBjYjA4YzUyMGFhMGQ5ZmE3YWEzN2VjMjhmOGRiNWM5MSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWNhNjQ0YTdjODk5ZjUxZjY4ZDQwNjc0NjM5M2E0YzlkZTdmNWQyMDQ0MTAzYTAyOTBmNDc5YjVjNjZhYzRkNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_624e3490ad3545cba128cfa4936322e1",
+      "statement": "In down markets the WML short leg (losers) acquires call-option-like exposure so WML is short optionality, and the state-conditional beta regression estimates a base beta beta_0 about -0.03, a bear-state worsening beta_B about -0.66, and a markedly negative interaction beta_{B,U} about -0.82, so the up-market beta (about -1.5) is far more negative than the down-market beta (about -0.7) and the strategy loses in rebounds.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L42-L44",
+          "version": "repo-lines-v1:sha256:af0169cf4e438013827b431d7e21f3133e74db850c9d97bf1782ff72e8ca3015:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMmIzYjk2MTQ0MTlhYWVkNTExZTQ2N2Q2YTMxMzUyMWViYWQ0NDkzOWE4MmUyZTk4YWUxODRhYjVhNjAwNTA5MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjIxM2QxYTNjZDQ0ZDYwNzRkOWJhYjI1OGNhM2Y4YjRjMDdlYzk2NGQ0MzM1YjBlZGY0MDg2Nzg5OGQ4Mzg1OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMThkZmExYzVmNzRiNTA3YmE2YjhlNzU0YjExNTIxZjUwOTE2NzljZDI3NGFiMmEyYThjZGM5YWEyNDYzM2Q5ZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjMzN2UwZGI2MWU4ODFhZDlkNjdkZTVjNDgzYWZhOGU3MjYwNDQ0NzQ5Y2JiZDgyYzg1NTE0N2JhOTVjZTA0NyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5cc4838d2f2c40a4aed2bbc526d491f3",
+      "statement": "Because momentum crashes depend on ex-ante observable variables (the bear state and realized market variance measured from daily market returns over the prior 126 days), they are partly predictable: the bear-plus-high-volatility combination signals low expected momentum returns and a fat left tail.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L46-L46",
+          "version": "repo-lines-v1:sha256:24e32dfffc50375e2b75af0bf6fd1ba7998c48d63146b3f1e6b0e473cbef16c5:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjRlMzJkZmZmYzUwMzc1ZTJiNzVhZjBiZjZmZDFiYTc5OThjNDhkNjMxNDZiM2YxZTZiMGU0NzNjYmVmMTZjNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjRlMzJkZmZmYzUwMzc1ZTJiNzVhZjBiZjZmZDFiYTc5OThjNDhkNjMxNDZiM2YxZTZiMGU0NzNjYmVmMTZjNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTVjZTFlZWYyY2M3ZjU0MTMwYmJlY2U4MmVmNjczMGZiYjQ0ZGE1MDU2OTIzZjgyNDUzNTg2MWZhM2YzNDkxZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmZlZjBkNWU5N2E1M2NkODI3YTMzM2NkMDViZDllNzk3NGQ4Y2IyMzJhNDE0MGMxMTFiZGE5NTVkY2MwYWRiMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6b92ebbecdb7464db8639a1a2adc06e5",
+      "statement": "For a mean-variance investor the optimal WML weight is w*_{t-1} = (1/(2 lambda)) mu_{t-1}/sigma^2_{t-1}, combining a volatility scale (constant-volatility variant w_{t-1} proportional to sigma_target/sigma_{t-1}, cutting exposure in panic states) and a mean forecast mu_{t-1} made a function of the bear indicator and expected variance.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L50-L52",
+          "version": "repo-lines-v1:sha256:7462db0b21e2baf6fd92fa0171827e4029964309d47faceb58704cd9af627725:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTQyZDZiYjE2NjJiYzNjNTcyZTU5ZmY2ZWI1ODViZTlmNGEyMmFmMjhjNjQzODg4MDZmMDc1NDBiNjRiOGIwMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDg2OGM4Y2I2ZDk3NzVkZGNiMTVlNzcyYWUzOTFiYjMwODMyMDIwYWRhODc1ODBlZTdiYTE5Y2VjOGMzZDNmMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmZlZjBkNWU5N2E1M2NkODI3YTMzM2NkMDViZDllNzk3NGQ4Y2IyMzJhNDE0MGMxMTFiZGE5NTVkY2MwYWRiMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzQxNWVjNWVhM2EzMDU1OGI1MTY0OWQwNmFiNjY0NTRmYTg0N2Q3NDE3NzQwOTk0ZWQyN2NkNTg2MjA5NTA4MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c5e1807dc08a402299c24e28c37d247d",
+      "statement": "Applied historically the dynamic momentum strategy strongly attenuates crashes and raises the Sharpe ratio from about 0.6 (constant weight) to about 1.0 (volatility scaling only) and about 1.2 (full dynamic), with improvement persisting across subperiods and asset classes.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L54-L54",
+          "version": "repo-lines-v1:sha256:da08242fa0d57a245fc2984e14b059297d55e68bf9082b7f17010ded64365b0f:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGEwODI0MmZhMGQ1N2EyNDVmYzI5ODRlMTRiMDU5Mjk3ZDU1ZTY4YmY5MDgyYjdmMTcwMTBkZWQ2NDM2NWIwZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGEwODI0MmZhMGQ1N2EyNDVmYzI5ODRlMTRiMDU5Mjk3ZDU1ZTY4YmY5MDgyYjdmMTcwMTBkZWQ2NDM2NWIwZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjcxMjMxZWQ3Y2VjNTg2MTNkNDgzZDBiZjg5NzlkMWI1Y2I2Y2FkN2RlMmJlMTk2ZGE1M2IyMzIyMGU1NTUxYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjg2MDM1Zjk1ZGZlZjAwMDQyYjU2MDNkZjY5OTlmMDNlMDNlNWJjNGE5NjU4OTE3OTc1OTdlYjQ5ZWQyMzBmZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_07acf567a3b54f43b0ea8d6531ac929e",
+      "statement": "The value premium is modeled by a two-state Markov chain on book-to-market-sorted portfolio returns with transition probabilities depending on the short rate (p_t = Phi(pi_0 + pi_1 TB_{t-1}), q_t = Phi(pi_0 + pi_2 TB_{t-1})), where intercepts, macro loadings (on TB, DEF, money-base growth, DIV) and variance all depend on the state; state 1 is the high-volatility regime with about twice the volatility of state 2 and is associated with recessions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L58-L60",
+          "version": "repo-lines-v1:sha256:4a8cb2f9b3d74469931d7ceeb007ba6227add0930892ed11823dd0ea87805860:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzMxNzdhMzJlMzllODY3ZGMzYTU1NDUxMjdmMDllOWU5OTBkNmMyNTdiOThhNDY3NjU3Y2M0OTA0NzdkOWEzMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzUyOTU0ODdkZmJlMzkwYTMzNzRhMTRkYjhiYWVkYjkyNzZjYzhkODA2MGFkYjVkMTRiMDJmMWQyODRjZDc3NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjg2MDM1Zjk1ZGZlZjAwMDQyYjU2MDNkZjY5OTlmMDNlMDNlNWJjNGE5NjU4OTE3OTc1OTdlYjQ5ZWQyMzBmZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2VkOGJhNDAzOGI0M2U2YjZmMTY4Njg0ZTUxMTFjMzVkMjY1YmJlNzgzZDA4ZWJhOGYyOGVhM2U0ODI5ZjgxNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5743af9be25644e79e758ca5914eb360",
+      "statement": "In the high-volatility state 1 value's expected returns load on macro conditions far more than growth's (default-spread loading about 7.76 for value vs 4.60 for growth, short-rate loading about -10.76 vs -6.74) while in state 2 both are small and insignificant; the value premium is therefore countercyclical, with an expected value-minus-growth differential of about 12.4% annual in the high-volatility state vs about 0.6% in the low-volatility state, an average expected premium of about 0.39% monthly positive in about 73% of months.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L62-L62",
+          "version": "repo-lines-v1:sha256:14e70ea834b662ed023ceff43d109eb96cca191bd2fd394db072df5d581b61fb:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTRlNzBlYTgzNGI2NjJlZDAyM2NlZmY0M2QxMDllYjk2Y2NhMTkxYmQyZmQzOTRkYjA3MmRmNWQ1ODFiNjFmYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTRlNzBlYTgzNGI2NjJlZDAyM2NlZmY0M2QxMDllYjk2Y2NhMTkxYmQyZmQzOTRkYjA3MmRmNWQ1ODFiNjFmYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjU1ZDIyZDczNDI5Yjg1NzRjNzQ0OTA1ZWMzNGRlN2JjOThlNDY5Yzg1MGFiZWY5NTRmYjBiZDAwMmM1ZDI5YyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDJkOTgxZmEzNTlmOWUyZjU5NWFmM2NkY2E0OTg2ZWNjYmZjZDI3MThiOWRhYjljODRlNDM0MDE5NTE5OWU0MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3851ee8c0380412eaef3e76dd319af08",
+      "statement": "In a conditional CAPM with time-varying beta a linear function of cycle state variables (DIV, DEF, TERM, TB), which also proxy the expected market premium gamma_t (high in bad times), value betas covary positively with gamma_t (countercyclical) while growth betas covary negatively (procyclical), with the conditional HML beta going from negative at cycle peaks to positive at troughs, a peak-to-trough difference of order 0.5-0.7.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L68-L72",
+          "version": "repo-lines-v1:sha256:7b571244920c2ff94bf4d107c9b097397f4465526f2294807057be52b7b2ca01:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODUyNDI4N2YxZTM1ZjI2YTJhM2Q5OGUzMDQ1MDg1MzJjNTAwZTQ1ZGMzOTc1ZGY2YjE2MzlhOTBjNzE4YmRlOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDY1OWFiODE2Y2Y5NTM1ZjMwMWE5ZmM5MjhmZmJmYjE5OTAxMjlmNTY4NTI1MDQ3NjE3MGEyZjcwZmY0NDllOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODkxM2Y1MjVkYjZhZDQ0NTExODgzYmZhZDQ1Yzk3NWY5YTYyZDJjZDg5NDA1ZDUzMWUxODdmYTg0MDQwNWY2MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDI3YzhiYzU4NGRlZjQ3YTIyZmJiZDZkNDFkZTNmYzg4ODIwMzA5OWFkMTUwNTNiMTBmYjhmNzY5ZmJiYTkwMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6e103990e4634b7ea9b744fa97184de8",
+      "statement": "The unconditional expected return decomposes as E[r_i - r_f] = gamma-bar beta-bar_i + Cov(beta_{i,t}, gamma_t) = gamma-bar beta-bar_i + Var[gamma_t] omega_i, with beta-premium sensitivity omega_i widely positive for value (order 18-20) and negative for growth; but for the value-minus-growth spread the covariance term explains only part of the observed premium (about 0.39% monthly for HML) and conditional-CAPM alphas remain positive and significant.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L74-L76",
+          "version": "repo-lines-v1:sha256:d9326f5e5f28f091570ed8392ae35090c1b5b067788edd999a7896aa8d4c9405:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzI3NTAxYWE4Mjg3ZDI0ZTdlZTljZGZjZDY0ZGQxYThkZTU2NDYwYmUzZWJjMWVhMDQ0ZjRiOTdjNzIxOTdlZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTg4MWM1YTI3OTZkZWM5ZDI2YzM1MjhhODM1YjIxMDk3YTkzN2QzYmNjYzM5MGQ0MTA4MDI3ZDJmOThmNDJhYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTVjNDVkZTFiZmUwNjg1MWEzZTkyOTQ2OTg5NGQ1ZTI1YTY5ZDRhYjgyN2Q0MGUxOWEzMWRiYmY3NmY1NjA4YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGExNTkwMDZlYTJmMTU5ZmIwMjA1ODdhM2NjODBkNzk4NGM2OWFjZTI2ZmUxOTc0YjMwZjdkOTBhMGY1YTljYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e6f174aea1e1458b816ea6a13a3fe335",
+      "statement": "Studying value and momentum simultaneously across eight markets (US/UK/continental-Europe/Japan stocks plus equity index futures, currencies, government bonds, commodities; 48 test portfolios), value in one market is positively correlated with value elsewhere (about 0.68 across equity markets) and momentum with momentum (about 0.65), while value and momentum are negatively correlated with each other (about -0.5 within each class), and a principal-component analysis confirms a single latent factor loading with opposite signs on value and momentum.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L80-L82",
+          "version": "repo-lines-v1:sha256:4c47e5fdddc98c7a3c493cb493378c56a351aea972c9d0b6c955b16015f36a07:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzZkNzk0NzY1NWRhM2Y4ZGQxZTFhYzEzNzc4MGFjYzRiMzdkOWJhMTE4YTZjOTgxMzExMjhkOGNlYWZhY2E1YSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTNjODQyODJjNDUwZDJjNmVmM2JhMzlkODkxNmVjNWVmZTAxZWIyOTNjNjcwOTUyYjgxMDUzODQxZjczMDMwOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGExNTkwMDZlYTJmMTU5ZmIwMjA1ODdhM2NjODBkNzk4NGM2OWFjZTI2ZmUxOTc0YjMwZjdkOTBhMGY1YTljYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTk1Y2QzN2ZhYWZiMjY5ZWZlMDAwMTViYzRkMDA4MmYzYzI2YzkzYjY3NzhhZjk3YjliMjY0MzE5ZWZiYjBmYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_af5f76c2ba5a4bf083dccf0864e30926",
+      "statement": "A 50/50 combination of value and momentum diversified across all classes and rescaled to equal volatility reaches a Sharpe of about 1.45, and a global three-factor model with the market, a value-everywhere and a momentum-everywhere factor explains about 71% of the cross-sectional variation of the 48 portfolios with average pricing errors of order 18 basis points per month.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L82-L84",
+          "version": "repo-lines-v1:sha256:e60d60904d6b83d4e353306649eacd0afeccfa3395cababb8c72f7299e81b728:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTNjODQyODJjNDUwZDJjNmVmM2JhMzlkODkxNmVjNWVmZTAxZWIyOTNjNjcwOTUyYjgxMDUzODQxZjczMDMwOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNmZjMWQ2Zjc0YzQ3NzY5MjJjNzdjYTZkZWQzN2Y3Njg0NTYyNjg1M2MwOWM3YjA3NzYwMDlmNDk3MDk0NzhjOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTk3MzEyZDQ5NGRmYmMzMDY5NjE1ZWFjNmU4YWNmZjk1MWYzZjQxZTk3MGVjMGNkZDA4ZGY4NTQxYWM1OTJkYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDA4NTlmMjhjN2UyYjQwODJkMTdjNjFiYTY2ZTU2YjQ5MmNiMjU5MTQ4MTQzZWFjZjQxN2ZlN2EzYzY0NjcyNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2955652c0fcc4aea8b6d4da24ae21376",
+      "statement": "Regressing the two signals' returns on funding-liquidity shocks (proxied by the TED spread and other funding spreads, purged by an autoregression), momentum loads positively on liquidity risk while value loads negatively, with a funding-shock beta t-statistic of about -4.74 for value and +3.58 for momentum, so the two together partly hedge funding-liquidity risk, explaining both the high Sharpe of the joint portfolio and the negative correlation between the signals.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L86-L86",
+          "version": "repo-lines-v1:sha256:78e343b674db6af714b527b8bee20482111783d8f7f62da407de2b6097a44b89:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzhlMzQzYjY3NGRiNmFmNzE0YjUyN2I4YmVlMjA0ODIxMTE3ODNkOGY3ZjYyZGE0MDdkZTJiNjA5N2E0NGI4OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzhlMzQzYjY3NGRiNmFmNzE0YjUyN2I4YmVlMjA0ODIxMTE3ODNkOGY3ZjYyZGE0MDdkZTJiNjA5N2E0NGI4OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTk1Y2QzN2ZhYWZiMjY5ZWZlMDAwMTViYzRkMDA4MmYzYzI2YzkzYjY3NzhhZjk3YjliMjY0MzE5ZWZiYjBmYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzdmZjMzYjk5ZTY1ZTVlZGVlZDNhZWJlNjdlZWVjMDI2YTA1MDE0YzJkNGJkMjQ0YjI0NWVmMjRmMGJmZDQwOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0764935d553440c4a8a35eca11db0c9f",
+      "statement": "A multivariate regime-switching model on large caps, small caps and long-term bonds (r_t = mu_{s_t} + epsilon_t, epsilon_t ~ N(0, Omega_{s_t}) with s_t a latent Markov chain) identifies four regimes: crash (strongly negative means, highest volatility, stock-bond correlation about -0.41, duration about two months), slow growth (means near zero, low volatility, positive correlations, about seven months), bull (positive means, moderate volatility, about eight months), and recovery (high positive means, very high volatility, about three months), with stationary probabilities of order (9%, 40%, 28%, 23%) and the large-vs-small-cap correlation falling from about 0.82 in the crash to about 0.50 in the recovery.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L90-L94",
+          "version": "repo-lines-v1:sha256:5bc2d39cc56ee7f958a5ea77a62aa067bc145d9422592f78a98f6948201c6c06:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTIxYmQyN2I2OGNhM2FlNGNjYjUyOGQ1OTI3Zjc1MDEwMjhlMzE5MGMyZGNmODk5NmVjMzZmZmZiMDFlZmViOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWFiNGM5OTJkYjJjOTgyNDM4MGMxYzBlY2MzNTlkYmFkNTk3MjVkODQ2MTlmMjljZjdmY2Q1NDJhZTU3NGY4ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzdmZjMzYjk5ZTY1ZTVlZGVlZDNhZWJlNjdlZWVjMDI2YTA1MDE0YzJkNGJkMjQ0YjI0NWVmMjRmMGJmZDQwOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzQyM2M3YmM3YTk0YzAxYjkyMmI0ZGIzNTZlNjUzYWZkZGJlYWIyMDVjNjA2MTlhYjQzMmQ5NTA2ZDBiNzhkZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d7f626a3b3934bce93a71c63c47586ee",
+      "statement": "The size premium (small minus large) is strongly regime-dependent: positive and maximal in the crash state (about +100 basis points per month, where small caps at -4.10% lose less than large at -5.10%), positive in the bull (about +71 bps per month), and negative in slow growth (about -61 bps per month, where large caps outperform), a spread of about 161 bps between the maximum- and minimum-premium regimes, so the same state-probability vector governing allocation can condition cross-sectional selection.",
+      "evidence": [
+        {
+          "resource": "repo://docs/26_market_states_and_cross_section.md#L98-L98",
+          "version": "repo-lines-v1:sha256:d22a8b07ba22f2f94ceba2b0def63cfd32ec31d35cae098bc1e65bc49b1bdd57:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDIyYThiMDdiYTIyZjJmOTRjZWJhMmIwZGVmNjNjZmQzMmVjMzFkMzVjYWUwOThiYzFlNjViYzQ5YjFiZGQ1NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDIyYThiMDdiYTIyZjJmOTRjZWJhMmIwZGVmNjNjZmQzMmVjMzFkMzVjYWUwOThiYzFlNjViYzQ5YjFiZGQ1NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzQyM2M3YmM3YTk0YzAxYjkyMmI0ZGIzNTZlNjUzYWZkZGJlYWIyMDVjNjA2MTlhYjQzMmQ5NTA2ZDBiNzhkZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2FiMDUzMmYwZDk3ZWY0ZTA2ZDhkYzQ4Mjc1YTg5YTRiYjE1NWRkZTUxZjVmYmFhNDkyYzg1Y2NiNWY2NGM3NSJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

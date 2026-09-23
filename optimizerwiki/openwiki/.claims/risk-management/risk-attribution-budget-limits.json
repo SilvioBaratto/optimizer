@@ -1,0 +1,260 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:409330939f4675e50e895f08919efa9646269842c2c9d3e60a6988f6df4dbec7",
+  "claims": [
+    {
+      "id": "claim_b621412e88ca4da08ca4321dbf579ef7",
+      "statement": "The attribution question is how much a component contributes to the economic capital EC = ρ(X) of an already-allocated book, distinct from constructing a portfolio to assigned contributions, and it is non-trivial because of diversification: the sum of the components' stand-alone risks is normally larger than the risk of their sum.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L16-L24",
+          "version": "repo-lines-v1:sha256:13ff2fd2b5a4cf386b7ee2da9edf37f8cbdc94753cac6b166df5adf7bca4a7a2:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTYxZjYxYmU3YTk4OTQzMGY4YWEzMzI5ZjdiMjQ1NjM1MDhhNjdlMjYxMDk5NjE5ZmZiOGVhMTk3MDcxYjY0MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGQ4YjJlMzVkNjE5OTdkMDAxYmY2OTRmZGM1MmJhZDJmYWM1M2QyZjgxNjRhMmEyYmVhZDU5MTY0YmQzNDU0MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzI0ZjNmYzBkNjJlNzE4Y2U0NjEzZjRkZTE1Nzk5OTNkZmUyY2VmNjgzMzA2OWU1M2QxOGU1MDYxMzE0MjAwMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWJhNWYzOTczMjMyOGY0NTc5OTFlMDI0YTFkMjVkYzYwYTUzNTU4Yzk1ZTg2ZWIwZDMyNmIzNTJkNWFmOWM0YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_552f37b30dd4415397badc184257b85b",
+      "statement": "The Euler allocation applies to any risk measure homogeneous of degree one (ρ(hX)=h·ρ(X)); contributions satisfy the full allocation property if Σᵢ ρ(X_i|X)=ρ(X), and are RORAC compatible if a component with above-portfolio RORAC improves portfolio RORAC when its weight is marginally increased.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L28-L46",
+          "version": "repo-lines-v1:sha256:9a59e4b74f3fd3d5518c5b46bf3dba72098db0e142cb4667e19abe094d459cc8:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdmN2FkOWU0ODY2Njg5MTUzNjAwZjNhNDA4ZDVjYmI2NGY1ZjY0MWE1ZDZmZDM4MTU4OWQ3YTEwM2FjYjUzMDAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ5OTRhZmNmYjU2Y2MyMjIxZmJmMWQwZmY4N2Q2NTgzMzg1MDM0OWRhMGM5NjA4ZDRmYzk5YzNjNmE1MTMyZGMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImFiYTVmMzk3MzIzMjhmNDU3OTkxZTAyNGExZDI1ZGM2MGE1MzU1OGM5NWU4NmViMGQzMjZiMzUyZDVhZjljNGMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImZlNmI1ZTkzMWNhNGNlYWU1ZTgxYjExZDczYmZkMmFjZDM2M2VhMmQ2NTRmZTQwOWQwYWZkNmU0YWIyZmFjMzgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_39b62b47f65f40888c0970b7b8c7082f",
+      "statement": "For a continuously differentiable, RORAC-compatible smooth risk measure the contributions are uniquely the directional derivative ρ_Euler(X_i|X) = dρ/dh(X+hX_i)|_{h=0} = ∂f_ρ/∂u_i(1,…,1).",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L48-L52",
+          "version": "repo-lines-v1:sha256:94899e0e677e553c0b7eef492f0d91d2bac5e509c79c3943d1e469afb35acc7a:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDE2OGEzYTViZGEwYTliYmVjYjU2M2Y3NWJkMmQzNjVhMWFmNDNkNzQwZTA5MWIyY2EyOGZjODU4ODVmMGYwYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmEyZTdjYWM2ZTQ2ZGZiZWI1MTdhYTViNjYzOGJkMDU5NmM1YzIzOGU0YmRiOTFiNDUxYTJhMDIwOTQ5MWQ3ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjY5ZTU4ZDJiNmVkMmEyNjMyZGUyZmU1NTc1ZTc1ODUzYmVlOGI0NjU3MWZhNGI1NmQ1ZGY5NDc2MDM2MWNmMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDhlYjgwNTdhOWViYjk5ODI5NzY2ZGUwOTljZmFmNWVmNTc1MGY0ODAzNzUxZWZkZWRlOTlmNTA1YjM4NTY3YiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_babb82adcf73497f905135b594d0316c",
+      "statement": "By Euler's theorem on homogeneous functions, f_ρ(u)=Σᵢ u_i ∂f_ρ/∂u_i holds if and only if f_ρ is homogeneous of degree one, so the full allocation property and RORAC compatibility are obtained simultaneously exactly when ρ is degree-one homogeneous, uniquely determining the Euler contributions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L54-L58",
+          "version": "repo-lines-v1:sha256:39d6fbd12368a4f618c4f945fb0cfa2e5b1a9e8bebeaed42deb0b740899de490:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDU5MTUwNWI0MTZkMmViMGI3OTVlZTFjMjQ0NGQzMWRlODNkMmRhOTcwMzMwYmQ5Yjk1ZWUzMGE3NGI0YWIxMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTdhODhmZDdlOTFlYzFlZWI1NTRjNDBlZWQwNzYxZGU4MGViNjYzYzg1N2YzNDFjY2VhZDMzYmYxMmUxZmIzMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTk4YzdlNGJlOTJhOTBkNjgwNjdmYTUwYmViYjM2ZjE0ZTljYTg5ZTUxNDVmYWY0OWJjODMyMzhiNThmZDU5YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjU5NWFmZmQwMDNmMGVkMWZhMjBmODhhYTY5MmU1NmEzZDA1OTlhZGZkZThlNThkZTkyMWJjNTNlNzAxMzdkNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a27725a85cb24f31854283ad16be5ad7",
+      "statement": "The marginal (with-without) contribution ρ_marg(X_i|X)=ρ(X)−ρ(X−X_i) is always below the Euler contribution for sub-additive homogeneous measures, so its sum understates total risk and fails full allocation; forcing it by rescaling generally destroys RORAC compatibility.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L60-L68",
+          "version": "repo-lines-v1:sha256:ed8e9e3218a948656ba4072ce877bbd353552fdf495e611fb123063643735f4b:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDE1ZTlmNTM1MDY1MTkzMDMzNGM1NDNkZjdmM2ZlYmE4YTE5YmMwMGFkNDA0NGVkMzcyNGYxYmUxOWJjOGJhNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDgyNmI3MGI2Y2RjZjYzNDVhNDNkNTQzNTFiMGY4ODViYTZmMmU4ZTI3NTAyMGZkNDgxYjk0ZGI3NDIyNjdkOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmE0MjhiNzczNmQyY2M0OWQzNzc5N2Q5ZDI0Nzc3M2E1ZWQ2MGQ4NmRjMmVkYzMwZGI5MTQwNGE1NzY4N2JiNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTIyODlmNDA0MzI2MDhkZTRkZmM3NDI3MGNiNmUyMjUyZjUwZTA5NGIwMmFhOTg3ZWNmYTUzYzI0ZWI0N2NhNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_057da3012af64b6e94d5498f7767888a",
+      "statement": "For the standard-deviation family σ_c(X)=c√var[X] the Euler contribution is proportional to the component-portfolio covariance, σ_c(X_i|X)=c·cov[X_i,X]/√var[X].",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L74-L78",
+          "version": "repo-lines-v1:sha256:8d654a78d53991cad4ad1b760b9b36df261f5aa2c4fe659e6743f467ef11f9df:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjlkNGNlOTdmN2ZkMmMyZDQyMjEwNzA4YzA5ZTJkYmM3ZTk2M2M5ZmRiYTUxNTZjZDExN2ZkOTgwMWJjNjc0NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzhlMTA0YzU5MTY5YmQxN2MwYzU5YWY0OWRhYjBmMzY4MmMyMTMyMmM2MmU0MjViZDEzYzQ4MDVmYzYxY2E3OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDc0MWEzNGIwNTEwMGY3YTgxMDBkMzM5MDQ1YzE1MmRkNzRlMjJmOWUzZmFlNzBlNDMxNmU4NDJhMmYxOTcwNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDA4ZWUyYTNmNGU4YzAxN2NkZTU3ZDIzNWZiMTY1Yjg3MzA0YjM4ZTZmZmY1ZWM0ZmEzMzY5MDgzZTEzMTJlNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f7559cbfb21c4c92ae682f2b6a2e5cd4",
+      "statement": "VaR is homogeneous and co-monotonic additive but not generally sub-additive; under a density assumption its Euler contributions are conditional expectations VaR_α(X_i|X) = −E[X_i | X = −VaR_α(X)].",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L80-L82",
+          "version": "repo-lines-v1:sha256:2b2a6b23badb90b395e94206b6d39186cd1889799e74a884c7d29af255489519:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzU3MWQ1NjJiN2QwMTcxNGFiZjI3MmU5YzM0NGVkYTVmMWI0MGFlZGIyNWE3MWIyNWE1ZTQ2Yzc3M2NmZWIyZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMmNjNTI3NGE5NGVhYWU4M2FiMmZjNmY3MTIwYzIyMjczMTcxMGI1ODhiYmEwYTEwZGEwZjlhNmExNTFjMjg3NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjE0ZmFjMDYyYmNiZjlhYmMyNWNkN2YxOGRiY2NhMzRiZWI0Y2VmMGFjZTNmMGIxZGU5YWNjYzMxYWU2NmJjOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTExZWVmZWRlNjNhMmY3MmVmZGU0NjQ3NDkxNzAwOTYyMWEyYTkwOTYwN2VjMGQwN2I2ZTkwZWYwNWRmNTlhZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_41f808bfa5cc4d52b0f885eb4a5d5101",
+      "statement": "The Expected Shortfall ES_α(X)=(1−α)⁻¹∫_α¹ VaR_u(X) du is homogeneous, co-monotonic additive and sub-additive; its Euler contribution ES_α(X_i|X) = −E[X_i | X ≤ −VaR_α(X)] is an elementary conditional expectation because the conditioning event has positive probability, unlike the VaR case.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L86-L90",
+          "version": "repo-lines-v1:sha256:0394eaef5bd6162e818a075f1c474591e30e7718b1eae792baf2b420c7ee4b44:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2U5OGRkMWM0YzFkNTIxM2NjNjZlZDI0MjQ0ZGRhNjAyYmRlNWJmZjEzYWU1MDBjYjE0MWFkYzIwNDEzZDA2MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2FiZTY5ODE0NTMzNTA4MWNiN2I1YTA0ZWZiNjgwMzdhOTQwNjk4ZTNlM2M1NTVkMzQ0YTRlYTQwYmZmNmU5MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTExZWVmZWRlNjNhMmY3MmVmZGU0NjQ3NDkxNzAwOTYyMWEyYTkwOTYwN2VjMGQwN2I2ZTkwZWYwNWRmNTlhZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTYyNDgyOGNlN2YwMzYwZTUyYTI5NzVkM2NkMmZhY2EwNzcyNzAxNjIxN2MyMTVjNDM1NGY1ODBjYTVjNDIxYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4440a43011a045b49a1204f184ece5d4",
+      "statement": "For continuous X the naive VaR-contribution estimator fails since {X=−VaR_α(X)} has zero probability; kernel smoothing yields the Nadaraya-Watson estimator of E[X_i|X=−VaR_α(X)], with bandwidth chosen e.g. by Silverman's rule b=0.9·min(σ,R/1.34)·N^{−1/5}, and VaR/ES contribution estimates are highly volatile.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L98-L102",
+          "version": "repo-lines-v1:sha256:cabc7a0b93d96bfd02bdd87018a7d3ad91713126f38e4dc8eaeb4621d84ed3de:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWQ5NTA5NjI1M2U2MjYyNzkyNWNjOTlhMDEwMmM2YmIyYjBlM2E1OTE3YmRjOTljNzM3NzEzZTA3NWQ2MmEzYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDFkODg5MmM1YmVkZDBjZGVjZDUyZTg5YzgwYmU5OWQzNGVlYmU2NzFjODA1OGRjNDIyYWRhMzBlZTlkNzk5MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTEzOTlhNGU0MWEwNTA3ZTgzMGVjMmIwNWM4N2I1NWMxYjdiYTIzNTNjNmMzNjg4OTljZDc0M2JiZDcwMmNiZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjZlMTE5ZDQzYmNkMGUzM2RjOThjMzA1YTkyMmM1Y2UyZjkwMzQ0ZTdjOTUwZTVkMjdhYmUzYjMxM2U1MjczZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2ba6313b68d74d34b86ca2a990e8ebbb",
+      "statement": "The Cornish-Fisher expansion corrects the normal z-score for skewness s and excess kurtosis k, ẑ_α ≈ z_α + (1/6)(z_α²−1)s + (1/24)(z_α³−3z_α)k − (1/36)(2z_α³−5z_α)s², making VaR an explicit differentiable function of the weights whose partial derivatives give the contributions — relevant for portfolios holding hedge funds with significant skewness and kurtosis.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L104-L108",
+          "version": "repo-lines-v1:sha256:d680084fb2a4586d0d6d4b55e7b03655540c049e3b0463ffcc0f6480b9ff6010:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDA3ZGYzZDM4Y2ExMTlmZTBkMWRmNzc4YTA0NmQ4ZWMwNzVkYzg1NzdkZTgyNDQ4NDk5YjYyZDY0YzA3ODgwMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWExMTgzY2IwMjcxMmQ3OTI0MTQ4YjJhNzE2YzJkNDNhOTFkMDVjZjNhOWIwNmRkOTQ3YjA4ODM2NjZhNWViNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDU4YzNmNmM4YmEwMmUwZWVlZWNjZmQ0MGM3Y2RhMjdhNDk4NzQ5ODhkZjlhNzljMWI4NTRhODhhMTE5NDUxOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGIyMWY1MTNhMmQ3MTI4ZGVkYjQzY2YyY2IwZDg2ZmM2N2I1ZDViZGY1NGZjOTBmOTMzYmI5ZTU1MzU3NTMxZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2fbd5b33e38841bb8ee26d751d5c2db7",
+      "statement": "If ρ is homogeneous of degree one and sub-additive, the Euler contributions never exceed the components' stand-alone risks, ρ_Euler(X_i|X) ≤ ρ(X_i) (for credit assets never above face value), and for continuously differentiable homogeneous measures this property and sub-additivity are essentially equivalent.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L114-L118",
+          "version": "repo-lines-v1:sha256:9662397fdaef4edfb4b025942093eeb25b3e9fe9bfee79c9864af6253a98b3e7:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzhiN2E0Nzc1MmZjMWNiYjVkMzM4ZGRjNjM0YTU4YzJhZGU5MmNkZTVlNjE3MzRlNzg5M2U4NjNiODBjOThmMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWNkMzQzNzk2ZmYyYTNmOGRjNGRmOTIyZjEyYzNlNjRjMjI4MzE5ZTMzMGYwY2ZjMTQyYmM2NTViZDk4NjA0NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWE2ODUyNTJhZTIxMjczMGQ2ZjNhMjgwMDk0MGZlNTFiY2I0NDYzNDljZWJjZWQ2Y2M0MjA5ZjNjYTc1Y2ZhYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmY1NWM5MWMwZmNmNTNhMDQ5N2FjYzY0Njg1NGNkM2RmOTE4N2VmNTRiYTA5NWFlMjA2M2E4ZTkzYjJhMDRlYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a904e190bf614b8e9793d4b560a3f671",
+      "statement": "The diversification index DI_ρ(X)=ρ(X)/Σᵢρ(X_i) satisfies DI_ρ(X) ≤ 1 under homogeneity, sub-additivity and co-monotonic additivity, with a value near 100% flagging nearly co-monotone highly-dependent components (high concentration) and a low value good diversification.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L120-L124",
+          "version": "repo-lines-v1:sha256:6d3d5fe0d7a123ddab422f8d35d8dc9e35163af4499eca1b46c855a40ff3715d:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTU1MjliZTJiMzQwNWZjZWNkYzUwZmQzNzNiNmEzZjlmMGI2ZGE3MzgxNTEwMDk3NTI3M2FkZWIxZTAwNDM0OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWU3ZmIxYjJhY2FiYjgxMGNmZGNlNzYyOWQyMmQyNzU3ZTNjNjY5NjI0YjYyMWU0ODc3ODFjY2VlYWE5ZTQxMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDU2MTE2NzY2NDFiMGNlZGFjNWE1N2IwOWNhYjU1ZGJhZTQ5ZjQ3YTYyYzgwYTRkNjEyMjk3ZDAxYTQ4YmNlZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjkyZThmZWRmOTUzYjEwYzI0ZTc0NmVlYzNlZDNhNTVjMjMxYWRjNTU5MTA2NDBkOTliMjI2NTQ3OTI3OTk2NiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_326c009de7684fbcbbb70967ee4db82a",
+      "statement": "The risk impact of a factor set S applies Euler allocation to the loss decomposed into its factor-conditional expectation and orthogonal residual; for the standard-deviation measure it equals RI_σ(L|S)=var[E[L|S]]/var[L] ∈ [0,1], a generalization of the regression R² that ranks factors by impact.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L126-L134",
+          "version": "repo-lines-v1:sha256:b7ddeef165b6df03b321b9bdf62b3c1935104dc5f5e00ae1fa7fcaa9321a49fb:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTdmOGYyN2Q3OGMwODg3ZGZlOGMyODYxZTYyNmI4YWM4YTkyZTMwMGY3YmVkNmMyNzUwMGQ3OWZhM2FlYTdlMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTVjOTRmZjg0OGVmOTA3ODNhNTgzYzYyYWUzMWU2OTk5ODEyMzMxMzM1OGU0Y2IyN2UwYjQ5ZTM0NjVmZTI4NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzRkZDEyNWJhNjk1NDM3NjM3ZmIxMjU0MzgzOTBiN2NjYmFlMmE2MTk4MzZkOGVmN2YxYjhmMzlkNzNlYjc3OSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGVjOTQ4ZmNlMzMxZDdiMGVjYzdiZmE5NTRiNzJiZjdlYTQ5M2RjOGIyMjM0MTRjNDkxM2I2OTExM2Q3NWMxOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c7da86261d6f40fa8a852c35ee2087ce",
+      "statement": "The percentage contribution to risk p_i=(w_i ∂σ/∂w_i)/σ equals the ratio of component-portfolio covariance to total variance — the component's beta to the portfolio — and the betas sum to one.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L140-L144",
+          "version": "repo-lines-v1:sha256:9020b0838dd129453328e8c327b8965012bfb5dcd4535c8d18df0f687e4dde61:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMmFkNDA2NDcxMzIzZGU4ZjdiZjQyYTVkOGFkMDkxYTNiNzUyMzcyYWIwYTA5MjVlZTEyNjVjNTYxNGQxNGExZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2M3MzU4MTExZTFmNDQ0N2Y4OGVjY2Y3OTgxM2RiNGNkMWZlZmM3MjQ4YzJkZDkyODllMTM5MmU1ZjIyMTFiOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDRhMTUwZjFkMWRiNjQ3ZDljMjJmYmEzZGQ5NTU0MjVlMWNjMDBmZDQ1MDA5MDE2MjhiYTAzOGM2NGMwODQ5MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiM2YwMjY0MWYzM2E3OGJjMzA5Y2ZkNmY3NzNhY2M2YmYxNTE0M2VjZjUyMTZjODJhNGNjZTQyYzczNzFkYmRjOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6aa536bc19d54cfe84cf5f3d65a55c77",
+      "statement": "Under joint normality the expected percentage contribution to a loss of size L is c_i = w_iμ_i/L + (cov(w_i r_i,R)/var(R))(1−μ_R/L) = p_i + D_i/L with Σᵢ D_i = 0, so expected loss contributions sum to 100% exactly like the percentage contributions to risk — risk budgeting is loss budgeting.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L150-L164",
+          "version": "repo-lines-v1:sha256:eb18eb4b96dec7cb53e7f0ec9be0e9b62f49a97b68afbec3858cf68c747edabf:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJkMDMyMDM1MDhjZTM1MDM3MmEzZTk2ODhmNDczMWY4MmI3MzM3NmMxYTA5YjZjMjg2OTBkNDE2ODMwMmQ4OGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZhODg2MzQxMmQ1NzkzYjkyOTg2ZTQzZWIxNzA3NTJhNDQyOWQ5MDY3OGUwOTg0YTIwZjVlZjJlNjBkYThlMTkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImRjOTY2YzljYjI4YjAwMDgxNGM0ZWM3N2YzNDU5OWFlNjBmMDM2MzFkNWViZGIwMzlmNTEzMDEwMGQ1YjU4MTYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImM4ZTA4NWYxNTliMzdiZjZkYWQ4ZmI1ZDcyNzRiYjljODFmODE1YzQzN2EwZTQ5ZGRmNTZlODc4ODNmZDY2NTkifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c2254d7070a642779be4988d8519145c",
+      "statement": "The percentage-contribution-to-risk and expected-loss-contribution coincide (c_i=p_i) when expected returns are null (μ_i=0, a reasonable short-horizon assumption), for zero weight, and when w_1μ_1/p_1=w_2μ_2/p_2 — the first-order condition for a mean-variance-optimal portfolio, where the risk budget becomes an expected-return budget.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L156-L160",
+          "version": "repo-lines-v1:sha256:f8f2b4602151c45be269322b47cbdcf4dc401ba316a656e244843e15b5b17a6e:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2Y1NjlmYjdhOGNmZDY0ZDg2M2I4ODZkZDg4NDU2Y2U4MzljODY3ODY5OWVhZWI2NmY4M2YzYzk5MTQ3ZjdkNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTQ0NzM0Y2Y0NGJlMmUxMDIwODcyZTYxZjA0ZDdmYjdmZGI2MTFhMTczY2E5MzFjOTg0MDYxNmFjNzMzOTlkNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTk0OTIzNWU0ZDNjYzdlODVhZjU0MjBmNjEwNWU4M2ExZGE0MjQ0NjdhNmFlNzI2OTgyMThmYjAwN2QwZTVmMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTQ5MGEzMzkzNDRkMGIzZDgyM2EwYzEyODk5NDYyMGJiZWM0N2YzNWE1YzZkODRjZjM1ZTgyMjJiYWZiMGU5ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_29b882f9d6f442eca745c954c23e0850",
+      "statement": "The D_i terms measure portfolio sub-optimality: when the loss L far exceeds them (as in financial crises) c_i ≈ p_i and the loss contribution is well captured by the risk contribution, whereas in quiet periods with tiny losses the ex-post loss attribution may bear no relation to the risk contribution.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L162-L162",
+          "version": "repo-lines-v1:sha256:b5570a3e2fa3a8b2b83cc70c69300fe7840118344c765c4d1f6ed2f12fc55944:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjU1NzBhM2UyZmEzYThiMmI4M2NjNzBjNjkzMDBmZTc4NDAxMTgzNDRjNzY1YzRkMWY2ZWQyZjEyZmM1NTk0NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjU1NzBhM2UyZmEzYThiMmI4M2NjNzBjNjkzMDBmZTc4NDAxMTgzNDRjNzY1YzRkMWY2ZWQyZjEyZmM1NTk0NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjlmNTM2ZDgwZDZkNDc4ZjE5OTQyMmZhOWQwNjUxOGQ1NTQ1N2ZmYjEzNjdlMTFhYTQ1MmUxNmVmNDk5OWMyMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWU3NTkwNGY3NjgzMTYwNjZhMWRhZjVhZGQxOTEwOWIyYjdkYjYxN2YwYjdmOTU0YjA3ZDIwZjhmZjFiYzM3YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a7ea10ff18284d44a84bfed0207e3e6e",
+      "statement": "Denault's coherent allocation principle Π maps each problem (N,ρ) to an allocation with Σᵢ K_i=ρ(X) and requires no undercut (Σ_{i∈M} K_i ≤ ρ(Σ_{i∈M} X_i) for every coalition M), symmetry, and riskless allocation (K_n = ρ(α r_f) = −α).",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L170-L174",
+          "version": "repo-lines-v1:sha256:3cc1094bd0820984f49b093d32cfb759989b944c98bcf6b764693875b073ba64:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTBlY2U1ZTY2NmE4NTJjYjBhNGY0MWYyZjc0OGE2OTRlYTAzOWVkNDZiYjhkM2E1NDc0NDI4YjdiNjc4MmI5NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWI5NGUzOTJhNTJhYzQ5M2QyZTk3YzczOGQyMTkwMmRmYmIzYzgwOGNiZDJlZTI1ZWUxMTJiODE0ODk1NzQzYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzZmYTFlN2YyNWUwMDk1MGQ0NDM5NzQ4YzYwMDU3MWE2ZTFjN2JiY2VmMjJjMzg0Mjg0MDM2YTYyOWVkODJmOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGMyNzg1YTZjMGY2ZGVhYmEwY2ZjN2VhMTQ0YTQ1YzI0NTQ3ZmQzZjljODhhN2IyZWUzNThjODNjNWRkNjFkMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8faf94158e2b4bc3a158085dbb8a04e2",
+      "statement": "Modeled as a cooperative game with cost function c(S)=ρ(Σ_{i∈S} X_i), the no-undercut allocations are exactly the game's core, and if c is defined via a coherent risk measure the core is non-empty (via the Bondareva-Shapley theorem, using both sub-additivity and homogeneity of ρ).",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L176-L180",
+          "version": "repo-lines-v1:sha256:05ca706db6f76c0cdb5f135c7eaf5bd579ed7fa23a273ed7aa217335c57f5b42:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDI2N2FhMDUxZGUzMWQ3YjhhM2VjOTk0YzNmMzU3ZTc1ZjE4NzM5ZDFiNzViNzQzMzg4MTNlNWY5ZjBhYjZiNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODI3NjU5NGU1Y2U3MmRhNGU2MmQ4ZDg1Y2RlMzkyOWFlYTk0NTIyOWNiYmNkMWFhOWQ0OTA1ZDE0MDY3ODBhNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDAwOWQxOGIyYWNkMDRkMGY1NDBhNTZkYWE1ZDQxYWQ0ZThjNWI5ZGIyZGZlMTUwZmRiOGQzNmMzODMyMWQ5MSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDI2MjBiOTllNmY4MDNmMTM5Yjc4OTlmNjc2OGU3NDNjOTdkNjRiZTFmNzUzMDY4M2JlY2ZkNmUzMDdmNDJmNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6d97e591f6874062b8f9bc9b2d417dd0",
+      "statement": "For a fractional-player game with cost r(λ)=ρ(Σᵢ (λ_i/Λ_i) X_i), the Aumann-Shapley value k_i^{AS}=∫_0¹ ∂r/∂λ_i(γΛ) dγ collapses, since r is degree-one homogeneous, to the gradient ∇r(Λ), and the allocated capital is K^{AS}=k^{AS}*Λ — the Euler principle.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L182-L192",
+          "version": "repo-lines-v1:sha256:b7a48afd75d90e1935df8cc140bad78c80572fd21bd79f28552d021440d15ec9:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU0ZDZiMGFkMTE5YjBmODU2N2ExMTQ0MThiM2I0ZjRiMDYzZjM4YzY3NmRjNWFlYjExYmNmNmI5OTdiZjc1NTUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQzN2Y3ZjVmY2Q1MTE1NGY1OWYzYjZiMTVkYjA2Mjk5ODc5MmI0ODVjY2NiODQ3ZjFlZThiMGUxMjU1YWViY2YiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjdiNjIzODA1MTEwOWJmYjNiMDMzMTU5NzNhOTZhYzg2OTUzZTZhZTVjNTVlOTRmMGY3NTNlNmUwYjExOTZkZGMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjdiYWUxYTRiOTYxYTAyM2MzZTdjYmI2OGJiOWI5MjdmODQxZTdiM2MxODM1ODk4ZTY5MDQ1YmU4MzNiYTliMGUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_e6b9a2ae756e40a69f8d1962aa603344",
+      "statement": "For a coherent, differentiable cost function the Aumann-Shapley value ∇r(Λ) is a coherent fuzzy value and the unique coherent linear allocation principle; when the measure is Expected Shortfall the coherent contribution is itself of shortfall type, K_i = E[−X_i | Σᵢ X_i ≤ q_α], converging with Tasche's RORAC characterization.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L194-L200",
+          "version": "repo-lines-v1:sha256:7dcb64c3d673a96b25c2b7b76a1a5a8b9edf667a62f28f5b681b0e959c8997e0:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODdiYjc3NzYyM2U4ZmJlNDM3NmZmNzNjMjkwZDIzMDBkN2QwYmFlZDNmYzNkNDIyMmE3NGY1M2ZmOTMyOTI2NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmYyNWVhNDM5Yjg5NjE4OGNlMTBlMjhiMjJlN2ViNDFhNjA4NWU2YzljZjNjNzZkMGM0NjQ3OWRlZDc1NzMxNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2Q4M2JjYTc3NWU3Y2ZmMWE2Njg3ZGJlMWQ2M2RmNTk3NTRmODMyMTM3ZDdlYzRhNWQ5YzM1M2UwZmQyZDRjMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzQwNjAwYTc4NzdlMTM2YzM1Y2I5ODVjOTUzMDU0YzMwMTdiMTQ4MjI2ODM1NTM2ZjU3YWMwMDY4N2FiMjYxMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d0d2c39a788947c194149aaa2d383598",
+      "statement": "The risk-budgeting portfolio for budgets {b_i} is defined by RC_i(x)=x_i ∂R(x)/∂x_i = b_i, a nonlinear system unlike weight budgeting x_i=b_i; with volatility RC_i(x)=x_i(Σx)_i/√(xᵀΣx) summing to σ(x), and in a Gaussian world VaR and ES differ only by a multiplicative constant so relative contributions coincide.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L206-L214",
+          "version": "repo-lines-v1:sha256:8f1ad39d9e2e4bd4661341c52e62cd92bda8fbeac079cf0e854dcf4b2fb42273:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzIxN2ZmNzYyYzdkZjYxMDY1NDAyZmZkYWZkYTRkOTBjZTU4MWJlZmZkNTUwODU0OGM5ZmI0MjkwZmEwYzNjYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTc4NmJiMTJkZTM5MjI0ZTRjZmQ2NjMyYmU0MjQzY2ZhYTliMjVkYWIwMDQ2N2ZiMWJkMTA2MmM4MmZjZDVmOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDZjZGZiYzMzODUxZjZiYjg5YTdkZjYwY2ZiZjExZjAxM2Q0MjQ3ZDFhM2M0MDBhM2E2ZTViMmUzZWZiYzZjYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmIwZmZmYTNhODNmNDFhZDJjYTRiMDQ4NGM3YTRkYWQ3YWY3MzNmMWRkMTBjMTRjZjg2OTBlZGQ1MmUwNzk5MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8c46381d2f58400ea98f4a421de53f90",
+      "statement": "Reformulated as y* = argmin √(yᵀΣy) s.t. Σᵢ b_i ln y_i ≥ c, y ≥ 0 then normalized, the RB portfolio exists and is unique provided Σ is positive definite and b_i > 0, since both the log constraint and the objective are convex; the KKT conditions give contributions proportional to budgets with a strictly positive, necessarily active multiplier.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L228-L232",
+          "version": "repo-lines-v1:sha256:b7d465f017306021f06761cbe884be0be4cd6ed4995b083aa7a17d8ad33e416e:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzg4OWFiZTQwMzA0NDhmNGRjNDdkMDRhNjY0ZWY2NWU2ZjU4MzA0MTZlMmI5NzcyNjY0OTY5Yzg2NDVlNGUzNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzc5NWIyYTQ4NDJkNzI2M2M3ZTQ1YjE3ODlkNDA3YWM3Yzk2NDlmMTZhYzZiODM0ZTJmMjUzMzMyYmE0ZjNhOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTgyYWEyNDg5YTFhNzQ0NTNjNGVlOTcxYTU3OThjMjFmMmQ0MTJmZTJkMGY5ZmNhN2Y1MmZhZTQyZGU3NWI2YyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjdlZTU0ODlmNTYxNzJmYzY5YTI5NTY2MTQxNWNiOWI2M2U5ZTNjZDRiODZlOTFmZWUyMGNiZDdmY2Q0ZjBhOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ad41c4ecdcf64ddca4542d01d7aa7a8e",
+      "statement": "The RB-portfolio volatility lies between the minimum-variance case (c=−∞) and the weight-budgeting case (c=Σᵢ b_i ln b_i): σ_mv ≤ σ_rb ≤ σ_wb.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L234-L242",
+          "version": "repo-lines-v1:sha256:ad17563a6d5d5846541d83c111aa139dcd7b714354c081d1a5d3d3dfbc88d296:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWI1N2FjZmUxYzYxOGU2OTAwNjI4NDM5NmE2ODc5MTVjNjVhZThmNWM0OTVlYzRlMDk2ODQzYmY3NDIxYWI3YSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODI0YTUxOWY3NTFlYmU1YTQ1M2U3NDY5YjJkZGIzZTczZWViMjEzZmJkYWU2NDExOTMyOWIxY2QwNWJmNDJiNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2ZmYzYxN2ExOWRiM2I0MzlmNDY0ODdiYTAzNzEwM2UxNDEwMWU5NDgwMmQ1YjI4Mjg3M2JhZjQ5NTQxODQ2OSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjBjYzI1NzM1ZTcxMjhlMDBiM2ZiZjkyZWRiZDBiN2MwYTU0Yjc5OWQ4YzQ2NmIzOGExNDIwMmQ0NWQ3OTE0YSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_17374cfe50ff48418b1c099bd903c204",
+      "statement": "For quadratic utility xᵀμ − φ xᵀΣx the performance contribution PC_i = x_iṽ_i = (2/φ) x_i(Σx)_i ∝ b_i, so specifying risk budgets fixes attributed expected performance; with β_i=(Σx)_i/(xᵀΣx) and RC_i=x_iβ_iσ(x), the condition RC_i=b_i gives x_i = b_iβ_i⁻¹ / Σ_j b_jβ_j⁻¹, weight inversely proportional to beta.",
+      "evidence": [
+        {
+          "resource": "repo://docs/23_risk_attribution_budget_and_limits.md#L244-L254",
+          "version": "repo-lines-v1:sha256:0edfbac6891eabc0abc272bbe8a2cc320d6ada2afdff2dde17593beb6642beb9:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjA0MDRjODdkM2Q0ZmE3OTM0ZjI5NWIxNzBkYjBiNThlMWNiZmFmNzM4ZTAyYTQxNGFmNDZkY2U5YTlhOTUzZTgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxNTgzZDhlY2UzMDM3ZDRhNmExYzIyNWRlOTM0ODg2MmI0ZTU4ZjUwODFiMjM0ZDA2MWVjYmU1MGZiMjgwNWIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjQyODZjYzViMTY0NzVhZTFhNWQ3OWZjM2NiZjExYmQyMmVjYmRlMDQ3NGJhZmI0OWU3YmJhNzJlOTQ5NWFjMjYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg4YmViMWM3YmRmNmM4MTRlZTJhYmJlNmU3NjRhZmU5NjdhNmRmOGQ4NWYyMzczY2IwZjg0Yjc4OGJhZGJlZTAifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

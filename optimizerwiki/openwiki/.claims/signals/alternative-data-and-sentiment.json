@@ -1,0 +1,240 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:394bf9d1d94f7da8bec6a0edf2167809d67c70250fda5357fd0f37613fd0b365",
+  "claims": [
+    {
+      "id": "claim_c4302c7f378f4db2bb7da67ee331877b",
+      "statement": "For investor sentiment to affect the cross-section of prices and returns two ingredients must hold jointly: investors whose demand is driven by beliefs not justified by the facts, and limits to arbitrage that prevent rational operators from promptly correcting mispricings; sentiment is defined as a belief about future cash flows and investment risks not justified by the facts at hand.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L16-L16",
+          "version": "repo-lines-v1:sha256:243c92eac4dde589cd92e28af15bcd0a555c51058b792400f2a359ea73b1141c:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjQzYzkyZWFjNGRkZTU4OWNkOTJlMjhhZjE1YmNkMGE1NTVjNTEwNThiNzkyNDAwZjJhMzU5ZWE3M2IxMTQxYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjQzYzkyZWFjNGRkZTU4OWNkOTJlMjhhZjE1YmNkMGE1NTVjNTEwNThiNzkyNDAwZjJhMzU5ZWE3M2IxMTQxYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjhjMzNhMjRmZWJiY2Y2ZjhkZThiZWIyMzI1MmM4OWU0Y2QxMWJjYzdjOTIzN2ZmMjQ3OGMwNzljNWE3Yzg4MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGI3NTVmZDdjYzc5YjIyNzJlZmQyNDkzZmIwMjBiNjc0YjBiYmRiMDVhN2YwYjRkODljZTRhNWFkOTQzMjExZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5225e4d557d34f1e9720fec4e1f4af9f",
+      "statement": "The chapter's diagnostic criterion is that the sentiment theory predicts short-horizon signal-induced returns are reversed in the long run while the information theory predicts they persist indefinitely, so a signal's temporal signature (pressure-then-reversal versus lasting impact) tests whether the datum carries noise or news.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L18-L18",
+          "version": "repo-lines-v1:sha256:64a742942906c6e7e89c30ff9e85285ce48c74f5d0bbec356105f7300fc106a4:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjRhNzQyOTQyOTA2YzZlN2U4OWMzMGZmOWU4NTI4NWNlNDhjNzRmNWQwYmJlYzM1NjEwNWY3MzAwZmMxMDZhNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNjRhNzQyOTQyOTA2YzZlN2U4OWMzMGZmOWU4NTI4NWNlNDhjNzRmNWQwYmJlYzM1NjEwNWY3MzAwZmMxMDZhNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2NmNGI1NDBlZjZmZWRiOWQ1NTVlMjVkMmI0MzdiYmYxYjdkZGVhYzA0NmNkZTk5ODBmYjRiZDdhZTI1MDM4MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2U5NzQ0M2M3ODQ1MjdmOTJjOGM4ZGZlMzZjN2M2YWU4MTYwZjdhYTRjNDRhYjY4MmYwMzgxNzY0YzlkOTBmYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_21fc3dce3efe44f2bee7a5f47ed5e427",
+      "statement": "Because sentiment acts where arbitrage is costly and valuation is hard, its effects are expected to concentrate on speculative, hard-to-value, hard-to-arbitrage stocks, and attention signals are expected to produce temporary pressure on stocks held by individual investors.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L20-L20",
+          "version": "repo-lines-v1:sha256:0ef1e98ba3ad845fd5a4d009208763a298b586bd649f40f29b990f8381c581ec:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMGVmMWU5OGJhM2FkODQ1ZmQ1YTRkMDA5MjA4NzYzYTI5OGI1ODZiZDY0OWY0MGYyOWI5OTBmODM4MWM1ODFlYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGVmMWU5OGJhM2FkODQ1ZmQ1YTRkMDA5MjA4NzYzYTI5OGI1ODZiZDY0OWY0MGYyOWI5OTBmODM4MWM1ODFlYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGI3NTVmZDdjYzc5YjIyNzJlZmQyNDkzZmIwMjBiNjc0YjBiYmRiMDVhN2YwYjRkODljZTRhNWFkOTQzMjExZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTA3Y2Q4NWE4ZjE1ZGZmN2JlZDc2MWQ5YWIwZmZiY2RhNWUwMmExODVlNGQ2MWVhNDQ5ZDI2NmEyODJhMGRkNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_58bb52a9c10c40069828650ff0c2629c",
+      "statement": "The media-pessimism measure applies principal component analysis to the counts of the 77 categories of the General Inquirer (Harvard IV-4 dictionary) in a daily Wall Street Journal column; the first factor, interpreted as pessimism, loads on the Negative, Weak, Fail and Fall categories.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L24-L24",
+          "version": "repo-lines-v1:sha256:536fe4d3b5de19c57935f809c41b0ec476d4b541cd0926bafd6aed7d1612cad4:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTM2ZmU0ZDNiNWRlMTljNTc5MzVmODA5YzQxYjBlYzQ3NmQ0YjU0MWNkMDkyNmJhZmQ2YWVkN2QxNjEyY2FkNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTM2ZmU0ZDNiNWRlMTljNTc5MzVmODA5YzQxYjBlYzQ3NmQ0YjU0MWNkMDkyNmJhZmQ2YWVkN2QxNjEyY2FkNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTA3Y2Q4NWE4ZjE1ZGZmN2JlZDc2MWQ5YWIwZmZiY2RhNWUwMmExODVlNGQ2MWVhNDQ5ZDI2NmEyODJhMGRkNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTExYzBkNWQzYzNjNjQ0YmU0M2EwZjU1N2NmMmZhYzZiMDJhZDdkYmFiMGVjMTgyNGM5OGExN2Q4MzQ1MjNjZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_797fd892a52f49b8abe9122f83daa9df",
+      "statement": "Across a large set of 10-K annual reports, 73.8% of the occurrences of words classified as negative by the Harvard H4N list are not actually negative in the financial context (e.g. tax, cost, capital, board, liability, foreign, vice), motivating domain-specific dictionaries such as the financial negative-tone list Fin-Neg of 2,337 words.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L26-L26",
+          "version": "repo-lines-v1:sha256:0eb6755136a87c3fdbfe8f26c2a78a10c4336673d92222ba61c0c2de162c264b:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMGViNjc1NTEzNmE4N2MzZmRiZmU4ZjI2YzJhNzhhMTBjNDMzNjY3M2Q5MjIyMmJhNjFjMGMyZGUxNjJjMjY0YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGViNjc1NTEzNmE4N2MzZmRiZmU4ZjI2YzJhNzhhMTBjNDMzNjY3M2Q5MjIyMmJhNjFjMGMyZGUxNjJjMjY0YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTg4NDFlYTg2MDI1ZjkyMDk4N2UzMDFiYzM1MWEwZDNkMTY0MzcwYzQ0ZTA0MWMxMGJlNThhZjE2NzQ0YTM2NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDE0MmYzNTZlZDA4NjVmYWI5NjU0MDU5MTgxNjY1OWRkNmM2YzgyZmVjNzRmNjlkOTFiYTNlYTc5ODgwZTJiNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7b6d254caa62429aa43a7161cf32e54d",
+      "statement": "Term weighting is not neutral: proportional weighting is dominated by a few common words (Zipf's law), whereas the tf.idf weighting w_{i,j}=[(1+log tf_{i,j})/(1+log a_j)]·log(N/df_i) for tf_{i,j}≥1 (else 0) normalizes term frequency for document length and, via the idf factor, damps ubiquitous words and boosts rare specific ones.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L28-L30",
+          "version": "repo-lines-v1:sha256:4294978cd85d006c72df2cd3392571619465f8a3f1c7124119b44fbc528f1fb0:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTZmMDE3YzY2ZjA2NjRhMjY2NTIyYjgxODQyM2NhNDQ3OGU3YmViNzNiOGMzNWZjNWMyOGQ4ZTc2MjY2NTY1MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTMzYTI4NGQ2ZGI0NjY0ZjFkNTJmNmNkMzAwMjhhYTVmNGUyOWE4ZjIxMDYxZjg2NWExZTcwNGIwYWIwYjM1ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTExYzBkNWQzYzNjNjQ0YmU0M2EwZjU1N2NmMmZhYzZiMDJhZDdkYmFiMGVjMTgyNGM5OGExN2Q4MzQ1MjNjZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDZiNGRlNDIyMmRlMDg5NjEwYjdiYjRkNmE4MGZiNWRlZDYwYjA4ZjU0YzRkYzkzMjEyY2M3YjgyMjA2ZWI4ZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_eaa4eb02863445969bc0f969204818b4",
+      "statement": "A one-standard-deviation rise in media pessimism is followed by downward pressure of about -8.1 basis points on the next day's index return, then a reversal of about 6.8 basis points over days 2-5, so the cumulative effect (about -1.3 basis points) is not significantly different from zero — the temporary-pressure-then-reversal signature of the sentiment theory.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L34-L36",
+          "version": "repo-lines-v1:sha256:c86ed1c7190d259b9265eb45979e76eb89a8ed927ccc9b5cb4d8c89580941aa7:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTE5MGFmMGY2ZDFkMjJjYzFjNDQwZDU3MWEwYmIwODAwMjZmMjBlMDJmMjMyNjg5ZDM2OTkxYzk5MjUwODYxMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTk4NTUwYmYxNzkwZjA2OTA3NmU4ZjBhNzE1ZGI1OTk5ZTZkZTRmZTBmNDYwMGI5NGIyZmZlMGJhYjBjMjcyNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDZiNGRlNDIyMmRlMDg5NjEwYjdiYjRkNmE4MGZiNWRlZDYwYjA4ZjU0YzRkYzkzMjEyY2M3YjgyMjA2ZWI4ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzVjYTEwOGNlNWMwYWVkNGY1MjJjMjllNmIyZTkzNjhlZmI4ZmZlY2ZhNWQ1OWU3MDYwOWNhNWRhMmVlZDUxNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ef5b7217823b4a8cb05c170bcaea2965",
+      "statement": "Unusually high or low pessimism (large absolute deviations) precedes elevated trading volume, and pessimism predicts a negative return on the size factor SMB, indicating the downward pressure concentrates on small-cap stocks held by individual investors; the trading strategy earns roughly 7% gross annually but transaction costs erode its profitability.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L38-L38",
+          "version": "repo-lines-v1:sha256:aa33ad082219c15ec959b5302d06f5846beffa81d04f09b30a76d1a14b203292:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWEzM2FkMDgyMjE5YzE1ZWM5NTliNTMwMmQwNmY1ODQ2YmVmZmE4MWQwNGYwOWIzMGE3NmQxYTE0YjIwMzI5MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYWEzM2FkMDgyMjE5YzE1ZWM5NTliNTMwMmQwNmY1ODQ2YmVmZmE4MWQwNGYwOWIzMGE3NmQxYTE0YjIwMzI5MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDZmYjkyNmU2YzcxOWZmZjI3MzI1NzkwYjk5ZWIyMjAyYmI5ZWMzODBmY2JjMzc3MDY0N2I3ZjE0ZjkyZmZjMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDc3NDM3MzRhZWZkZjdkNmNhNzJhMWEyYjlmZjMyNGUyYzA4YTNlNGZmYjU3ZTFkZGI0NzdlMzNiOWJmOWE3NiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_916bd5fda4624f2bb8b4f2274348aaec",
+      "statement": "The proportion of financial negative-tone words in a 10-K predicts negative abnormal returns around the filing date with a t-statistic of -2.64 net of size, book-to-market and momentum controls; the Fin-Neg list is significant already under proportional weighting whereas the Harvard H4N list is significant only under tf.idf weighting.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L40-L40",
+          "version": "repo-lines-v1:sha256:a57625f7a3a9a775669a8c6e04b8798bf4f512a27b036a85db0387d2cf1b37a9:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTU3NjI1ZjdhM2E5YTc3NTY2OWE4YzZlMDRiODc5OGJmNGY1MTJhMjdiMDM2YTg1ZGIwMzg3ZDJjZjFiMzdhOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTU3NjI1ZjdhM2E5YTc3NTY2OWE4YzZlMDRiODc5OGJmNGY1MTJhMjdiMDM2YTg1ZGIwMzg3ZDJjZjFiMzdhOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzVjYTEwOGNlNWMwYWVkNGY1MjJjMjllNmIyZTkzNjhlZmI4ZmZlY2ZhNWQ1OWU3MDYwOWNhNWRhMmVlZDUxNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzljY2Q5ZDQ1NjY5YTZiYTM3NThjNTI4ODMyNjkxYjI4YzU3MWY2NTgxNzdjZDk4N2Q5ODg4NmZjZWFjYjA4YSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b96649801a9d4fc7b29e15bc7314bb1c",
+      "statement": "The aggregate sentiment index is the first principal component of six proxies, SENT_t = -0.241 CEFD_t + 0.242 TURN_{t-1} + 0.253 NIPO_t + 0.257 RIPO_{t-1} + 0.112 S_t - 0.283 PDND_{t-1}, explaining about 49% of the variance; orthogonalizing the proxies against industrial production, consumption, employment and recessions yields SENT-perp explaining about 53%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L44-L46",
+          "version": "repo-lines-v1:sha256:bd19e60eb4a990199976c4da62a592b7cf17ad1000e1a430fb80f12e96d784f6:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjZlODM4ZWVmMzExMThmZDBlN2EzYmY4MmEyNWIyYzBhNmYyMjg2NTZmY2FhZmJlNTVlMDg0MDlmYjU1YzI2NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzZkZWU5OWFjMDczNDQ4MTI4ZGFhN2Y4YzhkNTc5ZTUzNWE2MWQ2ZGIyMmZmMDUzOTNhMjJiZjNlNmUzNWJiYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzljY2Q5ZDQ1NjY5YTZiYTM3NThjNTI4ODMyNjkxYjI4YzU3MWY2NTgxNzdjZDk4N2Q5ODg4NmZjZWFjYjA4YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTRkZDQxODI2YzZmZjFjN2VmYTgzMGFkMjM5ZWQyYjcyOGEwMjMwOTg2OWM0MDA1NjE3YzNlZmViNmY4NDBmYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1972802a122e4f53969b1e161f097628",
+      "statement": "In the conditional-characteristics model E_{t-1}[R_it]=a+a_1 T_{t-1}+b_1' x_{i,t-1}+b_2' T_{t-1} x_{i,t-1}, when sentiment is high future returns are relatively low for young, small, volatile, unprofitable, non-dividend-paying, high-growth and distressed stocks (hard to value and arbitrage), attenuating or reversing when sentiment is low, and the size effect emerges only in low-sentiment periods with sentiment's predictive coefficient on SMB about -0.40 per index point.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L48-L52",
+          "version": "repo-lines-v1:sha256:896b641771187c40ace951b51668ed44d97ad21d3f809b01f7820f1715c679d7:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTZkYjU1NDI5NzIxOWM0ZGQ3MDU1NGQ3NjgwY2MzYjU4ODYyNzIwNWM4NDk0ZWI5YTVlMzhjZjRiYWQ4OGQyZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmMzYThiZWU5ODJlOWM2YzQ0NjA1YTkxNzFiMWU3YWVjOTdjMDczZGUwZTdjYzAxYzAxOTI5YzVkYzBhM2I0ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmJiNGNmN2Y2YTIzMmZiMzhkNmU2YzA5NjUxMjNmMWNjZGExNTgwOTFiYTYwZmEwYzgxNjY2Y2Q4M2MyODQwNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODljZDViMmNlMjY5YjRmYmU4ZGFmNTY3OWZkY2NlNWVjNTUzZWUxZThlNjM1MDRjNjkwZmQ4NTM5MDAyM2UyNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9689526a27ba4463978804f0621c7ccb",
+      "statement": "Two checks rule out compensation for classical systematic risk: SENT-perp is orthogonal to macroeconomic conditions, and time-varying-market-beta estimation gives a composite coefficient that when significant typically has the wrong sign for a conditional CAPM.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L54-L54",
+          "version": "repo-lines-v1:sha256:9809fc9d56dbafeee16df7d25b7cacc8d59f39bbf9a0e2ed29e5706e8c9fe42c:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTgwOWZjOWQ1NmRiYWZlZWUxNmRmN2QyNWI3Y2FjYzhkNTlmMzliYmY5YTBlMmVkMjllNTcwNmU4YzlmZTQyYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTgwOWZjOWQ1NmRiYWZlZWUxNmRmN2QyNWI3Y2FjYzhkNTlmMzliYmY5YTBlMmVkMjllNTcwNmU4YzlmZTQyYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmIzMzBmMjllMzk4NDFmMjAyZTQyYTQ5MThlMTNkNzY4MDRkNGE3NjBmOTJiMzllYzQwYWJiMDEwMzkyODQ4MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzYzNGMxNzhhMTk5ZDdlZmY5NzFhMzZjZGI0NmYyODBkZTUzYjY5ZjEyMDA5NjFiODA1ZmFmZWQ3OTU4ZjMwOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_85193eb63ce74f86b138048b6f0d5463",
+      "statement": "Google's Search Volume Index provides a direct revealed measure of retail attention, de-seasonalized as the abnormal search volume ASVI_t = log(SVI_t) - log[Med(SVI_{t-1},...,SVI_{t-8})]; attention is distinct from sentiment, the correlation between SVI and news-extracted sentiment being only about 1.4-2.3%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L58-L60",
+          "version": "repo-lines-v1:sha256:2cca2f7b4c69e3d2940d17b2e7995d70a54b5f3bf3fbaf1d83653a97e91f6224:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTFlMTdhMWQ3NTAxNTg5MzM0YTViOTEyZWMxMjFiNmI3MDY4NDdmYTNhNDIwMTI5NjVhY2ZjNzI3YmFmZjAzNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGViZTgzZjg1ZGE4MzQyNTEzYjBlZjVkODgxMmFmN2IxMjY0MTFmOTQzN2Y1NzUxODliMTQ3ZmIwYWEyOTAxOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzYzNGMxNzhhMTk5ZDdlZmY5NzFhMzZjZGI0NmYyODBkZTUzYjY5ZjEyMDA5NjFiODA1ZmFmZWQ3OTU4ZjMwOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzY2MjM2NjUzODYwYWViMmZjNzIzNzAxMWU2NDk1NWIzMzc0ODJmZDg1MzFhY2VkZWNmMzA2M2Q5NGIxYWNkZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d762d5a14722432a819fbca6b7517127",
+      "statement": "Via attention-induced price pressure, a one-standard-deviation rise in ASVI is associated with a positive aggregate return of over 30 basis points in the next two weeks (about 18.7 in the first week and 14.9 in the second) followed by reversal within the year, stronger for small and retail-traded stocks; for IPOs high pre-placement attention precedes a higher first-day return (about 16.98% versus 10.90%) and long-run underperformance.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L62-L62",
+          "version": "repo-lines-v1:sha256:2501f8f78690fda320f84a6d5c4678d0b0515b5bdfd1433e7464291ef51513dc:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjUwMWY4Zjc4NjkwZmRhMzIwZjg0YTZkNWM0Njc4ZDBiMDUxNWI1YmRmZDE0MzNlNzQ2NDI5MWVmNTE1MTNkYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjUwMWY4Zjc4NjkwZmRhMzIwZjg0YTZkNWM0Njc4ZDBiMDUxNWI1YmRmZDE0MzNlNzQ2NDI5MWVmNTE1MTNkYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmY2OTFjZjk2ODBlZmI1MTFiN2E4MDZlYmM5ZTRlOWY1NGQ2ZjJhM2EyNzUxMDJjNWI2NjIwMzVjZjhmMDk3MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDk4MTU3N2UxYjAxY2Q2YWNiNjQxOGIwNGYwOWVkZTg4MjRjNTBhMzlmZDAwYTNlMjRkOTA1NTczMTYyOWMzYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d1aa6b81b2f945b4a4a90f7b3be6ae57",
+      "statement": "From 9.85 million 2008 tweets two public-mood measures are extracted — a bipolar OpinionFinder indicator and the six-dimensional GPOMS profile (Calm, Alert, Sure, Vital, Kind, Happy) — each standardized against a local window as Z_{X_t}=(X_t - mean(X_{t±k}))/sigma(X_{t±k}).",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L66-L68",
+          "version": "repo-lines-v1:sha256:bac9688144eac847799dd49b399e35774097b76e9088d9ac5c26988ad3a99971:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDRmOWI5NDgyMWY4N2MwNmY5NGNiNTgxMjY3NjVkZmJkNjYyMmNkN2ZkYzkzZWJlODYyMzVmOWU4ODhhYTJjMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTMxMmZmOGNkODdmNTc3OTk0ZjNkMGQ0MmZiYTc4YmU0YmMxZTMzYzZjNWEyZGJkMmUwZjYzM2E1OGZhYjdkMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDk4MTU3N2UxYjAxY2Q2YWNiNjQxOGIwNGYwOWVkZTg4MjRjNTBhMzlmZDAwYTNlMjRkOTA1NTczMTYyOWMzYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTQ5MzIzZjg5MzM5MDA2YmFiMWYwNzIyZWQwYTBlZTBkNjExYmQ1MjFhN2VhZmM0MWQ0M2FmNzI5MjdhZTBmNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_bc29e3fd35e642278a29ce94d4ad64dc",
+      "statement": "In Granger-causality tests the Calm dimension alone Granger-causes the Dow Jones return at lags 2-6 days with significance below 5%, while neither the bipolar indicator nor the other GPOMS dimensions predict; feeding Calm into a self-organizing fuzzy neural network raises directional-prediction accuracy to about 87.6%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L74-L74",
+          "version": "repo-lines-v1:sha256:f2c8ac9abdff6ebb40c98a34eddcf05853b209f60824b0f8e32af78662b7fd56:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjJjOGFjOWFiZGZmNmViYjQwYzk4YTM0ZWRkY2YwNTg1M2IyMDlmNjA4MjRiMGY4ZTMyYWY3ODY2MmI3ZmQ1NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjJjOGFjOWFiZGZmNmViYjQwYzk4YTM0ZWRkY2YwNTg1M2IyMDlmNjA4MjRiMGY4ZTMyYWY3ODY2MmI3ZmQ1NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODNhYTgwZTg4NDFhZWZlZTljOGU0N2E1ZDg3MWFmNGQ4MzA4M2RiYTBiNzc4MGMzZGNiYTZmYmI2N2FmMTgxMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTcyODRkNmU5NDJhNjA0MGQ4NWE0NzJhYWRhYmQ3YmI2Nzc4OGNlNWQ0NDBhNTVlNDRhNmNjNzNlMzc1YjQ3NCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e4aab18713ae43eba2bb5326893b2a24",
+      "statement": "Scoring 900,754 Reuters articles (2003-2010) with a three-layer neural sentiment engine, daily-measured sentiment predicts only one or two days (post-publication returns about 0.17% at day 1 and 0.04% at day 2) whereas weekly aggregation extends predictability to 13 weeks (a full quarter) with a 3.75% announcement-week decile spread, indicating extracted permanent information rather than transient sentiment.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L78-L78",
+          "version": "repo-lines-v1:sha256:cc524d03540d6b6c0ecb96f9c0b942bba058d71e703adc14f72aed9e1465f561:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2M1MjRkMDM1NDBkNmI2YzBlY2I5NmY5YzBiOTQyYmJhMDU4ZDcxZTcwM2FkYzE0ZjcyYWVkOWUxNDY1ZjU2MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2M1MjRkMDM1NDBkNmI2YzBlY2I5NmY5YzBiOTQyYmJhMDU4ZDcxZTcwM2FkYzE0ZjcyYWVkOWUxNDY1ZjU2MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTcyODRkNmU5NDJhNjA0MGQ4NWE0NzJhYWRhYmQ3YmI2Nzc4OGNlNWQ0NDBhNTVlNDRhNmNjNzNlMzc1YjQ3NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzkyMTYxMDE5ZTU4NjliMDE4Y2JiZmVjNjM0ZWM2ZjZiZWE4M2NhMWYxY2UyNmIyMWM0ZDFmZjg5OTc2MTliNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4d962dc0a21448d6a1541c91358d520e",
+      "statement": "Controlling for the existence of news matters: firms with news differ from firms without, neutral news outperforms the absence of news, and a Fama-MacBeth regression r_{i,t}=alpha_{k,t}+gamma_{k,t} 1_{news,t-k}+beta_{k,t} Positive_{i,t-k}+delta_{k,t} Negative_{i,t-k}+eps isolates the publication indicator from positive and negative sentiment at each lag k from 0 to 13.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L80-L82",
+          "version": "repo-lines-v1:sha256:8e3fcb5ad4db371760320404ece6fe4d577701f5031d2c93f156517e95dae237:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWFhY2M4OTc5YjExYzRjOTViNTRkYzE5ZTFhMzVlZDdmNDAzODdiYjk2ZTNmMzhkNmI3NWUwOGE2OTIxZTI4OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWI4ZWJmMDgwNzk0MDg0MzRkMGJmMmFjYmYxYWJhNDMwZTJjOGNhYzhhYzIxYTBmZTQ1ZDc2Yzk1YzNlOWQ3YSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjRmOGE2ZGU0OGIwOTNiNDY0MWNhZTYxOWQ1ZTNjMjUwZTQxN2NiOTU4Nzk4OGNmMWQ1ZGMyZThjYWRjYWI3NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWQ0ZjIyMDQxNDBkYjUxODljNzA1MDBjZjcwYzBhZTAxZjQ4ZTkwZjQ5N2E3NWFhYjcyZTlmZDk5NzdjOTQ3OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5ec5cb9db0d14612b1fa42904604b3f2",
+      "statement": "A sharp asymmetry emerges: positive sentiment has a strong contemporaneous effect impounded within about a week (lagged coefficients near zero) while negative sentiment predicts low returns for a whole quarter (significant at lags 1-6 and lag 10), consistent with short-selling constraints and bad news traveling slowly, with much of the delayed reaction concentrated around subsequent earnings announcements (announcement-week spreads of 5.57%, t=2.7) consistent with post-earnings-announcement drift.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L84-L84",
+          "version": "repo-lines-v1:sha256:74900d4c68f5f2b71fc3c0f43c631ca9893d3732944323a2cccd5ade08549116:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzQ5MDBkNGM2OGY1ZjJiNzFmYzNjMGY0M2M2MzFjYTk4OTNkMzczMjk0NDMyM2EyY2NjZDVhZGUwODU0OTExNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzQ5MDBkNGM2OGY1ZjJiNzFmYzNjMGY0M2M2MzFjYTk4OTNkMzczMjk0NDMyM2EyY2NjZDVhZGUwODU0OTExNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTg5ZmYyM2ZkMmEyNzZhYjcxM2UzNjk4ZTZmNzA0MTMzNTVlNjdmY2E0YmNiMjRjZTQxZmQwZDRjMWU1MzVmYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTdhMDg3MTY2ZWEyNjg5NGJkZDY2YzEwOTE3OTU1MDM4M2RmMjI5ZmM1NzczYmNkNTc0ZWFlNmY3ZjdjNzIwZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f0afdfe9105b434f9efa77c74c7849ac",
+      "statement": "Risk-premium measurement is a prediction problem, r_{i,t+1}=E_t(r_{i,t+1})+eps with E_t(r_{i,t+1})=g*(z_{i,t}) a flexible function held identical over time and across stocks, and the predictor set totals 94×(8+1)+74=920 baseline signals (94 firm characteristics interacted with eight macro variables plus a constant, and 74 industry indicators) over nearly 30,000 stocks from 1957 to 2016.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L88-L90",
+          "version": "repo-lines-v1:sha256:83201664541ee36a165ef27f1be9e1a76a63a2d03299f8e6b8796f6f4256c983:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDhhNGQ3MThhM2QyZWI3ZDZmNTk1YjczMzA4N2UyNTY1MGUxNmQ5ZjFjNzI0ZTdmMGNiY2M2Mzk0ZTUzZDMyYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzEzOTc3OGMxOWIxMjRmMDY3NWM5YTIzYjAzMDJjYTM0ZmRmNmFmMTRkM2JhYTVhNTQ3MzliNGEzYWRjZTYxOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTdhMDg3MTY2ZWEyNjg5NGJkZDY2YzEwOTE3OTU1MDM4M2RmMjI5ZmM1NzczYmNkNTc0ZWFlNmY3ZjdjNzIwZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjAwZjdlMDQ4NTc2MTQ0NDc4ZTM0YWNkOWI1MmI2NzRkNGEzZjkyODMzMDZjYmQxMTNhMDI2ZjIwMWYyMzJlYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9f311192d96e449b9d7995dd13480197",
+      "statement": "OLS with all predictors fails with an out-of-sample monthly R^2 of -3.46% from overparameterization; the elastic-net penalty phi(theta;lambda,rho)=lambda(1-rho)Σ|theta_j|+0.5 lambda rho Σ theta_j^2 combines lasso selection (rho=0) and ridge shrinkage (rho=1), and PCR/PLS dimension reduction bring the out-of-sample R^2 to about 0.26-0.27%, with performance measured by R^2_oos referred to zero rather than the historical mean.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L92-L97",
+          "version": "repo-lines-v1:sha256:7ba532900cd12dee1798071e1b676ffef3950de6ebfee420156447d37dd4018f:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGRjM2RhYWVmZmVmM2ZhMjMxYjNiMmJhZDFlNGUzMDc1YjZlN2VmYzg2Yzc3NGE4NzRiNmZiYzI5YjM4ZDVjZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGU4NmU2OTA1MTM4OTE4NDM0YTIzMWNjY2EyNmRlYjRmODI5NjdkMjljNjk1NDI2Y2EwOWU1ZGFiYjA3ZjFjZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2I0NjdkZTlmYTM2MTJkMDc2NWQ2Y2U1YTcyYzczMzZkMDRlODA4NDUwZDhkMDFkZDYyYmMzYjg1NTE3NDNlNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTQyMjM3NzUzZTcwZTlmYThhYmUyNGIzZTg4MGU5YTQzODA5MTYzNTdiODc4Mzg4N2Y2OWJiZWRmZTM2NDc1YiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ee6cce27a8114511bbd7597b2bf105b3",
+      "statement": "Nonlinear methods dominate: regression trees, random forests and boosting reach monthly R^2 of about 0.33-0.34% and neural networks 0.33-0.40%, with shallow learning prevailing (the three-layer NN3 is best, deeper networks do not improve given data scarcity and low signal-to-noise), the advantage coming from capturing nonlinearities and predictor interactions and holding also on large liquid stocks.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L99-L99",
+          "version": "repo-lines-v1:sha256:97d33acaba16a0a5bbadfbaf1e0c3a6cde82768b8ec272ff7e84feec69bd0b1d:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTdkMzNhY2FiYTE2YTBhNWJiYWRmYmFmMWUwYzNhNmNkZTgyNzY4YjhlYzI3MmZmN2U4NGZlZWM2OWJkMGIxZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTdkMzNhY2FiYTE2YTBhNWJiYWRmYmFmMWUwYzNhNmNkZTgyNzY4YjhlYzI3MmZmN2U4NGZlZWM2OWJkMGIxZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDBiMzgxMmFlZjAxODdlNjNhMzkyZGZhNmFiNmJkM2ZiNjg0MmMxZWQxNWQ3ODQ5OTZkZTg3Yjc3MDI1MzY1NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiM2U1OTFlZjViNGJhMTcwNTJmZWI0MWM1ZTllNjMxMzhhNzhhODU0MWFkM2ExZjMyMGFhZDc4YmM1NzA3M2E0MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9a37888b47fe43ffbf6b5affe9c40f91",
+      "statement": "Economic gains are large: via SR*=sqrt((SR^2+R^2)/(1-R^2)), a neural-network market-timing strategy on the S&P 500 raises the annualized Sharpe ratio from 0.51 to 0.77, and a value-weighted decile long-short spread on the network forecasts achieves an annualized Sharpe ratio of 1.35 (2.45 equal-weighted) versus 0.61 and 0.83 for the linear benchmark; all methods agree the dominant signals are price trends, then liquidity and volatility measures.",
+      "evidence": [
+        {
+          "resource": "repo://docs/25_signals_from_alternative_data_and_sentiment.md#L101-L103",
+          "version": "repo-lines-v1:sha256:14f83af5d59d75c178e5d32d62cd9920ed0fc024051c7a2b798530a0df0d386f:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMThiZjgwY2Y0ZDY0ZjU1ZjkwMjg2NDJjZGNmNTM5ZDMxZmFlYTk1ZWQ4YWIwZjFlNTVmOTYyNWVhZmEwMzE5ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTkwZmZjYjdiMDYxMjcwNWEzNzlhMzc5NTY5NWZiMjg0OTc2NzhiNjQ4YTcxZWIyNjllM2ZmMDRkYzk0ZjAwMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTQyMjM3NzUzZTcwZTlmYThhYmUyNGIzZTg4MGU5YTQzODA5MTYzNTdiODc4Mzg4N2Y2OWJiZWRmZTM2NDc1YiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWQ1NmYyZjRkN2QwMTI0NDllNDJiMmMyN2Y5NjkzMmM0MTA0MTg0ODc2ODU2Njg2ZmNkNTM4MThiYjRkMTY2ZSJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

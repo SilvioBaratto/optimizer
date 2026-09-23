@@ -35,6 +35,8 @@ The LLM emits ONLY a structured optimizer config. NEVER weights, mu, or covarian
 
 ## Deeper detail
 The objective→cone table (with chapter refs) is in `reference.md`; exact factory-call
-skeletons per objective are in `factories.py`. Theory: `14` (cones) + `02`, `16`,
-`17`, `19`, `20`, and `OPTIMIZER-OBLIGATIONS.md §1`/`§3`. (The roadmap said "§7";
-§7 is the out-of-scope section — corrected here.)
+skeletons per objective are in `factories.py`. Theory: start at the curated map
+`optimizer-theory/openwiki/optimization/index.md`, then
+`optimizer-theory/openwiki/optimization/convex-optimization.md` for the cone /
+duality / KKT derivation; the full chapters are `14` (cones) + `02`, `16`, `17`,
+`19`, `20` under `optimizer-theory/docs/`.

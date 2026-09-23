@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:fe9f26f5e3f73e648178db6dd17afa3f121595077a000a8c13afbaac12bed870",
+  "claims": [
+    {
+      "id": "claim_e5fb7128461446bfa8724f8f1fdbc66d",
+      "statement": "Mean-variance analysis is often sensitive to estimation error: an efficient portfolio computed with one estimate of the parameters can give very poor results for another set of parameters that is similar and statistically hard to distinguish from the assumed one (Kim-Boyd 2007).",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L16-L16",
+          "version": "repo-lines-v1:sha256:1fd3617ed21911fa6b47dad4d242f9053fb2c4b8c4f6327dee7b91fc10ca1302:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWZkMzYxN2VkMjE5MTFmYTZiNDdkYWQ0ZDI0MmY5MDUzZmIyYzRiOGM0ZjYzMjdkZWU3YjkxZmMxMGNhMTMwMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWZkMzYxN2VkMjE5MTFmYTZiNDdkYWQ0ZDI0MmY5MDUzZmIyYzRiOGM0ZjYzMjdkZWU3YjkxZmMxMGNhMTMwMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTVkODY1Yzc1Y2RmMDgxMGMwMWVkOTNhMDg2YjY3N2ZjNTU3YTk4ZDlhODFlY2ZiODZiNDRmMTY4MzBiNWFkNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiM2YyYWYyZTNhMDYyZTczMDY0ZmNmNjU0MmM3NGNkZDhlODFhNDE3NzNlOTgxYjM3ODZhMDYzMzFjYWRlNTEzZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8f6df488858f4e7fba75dd0a43988531",
+      "statement": "Ben-Tal and Nemirovski distinguish hard constraints, which must be satisfied for every realization of the data because even a small violation cannot be tolerated, from soft constraints, which admit violation with a penalty or with some probability as in stochastic programming; robust optimization deals with the uncertainty of hard constraints.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L18-L20",
+          "version": "repo-lines-v1:sha256:47d6a46339b5e2f65ec61a2923ec918fc78e9ec4c850397592524f8c37b52074:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGJmZTllZjQ3YmY4Mjc1YzU4NjFjZmJkMTBiOTJkN2RhZjU4ZmMwNjBiOWY2NjRiZjYwZDVmMTIxZjgzODE0YSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWJmYzAzZDc2NzBlYjczMzU4ODBlY2NjNjBmMWM3MjZlM2M5NGY4MzkzMGQ1NzYxZmE4YzIzMWMxYjM1YjFiNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmFkYWFmM2ZhMDdhODY4MzM0MTU1OTI1MjE4ODQ5Mjk2MjQ4YTdiMmU4Nzk5MjdlNDUxMWVjMGQ1NzQxMmEyOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTQ3NGExOTg4YzEwOTY3NDQ5NzRkMzE4MGRmN2VlOWIxNDA0NGM0ZTkyNTFkYWIzN2U2NDc4NWU4YzQ2NzY2YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0207a7aed9d342faa81c960de0e11269",
+      "statement": "The robust counterpart (RC) of an uncertain linear program requires the solution to remain feasible for every realization of the data in a prescribed uncertainty set U, min{c^T x | Ax>=b for all (A,b) in U}; because no stochastic model is assumed the approach is worst-case, and the counterpart is unchanged if U is replaced by its closed convex hull so U may be taken convex and closed.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L26-L36",
+          "version": "repo-lines-v1:sha256:45ac673763fb1039bb36d2c34141ec283488b732433bdedb187d1907b78fd120:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI2NTU0ODE0ZWE1MWQ4MWYzZGU3YTJiZjg4OTQ0OWUzNTgwMWRlMmY1OGY1ZDFjYjdjMDc3MjRkOGVkODg4ZDgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQwM2YxNjJjNWYwNzcwNTRlNzJkYzdkYmY0ZTdkMzg4ZDcxNDM4OTM0NzJlNGMzM2UxMDc4NjIwYWI1MWI2OTUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjY4NzhmN2U4ZTQ2MzdlNThlODU0NDk2OGMyM2M4MDdhNWVmMDgyMmY1ODA3MWFkYTUxMzQ0NWViZGVlNTJmZDkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjM5NjY0NWU0MWI4ZTE0MzEwMDMwNDU5YWE0MzJmMWE5MmMzMDFlNjc5ZTY1MGQ1N2EyNzU1OWI3MzQwZWI0MTQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_64bbec79aa154303954c7e3c0eb08141",
+      "statement": "The robust counterpart has a continuum of constraints, one for each A in U, and is therefore a semi-infinite problem; a worked example (U = {a11+a22=2, 1/2 <= a11 <= 3/2}) shows every instance is solvable with optimal value 1 while the robust counterpart is infeasible.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L36-L41",
+          "version": "repo-lines-v1:sha256:d2722b70556c839d79fe615d40f7ad9182769edc6daad90c60b99888c783c38a:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDAzZjE2MmM1ZjA3NzA1NGU3MmRjN2RiZjRlN2QzODhkNzE0Mzg5MzQ3MmU0YzMzZTEwNzg2MjBhYjUxYjY5NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTNjNWM0YWQzNGYxYmVjM2RjNzZmNjc4YjI4NWQ3NWMzNTdkM2Y1OTIxNWRkZDQ5YTllYTQzMzZlY2IzYzdkYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWJmMjg4YjBjNjA1MDIwYjhhZWRjMTAwMmJhMjcwNzVhZWY3OTg5NDY5ODdlZDhlOGRmZTJiMWQzNjJiMzhhZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmNkNzBjMDM1MmEwNjFkNzg2YTllMmM3MTZiMDE3NmY2MmNmNTgyMTkzZDIwNjc0YTRkMTAyNjMyZWUxZDU1MiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_33bf1d07350c42e390a7bef5ae2414d3",
+      "statement": "Uncertainty is constraint-wise when U is the direct product of the per-constraint projections U = U_1 x ... x U_m; under the Boundedness Assumption (a compact convex set Q contains all instances' feasible sets), if uncertainty is constraint-wise then the robust counterpart is infeasible iff some instance is, and its optimal value equals the supremum of the instances' optimal values.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L42-L46",
+          "version": "repo-lines-v1:sha256:7db66ef1be19e70cde593213ab500c4ab9ce164beb1fa29787c6fd13862358d1:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjYwYmIzOTRhZWY2NWUxZjgyMGIyYmYwNTc3YWE3Y2Q1NWJiODRhZjBjMTcxM2U5MjA1MjcxZmI2NGZkMDk1NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjY1OWEzZDU2ZTlkMzJmNGQ4YzNiNDVhZjk3NDczMmNlNDIzNjNjY2YxZmEzYjExMWZjNmMyNTA0ZGYzOWVhZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTc3MzU1ZmNkM2VmYTA4OTU4NjNmYmUwYTgzNzJiZGEzNGQwZDE4NDJmNDdiMDBiNDg3NDBjZTY0OWY4ODA2NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGUxYzNmNmNmNDAwNDE5ZTA1NTA0OWE0N2YwY2E3NzEzZmUyZWE3MDZmZjNlZTZjNWYzNjY3ZGRjMmZmMTc3MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_646714d451b646748f859a76aebc4e10",
+      "statement": "Soyster's column-wise uncertainty (columns a_i in convex sets K_i) is equivalent to a linear system with a*_ij = sup over a_i in K_i of (a_i)_j, every matrix entry taking its worst value simultaneously; this equivalence to a linear system is specific to column-wise uncertainty and extremely conservative, whereas the general row-wise case typically does not give a linear program.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L50-L54",
+          "version": "repo-lines-v1:sha256:29c3533dadbc7b72298ae9f64a52ee8f45d9434868710930d9877d704caf96eb:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWNmOTk4Y2I5NGZlZmQ1NjQyYTM4YmY5M2MxYjgwZjJkMmFkNGM2MjM3ZDBmMjZmZGNmYjA4YWRmMGY0MjIyYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmJhZjBkNzI0ZGQ3ODZmZTlkM2E3NzUyMDBmOGEwZDA2NzhjYTA4NzUxMGM5M2U1MmNkYTlmNzZjNjUzZTk2NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGUxYzNmNmNmNDAwNDE5ZTA1NTA0OWE0N2YwY2E3NzEzZmUyZWE3MDZmZjNlZTZjNWYzNjY3ZGRjMmZmMTc3MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzhkZmNhZTM5MGNjZTdjMTMwMzdiODBjYzBlZTVjNDJhMGZhZWMxNzNhZDQ5MzFjOWJmOGYyNTVlYjZkNjA2OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4b21a1e8049b4c5ca2277d2adfaa3cba",
+      "statement": "Ben-Tal and Nemirovski propose ellipsoidal uncertainty (an intersection of finitely many ellipsoids) as a compromise between flexibility and tractability, because ellipsoidal sets form a wide family including polytopes, are specified by moderate-dimension data, sometimes arise for statistical reasons, and give the robust counterpart a particularly favorable analytic structure.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L56-L56",
+          "version": "repo-lines-v1:sha256:b890beefb6cfacc7e811eeb5c3ddf746ffa3fb3a6d251bfb4aa16a1445bfb349:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjg5MGJlZWZiNmNmYWNjN2U4MTFlZWI1YzNkZGY3NDZmZmEzZmIzYTZkMjUxYmZiNGFhMTZhMTQ0NWJmYjM0OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjg5MGJlZWZiNmNmYWNjN2U4MTFlZWI1YzNkZGY3NDZmZmEzZmIzYTZkMjUxYmZiNGFhMTZhMTQ0NWJmYjM0OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODkzZmEzMjAwZjY4ZTg0NmIxZTc4OGE4NmNlNWUxZGM2OTJjNWVkOWU5M2FlZTA0ZWEzODNhMjAzMjRhYjY3YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTNkYmVlMjg4YThkNGJiNDZiNDZjZWU2MmYzYmJmM2Y4OTNmMjY3NTZjNjIxOTE0YzNkMzY5MzJhNjk5N2Q3NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6bdb4fae6aa34895be510b7c931cb81a",
+      "statement": "For an ellipsoidal uncertainty set U = {A = P^0 + sum_j u_j P^j | u^T u <= 1}, by Cauchy-Schwarz the robust feasibility condition for each row becomes [r_i^(0)]^T x >= ||R_i^T x||, so the robust counterpart is exactly a conic quadratic program; in general the robust counterpart of an uncertain linear program with ellipsoidal uncertainty converts to a conic quadratic program solvable by interior-point methods in polynomial time at essentially the cost of a linear program of similar size.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L58-L68",
+          "version": "repo-lines-v1:sha256:618db3cdceba4e7cc566f2aa5cb66cc4971b583ffd9602de8b1fb825ca651a65:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ2MmVhNmY1NWJmN2ZjZTlkZjNlOGVhZTQ4MzNhZmRjNDE3ODQ5Mjc1MDdjYTE5ZWQ4MzEyNTQyZDk1OWNlMzciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjEyMjYwMWViMzgyYzRhNzMxMDRlOTNkZWI3OTRiNzkxMGQ0YjFjOGU5NjIzMDVhMmMzZDViMjFjOGY3ZjllODIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijc4ZGZjYWUzOTBjY2U3YzEzMDM3YjgwY2MwZWU1YzQyYTBmYWVjMTczYWQ0OTMxYzliZjhmMjU1ZWI2ZDYwNjkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQ3OGQ2Zjc1M2JmN2IxNTA5M2Q2NjFkNWUyMDhiZjBmODc1ZTZjMmExMGNkNmZhY2VhZDNhYjZkYWVmOGE5MzUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_daa00b493f004c898ea4b69e45970ed2",
+      "statement": "Polytopic uncertainty fits the ellipsoidal framework because a polytope is an intersection of ellipsoidal cylinders (strips), and its corresponding robust counterpart reduces to a linear program.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L68-L68",
+          "version": "repo-lines-v1:sha256:122601eb382c4a73104e93deb794b7910d4b1c8e962305a2c3d5b21c8f7f9e82:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTIyNjAxZWIzODJjNGE3MzEwNGU5M2RlYjc5NGI3OTEwZDRiMWM4ZTk2MjMwNWEyYzNkNWIyMWM4ZjdmOWU4MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTIyNjAxZWIzODJjNGE3MzEwNGU5M2RlYjc5NGI3OTEwZDRiMWM4ZTk2MjMwNWEyYzNkNWIyMWM4ZjdmOWU4MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmU2NGZmZmMzMTY1N2U0YzhlYWM3ODEyNmFkOGUxMTFlZTA4NzZmZTliMDA5ZmY5YWM4ZjgzZjQ0ODk4ODVkYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDc4ZDZmNzUzYmY3YjE1MDkzZDY2MWQ1ZTIwOGJmMGY4NzVlNmMyYTEwY2Q2ZmFjZWFkM2FiNmRhZWY4YTkzNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6b2fa1966f72461ab30eeeca97ac1046",
+      "statement": "In the single-period portfolio example the nominal solution (maximizing sum p_i x_i with p_i known, or maximizing expected value with nominal p_i*) invests everything in the most promising asset n; the Soyster box invests everything in the best worst-case return p_i*-sigma_i and is too conservative.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L72-L78",
+          "version": "repo-lines-v1:sha256:1355dde86af0df65552b6784acf53e665eb1ce66cbc5fa9093d21b93f27a6e9a:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjMzNzNiYTY3NmU2ZWJkNjE5ZDE0MjE0YzM0NWI0NDY1OTBjNTMwMGY0ZDJkYzU5ZjA2MmNlYmU3MTA3ZjVkZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjQyYTM2ZjEwN2RkZTU3MjRhNWUyMDk4ZDRlMzY4Zjk3YmU4MTVjNmFlNzVkNDQwNDJmMmFkMjY0MTAwZmZkMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDc4ZDZmNzUzYmY3YjE1MDkzZDY2MWQ1ZTIwOGJmMGY4NzVlNmMyYTEwY2Q2ZmFjZWFkM2FiNmRhZWY4YTkzNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2RjMTAwNmVlNjM3NGVhNTA0OWRmMjVlNzE3NWVlMmZhMGVmMzNlMGRjYjQ3YWMzOWI3ZDk0NmYwZDg0ZWI2OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_13c45b366408434b86b5d94ed4dee1f8",
+      "statement": "For uncertain returns the ellipsoidal set is U^theta = {p | sum_i sigma_i^{-2}(p_i-p_i*)^2 <= theta^2}, where theta is a subjective risk attitude (larger theta = more risk-averse): at theta=0 it is the singleton {p*}, at theta=1 the maximum-volume ellipsoid inside the box, and at theta=sqrt(n) the minimum-volume ellipsoid containing the box.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L78-L80",
+          "version": "repo-lines-v1:sha256:6ed19ddc730b8da1b041864b12abfd4ed5ddec4b91980cb556bd4d8401e82a5c:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjQyYTM2ZjEwN2RkZTU3MjRhNWUyMDk4ZDRlMzY4Zjk3YmU4MTVjNmFlNzVkNDQwNDJmMmFkMjY0MTAwZmZkMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTUyYjBjNjMwM2ExZmIxNjdkNmRiOThjOTBhOTc3OWE3MTM1MTgxNGM5OTEwNTkxM2YzYzIxZDk4NjkwNTc1OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzk4NTljMDZjYmQwZDVlOTlkOGQ1OTJlZTEzNTJjNmYxN2IyZDljYTUxNWI0MDZmODFmN2ZlYTRjZGVhNzQ0MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTFkOWRiMzc2OWEyM2U5YWMxOGRlMzZjZTJjNDEyYTZjZjU1ZDJiY2YwNDgzY2IwZjdhMDkxZTZjMGFiNGIwNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_86f523aea61c4123ad3fd1dd6d033f43",
+      "statement": "The robust counterpart with respect to U^theta is max{sum_i p_i* x_i - theta V^{1/2}(x) | sum x_i=1, x>=0} with V(x)=sum_i sigma_i^2 x_i^2, closely resembling Markowitz's approach except that the classical approach uses V(x) where this uses V^{1/2}(x).",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L84-L86",
+          "version": "repo-lines-v1:sha256:28b4e83c27a4864eae7a937035b2b01d3e468114cacb9a7c88b3aa1ee1354741:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTZhZDczOTg3ZjRiZmI0YWEwZTlmMGYzM2ZjYjQzZGE3ODdjNGVjZTgyNTNlZmU3NDY4OWU5N2Q4Yjk2YTgyNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzc3ZjM5ZmY5ODg3NDQ4NWQyM2VmMDQ1MGE3NmIwYzM1NGZkMjZlMjY4MjZiYjg4NTk5ZmQ4ZTM1ZWE1NTNkOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTFkOWRiMzc2OWEyM2U5YWMxOGRlMzZjZTJjNDEyYTZjZjU1ZDJiY2YwNDgzY2IwZjdhMDkxZTZjMGFiNGIwNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTFjYzY4ZWM4YjBiMmFhNmIzN2U5MzdhYjQwZDQ3YTBiYjY0MWRkYjE3ZjZkZDJhMWE1YjE2NjBkMjcxZjhiOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_45dfa87c17a14c19b31297db099e44c7",
+      "statement": "The ellipsoid U^theta is not an approximation of the support of the distribution of p: for theta large and n not too small it may contain no realization of the random vector p, for example with theta=6 and n>36 the ellipsoid U^6 contains no realization.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L92-L92",
+          "version": "repo-lines-v1:sha256:91506a02ee4c9821ac2e7d80a4fc2dc630141a6a0fde788d65de63553672b8d9:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTE1MDZhMDJlZTRjOTgyMWFjMmU3ZDgwYTRmYzJkYzYzMDE0MWE2YTBmZGU3ODhkNjVkZTYzNTUzNjcyYjhkOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTE1MDZhMDJlZTRjOTgyMWFjMmU3ZDgwYTRmYzJkYzYzMDE0MWE2YTBmZGU3ODhkNjVkZTYzNTUzNjcyYjhkOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2U0ZWY1MzIwNTVjNWVjMmVjZTgxZmNiZTNhYjA2N2FkMzdiZmRiYTY2YmY4NWZhMTI4YTg0ZmU5OTMzMzc0YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZWQ3YmU5NjIzZTRhY2U5NTUxNDRhNmUxZDUwNDZlN2ViMjRiYTRkZWQ4OGY5MDUzN2NlNTE5YzZlNGQzNWNjYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_fa7c9af81f9f405e91774fbbff565372",
+      "statement": "In a numerical example with n=150 the robust policy solving the counterpart with theta=1.5 invests equally in all assets (x_i=1/n) with robust optimal value 1.15, and over 3600 simulations is about 15 times more stable than the nominal policy in return standard deviation and never produces a loss (always at least 11% profit), while the nominal policy loses 9% of capital with probability 0.5.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L94-L94",
+          "version": "repo-lines-v1:sha256:20b67d928ac0bcb7357940644d29b0d595b418ad14f94f4173302479fcc03cf4:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjBiNjdkOTI4YWMwYmNiNzM1Nzk0MDY0NGQyOWIwZDU5NWI0MThhZDE0Zjk0ZjQxNzMzMDI0NzlmY2MwM2NmNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjBiNjdkOTI4YWMwYmNiNzM1Nzk0MDY0NGQyOWIwZDU5NWI0MThhZDE0Zjk0ZjQxNzMzMDI0NzlmY2MwM2NmNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjlhNDcxZWE4Zjk2Y2NhOTI1ZTQ2ZDI0NjZjYTViOGIxZWU4ZWM3NGM4YTk0MDBkMTVmMTQ4NThhMjJmYjdmOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDA5MTVjOWZiMWRlOTFjNTMxYTY4YWQ5NzM0NGRlNTIxYmJhY2Y1MTk2YjI3NjZmNjEwNjM5ZTBhMWNkNWQ2MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f923bc08ff404d6e9b8b9f37b04cda5a",
+      "statement": "Kim and Boyd describe uncertainty with a separable product model U = M x S, where M is the set of possible expected-return vectors and S the set of possible covariances (compact, mutually independent); the performance set P(w) is a box whose lower-right corner is the worst case, giving worst-case risk sigma_wc(w)=sup over Sigma in S of sqrt(w^T Sigma w) and worst-case return r_wc(w)=inf over mu in M of w^T mu.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L102-L108",
+          "version": "repo-lines-v1:sha256:60ff66fbcac57f7560d1f3a94d515c28ed5c84f7d2d464ea87605bd787991329:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjZhNDQyY2YwOTE0ZWY5MGQwZmFlODMzZjA0YzlmYzllZTkzYmIxNDMyYTI4ZmNhZDk0ZWRlZmY1NTUzM2E2NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2RmZDU3ZWQ4YzhmMzdiMDE3NzMyMzk2OWJlNjQxM2UzODlkZmNkMjAxZWIyOGQ4OWEzNTc3ZWE4NGNmMDIxYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTkzZThkZWM5OTFhYTVmMzQxOTMyYjlhZDAyYjc1OWVhYWRlODgxYThmY2VjY2Y1ZTMwMTkwMWZiOTM1Y2JkYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGY1NDRiOTA5NDVhM2NhZjY2MjkxN2E0MmUwMDc5YjVjMzNmN2Y4MDZlMTZlNTY5ODI1MjIzM2U4OGI3YmU1NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9891927e9f6c486c8453e850d85868f3",
+      "statement": "The robust efficient frontier f_rob(sigma) = sup over w in W with sigma_wc(w)<=sigma of r_wc(w) is increasing and concave for sigma >= sigma_inf, and the problem defining it is a semi-infinite convex program (concave objective as pointwise infimum of linear functions, convex constraint set).",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L112-L116",
+          "version": "repo-lines-v1:sha256:8936bbd0b8a9cff663df83cb016f61159f81c10a0be752d169b3878012fdcfcf:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjIxY2E5NjlkYWQ1NjY1N2Y2MDY2ODg3ZTZhMzE0MGQwYjc3M2Y0OTkyOGFlOWFhNjFmYjZjNzJmNWRmNjRkZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODk4NDRlY2I5MTEzZmJmOTQzMWZhZmViZjFkMmJmOGEzZDdlNjM2ZjE1ODFhOTBiMTdmYTMxMWFlMDc4NTJhZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZGY1NDRiOTA5NDVhM2NhZjY2MjkxN2E0MmUwMDc5YjVjMzNmN2Y4MDZlMTZlNTY5ODI1MjIzM2U4OGI3YmU1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODgzZDhiM2UzMzk1NTJiODA5N2VjYjNhZTA3NmVkNjQxMTU1ZjMyOTE4ODI4ZGYzYjJiNTkxYzgwODBjYzM0MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_353284ada2cc4422b664161290c70398",
+      "statement": "For any M and S, f_rob(sigma) <= inf over mu in M, Sigma in S of f_{mu,Sigma}(sigma), with equality when M and S are convex; consequently the infimum of frontiers sampled uniformly from U converges to the robust frontier in the convex case, but may not approximate it well in the non-convex case even with many samples.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L118-L122",
+          "version": "repo-lines-v1:sha256:8320f5cff820135b0cf1661b864c468c7c5b649edb16b47155a59645e706c35b:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmU0OTkyMDM3NDIwZjQ1ZTdlNmIyYzczZTNlOWFkYmEzMWQxOWI2MDAzOGExNWFmYjVmNDA1NGYyNmI3ODY3ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjk4MzIxMWQ5ODE4NTAxNTA4Y2JmM2U1MTI1MDRhYjkwMzhjYWJlNmQzNjJiNzE2ZjhiYzljNmYyYjI4NTUxYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTRhYTRmMGZlMzIxZDFhMjY4NmU5ZmIwYTI1ZTI2MDNjMTdiOTlkOGNiODRhNWU1Y2M2ODY3MGYxYjVmZWIwMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjY4ZDVkMjcwMTZlZGQwYTkyODkyYmQ1YmZkMmE0N2NhNWQ1YTk4ZTg5ZTY1YjIyMzJmMWYyMWFjNjliYmU1YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7597eff652184dbc8edfb2a44696c5b7",
+      "statement": "The worst-case market-price-of-risk problem is equivalent to the convex problem min (mu - r bar 1 + lambda)^T Sigma^{-1} (mu - r bar 1 + lambda) subject to mu in M, Sigma in S, lambda in W-conjugate-cone; it always has a least-favorable solution, the worst-case Sharpe problem is solvable iff 1^T(Sigma*^{-1}(mu*-r bar 1+lambda*))>0, and then the unique optimal portfolio is the tangency portfolio of the least-favorable model.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L130-L134",
+          "version": "repo-lines-v1:sha256:e20d45dec15c83e883586ba7ac15beaaae7e9effa288b5b352c30b8e8ea611d0:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjM3YTQxOTZkNDJhNDg1MGVlZTg3NTA3M2ExMTUxYmVmY2QxOGMyZDI5YzlkZjM3OThlZDMwOWYzNWY4MWQxZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmQyNzE4ZTI3ZGFhZTE0ZTk2NDdmYmZjMzExMjE2MjczNzE3Mjc4NWNlYWE2MzFhY2IwODQyZmQ3NGMzMTY4YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGQ0OWJmOGM1ODQ0ZDVkYmM4NGE1ZDRmNTg5MmMwZGU1NDVjZGMwMWU1ZDYwNTJjMDhjZjFhZjVjZjNlYWM5MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWEyMjUwNDhmMjFlYjVlYTQ2NWE5MmY2OWUzMGU5YjgxYzJhOWY2MzhjMTg5ZGZhNWVlMTk2OTQ4OTE0ZWY3OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d3fb7aeacf934097ab312e49ca7c7805",
+      "statement": "For an ellipsoidal M = {mu bar + P u | ||u||<=1} the worst-case excess return is inf over mu in M of w^T(mu - r bar 1) = w^T(mu bar - r bar 1) - ||P w||, whose -||P w|| term makes the formulation a second-order cone program (SOCP); for a polyhedral M the equivalence follows via the Lagrangian dual and strong duality, and when the worst-case risk constraint is representable by linear matrix inequalities the robust problem is a semidefinite program.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L136-L138",
+          "version": "repo-lines-v1:sha256:02e3c8b47e1d5d882231f0064b4dea7b93dbda48acdd3e81f5f23ee84d1b1f98:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmFkN2NlOGQ1YTE3NzFjZTM2Yjg3YjFjZjQ4ZTdjMzA5YmI5ZWE0M2E1ZDdlZjI1NzE4N2E1OWNmMDlhZDRkMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGI2M2IzNmRjNDFkZmUyNjVkOGFmYzgxM2FlNzMzNWJhMzg3OTU0NjE3ZmE3ZWMzNjU2MGI1NTJhMjhjOWRiYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2ZhMmI3YjdkMmRhN2U2NmRkM2I2YmI0ZmM5MjA5OGI0MzdlZGE2MzZmMTYxZjEyOGY5NjY0NDgxODY0NzQ1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2E2ZDhlYzlmNzhkM2I0ZTNhNDg0ODY0YWM0ZTVlMzFkZDg1Yjk2MjNhYzIyOWMxYTE1OTBhZGEzNmFmOWY4MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6cccfed273124d88b9ea39bc30096887",
+      "statement": "The worst-case Value-at-Risk is V_wc(w) = kappa sigma_wc(w) - r_wc(w) with kappa = Phi^{-1}(epsilon) in the Gaussian case and kappa = sqrt((1-epsilon)/epsilon) from the Chebyshev bound when only the first two moments are known.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L140-L140",
+          "version": "repo-lines-v1:sha256:11aa0270b89df4ab0de5e8b75f416fcb55451e20c623e676dc430987f5c55cb1:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTFhYTAyNzBiODlkZjRhYjBkZTVlOGI3NWY0MTZmY2I1NTQ1MWUyMGM2MjNlNjc2ZGM0MzA5ODdmNWM1NWNiMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTFhYTAyNzBiODlkZjRhYjBkZTVlOGI3NWY0MTZmY2I1NTQ1MWUyMGM2MjNlNjc2ZGM0MzA5ODdmNWM1NWNiMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGUzZDFlOTUxNWQ3NmNkNDIwZTFmYzJlYWJmZjlhYjJjMGI3ZGYyN2M0OTAxZGYxNGMyODA4ZWRjNDhhYTQ4YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGJlYTRkNTI4MjA3MTNiNmJhMmQ2ZWJkOGIyMTg0YWQyNGIyZWIzMzE0MjJiY2UzNzBmYmM0YTFmNDUxOGM3ZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_537386dc270547649bc302db11e58f91",
+      "statement": "In Kim and Boyd's 8-asset long-only comparison, evaluated under the nominal model robust MV-efficient portfolios do slightly worse than nominal ones, but evaluated in the worst case the nominal portfolios do worse than the robust frontier; robust MV-efficient portfolios are more diversified than nominal ones at the same risk level, and as the accepted worst-case risk rises the robust and nominal allocations converge and eventually coincide.",
+      "evidence": [
+        {
+          "resource": "repo://docs/15_robust_optimization_and_uncertainty_sets.md#L144-L150",
+          "version": "repo-lines-v1:sha256:1aaee2eeba81b1212a664fd10cd8b8b67e58228ad8c2132ac7205ea9ed61f44c:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNWU4MTUzYmQxZDMwNWIwYmVlYjBkYzIxYTNhNDcyZjNhMmY1MGU4NzcwYzRhY2RlYjdhMTA5YjA0MzEwMGIwZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjZkOWZmZmJhOWQ4Y2RiYzc4YzhmOWE3N2YwMzY4NWMyMzczMjUxNzdkNTMyMjU3YzBiZmRmNGY4MDZkNWU0MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGJlYTRkNTI4MjA3MTNiNmJhMmQ2ZWJkOGIyMTg0YWQyNGIyZWIzMzE0MjJiY2UzNzBmYmM0YTFmNDUxOGM3ZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZWQyNmExMTBiZjQzOGEyOWEzNzNmYzAyYWM0MzkyZGJjNzY1NzBkZDE3YzZiOWU4YWFlMmJjNjcyZDJhYjE2MCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

@@ -1,10 +1,10 @@
 """Task 2 — ``fund.agents.backend`` theory-staged virtual backend (unit slice).
 
 Staging is pure stdlib (``shutil``/``pathlib``): it regenerates a runtime workdir
-from the canonical (gitignored) ``optimizer-theory/`` tree, preserving the
+from the canonical in-repo ``optimizerwiki/`` tree, preserving the
 ``optimizer-theory/docs/…`` citation prefix so the Phase-6 skills resolve
-unchanged. Because the canonical tree is gitignored (absent in CI), every test
-injects a temp ``source``/``dest`` — nothing touches the real ``fund/.runtime``.
+unchanged. Every test injects a temp ``source``/``dest`` so nothing touches the
+real canonical tree or ``fund/.runtime``.
 ``build_backend`` roots a ``virtual_mode`` deepagents ``FilesystemBackend`` at the
 staged workdir; construction only, no agent invocation and no network.
 """
@@ -23,13 +23,23 @@ _NO_PRELOAD = FundConfig(preload_theory=False)
 
 
 def _fake_theory(root: Path) -> Path:
-    """Build a minimal ``optimizer-theory``-shaped source tree under ``root``."""
-    src = root / "optimizer-theory"
+    """Build a minimal ``optimizerwiki``-shaped source tree under ``root``.
+
+    Mirrors the real two-layer monograph: underscore-named ``docs/NN_*.md`` raw
+    chapters (cited by ``NN:line``) plus the curated ``openwiki/`` map (``index.md``
+    + ``quickstart.md`` routing + per-topic pages) the consultation protocol steers
+    every role to first.
+    """
+    src = root / "optimizerwiki"
     docs = src / "docs"
-    (docs / "architecture").mkdir(parents=True)
-    (docs / "00 Introduzione e scopo.md").write_text("intro", encoding="utf-8")
-    (docs / "architecture" / "OPTIMIZER-OBLIGATIONS.md").write_text(
-        "obligations", encoding="utf-8"
+    docs.mkdir(parents=True)
+    (docs / "00_introduction_and_scope.md").write_text("intro", encoding="utf-8")
+    openwiki = src / "openwiki"
+    (openwiki / "foundations").mkdir(parents=True)
+    (openwiki / "index.md").write_text("openwiki index", encoding="utf-8")
+    (openwiki / "quickstart.md").write_text("routing map", encoding="utf-8")
+    (openwiki / "foundations" / "mean-variance-selection.md").write_text(
+        "mv page", encoding="utf-8"
     )
     return src
 
@@ -57,7 +67,7 @@ def _stage(config, tmp_path):
     The fake source trees are built once per ``tmp_path`` so re-staging (the
     idempotency check) reuses the same canonical sources.
     """
-    theory = tmp_path / "canonical" / "optimizer-theory"
+    theory = tmp_path / "canonical" / "optimizerwiki"
     skills = tmp_path / "canonical-skills" / "skills"
     if not theory.exists():
         _fake_theory(tmp_path / "canonical")
@@ -82,11 +92,11 @@ def test_stage_theory_returns_workdir_and_preserves_citation_prefix(tmp_path):
     root = backend.stage_theory(_PRELOAD, source=src, dest=dest)
 
     assert root == dest
-    obligations = (
-        root / "optimizer-theory" / "docs" / "architecture" / "OPTIMIZER-OBLIGATIONS.md"
-    )
-    assert obligations.read_text(encoding="utf-8") == "obligations"
-    intro = root / "optimizer-theory" / "docs" / "00 Introduzione e scopo.md"
+    # The openwiki routing map the consultation protocol points every role to first.
+    quickstart = root / "optimizer-theory" / "openwiki" / "quickstart.md"
+    assert quickstart.read_text(encoding="utf-8") == "routing map"
+    # The raw chapter prefix the Phase-6 skills cite by ``NN:line``.
+    intro = root / "optimizer-theory" / "docs" / "00_introduction_and_scope.md"
     assert intro.read_text(encoding="utf-8") == "intro"
 
 
@@ -98,13 +108,15 @@ def test_stage_theory_is_idempotent_and_drift_free(tmp_path):
 
     # Simulate drift: hand-edit a staged file and drop a stray one.
     staged_docs = dest / "optimizer-theory" / "docs"
-    (staged_docs / "00 Introduzione e scopo.md").write_text("HACKED", encoding="utf-8")
+    (staged_docs / "00_introduction_and_scope.md").write_text(
+        "HACKED", encoding="utf-8"
+    )
     (staged_docs / "stray.md").write_text("junk", encoding="utf-8")
 
     backend.stage_theory(_PRELOAD, source=src, dest=dest)
 
     # Regenerated from canonical: edit reverted, stray gone.
-    assert (staged_docs / "00 Introduzione e scopo.md").read_text(
+    assert (staged_docs / "00_introduction_and_scope.md").read_text(
         encoding="utf-8"
     ) == "intro"
     assert not (staged_docs / "stray.md").exists()
@@ -123,7 +135,7 @@ def test_stage_theory_omits_git_and_obsidian_cruft(tmp_path):
     staged = root / "optimizer-theory"
     assert not (staged / ".git").exists()
     assert not (staged / "docs" / ".obsidian").exists()
-    assert (staged / "docs" / "00 Introduzione e scopo.md").exists()
+    assert (staged / "docs" / "00_introduction_and_scope.md").exists()
 
 
 def test_stage_theory_preload_gate_creates_empty_workdir(tmp_path):
@@ -142,7 +154,7 @@ def test_stage_theory_missing_source_raises_when_preloading(tmp_path):
     missing = tmp_path / "does-not-exist"
     dest = tmp_path / "agent-fs"
 
-    with pytest.raises(FileNotFoundError, match="optimizer-theory tree not found"):
+    with pytest.raises(FileNotFoundError, match="optimizerwiki tree not found"):
         backend.stage_theory(_PRELOAD, source=missing, dest=dest)
 
 
@@ -172,10 +184,7 @@ def test_build_backend_roots_virtual_filesystembackend_at_staged_workdir(
     assert type(fs).__name__ == "FilesystemBackend"
     assert Path(fs.cwd).resolve() == dest.resolve()
     assert fs.virtual_mode is True
-    obligations = (
-        dest / "optimizer-theory" / "docs" / "architecture" / "OPTIMIZER-OBLIGATIONS.md"
-    )
-    assert obligations.exists()
+    assert (dest / "optimizer-theory" / "openwiki" / "index.md").exists()
 
 
 def test_build_backend_threads_virtual_mode_from_config(tmp_path, monkeypatch):

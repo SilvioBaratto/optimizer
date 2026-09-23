@@ -1,0 +1,4 @@
+# Scope OpenWiki generation to the quantitative-finance theory chapters (docs/).
+# The business/ tree (business plan, financials, market analysis, Banca d'Italia
+# regulations) and its binary artifacts (PDF/XLSX/HTML) are out of scope.
+business/

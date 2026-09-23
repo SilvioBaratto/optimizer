@@ -81,7 +81,12 @@ class KnowledgeAnswers(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    level: KnowledgeLevel
+    level: KnowledgeLevel = Field(
+        description=(
+            "Investing knowledge & experience — exactly one of: none, basic, "
+            "informed, advanced. This is NOT the client's risk tolerance."
+        ),
+    )
 
 
 class CapacityAnswers(BaseModel):
@@ -95,8 +100,21 @@ class CapacityAnswers(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    max_1yr_loss_pct: float = Field(ge=0.0, le=1.0)  # fraction of capital
-    buffer_months: float = Field(ge=0.0)  # months of expenses covered
+    max_1yr_loss_pct: float = Field(
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Largest tolerable one-year loss as a FRACTION of capital in [0, 1] "
+            "(e.g. 0.4 means 40%)."
+        ),
+    )  # fraction of capital
+    buffer_months: float = Field(
+        ge=0.0,
+        description=(
+            "Emergency cash buffer in months of essential expenses, held OUTSIDE "
+            "this portfolio."
+        ),
+    )  # months of expenses covered
 
 
 class ObjectivesAnswers(BaseModel):
@@ -109,10 +127,32 @@ class ObjectivesAnswers(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    goal: ObjectiveChoice
-    horizon: Horizon
-    likert_items: tuple[LikertScore, ...] = Field(min_length=1)
-    loss_reaction: LossReaction
+    goal: ObjectiveChoice = Field(
+        description=(
+            "Primary objective — exactly one of: protection, income, growth, max."
+        ),
+    )
+    horizon: Horizon = Field(
+        description=(
+            "Investment horizon bucket. Map any stated duration to exactly one of "
+            "'short' (< ~3 years), 'medium' (~3-7 years), or 'long' (> ~7 years). "
+            "Return ONLY this enum value — never a number of years or a 'horizon_years' "
+            "field."
+        ),
+    )
+    likert_items: tuple[LikertScore, ...] = Field(
+        min_length=1,
+        description=(
+            "Attitudinal risk-tolerance responses on a 1-7 agreement scale "
+            "(1=strongly disagree, 7=strongly agree); at least one integer."
+        ),
+    )
+    loss_reaction: LossReaction = Field(
+        description=(
+            "Reaction to a severe drawdown — exactly one of: sell_all, sell_some, "
+            "hold, buy_more."
+        ),
+    )
 
 
 class EsgAnswers(BaseModel):
@@ -122,7 +162,13 @@ class EsgAnswers(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    exclusions: tuple[GicsSector, ...] = ()
+    exclusions: tuple[GicsSector, ...] = Field(
+        default=(),
+        description=(
+            "GICS sectors the client refuses to hold on ESG grounds (a subset of "
+            "the 11 sectors); empty when none stated."
+        ),
+    )
 
 
 class MiFIDAnswers(BaseModel):
@@ -135,7 +181,10 @@ class MiFIDAnswers(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    base_currency: str = Field(pattern=r"^[A-Z]{3}$")  # ISO-4217 alpha (D8)
+    base_currency: str = Field(
+        pattern=r"^[A-Z]{3}$",
+        description="Client reporting currency as an ISO-4217 alpha code, e.g. EUR, USD.",
+    )  # ISO-4217 alpha (D8)
     knowledge: KnowledgeAnswers
     capacity: CapacityAnswers
     objectives: ObjectivesAnswers

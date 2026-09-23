@@ -43,5 +43,8 @@ profile/universe is fixed for the whole run.
 
 ## Deeper detail
 Pipeline table, round-cap rationale, and the load-bearing contract live in
-`reference.md`, which points to `ARCHITECTURE.md` (module flow) and
-`OPTIMIZER-OBLIGATIONS.md §6` (build order) — never copied here.
+`reference.md`, which points to the staged theory workflow pages
+`optimizer-theory/openwiki/workflows/from-conditional-forecasts-to-weights.md`
+(the signal → view → optimizer → weights flow this pipeline runs) and
+`optimizer-theory/openwiki/workflows/portfolio-revision.md` (when and how to
+rebalance) — never copied here.

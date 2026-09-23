@@ -22,5 +22,7 @@ On-demand support for `optimization-objective-map`. Points to the theory; never 
 - Bounds: long-only `w >= 0`, `sum(w) = 1`, no leverage (D17).
 - Cardinality cap + min-weight per profile (avoid micro-weights).
 - Robust uncertainty set for prudent profiles: `15:80` (radius/geometry/norm in 1.0).
-- Obligations: `OPTIMIZER-OBLIGATIONS.md §1` (binding commitments), `§3` (fund-required
-  capabilities). NOT `§7` — that section is explicitly out of optimizer scope.
+- Objective / cone obligations: the curated map
+  `optimizer-theory/openwiki/optimization/index.md` (which family solves which
+  objective) and `optimizer-theory/openwiki/optimization/convex-optimization.md`
+  (why the cone is the binding form).

@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:991842e101de075029c26fe0f02f96c25869888a696f54633e0d8d46b1142d4f",
+  "claims": [
+    {
+      "id": "claim_fa4eac79da654f16b22ef6735f3af385",
+      "statement": "A stress test is the evaluation of a bank's financial position under a severe but plausible scenario to support decisions, and stress testing is important for forward-looking risk assessment, overcoming the limits of models and historical data, capital and liquidity planning, informing risk tolerance, and developing mitigation or contingency plans.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L18-L18",
+          "version": "repo-lines-v1:sha256:a2bab5d80c93f2ea5bced54a864ebd6683ad4543135942d21921fbbc88880b8c:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTJiYWI1ZDgwYzkzZjJlYTViY2VkNTRhODY0ZWJkNjY4M2FkNDU0MzEzNTk0MmQyMTkyMWZiYmM4ODg4MGI4YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTJiYWI1ZDgwYzkzZjJlYTViY2VkNTRhODY0ZWJkNjY4M2FkNDU0MzEzNTk0MmQyMTkyMWZiYmM4ODg4MGI4YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzkxNTE4NzlmODk2YzMyNjNjYmUzYjA2MDNlNWFkYTIxNjE4MWUyOTNjOTMwZmNkODQ4ZjZlYmE2YzcwNjQ0NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDk3N2YzYzBkOGUxNjQ5YmZmNjg4YzRjZmI1NzU1Y2JlZDhhMjQ5NjVjYzVkMzQ0OTBlOTAxOTk5OTE5ZDAyZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_bf54da84ebad4342b346fd157079a77e",
+      "statement": "Stress testing is most important after long benign periods when faded memory of downturns breeds complacency, and during expansions when innovation spawns fast-growing new products with scarce loss history; Basel II anchors it in regulation via the Pillar 1 Internal Models Approach for market risk and the internal-ratings-based credit-risk approaches.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L20-L20",
+          "version": "repo-lines-v1:sha256:d3f5d98ba7179cc5b35486c38e1db793c68480901f2bae54c7a5e31d91abb5b9:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDNmNWQ5OGJhNzE3OWNjNWIzNTQ4NmMzOGUxZGI3OTNjNjg0ODA5MDFmMmJhZTU0YzdhNWUzMWQ5MWFiYjViOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDNmNWQ5OGJhNzE3OWNjNWIzNTQ4NmMzOGUxZGI3OTNjNjg0ODA5MDFmMmJhZTU0YzdhNWUzMWQ5MWFiYjViOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2E0YmE1NGZkN2I5MWU1MGQ2Y2M5OGYzZjZhZjliYzhhY2IwMjRlZDg4YTNlZDVlYTEyNjFjODRjYTk3NGZlYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmZmZDc0NTRjOGZiYjZmOTQ1MjNjNzYxMzAwOWVhOGQyMTBkZDVhYjQ2OGFjZjRjMGZhOGI1ZDc3NjdiODQyMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3a76f7df3a2c41f784940a4d5f50238d",
+      "statement": "The financial crisis proved more severe than banks' stress-test results indicated and was possibly aggravated by weaknesses in the practices; the Basel Committee identifies four weakness areas: use and governance integration, methodology, scenario selection, and coverage of specific risks and products.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L24-L24",
+          "version": "repo-lines-v1:sha256:f0252910515418e13825d36811131f7c94d8402932efe867cc8c27bf75cddb82:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjAyNTI5MTA1MTU0MThlMTM4MjVkMzY4MTExMzFmN2M5NGQ4NDAyOTMyZWZlODY3Y2M4YzI3YmY3NWNkZGI4MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjAyNTI5MTA1MTU0MThlMTM4MjVkMzY4MTExMzFmN2M5NGQ4NDAyOTMyZWZlODY3Y2M4YzI3YmY3NWNkZGI4MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmZmZDc0NTRjOGZiYjZmOTQ1MjNjNzYxMzAwOWVhOGQyMTBkZDVhYjQ2OGFjZjRjMGZhOGI1ZDc3NjdiODQyMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzc3ZDNlZGFkYzRkMjA1ZWQ1MTI0NzBlODlkZjBiYzQwODVkNWU3ZDRhZDA2MTJkNDRhY2UwZGM2OWY2OGE0NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_013d4c95e0da4c188aaaadeef027b7b7",
+      "statement": "Most pre-crisis stress tests were not designed to capture the extreme events actually experienced — mild shocks, shorter durations, understated correlations — and 'severe' scenarios typically produced losses no larger than a quarter of earnings, with senior management often judging more extreme scenarios implausible.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L30-L30",
+          "version": "repo-lines-v1:sha256:cc025a5ed871413b8d612a5eaa7363a65e748154fb7a4611d38cf50872e25c6e:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2MwMjVhNWVkODcxNDEzYjhkNjEyYTVlYWE3MzYzYTY1ZTc0ODE1NGZiN2E0NjExZDM4Y2Y1MDg3MmUyNWM2ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2MwMjVhNWVkODcxNDEzYjhkNjEyYTVlYWE3MzYzYTY1ZTc0ODE1NGZiN2E0NjExZDM4Y2Y1MDg3MmUyNWM2ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTgxOGVmY2ExZTg1ZmY4NWRlZjdlM2MwYjE1ZWJmMzE3MmJlYjlmOGZmZDg0M2VlNmJiNmMyZjMyNWZiOGMxNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTdjZGNlYTIwYTAzNTY4MmE0YjRiYWEwODEzYTZmOTMzMGVhNmI0OWI4NzIyYTNmNTZjN2ZhNmFmMGM4ZWM5NCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d2af12ae84014fe4a71f154a324cb042",
+      "statement": "Most risk models including stress tests used historical statistical relations assuming a known constant process, so after a long stable period the backward-looking information indicated benign conditions and historical relations such as correlations proved unreliable once events unfolded.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L28-L28",
+          "version": "repo-lines-v1:sha256:4eafa2c99e818d7084dfb9a602dec14f724f3e70111b46079c42e08cef3de044:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGVhZmEyYzk5ZTgxOGQ3MDg0ZGZiOWE2MDJkZWMxNGY3MjRmM2U3MDExMWI0NjA3OWM0MmUwOGNlZjNkZTA0NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGVhZmEyYzk5ZTgxOGQ3MDg0ZGZiOWE2MDJkZWMxNGY3MjRmM2U3MDExMWI0NjA3OWM0MmUwOGNlZjNkZTA0NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzc3ZDNlZGFkYzRkMjA1ZWQ1MTI0NzBlODlkZjBiYzQwODVkNWU3ZDRhZDA2MTJkNDRhY2UwZGM2OWY2OGE0NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDAzNjE3ZWI3NmRiY2I5ZWFkOTc1NTdhZmQ4NWJlZGZhMWYwNjJjZDUxMDQwYjYyNDA3MGNhYWRhNWRjY2Y4NiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a86315b4cf2940a29696cdae93e96657",
+      "statement": "The Basel Committee requires stress testing to be an integral, actionable part of governance influencing board and senior-management decisions, to provide a perspective complementary to and independent of VaR and economic capital, to be part of the ICAAP, and to give appropriate weight to expert judgment since ex-ante estimation of stress-event probabilities is problematic as statistical relations break down under stress.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L38-L42",
+          "version": "repo-lines-v1:sha256:8918abc3886e69f0d64070197943ad8e0b5694a9e7391bf1ce20d89490d7988d:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmZiNDIxMjc3MWQ1YmFkM2I0YjZhYzU2MzI3ZjgyODgzMmNmNjM1ZTkwY2E5ZjZhNTVmNDc5ZWU2MWY1YjYxMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDgxMmMwODNlODVkZDlkOTdlNGM2ODQyZGQ3OTBlOTM4ZDdlZWQzZTFhOTBhZGNkMGI2ODIwYzAxZTlmM2FjYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWU5ZTRlMjg2YWQzN2FhOTQzY2I3YWJmN2YxN2QyZjNhZDZmMWNmM2I5NzFkNjE2NzNlY2NkN2I3YjM0M2E0MSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTcyY2U2YWQ0MzVkYTc5NzAwNDk5OTlmNTllZTllNDE2YmZjZjRhNGU4ZjkwODgwZWE0MjIyOWY0NTliMjZhZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_dcfa350f918f4ee8ad1caf7624ad31f3",
+      "statement": "Breuer, Jandacka, Rheinberger and Summer give operational precision to the three Basel requirements of plausibility, severity and suggestiveness of risk-reduction actions (usefulness) by defining a plausibility region in terms of the risk-factor distribution and systematically searching for the maximum-loss scenario over it.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L52-L52",
+          "version": "repo-lines-v1:sha256:68cf9a35af1502154d0a7f38d48961ba7dc9f84d50dc2329bc7ca2f83a402330:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjhjZjlhMzVhZjE1MDIxNTRkMGE3ZjM4ZDQ4OTYxYmE3ZGM5Zjg0ZDUwZGMyMzI5YmM3Y2EyZjgzYTQwMjMzMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNjhjZjlhMzVhZjE1MDIxNTRkMGE3ZjM4ZDQ4OTYxYmE3ZGM5Zjg0ZDUwZGMyMzI5YmM3Y2EyZjgzYTQwMjMzMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZGFhNTY1ZTQ1YWE1ZDcyMGMxNjdiYjY5ZDVjMzljNDZhMDIxMTJkZTdhNjQ2ZTEyODI0YjAzZmIxY2YyZjRmMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTEyN2E4NmJkOGFkOWI4YmQ4MDkyZjU1YTZiOWE0NTgwYmFjNWU2N2IzMzlhYmI2YTc5MjhjMzAzNGMyOTkyZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2209db78f3454d179a0fdc6e5ae4531e",
+      "statement": "In the Breuer et al setting each position's value depends on n systematic risk factors and m idiosyncratic factors, and the systematic-factor distribution is restricted to the elliptical class (with covariance Cov and mean μ), to which the standard distributions of classical risk management belong, while the idiosyncratic distribution may be arbitrary.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L52-L52",
+          "version": "repo-lines-v1:sha256:68cf9a35af1502154d0a7f38d48961ba7dc9f84d50dc2329bc7ca2f83a402330:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjhjZjlhMzVhZjE1MDIxNTRkMGE3ZjM4ZDQ4OTYxYmE3ZGM5Zjg0ZDUwZGMyMzI5YmM3Y2EyZjgzYTQwMjMzMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNjhjZjlhMzVhZjE1MDIxNTRkMGE3ZjM4ZDQ4OTYxYmE3ZGM5Zjg0ZDUwZGMyMzI5YmM3Y2EyZjgzYTQwMjMzMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZGFhNTY1ZTQ1YWE1ZDcyMGMxNjdiYjY5ZDVjMzljNDZhMDIxMTJkZTdhNjQ2ZTEyODI0YjAzZmIxY2YyZjRmMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTEyN2E4NmJkOGFkOWI4YmQ4MDkyZjU1YTZiOWE0NTgwYmFjNWU2N2IzMzlhYmI2YTc5MjhjMzAzNGMyOTkyZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3802e3dcafb9442694e7a30ce56569a1",
+      "statement": "Plausibility is quantified by the Mahalanobis distance Maha(r) = √((r−μ)ᵀ Cov⁻¹ (r−μ)), interpreted as the number of standard deviations of the multivariate move from μ and accounting for both the correlation structure and the factors' standard deviations; a high Maha means low plausibility.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L58-L62",
+          "version": "repo-lines-v1:sha256:a744960a1a89503e4ac63e526944bc0d67b6b9b02bb81627781ce26e0ff0afc9:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGM3M2JkZDAxODY2N2E0MTE4ODgzYWM1ZmZlOGQyZGZhNjZhYThjN2U0MGViNThmZmJlOTE0YmM3ZTFlMDIxNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTI4MDhiZGE5ZmFlODBjYWNmM2JiZTcxZmE1Zjg4MDk1YzkyNTYzZTA1NjA1YmE3YmEwMWU0Y2QyNDQ3NzgyYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjg4YmNiY2EzNjlmYTg0MWM1ZDQ5MjIwZDYyM2ZjNWEzYzdlMDdmZTQ1Yzk4MmYyNjA3ZjZkYjIwNzliOWFkMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDVkMjdkOTA4ODliODM0NTdiZjQ0NTMzMjlhNTdjMGFjMWQzOGI2YWI0MDc4MzdkYmQzN2I3OGI5MWVhYmNiNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b767d581f64e42df86f3363de0da9f55",
+      "statement": "Defining plausibility via the ellipsoid's probability mass (rather than the Mahalanobis radius) creates the dimensional dependence of maximum loss: a bond portfolio modeled with 150 vs 310 factors at a 95%-mass ellipsoid yields a maximum loss 1.4 times larger for the same portfolio and plausibility level.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L62-L62",
+          "version": "repo-lines-v1:sha256:52808bda9fae80cacf3bbe71fa5f88095c92563e05605ba7ba01e4cd2447782c:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTI4MDhiZGE5ZmFlODBjYWNmM2JiZTcxZmE1Zjg4MDk1YzkyNTYzZTA1NjA1YmE3YmEwMWU0Y2QyNDQ3NzgyYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTI4MDhiZGE5ZmFlODBjYWNmM2JiZTcxZmE1Zjg4MDk1YzkyNTYzZTA1NjA1YmE3YmEwMWU0Y2QyNDQ3NzgyYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2EwMGQxZGJlMmQxN2IyMzUxZmJlN2RiNTNiZTgxODhjMTFkYjkyY2M0ZGMwMzQ2NmMwNzIwYjMwZDA2YjYxYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDVkMjdkOTA4ODliODM0NTdiZjQ0NTMzMjlhNTdjMGFjMWQzOGI2YWI0MDc4MzdkYmQzN2I3OGI5MWVhYmNiNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3a00bcc82e9a4a3fba8242c016870695",
+      "statement": "For an elliptical distribution with density strictly decreasing in Maha, setting unfixed factors to their conditional expected value (r_C) gives the same Mahalanobis distance as leaving them conditionally distributed (r_D), Maha(r_C)=Maha(r_D), which is the maximum plausibility among all macro scenarios agreeing on the fixed factors.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L74-L76",
+          "version": "repo-lines-v1:sha256:00204409c8688631c5da91e008573b91ad121c0b57c7c9db27c1e05234a69b87:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTgyZjQwMDcwMTY0NWY2ZWFiNzlkZjBkNDg1MThjNGM2MzBjMWVmOTI0N2MyZWJjNDcxMzVmYzYzOGExNTg3MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTRiOTg1MTI3NmQ5NjVkMTljYjNmMjdlMDdkODY2NzA0NDA4YWQ0YWEzNWNhMGI0ZjIyZmNjZjJlMzA0NTNkMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2VlNzllMzgwNTg5ZGYyNGM3YmNiODBlYjcyYTI1OGQ5OWE5Y2NjOWJiMzMyMTRlNDEyNzA4ZmFmNWVjYTNhNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWIyZWM3YWQ2OGQzYzEyNDViMjI5ZTVmZjFhMDUzMjlmYzQzYjNmOGI1ODQxZDM5ZjQ5MzAxZjllZTYyZjIwMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_07f876089fcf4cc4927226971e709c51",
+      "statement": "The admissible domain Ell_k = {r : Maha(r) ≤ k} is an ellipsoid shaped by the factors' covariance matrix, and since a partial scenario specifies a distribution of conditional values, severity is measured by the Conditional Expected Profit, reducing the method to min over r in Ell_k of CEP(r).",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L82-L85",
+          "version": "repo-lines-v1:sha256:b7e0c018d202ae74569a1b11389534f67aa0eff2ceb7090a6ca41a169eb37098:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGMxYjM5NzUxNGRiYzk2ZGEzYTgxMmNkZjllNDA2NDlkYzc1NzIxMWU2ODQ3ODdhYmViMmZlMzZlMDkwYjhiYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWQ5N2NjZTMxMWU0YTI2OTM5OGNiNWVjNTYwMjIzYzlhOGNhZDRkZTlkYmE1YTc0NWEwOTBlMjZkYTYxNTAzMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjE0MTBjMDU2NTIxNGRhYWM5YjM1NWRmYzkyNjg1MzlhODBkNzIxMzAyM2I2OWUwYWVlODQzMjljZjdlYzcwNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMThjZTRjZjhkNzMzYzJjNzdhYWRhMGE4Yzc1ZjQwNjVlMGUxNGY1ZmVlZTE5ZTgzM2RkNDZjOGI3YWVhMWMwOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_377b87c009c3460fbedbd8e74474fdad",
+      "statement": "The Maximum Loss is the difference between the lowest CEP in the admissible domain and the CEP in the expected scenario, and it overcomes dimensional dependence because the maximum expected loss on Ell_k is unaffected by including or excluding factors irrelevant to portfolio value.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L87-L87",
+          "version": "repo-lines-v1:sha256:3a26bb69b471779a97f44b83f321c6cb2f192c57627e1b210e8ce5e30db151b1:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2EyNmJiNjliNDcxNzc5YTk3ZjQ0YjgzZjMyMWM2Y2IyZjE5MmM1NzYyN2UxYjIxMGU4Y2U1ZTMwZGIxNTFiMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2EyNmJiNjliNDcxNzc5YTk3ZjQ0YjgzZjMyMWM2Y2IyZjE5MmM1NzYyN2UxYjIxMGU4Y2U1ZTMwZGIxNTFiMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTYxNzgyN2I5NGI1NWY4MTUwMmZjZjFkYWU5YzdiMzQ3MzdjYTRiMmJiNzIxMjU2ZjRlNjdiYjAyNjMwOTU5NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDZjZjJhZThlYzI4MWIxMzQyMDc5NjI4NmQ3MmYyZjYxOWRlYjBlMzVlZTQ0NDI3MjE0ZDdlMDI0ZTg1MzcyYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_68e38b26c31846b0bef41e9b7903812d",
+      "statement": "Worst-case search has three advantages over standard stress testing: a controlled plausibility/severity trade-off governed by k, overcoming historical bias by considering all plausible scenarios including ones not yet realized, and worst-case scenarios reflecting portfolio-specific dangers.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L89-L89",
+          "version": "repo-lines-v1:sha256:a16dcc8938653fc509632bdf2523dc417e7c90ae4eaa0cf388d4bfda885654a9:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTE2ZGNjODkzODY1M2ZjNTA5NjMyYmRmMjUyM2RjNDE3ZTdjOTBhZTRlYWEwY2YzODhkNGJmZGE4ODU2NTRhOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTE2ZGNjODkzODY1M2ZjNTA5NjMyYmRmMjUyM2RjNDE3ZTdjOTBhZTRlYWEwY2YzODhkNGJmZGE4ODU2NTRhOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMThjZTRjZjhkNzMzYzJjNzdhYWRhMGE4Yzc1ZjQwNjVlMGUxNGY1ZmVlZTE5ZTgzM2RkNDZjOGI3YWVhMWMwOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYmM1YzYyNDExNGY5MWIyZmMxMTVjNzA1YmQxODE5MjgzZTAyZGVkYmI4ZDU4NDU0NDFjY2Q1NTkyZjE3NmMyMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c9aad369729a488b8503ebe53536c5d3",
+      "statement": "The Loss Contribution LC(i,r) is the loss if factor i alone took its scenario value while others stayed at μ, as a percentage of the scenario loss; evaluated at the worst-case scenario it is the Maximum Loss Contribution MLC(i)=LC(i,r^WC).",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L93-L96",
+          "version": "repo-lines-v1:sha256:2c40e9d31d658f04be99d6ef77d49df2b6304a047ba44e38af80a0f1aed0fc1d:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzMwNjRmNjhiOTUyM2EwODE1NDNhNjYxNDBkYzYyZDQ0YzlhNmZkNDdjZTgzYjM5M2NhMmIyMWZhYjc2M2IxMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjdjOTg2MzQ0YjlkNThjZGViZTc2MjVhNDMyZTM1YzI2MzhhNzQ0MjFhODZlMzYzYjQ0MzQyMTU4ZGY0ZDJjNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmM1YzYyNDExNGY5MWIyZmMxMTVjNzA1YmQxODE5MjgzZTAyZGVkYmI4ZDU4NDU0NDFjY2Q1NTkyZjE3NmMyMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjY1NDQ3NzhmYWY1MDQ0MjYyODU2YWVjMDkxMGRhYjBhNDc2YTE1NjIyMDZkYzUyN2Y1ZmY4ZTI1MjQyY2MxYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2d2f0201478742219bbec0869f7efac1",
+      "statement": "Assuming continuous second derivatives, the loss contributions sum to 100% for all scenarios if and only if the CEP is additive CEP(r)=Σᵢ g_i(r_i), i.e. all cross-derivatives ∂²CEP/∂r_i∂r_j vanish for i≠j; a sum below one signals negative interaction where simultaneous factor moves cause damage beyond the individual moves.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L98-L104",
+          "version": "repo-lines-v1:sha256:702f9f97094b993878de5f78a15189b158f670128704a0746f4a3759f45d51c9:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjg2NmRmZmI3ZDU5MzE0M2NhMzNhZmFmYWYwZTRiOTcxYmM5ZGUwNDFjMjRjNzE1MzVjNjBmMmY3OWUyYTJjMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGZhOGYzNzU0Y2U2ZjQxZjU2NDYxNTUzYTNjYWEwMjVhNzg3NTE4MzVmMzc1ZTFjYjVlZWIxOGY0YWUwNTBhNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzUzYzE0OTAwODYwZWNjZjE2OWVjYTljNjUzYzM4OGI3YTAwODkzNWNhY2M4ZWVlOGJhM2U4YTZhZGNlZjdjNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjZlNDMzYjUxMGU0NWRhYzEyMTA1ODdhNzMyMTkyOGRmMDU0Yjg3NjE5OWYzYWM4Y2UzNWEzOWJiMmVhODk1MiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_317d53fcf2944230920d66ab0d13bed9",
+      "statement": "Analyzing market and credit risk in separate categories and aggregating the separately computed risk capital can understate true portfolio risk because it ignores risks from simultaneous moves in market and credit factors.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L106-L106",
+          "version": "repo-lines-v1:sha256:718050e1fdc0408975994dfcf3c55cd7838ac213cd53938a626c55dc334ecc19:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzE4MDUwZTFmZGMwNDA4OTc1OTk0ZGZjZjNjNTVjZDc4MzhhYzIxM2NkNTM5MzhhNjI2YzU1ZGMzMzRlY2MxOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzE4MDUwZTFmZGMwNDA4OTc1OTk0ZGZjZjNjNTVjZDc4MzhhYzIxM2NkNTM5MzhhNjI2YzU1ZGMzMzRlY2MxOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDQ2YWRhYTdkZWE0YTA0Mzc3MGIyYzVlYmI2ZmI2NjZkMTYxNGRmZDMzZWRlZGJlNmYyYzRkMGM1MzQyOTJhOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDM4YzZjMTBhODc0MzliN2QxYmJlMzZlNjdiZDkzM2Y2YTM0Y2I5OTcwMjZjY2NhNmUxMTg2YWE0MDY2YmFmMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_07b3f8d4f95e4d1085c2bb4ef5191bef",
+      "statement": "In the foreign-currency loan illustration the hand-picked 'GDP contracts 3%' scenario is a 5.42σ event but reduces profits only moderately, while equally plausible worst-case scenarios give foreign-currency losses of about 11% exceeding the 8% total regulatory capital of the loan portfolio.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L112-L112",
+          "version": "repo-lines-v1:sha256:e7b2943097421775c79fa469444ffd1f222364e1f20aa5891891a83746fc81f4:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTdiMjk0MzA5NzQyMTc3NWM3OWZhNDY5NDQ0ZmZkMWYyMjIzNjRlMWYyMGFhNTg5MTg5MWE4Mzc0NmZjODFmNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTdiMjk0MzA5NzQyMTc3NWM3OWZhNDY5NDQ0ZmZkMWYyMjIzNjRlMWYyMGFhNTg5MTg5MWE4Mzc0NmZjODFmNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzYyMjE1YjdhOGIyYjM4NmNlNjkxMGYwOWQ2ZGU4NmY4YTE1MWJlNzY0NGQzNTVlYzgzZDc1MWVkYTU5ODJiYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGI2NGRjZTZjMjM3NTgzNjk3Mjg4M2NlOTZiM2M4MjEyZDAxNzAzM2E1MmRjY2VhYTkwYmI3NzFjZDAyYzI3YiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_116a51a3e3c2491b9626c38d105cc02b",
+      "statement": "Key factors are portfolio-dependent: for foreign-currency loans the exchange rate alone contributes between 65.3% and 100% of worst-case losses (other factors under 1%), while for the domestic portfolio GDP contributes between 46.8% and 70.0%, and for a domestic B+ loan restricted to Maha below k=6 the two MLCs sum to 62.0+9.9=71.9%, well below 100%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L114-L114",
+          "version": "repo-lines-v1:sha256:922d1f959ef22b9bb6f1c59606192c382b3770e89dc89a04fdaefe02dc2f889e:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTIyZDFmOTU5ZWYyMmI5YmI2ZjFjNTk2MDYxOTJjMzgyYjM3NzBlODlkYzg5YTA0ZmRhZWZlMDJkYzJmODg5ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTIyZDFmOTU5ZWYyMmI5YmI2ZjFjNTk2MDYxOTJjMzgyYjM3NzBlODlkYzg5YTA0ZmRhZWZlMDJkYzJmODg5ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2ZkZWM5MzRiOTdmYjQxODc4YThkZjE0NTM2OGY5OTQyYjUxN2E4YzRkMzlkZmZkMWQzYzg2NjBhYTg2MDMwZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiM2ZmNzg0NzQ3NWNhMzk2NWFiNDQ2ZjFjOWY5NDc4ZDgyMjNlZjVlZTY0OWI3MDliMzRmZTI2MGRjZGI1NWNkMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3d17799939c44dd79b246f18b27e7856",
+      "statement": "A reverse stress test starts from a known stressed outcome (breaching regulatory capital, illiquidity, insolvency) and asks which events could lead there; the systematic worst-case search is its quantitative counterpart, moving from a loss and plausibility level to the scenario producing it via exhaustive search over the admissible domain.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L118-L122",
+          "version": "repo-lines-v1:sha256:84af22669130e6a9123ca3f5d89efc54e8500ea4c0f25adf49d972de53f295ba:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzA0YWYyZjdmODY3Zjc4MzBiMjlmYzIxZjI5Y2NiNTBmY2UzNDg2YmEwNDE3OGYxNDAxYjE5MDBhZWUwN2EwYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjJhYjZlODNkMzNjNGIzZDdhM2U5Njg5MjY4MDk0OWY2ODI5NDFkMTlmOTEyN2VmZDJkMWU2NzYwZmEzNjEyOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2ZmNzg0NzQ3NWNhMzk2NWFiNDQ2ZjFjOWY5NDc4ZDgyMjNlZjVlZTY0OWI3MDliMzRmZTI2MGRjZGI1NWNkMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTVhNTUzNTcwN2FhYmRiNTQ5MTZjOTMwM2E0NzgwN2NmNzhkNzc4YzRjM2U2ZDQwYTcyOTU4YzEwMDk3NmFiMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f86b8d97bae646898443e172724ae97c",
+      "statement": "In the risk dashboard the Mahalanobis radius k governs the severity/plausibility trade-off, playing the role for the stress test that the confidence level plays for VaR and CVaR, anchoring the scenario's extremity to a defined non-arbitrary plausibility region, with stress testing assessing robustness to severe-but-plausible scenarios that historical statistical relations fail to capture because they break down under stress.",
+      "evidence": [
+        {
+          "resource": "repo://docs/24_stress_testing_and_scenarios.md#L126-L128",
+          "version": "repo-lines-v1:sha256:ed10577cb12a435c249f01b852346db89f1c31e0ee458dfc76fd59b0c46793da:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTljMWUwOGRjODEyNTYzMDE4ZjRlMGY2MDZjM2RiZWU0YjBmOTFjZmM2YTMzMzk3MDdhZjIwM2ZjZTcxZDZkNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjk1OTllNTU3ZGE0NWQ3MTc1Njk0MGEwMDVlN2QxMmRjZDY5MDBmMjFiODExOTM2ZWE2OGY2ZGQ1ZWUwOWExMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTVhNTUzNTcwN2FhYmRiNTQ5MTZjOTMwM2E0NzgwN2NmNzhkNzc4YzRjM2U2ZDQwYTcyOTU4YzEwMDk3NmFiMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

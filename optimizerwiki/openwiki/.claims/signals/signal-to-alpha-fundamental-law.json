@@ -1,0 +1,270 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:066009d5b86d68cb5d3d78d81a44817d51ab323cb4df1581a7009ec23297490d",
+  "claims": [
+    {
+      "id": "claim_1d0ba03e6bf24c248ddea73fc514d97c",
+      "statement": "Consensus expected-return forecasts, efficiently implemented, lead to the market or benchmark portfolio, so active managers earn the title only by holding portfolios departing from it and are thus at least implicitly forecasting exceptional returns — active management coincides with forecasting.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L16-L16",
+          "version": "repo-lines-v1:sha256:d3129e28fb67aac48251bb2501f6887d51e2c71a8ac19024174c995251977e73:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDMxMjllMjhmYjY3YWFjNDgyNTFiYjI1MDFmNjg4N2Q1MWUyYzcxYThhYzE5MDI0MTc0Yzk5NTI1MTk3N2U3MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDMxMjllMjhmYjY3YWFjNDgyNTFiYjI1MDFmNjg4N2Q1MWUyYzcxYThhYzE5MDI0MTc0Yzk5NTI1MTk3N2U3MyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDk5NjU2ZDczNTUyNDY5NTAwMmYyOGJhODEyYTNiODU2N2I3NTUyNzUyYzY3NmU3ZTY4MDRkMWY0OTNmZjFkZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYmQzMWIyMjhiNDZlZWFjNDk4MTE3N2VjZjQwZmM1MGRkYzk0YWFiMDA5Njc3OTk2MDIyZTZkMjNkNzVhMDFlMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8f44ca83e08f41838f1ed478df4c1b96",
+      "statement": "Three forecast types are distinguished: the naive forecast (the consensus expected return, information-free, leading to benchmark positions), the raw forecast (the manager's information in original heterogeneous units, not directly a forecast of exceptional return), and the refined forecast produced by the basic forecasting formula, whose outputs have the form and units of exceptional returns.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L18-L18",
+          "version": "repo-lines-v1:sha256:4a472028689e966d447eeeb1fe8a8ba8f13ef6aa6ee0cf7277ac760366a4d00b:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGE0NzIwMjg2ODllOTY2ZDQ0N2VlZWIxZmU4YThiYThmMTNlZjZhYTZlZTBjZjcyNzdhYzc2MDM2NmE0ZDAwYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGE0NzIwMjg2ODllOTY2ZDQ0N2VlZWIxZmU4YThiYThmMTNlZjZhYTZlZTBjZjcyNzdhYzc2MDM2NmE0ZDAwYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjMwMjIzOTkxNDI2YzlkYTBmZTQ3MDQwN2ExZjdiMmU1ZDcwMGU4MDU3MzQ5M2I1NTU5NTY1YWQ2MGJhZTNiYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmQwMzJkOTUyMzgyY2U3ZjQ2MzkzMzMxYjhkZmE1NWNhNGFjYjJjYjhlMGI0ODdlZDI0OTIyZWZkZTlmODI5YSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a0c9a4a3f2364516853d84b993ef32a7",
+      "statement": "The refined forecast is the change in expected return from observing the raw information g, φ = E{r|g} - E{r} = Cov{r,g}·Var^{-1}{g}·(g - E{g}); applied to residual returns θ (with E{θ}=0) it yields the alpha α = Cov{θ,g}·Var^{-1}{g}·(g - E{g}).",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L22-L25",
+          "version": "repo-lines-v1:sha256:e969b6e9e0249a9df3196326953632641ad3fdeab88ebacd5c974cbfb1dcd2c0:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDhhYzE1NzU3Mjg5YTQyNzA1Nzk3Y2M0MDdkMTE5MzVlNjlmYjVjZGVjMjU5NDgxNTczMzhhNWU2YjVhNWY3NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGJhYmU3YjhiYTA5YWNlNmY3MDFkMzk4NjFkNWU0YmVhYmRjY2ZmMTQwMTJmM2YwNDQyODQ1MDg2YmFmMGVhOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmQwMzJkOTUyMzgyY2U3ZjQ2MzkzMzMxYjhkZmE1NWNhNGFjYjJjYjhlMGI0ODdlZDI0OTIyZWZkZTlmODI5YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWViYzQ4N2E0NDdkZGU4MzBhMjRmNzk1YTY5MTY4NzczZWZiY2ExOGFmNzQyYjM2ZTkzYjc2ZjljOWIwOTNiOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0f5f5e7f69824555b950a03bb9e17e70",
+      "statement": "The basic formula is the best linear unbiased estimator (BLUE) of the return conditional on the signal, and under joint normality of r and g coincides with the conditional expectation and the maximum-likelihood estimator; historical average returns are a poor substitute for consensus expected returns because of very large sampling error.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L26-L26",
+          "version": "repo-lines-v1:sha256:fc2e8565466bb147bec0a045ceb5c13a87eb826093268690670d1f60710501f7:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmMyZTg1NjU0NjZiYjE0N2JlYzBhMDQ1Y2ViNWMxM2E4N2ViODI2MDkzMjY4NjkwNjcwZDFmNjA3MTA1MDFmNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmMyZTg1NjU0NjZiYjE0N2JlYzBhMDQ1Y2ViNWMxM2E4N2ViODI2MDkzMjY4NjkwNjcwZDFmNjA3MTA1MDFmNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDE4YTU4MmU4YjgxMmJjN2MwYjVkYjA3NmY3YjM0MWI4MjViNTU2NTcwNzU5M2IyMGEzOWUwNzNjZTg3OTk4YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2JiZTc1NzU2MTlhOGQ0YjZiYjI2MzZhMjcwYjFhOWNmNDJkOGU0MGYzOGY1OWUzYTE4OWFlZTg3OWNlNmZlMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6b9afb3bca6a4d78bff9b2e5ad09e41d",
+      "statement": "If opportunities are exploited mean-variance efficiently, the best expected residual return at residual risk ω is α(ω)=IR·ω, so risk-adjusted value added VA(ω)=IR·ω - λ_Rω² is maximized at optimal aggressiveness ω* = IR/(2λ_R).",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L32-L35",
+          "version": "repo-lines-v1:sha256:d5b68d4c8984d7cb0bd98826d5750ae56f98af6dc0c9ebda2644f08d2db7c471:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNWMzMmY2ZGNlYzU4OTEyNGVhNmIxNTJmNjk1MWQxZTRmYzQwNWM1OGNjNGVkNmU2ZDVmMDRiMWU1ZWU4YTNiZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNWZkYzY1ZDFmZDRhZTY4MzE2OTlhOGFiMGViYjI5MDFjZGY2NjU0MjViZGQ0YTY4NDM2NDlhYzZlNzQwYjIyOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWExMzE4MzgyMzNmOTI3ODA3YWM1MmU4YTdiN2IzZjcxMWJhMzY0NDM5ZmQxMDM4MGUxNDFhMzFjNTM0YzdjYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODUzNzExNzdmZWE3ZWRkZmRlNmY0NGZhNDc3ZGY3NDk2NmVjMGZhZDY1ZmQ5YWZkY2E4OTBhNjlkN2IxM2U0NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_96a55b23513d4e34bf6c28265f5ab5ed",
+      "statement": "The optimal value added is VA* = IR²/(4λ_R), so value added grows with the square of the information ratio and every investor seeks the highest-IR strategies.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L36-L38",
+          "version": "repo-lines-v1:sha256:85371177fea7eddfde6f44fa477df74966ec0fad65fd9afdca890a69d7b13e45:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGVmYTY3MzE4MGIzZDJmOTBmOWI5ZDM0ZmEwMjU2Y2RjNmU0MTg0ZDJmOGQ1MTZhY2RkOGUzMzhmMTA0MDU0ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjcxNDg2OGQ1NTA0OTRmYTJlOWIxZThkMWNmZDZlZDk2YzUxOGE4YzJjM2M3OTZiYzM1YTJkOTA2OWM1MDMxNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2U5YTM2MDM5Zjc5OTE2YjE5MmQzOTQ2YjQ4MDdjMWI4NTE5MDc5OTBmNDQ0YTVhYmU4MjRiNWJiNmU4MWI1YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmQ4MzZlMTJhNGFjMjI2OTFmM2I5YmU3NDdiNTVlYWRhNWZiMWQyNTkzNWY1ZmI0ZjYxNmJjNmNlMDMzNTNmZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f9b50d3021434b50afefd9c43e0443c7",
+      "statement": "Across managers with independent information ratios IR_n, the sponsor's aggregate information ratio is IR = √(Σ_n IR_n²), so managers with IR 0.75, 0.50 and 0.30 let the sponsor achieve 0.95 = √(0.75²+0.50²+0.30²).",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L38-L40",
+          "version": "repo-lines-v1:sha256:6ca51eb7819f5aac113f18000a5a7fa379155f532a46b742dd9d9bd67577fc35:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjcxNDg2OGQ1NTA0OTRmYTJlOWIxZThkMWNmZDZlZDk2YzUxOGE4YzJjM2M3OTZiYzM1YTJkOTA2OWM1MDMxNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGE4NWY1NjEyNGUxNzUzZjcxMDlhZjVmNTU2N2YxYjg1NTQzODM2NTQzYzUyYmZlMjMzMWVjNGE3MzBjMDk2OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjVlMGE0MGExZGEwMjJkZWM0OGE0NjUyZDgyMWZlOTA2YWMwNmJlNWZkYmFhZDhhNmI5YTlhOTZlYTUzMWNkNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTZlMWZjZjJjMzAyZGFkMjE3NDVhYWFjZDA5NGFjZTEwNzg4OTNkOTczMjZiNjhmNWIwNGE3Y2NlZDUxOGY0MyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f77a8f0f11554e9daa3a0e876397508d",
+      "statement": "The Fundamental Law of Active Management approximates the information ratio as IR = IC·√BR, with breadth BR the number of independent forecasts of exceptional return per year and the information coefficient IC the manager's skill (the correlation of each forecast with its outcome), an approximation that ignores the negligible risk-reduction benefit for low IC.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L44-L48",
+          "version": "repo-lines-v1:sha256:b2bdd396ebf11f449f31262a463413e13e8a90cdee6f5e7b6116eb9b9a0b7c2f:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzJhOTVkMTdhOGYzNzAxYjU0OWY1YTNmNDVlMmNiNDY5OGY3ZmIyZTRkYTU2ZmFlZjRlMzY2YmU3YjA3MDRhNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjgxZjhmNzRmYzk5YzBiM2M3M2QyM2Q2NDhlZWMyY2U3YzFmMjNmYjkzNGFiOGRiNmM2MjFlYzdjMGQ0OWU4NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTZlMWZjZjJjMzAyZGFkMjE3NDVhYWFjZDA5NGFjZTEwNzg4OTNkOTczMjZiNjhmNWIwNGE3Y2NlZDUxOGY0MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmMxMjA1MTlmYTMwMjljNDIwNjZiZWRmOTJiNjRlYzRkYjZmNGJlNGM4YzEzNmU4ODIzZDBkY2YzYmJjOTQ4MiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_11320f1c07eb45a1b2ca3b73ebe4607b",
+      "statement": "Combining the law with the value-added relations gives ω* = IC·√BR/(2λ_R) and VA* = IC²·BR/(4λ_R), so desired aggressiveness rises with skill and the square root of breadth while value added rises with breadth and the square of skill.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L48-L50",
+          "version": "repo-lines-v1:sha256:c3aeabcb87b9d2734b9894c55fc9d13ec9334534518f64ca8ccf207124da10cc:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjgxZjhmNzRmYzk5YzBiM2M3M2QyM2Q2NDhlZWMyY2U3YzFmMjNmYjkzNGFiOGRiNmM2MjFlYzdjMGQ0OWU4NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjcwMTk5NWU0MmJlZjY0MDMxOTI4MWRiZDllMzU5MjE2ZGVkZTM5NGQ0YTQzNDFlMjhjZDA5ZWI4MjFlMDg3MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjEwYmY4ZjI5ZTNhNjQ5OTViYmVhNzUxMmY1OGEyYzI2OWQzZTI4YTdjNzIxYmE5NzJiMjgwNDkzZmZiY2Y0YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmUwOTEwODhkNTFhMWVkNDNhOTc2NmJmYjM1YzU3NGNhYjY4ZjkzYzEyODc2ZTRjYjc0NjhmYmQzNTFmYzFiMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a50b116291014b288a5ef3fbd5ab7b14",
+      "statement": "Because IR = IC·√BR, an information ratio of 0.50 is reachable by a market timer with IC=0.25 and BR=4, a selector following 100 firms with quarterly revision at IC=0.025 and BR=400, or a specialist following two firms but revising 200 times a year with BR=400 and IC=0.025 — play often and play well.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L52-L52",
+          "version": "repo-lines-v1:sha256:9a0ff3600388361c57c6d27873997b30686117221fe957a65b54fb91b92afc61:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWEwZmYzNjAwMzg4MzYxYzU3YzZkMjc4NzM5OTdiMzA2ODYxMTcyMjFmZTk1N2E2NWI1NGZiOTFiOTJhZmM2MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWEwZmYzNjAwMzg4MzYxYzU3YzZkMjc4NzM5OTdiMzA2ODYxMTcyMjFmZTk1N2E2NWI1NGZiOTFiOTJhZmM2MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmMxMjA1MTlmYTMwMjljNDIwNjZiZWRmOTJiNjRlYzRkYjZmNGJlNGM4YzEzNmU4ODIzZDBkY2YzYmJjOTQ4MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTc2NmQ5NzNlMDU4MWI3Yjc1MDY1ZTA5MjEyY2VkNjM5MGFiZjY4NTcyMDJhNmNmZTQ0MDM1YTVlZjY0MzZkMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_fcb972041f5d4cba8d9e15fb9951f0f6",
+      "statement": "The roulette bank illustrates breadth: with pocket probability 1/37 a single $1 bet has information ratio 2.7027/99.9634 = 0.027 ≈ (1/37)√1, while a million bets a year keep the 2.7027% expected return but cut the standard deviation to 0.09996% for an information ratio of 27.0 ≈ (1/37)√1,000,000.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L54-L54",
+          "version": "repo-lines-v1:sha256:da210f2082509cf6f2e23a784988474d85cbdbf275bac78d1d0e24440832b470:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGEyMTBmMjA4MjUwOWNmNmYyZTIzYTc4NDk4ODQ3NGQ4NWNiZGJmMjc1YmFjNzhkMWQwZTI0NDQwODMyYjQ3MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGEyMTBmMjA4MjUwOWNmNmYyZTIzYTc4NDk4ODQ3NGQ4NWNiZGJmMjc1YmFjNzhkMWQwZTI0NDQwODMyYjQ3MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmUwOTEwODhkNTFhMWVkNDNhOTc2NmJmYjM1YzU3NGNhYjY4ZjkzYzEyODc2ZTRjYjc0NjhmYmQzNTFmYzFiMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzMxOTQyYTUxYTQ5Y2RiYWQ4N2Q0YTc4MTI0ZDg3YjQ0Mjk2MDNiZWIxM2I1N2U5MmU2ZjkxYWI3YjBkNThhZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3ac1587c5f1545b88a73a43bb038a43e",
+      "statement": "The law is not the law of large numbers: it holds that more breadth at fixed skill is better (at BR=10 as at BR=1000) because greater breadth diversifies residual risk, and it is a guideline rather than an operational tool since BR is hard to estimate given the independence requirement.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L56-L56",
+          "version": "repo-lines-v1:sha256:f8423ead1e65f2ae8acf7c9d12bb34e0dc253326fcce19688410bc71cfd90d1b:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjg0MjNlYWQxZTY1ZjJhZThhY2Y3YzlkMTJiYjM0ZTBkYzI1MzMyNmZjY2UxOTY4ODQxMGJjNzFjZmQ5MGQxYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjg0MjNlYWQxZTY1ZjJhZThhY2Y3YzlkMTJiYjM0ZTBkYzI1MzMyNmZjY2UxOTY4ODQxMGJjNzFjZmQ5MGQxYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTc2NmQ5NzNlMDU4MWI3Yjc1MDY1ZTA5MjEyY2VkNjM5MGFiZjY4NTcyMDJhNmNmZTQ0MDM1YTVlZjY0MzZkMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDk2ZDk4OTliNmIyNDQyOGNkMDc3ZjE4Y2I4ZWVkOGQ4NWQ4YWQxZWRjYmZmN2UwMGJmOThhNDMzNWI0Mjc3MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_44a128d4d6b548f896806149d0c1a85d",
+      "statement": "In the binary direction model with x(t)=±1 and forecast y(t)=±1, the information coefficient is their covariance and equals IC = 2·(N_1/N) - 1 ≈ 2p - 1, where p is the hit rate of correct direction calls.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L60-L65",
+          "version": "repo-lines-v1:sha256:b17680dd10666195c9d9d2bdd8883e310c61262edf568d59736cfe8a0f7df3da:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDZhNzcwNGUyYTc4YmYxNDllOGQ0ZTY5NmEzOTFjMjZmOTU0NmMxNjExY2U3NDBkZWEzNzU1ZTI3MTMzOTk2MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDU3MWMyMTE3ZTUwZGFiYjIxZTc1ZWE2YjYyNzhhYTllM2MyMTQyNjNhOTA4ZGYwNDAzMGJhNzNhZTE4OWM1MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDk2ZDk4OTliNmIyNDQyOGNkMDc3ZjE4Y2I4ZWVkOGQ4NWQ4YWQxZWRjYmZmN2UwMGJmOThhNDMzNWI0Mjc3MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjIzNzBiYmZlODgyYzk4ZWYzNDY3NzliNjY1YTcyMmVkODZmNDBiZTdiMzg2OTQ1MzZmMzg4YzBlMGI1NTFhOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7c4635fe4f8941668569d99877db7476",
+      "statement": "Little information is needed for success: IC=0.0577 corresponds to calling direction correctly only 52.885% of the time yet yields IR above 1.0 over 200 stocks per quarter; tested guides are IC=0.05 (good), 0.10 (excellent), 0.15 (world-class), while IC above 0.20 usually signals a flawed backtest or imminent insider-trading investigation.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L66-L66",
+          "version": "repo-lines-v1:sha256:e86e32f86e1de02ae9cf49b930e9b1928b44d6357fefa929e5404c71be7d8d53:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTg2ZTMyZjg2ZTFkZTAyYWU5Y2Y0OWI5MzBlOWIxOTI4YjQ0ZDYzNTdmZWZhOTI5ZTU0MDRjNzFiZTdkOGQ1MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTg2ZTMyZjg2ZTFkZTAyYWU5Y2Y0OWI5MzBlOWIxOTI4YjQ0ZDYzNTdmZWZhOTI5ZTU0MDRjNzFiZTdkOGQ1MyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWRkMjhlN2NiYTVlZmU2MGFjMGE1OWM3MjI4NTM1MjU5MGJlOWUzYzI1YTdjMTNmMDRlMTRkYTY2MGFiNmJlZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzE2MWUyZDUwMTk1OGNkY2IxYzcxODhlMGMwNjM5YTYwMWEzNDVjOTBlMTRjZjljMDU4MzY0NDdmYjdlYTc3MiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a85fc29ae1964b3e851c5022abc1a7e8",
+      "statement": "For one stock and one forecast the golden rule of forecasting is: refined forecast = volatility · IC · score, where the score (or z-score) is the raw forecast minus its mean divided by its standard deviation; the same rule emerges from the least-squares slope of regressing returns on the raw forecast.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L70-L76",
+          "version": "repo-lines-v1:sha256:bb421c99288f15c2edaa3deb13c6be6a52335dfc1fafc6af3f36676a6b7e2682:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTk4ZDc0NWQ4ZDZhMjZkMTM5NmU4Yjg2ODQ0OWNjNjkwMjAyMDg3ODU4OTNkNDA0Yjc2MjI0OWQxZWIyNDYwNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjk0OWIxNWVkOTgzMmUyYTk2YjgxZGQ0ZjlkZWNmODRiMjA2MjJkYmI3MDE0NzU2M2NiM2FiYTY1ZmE2YWMyOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzE2MWUyZDUwMTk1OGNkY2IxYzcxODhlMGMwNjM5YTYwMWEzNDVjOTBlMTRjZjljMDU4MzY0NDdmYjdlYTc3MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGMyOTFhYWQ0Mjg4ZDZkNzlkM2VkYmE4MjM4ODMwYjZkM2JkNGU0M2Y2NGI4NGI4MDlkN2EzZGZjODRmZDMyNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_90c39e19f7ed4cae808ab22d475c6aee",
+      "statement": "Refinement controls for expectations (subtracting the expected raw forecast in the score, since exceptional price movement is expected only when raw information departs from consensus), for skill via the IC (if IC=0 the refined exceptional-return forecast is set to zero), and for volatility (which supplies return units, so at equal score the more volatile stock receives the larger alpha).",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L78-L78",
+          "version": "repo-lines-v1:sha256:330eee0382b7d5a39d9031aa298eaf568a37d2392f785836b123db13ac1be0f2:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzMwZWVlMDM4MmI3ZDVhMzlkOTAzMWFhMjk4ZWFmNTY4YTM3ZDIzOTJmNzg1ODM2YjEyM2RiMTNhYzFiZTBmMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzMwZWVlMDM4MmI3ZDVhMzlkOTAzMWFhMjk4ZWFmNTY4YTM3ZDIzOTJmNzg1ODM2YjEyM2RiMTNhYzFiZTBmMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGUzN2M2OTZkNWY5NGViODZkNGM1NGI4ZjMwZWZiZmNjYWU4ZjVhOWM4ZTY1ZGI2NDIzYjI2N2FmNmQ4MDZjOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjRmYTEzNjQ1N2IwZTlmNWYzZTRjMDBjMzFlM2MxMmZhMTMwZjQ3Y2FiZjAwZmNjMTIyMTRjMmYxMTU2MjE4ZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_cefcbbb3bc38418d8dd2edf2661ebd86",
+      "statement": "As a worked example, a very positive tip (score 1.0) from an excellent source (IC=0.1) on a stock with 20% residual volatility is worth 0.20·0.10·1.0 = 2.0% of alpha.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L80-L80",
+          "version": "repo-lines-v1:sha256:bd42c37691109406db08586f591bcd6776d5026ae52b45411db836b07f3ae698:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmQ0MmMzNzY5MTEwOTQwNmRiMDg1ODZmNTkxYmNkNjc3NmQ1MDI2YWU1MmI0NTQxMWRiODM2YjA3ZjNhZTY5OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmQ0MmMzNzY5MTEwOTQwNmRiMDg1ODZmNTkxYmNkNjc3NmQ1MDI2YWU1MmI0NTQxMWRiODM2YjA3ZjNhZTY5OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGMyOTFhYWQ0Mjg4ZDZkNzlkM2VkYmE4MjM4ODMwYjZkM2JkNGU0M2Y2NGI4NGI4MDlkN2EzZGZjODRmZDMyNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2FmN2ZmNzkyYmI2OGUyZTEwM2RmOWM0OWI4MzgyMzQyOTVlMmVmYjNiMDljOTI2MGIyMGVlNjM4ZTQwNjE5ZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4a4be14012d04d05abce1b0bc3df9aaa",
+      "statement": "Because the score has unit standard deviation, the dispersion of refined forecasts is Std{φ} = Std{r}·IC, so alphas are compressed relative to a naive reading of the signal by a factor equal to skill, collapsing to zero (benchmark positions) when IC=0.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L84-L86",
+          "version": "repo-lines-v1:sha256:527d62bcfd8d41aef56e422cfd6b68de918e7a88163c637b8b7bf8ea8800e14e:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODRhZWY1ZGJiNGVhOTIxMWE4ODU0YmRkNGM3MjJmZmZmNThmYWJkODQxMzFiMjliMWU5MzkxOGQxMzcxMDA3OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTNkMWE3ZTZiY2Y0OGM1Y2M0OGZkYTlmNTY4YTI3YzRlZDQ3NTQyOTVhZTAzYmUxMjc3NWIzYzk1MjgyYTgwMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2FmN2ZmNzkyYmI2OGUyZTEwM2RmOWM0OWI4MzgyMzQyOTVlMmVmYjNiMDljOTI2MGIyMGVlNjM4ZTQwNjE5ZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjlkMjU5YmY2ODRkNGQxYmI2YzZmZDExNzFiMDE3MzUxMTY4OGRiODgwZjRhM2UwMjg1MjUyNzk5N2E4YTEwOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_24272ca0939f4aa4953c247d0dde7177",
+      "statement": "Composing the signal as α = IC·[IC·θ + ω√(1-IC²)·z] gives Var{α}=IC²·Var{θ} and Corr{α,θ}=IC, so the alpha is a rescaled residual return with dispersion cut by IC; with quarterly volatility 9% and IC=0.0833 the refined forecast is 0.75 times the score in percentage points.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L88-L90",
+          "version": "repo-lines-v1:sha256:e641bbc8b6f50b49cc9fb8f6c4c71d6c9160c0ccd80be21e23c35a039a818e65:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDEzMmRlZmY4ZTcyNGYzZGI3NjFiZWM0NTBjYzAzYjYzMDJlNzI4ZTg2Mzk1YzM5ODRhODgwMDYyM2RmMWVkMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2E0MzM2YjE0MGNkNmY4MjNlNjA1OGRmMWZmOGI0MzhhMjc1ZDUxOGUyY2M5Nzc5YzgyNTE4OGRlODMxOTA0OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTY2NDFkZTU0Njg2ZTgyYTViM2Q1ZWE3Y2UwNDlkM2RlMmJlOTU4ODdhNDlhZTkzZTYyMGRmMmFlNDc4YjY5ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjE5NmM4NGUwNTMzZDJlYThhNzg0NGM3ZjcwOTEwN2VhYjA4ZTcyMjllMGNiMjc3MzQ2ZGUzNjQ5NjRiY2UwZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d9d77684ab1a4899948b425e73c76157",
+      "statement": "With several sources the law is additive in the squared information ratios, IR² = BR_1·IC_1² + BR_2·IC_2²; e.g. 200 stocks with semiannual forecasts (BR=400) at IC=0.04 give IR=0.8, and adding 100 stocks with two annual forecasts at IC=0.03 raises value added to 0.82 and IR to 0.906=√0.82.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L94-L96",
+          "version": "repo-lines-v1:sha256:4acd3894b8d2cd7c1b3f412b7161c21d2e46fab8fd1cd81b63f2a06be3556174:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzRkMjAyMzhiOWViYzVmNzI4MGFiMDMyOWEzNzI3MmJmMmZlNzVhOWNhNGFkODZjYjhkZjg2NmUyNjUyZWE0MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzA2NGQ2MjMwNzZjMzQwYWVhN2E2ODhiNWEzOTFkYzdkMzg5NzE2MDE1N2RjMzE4MzllN2Q1YmU3M2FjNDI3MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjE5NmM4NGUwNTMzZDJlYThhNzg0NGM3ZjcwOTEwN2VhYjA4ZTcyMjllMGNiMjc3MzQ2ZGUzNjQ5NjRiY2UwZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDZmYWFlMTc2NDc5YjJjZDBlYTZiOWI0YzMzY2NmZTdjYmFmYzlmYjQ5NDcwNjBjNzNiOWFmNGY1YjdmZDYwOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6a0c0809f567405e86b02b38f6af7b7c",
+      "statement": "Additivity presumes independence: for two equally skilled sources with correlation γ the combined skill is IC(com) = IC·√(2/(1+γ)), so at γ=0 the sources double the squared skill (IC²(com)=2IC²) while as γ→1 the second source adds nothing.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L98-L100",
+          "version": "repo-lines-v1:sha256:61a385e813d5da3478602cfbfe3196266e342f0767b402171bc1ad0f3fb3889f:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDA4OTAwNTFiY2E2MjQxMWU3NWRmZjBmYjIzYzk2NzNjOWFkNWMzMjFmZDYzMDIyZjYzN2U2NDJhODQ0ZGM0MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDk0ZDhlMGFjNTUyNmU3NzExYjllNDY2ZWQ1YzU5MTEyZTAyZDMxODMzN2FkMzk0OGNiNzZlMTJkOGY4NzE0ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTVjNjMzYWIzMDZkMGI1YzU0OGNmZTVmZTc2YTAwMWVhYmI5NmQ0ZGE0NmM5ZjMyMGUwZDk5NjAyODJkMjg4YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmJmMTBiNjk4ODFjZmQyMGIxZDg0Yjk0NGVlYzIxZWYwM2UzYTY4MjUzMzhhNzIwZWUwNTdkZWJkYTgxZjk3ZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e23eaf7ce81c4f0c97686863ae56abb0",
+      "statement": "At the score level, for two raw forecasts g and g' correlated by ρ_{gg'} the combined information coefficient is IC_combined = √((IC_g² + IC_{g'}² - 2ρ_{gg'}IC_g IC_{g'})/(1-ρ_{gg'}²)), reducing to the sum of separate refined forecasts when uncorrelated and degenerating when perfectly correlated.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L102-L108",
+          "version": "repo-lines-v1:sha256:b516deda9d5e1ae0c11f9f56d7d1de125454e3ad9a686f5414df799997fd55d3:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjBhMGFlNzYyZjA3NzI3ZTM3ZTJjMWVhNmY0YzJjOGM1Y2JkZjYyMTJmYzlhNzhiNjI3YzY3OTc0NWY5Y2FiYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTdjYzY1ZjEwZGMwOTg2NzZkMzY1ZWUyZGZlZTZmZDJmYjVlY2UyYmU5NTQwMDQzNDBiMzFlNzJjOGEzMWFkOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2Y5NmQxZGEzZjVmNDMwYWRiYWI1NWZmZTIxMTEzNzI0MzQ1YjFmNjU1MjI5YzlkYjdlNjE5YjAxMzM2NDEwNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWE4ODdiMTU3ZDVkYjgxMWU4YjBiNDVmZTc3ZTA2YTZkMWE3ZTVkOWMyNzA4YTllYmY1ZGQyNWNiNTY4MTg3ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5e0428c72b404ff29d8c23f45ccb2795",
+      "statement": "For many stocks the golden rule applies per stock as φ_n = ω_n·IC·z_{TS,n} with a time-series score, but in practice only a cross-sectional score z_{CS,n} is available; if signal time-series volatility is proportional to stock volatility then φ_n = IC·c_g·z_{CS,n} is independent of volatility, and multiplying cross-sectional scores by volatility would be wrong.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L112-L118",
+          "version": "repo-lines-v1:sha256:72dae9c45263bff80670f07e300872f0c5c593d7f44af756e5aaa359c9688d04:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2Q0NWM1YWY0ZGVkYjRkYzk1NDMyNWYxMzg0OTZjZjRmOGMyMzNiMDQxZWIyNTY0ZDkxZTE1NWRiZjYyNjg0MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2RiN2Q2NjU0M2JlYTlmM2QwNjVjNjllMjBiNWZlNzQ1ZjVkNmU2NGJmMGQ1MGUwY2IyODNmOGZkNTE5ZmFjNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWE4ODdiMTU3ZDVkYjgxMWU4YjBiNDVmZTc3ZTA2YTZkMWE3ZTVkOWMyNzA4YTllYmY1ZGQyNWNiNTY4MTg3ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2ViNGQ1ODk2MDBmMDQ4Mjk1ZGI3YWVlZDg1NTZhYjY1NmI5MzA5YWRiN2M3ZmFkNDRmYjZmNGZiMDlmMTE4ZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3bcfe39e69d34330a9d5cfb54d09173b",
+      "statement": "In a factor model, if signal g_1 forecasts factor b_1 with correlation ρ_{1j} to b_j, the basic formula gives E{b_j|g_1} = IC·ρ_{1j}·ω_j·z_1, so forecasting E{b_1|g_1}≠0 makes it inconsistent to set other factors' forecasts to zero; empirically betting on all factors makes the squared information ratio roughly the sum of the component squared information ratios.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L120-L122",
+          "version": "repo-lines-v1:sha256:2895a8850fe455f9b7abb57c0c6551975e5301507c9f2b863c02f61e728a81a6:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmNmZTBlNDM0YjlhZWYzYjIxZDhkM2MzZjgyY2UwZWY0MzJkYTFjNTk3NzVlNGM1NjRjZDg3MTg3NjJiMDAyZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTgzZGEwNjdkZmQ4OGRlYWQzNjM0NDRjYTc4MjNjY2M0NTdiMjlkYzBiMzMyZjhlNmQwMjUzOWVkYTcxNjZmOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZGU5ODE5NTkyZWQwMDc3ZDk3NjJiZmNhYzA0NGRhYzQxNGRiM2VlMjA2OTM5ZjE2ODZjNzE3OGY1N2Q4NjNkNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTU5YzQ3ZmU0OGFkNjI4MTNiZmQwMzY2M2MyMTBmZTU2NmU5MjU5YjA4NzYzOTYzNzljNzcyYjk3OWQ5MzVlZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c75330af11d549dc81e6e0907c206fc7",
+      "statement": "Return forecasts have negligible effect on risk forecasts: from the variance formula σ_POST = σ_PRIOR·√(1-IC²), so with σ_PRIOR=18% annual the post-forecast volatility is 17.98% at IC=0.05, 17.91% at 0.10, 17.80% at 0.15 and 17.43% at 0.25 — material only at unrealistic skill — because a forecaster reduces the amount of uncertainty but not its magnitude for a given particular forecast.",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L126-L130",
+          "version": "repo-lines-v1:sha256:edb1b650b17da7e134c3562154a118c48c6ef0b723e8aab0979fbd23e88bae4d:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTUzMGM5NjI1MjkzNDU0YjJlZWMyNTkyN2FhZWViNzQ5MDNhODE3ZDFiNWY2ZWUyOThjNzNjZTJhOWU4N2YxMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjU2ZmZiMTA2MzE2NDIxMjIxMTllNjIyNTJlYmQzNzM1OWYxOWNiMjc3NTZiMDU4YWJkY2JjZGM2ZGQ0ZGQwNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTU5YzQ3ZmU0OGFkNjI4MTNiZmQwMzY2M2MyMTBmZTU2NmU5MjU5YjA4NzYzOTYzNzljNzcyYjk3OWQ5MzVlZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTI4MWY2NWNmMWFiNmM5ZGI2MzBjODM5ZTM1ZjFhYjMzMWNlZDFlNGUzMzFjNGRhMTcyNTNkZmMyNTkyNDYzMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8db88b0d60d7492e99cb6021f8037e33",
+      "statement": "When the IC itself is uncertain, the Bayesian shrinkage of the regression slope is b' ≈ b/(1 + 1/(T·IC²)) with T months observed, applied directly to the IC: the more uncertain the estimated information coefficient, the more it is compressed toward zero, significant even for good long-observed signals (at IC=0.05 the factor is 0.13 after 60 months, 0.23 after 120).",
+      "evidence": [
+        {
+          "resource": "repo://docs/12_from_signal_to_alpha_information_coefficient_and_fundamental_law.md#L138-L142",
+          "version": "repo-lines-v1:sha256:5def325cb16980a6d337ef42dfcbedf5e107a6db439999ec0d8bd9927e6ac313:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWZjYTNkODUyYTU4MjQxYTA3M2IzN2M5NzIwMTg2ODQ2MWFkMTcxMDZkOWE4MDllYmZhYTE4MzJmYjk2Mzc2NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGFiOGU0ZjNmMjhlMTFhZTUzNWY5YTk5ZGFiOWFmN2M4NGI5OTJlY2NmOTM5NTIyM2EwNTA4ZmRhODc3Y2E0YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWQwMDhkOTg4Yzg3MDU0OWU3NDNiYjRjNTdmZWEzZTExYjI3ZDc5ODY4MjM3ZjE2M2E4OWNlYzY5YzE5N2VlYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

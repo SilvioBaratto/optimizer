@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:667dc7d43dba53cb28c4ae669257afc2b384dfb0cd6868a3b89eb7d5d40e68fc",
+  "claims": [
+    {
+      "id": "claim_a4d9b566d688496cb5b4ed711b1be574",
+      "statement": "Factor premia must be time-varying by an anthropic argument: without such variation the underlying phenomenon would be arbitraged away and the factor would not exist, and each premium decomposes into compensation for risk exposure, return from market-participant irrationality, and the effects of market frictions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L16-L18",
+          "version": "repo-lines-v1:sha256:02651cc9c52cda9fb27c5846391f7dc623c275fc8f5dcee0c2034c4395cb93cf:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmJlZjI2ZWI2YTA5ZGMxNzgwZTJiYmQ0ZTViMGNlOTQ3NjUyYjIxOGE0YTE5ZGEzMWE1MWFhMzc1NDRmOGVlMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDk4ZTUzYzBiNmE3MjMzZmY5ZGVlMjg0M2VmM2JhNTY0MzMxMTA2N2FiMjlmZDI5NThmYTI5NmEwZjVlODQ0MyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGU1MzU0NWIwZDY2ZDEwNTQyYTMzNDU3MmY5YWJiNDgwMzVjNTI4MDc4NTZkMzZkNTY2MDc4ZGI4MjU1ZThkNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjRkYjRiMmU5OTI1ZDNiYjNmNjZhNzM1YzE1NGQyZTlmZjY2NGE0NWQyOWM4ZGZiMzNlYWRmMzg0ZmI5MmQzZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_53bc9c7807b6461cb0426178ebcf3b97",
+      "statement": "Even a nominal fixed-weight factor manager is implicitly timing, because as correlations fluctuate around their long-run means the effective weights and exposures drift non-trivially, and does so less informedly than an explicit forecasting approach.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L20-L20",
+          "version": "repo-lines-v1:sha256:7062e3ebc22a6603c8bd8a802f0737a41187d7dbe9a67f2b9eb4203395d9bb93:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzA2MmUzZWJjMjJhNjYwM2M4YmQ4YTgwMmYwNzM3YTQxMTg3ZDdkYmU5YTY3ZjJiOWViNDIwMzM5NWQ5YmI5MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzA2MmUzZWJjMjJhNjYwM2M4YmQ4YTgwMmYwNzM3YTQxMTg3ZDdkYmU5YTY3ZjJiOWViNDIwMzM5NWQ5YmI5MyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGFiNzM4MTk5OTlmMjI2NGM3NTY4NjdiZmJjNzFhNmUwNzA3ZWVkMjM2NzI4ZTEwMjEwOTJlMTY3YmM2ODRhNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzFhM2EzMTBjMmQ3ZTk0ODRjOTc3MTRhOGFmY2MxNTIzZDUzNjI5NzZiMWQzYmRmNDRhZDQyYWEwNTEyMmMyNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3564373173144a42af43993e5fd032a5",
+      "statement": "The optimal factor-timing portfolio equals the minimum-variance stochastic discount factor m_{t+1}=1-b_t'(R_{t+1}-E_t[R_{t+1}]), so estimating the SDF and solving the factor-timing problem are the same exercise.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L22-L38",
+          "version": "repo-lines-v1:sha256:504efcc6ffde3bad254f6547ae79968637f4f98604c404510bb9a70f7b587726:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ5MTdmYWQ5MjRhNjdjZmI3ZTExMGNlZjA2ZDgxODk1Yjg2OWYzOWQwZGNiZGNjMzY0MjNiYTgwNDQ0MDYyZTciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhhNzcwYjIxMDc2ODRjODMxYjg2YzlkMmI0ZjY5OTUzNDVmYjQ5NDkwY2UwYmZhNTAxMzk5ODE3NGY4N2EzZjYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImY0ZGI0YjJlOTkyNWQzYmIzZjY2YTczNWMxNTRkMmU5ZmY2NjRhNDVkMjljOGRmYjMzZWFkZjM4NGZiOTJkM2UiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjlkN2IyNTc0YWU1Nzk0NDA4ZjU0NjY3YjEzOGQwNTRjODVmMTU1MDIwNDY1YWJiZmZkM2MzMWMyZTBmNjRhYWEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_bdf55c4da4a44778a1db26a22498eeab",
+      "statement": "Assuming cross-sectional heterogeneity in risk prices is captured by K<<N observable characteristics (b_t = C_t*delta_t) yields a conditional factor model E_t[R_j]=beta_jt'*E_t[F] that produces time-varying risk premia even under homoskedasticity, driven entirely by the time-varying loadings delta_t.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L28-L36",
+          "version": "repo-lines-v1:sha256:708f23b246bca6556e35f987d968f4ef959c93c4e4c8e777f35dc23b63b59670:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTdkOGFhMTQ3YjdhZmM4ODhkZDZhYmJiYjRjNTAwNmY4Njk1ZDdlOTAwMDQ4YTFiNjkyYjE5YWE3NmNkZDQ0OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDEzMTQ4NzZjOGU5ODVlZmExNTMzNDFjOWEyNzJmMWQ0ZDk2NTU2ZGVmNWYzODg2NTIxNDdlNmUxZjYxZDcxMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGVkZDcxNjlhMGJmYzRmYTAwMmI4NWMyNmI3YjlmZGYxZGYwMjcxOTE3MTc3NjcxYmFmNGY3MWVmY2RhMzJlNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjVmMjNlNWUzMzIxZjcwYmJlZjQ1MDUyZDE3ZjU5ZTY2ODk2ZTE5MDRlY2YwZTIzZDk1ZDE2MGE1MGE4MmFhMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_db80ee4ea13c4b19a251d0fa57458975",
+      "statement": "Under a no-near-arbitrage bound on average conditional squared Sharpe ratios, small principal components cannot contribute meaningful predictability without implying implausibly high Sharpe ratios, so the SDF and optimal timing portfolio are approximated by a few dominant components — a regularization of the left-hand side (which factors are predictable) rather than the right-hand side (which variables predict).",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L48-L56",
+          "version": "repo-lines-v1:sha256:684474049ca6619b9a32453b17dd2dd4995d1e022bf03ec65d5a8ecae41916f9:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWI2YjBlNjQzNzEzMWMxM2E0NGY4YWQxZGVlNmE0ZDQ3MmUxYTQyMDk2NDczOGQxYjAzMTgwZDZjNjZhM2JlOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjE4ZWRiOWVlZDgxMmIwNzNlZmZmZWZmMGExNTdjYzVjODc5MjI1ZjBhNDBjYzIxYWM0MjNiOTNkNzY1OWRlNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGRmNGIyYzA5MDZhOTJmYTA5MDkwZmRlM2Y1YmFiN2ZjM2VmYTdhMmQ2YjJjYTViZTFiNGZjM2Q0Mzc5N2E2MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYmQ2MjIzY2RmYWQ4ZmZiYmFiODg3NDQzYjU0MGZmMzNlZWQ5MWRmZWZlNDYyMDc4OTNmMzBmNThjZGIyYTFlNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_41de3c20b7224991b39303612c8f77c0",
+      "statement": "On fifty CRSP-COMPUSTAT long-short anomaly portfolios (1974-2017) the first principal component explains 25.8% of variance and the first five nearly two-thirds.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L60-L60",
+          "version": "repo-lines-v1:sha256:7fdb1b3ec4716ec302fc6ff8ff98e4e4a8e5fa1ba6bbef53b6fc87501a095791:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2ZkYjFiM2VjNDcxNmVjMzAyZmM2ZmY4ZmY5OGU0ZTRhOGU1ZmExYmE2YmJlZjUzYjZmYzg3NTAxYTA5NTc5MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2ZkYjFiM2VjNDcxNmVjMzAyZmM2ZmY4ZmY5OGU0ZTRhOGU1ZmExYmE2YmJlZjUzYjZmYzg3NTAxYTA5NTc5MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmQ2MjIzY2RmYWQ4ZmZiYmFiODg3NDQzYjU0MGZmMzNlZWQ5MWRmZWZlNDYyMDc4OTNmMzBmNThjZGIyYTFlNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzAzNGIxN2VhNTI0ODg3MmYyNmJjZTBhMWVlNTNiYzI5ZGIyZjcxYzU3ZjI3YmIyN2ViZTlhM2Y4MzAyYWY5YSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1cc7e745cde742bfbf473a4cf8a6556d",
+      "statement": "Predicting each dominant component by its own net book-to-market ratio, PC1 and PC4 are strongly predictable (t-stats about 4.31 and 3.74, in- and out-of-sample R^2 about 4% and 3.5%, roughly four times the market's), while the market itself is insignificant (t = 1.24).",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L62-L62",
+          "version": "repo-lines-v1:sha256:de9a8808fd3ac23410219a089662a660197e93d0e9c53ab64ec86104e1fe6695:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGU5YTg4MDhmZDNhYzIzNDEwMjE5YTA4OTY2MmE2NjAxOTdlOTNkMGU5YzUzYWI2NGVjODYxMDRlMWZlNjY5NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGU5YTg4MDhmZDNhYzIzNDEwMjE5YTA4OTY2MmE2NjAxOTdlOTNkMGU5YzUzYWI2NGVjODYxMDRlMWZlNjY5NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWRiYTg3ZjkyMDQ3ZGEzZjYyNDliNjU4ZTAyYmNhZGEyMGRiMmQzOTFjMzdkYmUzYjY1NjQzMmMwMjIzZDZlMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWI3OTQ2ODlmZWFkZDM4OTA4ZTg0ZDMwNzUxYmM2ZTA0YTViNjFlNmY5YTMzMzZlYjQyMDE1MWUxMjM1NTdkNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7ef25d6a9911426b9eef86ba1715576b",
+      "statement": "Left-hand-side dimension reduction is decisive: predicting each anomaly by its own book-to-market yields only half the predictability, and running all 50 anomalies on all 50 valuations without regularization gives an out-of-sample R^2 of -134%, while factor momentum (past performance as predictor) fails out of sample.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L64-L64",
+          "version": "repo-lines-v1:sha256:7c214b8b636b8d7447b084e5cf1a211917306cbc52cefbf4c5b27b4238bbfe82:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2MyMTRiOGI2MzZiOGQ3NDQ3YjA4NGU1Y2YxYTIxMTkxNzMwNmNiYzUyY2VmYmY0YzViMjdiNDIzOGJiZmU4MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2MyMTRiOGI2MzZiOGQ3NDQ3YjA4NGU1Y2YxYTIxMTkxNzMwNmNiYzUyY2VmYmY0YzViMjdiNDIzOGJiZmU4MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzAzNGIxN2VhNTI0ODg3MmYyNmJjZTBhMWVlNTNiYzI5ZGIyZjcxYzU3ZjI3YmIyN2ViZTlhM2Y4MzAyYWY5YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiM2UzNWZlZWZiNGZkMGUyNTg1OTQ2OTYxMDliZDVjMDdkNjlhYjY1ZWU2ZWZiZDVmNzE3MmI3NzljOGU2Y2ZhYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b724b311fa65430cac163ef5687f57e3",
+      "statement": "Pure anomaly timing (zero weight on the market, zero average exposure to every factor) reaches a Sharpe ratio of 0.71 in-sample and 0.77 out-of-sample despite taking no static bets, and factor timing nearly doubles expected utility from 1.66 to 2.96 while adding market timing to factor investing adds only 0.03.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L70-L70",
+          "version": "repo-lines-v1:sha256:a26b1dfe8b6c105db1504656bd1cf13e180214fb983fcd0b2491eba8ece799da:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTI2YjFkZmU4YjZjMTA1ZGIxNTA0NjU2YmQxY2YxM2UxODAyMTRmYjk4M2ZjZDBiMjQ5MWViYThlY2U3OTlkYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTI2YjFkZmU4YjZjMTA1ZGIxNTA0NjU2YmQxY2YxM2UxODAyMTRmYjk4M2ZjZDBiMjQ5MWViYThlY2U3OTlkYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjQxZTFkMTIyOTI2NTAxMTZiZDM0ZjczODI0MDE4ODI3N2YwYzgwOGQ5YTExNDhmMDllODA0NzlkYzliYmY4NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmJlNDlhNWEzOTBlZTY1NDE5Y2RkMTdlZjFjMjcyNTU3ODVjZTExNTNjZTI4ZTRmN2JiYTkzNGFiYzhmMWFjMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_40f350b5813a4f05956f034e8da71a21",
+      "statement": "Including factor timing raises the SDF's average variance from 1.67 to 2.96, far above standard models (about 0.85 annualized in the long-run-risk model), and reducing rebalancing to annual does not hurt — pure-anomaly-timing Sharpe even rises to 0.79.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L72-L72",
+          "version": "repo-lines-v1:sha256:9f135509a5a97f631d0a3a8153270c4c4a0fe6d6705afbcfdda1051def60687c:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWYxMzU1MDlhNWE5N2Y2MzFkMGEzYTgxNTMyNzBjNGM0YTBmZTZkNjcwNWFmYmNmZGRhMTA1MWRlZjYwNjg3YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWYxMzU1MDlhNWE5N2Y2MzFkMGEzYTgxNTMyNzBjNGM0YTBmZTZkNjcwNWFmYmNmZGRhMTA1MWRlZjYwNjg3YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTg2NDg2MWU2ZTNjMTAwNmNlODc3YTlhY2RhZDVmYTNlOTJiOGQ3MTQ1Y2YzODcwYTYzZmZjMmRiMGNhM2QyMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2RmYzQ4NTBhZWNhMDM1ZjljYWUxMzg0M2QyMmU0YTFjYjRkMGEzYmMxZjAwYjU1MmM0MjEyNzQwOTExYzA3ZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_283998ddd80047b882ea52864e414d9a",
+      "statement": "Past performance splits into structural alpha (net of valuation change) and revaluation alpha (from rising multiples, as likely to reverse as persist), and relative valuation predicts subsequent five-year returns robustly and globally with a negative slope (correlations -0.19 for the value blend, -0.31 for equal-weighted smart beta).",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L76-L76",
+          "version": "repo-lines-v1:sha256:88c208a1d857a02fb4d2b2c90da40d8415dfe7f7b327a3b39dfc3411e63f60b3:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODhjMjA4YTFkODU3YTAyZmI0ZDJiMmM5MGRhNDBkODQxNWRmZTdmN2IzMjdhM2IzOWRmYzM0MTFlNjNmNjBiMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODhjMjA4YTFkODU3YTAyZmI0ZDJiMmM5MGRhNDBkODQxNWRmZTdmN2IzMjdhM2IzOWRmYzM0MTFlNjNmNjBiMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2RmYzQ4NTBhZWNhMDM1ZjljYWUxMzg0M2QyMmU0YTFjYjRkMGEzYmMxZjAwYjU1MmM0MjEyNzQwOTExYzA3ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTI3OWFiNWU1ZDczYzZmMWQ5YzEyMGZjNjhjMTEyNGYxNDY3ODgxYTY0ZDc3N2UxOGRiMjQ3YjEzZmJjMGEzYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9d734576598849c88ce595308eb1e6a0",
+      "statement": "A trend chaser buying the three best past performers destroys value (factor Sharpe collapses to 0.14) while a contrarian buying the three cheapest factors earns 3.3% with Sharpe 0.39, and in the US the three cheapest minus three most expensive factors earn 7.2% per year (t = 3.62) with a four-factor alpha of 7.7% not explained by value exposure.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L78-L78",
+          "version": "repo-lines-v1:sha256:52bb6f20b0482cbb7440289ae4246a9144d168a38194e99919c2eae85c3878da:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTJiYjZmMjBiMDQ4MmNiYjc0NDAyODlhZTQyNDZhOTE0NGQxNjhhMzgxOTRlOTk5MTljMmVhZTg1YzM4NzhkYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTJiYjZmMjBiMDQ4MmNiYjc0NDAyODlhZTQyNDZhOTE0NGQxNjhhMzgxOTRlOTk5MTljMmVhZTg1YzM4NzhkYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmU0M2RhNzA4NGIwZGU0YjU3MTA0MjhkYWQ5ZDdlYTI5Mjg5YTdmMWUzNjg1NDYxODNkYzNkZWIyZmMwZGNkZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDVkMGUyNjk5Y2U3YjM3MDdhYzdmMGVlMjJhNGFlZGMxMzBkNGFkODE1M2YyOGM2Y2IzMjdjNTgwNjQ2OTI2MiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_56ffa15c1ddb482d85041e6173cba023",
+      "statement": "Post-publication decay is documented: mean factor excess returns fall from 5.8% to 2.4% and about 22% of smart-beta alpha and over half of factor alpha evaporates, because academics discover factors when they are already expensive.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L80-L80",
+          "version": "repo-lines-v1:sha256:72b24e3cfd81357f9b55a01003e3a70d21542b6ada9362a3d1d592cef6085eac:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzJiMjRlM2NmZDgxMzU3ZjliNTVhMDEwMDNlM2E3MGQyMTU0MmI2YWRhOTM2MmEzZDFkNTkyY2VmNjA4NWVhYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzJiMjRlM2NmZDgxMzU3ZjliNTVhMDEwMDNlM2E3MGQyMTU0MmI2YWRhOTM2MmEzZDFkNTkyY2VmNjA4NWVhYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTI3OWFiNWU1ZDczYzZmMWQ5YzEyMGZjNjhjMTEyNGYxNDY3ODgxYTY0ZDc3N2UxOGRiMjQ3YjEzZmJjMGEzYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTQzOTJmYWNmN2JjM2EzZDliNTRjMzRjZmJkMjQ3NTk5Yzg1MmU1MjM0NWY2YjllNzUxNzljOTM4NzE0MzA4NyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_49a90a07f75842698bff72d6ea85d685",
+      "statement": "A factor's recent five-year performance is negatively correlated with its subsequent five-year performance: the trailing-return model has correlation -0.18 and the since-inception model -0.39 (t = -2.85), so selecting on past performance regardless of sample length points the wrong way.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L84-L86",
+          "version": "repo-lines-v1:sha256:e0a86caa50c5751275325f2ed3967de28d0daaaff2adee8bc9d4e41ef4da1328:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDIyN2E3MDJjZGIzMDVjNGYxNjY1MTM4ZGY1OWM4ZGFhMmY2NzFiYjI0ODkxNjA3YzI4YWRjOWEzMzM1MWMxZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2JhNDM4NWFiNTc5ZDkwZjNiNTliZTBmMjEzM2M3ODA3ZTg0OGRiOTMwZDQ3N2Q3YjE3OWI1NDZhMmM3YTc1ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTQzOTJmYWNmN2JjM2EzZDliNTRjMzRjZmJkMjQ3NTk5Yzg1MmU1MjM0NWY2YjllNzUxNzljOTM4NzE0MzA4NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzhlYTBlNzdjOTYzMDMyY2U0ZWNhNmJkNzBmNDM1NTQzMmYyZGMxNzM4NDA0YWFmMWNkZWRlNGY3MWVjYWU5NyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_112d286288cb4a188a805162b3f504aa",
+      "statement": "Only valuation-dependent forecast models have positive correlation with future performance: the clairvoyant look-ahead model reaches 0.54 and cuts error 39%, while the realistic shrunk no-look-ahead model reaches 0.36 and cuts error 25%, and the estimation error of return forecasts usually exceeds the alpha forecast itself.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L86-L88",
+          "version": "repo-lines-v1:sha256:da038c819b0eb342174efe3f188a9c4337be0b0269b9bf414765a96f6838c819:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2JhNDM4NWFiNTc5ZDkwZjNiNTliZTBmMjEzM2M3ODA3ZTg0OGRiOTMwZDQ3N2Q3YjE3OWI1NDZhMmM3YTc1ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGVmNDE4ZmFjNGJkMTFiMDllZmZkNjQ4ZGE3NmMwNWM4Zjc0ZGQ2OGIzNzQwYjI5YmEwMGU4YzFlM2UxNWI5OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODAwMGEyM2IzYzIyMGUzMzQ3NTMyN2E0NjY0ZDI0ZTVjMTk5M2Q3NTcwZGZlZTFhZDdiN2QxMzM3ZDUzZGY2YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhhZjdiNjVjOGNkYjRlY2Y0NTAxNGU0OWJhNGM0MDUwNTdmZGFjNThiNDUyNDE2NzkxMzIxNWFiOGVlODUwOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_03c8e4f538834b0ba46c0868d992c2ad",
+      "statement": "Timing signals span five categories (Financial Conditions, Economic Cycle, Sentiment, Valuation, Trend/Momentum) with different predictors mattering at different horizons — e.g. the term-spread/profitability correlation moves from -0.18 at one month to -0.46 at one year.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L92-L94",
+          "version": "repo-lines-v1:sha256:e2d5fd30dfe6ad0e9eef5da6e98443ec77fc134f28b3611f6f352d5792504077:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMGNhYjU0NDJhYWM3MDZlMThiNWZkNzlhMGNlODQxMGM4MWMyZmRmYTNjMzY3N2E4MWY3NWM5NWRmOGZiZmVkZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTkyMTg3M2VkZDc0ZWFhYzJmNTcyYTY2MzZlMGFlM2MyODI1ZDY0MWNmYjRjODg2YmIxNzk4YTMwMDY3Y2I1NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODhhZjdiNjVjOGNkYjRlY2Y0NTAxNGU0OWJhNGM0MDUwNTdmZGFjNThiNDUyNDE2NzkxMzIxNWFiOGVlODUwOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDBjMTc1NzVjMDQ2MWNhNTdiMWQ1YTNmMzY0MTAwOWU4NTEyNWUzMTQ0YTQxYjcwMGU5MzU4MTk1NGQzYWQxNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4220dfdfca5b41c0a47767c421cd53c7",
+      "statement": "Three traps threaten timing models: time-varying causal links (value's market beta changes sign, so a credit-spread widening precedes good value in 2000-2001 but bad in 2008-2009), hindsight cherry-picking/data mining (e.g. only 1 of 18 size predictors significant in 1972-1989 survives in 1990-2010), and data revisions to macro series like GDP and unemployment.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L96-L96",
+          "version": "repo-lines-v1:sha256:fe2ff9fb1886a44ad260f73ec7b995af1360f555904e8a0704a584716772bb39:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmUyZmY5ZmIxODg2YTQ0YWQyNjBmNzNlYzdiOTk1YWYxMzYwZjU1NTkwNGU4YTA3MDRhNTg0NzE2NzcyYmIzOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmUyZmY5ZmIxODg2YTQ0YWQyNjBmNzNlYzdiOTk1YWYxMzYwZjU1NTkwNGU4YTA3MDRhNTg0NzE2NzcyYmIzOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjNmMDEzOTBiMzViYWFlOTIwMTI2Y2ZkNjE5YTVkZjA3MjdiYjQzYjRkODgzZDdlYWU2N2YzMjYzZjZkZDJkYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjZmZGEwNzdjZDI5MzA4NjI0MGQ0NzMzZDY3ZTI0YjQyZGExMDgyMDY0NjJmZmRlYWJlMTA0ODI2YjMxYmZhZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0c836f9820b1450b872cb3d00ab2993b",
+      "statement": "Contrarian valuation timing is deceptively difficult: initial correlations between the value spread and subsequent factor returns look promising but the promise evaporates when realistic contrarian trading strategies are simulated, and timing is harder for factors than markets because of portfolio turnover.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L104-L104",
+          "version": "repo-lines-v1:sha256:c6f17e9e16c06d9bba98701d1ebfb47d8a694e2c6400e4e68e916ed04032bce7:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzZmMTdlOWUxNmMwNmQ5YmJhOTg3MDFkMWViZmI0N2Q4YTY5NGUyYzY0MDBlNGU2OGU5MTZlZDA0MDMyYmNlNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzZmMTdlOWUxNmMwNmQ5YmJhOTg3MDFkMWViZmI0N2Q4YTY5NGUyYzY0MDBlNGU2OGU5MTZlZDA0MDMyYmNlNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOWY0OTAyNzgzZjIzNzZhMjVhNWRiOTEwZDAxZmY5Zjc0NGM0NWZiM2E2MWEyYmI0MGE0YjU1NjBiYzZhZTE2MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODUyNGUzNWRkYzVkZjJjZGM0MGFmMmNkYjZjN2IyZDBkMmJlYzIwYjkyZmJiZTBmODBiNzIyMjBkZDRlMDVhMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c9a2b81c45884d379c49936997ec53f2",
+      "statement": "Value timing works better on single factors than on multi-style portfolios that already hold value, because value timing is highly correlated with the plain value factor — so if you want value, it is better to simply add a strategic value allocation.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L106-L106",
+          "version": "repo-lines-v1:sha256:198aa0b8f5300352225c9019853274a060cc13b65bf1651c4c51a9e81c832bf4:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTk4YWEwYjhmNTMwMDM1MjIyNWM5MDE5ODUzMjc0YTA2MGNjMTNiNjViZjE2NTFjNGM1MWE5ZTgxYzgzMmJmNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTk4YWEwYjhmNTMwMDM1MjIyNWM5MDE5ODUzMjc0YTA2MGNjMTNiNjViZjE2NTFjNGM1MWE5ZTgxYzgzMmJmNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzhlMDI1ODIyOWQ1NTc5NWNkY2M1NzE2NDZmNjU1NWJiMDQ0ZDQzM2YxMjQ2NDVjNDM2NWExZDM2NDYzMDcxMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNThlM2M5YzNlOGNjNDBjOTcyZGI1N2FjMGIyYTZiMzUzYmRmMDIzZjY3OWJjOTI3NzM3ODYwNDRhOWRiMTQ2NyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7481152a1a14484a9c662beccdf436bc",
+      "statement": "The balanced verdict rests on two shared conclusions: valuation is the one robust predictor (the only variable generating positive correlations and error reductions and surviving among the few strong long-horizon signals), and extrapolating past performance is dangerous, with factor momentum failing out of sample even in the disciplined SDF framework.",
+      "evidence": [
+        {
+          "resource": "repo://docs/27_factor_timing_and_factor_rotation.md#L108-L114",
+          "version": "repo-lines-v1:sha256:a7356b1cb9bdca36cc74ed37f039aeea64fd80376423debae23083da0ebd3ec3:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjcwNjE4YTczMjhhYTYxYWMyMzRmYTIyZDQ0OTFiZjllYWM1MzE3YjM5MGRhMGI4MTY3MzkyYTU1ZGZmYTc0ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjcxYWFiMDk0YWIzNjExNTg2MTQ0OTM4OGEzN2VjZDkxOGYyM2YwNzhiOWE2ODc2M2ZjYjA4NzE1NmZlODIxMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODUyNGUzNWRkYzVkZjJjZGM0MGFmMmNkYjZjN2IyZDBkMmJlYzIwYjkyZmJiZTBmODBiNzIyMjBkZDRlMDVhMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmI1NGE0ODA0MjZhNTBiMGM4MTZlNmFiZjIzNzEwZTk3OTQyZDY5ZjNkODM4Y2RiMzlkYzc2YWQwZmUyZDIyMiJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

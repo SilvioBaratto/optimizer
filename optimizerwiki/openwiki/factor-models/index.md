@@ -1,0 +1,4 @@
+# Files
+
+- [Factor Models](factor-models.md) - How linear factor structure reduces the O(N²) mean-variance input problem to O(N) or O(NK) by routing co-movement through a few common factors — Sharpe's diagonal/single-index model, K-factor covariance decomposition, OLS estimation, and the equilibrium (CAPM) and no-arbitrage (APT) return-beta relations, with empirical tests and regularization.
+- [Factor Timing and Factor Rotation](factor-timing-and-rotation.md) - Conditioning factor exposures on the state of the world — the result that the optimal factor-timing portfolio is the stochastic discount factor, the robust cross-sectional predictability of equity factors, and the skeptical counterpoint that this predictability is hard to monetize net of costs and estimation error, leaving relative valuation as the one robust signal.

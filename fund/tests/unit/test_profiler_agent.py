@@ -174,3 +174,45 @@ def test_esg_breach_finalizes_run_no_orphan_pending(db_session):
     steps = [d.step for d in run.decisions]
     assert "normalize_answers" in steps  # LLM audit trail preserved
     assert "suitability_breach" in steps  # breach recorded
+
+
+# --- build_profiler_agent: create_deep_agent kwargs (spy, no LLM) ------------
+
+
+def test_build_profiler_agent_wires_the_theory_backend_and_skill(tmp_path, monkeypatch):
+    """The profiler (step 0) must run under the theory-staged, virtual-mode backend
+    and load its ``mifid-profiling`` skill through it (Risk R1) — the same wiring the
+    PM gets — so the consultation protocol can reach ``optimizer-theory/``."""
+    import deepagents
+    from deepagents.backends import FilesystemBackend
+
+    from fund.agents import profiler as profiler_mod
+    from fund.agents.prompts import PROFILER_SYSTEM_PROMPT
+    from fund.agents.skills import skill_sources
+
+    captured: dict[str, object] = {}
+
+    def _spy(*args: object, **kwargs: object) -> str:
+        captured.update(kwargs)
+        return "PROFILER_AGENT"
+
+    monkeypatch.setattr(deepagents, "create_deep_agent", _spy)
+    # Avoid staging the real theory tree: a real virtual-mode backend at a temp dir
+    # keeps the virtual_mode assertion honest without touching fund/.runtime.
+    fake_backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
+    monkeypatch.setattr(profiler_mod, "build_backend", lambda config: fake_backend)
+
+    agent = profiler_mod.build_profiler_agent(
+        object(), [], checkpointer="CKPT", store="STORE"
+    )
+
+    assert agent == "PROFILER_AGENT"
+    assert captured["system_prompt"] == PROFILER_SYSTEM_PROMPT
+    # Root-relative profiler skill + the virtual-mode theory backend.
+    assert captured["skills"] == skill_sources("profiler")
+    assert captured["backend"] is fake_backend
+    assert captured["backend"].virtual_mode is True
+    # The always-on HITL save gate + persistence handles are still threaded through.
+    assert captured["interrupt_on"] == {"save_profile": True}
+    assert captured["checkpointer"] == "CKPT"
+    assert captured["store"] == "STORE"

@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:684310296577112f21c044a9bcb8a125482331821066ed2da6ac85c2f9cb2166",
+  "claims": [
+    {
+      "id": "claim_2c40b8a0762a4ad590980ce93a5f2b9b",
+      "statement": "Asset allocation (portfolio management) is an ordered decision process whose phases are: selecting asset classes, forming asset assumptions, strategic asset allocation, tactical asset allocation, short-term portfolio revision, long-term portfolio revision, and ex-post analysis.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L16-L24",
+          "version": "repo-lines-v1:sha256:6687cb78826902b2eb2991b6e4f9aaf6060fd15b2af0c4b83a1dedb704bbd32d:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTMzY2M5NGEzZmVkZDZlZDdiNjQzZWI2YzEyMzQwMjg4NjRjNjI0Y2I3YTM4MzBiYzhlZGE2Njc5MTliOWUzYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDIzMTdiODYxMWEwZTMzY2ExMTI3NTk5Y2VmNzlmMDVjMTU3NzBiMDhlMGJiN2MzMTI1MzFlZDc5NGFkYjQ1YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWNlYmNjMjBiN2VjNjMxODZlZGMzNzQyNzRkZDdiZmEwZDMxYzE3ODEyNTE4YjNjOTJlNzI0NTc3ZTc3MTQzMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDgwNzVhNmFmYjNiNjUyODJjYTMwNGU4Yzc2ZTI0MTc3ZTEwZGRhOGQzNjZmYTM0NDEzMmE1NjYyMzY1ZDY3MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3fb4bbf2436b4972a57b483f11ddabbe",
+      "statement": "Evaluating asset characteristics draws on three information categories (economic and financial fundamentals; intrinsic valuation elements; psychological and technical factors) to estimate three key quantities: return, risk, and dependence.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L26-L26",
+          "version": "repo-lines-v1:sha256:894ffa393e898da84c8cedebe7a81651fa51fca654ce7e4b70651142a8896af9:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODk0ZmZhMzkzZTg5OGRhODRjOGNlZGViZTdhODE2NTFmYTUxZmNhNjU0Y2U3ZTRiNzA2NTExNDJhODg5NmFmOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODk0ZmZhMzkzZTg5OGRhODRjOGNlZGViZTdhODE2NTFmYTUxZmNhNjU0Y2U3ZTRiNzA2NTExNDJhODg5NmFmOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmFjZjIyNmIwNjE4NzI1YTVkN2ViYTRiZjk2YmY3MGU2ZjcxOTcwYjU0MGU4MzUxOWM1YzIzZWMzNzA3ODI4NiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjJhNTk4ZmJlMGVlYmJjYjgxODM2OTM3ZDljMjRhNDEwYjRmN2FhMTBkMGI5YjhjNThlYTY0ODAxNzU1YjlmNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_40fe0539cad4483eb5fe901a18118867",
+      "statement": "Asset allocation is classified along three criteria: by information set (quantitative, qualitative, mixed), by market posture (conservative, moderate, aggressive), and by time horizon (strategic long-period, tactical short-period, mixed).",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L32-L32",
+          "version": "repo-lines-v1:sha256:569a789c504688ec717029eaa75717a0973c428b9aa11d7807c100c89e6c57d4:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTY5YTc4OWM1MDQ2ODhlYzcxNzAyOWVhYTc1NzE3YTA5NzNjNDI4YjlhYTExZDc4MDdjMTAwYzg5ZTZjNTdkNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTY5YTc4OWM1MDQ2ODhlYzcxNzAyOWVhYTc1NzE3YTA5NzNjNDI4YjlhYTExZDc4MDdjMTAwYzg5ZTZjNTdkNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTYzNjkwM2Y0MmUwNDJjN2E1OGU1NzFiZDdjZTU2N2YwOTgyY2Q0ZjAzZTY0ZDYyOWVkNzg5ZDgwMzY4YmY3NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjdlNzZmODNlZjZjM2Q5ZmExZTNiNGIyNmUzMmJhMWQ2NzY1MWE5NGFjMzk0MDE0NGVjMDdmZmEwZTRkMjAzYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_497ac24a594a4ce48ce74f55e1bcc2d9",
+      "statement": "A consumer faces two correlated economic decisions — the consumption-saving decision and the portfolio-selection decision — and the monograph's scope is the second: how to invest across assets to transfer wealth from the current period to the future, formalized in a single-period economy where the consumption-saving allocation has limited substantive impact.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L48-L50",
+          "version": "repo-lines-v1:sha256:944d9ec0d8d3a0317f213f72d90e47c8f54d04b596c3abd3f6202878434c2167:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWQzOTIwYTlmMjE0MTA0ZjRjNGZjODgyNjQ1YjYwZGNlYWQyZmI3NTg5ZGFhNDJjNDU5ODI5ZDIyYTBiMDZkOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjM0YzUzMjVmMDQyYTI4NGVjNTJhNTA1MWJkYTdhYjU4ZjQ2YTMyODcxYmMxMzhjMmM5OWNiYjA2OGIzYjQ2MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTJkN2UyNGMwODBjNzMzMTFhNjEwOGQ4YjU1YzQxMDFmNWNjYjY3ZjMyNWVhYzRkZWYzNWEwZTI1M2MyMGZmOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDBkNzMxYTQwMDRjOWFhMjIzNDY1NzI5YjkwZGI4NjA5NWE1OTAyNWQ2ODdkYTZmYzc5ODI4OWEzM2EzYTI3MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0354186751064a6ca5b2b8d703d7e8f2",
+      "statement": "A financial portfolio is defined, given wealth W and a set of N investments, as an N-vector x'=(x_1,...,x_N) where each x_i is the percentage of W invested in X_i, with sum_i x_i = 1; it is the technical instrument that transfers wealth from one period to the next.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L58-L66",
+          "version": "repo-lines-v1:sha256:60a633473358630cb419a8a72cdb9b12e0d03c735d6d0e4b53d5c3633777831d:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMGJmMTY0ZTZlZTM0OGU0OGUyOTRjNWMyZjJlODMzNjAzZjI3OTU2YjU4ZmM2N2Q4MTYyYTE5MmMxMjc4ZTMxYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWY2ZTA2Yzg2NDM5YmFiMjcwMTQ1NzhmZWIzNGQzZWJiMWU1NWMwMjI4NjdiNzBjM2M3ZDhhZmJkZmNmNzNjYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzJmNzQ0YTAzMDcxYThmNTNjMzgwMTkzOTBlNzhjZmIzYzIzNjYwOTg4YjViYjZkYzEzZGFkYmU0NDMyMmY5ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTc5YzRmY2YxMDEzYTFiYzdkNzFiZTYwZDdiN2Y2N2FkMDUwNTE1NDRjOTQ0OTRmZTIxY2U3MTg1M2NhM2FlNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1ef3b9869c164852b3d4b85dd214c943",
+      "statement": "Financial-mathematics convention uses the net percentage return R_% = (P_t + D - P_{t-dt})/P_{t-dt}, whose price dynamics can produce an inadmissible negative price, whereas mathematical-finance convention uses the net logarithmic return R_ln = ln((P_t + D)/P_{t-dt}), which keeps P_t > 0 for any return when the dividend is zero.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L70-L88",
+          "version": "repo-lines-v1:sha256:d3c40fab7aaaecd8ced0171b163ce49d75a966eaa5d4b51e88b643744669c816:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjVjNTlmODhhODI5M2Q2OTI0OTNkMTAzMDEzMjYyM2FjNzgyM2Y4YWVhNTlhMWRlMzc4YWRjZGZlMzk0MGI2NzAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjVhNTE4NzVlMmI2NDQyZGRmMzI5NmVjZDc2OTI3YTAyNGQxYjU3ZmJlMzVlZWFmYmEzOTEwZTAxMjc4ODNiOWMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijk3OWM0ZmNmMTAxM2ExYmM3ZDcxYmU2MGQ3YjdmNjdhZDA1MDUxNTQ0Yzk0NDk0ZmUyMWNlNzE4NTNjYTNhZTciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU1YmRiNzE2NmIzNDVlNWExMmE1ZjMwOTJiMDQ1YzRmYjQyZWUwMThlYzMzZDYyMDYwMmRmOGRiZTk1NmY2ZWEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_87122768e7f54bf18989b1bef325d35e",
+      "statement": "Percentage and logarithmic returns are asymptotically equivalent since R_ln = ln(1+R_%) = R_% - R_%^2/2 + ... for R_% in (-100%, 100%), a condition generally satisfied when the time step is small (daily, weekly, monthly).",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L90-L102",
+          "version": "repo-lines-v1:sha256:13f772f28b38bd197b302df81201477a103c679f2c2a44bdab75e1a51700849f:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg0ZDU0ZGZlMTJkMjBiZDJlNGRjNTMwMTJjZGU1YjQyYmZiN2I5MTUyYTBjZDllZTJlYmVkYzkzZGFkNzRlZTIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjRhNDYzNWQ3Zjg5N2M2MDVhYTg2NjRlOTQ4ZGIxMWQ2MDk3NjRhMmU3NWY0MmI3NDkyYjc3YTUyZTc3NjU4ZWMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImIxOGU1NWQ3ZTUxMzYzODg4YmVlOTEwMDcxMTc0ODdhNTMxNGQyODAxMjIzNjVmZWQxMWY2NDI0OGJhNmEyNjkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjM3MmNkOTRlZDQ3MDZlNTVhNTRjNTIwOTQ4N2E1NWNmMzJhMGYyMDZmNGQzNWJkY2E3OTFmOTQxNDIxYTExNzMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f298d4b8e3d7483a8a0554645ba8dbb1",
+      "statement": "Percentage returns are not additive over time while logarithmic returns are: over prices 100/125/100 the one-period percentage returns 25.00% and -20.00% sum to 5.00% (not the 0.00% two-period figure), while the log returns 22.31% and -22.31% sum to exactly 0.00%, matching the two-period log return.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L104-L112",
+          "version": "repo-lines-v1:sha256:d5ac47bced149f423e814de6c3a0aa40c11823df2ce52ee8fe816f36d4812a6d:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTZmYzY5ZjAwMmU2YzQ4ZDQ2ZGFkYzlkODM5Y2UxZWI5M2Y5YjIwMWM3NWEyMDczODcxZTU2YTEwNTExOTM4ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDQyODllMDdmYzRhZmE4MzAzODc3MzNjYzllNjdlZTMwZmVmYTY4ZGMxYmVkOTZkMzIyZTkwNGUyNzI3NDc0YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzdjMzIzYWMzYTAwMGI4NDI0NDI1OTZiZDFkOTQ5YWI2ODBiOTA4Mzk4YmJiODNhMGQ5NmFjZWUyNDU5MDFhZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTdlODNiYjg0ZTY5ZTUxN2Q0NjFhYWI3ZjY4NjAyMjkxYmJkYzZmZTY1YTc0MGFhZTg5ZmQ4YjI3MjllOTZiYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3f0b86567fc54d448fab797170b057c9",
+      "statement": "Portfolio selection under uncertainty unfolds in three steps: identify a tool to measure the uncertainty of an investment; define an efficiency criterion dividing all investments into a mutually exclusive efficient set and inefficient set; and specify an optimization approach to find the optimal choice among the efficient ones.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L116-L116",
+          "version": "repo-lines-v1:sha256:cf5de528541ca74f0414ecbabd7a8e4cc45ebd01bc6fffe514ef564d2e6aa39a:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2Y1ZGU1Mjg1NDFjYTc0ZjA0MTRlY2JhYmQ3YThlNGNjNDVlYmQwMWJjNmZmZmU1MTRlZjU2NGQyZTZhYTM5YSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2Y1ZGU1Mjg1NDFjYTc0ZjA0MTRlY2JhYmQ3YThlNGNjNDVlYmQwMWJjNmZmZmU1MTRlZjU2NGQyZTZhYTM5YSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTdlODNiYjg0ZTY5ZTUxN2Q0NjFhYWI3ZjY4NjAyMjkxYmJkYzZmZTY1YTc0MGFhZTg5ZmQ4YjI3MjllOTZiYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTE1NGJhN2VjNmE1MzI1NjUyMTA3ZWNjZjlhOWQ4MmZhZDU0OWIwYzI3NWFkMjNjNWNmNjc2ZTBhZDk0ZWY3YSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_22be631a77d34ba4b0117040b45e3cd7",
+      "statement": "The mean of the return is taken as the measure of profitability (any odd moment can serve as a reward measure) and the variance of the return as the measure of risk (any even moment can serve as a risk measure), following Markowitz's rule that expected return is desirable and return variance is undesirable; Markowitz's innovation measured portfolio risk via the joint multivariate distribution of all asset returns, with dependence captured by the pairwise Pearson linear correlation.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L116-L130",
+          "version": "repo-lines-v1:sha256:351d215affc4763c0975c01c56e77560c86186c4e174b17a0e9e55a833166714:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNmNWRlNTI4NTQxY2E3NGYwNDE0ZWNiYWJkN2E4ZTRjYzQ1ZWJkMDFiYzZmZmZlNTE0ZWY1NjRkMmU2YWEzOWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZkZTkyMTIyMGFhMDBmZTFlZWQzODcxNzZkNDNhZDFjMDhkYjJjZDk5MjRhMzk1OWZlNjRjZjkzOTBiMjJiM2MiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImE3ZTgzYmI4NGU2OWU1MTdkNDYxYWFiN2Y2ODYwMjI5MWJiZGM2ZmU2NWE3NDBhYWU4OWZkOGIyNzI5ZTk2YmMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU2NTRkYmU1YzIyY2IyNzczNzg3YzAyZDc1NDI4MDBhZTk5YmUzYmFmMDI3MjlhZDU4Nzc3NmVlNDkwODZhZjcifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_af5554c7842c4df7b713b7b33b5c45c1",
+      "statement": "Variance penalizes positive deviations from the mean (returns above expectation, which are not risky) exactly like negative ones because it squares all deviations; for the example return with mean 6.3% and variance (4.124318%)^2 = 17.01%^2, the semi-variance counting only negative deviations is (3.03323%)^2 = 9.2005%^2 and the squared mean absolute deviation is (3.97%)^2 = 15.76%^2, both smaller than the variance.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L142-L184",
+          "version": "repo-lines-v1:sha256:2827da86f0129b01010442f7066656c1a710251acf7b0dbfbf677327c5c7ee79:eyJzZWxlY3RlZExpbmVDb3VudCI6NDMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNmMWI3YjFlZTAyNmViYzMxMGY1MWRiM2NmZDNiZTMwNDA1NjhjODFkOGFlOTM4NDI3Mzg2ODI4YjAwODkwOWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY3M2ExZTZiZjhlMzM2MDI0M2ZkYWQ1ZTcxYjBiNDljZTE1NTM3MzhjZGRkMTdhZDAyYjU3YzM0OTMxNmU4NjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjA0OGNjOTNiNzEwMDViYmM0N2M4OTA1YzViYzMzODAyZDJjNzFhMDA0YWQ5MWVjNWNmZjZhZWRmMGRmYmQwNGIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQ5MmRjYTQxMWJjOTI4MTIzNWJlOWIwNjJmMmQwOTljZGRiMGE0NjkyY2M2MGFhY2I3ZDNiZDc2MDMyNDVhNDUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_b0148d1ebced450fb46933ce9d791e6c",
+      "statement": "Semi-variance as a risk measure was proposed by Markowitz because only downside risk matters to the investor, and the mean absolute deviation was adopted as a portfolio risk function by Konno and Yamazaki; nonetheless neither is a better risk measure than variance, which has analytical advantages other variability measures lack.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L168-L186",
+          "version": "repo-lines-v1:sha256:38eab397b87a515b5a5dd72648d4c6e9c0898229a616d0b34f00947bd12925dc:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjUxOGI0NGY0YjA3ODI5OGYxZGU5OGI2NmZiZWUxNWIyYzYwYjRjZGZiZjhhNzhjY2ZiODQzZTEzZTVjYjlmYzUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBkYTczMWFhZjQ5YTVjZWRmMmJkMmZhYjMyMTM5MjE2ZTIyYzIxODI2Yjk4NzgwNGUxZjIxNGNiN2RlMDI5MTYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjZjYmEzMGJkMzE0NTkwMjA3OWU5Mzc2YmI0YTRhMTMyZmIzM2RjNWFkY2UyMmFjOTI3MWQ0MTVlNjllZWRiNzQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhmOTc4NTRlNjdlYTZkODRhOTMzM2I2MThmYjkxMGI4MmNjMGQ0ZDJiM2YzNDY2MzY2MTcwYWIyZTYyNGNkNWYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_1381009a008740c5ad6b20317cf1eab9",
+      "statement": "Under the mean-variance dominance criterion X_1 dominates X_2 if E(X_1) >= E(X_2) and Var(X_1) <= Var(X_2) with at least one strict inequality; the criterion induces only a partial ordering, as shown by choices with (mean, variance) = (4,3), (2,7), (6,5) where X_1 and X_3 are incomparable because X_3 has both higher mean and higher variance.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L192-L202",
+          "version": "repo-lines-v1:sha256:5c7718ee19cb832a5129da40dc523ba84438603fe12a91d5202cd4525c0182a6:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjYxM2M5NmE1MTU3NTU5YjZjMDk4NGU4Y2ZmZjc3NzA0NjJiNzNkNzM4ZDU4NWYzOGNkMGZiZWQ4ZTJlZTM0MjYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI3MzU5NTY2NWRiOTk2ZThjM2UwOTRiMTYwMWFhNjFhMThmNDE2M2ZmYWI0YWQ3ZTIxMGFjZTQ0Yzk0YTM0ZWMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjgxYjdjNmU1YzQ4ZTliYmFmZGQzMTk4OTRiYWU5OWNiODkxMjdkNDRlYzQyMjVkN2I3NmJhNGJhMDU5NmFlNjYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQ2YmRlMTBkZTg4M2VlY2VlMjY2MmNhYzllYzViYTcxZjk0NzMyY2JiZTlmOTg3NjJkM2U1MTdkNmJjYzM5NGQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d7db2bab3bc34963b0253bf31927ba92",
+      "statement": "Fixing an expected-return level, the mean-variance criterion selects the minimum-variance choice among all choices with that mean; iterating over all possible expected-return levels constructs the mean-variance efficient set point by point, anticipating Markowitz's efficient frontier.",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L204-L208",
+          "version": "repo-lines-v1:sha256:7a49f04216d146652b838edbc4fd34638fc702ea5eb47c8b1724a47dc9e277f0:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWEwNjZjNGVhNTJiODYzZGRjMThkOGE0ZDI5MmE2ZDQ1ZWRkMGUyMTljNWIwM2VkZTc5NWVhYzc0NGQyZTIyOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWZiODJjNzE3OTcwYmVlYjQ0OTk4ZDc0OGI2OTIzYWQyZTUzMWFiOTQ1ZDI1ZDVmNzZiYzA1YTYxZjRhNzIxOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDNkMWNhY2M2NTllZjcyZjBkYWM5NWNiYzliM2VjMDdhYTBlYzgxNDAzNzRkY2Y3NWYzMGNhYWEzN2EwM2UyOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGNkN2I4YzdmZmY1ZDU5MzFkODdmMjkwMDc2ZmVlYTQxNzA1ZDY3YTA2ZWQzMjI1YTRmZjdjMGQzNWU1ZWM0NiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9f7550af7a194cb7bccd05105ad79d6d",
+      "statement": "The monograph is organized as a sequence of chapters beginning with choice under uncertainty (chapter 1), mean-variance selection (chapter 2), the limits of MPT and Black-Litterman (chapter 3), coherent risk measures (chapter 4), factor models (chapter 5), constraints and metaheuristics (chapter 6), and portfolio revision (chapter 7), extending through estimation, optimization, risk, regime, and signal topics up to the mapping from conditional forecasts to weights (chapter 30).",
+      "evidence": [
+        {
+          "resource": "repo://docs/00_introduction_and_scope.md#L212-L221",
+          "version": "repo-lines-v1:sha256:69d2cfa01558b1e7e3eed18e4deadb6eaa8d752eb409430333c534caeae4936c:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjEyYzA5ZDQwNzJjYjBjOTdiYzA1MTIyNTllN2U0YmUyYjMyZTBjOWUyYTU1Y2YyMzM4OTVlNTkwMThjYmRiOTIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjRjZDdiOGM3ZmZmNWQ1OTMxZDg3ZjI5MDA3NmZlZWE0MTcwNWQ2N2EwNmVkMzIyNWE0ZmY3YzBkMzVlNWVjNDYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImM1NzVjMGYzMjJhNTZmMWE2MjlhZTUxNTNiMjNkYzExOGY2N2U0ZThhZmQyYjIzZjY2MDQ2OGM0ODg0NTc4OTQifQ"
+        },
+        {
+          "resource": "repo://docs/theory.md#L14-L44",
+          "version": "repo-lines-v1:sha256:9d9746f10c9e1c4404a9408eb612bb9e43996db615c58fa054139b35206bb0f1:eyJzZWxlY3RlZExpbmVDb3VudCI6MzEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRlYWU2Y2Q4NjFiZWE2OWFjZWUwN2NiMjA1MTFkNzU0NThiM2E1ZDRiNzJhNGQ3NDRjNzRiMDg0Y2FjOGQ5ZDkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkxNGRjYmQwYzA5NTQ0ZjY1ZjA3OGM2MjRmMTVhNzlmZDU0YmMwY2VlMmMwYmEwZmQ4ZjEwNWMzYWQ5MTQ0NTAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjA1MTk5MTMyYTFjMzUzOTMyYmY0MTEzYjUzOWUxYzAzZjNhY2NkODhjYzE2YjI3Mzk1OTBhOTQ2NmJiZDg1YWEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

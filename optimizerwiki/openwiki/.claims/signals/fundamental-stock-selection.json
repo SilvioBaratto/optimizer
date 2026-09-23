@@ -1,0 +1,270 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:ad5dbafafc4dadff45f2f4b90d9c08fd17150b99d9542eb44d15ba34d59f09ca",
+  "claims": [
+    {
+      "id": "claim_954cad76ea65437ea03fa547fe8a9dca",
+      "statement": "Every US public company must produce four financial statements — the balance sheet, the income statement, the statement of cash flows, and the statement of stockholders' equity — published quarterly and annually as the instrument through which outsiders obtain information about the corporation.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L16-L16",
+          "version": "repo-lines-v1:sha256:bc4f9b5e59e2a47923b0f927788393c45cadb13650abe7130c1210483e9ce17c:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmM0ZjliNWU1OWUyYTQ3OTIzYjBmOTI3Nzg4MzkzYzQ1Y2FkYjEzNjUwYWJlNzEzMGMxMjEwNDgzZTljZTE3YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmM0ZjliNWU1OWUyYTQ3OTIzYjBmOTI3Nzg4MzkzYzQ1Y2FkYjEzNjUwYWJlNzEzMGMxMjEwNDgzZTljZTE3YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDEzMGNiZDFhMjRjMTlmYWM1YzQ0MzRiYWFkY2VjODdjMzUwYzI5YTUwNzg5NjkxMmY4NjVhYWMxNTJmNWI2YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2M0NDRiOGNlZDhkZmQ5NmUxMmZkYzlmZjNkNmRlZjBhY2M5NjQ0YjgxMWMzNjBlMjc2ZTEwNjBjMjRmN2QzNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7376a917750c475fbb840358015533c9",
+      "statement": "The balance sheet balances by construction under the accounting identity Assets = Liabilities + Stockholders' Equity, whose difference (assets minus liabilities) is the book value of equity, while the income statement's bottom line is net income with per-share expression EPS = Net Income / Shares Outstanding.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L18-L21",
+          "version": "repo-lines-v1:sha256:ba42f5e3b1031cacc4fca70b4a96cca87a5a142d43753a196dc6085531921321:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTBmMTM3ODFiOTdiY2UwNDkxZTc0NmZjMzM0NjY1ZTYwMTg4NzBiODk3ZGMzNGQxZGM1MDY5YzM5ZjRhMDZjNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzBhODZlNDgyOGFmZjJkMzYyM2ZlNmQ4NGU0MmZjM2RkMjJkMzFmNTRmYzliYjNjMDI1ZDNmMjgwNGVkNTM3OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmJmMzI2MGIyNDc0Y2I2Y2RkMTJiYzQyM2E3ODk5Yjg4ODc2OTQwZDdlYWYzNTJmMWUyYTQzOWVjZTlkZDJkZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiM2Q0MmU3MmY4MzJhMjUzNWU3OTI0ZDZiNTI4NTY4OWE4NDQ4M2E3MjBjMWY4ODkzNzFmNzlkY2EyZThiZGZmNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2eee52580efe463e9ebdfc593f140738",
+      "statement": "Because many assets are carried at historical cost and some valuable assets (employee expertise, reputation, customer/supplier relationships, future innovations, management quality) never appear on the balance sheet, book value of equity is an imprecise measure of true equity value, whereas the market value of equity = shares outstanding × market price per share depends on what investors expect assets to produce in the future.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L26-L28",
+          "version": "repo-lines-v1:sha256:2c01786b68a20224a471caa13e29c758ca5343b29b3f0dc1de98c6ae14f5e818:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjY2NjFiMzg0ZWM0NzYyNGU2OTNlOGRmNTU1MTlmMTAzYzk0ZjBlZTBkZjFiNTZkOWE0NDc4Mjc2NzgyYjNlZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTQyY2RkNDA1ZDk4ZWZiZDYwNmEyZjExNDEzM2Y2Y2Q1ZmY4MGE0OTU3NDhkMjY5ZjY1YWQ4NDZiNjY4ZjIwMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjMzMmJjM2ZhMzVhY2QxOGFkYmQzMjFmNzk3ZjIzY2Q4N2RjMTc0MjI0MTZkNmVlMmY5NzFmMDc0ZmVhNWRkYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYmUyNzU1N2I2MzAxMDQ1Njc2MTA2YWM0NGI1NzA3OTFiNTk1YzllMzI5NTJlMWRmZGM0NjBlMmFjMWY3YTBkMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4f613fdbfdb44701975a31d35f7f15bc",
+      "statement": "The quick ratio's numerator counts only cash and near-cash assets (short-term investments and receivables) excluding inventory because inventory may be illiquid, and the cash ratio (cash alone in the numerator) is the most stringent liquidity measure; these ratios consider only current assets, so a firm generating cash quickly can be liquid with modest ratios.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L38-L38",
+          "version": "repo-lines-v1:sha256:9df5c44eacb9b0d342b2c92ee76111e95c767a9975a22123a8f269c97d70452a:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWRmNWM0NGVhY2I5YjBkMzQyYjJjOTJlZTc2MTExZTk1Yzc2N2E5OTc1YTIyMTIzYThmMjY5Yzk3ZDcwNDUyYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWRmNWM0NGVhY2I5YjBkMzQyYjJjOTJlZTc2MTExZTk1Yzc2N2E5OTc1YTIyMTIzYThmMjY5Yzk3ZDcwNDUyYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDAxNDlhYjg5MzZhNGI1OTJkNzdhMjMxODdhMzlkZDFlNzkzYzhjMDdjYzBkZjA2Mzk0NzRlMWQ4Y2Y1MmE5ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjE2YmY5YTIxMDA3ZWY4ZjA1MjNmMWI4YjMzY2ExMmY2NDNlYjcxZDIzZGE2N2I1YTRkN2IyYWI0NjhiYzNmYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4238b88a38bc45629f567f3f881066c7",
+      "statement": "EBITDA = EBIT + Depreciation and Amortization is used as a measure of the cash generated from operations to pay interest, adding back depreciation and amortization which are deducted in EBIT despite not being cash outlays.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L44-L46",
+          "version": "repo-lines-v1:sha256:6e88f9548dcf9c0e96529a98eec8dd981bcf46cf08bfd0588e356d4b0259b3d0:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWI3NDEyY2RjOWVhM2YwODIxZTNiMzhhODJhMDcyMDA2ZmJiZjU2M2E4Yjc5MDYzMmEwNjExNmI1NWZkNzU5OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzQ2YWNlMzc3ODY2ZmZjMWFlY2QwYTFjMDY3ZTc2NDcxNDA3MmMyZTMxNjBhNTgxYjk5MjJkMDI5MjYzMmUxYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDU0YzMxYmI5NmViMWEyNjhlNWJjN2FiNzMwYzUzZGQ0YTgwNzdkZGQwMTRhM2VlMzZhMGQ3YWVkOWUzNGJhMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGVhY2EwNTY2ZTE4MGI0ZDYzZWFhMzI4OTEyYWE0NTE3OTZhNzk5NmQ0NjAxMTFlZGM2OGYwZjQ3MzJkZGIzOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_785be9f0e98a4265b2eecef10e11a3c4",
+      "statement": "Net debt = total debt − excess cash & short-term investments, so a firm with more cash than debt could immediately extinguish its debts and has no effective leverage; comparing debt with the market value of equity is more informative than with book equity, which is hard to interpret and can even be negative (making the debt-equity ratio meaningless).",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L48-L50",
+          "version": "repo-lines-v1:sha256:0873725a1ada3112c2a0967860d9f2dc2ecccb94da70cae1bc87e494dd3a1765:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWJlNDZkNjU4YzRhNDBmMjNhY2ZiMWEzZjAzODU3ZjkxMWI1OTQ1MjM2ZWU5ZDA5MmM5MzgzN2UyNTNlMmYwMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzM1ZTAxMWIyMTU1OTVkMDMwMWM0OWVmYTU5ZDJjZWIwODY2NWM1MTUwMzY4N2UwNmUzNmQ4ZDZlOGRjZjBlZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjYzYjk0NTdmNGM3NjJlZDhmNjQwYTVkNTUxMmM4NDQ1NDcwNzY4MjAwY2ViOTBiNTMzODNhNTdmNGZjYTg2MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTI1ZTAxMzgyZmUyMWI0OWNlZDk3NDkwNWY0YTAzMTNmOTM5MzM0Y2NhYzBkYjQ0YjU0N2EyMDViNmRhNTJkZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a55c685e1b5c4ca486cbfe71e97841f9",
+      "statement": "ROIC = EBIT(1 - tax rate) / (Book Value of Equity + Net Debt) measures the after-tax profit from the business alone and is the most useful of ROE, ROA and ROIC for assessing underlying performance; ROA = (Net Income + Interest Expense) / Book Value of Assets includes interest because assets are financed by both debt and equity, making it less leverage-sensitive than ROE.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L52-L54",
+          "version": "repo-lines-v1:sha256:25823d7d11b71e33ee8741ac08028ee6d0e77fcb2477a3ab66c36e17968141a2:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMGQ1MzgxNzU4Zjg4MjA5ODY0NTFiMGIwOThjMWNiZmQyNjA2OWE1NDBjZjM2MjA3MjU0ZjJiMWI4YWJjYjRkMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDMzNTUxNWQ0YWQ4OTIxYWVlYzc2YmQwZmE0NDIxMjU5NDQ5ZjRkZWQyZDQwYWMxYzM1NzNhODJmYTQ4MmFjNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzE2NGQzYzE1MzhhZjEwYTQwYzUwYjc5MGUyZWZmNDNlZmE4MGNiMjQwN2JlMzRkNjU2YTkyY2M2NDU2OTU3ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjI4OTUwNjAwOGQyZDI4ZGVmMzU1NDc3ZWE5ZDE3ZGNlN2U4NjUyYzA5OGI5YWMxYjdjMWRlZGI2MjRkMDgzNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e68c79988469402aa0e529f9d516e523",
+      "statement": "The DuPont Identity decomposes ROE as the product of net profit margin (Net Income/Sales), asset turnover (Sales/Total Assets), and equity multiplier (Total Assets/Book Value of Equity), so two firms with similar margins can have different ROE through different asset turnover and leverage.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L56-L58",
+          "version": "repo-lines-v1:sha256:fff8b49328095846310f672b12256dcdd193166a6fe4e209d02d9d8c01874431:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzQ1Y2RlNTk3ZDgxOGM5YjczOWE1ZDRlYTc1ZGZkODY0MzRkMGE1MTFkNmNiODE2ZThiOThmZGM0Y2YzYTc1OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzgxMjcwZGMyOGNhNWJhNWE0M2ZhYzE3ZWQwZThlNGE0NWM1ZjI1MGU5ZTg3NzNmZjUxMjgxMjEyN2U2ZDg2YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDU4Yjg0NmJmN2VjYzM0OTI3ZTMxMzhiMGNiYmEyN2NmODZkNTUyNzg2Mzk3ZmU3MGI0MGMwMjUyMjM5NjRiYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTlmNjExYTgzMTg1YTgxODFmNzg5ZDJmYTlhODI3OGNiYTNhNTM1Nzg4ZmI1MTdiOGM4OWRkNDY4ZGQ1NTlkYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d20d19d99e7148729323380bf70e758e",
+      "statement": "The market-to-book (price-to-book) ratio is Market Value of Equity / Book Value of Equity, exceeding one for most successful firms; analysts label low market-to-book firms value stocks and high market-to-book firms growth stocks.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L64-L66",
+          "version": "repo-lines-v1:sha256:155b509e79f569eddd71df024751ed77a92d6a436ae84b39a6a871f0bb2d7fdb:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2Y4ZDhiZWY4ZTgwNjljZWFjMWNjMjdkZGY4YWI2MjE2ZmIxZTA5MzdkOTFkNjczODliYmE2ZjIyODVlMWViZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTc0NGMwMmJhODc3OGU1MmE1NWVlZmY4NmQ5ZjI2YjE1Y2VlNzViZTc2ZTBiYWI4OTc5YmIwMzc2ZmMzYTUxMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjVkNDk0MDNiYTI2NzQxYTg5NzdkMmRjYWQ0YmUyOGNiZDk5MzM0NGMyZDQ5OTg5ZDEzYjBlOWM4MjQwNjkxYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjVkODY3N2ZkOTQ0MzQ1MGM3NjhhMjIxOTUzZjA5YmM0MzA2NDEzM2I4YTFhZTdmNWQ0NjdhNTQ3YmFmOWNhZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c44029c79e6648dc8542c98cbd3cad3a",
+      "statement": "The P/E ratio is grounded in the constant-growth dividend-discount model: from P_0 = Div_1/(r_E - g), dividing by expected earnings EPS_1 gives the forward P/E = (Dividend Payout Rate)/(r_E - g), so two stocks with equal payout, EPS growth and risk should have equal P/E, and the forward P/E (next twelve months) is preferred to the trailing P/E for valuation.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L68-L72",
+          "version": "repo-lines-v1:sha256:2ae18be65055b0284ea2138c0601e9ad726495be25971e5d5cbac1e8eb625f8c:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmEwMmI5OTk4YjUwMzM0ZWJhMWZiNzkxMWJkNmYwMTU4NDc1MGEzZWM2YmNkOTgwN2U3YTllNDQyNTVhMDZmNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzAzNDEyMGY5ZjE3M2Q5MDZmYjRiMTg4NWUzNjliODY1MjZkMzczZDRiMmI1MTRhNjlhZDY5MjM1YWRiOTg2ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWJhNTcwZWNlNzRjMzM3M2JhMzgzMTNjY2Q2MWRhODI4MmQ3MmI2ODExODhlMjNiNTJhN2FkYmJmMmRhZDgwOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTlmMjcxOGI5NDVjNzRhZjFiNGVlODRjYjJjZTVjMTg5YmRkZDU0ZTE1YzA2OGU4MWI4MTdlMWE3YWY0OTlmYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2b2f7723a6e8418fba3efd5b5f4e0045",
+      "statement": "Because the P/E uses equity value it is sensitive to leverage, so enterprise value = Market Value of Equity + Debt - Cash is used to value the underlying business, divided by a pre-interest measure (EV/EBIT, EV/EBITDA, EV/FCF); most practitioners favor EV/EBITDA because capital expenditures vary widely period to period, and it too is grounded in the constant-growth model V_0/EBITDA_1 = (FCF_1/EBITDA_1)/(r_wacc - g_FCF).",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L74-L78",
+          "version": "repo-lines-v1:sha256:56848811397fe29fc20370199fe35ca77caf6c77ff695feeaba75dcf3545da11:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDA5OTIzZmNhZTc5YWRhZTI2MWE2MDBhODM0NDc1OTlkZTdjMDEzNmI4NTBmNThlMmI1NjZiZDkwYmMxMWYyYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDg1YmRiZmYwZWFmNDNiYzYwMjM2NmQ3ZDYxNDgyODY0MjRkZDNjMWE2ZDA3NjNmZjVlYTE3OWMyOTMzYzlkZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGQ2MjVhZGM2MWU3NzMyMTViYTk1NGZiM2Q2ZDdjNmFlZDllZDJhN2Q1YjdkZTk5Y2JmZWZhZjBjNjIzOTA0MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmMyMWNhM2I2OTAxMDJhNGRlYjVkNWUyZjFiNjAzNTkzNjU5MTY0YTMwOWRhNTM4ODY2NDM3MDBhNWIwMGFlZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_927befecaa21443cb9d8407addb08381",
+      "statement": "A multiple's numerator and denominator must both refer to the whole firm or both to equity: price and capitalization (equity quantities) match EPS or net income, while revenues, operating income and EBITDA (whole-firm) match enterprise value; P/E and EBIT/EBITDA multiples are meaningless with negative earnings, in which case EV/sales is often used.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L80-L80",
+          "version": "repo-lines-v1:sha256:2a8e114d17cc5b8010d00370544f38aa07b18e0d23d4653f2599f9b1f5597a23:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMmE4ZTExNGQxN2NjNWI4MDEwZDAwMzcwNTQ0ZjM4YWEwN2IxOGUwZDIzZDQ2NTNmMjU5OWY5YjFmNTU5N2EyMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMmE4ZTExNGQxN2NjNWI4MDEwZDAwMzcwNTQ0ZjM4YWEwN2IxOGUwZDIzZDQ2NTNmMjU5OWY5YjFmNTU5N2EyMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2M0YWFjOWI5MmIzNjdmZmVkNTNkMWJlODdiODI5MjQyNjk0ZTFiNDJlMTEyMjAxNzllNGVmZmE0NzU0M2FjNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmMzNjk5ODMwY2ZkNTFjMTMwOWJjODg1NGEwYzE4YjAxMmQ2ZDY4MTU1NGI5YTRlZGJmNjQ0MmI2YTFiNTg2MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_39d9d4e60f154946ae52ac57352eb02e",
+      "statement": "The comparables method's weakness is that identical firms do not exist: comparing footwear firms, every multiple shows significant dispersion around the mean and even EV/EBITDA (the least variable) cannot give a precise value estimate, reflecting differences in expected growth, profitability, risk, and accounting conventions that the approach provides no clear way to adjust for except by narrowing the comparable set.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L86-L86",
+          "version": "repo-lines-v1:sha256:c80dc897358116e37447b8917b9c4ba891ba370e145ee13241ce0e68f4039ac4:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzgwZGM4OTczNTgxMTZlMzc0NDdiODkxN2I5YzRiYTg5MWJhMzcwZTE0NWVlMTMyNDFjZTBlNjhmNDAzOWFjNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzgwZGM4OTczNTgxMTZlMzc0NDdiODkxN2I5YzRiYTg5MWJhMzcwZTE0NWVlMTMyNDFjZTBlNjhmNDAzOWFjNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2YwNDIwODllMGM5NDg0ZmRmY2E3M2FkZDkxZTIwYWY2NDA0ZWZlNWYyNzIzMjY3YWY2MzgxMzYwMjllYzI2ZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYmY4YzM3ZjkyZjI4MmQ3MzBlYzA4ODU2OWExODdiOWVkZDdiMWNhNDY3OGEyNzdiODdiMGFlZmJjZGY2Y2E1NCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_92f26678e7b6446484ada85f7f542593",
+      "statement": "Multiples give only relative information and do not reveal whether an entire sector is overvalued — a problem acute during the late-1990s Internet boom when new multiples were invented to justify firms with no positive flows or earnings; multiples are a shortcut relative to discounted-cash-flow methods, trading DCF's firm-specific incorporation and sensitivity analysis for simplicity and grounding in actual prices.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L88-L90",
+          "version": "repo-lines-v1:sha256:7b90063cb252323065d664f136c2925ea7d7a90e3e0f7fe117070275265230a9:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTI3NTUzODllYmMzZjJjODQwMzA4YzNiNTQzOGFkMjVhZmM0NDQ5NmI5YjhmMWExZTNlOGMxYWRlYTU2M2ExNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjRhOWE1OTBiYmUwZjVmMTBkYzMxYjdlM2FlYzkxYjZhNDgwMmEyZmNlZDBmNTA5Y2JiNmFkNjRhMGJhZmVkMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWM4MzYzZDA0M2MzMjVlZjYxMDg4NzE1NDcxZDEwN2I3ZGRmZTM0MzcwYmM5NmM0ZTc0YTZjZDE2ZjBjNjk4MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjMwN2NjYmY5MzNiYTRjN2Y4Y2M3NjJhMjQzYzFmYWNiMjMyOWNlZmFkMjBiMzk2ZjM5YmQxNWYyMzY3MThmMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_739c092177bc477e8f5c188562223eda",
+      "statement": "Under the efficient markets hypothesis, competition among investors eliminates positive-NPV trading opportunities and securities are correctly priced on future flows given available information, holding best when information is public and easy to interpret (prices react almost instantly) and only gradually when information is private or hard to interpret.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L96-L96",
+          "version": "repo-lines-v1:sha256:9c1f008c31e39dc5005eb631670715623a40aad5dacd6c533b76ac42f1865505:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWMxZjAwOGMzMWUzOWRjNTAwNWViNjMxNjcwNzE1NjIzYTQwYWFkNWRhY2Q2YzUzM2I3NmFjNDJmMTg2NTUwNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWMxZjAwOGMzMWUzOWRjNTAwNWViNjMxNjcwNzE1NjIzYTQwYWFkNWRhY2Q2YzUzM2I3NmFjNDJmMTg2NTUwNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTAyM2RiNjEwOWE3ZmIyNTQxOTJjMWZkYzRiZjEwZjgyNjExNGE0ZDYxNzA0ZTcyNWYwMmMxMzhjZWE0NDQ1NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWMyOGE4ZDBiZjA2MTc3OGVjOWVjNTJmZDNkNTRlYTQ5OGI5NmFkNmE0ODM5Nzc1MDNhYzIyOGE4ZTkyNWJhMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_dc8a0c91455242de93cdca59c36d1583",
+      "statement": "An investor can find positive-NPV opportunities only given a barrier to free competition (expertise, access to information known to few, or lower transaction costs) whose source is hard to replicate; testing efficiency requires a theory of how risk determines expected returns, since the hypothesis in return terms says equivalent-risk securities have the same expected return and is incomplete until equivalent risk is defined.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L98-L98",
+          "version": "repo-lines-v1:sha256:8285aca5e79dd847f4a846f2baf7751418adf2894c9fcc5e00380dab30cca955:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODI4NWFjYTVlNzlkZDg0N2Y0YTg0NmYyYmFmNzc1MTQxOGFkZjI4OTRjOWZjYzVlMDAzODBkYWIzMGNjYTk1NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODI4NWFjYTVlNzlkZDg0N2Y0YTg0NmYyYmFmNzc1MTQxOGFkZjI4OTRjOWZjYzVlMDAzODBkYWIzMGNjYTk1NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDRkODNiMjIyMmM1NmI2N2M2NWFlNmRmZWM1Y2I2MWIwMTdmYzRmOTc1ZjQ3MjA5MWRiZTM3ZTU2MmM4OGRjZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGE0NmMzY2NiNDMzNTk1NzQzZjEwNDc5ZGM3OWNkYjUzNThkY2IxYTA0MmVjNzhlNmRlYWRiODQ3NjU4N2I1OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7f6f211cd02645caba9ef8411754d5df",
+      "statement": "A stock's alpha is alpha_s = E[R_s] - r_s with r_s = r_f + beta_s(E[R_Mkt] - r_f), and it is zero for all stocks when the market portfolio is efficient; the size and value effects are cross-sectional characteristics producing systematically non-zero alpha.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L102-L104",
+          "version": "repo-lines-v1:sha256:b5c64922ec655ead62038c8f66d2a1c8ad502fb8f3567ed63f03fae082d37606:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjRlNGM1NGYxN2RiMWI0NmY4YzJjZmI4MGY1MjgxYTJlODFiZDI2N2ZkMmMxNmE1MzhhMjM1M2EyMjI2NDVmYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMGUxNjAzOGI1NzE2OTFjYjg5NjNiOWUzYmZiZGNiN2Y1NGIxYTJiYTMzY2I1ZTI1MDI4NGNhYThkZmQxYjMwNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZGE0NmMzY2NiNDMzNTk1NzQzZjEwNDc5ZGM3OWNkYjUzNThkY2IxYTA0MmVjNzhlNmRlYWRiODQ3NjU4N2I1OSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmEyYmUzNmExNDJkNzEzODM2NThiNTkzMTZlZTgyNTk1YmY0NGU0NGYxNjNjMTQ0MTVjOGU4NzUzMzA2ZTc1MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c45f6336deed42f8a3d3eb6b3b47ea29",
+      "statement": "The size effect — low-capitalization stocks earning higher average returns even accounting for their higher beta — places almost all decile portfolios above the security market line (most markedly in the smallest deciles) and the joint test that all alphas are zero is rejected; it was first identified by Banz in 1981.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L106-L106",
+          "version": "repo-lines-v1:sha256:295f43277db5f9530a2377e30679da1f676892abb3ae075ed18921b17c1aba3a:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjk1ZjQzMjc3ZGI1Zjk1MzBhMjM3N2UzMDY3OWRhMWY2NzY4OTJhYmIzYWUwNzVlZDE4OTIxYjE3YzFhYmEzYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjk1ZjQzMjc3ZGI1Zjk1MzBhMjM3N2UzMDY3OWRhMWY2NzY4OTJhYmIzYWUwNzVlZDE4OTIxYjE3YzFhYmEzYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZGQzYmVjN2JiYjA1NjFhZDkxODlmMzVmYThhM2JhZDQzMjJkNGEzNzZhYjlkNzkxZDY5OWY1YmUzMGE4NTIwMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWFlNjRlOWIyNDRiNDE3Njk4OWMxNWZhMTZmMTQ1ZDE1ZDgyYTJjOTA4ZGMzYjkwNzFkNzkxY2E1NWJmZjZkNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2e526e4ff79843668ad6fd428300f137",
+      "statement": "The value effect uses the book-to-market ratio: value stocks (high book-to-market) tend to have positive alpha and growth stocks (low book-to-market) low or negative alpha, with the joint test of zero alphas rejected.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L108-L108",
+          "version": "repo-lines-v1:sha256:6d471bd48bbbe50084fac8aeec969fad24206082daa7dd1687909044114c2500:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmQ0NzFiZDQ4YmJiZTUwMDg0ZmFjOGFlZWM5NjlmYWQyNDIwNjA4MmRhYTdkZDE2ODc5MDkwNDQxMTRjMjUwMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNmQ0NzFiZDQ4YmJiZTUwMDg0ZmFjOGFlZWM5NjlmYWQyNDIwNjA4MmRhYTdkZDE2ODc5MDkwNDQxMTRjMjUwMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmEyYmUzNmExNDJkNzEzODM2NThiNTkzMTZlZTgyNTk1YmY0NGU0NGYxNjNjMTQ0MTVjOGU4NzUzMzA2ZTc1MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDExMjRhOWZjYTk5NzU5OGQ0MzYzM2M5ODdjMmI5OWYyZWMyNzA4YzNkYzhiN2FmZDFkOTcxODc5MTUyN2ExMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1bd4870dd1b94a50865bbf3ce33ead73",
+      "statement": "Berk's theoretical explanation links capitalization to expected returns: as long as beta is imperfect (estimation error or an inefficient market portfolio) the size effect should appear, because offering a higher expected return requires buying the same dividend stream at a lower price (lower cap, higher book-to-market); e.g. two firms with a $1M perpetual dividend at costs of capital 14% and 10% have values $7.143M and $10M, and assigning both a CAPM required return of 12% gives alphas of +2% and -2%, so the smaller-cap firm has the higher alpha.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L110-L110",
+          "version": "repo-lines-v1:sha256:90627801acc0c101d90043f17391d75799ec54bd53b206e441d19c2634883bdd:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTA2Mjc4MDFhY2MwYzEwMWQ5MDA0M2YxNzM5MWQ3NTc5OWVjNTRiZDUzYjIwNmU0NDFkMTljMjYzNDg4M2JkZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTA2Mjc4MDFhY2MwYzEwMWQ5MDA0M2YxNzM5MWQ3NTc5OWVjNTRiZDUzYjIwNmU0NDFkMTljMjYzNDg4M2JkZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNWFlNjRlOWIyNDRiNDE3Njk4OWMxNWZhMTZmMTQ1ZDE1ZDgyYTJjOTA4ZGMzYjkwNzFkNzkxY2E1NWJmZjZkNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTdjOGJhNWY3YjZmMGNjYzc5YjRkMzEyMjk5Y2EyZWE4NDZmMmE1OWUyYzBlZjU1ODEzN2UzMDA1OTdhNzIyZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f4fcbeafa270419ba21e82013f83a74f",
+      "statement": "Momentum orders stocks by prior 6-12 month returns: the best stocks earn positive alpha over the next 3-12 months, and a strategy long high past-return and short low past-return stocks would have produced an alpha above 12% per year over 1965-1989.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L112-L112",
+          "version": "repo-lines-v1:sha256:2c87da273d749da3801678cf15b9ec44b07a014f180f42c0e2f8513c17062e80:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMmM4N2RhMjczZDc0OWRhMzgwMTY3OGNmMTViOWVjNDRiMDdhMDE0ZjE4MGY0MmMwZTJmODUxM2MxNzA2MmU4MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMmM4N2RhMjczZDc0OWRhMzgwMTY3OGNmMTViOWVjNDRiMDdhMDE0ZjE4MGY0MmMwZTJmODUxM2MxNzA2MmU4MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDExMjRhOWZjYTk5NzU5OGQ0MzYzM2M5ODdjMmI5OWYyZWMyNzA4YzNkYzhiN2FmZDFkOTcxODc5MTUyN2ExMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjQ4MzA0N2Q2ZDAwMzYxZTYwNGNhNmQzNTZjMmEwOGY2M2ZmM2IxOWJkYmVlOGQ2NzhjYmNlZjRjZjUzZGJjYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2e0d0b74b8894ea8b1cb801f0d4b6798",
+      "statement": "The data-snooping bias warns that searching over many characteristics can by chance find one correlated with average-return estimation error; the existence of positive-alpha strategies implies either investors systematically ignore positive-NPV opportunities (implausible, since the strategies are long known and widely followed) or the market portfolio is not efficient and beta does not adequately measure systematic risk (possible reasons: proxy error, behavioral biases, non-tradable risks such as human capital).",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L114-L114",
+          "version": "repo-lines-v1:sha256:af2910e569506d05b6eff8189f76e973691b84f986ba19560fc541070951d747:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYWYyOTEwZTU2OTUwNmQwNWI2ZWZmODE4OWY3NmU5NzM2OTFiODRmOTg2YmExOTU2MGZjNTQxMDcwOTUxZDc0NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYWYyOTEwZTU2OTUwNmQwNWI2ZWZmODE4OWY3NmU5NzM2OTFiODRmOTg2YmExOTU2MGZjNTQxMDcwOTUxZDc0NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTdjOGJhNWY3YjZmMGNjYzc5YjRkMzEyMjk5Y2EyZWE4NDZmMmE1OWUyYzBlZjU1ODEzN2UzMDA1OTdhNzIyZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGVlMGQwMGU1YzA1NWNiMzU3YjFmZTBlMDQxYjc3ZmIxMjI2YWJjYzg2NTNkODU0Y2MwYWIxYWYwNjdlNzc4YiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_73169615740f468ebda8069590c7f693",
+      "statement": "The efficient portfolio need not be identified directly: it is well diversified and constructible from other well-diversified portfolios, so a collection of well-diversified factor portfolios suffices to measure risk, giving with N factors E[R_s] = r_f + sum beta_s^{Fn}(E[R_{Fn}] - r_f), a single-factor model with one efficient portfolio and a multifactor model (Arbitrage Pricing Theory) with several.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L118-L122",
+          "version": "repo-lines-v1:sha256:410948ea8f88dbae2071258d14bea6711e5692cde5757eb5d6e45f19d3b94fe8:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2ZhODFhOWVkNmNkMjZiZmFkYmM3MzUyYWEyYzZiYTk1NzBiMmYzYzMxNzY3Njg5MTZmYWRhZmU2ZDdlNWIxNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWJhZWY4YjczNGJkMjMzZWYxNjg4MDU5OWI1ZDQ3MjlkZTY5NDI0YTgyNTA0MGExYjQyY2UxYWQyMGRiODQ0OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGVlMGQwMGU1YzA1NWNiMzU3YjFmZTBlMDQxYjc3ZmIxMjI2YWJjYzg2NTNkODU0Y2MwYWIxYWYwNjdlNzc4YiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzczZDA1NGFmMmQ5YjdlZjhiNDEzMDJhMWIzOWE0MDg4MzQ2MGIzZmEyZDRiMDAxNDAxZTA0NmEwZGY2ZjEzYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_653c2b488d65440abf03f906f18d5237",
+      "statement": "A self-financing portfolio has weights summing to zero rather than one (e.g. borrowing at r_f to invest in a factor portfolio, or going long and short equal market values); requiring all factor portfolios to be self-financing rewrites the model as E[R_s] = r_f + sum beta_s^{Fn} E[R_{Fn}], computing the cost of capital without identifying the efficient portfolio.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L124-L126",
+          "version": "repo-lines-v1:sha256:9839562561559275e93405b323d70898a5752dab3dd7d39b1da5be1e742a529a:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDY2ZDdlNmU0ZTY5MzE2ODE0MTM3ZTc3YjIwNDRmZjFkNGU3M2IzMjc0ZGM3Y2UzOTQ0MDA0MWE4NTIzZDc0ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjk0ZmU0MWZhMWRiMTUxYmMyNTRhN2RiM2JmOWFiOWE3ZGU2NmRjNjFhMTAzZGI3Mzk0YjRjZTg3MTM0MmY0OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzBlNGRiZDc1OTJhYmQ2MTc0Nzg0MTk2NDEwZmQ0YTRjNTI4YzBmZGZjZWEzM2FkNTc1NjU4NDNlMWYwZDk5OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTk5YTI5YTM5YmNjZjE0NWRhMjhjMzVkNDlkYzZjZTIxOGRjZWZkZTkxMDBiYjg3M2I2NmZkNzM5MzMxMzY1NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d922c708a5e7471781b6308b86c6874f",
+      "statement": "The style factor portfolios are SMB (long S below and short B above the NYSE-median market equity), HML (long H above the 70th and short L below the 30th book-to-market percentile, i.e. long value short growth), and PR1YR (long the best 30% and short the worst 30% by prior-year return).",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L128-L132",
+          "version": "repo-lines-v1:sha256:c34d09cb6ea15990abde6ac6a52633af0ea692805288f61d9ca9d6ce134981f3:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjRjYmQ2MjI3NzY3MzBmYTViNDI0MDY1ZTBiZTYxMWRjNDY0MDA5NTMxNDllY2IwZDVlYjgxMWJiODE4MWVjZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjFhYWM3NWM5Y2IzZWMwYTU1MTI2YjU4NmY4NzI4OWQzMWU3MzYxOGYzOTkyNDhkZDBhZTYxOTIzODEyYzkwYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmMxMGI4ZTJiYjNjYzYzYTVkOGM1ZDAxZGU0NjJjZTg5YTIxODhmNDUwZTUwNDA1OWRhZDVkOGI4MmY0NDA4MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmE2ZjRiM2U5NTkwOGVjMDY1NDU5MmIxZDI4M2VmZDg0NGY4MTRjOGM4MTk3MGI2YzI2MzdkYTMwYzgxNTJjYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_225493cac1df48b9b274c58c2a0710db",
+      "statement": "The Fama-French-Carhart specification E[R_s] = r_f + beta^{Mkt}(E[R_Mkt]-r_f) + beta^{SMB}E[R_SMB] + beta^{HML}E[R_HML] + beta^{PR1YR}E[R_PR1YR] uses the four portfolios (market excess, SMB, HML, PR1YR); because their returns are very volatile over eighty years of data are used to estimate expected returns which remain imprecise, and its one clear improvement on the CAPM is that funds with high past returns show no evidence of positive future FFC alpha.",
+      "evidence": [
+        {
+          "resource": "repo://docs/09_security_selection_on_fundamentals.md#L134-L138",
+          "version": "repo-lines-v1:sha256:b4cef0a9502b6faf20181256000378d1a28bb5b76048dd2b395fcf51889e76cf:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDNiNjc4MDNiNDM3YzE4YWE5Y2JiMDIxZmIxOTk2ZTEwYTI3YTQyMGExZDdkYjFlODk0YTkyODdjMzFlZjYzMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmNjZTNmYWM3YTdjN2Q1ZTZiZjQ4NDgwNzIyNjgzOGRiNDM3MzE3YTBmNmI2MWZhM2NmYzEyODQyMTIwNmI4NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGIxMDUwY2Y2OTJkZmE1ODRmMDZhMjIxOTliOGQ4ODg1ZTg3MDI3YjgzMzk0NWRkNjAyYjZiNjM2YzRiNDgxMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:8c88091832c18aee408cace3ddecd1357b35d5f29ee431448fa11eec5d1bd1fe",
+  "claims": [
+    {
+      "id": "claim_3e1f9d796490409fb8568fd01a1eeeee",
+      "statement": "Because the sample mean return has standard error SD/√T, historical expected returns are estimated too imprecisely to use raw: the S&P 500 1926–2014 (mean 12.0%, vol 20.1%, 89 years) yields a 95% interval of roughly 7.7%–16.3%, and on 2002–2014 alone the interval spans negative to positive, failing to establish even the sign.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L28-L36",
+          "version": "repo-lines-v1:sha256:d5a368cbdf00fe159c397a50fc5721859d153e12ab768551c6b3737174b43f24:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOGZlZTQwNmMyMzYwMGIwYzllMjA4NGIzMjE0Yjc2ZTQzMGNmMjY5MGVkMDhlN2U3ZTE5YjE1MGNlNDQ1Y2RlYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2MyM2U4YzM3YWJlM2Y2Y2Y3OTA2NTRiOTA5ZWQ5ZWEyNzg1YzQ2ZWZjZDYyNjQ0Y2FhMGU1YWExYmMyZGE3ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzg5YWQ0MzI3OGYzYTY4MTk0ZWFjY2E1ZTRhYTAwYzg5OTJkYmMwNjJkNzBiYWQ3MWMyZTI0NWJjOGQ5MTAzNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWM3YjgxOWFlNjAwNWM3MjhjMTY5NDI5ZThlNTI3YjMyNmIxMmFiZWJhYzRlYzkyYzUyOGM2MDg0MjU5NjQ5NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_99445d42e8e74bde9c5b5e1098392242",
+      "statement": "The required sample size for useful precision is T=(2σ/h)², so at σ=20.1% a ±2% half-width needs about 404 years and a ±1% half-width about 1616 years — explaining why the realized mean is not a reliable estimate of expected return.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L40-L40",
+          "version": "repo-lines-v1:sha256:5d8e26b1338fc4b3e7d4a24d498a66869ce5fc687f02043870614afd08b68da1:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNWQ4ZTI2YjEzMzhmYzRiM2U3ZDRhMjRkNDk4YTY2ODY5Y2U1ZmM2ODdmMDIwNDM4NzA2MTRhZmQwOGI2OGRhMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNWQ4ZTI2YjEzMzhmYzRiM2U3ZDRhMjRkNDk4YTY2ODY5Y2U1ZmM2ODdmMDIwNDM4NzA2MTRhZmQwOGI2OGRhMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWM3YjgxOWFlNjAwNWM3MjhjMTY5NDI5ZThlNTI3YjMyNmIxMmFiZWJhYzRlYzkyYzUyOGM2MDg0MjU5NjQ5NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTA4ZTQzZmM5ZWYxNzliNTdjYmIyNzgzMmI5MTgyN2JhZmQxZDc1YzUxZWZjYjFlMWZmNmE3MDlmZTcxYzdmYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7292a113b8844f0fa4ca01af4333b01b",
+      "statement": "Mean-variance optimization amplifies input imprecision because it inverts the covariance matrix: when the number of assets p exceeds the sample size n the sample covariance is not invertible, and when p/n is non-negligibly below one it is ill-conditioned so inversion drastically amplifies estimation error.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L44-L46",
+          "version": "repo-lines-v1:sha256:246f3cf74c8b89b180918ffa84e1a1a2fc88b3db80759114e0d8715df0835256:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjNlOWRkMWU2YzkyYmU0ODk0ZTAwNjY5MDFjZjM2ZDMzZDIwYzVkMzlhOGFlZGU0NTQ2MjZlODJkZTRlOWI0ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGY4ZGMzOGVmMzM0MTcwMmU1MzY1Zjc5ZDFmMjI4ZjNiNzE4YzZiZjA5ZjY2MGFmOGZiMDQ0NWYyOWI4ZGRhNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTA4ZTQzZmM5ZWYxNzliNTdjYmIyNzgzMmI5MTgyN2JhZmQxZDc1YzUxZWZjYjFlMWZmNmE3MDlmZTcxYzdmYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDkyNGY1YzA3ZjdjNmQ1ODlmYmI4ZjAzZDFmYzcxNWMzYzYzYTdmNTZiMjMzYzZkN2Q0Y2Q0OTI3NzAyMTkzYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b4545a35ceae415dbadd748d40462db9",
+      "statement": "A beta can be inferred reasonably accurately from as little as two years of data, whereas the historical mean return stays unreliable, motivating routing expected-return estimation through the risk–return relation rather than estimating single-stock means directly.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L48-L48",
+          "version": "repo-lines-v1:sha256:edbf31e0cf0cabec23c9396e88fd4a435e1c19e1e9f120a2d0d7e898a3a5884b:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWRiZjMxZTBjZjBjYWJlYzIzYzkzOTZlODhmZDRhNDM1ZTFjMTllMWU5ZjEyMGEyZDBkN2U4OThhM2E1ODg0YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWRiZjMxZTBjZjBjYWJlYzIzYzkzOTZlODhmZDRhNDM1ZTFjMTllMWU5ZjEyMGEyZDBkN2U4OThhM2E1ODg0YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODMzMTMxYmFhMzYxYzI0YzIwMDk3NWZiOGMyNjA4OWVmZmZjZDBmMGY5YWUwYWI5MjZiY2UzYTU1ZjQ0NGU0NiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjcxZjRhZTViMTY5YzM5YWE3M2QwZTJlNjgzMDY5ZWNjZmYxM2Y5OGUyOTAyNDk4NTlhZWI2OTFiNjFlYWIyOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3a3103724dbc4cb0bf5e963644d4c2b9",
+      "statement": "Winsorization replaces an extreme observation with the value of its surviving neighbor rather than discarding it, grounded in censored-normal-sample estimation; Dixon's tabulated efficiencies never fall below 0.962 for the mean, so it costs negligible efficiency when data are truly normal.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L54-L64",
+          "version": "repo-lines-v1:sha256:ba8f92a32126d4b5930e95d6300ecdc92214a0d8bcaeb3ad88e47af395184eee:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk0ZTA1NDIzZmE4MDA1NDRjNmUzZGMzNjc4NWI4ZDA4ZWEzMmJhOWNjY2M2ZGFlNTUwZTc5Nzk1NzdiZjE5NzAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMzOTNiZWE3ZmM4YmQ2ZmFmMjMwZTk1ZTRiN2VmNTIwMzg5NmVmNzdmMDY1NzJhODMzNjlkOTM1MWI1ODE0MjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjZiZjUyMmUxNmM3MjE5MTQ3ZDkxOGFlMGZjNDM1MGQzYjk3YTBmMmJlZGJmZGY1MGE3YzIyZjEzODVhNTBiMjUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijk4ZjUzNjZhYTE5ZTU3YzA0NTc1OGQxNTUxZjFhY2Y4NWQzODY1NzA1MmE5YWZjMjA4ZGMxMzhiZTVhNTkyMzgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_de691867d831474d91d1b4dd45326808",
+      "statement": "Shrinkage is justified by the bias–variance decomposition MSE = variance + squared bias: a structured target is all bias/no variance and the raw sample estimate is all variance/no bias, so their optimal combination trades one error type against the other, following the James–Stein idea.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L68-L74",
+          "version": "repo-lines-v1:sha256:4515a787175e1f70967a063d4797dd156fa99fe0a72cf6a41d8f2066964d7352:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTY3YzcyY2NmZGM0OGZmMDA0ZTJkMjAwMzE4NGIwNzhlMzY1MmQyYTY3ZGRjMzQ5ZTE5MWRmNzQ4MmRiZmQwMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzJmMzc4ZDU5NzI2MTYzY2JjYzYyNDQ5YWU4YmJhZjkyYTNkNjBjY2JlYThjZDM5ODBiZmYwMDdiMjRlYjI5OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOThmNTM2NmFhMTllNTdjMDQ1NzU4ZDE1NTFmMWFjZjg1ZDM4NjU3MDUyYTlhZmMyMDhkYzEzOGJlNWE1OTIzOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjc2ZDEzMDRkNzI4Y2UwYWVkMjBjOTliMWY0NGY2OTkzMmNhOThiOTI1MTg4N2VjMGExN2E2ZjAzOTgzNjc5MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f9b6494c4be3430ea3a1cd41e582f00b",
+      "statement": "The precision-weighted Bayesian combination b'' = (b'/s_b'² + b/s_b²)/(1/s_b'² + 1/s_b²) pulls a raw estimate toward a prior target in proportion to the raw estimate's imprecision, with the combined precision equal to the sum of the two precisions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L76-L80",
+          "version": "repo-lines-v1:sha256:4959b695d793d373e5819520c40333b009a3b7ac901223e4072afcf8b5f0a371:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjA0NGRlMmNhMTRkZDRiZWM3OTJjYjZjMGRiOWFjNGE3MzBjZjA3M2YxMWU4OTMzYmY1NWZjZDYyZTZiMmQ2NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTI1NWQ2OTBmNTM0MTdiZDI5NWJiMjJkNTdjNWNjY2E4ZmQ4OGEyMmU5ZTA2N2M3ZjgwZDA5YzVlM2RkYWYwOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOGU1ODQ1MWRkYTkxNDhkMDMxODI4ZDdiOWFjN2I5NWQxZTliZTQ3MTY1Y2VkMjUxMzg0ZjY0MmRkZGM3MDA3YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjFhMDNjNTMwZGIxN2MzMzY0ZjFlNzA5ODYyNWRiOGY1NWViNTI2ODBhZjYwYjc1NWU4MzM1OGMzZWJjOTRlYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9616281d9d2749808fb87465fad49b61",
+      "statement": "Vasicek's Bayesian beta shrinkage uses the cross-sectional distribution of betas (concentrated near 1.0) as prior, giving a posterior mean that adjusts the OLS beta toward the prior in proportion to its precision and remains consistent as the sampling variance goes to zero.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L90-L96",
+          "version": "repo-lines-v1:sha256:158eeda2f66f7410989a22e405988b43fb8c223b55b591b60b9667990625e6ed:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOWI1NzhjYjI4ZmFhMjFkMGVlNzc0YWZjNDRlMzNhYzcwMzRkZTQwOWRhZWM4NDI0ZDEwNjhmZmQ2OTM4ZThiNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2E3ZDMxNjY4YTQzMmJkN2JjMDg1MTFlZmZiYzEyNmMwOTE2YmQ2ZDZmMGZjNTY4OTBlNGEzM2IxMDMyMTFkOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDU2ZGY0NDliMWRjMjA3MmQwNGRjOGYzZGM4ZmY3NmEyMWUzYzljNzVkOTYzMWE0NWYwNjJhMjQ1YjdmMDNiYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYmJlMzM3ZGYyMDFjMTc0ZmJhZjcxMTQxYzJiZDM3YTM4MDU0Y2RjOTA4MGNhZGY3Y2JmNjdmZjE5N2JmNjM5YyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ff3f03a90b044fc8847634c9bd4400ed",
+      "statement": "Practitioner beta adjustments shrink toward one — Merrill Lynch's b''=1+k(b-1) and Bloomberg's Adjusted Beta = (2/3)β + (1/3)(1.0) — justified by suspicion of extreme estimates and Blume's empirical evidence that estimated betas regress toward 1.0 over time.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L98-L106",
+          "version": "repo-lines-v1:sha256:718c1758f45410577345570f859cd33851f3107740e2733390d01a3c8b6853f5:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjI3ZmFiNjg0NGQyZTg5YmI0NDZmMTIxMzg5NzU0OWRiZjQ3NTU4YThkYWI5MTMxMzg2Njc4NDg5MTg3OGY2OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjY1MDNjMGQ1MzZlNzg1ZWZjZDQzYmMxMTkzMDVjMmE5MmM5ZTkxNmE4OGNhNGMxMmI5NTkzM2Q0NjVhYmFiMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2YzNjVkNDc2ZDc2MjhhZWJmMTJkMTI5NGUzNDQ4MjYxNTIyYWE5YzNlMDNhZDFkNjViZjE3MjkwMmYwNzhlMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmRjMTEyNTc4MGQ5YTE5N2ZkYzUwMWVmMGM3Mzk0YjcxMjQzNzg0MjE0ZTFmYjdiMTY0YzFiODE1MDQzMzExMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_130bea75c4b04aed9fb53186bd1a3e43",
+      "statement": "Ledoit–Wolf linear shrinkage combines the sample covariance with a structured target (the identity scaled by average variance μI), giving Σ* = ρ·μI + (1−ρ)S with shrinkage intensity ρ = β²/δ², and the percentage relative improvement in loss (PRIAL) equals that intensity.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L108-L124",
+          "version": "repo-lines-v1:sha256:a260108d41c9c8b20ebb82136c46592330b557b01d333eed5950cabb10bc13ca:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImYxODFmNWUxNWVmODJlODcxZjdkZjkwMTM2ZDVkNmVhMjYwYzY2NTEzZWFkZjQ1MzFmMTk5MTljZDEzYjlkNTQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdlNDEzZTcwMDYwOWJhODNjYWE4NmFhODg4N2I3OWEzMDEyNGRhYWNjNjhmYzVmYmJlMjYzYWEzYTI1Yzk3NzIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjBiZDA5ZTkzNTQ5OTQ2Y2JiMzg1NGIzNDk3YzU4ZjQ2NzhmZWM4ZDllNmVhZDUzNmU3YjhjMWQ2ZDkyZjg4YTIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijc4YWQ2NjBiNzZkOTY5MDNmNWQ2ZDQzYzQyN2MzOGI0M2I4ZWY0NjY0OGQyZWQzYjgxMGY3ZDQxNmUzODhmN2YifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_a7182fefe4a94469b52a6846071c1c6b",
+      "statement": "Sample eigenvalues are over-dispersed around their mean (largest biased up, smallest biased down) because of error in the sample eigenvectors, so Ledoit–Wolf linear shrinkage contracts every eigenvalue toward the mean μ by the same intensity.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L126-L134",
+          "version": "repo-lines-v1:sha256:8294c1349395e203ddd59dc26a42f195597d33ac17bd0356180688253d482a7a:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjE4ODIxY2Y0NjBmOTM3YTkxZGM3YjA2MWY5MDJlOGJhYzUyNDA1NzMwZjk2MjI1ZjE3ZTRmZDA2ZmFlY2M4YSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDA4ODgxNDExZmVjMjFhMGU2ODBjNTdkYjRiZjU5ZGVjYWE0YjRlMjg2NmYxMzUxZjUwMjM2Y2QwMzBhYmVkZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjgxYzEzZmNkZmYyMWZjMzYxZTgzZDhjZDRmMDVhODJjMzQ3MmViZTJkNDc4NjI2NDk1NTc2ZWRkMTFhZmJjYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTg2NjcyNWEwYWIzM2RiNGViZDVhNjc1NmQ0ZWI5YWU4YzAxODE5ODNmMWRmMmU4ZmUwODdmZjQwYzgyZmUwNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_bf1c016747c748c893f826ba2bda6197",
+      "statement": "The feasible linear-shrinkage estimator, under general asymptotics (p and n both to infinity with p/n bounded), is consistent, has asymptotically minimum quadratic risk among all linear combinations of the identity and the sample matrix, is always invertible even when p>n, and is typically well-conditioned.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L136-L140",
+          "version": "repo-lines-v1:sha256:4fa5298fb156d61fe6cc5c06f43f87e451a4bf003b9034f2d041cc07894475fe:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2IxOTFlZjIwYTVjZDdiMTRmNDIxY2FiY2VjY2IzZjRhYTQzNDQ3NzgyZWUxNjEyMTdjNzk3OTVkNGNiYWU4NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDU4NjIxMzY0ZjI0OWFiMzA5YzdlYTc5MDc5ZjQ1ODMwMTZjZWNjYWE1MmZmODk0ZmNmNTBlMDQ2OGYyNDZkYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjIzYTdkN2M4ODU1MmRjMGE0MTA1YzBmMjNhMDBkYTEwMDAwODdlNmNiMzlhNjI3ODcyYzZiZjI0ZDUyM2U5OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzllMDJhMDYwNWQ2NmM1NjU2NDRiZjIzYjhiZjVhMmJkMTM2Y2IyNGVkMTc5Y2UxMzBlNmY2MWIwZGQ3ZDA5ZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_629d941c6ba147428ca171b7313ecad8",
+      "statement": "Linear shrinkage is only the first-order approximation to a fundamentally non-linear problem; non-linear shrinkage applies an individualized intensity to each sample eigenvalue via a population-independent oracle depending only on the sample-eigenvalue Stieltjes transform, asymptotically matching and often beating linear shrinkage.",
+      "evidence": [
+        {
+          "resource": "repo://docs/08_estimation_error_outliers_and_shrinkage.md#L142-L162",
+          "version": "repo-lines-v1:sha256:be64165a8fbb750d20919d8f23fd00eadbd0b64594baddcf46d6593267075ed9:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkxZDliNWE0MWY5NjU4Y2ZlMzI5MmUyMTZkOTg0NDc1M2ZmNGM0N2Q5OTIwOTg3Yjg4ZjFmNGE0ODNhZjg2MWYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJhZmI3ZGI5ZTM4NTBkYjcwNmYzMDczYTkyOGJhM2E3YzEwNzE4YjA2MzY2YWYzY2RhZmMwZWVhZGM4NjY0NTgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImYzOTlkMzBlNDE2Njk3ZmJkNjg0ODEyMGQ5OGQ5ODRlYTgwYzcwMDlmN2ZlZDBlNDY1OTNjNjllYzU1NGE0ODgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImRlY2U5NjA2Y2FmOGI3ZDEyODg4Y2E0YTI4MzUwYTBmNzBiM2E3MjUzYzI3MzUwMmNlMjQxNmVlOTk0MmEwMTgifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

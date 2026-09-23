@@ -65,6 +65,7 @@ __all__ = [
     "build_fund_agent",
     "build_risk_subagent",
     "resume_fund",
+    "resume_run",
     "run_fund",
 ]
 
@@ -713,3 +714,55 @@ def resume_fund(
         decision=decision,
     )
     return result
+
+
+def resume_run(
+    run_id: uuid.UUID | str,
+    decision: str,
+    *,
+    session: Any,
+    checkpointer: Any,
+    store: Any | None,
+    model: Any,
+    config: FundConfig = settings,
+    fallback: Any | None = None,
+) -> dict[str, Any]:
+    """Resume a paused run by its gate — the single entry point observers call.
+
+    A run pauses at one of two HITL gates: the profiler's ``save_profile`` (step
+    ``"profiler"``) or the rebalance PM's ``place_orders`` (step ``"fund"``). This
+    dispatches on the run's recorded ``optimizer_config["step"]`` to
+    :func:`~fund.agents.profiler.resume_profiler` or :func:`resume_fund`, so the CLI
+    ``approve``/``reject`` and the TUI HITL queue drive either gate through one call
+    and cannot diverge on which path a given run takes. An unknown ``run_id`` raises
+    ``LookupError``; ``decision`` validation is delegated to the chosen resumer.
+    """
+    from fund.audit import AgentRunRepository
+
+    rid = _coerce_uuid(run_id)
+    run = AgentRunRepository(session).get_run(rid)
+    if run is None:
+        raise LookupError(f"no agent_run {rid}")
+
+    if (run.optimizer_config or {}).get("step") == "profiler":
+        from fund.agents.profiler import resume_profiler
+
+        return resume_profiler(
+            rid,
+            decision,
+            session=session,
+            checkpointer=checkpointer,
+            store=store,
+            model=model,
+            config=config,
+        )
+    return resume_fund(
+        rid,
+        decision,
+        session=session,
+        checkpointer=checkpointer,
+        store=store,
+        model=model,
+        config=config,
+        fallback=fallback,
+    )

@@ -1,0 +1,260 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:34eeb2806cbd8dc22b48d57b93da8b27ab3d4468c2cad21445b9094c622271cc",
+  "claims": [
+    {
+      "id": "claim_9c29dc738b9647c5a4ceb3e15fd2033b",
+      "statement": "The problem is to translate the partial predictability of return moments from economic variables into portfolio weights: an investor at t choosing weights x_t on N risky assets and one riskless asset to maximize expected utility of wealth at t+τ solves a value function V(τ,W_t,z_t)=max E_t[u(W_{t+τ})] subject to W_{s+1}=W_s(x_s'r_{s+1}+R_s^f).",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L16-L19",
+          "version": "repo-lines-v1:sha256:badcbc22cc03378f251771289b1859c723d1c35d21f80aa22fc3d470eb1a4fad:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjhmZjE5ZDA2N2IxZWE2YzIyZWI0MmJkOTg1Y2RiZTBmNDUwNTdmMTBkOGE0NGUyYTNmNzM3YzQ3NGM2ZTNiMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTA3OTZhOTc0YmZlYTk1NGExZGU2NmUyMzM4Njk0MzBiZTlkMTk3OWJkMmE3ZjM4ZmYwZTg1NDA5YTc3NmUyNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTU5ODBmOTM1ZmQ0OTAxZDEyZTk1MGY4YWVkNmY2NTVkNDQ5ZTM1YzA2ZGQ3ZjQwMTNlNzIxZGE2MWUzNTM5MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWZiZTRiMzE4M2E4MDY5YzI0ZWMyMDNiMGU2Y2RjNzZlMzBhNWY2ZGFkMzBlOWQ5YWZhNjFkOGEyMTNkYzViOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_cf49a7de1c8d471ea48f9a25b423a68c",
+      "statement": "Rewriting as a one-period state-dependent choice gives the Bellman equation V(τ,W_t,z_t)=max_{x_t} E_t[V(τ-1, W_t(x_t'r_{t+1}+R_t^f), z_{t+1})] with first-order conditions E_t[V_2(τ-1,·,z_{t+1})r_{t+1}]=0, generally solvable only numerically; τ=1 is the static one-period choice and τ>1 is dynamic and multiperiod.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L20-L22",
+          "version": "repo-lines-v1:sha256:afbe4b3183a8069c24ec203b0e6cdc76e30a5f6dad30e9d9afa61d8a213dc5b9:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWQ5NzRiYjk5Mjk5NDlhNTRmMWJkZTJjYTg5MzQ0NDBlOWNkOGViZDRjMzFmNTdkZmI5ZWE4NWI1OTQxMWIxOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTQ2OTVhNmJkYWNmOWFmODk3MWFlZDU4MmMzMDBhOWI3NzI3MTM5NjAyNzlmOGQxMTcxOTY4MTRiZTUxNmQ5ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDY5NTU3NDU2MWY1MmI1ZTkzODJmYjUwNDdmYTYxNTIzOWIyZTg1ZmY3ZTVmN2MwZjdlNjM2YjY4M2I4OGUyMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTkwOGY4YWE4NzExYmQ2MDczYjU1Mzk4MmVjNDgxZjVmZjMzNjVhMjg4YTMyNmVlMGNmNGEzMzg4NDMwZTdhMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_add9feb5863f48acaf5aa81dfc4e4b4c",
+      "statement": "Under CRRA utility, if excess returns are contemporaneously independent of the state innovations the conditional expectation factorizes and the multiperiod first-order conditions coincide with the one-period ones; otherwise the dynamic choice differs from the myopic one by the hedging demand, with which the investor hedges against changes in investment opportunities.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L24-L26",
+          "version": "repo-lines-v1:sha256:db51c730d789dd2894bc3522e5f948723426f542f892cd1dfdf596ae6f89a8d2:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDA1NGVkYmMyMmY4YjAxZDdiOWQ5Mjk4MDhhNGUwMGMyZWQwZGY3ZmFmZDNlZjA4NmI3NDRiMmViNjg3ODIxOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzA1Mzc0ZjE3YWI5ZGQzZmVkYjQwZmQzMmRmYTVhOWE0NTFiODVmYmU1NzRiZDU4ODM2MWIwMTQ4ZTY1MmUxMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzkzODljM2U3MmQ4MzMxMThhMjhkYjdjZTY0NzhlYmRlY2JmZjAzMjI0M2YxNTMwYmFjNmRiYjIxNjJmZDYyZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzQ5MWQzOTYyOTJiYTAwNTk3ZDRkNDAwMjNiMjg2YzZhNWRlN2NhM2VmNjIyMjgwZmUzNmY3MDMzYWVkYzFmNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3a93f4d08c5b46a992ad6b62c53d03d9",
+      "statement": "In continuous time the Hamilton-Jacobi-Bellman solution splits the optimal weights into a myopic demand — a fraction 1/γ_t of the instantaneous mean-variance tangency portfolio, the market-timing channel — plus a hedging demand depending on the projection of state innovations onto return innovations, which is absent when τ=1 or when states do not predict changes in future opportunities.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L28-L30",
+          "version": "repo-lines-v1:sha256:661212b6901c7e982fcf1a98334ced3d55b48d5445c53dea94400368ca3e79f9:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjExMTJkZmJkMmY3MjcyNDYyMjcxYjk5MzczNDYxM2FjNjQ4MDIyZjUzYjc4NDljYjczMmQ5N2JjOTBmNDhiNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzQ0NTE0ZjJhMjY3YjE1NWU5MWQ2YjUxNWZlZjkzM2EwZGFkZWU3OTdlYzU3NjgwMDM0NTBmNWNmOWEzOGEwZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzZhMTIxMjAyN2M5MDBmNjBmOTNiZjNiMWJkOGE1MTI4MjU2YzFlMWI5MGFmZmMwMDNiOWIzYWIzOTc1NGUyNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmFjMWU0OWEyNzU4YWMxM2NmNDRkYWEzZDEwNzY3ODMyMjEwOGMxYjRmY2I1YzQ2MjQ3NThiMzk4ZTc1OGVhMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7dc4a8e6ff074e64a88b4d62886835cf",
+      "statement": "Obtaining weights from a conditional forecast admits two fundamentally different strategies: the traditional two-stage procedure (model and estimate the conditional moments, then solve for weights) and the alternative that skips the first stage and models or estimates the optimal weights directly.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L32-L32",
+          "version": "repo-lines-v1:sha256:3a4136769312732e2f6f223a3f328ce8d42a70b29cb39eb3f9f637c5dffe00b9:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2E0MTM2NzY5MzEyNzMyZTJmNmYyMjNhM2YzMjhjZThkNDJhNzBiMjljYjM5ZWIzZjlmNjM3YzVkZmZlMDBiOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2E0MTM2NzY5MzEyNzMyZTJmNmYyMjNhM2YzMjhjZThkNDJhNzBiMjljYjM5ZWIzZjlmNjM3YzVkZmZlMDBiOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTcyOWQ2ZDcxZmU0MTUzZjU2YWE0ODdkYmY4YTJlMjE5ZmRiNzg0NmI0MDhlNTgyY2E2MWJlYTBlN2QyNDk0OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzA5NmNjZGE0MTY5NzgyNTlmY2ZmNDJlZTk1Yzc5ZThjZmE2Y2I0YWRkYzEyNmI4NzE2MDI2MjIzMmQ1OGNjMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_62bd870ab40040468b2315a97a2bf636",
+      "statement": "In the plug-in approach the expected-utility solution is a map x_t*=x(φ,z_t,θ) into which a consistent estimate θ̂ is plugged, with the delta method giving √T(x̂*-x*)→N[0, x_3 V_θ x_3']; in the i.i.d. mean-variance problem x*=(1/γ)Σ⁻¹μ is estimated by sample analogs with T-N-2 degrees of freedom making Σ̂⁻¹ unbiased under normality.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L36-L43",
+          "version": "repo-lines-v1:sha256:f6b1b139c9151747239d8465ff8a61ec5a20753cdbe6d8e58d43e8783c7ce2dc:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWEyMWJhOWI0M2FkZmI3YTA0M2U4MzJjOTNlYjUwMzU3YWFmMDVlOGM4ZGViOTMyZTlmNmY4MGI1NTYwNGM1YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjdlM2FiODcyOGYyMTRlZGI1MDc2MjkwNjEyYzQxNDFhZmIxODEzMDhiY2U4MTgzNDcwYjdlMDc3ZTljZTg0NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzA5NmNjZGE0MTY5NzgyNTlmY2ZmNDJlZTk1Yzc5ZThjZmE2Y2I0YWRkYzEyNmI4NzE2MDI2MjIzMmQ1OGNjMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTc4NmJkOTIzNjgzZGJmMmY3ZTQ5ZDFhNTE0OTEwZmM3ZGMxNDc1OTkwNjBjMmM4N2EyNjg3NGIyMzA4MDNhMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e0c10fd6d1a7453cbf22d6a5636933a1",
+      "statement": "Britten-Jones shows the plug-in tangency weights x̂*_tgc = Σ̂⁻¹μ̂/(ι'Σ̂⁻¹μ̂) are obtained from the OLS coefficients of regressing a vector of ones on the excess returns without intercept, so standard theory allows t- and F-inference on the weights.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L43-L43",
+          "version": "repo-lines-v1:sha256:f7e3ab8728f214edb5076290612c4141afb181308bce8183470b7e077e9ce846:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjdlM2FiODcyOGYyMTRlZGI1MDc2MjkwNjEyYzQxNDFhZmIxODEzMDhiY2U4MTgzNDcwYjdlMDc3ZTljZTg0NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjdlM2FiODcyOGYyMTRlZGI1MDc2MjkwNjEyYzQxNDFhZmIxODEzMDhiY2U4MTgzNDcwYjdlMDc3ZTljZTg0NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWU2YzQzMzNlMmE5Y2VmNzEzYTBjMDkzY2EyMzUyYzI4MWM4M2I5YzJiYjc1Mjc1MGUwN2E2ODI2YWEzMmUyMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTc4NmJkOTIzNjgzZGJmMmY3ZTQ5ZDFhNTE0OTEwZmM3ZGMxNDc1OTkwNjBjMmM4N2EyNjg3NGIyMzA4MDNhMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_04ef91dbac9b4436b9d6dcafb9926ec5",
+      "statement": "Plug-in imprecision is severe: for one risky asset var[x̂*] scales with the squared optimal weight and the relative imprecision of premium and volatility, so with ten years of monthly data (μ=6%, σ=15%, γ=5) the standard error is 14% against a true weight of 53.3%, and under GARCH it can exceed 100%; Jobson-Korkie frontiers are extremely volatile and Michaud calls mean-variance optimizers 'error maximizers'.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L45-L47",
+          "version": "repo-lines-v1:sha256:43ceb13508b6b8fff0dd8af90239b35504a993f142c2761a0e7062670b273c20:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGU4MzU0N2Y3OWFjNDVlNzQ2MDM1ZDZlY2Q4MjcxM2IxMjYxZDQ0YjBlZDBiY2Q2MTM2OTUyMzliZDdlY2NjMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjhkYmRmZTJjM2I5ZGZmODU2ZGEwYmEwNWE4NzFkMjQ3YmNhNjkzM2UxZTcyNzA1NDEwMTdjZWYzZjM0YThhZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2Q4YjUwYWI4N2JkYTdiM2E3MDAwMWFiYzMxZjg5NmM1NGRjM2VhYTkxMmJmZmVmYmY2YTVkNjgyY2M0YTMzMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTg0ZTcyYmJlMGI1NTY3ZDQ0YWNkN2EyMGQ0ZGUyYTYzZWNkNTRlZWMxOGZmZWNjZjlkZDZlY2EwYzVhZWUyNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2d12503ac9604553bab665ec27374a9d",
+      "statement": "The certainty-equivalent loss CE - E[CÊ] ≈ (γ/2)tr[cov[x̂*]Σ] arises from parameter uncertainty penalized like intrinsic return uncertainty, and in the single-asset example is an order of magnitude smaller than the weight's standard error, consistent with first-order deviations from optimal rules having second-order consequences.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L49-L51",
+          "version": "repo-lines-v1:sha256:7366c2f3e5ab6f5f37d2ce3b895645b7d9bc5bf553fac8731c197288b18629ff:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGNhZmFkMjJmNTIxNTU4MTM1OTAxYjRmOGE3YjQwNjYyMTdkODAyYWJjNjkxYTg0MjM5NTZmMzQ5YTZmMWI3YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmFiYWYyZjA1MGZhYzY1NDA4YmQzZTgwYzdmOWQyMGZkNmNhM2U1ODg5ZjYxMmVmYmY1OWRiZTlmZjczZjg0YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDlkNjM1OTVjODFhNjc4ZmYwOTRiNjgxMDA0ZWFkYmVkNzY4NDk0OTUwNDc4ZGIyODExYTNlMDJmYjgzZmQ3MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjczZmM4M2QyZThhZGFkZjEyMGZiMWNjNzkxMjRlOGQxNzAzMDM0YTIyN2VlMWM1OGI3OTczMjgyNDkwYjkwMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6082230d272743fdb07b8a09d0d4b6f5",
+      "statement": "Three complementary remedies improve plug-in estimates: James-Stein shrinkage of means (and covariance shrinkage, which toward a positive-definite target guarantees a positive-definite estimate even when N>T), imposing a factor structure Σ=BΣ_f B'+Σ_ε to reduce dimensionality, and weight constraints — Jagannathan-Ma showing no-short-sale and position limits equal a covariance shrinkage, explaining why constraints help even when not theoretically justified.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L53-L55",
+          "version": "repo-lines-v1:sha256:ff1d84ccfd05f88020a94fac846cf102ff23082dd6c62e76d3f7f2148d42affc:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGE5ODEyOWQwOTBjOWZmMTE1MGQwMzJlZDllNjM5ZTNjNDFmYTg5NmFhNDAzMWIwOTE4MDVhOGNiNTFlMTA5NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjM2ZGU1YTgwMmU0N2EwYmE1YTE1Y2UwMzMzZjk3ZDgyZjJjYzUxYWUyMGM0ZDBmYmM0MzM0YmY0MTMxZjA0ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYjQyNzc3MzI5ZmRmMjVlYmEwMzdkYjQ5YzliZDgzZmNiNzEyZjAzNDc2ZjE0YjIwMzgwNjM4MjQ4MDdkYWRhYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2FkM2Y1MzU4NzMyMTllMmExYTI1ZDkyMmE2ZjNlYjRjM2FmZjgwZjZmZmVjZGM5YTQwZDZhODY4ZTdiZWJlMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6353d5761efc4e6ba6f983e8c00e0a68",
+      "statement": "In the decision-theoretic approach under parameter uncertainty, one can naively use estimates (plug-in), take worst-case parameters within a set (robust control), or eliminate the unknown parameters via Bayes' theorem, integrating out θ to form the subjective predictive distribution p(r_{t+1}|Y_T)=∫ p(r_{t+1}|θ)p(θ|Y_T)dθ; with non-informative priors this gives a Bayesian reading of shrinkage.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L61-L67",
+          "version": "repo-lines-v1:sha256:d403d45e0bd418b169e81b6dc2ae5e9b088101bab262a8406caf0067b702c754:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjQ0ODkzMjM1OWM4ZGE2NjU3YjJmNmEzYzkyZTQ2YmIzZjI5N2UwMGI2ZTIzNDIyZGIyMWU0ODNkN2Y5ZWZkNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjcxNjI0MWI5ZDExY2UyOWZmOWIzZWY3MTU3MTA0ODExOGQ5ODRjYzY0ODUyMmFiOTZiODMxNDJiZGI2NDhjNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmUyYWRhZWRjYWY5YzE1NjNlOGE2MjYwZDM1NDg2NGJiNGQ0ZTg4ZWU1OWRhMWM3OWIwZGM5NzE3YmIyOWZkOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiM2MwMWMwNGFjZDliZTg0YTk1MTY3ZDYyNGRhMjA2MmQzM2M2ZTM4ZDBiYjQ4NzM4OWY4ZDg4ZTcwZDQ1NGJmMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6d3b83880e98483bbb28a04af02a59d1",
+      "statement": "Economic beliefs enter as informative priors: for the noisy predictability regression (R²≈1%) a prior centered on b=0 gives Connor's shrinkage b̂_Bayes = [T/(T+1/ρ)]b̂_ols with ρ≈E[R²], contracting the OLS coefficient about halfway to zero; Pastor's CAPM prior contracts cross-sectional intercepts toward zero; and model uncertainty is handled by a model-averaged predictive distribution p(r_{t+1}|Y_T)=Σ_j p(r_{t+1}|Y_T,M_j)p(M_j|Y_T).",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L69-L71",
+          "version": "repo-lines-v1:sha256:7eb568df8970bef1d2fb9f2bda64531273e9eb0bf3bbd71f4f9a1a959d542b5c:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDA4MmQ2MDM4MDBlNzdlZjNhNmU2MDJhNzAyY2Q5NTczODFhMjc0ZWViNGM1YzQ2NzlmMmY2NTZlOTljODg0MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNmY2OWI0NGFiNDcyN2FhY2YwZjUyNmU0ODQ0MTE0NDJhMmFlNzU3YzZkZGVjZmMwYjNmYjk0YmJjNzUwOGJjNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzEwMmU1ZDI3ZjIwMjFjOTQ3Zjk1OTI3YTU5M2QyMmI5Yzc2YzViY2NkN2I1NjljYzI1ODZiMWY3YjM5NjhkMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGIzNDBkZDA2MTA2NjZkNWE3OGQxZGU1NmUxZDNjNjE4MzI3ZDQxMzRmZmI1ZGYxZjhmZjU1ZmM3YjNmZmZlYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_bb8fa558942449138711f78c23efb761",
+      "statement": "Three reasons favor modeling weights directly: return modeling is the traditional approach's weak point (tenuous state-moment relations amplified by the optimizer); dimensionality reduction (an unconditional 500-asset problem needs over 125,000 return-model parameters but only 500 final weights); and inferring on weights lends itself to an expected-utility loss, avoiding the incoherence of estimating returns under quadratic loss then switching to expected utility.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L75-L77",
+          "version": "repo-lines-v1:sha256:74dd3aebb44380b793eaea0b00a99885120be69a39f410571d02a34aa21b6e5d:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmZhZTY4ZWU1YTVmZWYxMDFiNWVlOWUxNzY3MWI5NTg0OWNmZmY5YzJkYjUzM2E1ZTUwYjM1OWQxZjc2ODI3NSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTg3NmQ1ODMyYzYzOTc3YzUyZWFiYzYzZjgzMTkzZTU3N2RjNDkxNDU0ODU1MzgzMmJhOThhNjhmMzM4OWY1ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGIzNDBkZDA2MTA2NjZkNWE3OGQxZGU1NmUxZDNjNjE4MzI3ZDQxMzRmZmI1ZGYxZjhmZjU1ZmM3YjNmZmZlYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjcyN2NmY2MzY2QzYTQ3NDA1NmM0ZWE0NGM3NDZlYTE3Y2FiMGJjZDQ1MmIwZTViMGM2M2YxYmZmNzA3YmExNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7e6a963febda46bb8b86bd3ee5858637",
+      "statement": "The nonparametric direct method characterizes optimal weights by the conditional Euler conditions E_t[u'(x_t'r_{t+1}+R_t^f)r_{t+1}]=0, replacing conditional expectations with kernel regressions; it is consistent and asymptotically Gaussian but suffers the curse of dimensionality, in practice allowing no more than two predictors with postwar monthly or quarterly data.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L79-L81",
+          "version": "repo-lines-v1:sha256:aca8413d340d65dbbddb67fe00e51b0d820fe7793398e1db78d818f8a8e7ab19:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjI0ZjJhYWYwMjFjYzlkYWQxN2YxMzA0NmE0MTNjZTMxYmQ0ZWNmZjg2Njk4NGMzMGU2N2M2ZmM1NWZlNjA0MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDZmNDYzODYzYmZjNTZkMDFlY2RjM2Q4ZGNhNzhmMzBhOGM0MzQ1MDZmMGRjZDMzMzNmOGFiYTJkM2I3OGJlMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTI3NzQ4MDhlMTc2MDQ3MDYxMjJhMzRmYTcxYjRmYWY0YzM2YWExMzU4YTZiZWIzZjFkNDZlODg1OWMyMWU0YyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmMyNDBlNzQxOWNiNDlkMTg1YTI5MTJlYWI5M2ZjMWFjYWU1NzQ2MzJiMTIwNjE5ZjI3MTY0NjkxOGM4ODlhMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_68c2f3859c8e4765ba2a7d5f8e790b3b",
+      "statement": "Variable selection should target the optimal weights directly because the relevant moments are endogenous to preferences: even in the mean-variance case one wants variables predicting the mean-to-variance ratio (proportional to the tangency portfolio fraction), not the two moments separately, since a variable may help the mean but hurt the variance and different objectives emphasize different parts of the distribution.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L85-L91",
+          "version": "repo-lines-v1:sha256:d6903ce2b925ccd8147ba702bb3e11d5c180907194157598ce8088842f671f25:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTg2OTkzNDkzZGVjMGVhYWZlMjkxMmFhYzJkNTdkMTgyZjJlOTk2MmM4NThjZmQ0MDU4YzU5NTM2Yjc1ZTBmNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiY2U0ZThlYTdkOTU0ZTM4MjVlMjdhZTNmYjU2ZWQyYjNjZjY1ODU2MDIzNmM1NjQyNWE4MWRlYmI1MjI2ZWU2YSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmMyNDBlNzQxOWNiNDlkMTg1YTI5MTJlYWI5M2ZjMWFjYWU1NzQ2MzJiMTIwNjE5ZjI3MTY0NjkxOGM4ODlhMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWI5MTc1N2E2MmFkNWQ3MmMzMDg2ZmZjODJhMWE4MGVhYzQyNWIwYzc5ZmRkMThlOTM5M2JmN2Y2ZTBhZTQwMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_94fc0f2b5646407898ab0501c112ae16",
+      "statement": "The semiparametric approach assumes the optimal weights depend on predictors only through a single linear index Z_t'β, allowing one-dimensional kernel regression with parametric √T convergence independent of the number of predictors; β is estimated from the conditional Euler conditions via GMM or by maximizing unconditional expected utility, with the utility loss from collapsing information into one index empirically negligible in most cases.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L93-L99",
+          "version": "repo-lines-v1:sha256:2452d7adf9c6cf9b5b33fe2eb34384f6639650dd45567c182982ce933873d134:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2E5NWI1MjJkMDcyZmQ3YjY4MjU5NWFiZGFlNGY2ZmUxYTg1NzZiZmM4MDg1ZjE4Yzk1ZGExNGY4MjM0MGFjZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDQwNGMzNjRlMWM4NjAzNGU5MmU4YzEwYjk2ZTQwODU1MDUwN2I4MjA3YmU5ZDEwNzVjYjY1NzEzMmEyNjUwNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmJhM2E0OTY4ZWE2MDNjNmEzODQ0ZWJkMjFiYjU2YWIwN2EzZjNlMDJjZDliYzZmYWE0OTBkYzI3YzUyYzk1NiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTY4MmEyYWRjNGEwZDNkYzMxMGZhMTFjOTQzMDdkMWE1YjE1MWJiMTE3ZGJmZTViMjJjMGQ5Y2E5ZGJhZGQ2YSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b31fa9f6d24f4709a8d53f31ff3ec37d",
+      "statement": "Applied to default spread, S&P 500 log dividend yield, term spread and an index momentum variable, the term spread is by far the most important predictor of expected stock and bond returns, the default spread predicts variances and covariance positively, and the log dividend yield predicts expected equity returns at the annual horizon; the index reaches a compromise between predicting means and variances.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L101-L101",
+          "version": "repo-lines-v1:sha256:566c6e3445f9d7361b066aac11373649eb5d58f80cd2944a4c606013f685e01e:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTY2YzZlMzQ0NWY5ZDczNjFiMDY2YWFjMTEzNzM2NDllYjVkNThmODBjZDI5NDRhNGM2MDYwMTNmNjg1ZTAxZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTY2YzZlMzQ0NWY5ZDczNjFiMDY2YWFjMTEzNzM2NDllYjVkNThmODBjZDI5NDRhNGM2MDYwMTNmNjg1ZTAxZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjY3YTBlYjk0MzU5NThlOWM0MjZjM2M1ZGY2NzQwZDQ3MWU3NzQ1ZmM5YzljYWU2OWVlNTk2YzA4ZDIxZGIxMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYmVmYzMwNDhjNzBmZDMxNzhlYTExMmNlOGM4ZDAzZWI4ZGJmNzAyMzc0ZmNkM2RjNjExNzVjN2ViMTk0ZTlkOSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2f041a73f86e4318b53618f4a00ccf56",
+      "statement": "All but the very risk-averse investors do market timing (more at long horizons than short, since long-horizon returns are more predictable), while hedging demands turn out surprisingly small and even negative — long-horizon investors allocating less to risky assets than short-horizon ones — because the endogenously dominant state variable is the term spread and returns are not much correlated with its changes.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L103-L103",
+          "version": "repo-lines-v1:sha256:a3de99db3a743551ca25801838ad51bc76bc68b490e27ac620e396e9cccbc5a6:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTNkZTk5ZGIzYTc0MzU1MWNhMjU4MDE4MzhhZDUxYmM3NmJjNjhiNDkwZTI3YWM2MjBlMzk2ZTljY2NiYzVhNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTNkZTk5ZGIzYTc0MzU1MWNhMjU4MDE4MzhhZDUxYmM3NmJjNjhiNDkwZTI3YWM2MjBlMzk2ZTljY2NiYzVhNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYTY4MmEyYWRjNGEwZDNkYzMxMGZhMTFjOTQzMDdkMWE1YjE1MWJiMTE3ZGJmZTViMjJjMGQ5Y2E5ZGJhZGQ2YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjk2NGI0ODg5MWU5ZjgwZjlhZGRmOTgxNmMyOGZmOTgzMGU2OTc1YzUwMDE0MjQ1YzEyMWQ4NjhiMjMxYzBmMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_aaf99b3fb060497388b06b6f728d7ca3",
+      "statement": "Parametric portfolio policies parameterize the weights as x_{i,t} = x̄_{i,t} + (1/N_t)θ'ŷ_{i,t}, with x̄ the benchmark weight and ŷ cross-sectionally standardized characteristics (so deviations sum to zero and weights sum to one); θ varies neither across assets nor over time and is estimated by maximizing the sample analog of unconditional expected utility, avoiding covariance estimation.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L107-L115",
+          "version": "repo-lines-v1:sha256:d866ea78ce56d644f97a4bb8b63738407d3501c9d7f76c73ecf653a461060495:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMzM1ODMzZDU1ZWI2ZTZlZmMyNzRiYTlhYWM5NGU5ZTQwYzZhZTEyODA1MDUzZmQ1MWExYzliY2RkZmY5ZTkzMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzg5YTFlNzZjMDNlOTI5Y2ZhOGZjYzYwOWY5ODYxMjI0NDc1M2RlNzAxYTgyODVjMTRkZWNlOTgxNDMxOGQ0ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjk2NGI0ODg5MWU5ZjgwZjlhZGRmOTgxNmMyOGZmOTgzMGU2OTc1YzUwMDE0MjQ1YzEyMWQ4NjhiMjMxYzBmMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNGNmY2VjNGFiYjNjY2ViMTkwNDEwODRlOWNlYThmZTJmZGU3OGU5Zjk3MGQ3M2IyNjgzNzdjMzg3YjZlNWNmMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5b191215c58049aa92caa91fe725827a",
+      "statement": "Parametric portfolio policies have three advantages: they optimize portfolios with very many securities as long as the parameter vector stays small; the optimal weights are far less exposed to error maximization and overfitting (much less extreme than plug-in and stable in and out of sample); and they implicitly account for the dependence of expected returns, variances, covariances and higher moments on the characteristics.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L117-L117",
+          "version": "repo-lines-v1:sha256:b6822f2b1b08a916fa7286e559f8dc692ff3aca109ac6d740f906b177f03c5a2:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjY4MjJmMmIxYjA4YTkxNmZhNzI4NmU1NTlmOGRjNjkyZmYzYWNhMTA5YWM2ZDc0MGY5MDZiMTc3ZjAzYzVhMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjY4MjJmMmIxYjA4YTkxNmZhNzI4NmU1NTlmOGRjNjkyZmYzYWNhMTA5YWM2ZDc0MGY5MDZiMTc3ZjAzYzVhMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDRhNDQ5NzZkNjE0ZjJlOWQxYjllYTgzNGQ3NzhiMWE2Y2NmNDc1YTRhOGUxZmYxMDE5NGNhNzdlMTFhODljZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWQyZDljZmVkMjQxOTMyN2U5NTI0ZDJlN2E3MzE4NjNiZGEwOTk3YzgxYWY3ZGU1NmU1MGQwYjAzNTZhYWVmYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_62f059351c9e4cf0be1f796d9837f85d",
+      "statement": "Cross-sectional parameterization combines with parametric market timing by setting x_{i,t} = x̄_{i,t} + (1/N_t)θ'(z_t ⊗ ŷ_{i,t}) with the Kronecker product, rewriting the problem as a cross-sectional parameterized choice on an asset space augmented with naively managed portfolios.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L119-L121",
+          "version": "repo-lines-v1:sha256:b98aa59497e205f6a6c70fa71e6e4a26e07798aed94f64ad828e8eaea84bccd2:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTBkMTlhNjkwZTc0MzZlMmIxMDk4OGEzM2Q1OTBkNDk1NmUwYzQ3Y2VhMDNjMTZmODdiMDEyY2U1OWEyNTdlZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWY0ODlkODI0MGIyNTU3MTE2M2YyOTExYjhiZDA2NDQ2NTdlMWRiYmViZTZiYmFlMjdkNWY5YTc5MjhkYTI1MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGNmY2VjNGFiYjNjY2ViMTkwNDEwODRlOWNlYThmZTJmZGU3OGU5Zjk3MGQ3M2IyNjgzNzdjMzg3YjZlNWNmMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDY5M2FjNmU4ZGYyNDQ5ZTg0NDk5NGUwNTA0NmFmZDkyOGYwZjE2NWM3MGQ3MjE3Yzg3MTRmNGRlZjUzYThjMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ee6efa34367746859642789a4ce2a2ab",
+      "statement": "Augmenting the asset space turns the dynamic conditional problem into a static Markowitz problem: with weights linear in states x_t=θz_t, the identity (θz_t)'r_{t+1}=vec(θ)'(z_t⊗r_{t+1}) lets the same x̃=vec(θ) maximize the unconditional mean-variance trade-off over the augmented N×K assets r̃_{t+1}=z_t⊗r_{t+1}, which are conditional (managed) portfolios each investing in one base asset proportionally to a state variable.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L125-L135",
+          "version": "repo-lines-v1:sha256:ffd6636262cc4af3630aafac2bc932a86f1ffdce78a5bfdc060502a8a5d3449b:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQwZWMxOTJhNWNkMGQ1YTAyZmMwZjY1NTFjMDZlYmJlMjdmYTBlZjFmMmI3OWI2YjQ0NjI2OGYzYmY1MGFjYTgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc1ZmUzYTIwZDQxOTdjOTU2YThjMWVlMmY4ZTg4ZWZkOGIwZWExZTQxNjg0M2U2NWExNTI0ZWZlMmZkY2U5MWIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjQ2OTNhYzZlOGRmMjQ0OWU4NDQ5OTRlMDUwNDZhZmQ5MjhmMGYxNjVjNzBkNzIxN2M4NzE0ZjRkZWY1M2E4YzIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjVhMjJlMWUyMDZhMWY3MDFjZDlmYmFmNzUyZDYyYzMwOWU2OWJiM2RmM2ExMGZmNGNjODQ2MWRiMjhlMDA4MmEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_701b3ffea1544bd39978105a16aaf032",
+      "statement": "The augmented-space solution x̃* = (1/γ)E[r̃_{t+1}r̃_{t+1}']⁻¹E[r̃_{t+1}] depends only on the unconditional moments of the augmented set, requiring no assumption on the conditional joint distribution of returns and states, on how conditional moments depend on states, or on how states evolve; it extends to the multiperiod case with timing portfolios and linearity in states is innocuous since z_t can include nonlinear transformations.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L136-L141",
+          "version": "repo-lines-v1:sha256:bbd501c13b31a3d47e4be11993e8fda039d8dffa1489d6e479ebdf2137f60362:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNWJkZWYwNWFlMzg0YTUzMjg2MmQ5Y2JkZGExNTJlZmIwYjI4YWU2OGI4YzRlYjRkNTEzMDAxZmQxYWMzMGMwMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMmFkNzYwMjcyZDQ0OTJiOGRmNTkwYjNlZWJhN2IyNGJlODliNGRjZmQ1OWU2ZDc1NDc5ZjQ2ZmUwNDc4ZTNlYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDFkNjg0MzdlYWY3ZGQ1NGU0ZDBmNjRhY2Y4NmVlNjYyMzg0OWQyNTBhYWFlYjUxMTdhNmQ0ZDY3MjI3MWQ1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODBlOWY4YTYxYjk5OTZhNmJjMDVlOGFjNDNjNDVmYzI0NWUzNmEyMTYwY2JmNDlmMjY2NDc1MjdjZjEwY2M4OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c01a7109f401434eb7645a27f1c6495e",
+      "statement": "The method's appeal is that all statistical techniques for the static mean-variance problem apply directly to one- and multi-period market timing, so macro conditioning becomes a simple set of timing portfolios (e.g. more equity when the term spread is high) solved by the static mean-variance optimizer.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L143-L143",
+          "version": "repo-lines-v1:sha256:1c29e7c5758cbcaaf1146c88a16118e420f1dbb5824fd13873096720ba884963:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWMyOWU3YzU3NThjYmNhYWYxMTQ2Yzg4YTE2MTE4ZTQyMGYxZGJiNTgyNGZkMTM4NzMwOTY3MjBiYTg4NDk2MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMWMyOWU3YzU3NThjYmNhYWYxMTQ2Yzg4YTE2MTE4ZTQyMGYxZGJiNTgyNGZkMTM4NzMwOTY3MjBiYTg4NDk2MyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDQ5YzkxMzFkMzI4YmViNjhhODIzZWY0NTE5YTY4MTg1MGYzOGYyOTQ0MDkxNzBiYjk1NDE1N2ZkNjg4MjhmNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGVlNDhkMmY3ZGQ0NDdjMjYxZGMwYzUyZjNhZTIxNWIwYzZkZDViOGU4OTQ1NTlmMTc0MDE1MTJmYmRkYzQyYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_aa4fdc553b904471946775af34d4e746",
+      "statement": "The map closes with the macro signals (term-structure slope, credit spread, dividend yield) entering as the state vector z_t or index Z_t'β, becoming optimal weights through one of the routes as a timing allocation, benchmark deviation or convex-problem solution, with the constrained non-extreme weights being precisely what the convex optimizer is equipped to produce.",
+      "evidence": [
+        {
+          "resource": "repo://docs/30_from_conditional_forecasts_to_weights.md#L151-L153",
+          "version": "repo-lines-v1:sha256:ff6637232135decff233374ed84ef20f3f361cd157ed075bccf1609a89534fd8:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTBhZDI0NjlhM2M3NWViYTczODc4NzMwY2RmNWQ3ZjE1Nzk1ODA1OTIzZmZhMjkwYjhkNWI3ZjQ5ZDNiOWJjOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWQ0YmViNWI0YTVjNjRmYjQzMDA3Mjk0N2QwZjdiMDIxZjRiZTVkNWY0MDdlYzliNGY0MDQxNGFiYzA1ZjQyZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDUwODczYmIzNmQ0ZDMwZjUyMTJjZTk0ZTBlY2U3NzUzMDM1MWFmOGUxODJkYTJmYTBlNzI4ZTc5MWJiZDZiZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

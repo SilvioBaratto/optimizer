@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:99a09c28bef1a338f08b3a85d7d12199c5edaf2e5640eb7132a338d8bf62c602",
+  "claims": [
+    {
+      "id": "claim_cd5033fcda30403a9af2fa736488124a",
+      "statement": "Coherent measures built on the marginal return distribution summarize risk at a single observation instant and ignore the temporal order of losses, whereas the managed-account manager's relevant risk depends on the magnitude and duration of the account's drawdown, since a client's decision to close the account likely depends on these.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L16-L16",
+          "version": "repo-lines-v1:sha256:de9f6590e9becd7380d7fb8b42e81e30492eb19856235a9d7100a3aec41a0178:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGU5ZjY1OTBlOWJlY2Q3MzgwZDdmYjhiNDJlODFlMzA0OTJlYjE5ODU2MjM1YTlkNzEwMGEzYWVjNDFhMDE3OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGU5ZjY1OTBlOWJlY2Q3MzgwZDdmYjhiNDJlODFlMzA0OTJlYjE5ODU2MjM1YTlkNzEwMGEzYWVjNDFhMDE3OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2IzZmFjNjBhYzEzYWVhNjFlMGQ4MDliOTM3OTdmMTU3ZTNhYTZkM2Q3N2ViODMyNGYzOWIwYTEwYTBlYjk4MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2FiZmE1MDIxMzAyYjc4MDBmMmVmMTc4NjgwZGQ4YTQ4MDJhZDk0YTQ3NGFjYTUxYzQzYmQ3NTM3YTEwNzQ2MSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_cddc90c4a5ff4820ab651f7aef87091b",
+      "statement": "Operational thresholds make the concern concrete: a Commodity Trading Advisor rarely keeps a client whose account has been in drawdown for over two years, a client is unlikely to tolerate a 50% drawdown at a medium- or low-risk CTA, and a proprietary-system trader can be suspended when a maximum-drawdown condition (typically around 20% of collateral capital) is breached, with a warning at a lower level around 15%.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L18-L18",
+          "version": "repo-lines-v1:sha256:f4cd65e801289a34fef1f862ec99d707c9325331b18b76822c782721abedec3c:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjRjZDY1ZTgwMTI4OWEzNGZlZjFmODYyZWM5OWQ3MDdjOTMyNTMzMWIxOGI3NjgyMmM3ODI3MjFhYmVkZWMzYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjRjZDY1ZTgwMTI4OWEzNGZlZjFmODYyZWM5OWQ3MDdjOTMyNTMzMWIxOGI3NjgyMmM3ODI3MjFhYmVkZWMzYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWQ3ZWE5Mjc1MjI3ZGY3ZTg4Y2M5NjYwYTMzMGQ3OWViMGRmYThiNjc2YjU4OTg5MDYxM2NkMDgxMmNhZGJmZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTUzZTIwMGFjNTJlMjEyZjk1OWI2ZmVhYjUzYTU0NDRjZjY5NDg2MzgzNTU5MWU3Njg1NDVjODAyODlmNWVmMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a54873134aa04603bfb37f7b9df1e24c",
+      "statement": "Unlike Grossman-Zhou and Cvitanic-Karatzas, who seek time-dependent allocation strategies under return-distribution assumptions, this approach defines risk and finds constant-in-time optimal weights on a single sample path of portfolio returns with no assumption on the underlying probability distribution, so risk is a function of the sample path rather than a measure over a set of paths.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L20-L20",
+          "version": "repo-lines-v1:sha256:5ae1b66e655bacd5d72fca7aa4ab208c54d4020887c3fdfe6c950a14e08bdd0c:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNWFlMWI2NmU2NTViYWNkNWQ3MmZjYTdhYTRhYjIwOGM1NGQ0MDIwODg3YzNmZGZlNmM5NTBhMTRlMDhiZGQwYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNWFlMWI2NmU2NTViYWNkNWQ3MmZjYTdhYTRhYjIwOGM1NGQ0MDIwODg3YzNmZGZlNmM5NTBhMTRlMDhiZGQwYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2FiZmE1MDIxMzAyYjc4MDBmMmVmMTc4NjgwZGQ4YTQ4MDJhZDk0YTQ3NGFjYTUxYzQzYmQ3NTM3YTEwNzQ2MSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjBkMGYxMmRlOGQwZGYzZjE1ZTI1ZTIxYTQ0NDAxMjg2OTRlYWY4NTlkYWYzYzRiNjkyNDZmZTZjMzFiNjlmNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ec684aecbaa742e5a0443244ccc8dd32",
+      "statement": "The drawdown function D(x,t) = max_{0≤τ≤t}{w(x,τ)} − w(x,t) is the fall of the portfolio value relative to its past maximum; it is non-negative and vanishes exactly when the portfolio hits a new maximum.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L24-L27",
+          "version": "repo-lines-v1:sha256:6ae6503e8ebcf38ee5f1584815df1081fbf94ed6788228d9a1ea03d49a2a806e:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmFiNDE4ZGM5ZGViZmE4M2E0MjI3Y2FjNDQzNWVmMWVlNjc3ZjE1ZTk1ZDViZWQ3OTQ1OWViYzAyNmNjNTZkMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNmZjNGJhOTdjMjI3MGYyYWI0OTM0Y2M5OGMwOWE4NGIyMGNmMjQ4NDVjYTliOTAwOWVmNDc1NWQ2ZGY5NjdhZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjBkMGYxMmRlOGQwZGYzZjE1ZTI1ZTIxYTQ0NDAxMjg2OTRlYWY4NTlkYWYzYzRiNjkyNDZmZTZjMzFiNjlmNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODljZTUzMjQxMjU0MmNkOTA2YzBhZGFiZmRiOWNjNTkzMTVmYzk0YjI2ODYxMTUzM2NlMjRiN2JlZjI0ODI4MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_04515bd0c5394975a1d234bef131ba7b",
+      "statement": "The drawdown is path-dependent because the running maximum max_{0≤τ≤t}{w(x,τ)} depends on the entire trajectory preceding t, and cannot be reconstructed from the marginal return distribution alone.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L27-L27",
+          "version": "repo-lines-v1:sha256:6fc4ba97c2270f2ab4934cc98c09a84b20cf24845ca9b9009ef4755d6df967ad:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmZjNGJhOTdjMjI3MGYyYWI0OTM0Y2M5OGMwOWE4NGIyMGNmMjQ4NDVjYTliOTAwOWVmNDc1NWQ2ZGY5NjdhZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNmZjNGJhOTdjMjI3MGYyYWI0OTM0Y2M5OGMwOWE4NGIyMGNmMjQ4NDVjYTliOTAwOWVmNDc1NWQ2ZGY5NjdhZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWFkYWMwOGNiMmEzOGZjMjYxMTkzNmNjOTJiYjhmNzA2MjJmMDhhNmU3NDE3YTI5NDE3NWMxMjQ5ZDNiMGVhOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODljZTUzMjQxMjU0MmNkOTA2YzBhZGFiZmRiOWNjNTkzMTVmYzk0YjI2ODYxMTUzM2NlMjRiN2JlZjI0ODI4MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_892c75b9351841bd8a0e25f57bb0b9a7",
+      "statement": "Three risk functions are built on a sample path — the maximum drawdown M(x)=max_{0≤t≤T}{D(x,t)}, the average drawdown A(x)=(1/T)∫_0^T D(x,t)dt, and the Conditional Drawdown-at-Risk, a family parametrized by α containing the other two as limit cases.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L29-L40",
+          "version": "repo-lines-v1:sha256:183639d5ba0760693764c4b08fb93dc474731673f336e47776924060d4532ff6:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ3MDEzNzE2ZGRjMjMzMzk4N2Y3YjVjYWZiOTdkMTJjNjQyYjA3ZGE0N2UxOTUxOGZmOGUwN2RhMjRiMjc0ZmUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ1NTRkYThiZTBkMjczMGQ4YWI3ZGE0MTRkOTg3MDk3M2NlNjdhOTQzNWYwOWUwOTk4YjNkZjk5NjlmZGNkZGIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijg1YWNlNTcyYzU4MGJmNTBjMzI0M2Y1NjdjYmUzMmM5MDdjOGFkZjQxYmVlMWY1ZTlmMTg5OTc2MmJkNDNkOTEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjE5MzMzMTAxYjAxNjI3ZGZjNDczYzA3MGQ0MzM4ODE4ZTg5ZjEwODg4ZjI2NjI3ZDg1MWZlYzhiOTE0NmUyNWMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d3d2d6f91c8a40cc8a2981e70e347f60",
+      "statement": "The α-CDaR is the average of the worst (1−α)·100% drawdowns experienced on the path (e.g. the 95%-CDaR is the average of the worst 5% of drawdowns).",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L46-L46",
+          "version": "repo-lines-v1:sha256:b73bd9d2639ce551ede95235a998e9ef5c8dc9214a048435016b09263ccc1999:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjczYmQ5ZDI2MzljZTU1MWVkZTk1MjM1YTk5OGU5ZWY1YzhkYzkyMTRhMDQ4NDM1MDE2YjA5MjYzY2NjMTk5OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjczYmQ5ZDI2MzljZTU1MWVkZTk1MjM1YTk5OGU5ZWY1YzhkYzkyMTRhMDQ4NDM1MDE2YjA5MjYzY2NjMTk5OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTI1OGI2NjFlZDQ2YTJhYThjYjE2YjRiOTIzZjc3ZWI2ZmQ4ZWMxZmZiMGEzMzY4NWJiNGM1YmE4YTE3NmI4NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWI5YWQ0NWQ0YTM2YzEyY2M2OWFkNzEwNDMyNmVkNWFjODVmMzIxMzU4ZjA2MjcxYzk1ZTgyYTUyZTY1NzZhNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4bad4de3ddbe44069b2200b316e6b4b0",
+      "statement": "In the general non-integer case the CDaR takes the optimization form Δ_α(x) = min_ζ {ζ + (1/((1−α)T))∫_0^T [D(x,t)−ζ]⁺ dt}, where the optimal ζ equals ζ_α(x) when (1−α)N is integer and is otherwise ≥ ζ_α(x).",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L51-L53",
+          "version": "repo-lines-v1:sha256:733da6d551de84ba15ab89987cf2b3e6cfd9d5b17ae3e2c67537f60fe62d256f:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzU3MzFhZDEyNzI4NWQ0YmYzZjQ3MzVlMjM2Y2FkNmMxZmU1OTVjOTM4ZmJhOGVhN2IyOTI0YzNhZmE0YTAxMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmE4ZjY3ZWY1MzhhNGI4Nzk0ZDk0MGYyOGUxNDA4MWI5NWEyZDdlYmUzZTk1ODc2MWUxNzFkMTYwMDg0YTVkZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMjE3NDBhZmNkZTRlMTY1MWFkNDgxZGRmODEwMGFiMGIwYzk4ZjQ2ZjQ0ZWRlZDA1NGI2YWUwYTkxNzQwM2NiZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzU5MDc1MzVmM2E2OTg0MTgzOTQ0ZWI2MGE0N2Q2NjA0MzJiZjFkNWZjNzBmMWRjZThiYmJiNWM2MGEwMzJhMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3023dc139e23417982dd5dca8d141a5b",
+      "statement": "The CDaR family interpolates between the elementary measures: as α→1 the CDaR tends to the maximum drawdown Δ_1(x)=M(x), and at α=0 it coincides with the average drawdown Δ_0(x)=A(x).",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L55-L55",
+          "version": "repo-lines-v1:sha256:93cb548ed608ae64b9cbf6110ff57532049efafb19987955642d2b5f0b7efff2:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTNjYjU0OGVkNjA4YWU2NGI5Y2JmNjExMGZmNTc1MzIwNDllZmFmYjE5OTg3OTU1NjQyZDJiNWYwYjdlZmZmMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTNjYjU0OGVkNjA4YWU2NGI5Y2JmNjExMGZmNTc1MzIwNDllZmFmYjE5OTg3OTU1NjQyZDJiNWYwYjdlZmZmMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOWNiMzI5YTMyN2NjZWEyOGUxNGEwYzAyMmNhMGJlOGVkZGFiZDAzYTBjNmFjNTk1MWRmYWU3MmViNGI1ODJkMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDcyNzI4MTE4ODljYTcwODljNjY3YjZhYjBhMzIyOTVhYjFiMTZkMzZlYTkzNzc5N2VjZTUxNDdlMzRiZjdhMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_79bd5598a4b74ae38501e4fa3daaa04c",
+      "statement": "Because the uncompounded cumulative portfolio return w(x,t)=y(t)·x is linear in the weights, the running maximum is a pointwise max of linear functions and hence convex, so the drawdown function D(x,t) and the measures MaxDD, AvDD and CDaR are all convex in x, making the return-CDaR problem a convex optimization with linear objective and piecewise-linear convex constraint.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L59-L62",
+          "version": "repo-lines-v1:sha256:529e2a9e858f338677fad07120d6efc31feed74b5032705fc570e50a747eec6e:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOGNjZTJjZDZhZjJmNzg5OWU2NTc0ZTJkZGEyNDJjMjUwM2E3YWIzMTEzZDQ0NTFjOGYzMDgyMzM3ZTNjMDhjYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNjZjNGQ1NjNjZjViNmFmYWVjNWQ3MmY3OWQxYjlkMzY0NDE1ZmY2NjgxYzliNTZjOTJjZTQ1Y2QyYWU5YjUzZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDcyNzI4MTE4ODljYTcwODljNjY3YjZhYjBhMzIyOTVhYjFiMTZkMzZlYTkzNzc5N2VjZTUxNDdlMzRiZjdhMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjgyNjRlMDNjOWQ4YjdlNzdlYjAwOWM1MzU1NzZjNDI1NDM5YWQxZDdlNzhlYjgyMTk2MWIxNTc3MGQ4MDRhYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2202c9309fd64d06825e0ba2a1c40162",
+      "statement": "Linearity of w(x,t) in x gives positive homogeneity: w(λx,t)=λw(x,t) implies D(λx,t)=λD(x,t), so M, A and Δ_α are positively homogeneous of degree one in the weights, and the CDaR is akin to the CVaR (also known as Mean Excess Loss/Mean Shortfall and Tail Value-at-Risk for continuous distributions).",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L63-L64",
+          "version": "repo-lines-v1:sha256:a417ba7c33647e728c5f3c38d3873a60cd39824641d71eb00a333959fccf47bf:eyJzZWxlY3RlZExpbmVDb3VudCI6MiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2ViNzAyNTc1OTNkYTA2ZjY4MmEzZGRkYTU0YTlkMjYwZDRmYzUxNGY2NDUyMzdmNWNhNzRiMDhmOGRhNjFhNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYWFjYWFmNGZiZDcwNjQwNmNjMDlkMmI4N2E2MTRkMmJiNWQxOWNhYTNlMWM1OWE0NjM3YWMxMTVmYWQxNzU5OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDIyZjQ4OGY2NzYyOGIyZTU3MWZmMTExZmQ3YzhmOWFlNzEwNzJiYmNiYWI2MTk4MzhiY2MxZWFmZjM3MTRjZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTM5MzFlM2JlOTY3NjQ1M2NhM2QyNWM5ZWMxYTFhNTBjNTRlNmM1NzRiNzIyZmNjNjViODBmMjA4Y2E0MTA3MCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_dc3ce8cc0af840329098edc1e0e27930",
+      "statement": "The maximum-drawdown-constrained problem reduces to a linear program (16) with auxiliary variables u_k where the constraints u_k ≥ y_k·x and monotonicity u_k ≥ u_{k-1} force u_k to the running maximum, so that u_k − y_k·x reconstructs the discrete drawdown D_k(x)=max_{1≤j≤k}{y_j·x}−y_k·x.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L68-L86",
+          "version": "repo-lines-v1:sha256:43cd9f9fd9024c946cb0d3f54ed11033bb0ae224c115d5ac5f139528767d4a55:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE4NTIwZjQ4ODU0ZjcxOWNkOTBjMGMzOGE0MzhiMGRkMGE1NzZhNTNlOTFlNDc1MDY1MWZlNDhiNDQ5Njk2OWUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY2MGYxZGYwOTA4MjFiNmQ2NmZhY2E5ZjA0OWNiOGRmMDkzYzdlNGZmYzgyNDkzMGQxMzkxYTE4NTRhOGFlOTciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImEzOTMxZTNiZTk2NzY0NTNjYTNkMjVjOWVjMWExYTUwYzU0ZTZjNTc0YjcyMmZjYzY1YjgwZjIwOGNhNDEwNzAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImYwMDQyNjM3ZjcxN2JhNzE1YWM0ZmM4MTEyMGIxYzkwYTc3NDgwZjZmNjk5Nzc5N2ZjNmNjZTRlMWMzOGVjOGMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_87a48b0d12c9404b9fc4fdbf4013e523",
+      "statement": "The CDaR-constrained problem reduces to the linear program (18) where variables z_k ≥ u_k−y_k·x−ζ, z_k ≥ 0 linearize the positive part [D_k(x)−ζ]⁺ of the CDaR, and the formulation does not involve the threshold function ζ_α(x): at the optimum x and ζ give an optimal portfolio and the corresponding threshold value.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L95-L107",
+          "version": "repo-lines-v1:sha256:a785f9ad9611b5836600f4fdc35b3435a4325b696deee5a4c955b1e596776bb6:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhiYTdlMjJiMjgyODdhN2Q0NjI0ZGFiYTEwNWFjOGU4ZmFhYjE0MTQxMTYzODgzN2MzY2U3NTUzMGFkZmU3NzYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUxNjNjOWI5YmE4MWE4MjRhMWMwNTU5NTE5YzRhMTA4MmQxZGJlZDY3NDg3MWIwZTQ2Zjc2MzU1M2FmNjI2NjMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZjNDc1MjM3YmNkYjVjNzU3M2NiZjU4MzEzOTk0ZGM0NDM3ODdjZmNlZWFmN2FhYjZjN2Y5MjU4Njc1MTYzZmMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImNmZjI4ZWZmNGI2YTJkZDVjYzE0ZDJmZjI2MzM1M2VjZWFlMTliNmFiODA2Y2VmZjIwZmEwM2QyM2NlMWQwMjgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_8e3c7dcf6fa949c9906873efa8793b26",
+      "statement": "The constants ν_1, ν_2, ν_3 ∈ [0,1] define the portions of capital one is willing to lose, multiple constraints can be combined, and the reduction to a linear program allows solving problems with many thousands of instruments.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L107-L107",
+          "version": "repo-lines-v1:sha256:e163c9b9ba81a824a1c0559519c4a1082d1dbed674871b0e46f763553af62663:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTE2M2M5YjliYTgxYTgyNGExYzA1NTk1MTljNGExMDgyZDFkYmVkNjc0ODcxYjBlNDZmNzYzNTUzYWY2MjY2MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTE2M2M5YjliYTgxYTgyNGExYzA1NTk1MTljNGExMDgyZDFkYmVkNjc0ODcxYjBlNDZmNzYzNTUzYWY2MjY2MyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMWFmMGU0ZjY0YzBkOTczYjQ4NDIyYTJhZTQ4ODEwMGZhYTQ2MWUwNWFlNWRhNDllOWUzN2NiZjM5Yjc0ZGUyZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2ZmMjhlZmY0YjZhMmRkNWNjMTRkMmZmMjYzMzUzZWNlYWUxOWI2YWI4MDZjZWZmMjBmYTAzZDIzY2UxZDAyOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_188ac634a4904898b4583a024c269f2e",
+      "statement": "The three measures give constrained formulations maximizing return subject to M(x)≤ν_1 C, A(x)≤ν_2 C or Δ_α(x)≤ν_3 C, and dually serve as objectives through reward/risk ratios MaxDDRatio=R(x)/M(x), AvDDRatio=R(x)/A(x), CDaRRatio=R(x)/Δ_α(x), the maximum-ratio portfolio being the tangency of the line through the origin with the efficient frontier.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L111-L113",
+          "version": "repo-lines-v1:sha256:775e86cb30844f765e84a8f74812df779e0fca560233dbe8f4034b18a2b01421:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmZiNjI5NDE2OGM4Y2JlMzYzM2I4YTM0MWZjMDFhZTRmNTAyODBiMjMxNTMxOTc1MDE1NDYyNWRkMGU5OWY0OCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGZjNzhjNzQzYzg4MDE3MzM3NzhhNmUyMjhiYWI3NmNmMzA1YjQ2YTNmNDQzNjE0MTUwZjM4NDFmMTA4ZWFkMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2ZmMjhlZmY0YjZhMmRkNWNjMTRkMmZmMjYzMzUzZWNlYWUxOWI2YWI4MDZjZWZmMjBmYTAzZDIzY2UxZDAyOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTcyMzM0Mjg3YTBkZjJjOGQ2NjM1ZjA4MGZkODUwNGIwNDk1YThiNDA3NjEzOWFmMGIyNWE5YmMzYjAyNDgwNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_363a0603469d4ed69b1800651f7aa53c",
+      "statement": "In the numerical study on futures across 32 markets (1/1/1988–1/9/1999) with x_min=0.2 and x_max=0.8, the LPs (16), (17), (18) were solved with CPLEX and independently verified via a genetic algorithm yielding identical weights, with the box constraints bounding leverage and making the efficient frontier concave.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L115-L115",
+          "version": "repo-lines-v1:sha256:491d0225229d21110015a0f7552fcee62e95cc697e498080a73c5de69d39dead:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDkxZDAyMjUyMjlkMjExMTAwMTVhMGY3NTUyZmNlZTYyZTk1Y2M2OTdlNDk4MDgwYTczYzVkZTY5ZDM5ZGVhZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDkxZDAyMjUyMjlkMjExMTAwMTVhMGY3NTUyZmNlZTYyZTk1Y2M2OTdlNDk4MDgwYTczYzVkZTY5ZDM5ZGVhZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjNlYWMwY2NiOTExNmQwYTMyYzkwNzQ5ZmE0Mjg1ZDBjYzI2Y2ZlYzE3OWZlZjNlZmRkMDhmMDc0YmM5OGMwMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODc4ODk3MjI3MjQyMjhiNWRmMWU4NDMyNmRhM2Q0YzNmNTE2MTFlYTkxMzdjMmFhMDZiYWZhMjU0MzJlNzNhMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1563c1e412bf4535968da6383497bfc6",
+      "statement": "The 5% CDaR constraint ((1−α)=0.05) yields weights significantly different from MaxDD, involving dozens of events in the average and producing a portfolio more robust than both MaxDD and AvDD; because MaxDD rests on a single observation of the maximum loss its solutions can carry substantial statistical error, while the CDaR family's statistical averaging gives better future-risk prediction and more stable weights at an appropriate confidence level such as α=0.95.",
+      "evidence": [
+        {
+          "resource": "repo://docs/20_drawdown_risk_measures.md#L117-L117",
+          "version": "repo-lines-v1:sha256:215195d3cf24cc3c3c0729e91b7d1673455efeec4741bb6fb199a949896b1b47:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjE1MTk1ZDNjZjI0Y2MzYzNjMDcyOWU5MWI3ZDE2NzM0NTVlZmVlYzQ3NDFiYjZmYjE5OWE5NDk4OTZiMWI0NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjE1MTk1ZDNjZjI0Y2MzYzNjMDcyOWU5MWI3ZDE2NzM0NTVlZmVlYzQ3NDFiYjZmYjE5OWE5NDk4OTZiMWI0NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNTcyMzM0Mjg3YTBkZjJjOGQ2NjM1ZjA4MGZkODUwNGIwNDk1YThiNDA3NjEzOWFmMGIyNWE5YmMzYjAyNDgwNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

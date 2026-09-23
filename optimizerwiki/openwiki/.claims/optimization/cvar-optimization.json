@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:c411874ebd4210d2ae8e447de66a6f7b6b0d913e61889ec3fa100e33c0a65858",
+  "claims": [
+    {
+      "id": "claim_3e1baeced30e45b1805858f96f829548",
+      "statement": "VaR lacks subadditivity and convexity, is coherent only when based on the standard deviation of normal distributions, and computed from scenarios is an ill-behaved function of positions with multiple local extrema that obstructs optimization, whereas CVaR is a coherent measure that is translation-equivariant, positively homogeneous, convex, and monotone with respect to stochastic dominance.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L14-L26",
+          "version": "repo-lines-v1:sha256:02cf5bf6c7f4b7dd231cb2709b21ac4871b92f783fc10abb031e7718246f14d2:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQyNjFmZTFhZDJkZjkyMzA1MzdiZTI2ZTY5YTUxNjNlNTI5MmMwY2Q0YTQ1MTJlZDcwZjIyOTMxYTZmYTQ2NDMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ1YjFkMTk3NGViOGUyOWRhZDgyZGFmMjNmNTUxYzNmODViYjJmYWUyNjNiNGU1MWRkOWJkOGU0Y2VhYzg2NTQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjcxOWU0M2E3N2E2YmY0Y2EyN2U2MGIzNTdkYjQ2M2U1MTExY2UzZjI3NGQzMDI5MDM5NTY3OTg2ZmFkNDZmMjIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImM3NmQ0NzY1MzEyMjliZjA3ZmJkMzc0NGNiZDJlM2NmODcyZDU0MDBhNTQyZGE5OTQ5Yjk1ZjI5OGM2Njc5ZTMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_ec3c1fe92e824771992a9f200a2a4a0c",
+      "statement": "For a decision w and random vector y with density p(y), the loss f(w,y) has distribution Psi(w,alpha) = integral over {f<=alpha} of p(y)dy; the beta-VaR is alpha_beta(w)=min{alpha: Psi(w,alpha)>=beta} and the beta-CVaR is phi_beta(w)=(1-beta)^-1 times the integral of f over the tail {f>=alpha_beta}, with beta-VaR never exceeding beta-CVaR.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L14-L26",
+          "version": "repo-lines-v1:sha256:02cf5bf6c7f4b7dd231cb2709b21ac4871b92f783fc10abb031e7718246f14d2:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQyNjFmZTFhZDJkZjkyMzA1MzdiZTI2ZTY5YTUxNjNlNTI5MmMwY2Q0YTQ1MTJlZDcwZjIyOTMxYTZmYTQ2NDMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ1YjFkMTk3NGViOGUyOWRhZDgyZGFmMjNmNTUxYzNmODViYjJmYWUyNjNiNGU1MWRkOWJkOGU0Y2VhYzg2NTQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjcxOWU0M2E3N2E2YmY0Y2EyN2U2MGIzNTdkYjQ2M2U1MTExY2UzZjI3NGQzMDI5MDM5NTY3OTg2ZmFkNDZmMjIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImM3NmQ0NzY1MzEyMjliZjA3ZmJkMzc0NGNiZDJlM2NmODcyZDU0MDBhNTQyZGE5OTQ5Yjk1ZjI5OGM2Njc5ZTMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_46a7787fc34840a0b6e845c3d31fefef",
+      "statement": "The Rockafellar-Uryasev auxiliary function F_beta(w,alpha)=alpha+(1-beta)^-1 E{[f(w,y)-alpha]^+} is convex and continuously differentiable in alpha, and beta-CVaR equals its minimum over alpha, phi_beta(w)=min_alpha F_beta(w,alpha).",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L28-L48",
+          "version": "repo-lines-v1:sha256:8885d473b2498c2290e3213a3224983bc6107240c1a4da189e814862407d573e:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFkYzBkMWMzZGZlOWM5MDNkM2FkMGJhMTNhOTc0ZGIzZDkzMzhiNGU0NmViZDU4NzE0MDYxM2QxZTBkOGRjODQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3MmI2ZGExYzc3MzBmYTIxMDY1ODI1MzU5ODY2YjAwYjY0NWMxNjRjZDI0Y2M5ODllNzc2OGY4NTRhNjg5OTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImFiMWZmYjUyOTAzNWU0NTVmZWZjNjg5MGQyNDYxM2Q3YzM5YmM3ZDg3YTRkMGVjOGQ3NzdkODA0NWUyNmJjZmIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQ0ZGRmZmNiYzIxZTk3YWQ0YzZlNWYwNmZjOTgzMzQ4NDU4OGQwZTJjY2U2OTZhNmQ5OGM4NDY2OWE5MDVmYWEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_469f50c6958249c09068348c43c972b7",
+      "statement": "The set of minimizers A_beta(w) of F_beta over alpha is a non-empty closed bounded interval whose left endpoint is the beta-VaR, so CVaR is computed without first computing VaR, and the derivative condition for the minimum reduces to Psi(w,alpha)=beta (the loss quantile).",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L28-L48",
+          "version": "repo-lines-v1:sha256:8885d473b2498c2290e3213a3224983bc6107240c1a4da189e814862407d573e:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFkYzBkMWMzZGZlOWM5MDNkM2FkMGJhMTNhOTc0ZGIzZDkzMzhiNGU0NmViZDU4NzE0MDYxM2QxZTBkOGRjODQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3MmI2ZGExYzc3MzBmYTIxMDY1ODI1MzU5ODY2YjAwYjY0NWMxNjRjZDI0Y2M5ODllNzc2OGY4NTRhNjg5OTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImFiMWZmYjUyOTAzNWU0NTVmZWZjNjg5MGQyNDYxM2Q3YzM5YmM3ZDg3YTRkMGVjOGQ3NzdkODA0NWUyNmJjZmIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQ0ZGRmZmNiYzIxZTk3YWQ0YzZlNWYwNmZjOTgzMzQ4NDU4OGQwZTJjY2U2OTZhNmQ5OGM4NDY2OWE5MDVmYWEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_18e6a3e1408c43fba2e19d8e087e0e44",
+      "statement": "Minimizing beta-CVaR over portfolios equals the joint minimization min over (w,alpha) of F_beta(w,alpha); a pair (w*,alpha*) solves the joint problem iff w* minimizes CVaR and alpha* lies in A_beta(w*), so one minimization yields both the optimal portfolio and its VaR, and the presence of an expectation places it in stochastic programming.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L50-L56",
+          "version": "repo-lines-v1:sha256:ead57b573a4ba47076c4522b17532a79b786f319ccaff698a890d124851cfeb7:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjljNjgyZjYzMjE0ZmYyNjE2ZGEwZjRmZDlhNzFlNzVlMWUxZjAyMWZlYThmMzAzZTJiYjAzNjQ0OTIzYjk2NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDZiYjEwYzkxZjllMDk3NWY2MWU0ZDgyOGQzMDhkOTNhZTBhNWE1NDQyZDE2OTQxMWVhMzA2YWMxMzY1Mjg1NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDNjZWFhYzYyZWY4ZTM3YjM0ZjQ0ZmQ5N2UwOTI4MDFjZjc2NGQxMDk1MTY4YTk5NzBmZDhlNjBjNmRmNDczNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmEwNmEzMWM4MGI0ZmVmMDEzOTI0Yzc1NDQ1NTViNTcwNmIyMGViNGJlZTY0NDc1NWUzZjNkYmRkOTliYzgwZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_4aa8e1b1b37b47538f4bc306be7da41a",
+      "statement": "F_beta(w,alpha) is convex in (w,alpha) and phi_beta(w) is convex in w whenever f(w,y) is convex in w; with convex X the joint minimization is a convex program with no gap between local and global minima.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L58-L73",
+          "version": "repo-lines-v1:sha256:918e988c3518e6513ed8d5f2359d4ef6a7b79eabfc0e78afc74223239d46297a:eyJzZWxlY3RlZExpbmVDb3VudCI6MTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNmZWIyNTliZTZlY2IwODA1NzFjYjRkMTBkMDI2MGYyMzVmODU3NzQxMDM4ZjAyNjYyZWVmNTRjOTRhOWQ1NWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImYyNWEzNjBmZDRkNjM4ZmIzYTBjNzg5YmZmMDZkODRjNmVjYWVjOGU3MTc0N2JlN2JiZGY1MTlkNWE4YzlkYjEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijg0MWMzYTZlNDQ5MmM5ZjQ5YWEwOGRlZWQ4Nzg2ZWE3ZTg5MDg2ZDU2MjlhZTM3ZTFlMTY0ZGUwMjg2ODMwZDEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQ0OGQ3YTUxZmU4OGRkMTIyOTk4ZjYwOWE3NzAzMTdjZDE5M2JlNmMwMWYxNzA1OTYxNjgzMDZlNzk4NTJlNDgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_514837b7f8834a05886b4ab9ef84d310",
+      "statement": "For portfolio selection with w_j>=0, sum w_j=1 and loss f(w,y)=-w'y linear in w, the loss has mean mu(w)=-w'm and variance w'Vw, the minimum-return requirement gives the linear constraint mu(w)<=-R, and in the normal case with beta>=0.5 both VaR and CVaR equal mu(w)+c(beta)sigma(w) with positive coefficients so minimizing CVaR, VaR, or variance yields the same portfolio.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L58-L73",
+          "version": "repo-lines-v1:sha256:918e988c3518e6513ed8d5f2359d4ef6a7b79eabfc0e78afc74223239d46297a:eyJzZWxlY3RlZExpbmVDb3VudCI6MTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNmZWIyNTliZTZlY2IwODA1NzFjYjRkMTBkMDI2MGYyMzVmODU3NzQxMDM4ZjAyNjYyZWVmNTRjOTRhOWQ1NWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImYyNWEzNjBmZDRkNjM4ZmIzYTBjNzg5YmZmMDZkODRjNmVjYWVjOGU3MTc0N2JlN2JiZGY1MTlkNWE4YzlkYjEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijg0MWMzYTZlNDQ5MmM5ZjQ5YWEwOGRlZWQ4Nzg2ZWE3ZTg5MDg2ZDU2MjlhZTM3ZTFlMTY0ZGUwMjg2ODMwZDEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQ0OGQ3YTUxZmU4OGRkMTIyOTk4ZjYwOWE3NzAzMTdjZDE5M2JlNmMwMWYxNzA1OTYxNjgzMDZlNzk4NTJlNDgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_7c0b447534344d1f9031a85b0ff02bf7",
+      "statement": "Sampling y_1..y_q and approximating the expectation by the sample mean gives the scenario auxiliary function tilde F_beta(w,alpha)=alpha+(1/(q(1-beta))) sum_k [f(w,y_k)-alpha]^+, which is convex and piecewise-linear in alpha.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L75-L87",
+          "version": "repo-lines-v1:sha256:735e434409fda953e9848067122c8481c5884fb30affec885b1c8cd22037649f:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE3YjY0ZjFiYjRlMGVmZWVmMThiMzFjZWNkNmUxMWQyNzI4MGQ1N2FlMmQ2NTZlZmFhMTI2NjU3YTcxNjJlNzYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZkMGM5MGE1YTczYzNiZjczNTA0NjM0YzdiMTMzODczNmUxNmRmMmIyNGEyZDMwMmQ0MmRkMzE2MjA1MWFiNjciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImY3NGEyNTM5ZTc2NzcxMzhhZTFhYjI2ZmIzNmVlZGY4MGYyNTQ4MTQxNzZkYTk2NjgyNjRiMzE2Y2JhMGFmMGIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImFkMGU0MTE5ZTNlNWEwODA5YTNhODM2NWY4YjNiZTQ4OGM1ZTQyYjMwZTQzMTdkNjQyZjQ1ZjA0ZDIyNmZmOGEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_7df827775f6844e7a316bd1c67852ca2",
+      "statement": "Introducing per-scenario excess variables u_k, minimizing tilde F_beta is equivalent to minimizing alpha+(1/(q(1-beta))) sum_k u_k subject to the portfolio constraints, u_k>=0, and w'y_k+alpha+u_k>=0; the reduction to this linear program does not depend on the return distribution being normal and works identically for non-normal distributions.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L75-L87",
+          "version": "repo-lines-v1:sha256:735e434409fda953e9848067122c8481c5884fb30affec885b1c8cd22037649f:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE3YjY0ZjFiYjRlMGVmZWVmMThiMzFjZWNkNmUxMWQyNzI4MGQ1N2FlMmQ2NTZlZmFhMTI2NjU3YTcxNjJlNzYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZkMGM5MGE1YTczYzNiZjczNTA0NjM0YzdiMTMzODczNmUxNmRmMmIyNGEyZDMwMmQ0MmRkMzE2MjA1MWFiNjciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImY3NGEyNTM5ZTc2NzcxMzhhZTFhYjI2ZmIzNmVlZGY4MGYyNTQ4MTQxNzZkYTk2NjgyNjRiMzE2Y2JhMGFmMGIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImFkMGU0MTE5ZTNlNWEwODA5YTNhODM2NWY4YjNiZTQ4OGM1ZTQyYjMwZTQzMTdkNjQyZjQ1ZjA0ZDIyNmZmOGEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_7882113366ad4aaa8884f8366490a185",
+      "statement": "For general loss distributions y is governed by a measure P independent of w (essential for the convexity results), a positive jump Psi(w,alpha)-Psi(w,alpha^-)=P{f=alpha} signals a probability atom, and the flat-step case motivates the upper VaR alpha_beta^+(w)=inf{alpha: Psi(w,alpha)>beta} with alpha_beta<=alpha_beta^+, so VaR can be unstable when a slightly higher confidence forces a jump.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L89-L103",
+          "version": "repo-lines-v1:sha256:481cce20d6f6454b2eb850a3783c540aba719608058a8067f7f7b4689384810d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc5ZmJlZTkyMmQyOTI2ZDgwYjRjNjFjZjEyZDVlMDcxZWMxY2FmMGM2NTllNzUxM2RjYjYxOTg2MTk1ZTJjZGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBjZDM1MDYxODA1N2IyOTU2ZmU5NWI5ZmYwMzBiMjIxMDQ1YmQ5NTljZDI5Mjg0MmI3ZTg2ZTgwN2JiZDA2MjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjAwMDI3NTBiYjA3NTM3ODhiM2E1NTY3MzFiMDI5ODMzMjBlMGQ5Mjc1YmNmMTU2Yjc0ZDBjOGZjMjU5ZTk5YmUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImRjNDBhZmI0MzlhODljNGVkNzI5ZDZmZmVjOWM4YjMzNjlmYmFiMDJjNTMyZGU3MzA5ZjZmYWNhNzQxODczNWEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_bec851247f1140f5893c6e9c7571eafe",
+      "statement": "General CVaR is the mean of the beta-tail distribution whose CDF is 0 below alpha_beta and [Psi(w,alpha)-beta]/[1-beta] above, and the upper CVaR phi_beta^+ = E{f | f>alpha_beta} and lower CVaR phi_beta^- = E{f | f>=alpha_beta} satisfy phi_beta^- <= phi_beta <= phi_beta^+ with equality only when Psi has no jump at the threshold.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L89-L103",
+          "version": "repo-lines-v1:sha256:481cce20d6f6454b2eb850a3783c540aba719608058a8067f7f7b4689384810d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc5ZmJlZTkyMmQyOTI2ZDgwYjRjNjFjZjEyZDVlMDcxZWMxY2FmMGM2NTllNzUxM2RjYjYxOTg2MTk1ZTJjZGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBjZDM1MDYxODA1N2IyOTU2ZmU5NWI5ZmYwMzBiMjIxMDQ1YmQ5NTljZDI5Mjg0MmI3ZTg2ZTgwN2JiZDA2MjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjAwMDI3NTBiYjA3NTM3ODhiM2E1NTY3MzFiMDI5ODMzMjBlMGQ5Mjc1YmNmMTU2Yjc0ZDBjOGZjMjU5ZTk5YmUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImRjNDBhZmI0MzlhODljNGVkNzI5ZDZmZmVjOWM4YjMzNjlmYmFiMDJjNTMyZGU3MzA5ZjZmYWNhNzQxODczNWEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_2c6fa1105ee0499c92de7d14b40651af",
+      "statement": "With lambda_beta(w)=[Psi(w,alpha_beta)-beta]/[1-beta] in [0,1], CVaR is the weighted average phi_beta=lambda_beta alpha_beta+(1-lambda_beta)phi_beta^+ (or alpha_beta at the maximum loss); for a scenario model with ordered losses z_1<...<z_N and probabilities p_k and index k_beta, VaR is z_{k_beta} and CVaR is (1/(1-beta))[(sum_1^{k_beta} p_k - beta) z_{k_beta} + sum_{k_beta+1}^N p_k z_k], the weighted tail-loss average.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L105-L119",
+          "version": "repo-lines-v1:sha256:3a1ac59565f5bb4724755149000254e19b267705b14c118ebb5fbbe1a3e19e4e:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY2ODNkZDY0NTJlMGNmODEyNmRlNWU4ZWRjMmM2NzNkMGY2ZmIyOWU0ODhiYTE1ZGFjNzViNjA0NmQ4ZmI3MTEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU0NGFjZmFjM2YxM2E2NmVmMDk1NzY0M2I1YzEyNmE1ZjM5MjdmODgwMzQxZWRjYjBiY2IxYWY3NWFjYWZlOWQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjAyNTNlN2IxN2U4ZDY1YTk5OGNiMmY5ODQ0MDk5Njg4NGRmYzZkYjY1YjlkN2I4MjJkMTBjNmM5OGU3M2MxNmYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjgwMTE1NWM4NzQxYzdjZGY5NzE1NTgxZGY5NGNiOWMzM2VhNTA5OTViMTY0ODc4MjlkNWIwZTUyNjFiOWNkYmEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_1d4d64e7d64645639cbe6c4e5c3394cf",
+      "statement": "In tail-measure nomenclature the upper CVaR is the mean shortfall, phi_beta^+ - alpha_beta the mean excess loss, and the lower CVaR the tail VaR, and it is CVaR — not its upper or lower variants — that is coherent under discontinuity, so identifying Expected Shortfall with CVaR is what preserves the good properties.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L105-L119",
+          "version": "repo-lines-v1:sha256:3a1ac59565f5bb4724755149000254e19b267705b14c118ebb5fbbe1a3e19e4e:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY2ODNkZDY0NTJlMGNmODEyNmRlNWU4ZWRjMmM2NzNkMGY2ZmIyOWU0ODhiYTE1ZGFjNzViNjA0NmQ4ZmI3MTEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU0NGFjZmFjM2YxM2E2NmVmMDk1NzY0M2I1YzEyNmE1ZjM5MjdmODgwMzQxZWRjYjBiY2IxYWY3NWFjYWZlOWQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjAyNTNlN2IxN2U4ZDY1YTk5OGNiMmY5ODQ0MDk5Njg4NGRmYzZkYjY1YjlkN2I4MjJkMTBjNmM5OGU3M2MxNmYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjgwMTE1NWM4NzQxYzdjZGY5NzE1NTgxZGY5NGNiOWMzM2VhNTA5OTViMTY0ODc4MjlkNWIwZTUyNjFiOWNkYmEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_b00bf962b545437ba4a64fd551272634",
+      "statement": "If f is sublinear (subadditive and positively homogeneous) in w then phi_beta is sublinear, and a risk measure is coherent in the Artzner et al. sense when it is sublinear, equals c on the constant loss c, and is monotone under first-order stochastic dominance; consequently beta-CVaR is coherent for general loss distributions when f is linear in w, and CVaR varies continuously (is stable) in beta.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L121-L133",
+          "version": "repo-lines-v1:sha256:ac5ff066e9d2ba4a0f5f47739086957fff703d8d4397a0f754d4afe4122943ec:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQzZmYwZDE5ZmFjNGNjN2VkNmNhMTY1MmY3OGIyZjUyMjY0NDdkNDk0YjY0NDBlZmQyMDE5Mjk3MDU3ODNkNjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNiYWUxMjRmZGViOGNmMGY0MzQ0Zjc1YzVlMWFlZmNhYmQzNGI2ZGI4ODYzNGNkMjM4OTUyNWJiNzVhZDhkMGIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjlmODA1NTY3YjhmMTdhNjQ1NjlmZmEzOTc5ZTgzMjBmNjk5ZGZiYzc4MGZiOTFkOTkyZTEzZWY3YjA2NDQ3YTkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjA2NzYzNDAzMWIzNmU0ZmY0OWViMTQwMDE0M2E1NTE0ZDc2NDA1OTg4MWU3ZTM1NWYxMTMyMGRlZTFiYTVkMWYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_928fa4fddfc24521be352ac24d683cad",
+      "statement": "Joint minimization extends unchanged to the general case, min over w of phi_beta equals min over (w,alpha) of F_beta with alpha_beta(w*)<=alpha*<=alpha_beta^+(w*); with discrete variables eta_k>=0, f(w,y_k)-alpha-eta_k<=0 and alpha+(1-beta)^-1 sum p_k eta_k <= omega are all linear when f is linear in w, so CVaR can enter a model as a constraint phi_beta(w)<=omega at one or several confidence levels, and adding such a constraint to index tracking improved risk characteristics in- and out-of-sample.",
+      "evidence": [
+        {
+          "resource": "repo://docs/16_cvar_optimization_rockafellar_uryasev_formulation.md#L135-L145",
+          "version": "repo-lines-v1:sha256:186a27bd65881a6d995117032f6e71ae9c42626b79d9d41b6121b9a45823c708:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIxZTk2ZGNlOTA3ZWZhYWRlODkzZTc1NzZmYTE3OGNmMDA2ZDRkN2FkNjg5OWQ5NGQ1NTNiZGQ3ZjkzOWM0YmQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM1NDBiZTU2ODlkNmYxMWE5OGFkMmMxZDU1N2MzNTRhMzYwNGI0NzdhMWE0M2UwNTU0YWIwZjU4YTIzZTI5ZjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijk3OWRlOTBlMzgxZTYyM2JhNzllNDU4YTE1MzRhY2I4NDNmODg1ZjgxZTI5NjBjZWNjOWY3OWJhMGEyMDcwM2UiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImRlY2U5NjA2Y2FmOGI3ZDEyODg4Y2E0YTI4MzUwYTBmNzBiM2E3MjUzYzI3MzUwMmNlMjQxNmVlOTk0MmEwMTgifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

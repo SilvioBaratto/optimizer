@@ -1,0 +1,260 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:c46223f4bf6fccac8787c3a6ea4ff2489b5179caa92c99301fc2e1b5d9884fbc",
+  "claims": [
+    {
+      "id": "claim_d531de03a3b647aaa1cc5875822dd1b4",
+      "statement": "The mean-variance model selects a portfolio at a single instant, which suffices only in an ideal single-period economy where the agent selects the optimal portfolio at t and liquidates ('releases') it at t+Δt; in a multi-period economy the agent cannot release it and must instead manage it at t+Δt, t+2Δt and onward.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L16-L24",
+          "version": "repo-lines-v1:sha256:9d633944c25510cf6e3a5b9d7d3e5d79f209a28242d3b72803559902ad74641e:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTlhMDA5MjFhMjFkMmZkNGI5ZTgyNTQ0YjkyMTU4MjJhNDQ0MDA2ZWQxOGI2Njk5NWYxOGNiZjBkMTNmZTdmZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjJmMGIxNjFiOWM1YmMwMDU3OTczYzg1MzRkYjJhZGVhYjZiNjI2N2QxNzA3ZDkyMjQ5ZjA1OGIwMzdhYzVlMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODNlNjAyYzkxZGQyMmNlNjM3YTI2ZDE1NjkzZDkwMmNiYmU1ZWEwYWQ5YmYyYTA1YzgwY2NiOTJlM2NiMzkzZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2Y1ZDQyMDk4NWY5MDg2NzY5YzJhNWU2MWJhM2QwNDMzZmM1MTlhMTg4NDY2Zjg2MTlhOTY4N2M5MzY1MjQzNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8598440ceed24c8cbb01c97761652aa4",
+      "statement": "In an ideal multi-period economy the means, variances and linear correlation coefficients stay the same at every instant, so the portfolio optimal at t remains optimal at all later instants and dynamic management coincides with static management.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L26-L26",
+          "version": "repo-lines-v1:sha256:3e644a336b5fad13b5c8d5706317e2f670692d1a1982939b5f5bd49305454f8c:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2U2NDRhMzM2YjVmYWQxM2I1YzhkNTcwNjMxN2UyZjY3MDY5MmQxYTE5ODI5MzliNWY1YmQ0OTMwNTQ1NGY4YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2U2NDRhMzM2YjVmYWQxM2I1YzhkNTcwNjMxN2UyZjY3MDY5MmQxYTE5ODI5MzliNWY1YmQ0OTMwNTQ1NGY4YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYWE0YTJkYTI5NDgyNWFkYWQ5MDZkMGIyYWMyMTQ5Yzk2MTZjMWVhZTc0Y2YzMWM4ZDljNGJhYzAyNWQ3NjE2NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODIwNzg2ZGQxNjhjYTQ3MjVjMzU1NDJmODcwOTYzNzk0ZWI4ZjE3ZGQ3ZmNjOWJkYjJkMmI2ZjY1MGI2NDRlYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2c25a4338ae7446f8674853988882011",
+      "statement": "In reality the means, variances and correlations change with the instant considered, so the portfolio optimal at t may be neither optimal nor efficient at later instants; this is the limit separating static from dynamic management and making portfolio revision necessary.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L28-L28",
+          "version": "repo-lines-v1:sha256:dac1685c4f8ff46b060b69b666a0f3ff27e40b9acdb6a9f9546ec936bc35d816:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGFjMTY4NWM0ZjhmZjQ2YjA2MGI2OWI2NjZhMGYzZmYyN2U0MGI5YWNkYjZhOWY5NTQ2ZWM5MzZiYzM1ZDgxNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGFjMTY4NWM0ZjhmZjQ2YjA2MGI2OWI2NjZhMGYzZmYyN2U0MGI5YWNkYjZhOWY5NTQ2ZWM5MzZiYzM1ZDgxNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2Y1ZDQyMDk4NWY5MDg2NzY5YzJhNWU2MWJhM2QwNDMzZmM1MTlhMTg4NDY2Zjg2MTlhOTY4N2M5MzY1MjQzNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTM3M2ZhY2U1MTFlZDU4MGNkMDRiYWYwYzhlNzM3MDA4ZjUyZTg3ZWQ1NTVmZDcyNjI4YjlmNmEzMzU5OGVhZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_00212cfdfe5c4ad6b275c5d6f6a43f14",
+      "statement": "For three Italian equities (Alleanza Assicurazioni, Fondiaria-Sai, Unicredito Italiano) with target expected return π=0.00041, estimating parameters over two daily windows offset by a single day (window A 22 Aug–20 Sep 2006, window B 23 Aug–21 Sep 2006) shifts the optimal weights from (0.69193, 0.52029, -0.21223) to (0.96600, 0.09500, -0.06100).",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L52-L58",
+          "version": "repo-lines-v1:sha256:5bc692fb3d5f78b8eb94fb454ed39c0a18e17c7cadc251e166e2fd4ff1b59bb3:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTI4ZTIxOWE4MGRmNmZkZGM5OGIxOTBkNzA0OWYwODFiOGM5ZTIxNzI5MmI1NjU0NDRlZTY0OGM5NjM3OTczYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjg1OWI1NGU5NzRmYzljYTBlNzEzMTk4NjI3MGQyNjA3ZGQwMGIzNzRlYmRhNjk0MTdlMWI3MjM1NTg3OTQ3MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmE4MjY1ZDY4MDQ0YmRjYWM4YWNhZTk4OTM5YzgxOTEyY2ExZjU0ZTg5MmRkOGQ1ZGYzZTViYmEyZGZhN2ZlZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjA3MzYxMjg0OGRjNWMxYWE0NDc4M2RmZGQ1YmYzZDBkNjJkNGJlYzliMmE2ZWI2MzIzYjNlNzhjZWU2MWQ4NyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_60e1580a25c2418b8e931f56667baa64",
+      "statement": "Holding the target expected return 0.00041 across periods, the passage from window A to window B requires at t+Δt buying X1 for 0.27407 of capital, selling X2 for 0.42529, and buying X3 for 0.15123, showing a one-day shift of the estimation window changes the optimal portfolio significantly.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L62-L68",
+          "version": "repo-lines-v1:sha256:944a80faab4726be7999a0af25871a676a38255ef55fd9f0725323bd53b65449:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2YyMWE2Y2IzMDUzODEyMjFhMGMzNWRiNGM5YWE4ZTE4MGNlYjUxZGI2OTVmODk2MTAwZjIwNmJhYzhlZmYyOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDAxMjY1ZDA0MGQ0MTIxNjY0ODgyZTAxMWU1YWYxNWU4YWFiYjY0ZDgwZGUyNzZlMjlkYTMzOGQ0YzNkODQ5YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjA3MzYxMjg0OGRjNWMxYWE0NDc4M2RmZGQ1YmYzZDBkNjJkNGJlYzliMmE2ZWI2MzIzYjNlNzhjZWU2MWQ4NyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjUxOWExMmViMjZjZjQyYjU3ZjQzZTcyMDU0YmFmYzM3ODU2MDY4ZTA1NmM0MmNkMjI3ZDY0MjI5Mzc5MzM1OCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6c4f9291b50e4054bc54500aed552167",
+      "statement": "The set of adjustments made at t+Δt is called portfolio revision (in a frictionless market); because in reality these adjustments have a cost that may sometimes exceed the increase in the revised portfolio's expected return, revision is not always worthwhile.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L72-L72",
+          "version": "repo-lines-v1:sha256:81b84b61105312cbf1cce806e140f8b8366f66a5276624e39091a37fbc89d9eb:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODFiODRiNjExMDUzMTJjYmYxY2NlODA2ZTE0MGY4YjgzNjZmNjZhNTI3NjYyNGUzOTA5MWEzN2ZiYzg5ZDllYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODFiODRiNjExMDUzMTJjYmYxY2NlODA2ZTE0MGY4YjgzNjZmNjZhNTI3NjYyNGUzOTA5MWEzN2ZiYzg5ZDllYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjUxOWExMmViMjZjZjQyYjU3ZjQzZTcyMDU0YmFmYzM3ODU2MDY4ZTA1NmM0MmNkMjI3ZDY0MjI5Mzc5MzM1OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjZiMTgzOTEyYTQ3NzIyNWMwNzU3ZWYyMzBiZTIyNGFlMjhmNWJhYzMxYzgzOWU1YzYzY2E3OGYxZTI4YmUxMCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_07812af1cde04cca8b41a0d64b2636a6",
+      "statement": "Carrying out a worthwhile revision proceeds in three steps: identify the main categories of revision cost, locate the potentially revised portfolio, and verify whether revision is worthwhile.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L74-L80",
+          "version": "repo-lines-v1:sha256:4ec497ce4216e36069fddde853f82e210590263b05537b71f0f2005228265ad9:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2EzOWQ3YWJlNmYzNTcyNDc3NDc5NzExNWE3OGIzZjFhZGM0NTAwOWQyODYwOWE3ZDAwZDA4NmVlODkzNDkzZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTMxNDgzNmE4NmVhOGFlOTMxYWRjOTZmNDhhNWQ4OTJiYWJkMTM2OTk3NjE3YWQzMWJiMTMyZTZjZDAwNTJlNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGM1ZjE0ODk4ZjU0MmYyY2JlYWNmN2QzODQ5NzQ1Yzg0YWUwMDU1ZmY2ZGI4ZmY3ZTczZjhkMzUyNmQxODBjMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmYwODgyZDhiNTM0NmY4ODMzNjdiZDkyZmI0YTQ2ZWMxZDI4M2I2NTQwYjIxOWM2MmZkNGU0NDYyMzE3ZWZkNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_94afcb3413e846a59e8acc4b868b476f",
+      "statement": "Data collection and processing costs (collecting new data, updating the data set, transforming prices to returns, computing means/variances/correlations) are a fixed cost that must be borne at every instant whether or not the portfolio is revised.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L86-L86",
+          "version": "repo-lines-v1:sha256:b16e39e4511781d4f24946bc2a439115f8fec7a3578446753494d01ccc25efeb:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjE2ZTM5ZTQ1MTE3ODFkNGYyNDk0NmJjMmE0MzkxMTVmOGZlYzdhMzU3ODQ0Njc1MzQ5NGQwMWNjYzI1ZWZlYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjE2ZTM5ZTQ1MTE3ODFkNGYyNDk0NmJjMmE0MzkxMTVmOGZlYzdhMzU3ODQ0Njc1MzQ5NGQwMWNjYzI1ZWZlYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmZkMmY5NDE3YmM4OWNhZTU0MDM2ZTFhNjU2OGM5ZTUwYmJkNTQ2OTdkZGJkZjllZGQzZjI2NzQyNmQ1YjI1YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmU1NmMwZjgxZGUxYzMwODc5MWEzN2RhMjkzMDIwMzdlNjU1NTdhYTVhNzc2N2I3OTUyNDEwZjFlZTMyNjU2NCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_6432ca6d13834859b9c109ca8d4c2aa3",
+      "statement": "Transaction costs — what is paid to an intermediary to buy and/or short-sell the investment choices — are a variable cost borne only in the instants when the portfolio is actually revised.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L88-L88",
+          "version": "repo-lines-v1:sha256:dbdce12523148d3ddc863a920600159252b54db71f7e0f7613571056a0745c2b:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGJkY2UxMjUyMzE0OGQzZGRjODYzYTkyMDYwMDE1OTI1MmI1NGRiNzFmN2UwZjc2MTM1NzEwNTZhMDc0NWMyYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGJkY2UxMjUyMzE0OGQzZGRjODYzYTkyMDYwMDE1OTI1MmI1NGRiNzFmN2UwZjc2MTM1NzEwNTZhMDc0NWMyYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmViODRhMmU1ODM2MzhlODA2NWMzYzJhYjk4ODIxMGU5NjUyZmVlYTdlMGQyZDM3OGNhMGE0OTg5YmFiZWFlMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTg1ZDNjOWYwODlmM2I0M2E2NjRmMGMyMjZlMjYzMzZmZDFiOTE0NGQ4YzVlMzEwM2NjY2RiY2RhM2EzNDU1ZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e1afb5feb30c4a5794b9a5827fe746c1",
+      "statement": "Capital-gains taxes are technically not costs but the tax on any realized increase in the portfolio's value; in this context they are treated as having the status of a cost, as clarified by the formal convenience condition.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L90-L90",
+          "version": "repo-lines-v1:sha256:dfa325070f2bd12352ca60f11bc95ed4bcce2350f5ac1cd26f5484283ae41fd0:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGZhMzI1MDcwZjJiZDEyMzUyY2E2MGYxMWJjOTVlZDRiY2NlMjM1MGY1YWMxY2QyNmY1NDg0MjgzYWU0MWZkMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGZhMzI1MDcwZjJiZDEyMzUyY2E2MGYxMWJjOTVlZDRiY2NlMjM1MGY1YWMxY2QyNmY1NDg0MjgzYWU0MWZkMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmU1NmMwZjgxZGUxYzMwODc5MWEzN2RhMjkzMDIwMzdlNjU1NTdhYTVhNzc2N2I3OTUyNDEwZjFlZTMyNjU2NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzBkZGRkYTU2ZTJhYzMyYTY0MDhkNzU1MDVlMDBiODdhNzk4MzQyZGMwY2UzZDU3ODFkNDNjOTExYjM0OWI2ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_af8a21ce65204cff9cf5195d230647ed",
+      "statement": "In the two-asset setup with t_cg∈[0,1) the fraction of realized capital gain paid as tax, revision (Strategy 2) disinvests Δ_{t+Δt,1}P_{t+Δt,1} from asset 1, pays the tax t_cg·max{Δ_{t+Δt,1}(P_{t+Δt,1}-P_{t,1}),0} on any realized gain, and invests the remainder in asset 2, versus no revision (Strategy 1) with z*_{t+Δt}=z*_t.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L102-L116",
+          "version": "repo-lines-v1:sha256:6744c7d23d157d0982486147f50850b3d3c0767f7ed27a5f5a2f75075dffa8e4:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU2OWM0Mzg5NjFiZTYxNjA0YjY1N2U4Y2RkOTcxNDA0NDgyNDdmMzQ3YjMxYzU2ZjMyZDlhNjU1YTFjMTI0ODYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjgwNTAxMjRmNjZlMDQ4MmQyNWE3YmYxZDE3MWYyOTlhNmY1MDMwYTUwOGViNWE3YjhjYzA0NDcwOWIyM2QyZDEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjEwMDhkZTQyZjEzZDYzZGMwYjYyYjg3NzRhMzYxYzBhY2U2MzI3YWFjODhlZThjMWNhYjExN2JiZDI2YWY0NzgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImExNjdhNmQwMDUzNjJmMzc0NTRiMGM1Yzg1MmI5MTZiZmIyZjU0YjdlOGIyNWUzMjlhOTJiNmUwN2E3NjYzZjAifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_e829e3591a07436a8bad358145f5f4d9",
+      "statement": "Requiring r_{R,t+Δt}>r_{NR,t+Δt} and cancelling the shared terms reduces the convenience condition to Δ_{t+Δt,1}P_{t+Δt,1}(r_{t+Δt,2}-r_{t+Δt,1})>t_cg·max{Δ_{t+Δt,1}(P_{t+Δt,1}-P_{t,1}),0}·r_{t+Δt,2}≥0, the right side being non-negative since t_cg≥0, max{·,0}≥0 and r_{t+Δt,2}≥0.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L118-L126",
+          "version": "repo-lines-v1:sha256:2458281fae48757d1369d368a19b785747e94e49d359d1a55b09a9ed460b5f95:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODk2NDZmMTJjZDcwYzFhZGNhMDBjODkwOGQyNzRjNjdjZDkyZDk0MmM2Nzk0NzM2ZDY5NjYwZmFkYmJjOTJiMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWNlZDNlM2ZkYTE2MTg2NDhmNmRjNmE2YmQ4ODIzMDc3YjE0NzJkNzQ5YjM5NmMwNDg2NmMwMjRlZGI3OWZkNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODFiOTBhYzI2MGNmNjE4OTcyYTI2OGE1YjNlODJhMDhlZmU4ZmYzMjQ1ZmI3ZWE2OTM4NmI2NmFlMzRjOTZjMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMmI2M2I5MDg4ODE5MjdmOTA4MWVhOTdkODkwNWVhMTdkMmZlNjQ3ODVkYWUyNWYxYTNiYTg5ZjlmNDlhMDMyOCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_7853271d33f1414b87bc984cee4580d1",
+      "statement": "Dividing by Δ_{t+Δt,1}P_{t+Δt,1} gives the final convenience condition r_{t+Δt,2}>r_{t+Δt,1}+t_cg·max{Δ_{t+Δt,1}(P_{t+Δt,1}-P_{t,1}),0}/(Δ_{t+Δt,1}P_{t+Δt,1}): revision is worthwhile only if the receiving asset's expected return exceeds the liquidated asset's by at least the per-unit incidence of the realized-capital-gains tax.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L128-L130",
+          "version": "repo-lines-v1:sha256:15ea29a63ed93aab562f2483432fec4af6823f2a19af50daa195d26254cec563:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMmEwMmFiOTQ3ODBkNzljN2U3ZmQxNjQ0MzgxYmI0OTAxYjU2ZWIxMDdmZjY5N2U1ZDY2ZTAzMzFhOWY0Nzc3YSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTJiMTM2NjM3YzM5MDdmMTY3ZDU3ZGRmYjBiODMwNWY0ZDBhZThkZThhMGY4YzQzM2RhYjgzNWM5M2EyYWQ2MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmFkNjQ0MDk2N2IwZmQ2YzczNmZhYjM2YTlmMDhmM2E4YTlkZmNjYzBkMzAyYTJkMmZjNmYyMGYzMDNmZDA5YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmZmZDUxYmEzMTdlYTg3M2JmNGYyOTQyYWJiNDVkMTIyNDNjMzJjMmEzYjUyYjVmMGJmZjc1NDlmZmI0MjJjYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8cc230f273fb48839fe8631216d17079",
+      "statement": "The capital-gains 'cost' arises only when a realized capital gain occurs, making it a variable cost borne not in every revision instant but only when a gain is realized on the liquidated position.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L132-L132",
+          "version": "repo-lines-v1:sha256:d880b9b16fb8ae0a61399a0ea97fb1d6d9fe4610487e7dbed0a878da6204b353:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDg4MGI5YjE2ZmI4YWUwYTYxMzk5YTBlYTk3ZmIxZDZkOWZlNDYxMDQ4N2U3ZGJlZDBhODc4ZGE2MjA0YjM1MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDg4MGI5YjE2ZmI4YWUwYTYxMzk5YTBlYTk3ZmIxZDZkOWZlNDYxMDQ4N2U3ZGJlZDBhODc4ZGE2MjA0YjM1MyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzY1ZjZmNGU4N2Q1ZjFiZWY3NzUwNzMzMDQ2MDBkMWMzMTA5MWVmMDU0YzEzOGZjNGUzNTBiNDgyMDc4ODBlNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjY3NjdjYzk1ZDE1OWFiZGQ2OGM3MzcxZjZkNTQ3YmE5ZjNhOGNjNWJhMTc4MWE5ZDZhZjhmODk5MjZkYTMyNCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9ab38fdc1050466d92180d56b512ff51",
+      "statement": "Smith's (1967) model extends portfolio selection to an intertemporal basis via an adaptive mechanism run at finite intervals, in which at t+Δt the portfolio z*_t is either still optimal (no revision), no longer optimal but again efficient (revision possible), or neither optimal nor efficient (revision possible).",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L136-L142",
+          "version": "repo-lines-v1:sha256:07b6d1615aaf627bb855eab0b2eda6f850036e6c18865b1d1cf81f340e156169:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjk2ZjY5ZjI0NjMyZTJlMzg1ZjRmMzA3MGEwNzMyYzY0YWY3MGE3M2NjNDUyMDMxMDQ0MmUzMWQ0OTgyNjU0MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGI5MTc3YzkxOWRiNzQwMmI3ZWE1ZjZkMzhhMTM4NDYzMGU0ZGMxMzU5NjNlZWQwYjIxMDRmMGMxZjUxYmM5ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjY3NjdjYzk1ZDE1OWFiZGQ2OGM3MzcxZjZkNTQ3YmE5ZjNhOGNjNWJhMTc4MWE5ZDZhZjhmODk5MjZkYTMyNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTViYTJhNWViZTI0MWM3MWEyY2U1MzliZjM1NDg1OTE2MjhlZWEzYTI2MzNmZWQxYzgwNDhkNjFmNDM2ODQwYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2f03d219e3404eeaab5524d95f96e743",
+      "statement": "In Smith's Case 2, where z*_t lies on the new efficient frontier so any move trades return against risk, the difficulty of specifying indifference curves leads to the postulate that an efficient z*_t is kept, so no revision is made.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L144-L144",
+          "version": "repo-lines-v1:sha256:c46df3ee11091cfad6f3dc4161bd9b38fc18ac6ccfb756d4b8cc93166d4b3906:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzQ2ZGYzZWUxMTA5MWNmYWQ2ZjNkYzQxNjFiZDliMzhmYzE4YWM2Y2NmYjc1NmQ0YjhjYzkzMTY2ZDRiMzkwNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzQ2ZGYzZWUxMTA5MWNmYWQ2ZjNkYzQxNjFiZDliMzhmYzE4YWM2Y2NmYjc1NmQ0YjhjYzkzMTY2ZDRiMzkwNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDI4YTU1M2E1MGZlMmQ5ZDg1NjkwOWM1OTVjOGFiY2NkNDUzNjczZjEzODgyZDY0ODFjYTg1ZTk3MjkyYTU0NiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTMwNGIwMGVhYmI2MmMxYWNjZjE1YjRhNGY0ZDI4MTM2NzcxNjU5NzAxMmRjMzAzYjE0MjY4ZWFmOWZmYTQyYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_b37aa8d4aedb43e8bd8f197f03912e84",
+      "statement": "In Smith's Case 3, moving to Point A (frontier, same expected return r_t, lower variance) yields no revision because a risk reduction cannot be measured as a comparable numéraire return, and moving to Point B (the tangency with the preference function, hence optimal) is not considered because the preference function is deliberately unspecified.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L146-L149",
+          "version": "repo-lines-v1:sha256:919d2ab244d65b161c755bcc44e8c102f160e0d7f97b3a7f623325c51fb0dc30:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjA0ZjcwOWE3Nzg5MzFjYmY1YTgxMTRmNGI1ODNjOGM0M2QxZjJiNDA4YWMyYjQzZWE5NjQ4OGZlZGMzNzRjMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjY5ZjY0NDM0ZTI4OGEyNjc1YWMwYjA5YjRlMDFmMjhmNzNhYWVlZTgyOGYwNGUzOThlOTVkYTZkNzNhYmZkNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTViYTJhNWViZTI0MWM3MWEyY2U1MzliZjM1NDg1OTE2MjhlZWEzYTI2MzNmZWQxYzgwNDhkNjFmNDM2ODQwYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTg5NzViYThjZWYzN2Y2MjY2MWUxNTVhOGE0YTZlMDcwN2MyMDVmMGJlYWFkMWMwYTBhYmE2Nzk1NjVhYTc2YiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_486e0b7dd2bb4b1eb64ed106c42655d5",
+      "statement": "In Smith's Case 3, Point C is on the frontier at the same return variance as z*_t but higher expected return r_{t+Δt}: the investor accepts the existing risk under revised expectations and seeks maximum expected-return improvement, which is operational because return is measured in numéraire, making C the target/desired portfolio and the sub-case where revision is feasible.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L150-L150",
+          "version": "repo-lines-v1:sha256:5139637b7134268c68c31ed9602a98fe29c38c6097c632a537b18b806ef24950:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTEzOTYzN2I3MTM0MjY4YzY4YzMxZWQ5NjAyYTk4ZmUyOWMzOGM2MDk3YzYzMmE1MzdiMThiODA2ZWYyNDk1MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTEzOTYzN2I3MTM0MjY4YzY4YzMxZWQ5NjAyYTk4ZmUyOWMzOGM2MDk3YzYzMmE1MzdiMThiODA2ZWYyNDk1MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGFjMWY1MDc2NTc4OWRjNTkxMjJkMTBiZDM0YzBlYjc1OTlkZWU1MmM3NzEzMTlkYjA2ZTlmMjI5MjEzMDEyMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhmMGU2NTkxYTk4NWNkOTFjOWI1MDVkMWRlN2ZhNzk0ZDg3YWYzNjM2ZGM4ZGY3ZjY0MjRmODNkNTQwNDljYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5559e518c1364c9387c518203cd07cc9",
+      "statement": "Before revising toward Point C, Smith checks convenience by requiring Σ_i (z*_{t+Δt,i}-z*_{t,i})P_{t+Δt,i}r_{t+Δt,i} > prc_{t+Δt}, i.e. the increase in expected return exceeds the revision costs prc_{t+Δt} to be borne at t+Δt.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L152-L156",
+          "version": "repo-lines-v1:sha256:a8d2fb25e71dd594bc7428fffd3fe3ff387c4c464d05e4406d05c7b5a3747f2b:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWFmYWFmNTc4MzMyNTNhMmIwZGYyYTI4NTEwMmYxNWJlMTRkY2Q2YWU3MGI5MjFjNTFmNGNmOThlMzIyMTgxZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTFmYmU0NDVhZTgzNmJiOGU1ZTgzMTM0NGQ5MWI4YjQyNGJkYTZkZDEzZTc2YmVlMmM4NDAwNzY2NGJlY2YxOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmU4OWQ1NTUyMzI2NDg2ZjE5NTg2Mzg3ZTJmY2FiZjllODMzMDA1NDJlZDA1MGE0YWQ1N2RkMWJkMDJmMDRiMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOTY5MDM3ZGY0ZWRlMWVlODQ1NjRlNjNmMDk2YWM5MjQ2MTZkYjljNDJiZjFmMzM2MzNjOWRhNzEyMTNhYjJkNSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_d74e9db96fcb4080b583d7bb1875c6c1",
+      "statement": "Stone and Hill's (1979) revision procedure generalizes the classic linear knapsack algorithm, retaining its high computational efficiency and ability to handle large problems, and proceeds in three stages: a linear selection problem for t, a linear revision problem for later instants, and a solution procedure with efficiency analysis.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L160-L160",
+          "version": "repo-lines-v1:sha256:2918938ede5f502dfb9cf20df97de43513c413c5fa8402e213d00f2d8161101a:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjkxODkzOGVkZTVmNTAyZGZiOWNmMjBkZjk3ZGU0MzUxM2M0MTNjNWZhODQwMmUyMTNkMDBmMmQ4MTYxMTAxYSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjkxODkzOGVkZTVmNTAyZGZiOWNmMjBkZjk3ZGU0MzUxM2M0MTNjNWZhODQwMmUyMTNkMDBmMmQ4MTYxMTAxYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTY5MDM3ZGY0ZWRlMWVlODQ1NjRlNjNmMDk2YWM5MjQ2MTZkYjljNDJiZjFmMzM2MzNjOWRhNzEyMTNhYjJkNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2M5MGNlODQ2NDc1NTFhMWI4Njc5ZGFjMzM1N2M5NWFhOTJlNWJmZTFlOWQ1ZDgwNDUzYmRmNDhmNDJhOWZhNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8e8326e60b084691911ef6e4387f7b80",
+      "statement": "The Stone-Hill linear selection problem maximizes x'c subject to x'e=1 and 0≤x_i≤f_i, where c'=(r_1-β_1θ,…,r_N-β_Nθ) is the vector of risk-adjusted returns with β_i the systematic risk and θ a constant weighting it, and f_i∈[0,1] an upper bound on x_i.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L162-L169",
+          "version": "repo-lines-v1:sha256:8e0e928cbb927f7cda2e65510ef48cf4f4b7e96288e583e810342f13ae5bda17:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGQ5YTFhYWZmZjM3NzY1MDBmMDg3ZDk1ZTVjMDAzMGIwZWQwMGU3OWExYWI4ZjI3ZGRmZDM3MjE0NjIwNDM3NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGNmMDRkYjM3ODhiNjllODRiYjA4MzQwNjczZjY0NDA3YzE0ZTU5YTg0NGExZDU0NmRmZWNmYmQ0NzY0NDBiOSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZThiZjVkYWQyNDg2ZGVkNmEyYjVmYTg3MzZjMTk2ZTVkNDU4MmJmZjhhMDJkOWFlMTAzNGJiMjA2YmEyM2M3MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjM2Njc5ZWM0N2ViYzM2N2Q2MTRkZWEzY2YwZmU3ZTBjNzYwMTllMzU3MzYyMTZkN2YxMTA1Y2IyOGNiODljNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_fbe82fd1258a4139a3405f6174dbfcaf",
+      "statement": "The Stone-Hill linear revision problem maximizes b'z_b - s'z_s (with b'=c'-(bc_i) net of buying costs and s'=c'+(sc_i) net of selling costs) subject to a budget-balance constraint equating numéraire invested plus its transaction costs to numéraire disinvested minus its transaction costs, plus z_{b,i}≥0, z_{b,i}≤f_i q'e - q_i, z_{s,i}≥0 and z_{s,i}≤q_i.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L171-L185",
+          "version": "repo-lines-v1:sha256:2e537a9dd9bfe089628126c058c98be57f77eb168814cfbf6c75e581b431db5a:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU0ZWQwNDVmNGNhMzA0OGY5MDczZThjZDlmZWVmNGM5YTFkNmZiNDA2ZDAyNDE2ZmVmMzBkYjA0MWU5YmIwMjkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM1ZWEyMjZiODRmODAyNThmNTI1YjA4MTQzNjcwYzgyN2Y4ZTIyM2I4NjExNTczMDE1YmFiYTI5MmI5MjQyZTciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijc1ODA2M2M0YzlhN2I1NTRhODBmY2RkYTFhZWEwMzc5YTEzY2NjM2RjNWVkYTQzYmY0YTc5OTM0OTI0NWE4OWEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImEzYzNjMzdmYTZiMTYxYmFmYjE0YTVjYjJhNDdiNWVmM2VhMjM0MTI2YzdhMDgyMTNkOTZkZWM5ODg4OGUzNjUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_635f9121a909486e948832b0f7185418",
+      "statement": "The Stone-Hill exchange rule increases the objective by buying choice i and selling choice j when c_i-bc_i>c_j+sc_j (equivalently c_i-c_j>bc_i+sc_j), so the program maximizes the increase of buys' risk-adjusted return over sells' net of total transaction costs.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L187-L193",
+          "version": "repo-lines-v1:sha256:8ee592708ba056dc18132068e3b42ccc592bbc13163d9d6abfcdec58b8ed2881:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTQ5NGJiYTg2ZjkxNTRjYjAyNWY2NDA2YTE2NDAxYjlhMWI5NzJjYWViMDEzNGNmYTFhNDlhZGIwNDA5ZWI4NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZTNjYTEwOWJhOGIzNmJlMjFhNGVjYTA1OGRmYmI3ZTc4NjU5NDBhZjVmMmRlYzdmMzc0OGM1MmQxYjhiZmQ2ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODgxZjZmMDM5MTBkZTVlNzVlZmRlMDEzNTQ0OTQ2ZWJkOWRkYWRiMmQ5MjNhYjA4OGM2MGZiZDczMjFiZDU2MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTJjYWExZGUzZTllZGY0ZmQwYTNkZGM2NmQ1MDQ3NTUxYmNmYThmZmI1YzM1NjhiNTBiMGUyZWQyNTc3NGU3NCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_a007618c9f544a959657b92e9db4f08e",
+      "statement": "The Stone-Hill solution ranks buy candidates by c_i-bc_i and current holdings by c_j+sc_j, then buys the highest-ranked candidate and sells the lowest-ranked holding for maximum objective improvement, setting the exchange amount so no constraint is violated.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L195-L195",
+          "version": "repo-lines-v1:sha256:4bea76de1e28f512288a62ab08b83174e7cd5b2850c91c80e1486e5792a41124:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNGJlYTc2ZGUxZTI4ZjUxMjI4OGE2MmFiMDhiODMxNzRlN2NkNWIyODUwYzkxYzgwZTE0ODZlNTc5MmE0MTEyNCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNGJlYTc2ZGUxZTI4ZjUxMjI4OGE2MmFiMDhiODMxNzRlN2NkNWIyODUwYzkxYzgwZTE0ODZlNTc5MmE0MTEyNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTFkNDE5MTVhYzg4OGM5ODNkNGY4MTU5MWE3YzFlNGExN2Y2MWU4MzUyYWViMTFiYWYwODhjMzE3NDlmYjM2YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGFmZWM2MGU3NzFiYWFkYjUyZDQwY2FhMTBkZWM0YjIyMTNlZTE2Nzg5Yjg4ZTViOGEzM2VlOTkyYzk5ZGQyNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_9553ae987cd243369a5bc922dcb29c05",
+      "statement": "A good portfolio-revision model must possess realism, reduced computational complexity, and effectiveness.",
+      "evidence": [
+        {
+          "resource": "repo://docs/07_portfolio_revision.md#L197-L203",
+          "version": "repo-lines-v1:sha256:2eb701c4030a04a11866029abf789bb6ee4ca82468ad8c4135e1f955cc6dddce:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjlmYTQ1NzVhNmZmMjdlM2RhNWJlYTQ3Mzc3MTE3MDE2MjFjYzIwMmE3NTRhOTM0MzFlZWNlYzE4Y2IxOGEyNyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTBiYzVhZmE2MTM4YmVlYzE0MzQwZmZhYmIyN2M0MzExM2JkNTQ5YzliZjcxNjAyODE1ZGY5ZWM1YmNiYWE4MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTJjYWExZGUzZTllZGY0ZmQwYTNkZGM2NmQ1MDQ3NTUxYmNmYThmZmI1YzM1NjhiNTBiMGUyZWQyNTc3NGU3NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiODhiZWIxYzdiZGY2YzgxNGVlMmFiYmU2ZTc2NGFmZTk2N2E2ZGY4ZDg1ZjIzNzNjYjBmODRiNzg4YmFkYmVlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.2",
+    "at": "2026-09-23T08:34:43.263Z"
+  }
+}

@@ -1,0 +1,6 @@
+# Files
+
+- [Macroeconomic Signals and Expected Risk Premia](macro-signals-and-risk-premia.md) - Which macroeconomic and financial variables predict time-varying expected risk premia for stocks and bonds, how they are validated out of sample, and the theory-driven constraints (sign restrictions, non-negativity, valuation anchoring) that make otherwise fragile predictors exploitable.
+- [Market Regimes and View Formation](market-regimes-and-views.md) - How the market alternates between persistent regimes (bull/bear, high/low volatility), how the Markov regime-switching model and its nonlinear filter estimate regime probabilities from returns, how regimes reshape the optimal allocation and the cost of ignoring them, and how the current macro state is measured in real time (nowcasting, diffusion index) to form the views a Black-Litterman model then ingests.
+- [Market States and the Cross-Section](market-states-and-the-cross-section.md)
+- [Turbulence, Absorption Ratio and Systemic Risk](turbulence-and-systemic-risk.md) - Observable market-state indicators built from the statistical structure of returns — Mahalanobis financial turbulence and its magnitude/correlation-surprise decomposition, the absorption ratio and effective rank from covariance eigenvalues as measures of market compactness and fragility, and rising correlations as a signal of systemic risk.
