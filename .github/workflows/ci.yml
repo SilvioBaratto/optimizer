@@ -32,7 +32,13 @@ jobs:
       - run: uv sync --all-packages --all-extras
       - run: uv run ruff check optimizer/ tests/
       - run: uv run ruff format --check optimizer/ tests/
-      - run: uv run pip-audit --strict --desc on
+      # pip-audit the resolved third-party set. The three editable workspace
+      # members (portopt-core/-db/-fund) aren't on PyPI, so auditing the live env
+      # trips --strict on "not found on PyPI". Export the locked deps WITHOUT the
+      # workspace members (--no-emit-workspace) and audit that file instead, so
+      # --strict stays meaningful for real CVEs without failing on the local pkgs.
+      - run: uv export --frozen --no-emit-workspace --all-packages --all-extras --format requirements-txt -o requirements-audit.txt
+      - run: uv run pip-audit --strict --desc on -r requirements-audit.txt
 
   typecheck:
     runs-on: ubuntu-latest
