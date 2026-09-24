@@ -207,6 +207,32 @@ def _build_aws(config: FundConfig, model_name: str) -> BaseChatModel:
     )
 
 
+def _build_microsoft(config: FundConfig, model_name: str) -> BaseChatModel:
+    """Build an ``AzureChatOpenAI`` (Azure OpenAI Service).
+
+    Azure reuses the ``openai`` extra (``langchain-openai``) — no separate package.
+    Unlike public OpenAI, Azure is wired from **four** env vars, each *required*
+    (``AZURE_OPENAI_API_KEY``, ``AZURE_OPENAI_ENDPOINT``, ``OPENAI_API_VERSION``,
+    ``AZURE_OPENAI_DEPLOYMENT_NAME``); a missing one raises via :func:`_require`
+    naming it. ``model`` / ``api_key`` / ``api_version`` / ``azure_deployment`` are
+    the class's accepted aliases, so this stays consistent with the other builders.
+    ``temperature=0`` threads the D4 contract; ``reasoning=`` is Ollama-only and is
+    never passed here.
+    """
+    from langchain_openai import AzureChatOpenAI
+
+    return AzureChatOpenAI(
+        model=model_name,
+        api_key=_require(config.azure_openai_api_key, "AZURE_OPENAI_API_KEY"),
+        azure_endpoint=_require(config.azure_openai_endpoint, "AZURE_OPENAI_ENDPOINT"),
+        api_version=_require(config.azure_openai_api_version, "OPENAI_API_VERSION"),
+        azure_deployment=_require(
+            config.azure_openai_deployment_name, "AZURE_OPENAI_DEPLOYMENT_NAME"
+        ),
+        temperature=config.model_temperature,
+    )
+
+
 # Provider registry: slug → builder. Referencing a builder does NOT import its
 # SDK (the import is lazy inside the body); only the selected provider's package
 # is ever loaded. New providers land as one `_build_*` + one entry here.
@@ -218,6 +244,7 @@ _BUILDERS: dict[str, Callable[[FundConfig, str], BaseChatModel]] = {
     "groq": _build_groq,
     "google": _build_google,
     "aws": _build_aws,
+    "microsoft": _build_microsoft,
 }
 
 

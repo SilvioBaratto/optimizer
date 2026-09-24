@@ -415,3 +415,77 @@ def test_aws_without_region_raises_runtimeerror(monkeypatch):
 
     with pytest.raises(RuntimeError, match="AWS_REGION"):
         model.build_chat_model(cfg, model_name="anthropic.claude-3")
+
+
+# --- microsoft / Azure OpenAI (Task 8; langchain-openai / AzureChatOpenAI) -----
+#
+# Azure reuses the `openai` extra (no new package): `AzureChatOpenAI` is wired from
+# four Azure env vars, not one key. The class exposes `model` / `api_key` /
+# `api_version` / `azure_deployment` as aliases, keeping this consistent with the
+# other builders.
+
+
+def _azure_cfg(**overrides: object) -> FundConfig:
+    """A `microsoft`-provider config with all four Azure vars set (override to drop)."""
+    kwargs: dict[str, object] = {
+        "llm_provider": "microsoft",
+        "azure_openai_api_key": "sk-azure-test",
+        "azure_openai_endpoint": "https://example.openai.azure.com",
+        "azure_openai_api_version": "2024-06-01",
+        "azure_openai_deployment_name": "my-deploy",
+    }
+    kwargs.update(overrides)
+    return FundConfig(**kwargs)  # type: ignore[arg-type]
+
+
+def test_microsoft_is_a_registered_provider():
+    assert "microsoft" in model._BUILDERS
+
+
+def test_microsoft_builds_azurechatopenai_from_the_four_azure_env_vars(monkeypatch):
+    fake_cls = _install_fake_chat_class(
+        monkeypatch, "langchain_openai", class_name="AzureChatOpenAI"
+    )
+    cfg = _azure_cfg()
+
+    llm = model.build_chat_model(cfg, model_name="gpt-4o")
+
+    assert isinstance(llm, fake_cls)
+    assert llm.kwargs["model"] == "gpt-4o"
+    assert llm.kwargs["api_key"] == "sk-azure-test"
+    assert llm.kwargs["azure_endpoint"] == "https://example.openai.azure.com"
+    assert llm.kwargs["api_version"] == "2024-06-01"
+    assert llm.kwargs["azure_deployment"] == "my-deploy"
+    assert llm.kwargs["temperature"] == cfg.model_temperature
+
+
+def test_microsoft_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
+    # `reasoning=` is Ollama-only; AzureChatOpenAI would reject it.
+    _install_fake_chat_class(
+        monkeypatch, "langchain_openai", class_name="AzureChatOpenAI"
+    )
+
+    llm = model.build_chat_model(_azure_cfg(), model_name="gpt-4o")
+
+    assert "reasoning" not in llm.kwargs
+
+
+@pytest.mark.parametrize(
+    ("missing_field", "env_name"),
+    [
+        ("azure_openai_api_key", "AZURE_OPENAI_API_KEY"),
+        ("azure_openai_endpoint", "AZURE_OPENAI_ENDPOINT"),
+        ("azure_openai_api_version", "OPENAI_API_VERSION"),
+        ("azure_openai_deployment_name", "AZURE_OPENAI_DEPLOYMENT_NAME"),
+    ],
+)
+def test_microsoft_missing_any_azure_var_raises_naming_it(
+    monkeypatch, missing_field, env_name
+):
+    _install_fake_chat_class(
+        monkeypatch, "langchain_openai", class_name="AzureChatOpenAI"
+    )
+    cfg = _azure_cfg(**{missing_field: None})
+
+    with pytest.raises(RuntimeError, match=env_name):
+        model.build_chat_model(cfg, model_name="gpt-4o")
