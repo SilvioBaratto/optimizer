@@ -258,6 +258,36 @@ def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
     return ChatNVIDIA(**kwargs)
 
 
+def _build_huggingface(config: FundConfig, model_name: str) -> BaseChatModel:
+    """Build a ``ChatHuggingFace`` over the Hugging Face Inference API (cloud-only).
+
+    Cloud path only: a ``HuggingFaceEndpoint`` (the Inference API, ``repo_id=`` the
+    model, ``HUGGINGFACEHUB_API_TOKEN`` required) wrapped in ``ChatHuggingFace``.
+    ``FUND_HF_MODE=local`` is **deferred** and raises a clear :class:`RuntimeError`
+    *before* the import — the ``huggingface`` extra deliberately ships no
+    torch/transformers, so local inference is not yet supported. ``model_id`` is
+    passed explicitly so construction resolves no tokenizer over the network
+    (build time stays request-free). ``temperature=0`` threads the D4 contract;
+    ``reasoning=`` is Ollama-only and is never passed here.
+    """
+    if config.hf_mode != "cloud":
+        raise RuntimeError(
+            f"FUND_HF_MODE={config.hf_mode!r} (local Hugging Face inference) is not "
+            "yet supported; only cloud mode (the Inference API) is available. Set "
+            "FUND_HF_MODE=cloud."
+        )
+
+    from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+
+    token = _require(config.hf_api_token, "HUGGINGFACEHUB_API_TOKEN")
+    endpoint = HuggingFaceEndpoint(
+        repo_id=model_name,
+        huggingfacehub_api_token=token,
+        temperature=config.model_temperature,
+    )
+    return ChatHuggingFace(llm=endpoint, model_id=model_name)
+
+
 # Provider registry: slug → builder. Referencing a builder does NOT import its
 # SDK (the import is lazy inside the body); only the selected provider's package
 # is ever loaded. New providers land as one `_build_*` + one entry here.
@@ -271,6 +301,7 @@ _BUILDERS: dict[str, Callable[[FundConfig, str], BaseChatModel]] = {
     "aws": _build_aws,
     "microsoft": _build_microsoft,
     "nvidia": _build_nvidia,
+    "huggingface": _build_huggingface,
 }
 
 

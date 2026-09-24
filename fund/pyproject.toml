@@ -63,6 +63,10 @@ aws = ["langchain-aws"]
 # `nvidia` = NVIDIA NIM. Hosted (build.nvidia.com) needs NVIDIA_API_KEY; a
 # self-hosted NIM sets NVIDIA_BASE_URL and needs no key.
 nvidia = ["langchain-nvidia-ai-endpoints"]
+# `huggingface` is CLOUD-ONLY here (HuggingFaceEndpoint over the Inference API,
+# HUGGINGFACEHUB_API_TOKEN). Deliberately NO torch/transformers — local inference
+# (FUND_HF_MODE=local) is deferred and raises a clear RuntimeError in the builder.
+huggingface = ["langchain-huggingface", "huggingface-hub"]
 
 # Human CLI, watch TUI, and the D6 daemon. Entrypoints reference modules filled
 # in later phases (cli/tui/worker are empty stubs today); `uv sync` does not

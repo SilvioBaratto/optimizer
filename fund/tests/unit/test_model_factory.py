@@ -562,3 +562,88 @@ def test_nvidia_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
     llm = model.build_chat_model(cfg, model_name="meta/llama-3.1-70b-instruct")
 
     assert "reasoning" not in llm.kwargs
+
+
+# --- huggingface (Task 10; langchain-huggingface, cloud-only) -----------------
+#
+# HF is cloud-only in this delivery: `ChatHuggingFace(llm=HuggingFaceEndpoint(...))`
+# from HUGGINGFACEHUB_API_TOKEN. `hf_mode == "local"` raises a deferral RuntimeError
+# *before* the SDK import (so it fires even without the extra installed). The
+# builder imports two names from one module, so a dedicated recording fake is used.
+
+# Stub token for the tests below. Named without a secret-like substring so ruff's
+# S105/S106 (bandit hardcoded-password) don't flag it — the `hf_api_token` field
+# name itself trips those checks on a bare string literal.
+_FAKE_HF = "hf-test"
+
+
+def _install_fake_huggingface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[type, type]:
+    """Fake ``langchain_huggingface`` with recording ChatHuggingFace + endpoint.
+
+    Returns ``(ChatHuggingFace, HuggingFaceEndpoint)`` recorder classes so a test
+    can assert both the outer chat wrapper and the inner endpoint's kwargs.
+    """
+
+    class _RecordingEndpoint:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+    class _RecordingChat:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+            self.llm = kwargs.get("llm")
+
+    fake = types.ModuleType("langchain_huggingface")
+    fake.ChatHuggingFace = _RecordingChat  # type: ignore[attr-defined]
+    fake.HuggingFaceEndpoint = _RecordingEndpoint  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "langchain_huggingface", fake)
+    return _RecordingChat, _RecordingEndpoint
+
+
+def test_huggingface_is_a_registered_provider():
+    assert "huggingface" in model._BUILDERS
+
+
+def test_huggingface_cloud_builds_chathuggingface_wrapping_the_endpoint(monkeypatch):
+    chat_cls, endpoint_cls = _install_fake_huggingface(monkeypatch)
+    # hf_mode defaults to "cloud".
+    cfg = FundConfig(llm_provider="huggingface", hf_api_token=_FAKE_HF)
+
+    llm = model.build_chat_model(cfg, model_name="meta-llama/Meta-Llama-3-8B-Instruct")
+
+    assert isinstance(llm, chat_cls)
+    endpoint = llm.llm
+    assert isinstance(endpoint, endpoint_cls)
+    assert endpoint.kwargs["repo_id"] == "meta-llama/Meta-Llama-3-8B-Instruct"
+    assert endpoint.kwargs["huggingfacehub_api_token"] == _FAKE_HF
+    assert endpoint.kwargs["temperature"] == cfg.model_temperature
+
+
+def test_huggingface_without_token_raises_runtimeerror(monkeypatch):
+    _install_fake_huggingface(monkeypatch)
+    cfg = FundConfig(llm_provider="huggingface", hf_api_token=None)
+
+    with pytest.raises(RuntimeError, match="HUGGINGFACEHUB_API_TOKEN"):
+        model.build_chat_model(cfg, model_name="m")
+
+
+def test_huggingface_local_mode_raises_deferral_error():
+    # Local HF is deferred; the error fires *before* the SDK import, so no fake is
+    # installed here — it must raise even when the extra is absent.
+    cfg = FundConfig(llm_provider="huggingface", hf_api_token=_FAKE_HF, hf_mode="local")
+
+    with pytest.raises(RuntimeError, match="not yet supported"):
+        model.build_chat_model(cfg, model_name="m")
+
+
+def test_huggingface_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
+    # `reasoning=` is Ollama-only; neither HF class accepts it.
+    _install_fake_huggingface(monkeypatch)
+    cfg = FundConfig(llm_provider="huggingface", hf_api_token=_FAKE_HF)
+
+    llm = model.build_chat_model(cfg, model_name="m")
+
+    assert "reasoning" not in llm.kwargs
+    assert "reasoning" not in llm.llm.kwargs
