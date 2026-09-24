@@ -12,6 +12,9 @@ missing key raises at *build* time (never at import, so a bare
 
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 
 from fund.agents import model
@@ -127,3 +130,107 @@ def test_ollama_local_with_key_still_sends_the_bearer_header():
     llm = model.build_chat_model(cfg, model_name="llama3")
 
     assert llm.client_kwargs["headers"]["Authorization"] == "Bearer sk-local"
+
+
+# --- openai / openrouter (Task 3; langchain-openai / ChatOpenAI) -------------
+
+
+def _install_fake_chat_class(
+    monkeypatch: pytest.MonkeyPatch,
+    module_name: str,
+    class_name: str = "ChatOpenAI",
+) -> type:
+    """Inject a fake langchain provider module whose chat class records kwargs.
+
+    The builder's lazy ``from <module_name> import <class_name>`` then resolves to
+    this recorder, so the builder branch runs (and is covered) with no real SDK,
+    no network, and no dependency on the optional extra actually being installed.
+    Returns the recording class so a test can assert ``isinstance``.
+    """
+
+    class _RecordingChat:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+    fake = types.ModuleType(module_name)
+    setattr(fake, class_name, _RecordingChat)
+    monkeypatch.setitem(sys.modules, module_name, fake)
+    return _RecordingChat
+
+
+def test_openai_and_openrouter_are_registered_providers():
+    assert "openai" in model._BUILDERS
+    assert "openrouter" in model._BUILDERS
+
+
+def test_openai_builds_chatopenai_threading_model_key_and_temperature(monkeypatch):
+    fake_cls = _install_fake_chat_class(monkeypatch, "langchain_openai")
+    cfg = FundConfig(llm_provider="openai", openai_api_key="sk-openai-test")
+
+    llm = model.build_chat_model(cfg, model_name="gpt-4o")
+
+    assert isinstance(llm, fake_cls)
+    assert llm.kwargs["model"] == "gpt-4o"
+    assert llm.kwargs["api_key"] == "sk-openai-test"
+    assert llm.kwargs["temperature"] == cfg.model_temperature
+
+
+def test_openai_honors_base_url_when_set(monkeypatch):
+    _install_fake_chat_class(monkeypatch, "langchain_openai")
+    cfg = FundConfig(
+        llm_provider="openai",
+        openai_api_key="sk-openai-test",
+        openai_base_url="https://proxy.example/v1",
+    )
+
+    llm = model.build_chat_model(cfg, model_name="gpt-4o")
+
+    assert llm.kwargs["base_url"] == "https://proxy.example/v1"
+
+
+def test_openai_omits_base_url_when_unset(monkeypatch):
+    _install_fake_chat_class(monkeypatch, "langchain_openai")
+    cfg = FundConfig(llm_provider="openai", openai_api_key="sk-openai-test")
+
+    llm = model.build_chat_model(cfg, model_name="gpt-4o")
+
+    assert "base_url" not in llm.kwargs
+
+
+def test_openai_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
+    # `reasoning=` is Ollama-only; ChatOpenAI would reject it.
+    _install_fake_chat_class(monkeypatch, "langchain_openai")
+    cfg = FundConfig(llm_provider="openai", openai_api_key="sk-openai-test")
+
+    llm = model.build_chat_model(cfg, model_name="gpt-4o")
+
+    assert "reasoning" not in llm.kwargs
+
+
+def test_openai_without_key_raises_runtimeerror(monkeypatch):
+    _install_fake_chat_class(monkeypatch, "langchain_openai")
+    cfg = FundConfig(llm_provider="openai", openai_api_key=None)
+
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        model.build_chat_model(cfg, model_name="gpt-4o")
+
+
+def test_openrouter_builds_chatopenai_at_the_openrouter_base_url(monkeypatch):
+    fake_cls = _install_fake_chat_class(monkeypatch, "langchain_openai")
+    cfg = FundConfig(llm_provider="openrouter", openrouter_api_key="sk-or-test")
+
+    llm = model.build_chat_model(cfg, model_name="anthropic/claude-3.5")
+
+    assert isinstance(llm, fake_cls)
+    assert llm.kwargs["base_url"] == "https://openrouter.ai/api/v1"
+    assert llm.kwargs["api_key"] == "sk-or-test"
+    assert llm.kwargs["model"] == "anthropic/claude-3.5"
+    assert llm.kwargs["temperature"] == cfg.model_temperature
+
+
+def test_openrouter_without_key_raises_runtimeerror(monkeypatch):
+    _install_fake_chat_class(monkeypatch, "langchain_openai")
+    cfg = FundConfig(llm_provider="openrouter", openrouter_api_key=None)
+
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        model.build_chat_model(cfg, model_name="m")

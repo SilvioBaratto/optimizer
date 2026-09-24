@@ -47,6 +47,10 @@ __all__ = [
 # *requires* a key; a local `base_url` (e.g. http://localhost:11434) does not.
 _OLLAMA_CLOUD_HOST = "ollama.com"
 
+# OpenRouter has no dedicated LangChain package — it is `ChatOpenAI` aimed at this
+# fixed OpenAI-compatible gateway with its own `OPENROUTER_API_KEY`.
+_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
 
 def _require(value: str | None, env_name: str) -> str:
     """Return ``value`` or raise a clear build-time error naming ``env_name``.
@@ -88,11 +92,53 @@ def _build_ollama(config: FundConfig, model_name: str) -> BaseChatModel:
     )
 
 
+def _build_openai(config: FundConfig, model_name: str) -> BaseChatModel:
+    """Build a ``ChatOpenAI`` (OpenAI, or any OpenAI-compatible endpoint).
+
+    Requires ``OPENAI_API_KEY``; honours ``OPENAI_BASE_URL`` when set (a proxy or
+    self-hosted gateway), otherwise ``ChatOpenAI`` targets OpenAI's own host.
+    ``temperature=0`` threads the D4 contract; ``reasoning=`` is Ollama-only and is
+    never passed here — the o-series non-thinking route is an operator model-id
+    choice (SPEC Open Q2), not a constructor flag.
+    """
+    from langchain_openai import ChatOpenAI
+
+    api_key = _require(config.openai_api_key, "OPENAI_API_KEY")
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "api_key": api_key,
+        "temperature": config.model_temperature,
+    }
+    if config.openai_base_url:
+        kwargs["base_url"] = config.openai_base_url
+    return ChatOpenAI(**kwargs)
+
+
+def _build_openrouter(config: FundConfig, model_name: str) -> BaseChatModel:
+    """Build a ``ChatOpenAI`` pointed at OpenRouter's OpenAI-compatible gateway.
+
+    OpenRouter reuses ``ChatOpenAI`` with a fixed ``base_url`` and its own
+    ``OPENROUTER_API_KEY`` (there is no dedicated LangChain package). ``temperature
+    =0``; no ``reasoning=`` (Ollama-only).
+    """
+    from langchain_openai import ChatOpenAI
+
+    api_key = _require(config.openrouter_api_key, "OPENROUTER_API_KEY")
+    return ChatOpenAI(
+        model=model_name,
+        api_key=api_key,
+        base_url=_OPENROUTER_BASE_URL,
+        temperature=config.model_temperature,
+    )
+
+
 # Provider registry: slug → builder. Referencing a builder does NOT import its
 # SDK (the import is lazy inside the body); only the selected provider's package
 # is ever loaded. New providers land as one `_build_*` + one entry here.
 _BUILDERS: dict[str, Callable[[FundConfig, str], BaseChatModel]] = {
     "ollama": _build_ollama,
+    "openai": _build_openai,
+    "openrouter": _build_openrouter,
 }
 
 

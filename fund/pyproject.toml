@@ -48,6 +48,13 @@ test = [
     "pytest-cov==7.1.0",
 ]
 
+# Optional per-provider LLM backends (SPEC D4, "Switchable LLM Backends"). Each is
+# a plain extra; `langchain-ollama` stays a hard dep above (the default provider).
+# Install one with `uv sync --package portopt-fund --extra <provider>`. `openai`
+# also backs the `openrouter` provider (ChatOpenAI at OpenRouter's base_url) and,
+# later, `microsoft`/Azure OpenAI — no separate package.
+openai = ["langchain-openai"]
+
 # Human CLI, watch TUI, and the D6 daemon. Entrypoints reference modules filled
 # in later phases (cli/tui/worker are empty stubs today); `uv sync` does not
 # import them, so the scaffold syncs green before those modules exist.
