@@ -1,10 +1,13 @@
-"""Task 1 — ``fund.agents.model`` DeepSeek-on-Ollama-Cloud factory (unit slice).
+"""``fund.agents.model`` — the provider-registry chat-model factory (unit slice).
 
-Construction only: ``ChatOllama`` is built but never invoked, so no network is
+Construction only: the SDK class is built but never invoked, so no network is
 touched. The tests assert the frozen ``FundConfig`` (D4) is threaded onto the
 model — base URL, model id, ``temperature``, non-thinking ``reasoning`` route, and
-the ``OLLAMA_API_KEY`` bearer header — and that a missing key raises at *build*
-time (never at import, so a bare ``import fund.agents.model`` stays green in CI).
+the ``OLLAMA_API_KEY`` bearer header — that ``build_chat_model`` dispatches on
+``config.llm_provider`` (unknown provider / uninstalled extra raise clear
+``RuntimeError``\\s), that the Ollama cloud-vs-local key rule holds, and that a
+missing key raises at *build* time (never at import, so a bare
+``import fund.agents.model`` stays green in CI).
 """
 
 from __future__ import annotations
@@ -60,3 +63,67 @@ def test_import_needs_no_env_and_defers_key_validation_to_build_time():
     assert callable(model.build_chat_model)
     with pytest.raises(RuntimeError, match="OLLAMA_API_KEY"):
         model.build_primary(FundConfig(ollama_api_key=None))
+
+
+# --- provider registry / dispatch (Task 2) ----------------------------------
+
+
+def test_ollama_is_the_registered_default_provider():
+    # The env-free default keeps today's DeepSeek-on-Ollama-Cloud path.
+    assert FundConfig().llm_provider == "ollama"
+    assert "ollama" in model._BUILDERS
+
+
+def test_build_chat_model_dispatches_on_llm_provider():
+    # An unknown provider must not fall through to Ollama; it fails fast.
+    cfg = FundConfig(llm_provider="does-not-exist", ollama_api_key="sk")
+    with pytest.raises(RuntimeError, match="Unknown LLM provider"):
+        model.build_chat_model(cfg, model_name="whatever")
+
+
+def test_unknown_provider_error_lists_the_valid_providers():
+    cfg = FundConfig(llm_provider="bogus")
+    with pytest.raises(RuntimeError, match="ollama"):
+        model.build_chat_model(cfg, model_name="m")
+
+
+def test_uninstalled_provider_extra_reraises_as_runtimeerror_with_hint(monkeypatch):
+    # A builder whose SDK is absent raises ImportError; build_chat_model catches
+    # it and re-raises a RuntimeError naming the `uv sync ... --extra` command.
+    def _boom(_config, _model_name):
+        raise ImportError("No module named 'langchain_openai'")
+
+    monkeypatch.setitem(model._BUILDERS, "faux", _boom)
+    cfg = FundConfig(llm_provider="faux")
+    with pytest.raises(RuntimeError, match="--extra faux"):
+        model.build_chat_model(cfg, model_name="m")
+
+
+# --- Ollama cloud-vs-local key rule (Task 2) --------------------------------
+
+
+def test_ollama_cloud_default_without_key_raises_naming_the_env_var():
+    # Default base_url is the cloud host, so a missing key still raises here.
+    cfg = FundConfig(ollama_api_key=None)
+    assert "ollama.com" in cfg.ollama_base_url
+    with pytest.raises(RuntimeError, match="OLLAMA_API_KEY"):
+        model.build_chat_model(cfg, model_name="deepseek-v4.1-flash:cloud")
+
+
+def test_ollama_local_base_url_builds_without_a_key():
+    cfg = FundConfig(ollama_api_key=None, ollama_base_url="http://localhost:11434")
+
+    llm = model.build_chat_model(cfg, model_name="llama3")
+
+    assert type(llm).__name__ == "ChatOllama"
+    assert "headers" not in llm.client_kwargs  # no key ⇒ no bearer header
+
+
+def test_ollama_local_with_key_still_sends_the_bearer_header():
+    cfg = FundConfig(
+        ollama_api_key="sk-local", ollama_base_url="http://localhost:11434"
+    )
+
+    llm = model.build_chat_model(cfg, model_name="llama3")
+
+    assert llm.client_kwargs["headers"]["Authorization"] == "Bearer sk-local"
