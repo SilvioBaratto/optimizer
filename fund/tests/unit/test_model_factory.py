@@ -489,3 +489,76 @@ def test_microsoft_missing_any_azure_var_raises_naming_it(
 
     with pytest.raises(RuntimeError, match=env_name):
         model.build_chat_model(cfg, model_name="gpt-4o")
+
+
+# --- nvidia (Task 9; langchain-nvidia-ai-endpoints / ChatNVIDIA) --------------
+#
+# NVIDIA has two paths, branched on `nvidia_base_url`: hosted (build.nvidia.com)
+# *requires* `NVIDIA_API_KEY`; a self-hosted NIM sets `NVIDIA_BASE_URL` and needs
+# no key.
+
+
+def _nvidia_module_name() -> str:
+    return "langchain_nvidia_ai_endpoints"
+
+
+def test_nvidia_is_a_registered_provider():
+    assert "nvidia" in model._BUILDERS
+
+
+def test_nvidia_hosted_builds_chatnvidia_threading_model_key_and_temperature(
+    monkeypatch,
+):
+    fake_cls = _install_fake_chat_class(
+        monkeypatch, _nvidia_module_name(), class_name="ChatNVIDIA"
+    )
+    cfg = FundConfig(llm_provider="nvidia", nvidia_api_key="nvapi-test")
+
+    llm = model.build_chat_model(cfg, model_name="meta/llama-3.1-70b-instruct")
+
+    assert isinstance(llm, fake_cls)
+    assert llm.kwargs["model"] == "meta/llama-3.1-70b-instruct"
+    assert llm.kwargs["api_key"] == "nvapi-test"
+    assert llm.kwargs["temperature"] == cfg.model_temperature
+    # Hosted path: no base_url override (targets build.nvidia.com).
+    assert "base_url" not in llm.kwargs
+
+
+def test_nvidia_hosted_without_key_raises_runtimeerror(monkeypatch):
+    _install_fake_chat_class(
+        monkeypatch, _nvidia_module_name(), class_name="ChatNVIDIA"
+    )
+    cfg = FundConfig(llm_provider="nvidia", nvidia_api_key=None)
+
+    with pytest.raises(RuntimeError, match="NVIDIA_API_KEY"):
+        model.build_chat_model(cfg, model_name="meta/llama-3.1-70b-instruct")
+
+
+def test_nvidia_self_host_base_url_builds_without_a_key(monkeypatch):
+    fake_cls = _install_fake_chat_class(
+        monkeypatch, _nvidia_module_name(), class_name="ChatNVIDIA"
+    )
+    cfg = FundConfig(
+        llm_provider="nvidia",
+        nvidia_api_key=None,
+        nvidia_base_url="http://localhost:8000/v1",
+    )
+
+    llm = model.build_chat_model(cfg, model_name="meta/llama-3.1-8b-instruct")
+
+    assert isinstance(llm, fake_cls)
+    assert llm.kwargs["base_url"] == "http://localhost:8000/v1"
+    assert "api_key" not in llm.kwargs  # self-hosted NIM needs no key
+    assert llm.kwargs["temperature"] == cfg.model_temperature
+
+
+def test_nvidia_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
+    # `reasoning=` is Ollama-only; ChatNVIDIA would reject it.
+    _install_fake_chat_class(
+        monkeypatch, _nvidia_module_name(), class_name="ChatNVIDIA"
+    )
+    cfg = FundConfig(llm_provider="nvidia", nvidia_api_key="nvapi-test")
+
+    llm = model.build_chat_model(cfg, model_name="meta/llama-3.1-70b-instruct")
+
+    assert "reasoning" not in llm.kwargs

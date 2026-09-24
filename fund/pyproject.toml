@@ -60,6 +60,9 @@ google = ["langchain-google-genai"]
 # `aws` pulls boto3 (heavy). Bedrock is region-scoped: creds come from AWS_*/IAM,
 # not a single key. TLS to Bedrock honours the boto3 `AWS_CA_BUNDLE` env var.
 aws = ["langchain-aws"]
+# `nvidia` = NVIDIA NIM. Hosted (build.nvidia.com) needs NVIDIA_API_KEY; a
+# self-hosted NIM sets NVIDIA_BASE_URL and needs no key.
+nvidia = ["langchain-nvidia-ai-endpoints"]
 
 # Human CLI, watch TUI, and the D6 daemon. Entrypoints reference modules filled
 # in later phases (cli/tui/worker are empty stubs today); `uv sync` does not

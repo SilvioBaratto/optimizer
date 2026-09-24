@@ -233,6 +233,31 @@ def _build_microsoft(config: FundConfig, model_name: str) -> BaseChatModel:
     )
 
 
+def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
+    """Build a ``ChatNVIDIA`` (NVIDIA NIM), hosted or self-hosted.
+
+    Two paths, branched on ``nvidia_base_url``:
+
+    * **hosted** (``build.nvidia.com`` — no base_url) *requires* ``NVIDIA_API_KEY``;
+    * **self-hosted NIM** (``NVIDIA_BASE_URL`` set, e.g. ``http://host:8000/v1``)
+      routes by ``base_url`` and needs **no** key.
+
+    ``temperature=0`` threads the D4 contract; ``reasoning=`` is Ollama-only and is
+    never passed here.
+    """
+    from langchain_nvidia_ai_endpoints import ChatNVIDIA
+
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "temperature": config.model_temperature,
+    }
+    if config.nvidia_base_url:
+        kwargs["base_url"] = config.nvidia_base_url
+    else:
+        kwargs["api_key"] = _require(config.nvidia_api_key, "NVIDIA_API_KEY")
+    return ChatNVIDIA(**kwargs)
+
+
 # Provider registry: slug → builder. Referencing a builder does NOT import its
 # SDK (the import is lazy inside the body); only the selected provider's package
 # is ever loaded. New providers land as one `_build_*` + one entry here.
@@ -245,6 +270,7 @@ _BUILDERS: dict[str, Callable[[FundConfig, str], BaseChatModel]] = {
     "google": _build_google,
     "aws": _build_aws,
     "microsoft": _build_microsoft,
+    "nvidia": _build_nvidia,
 }
 
 
