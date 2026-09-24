@@ -7,9 +7,10 @@ the environment.
 
 Pinned constants are dataclass defaults, so a bare ``import fund.config`` yields
 the verified values with no environment set. Secrets (``DATABASE_URL``,
-``OLLAMA_API_KEY``, ``FRED_API_KEY``, ``SSL_CERT_FILE``) are read from ``env`` and
-stay ``None`` when absent — import must never fail in CI, so *required*-secret
-validation happens at use-time (pool/model construction), not here.
+``OLLAMA_API_KEY``, ``FRED_API_KEY``, ``SSL_CERT_FILE``, plus every per-provider
+key/endpoint behind ``LLM_PROVIDER``) are read from ``env`` and stay ``None`` when
+absent — import must never fail in CI, so *required*-secret validation happens at
+use-time (pool/model construction), not here.
 
 Deliberately imports nothing from ``optimizer`` (config must be cheap to import);
 the psycopg ``dict_row`` callable is imported lazily inside ``langgraph_pool_kwargs``
@@ -52,6 +53,10 @@ class FundConfig:
     pool_prepare_threshold: int = 0
 
     # --- D4 model: DeepSeek on Ollama Cloud, single-provider fallback ---
+    # `llm_provider` selects the builder in the provider registry
+    # (`fund.agents.model._BUILDERS`); the env-free default keeps today's
+    # DeepSeek-on-Ollama-Cloud path byte-for-byte (SPEC "Switchable LLM Backends").
+    llm_provider: str = "ollama"
     ollama_base_url: str = "https://ollama.com"
     primary_model: str = "deepseek-v4.1-flash:cloud"
     fallback_model: str = "deepseek-v4-pro:cloud"
@@ -61,6 +66,32 @@ class FundConfig:
     model_reasoning: bool = False
     # `json_schema` fell through in probing; `function_calling` round-tripped.
     structured_output_method: str = "function_calling"
+
+    # --- D4 provider registry: per-provider keys/endpoints. Each stays None (or
+    # its cloud default) when unset so a bare import never fails; auth is
+    # validated at build time in each builder, never here. `ollama_api_key` +
+    # `ollama_base_url` live above (the current default provider). ---
+    # openai / openrouter (langchain-openai; ChatOpenAI)
+    openai_api_key: str | None = None
+    openai_base_url: str | None = None
+    openrouter_api_key: str | None = None
+    # anthropic / google / groq (a single cloud key each)
+    anthropic_api_key: str | None = None
+    google_api_key: str | None = None
+    groq_api_key: str | None = None
+    # nvidia — hosted (NVIDIA_API_KEY) vs self-hosted NIM (NVIDIA_BASE_URL set)
+    nvidia_api_key: str | None = None
+    nvidia_base_url: str | None = None
+    # huggingface — cloud only in this delivery; `hf_mode == "local"` is deferred
+    hf_api_token: str | None = None
+    hf_mode: str = "cloud"
+    # aws (Bedrock Converse) — boto3 also reads AWS_*/IAM role; region_name here
+    aws_region: str | None = None
+    # microsoft (Azure OpenAI) — the four Azure env vars, wired at build time
+    azure_openai_api_key: str | None = None
+    azure_openai_endpoint: str | None = None
+    azure_openai_api_version: str | None = None
+    azure_openai_deployment_name: str | None = None
 
     # --- D22 guards: LOW explicit recursion_limit + PM round cap (library
     # default 9999 is NOT a safety bound). ---
@@ -145,6 +176,28 @@ def load_config(
         ollama_api_key=env.get("OLLAMA_API_KEY"),
         fred_api_key=env.get("FRED_API_KEY"),
         ssl_cert_file=env.get("SSL_CERT_FILE"),
+        # D4 provider registry: LLM_PROVIDER + shared model ids + Ollama base_url;
+        # missing → dataclass default (env-free load stays on DeepSeek/Ollama Cloud).
+        llm_provider=env.get("LLM_PROVIDER", defaults.llm_provider),
+        primary_model=env.get("FUND_PRIMARY_MODEL", defaults.primary_model),
+        fallback_model=env.get("FUND_FALLBACK_MODEL", defaults.fallback_model),
+        ollama_base_url=env.get("OLLAMA_BASE_URL", defaults.ollama_base_url),
+        # Per-provider keys/endpoints: absent → None (validated at build time).
+        openai_api_key=env.get("OPENAI_API_KEY"),
+        openai_base_url=env.get("OPENAI_BASE_URL"),
+        openrouter_api_key=env.get("OPENROUTER_API_KEY"),
+        anthropic_api_key=env.get("ANTHROPIC_API_KEY"),
+        google_api_key=env.get("GOOGLE_API_KEY"),
+        groq_api_key=env.get("GROQ_API_KEY"),
+        nvidia_api_key=env.get("NVIDIA_API_KEY"),
+        nvidia_base_url=env.get("NVIDIA_BASE_URL"),
+        hf_api_token=env.get("HUGGINGFACEHUB_API_TOKEN"),
+        hf_mode=env.get("FUND_HF_MODE", defaults.hf_mode),
+        aws_region=env.get("AWS_REGION"),
+        azure_openai_api_key=env.get("AZURE_OPENAI_API_KEY"),
+        azure_openai_endpoint=env.get("AZURE_OPENAI_ENDPOINT"),
+        azure_openai_api_version=env.get("OPENAI_API_VERSION"),
+        azure_openai_deployment_name=env.get("AZURE_OPENAI_DEPLOYMENT_NAME"),
         # Phase-9 daemon knobs: `FUND_*` aliases; missing → dataclass default.
         fund_rebalance_cron=env.get(
             "FUND_REBALANCE_CRON", defaults.fund_rebalance_cron

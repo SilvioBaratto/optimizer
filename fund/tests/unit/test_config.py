@@ -154,3 +154,94 @@ def test_no_prometheus_metrics_port_field():
 
     assert not hasattr(cfg, "fund_metrics_port")
     assert not hasattr(cfg, "metrics_port")
+
+
+# --- Switchable LLM backends: llm_provider + per-provider config plumbing -----
+
+
+def test_llm_provider_defaults_to_ollama():
+    # The provider registry selects a builder by LLM_PROVIDER; the env-free
+    # default is Ollama so today's DeepSeek-on-Ollama-Cloud path is unchanged.
+    assert load_config(env={}).llm_provider == "ollama"
+    assert load_config(env={"LLM_PROVIDER": "anthropic"}).llm_provider == "anthropic"
+
+
+def test_model_ids_and_ollama_base_url_are_env_sourced():
+    # FUND_PRIMARY_MODEL / FUND_FALLBACK_MODEL / OLLAMA_BASE_URL become live env
+    # (previously dataclass-only); defaults are preserved when unset.
+    cfg = load_config(
+        env={
+            "FUND_PRIMARY_MODEL": "gpt-4o",
+            "FUND_FALLBACK_MODEL": "gpt-4o-mini",
+            "OLLAMA_BASE_URL": "http://localhost:11434",
+        }
+    )
+    assert cfg.primary_model == "gpt-4o"
+    assert cfg.fallback_model == "gpt-4o-mini"
+    assert cfg.ollama_base_url == "http://localhost:11434"
+
+    # Env-free load keeps the pinned D4 defaults.
+    default_cfg = load_config(env={})
+    assert default_cfg.primary_model == "deepseek-v4.1-flash:cloud"
+    assert default_cfg.fallback_model == "deepseek-v4-pro:cloud"
+    assert default_cfg.ollama_base_url == "https://ollama.com"
+
+
+def test_provider_keys_and_endpoints_sourced_from_env():
+    cfg = load_config(
+        env={
+            "OPENAI_API_KEY": "sk-openai",
+            "OPENAI_BASE_URL": "https://oai.example/v1",
+            "OPENROUTER_API_KEY": "sk-or",
+            "ANTHROPIC_API_KEY": "sk-anthropic",
+            "GOOGLE_API_KEY": "goog-key",
+            "GROQ_API_KEY": "gsk",
+            "NVIDIA_API_KEY": "nvapi",
+            "NVIDIA_BASE_URL": "http://nim:8000/v1",
+            "HUGGINGFACEHUB_API_TOKEN": "hf_token",
+            "FUND_HF_MODE": "local",
+            "AWS_REGION": "eu-west-1",
+            "AZURE_OPENAI_API_KEY": "az-key",
+            "AZURE_OPENAI_ENDPOINT": "https://az.openai.azure.com",
+            "OPENAI_API_VERSION": "2024-06-01",
+            "AZURE_OPENAI_DEPLOYMENT_NAME": "gpt4o-deploy",
+        }
+    )
+
+    assert cfg.openai_api_key == "sk-openai"
+    assert cfg.openai_base_url == "https://oai.example/v1"
+    assert cfg.openrouter_api_key == "sk-or"
+    assert cfg.anthropic_api_key == "sk-anthropic"
+    assert cfg.google_api_key == "goog-key"
+    assert cfg.groq_api_key == "gsk"
+    assert cfg.nvidia_api_key == "nvapi"
+    assert cfg.nvidia_base_url == "http://nim:8000/v1"
+    assert cfg.hf_api_token == "hf_token"  # noqa: S105 (test fixture, not a secret)
+    assert cfg.hf_mode == "local"
+    assert cfg.aws_region == "eu-west-1"
+    assert cfg.azure_openai_api_key == "az-key"
+    assert cfg.azure_openai_endpoint == "https://az.openai.azure.com"
+    assert cfg.azure_openai_api_version == "2024-06-01"
+    assert cfg.azure_openai_deployment_name == "gpt4o-deploy"
+
+
+def test_provider_fields_default_safe_so_bare_import_never_fails():
+    # Every provider key/endpoint stays None with no env; hf_mode defaults to
+    # "cloud" (local is deferred). A bare load must not require any secret.
+    cfg = load_config(env={})
+
+    assert cfg.openai_api_key is None
+    assert cfg.openai_base_url is None
+    assert cfg.openrouter_api_key is None
+    assert cfg.anthropic_api_key is None
+    assert cfg.google_api_key is None
+    assert cfg.groq_api_key is None
+    assert cfg.nvidia_api_key is None
+    assert cfg.nvidia_base_url is None
+    assert cfg.hf_api_token is None
+    assert cfg.aws_region is None
+    assert cfg.azure_openai_api_key is None
+    assert cfg.azure_openai_endpoint is None
+    assert cfg.azure_openai_api_version is None
+    assert cfg.azure_openai_deployment_name is None
+    assert cfg.hf_mode == "cloud"
