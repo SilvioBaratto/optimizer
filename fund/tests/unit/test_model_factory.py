@@ -362,3 +362,56 @@ def test_google_without_key_raises_runtimeerror(monkeypatch):
 
     with pytest.raises(RuntimeError, match="GOOGLE_API_KEY"):
         model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+
+
+# --- aws / Bedrock Converse (Task 7; langchain-aws / ChatBedrockConverse) -----
+#
+# AWS is the first non-key provider: creds arrive via boto3 (AWS_ACCESS_KEY_ID /
+# AWS_SECRET_ACCESS_KEY / IAM role), so the builder requires only `region_name`.
+
+
+def test_aws_is_a_registered_provider():
+    assert "aws" in model._BUILDERS
+
+
+def test_aws_builds_chatbedrockconverse_threading_model_region_and_temperature(
+    monkeypatch,
+):
+    fake_cls = _install_fake_chat_class(
+        monkeypatch, "langchain_aws", class_name="ChatBedrockConverse"
+    )
+    cfg = FundConfig(llm_provider="aws", aws_region="us-east-1")
+
+    llm = model.build_chat_model(
+        cfg, model_name="anthropic.claude-3-5-sonnet-20240620-v1:0"
+    )
+
+    assert isinstance(llm, fake_cls)
+    assert llm.kwargs["model"] == "anthropic.claude-3-5-sonnet-20240620-v1:0"
+    # Bedrock is region-scoped, not key-scoped; creds come from boto3/IAM.
+    assert llm.kwargs["region_name"] == "us-east-1"
+    assert llm.kwargs["temperature"] == cfg.model_temperature
+    assert "api_key" not in llm.kwargs
+
+
+def test_aws_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
+    # `reasoning=` is Ollama-only; ChatBedrockConverse would reject it.
+    _install_fake_chat_class(
+        monkeypatch, "langchain_aws", class_name="ChatBedrockConverse"
+    )
+    cfg = FundConfig(llm_provider="aws", aws_region="us-east-1")
+
+    llm = model.build_chat_model(cfg, model_name="anthropic.claude-3")
+
+    assert "reasoning" not in llm.kwargs
+
+
+def test_aws_without_region_raises_runtimeerror(monkeypatch):
+    # No API key to require — the required secret is the region.
+    _install_fake_chat_class(
+        monkeypatch, "langchain_aws", class_name="ChatBedrockConverse"
+    )
+    cfg = FundConfig(llm_provider="aws", aws_region=None)
+
+    with pytest.raises(RuntimeError, match="AWS_REGION"):
+        model.build_chat_model(cfg, model_name="anthropic.claude-3")

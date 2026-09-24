@@ -57,6 +57,9 @@ openai = ["langchain-openai"]
 anthropic = ["langchain-anthropic"]
 groq = ["langchain-groq"]
 google = ["langchain-google-genai"]
+# `aws` pulls boto3 (heavy). Bedrock is region-scoped: creds come from AWS_*/IAM,
+# not a single key. TLS to Bedrock honours the boto3 `AWS_CA_BUNDLE` env var.
+aws = ["langchain-aws"]
 
 # Human CLI, watch TUI, and the D6 daemon. Entrypoints reference modules filled
 # in later phases (cli/tui/worker are empty stubs today); `uv sync` does not

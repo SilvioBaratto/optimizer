@@ -186,6 +186,27 @@ def _build_google(config: FundConfig, model_name: str) -> BaseChatModel:
     )
 
 
+def _build_aws(config: FundConfig, model_name: str) -> BaseChatModel:
+    """Build a ``ChatBedrockConverse`` (AWS Bedrock, Converse API).
+
+    Bedrock is **region-scoped, not key-scoped**: credentials come from the boto3
+    chain (``AWS_ACCESS_KEY_ID`` / ``AWS_SECRET_ACCESS_KEY`` / ``AWS_SESSION_TOKEN``
+    or an IAM role), so the only secret this builder *requires* is the region
+    (``AWS_REGION``). ``model`` is the accepted alias for the class's ``model_id``
+    field, keeping this consistent with the other builders. ``temperature=0``
+    threads the D4 contract; ``reasoning=`` is Ollama-only and is never passed here.
+    TLS to Bedrock is a boto3 concern — set ``AWS_CA_BUNDLE`` (documented, not code).
+    """
+    from langchain_aws import ChatBedrockConverse
+
+    region = _require(config.aws_region, "AWS_REGION")
+    return ChatBedrockConverse(
+        model=model_name,
+        region_name=region,
+        temperature=config.model_temperature,
+    )
+
+
 # Provider registry: slug → builder. Referencing a builder does NOT import its
 # SDK (the import is lazy inside the body); only the selected provider's package
 # is ever loaded. New providers land as one `_build_*` + one entry here.
@@ -196,6 +217,7 @@ _BUILDERS: dict[str, Callable[[FundConfig, str], BaseChatModel]] = {
     "anthropic": _build_anthropic,
     "groq": _build_groq,
     "google": _build_google,
+    "aws": _build_aws,
 }
 
 
