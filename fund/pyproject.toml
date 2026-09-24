@@ -54,6 +54,7 @@ test = [
 # also backs the `openrouter` provider (ChatOpenAI at OpenRouter's base_url) and,
 # later, `microsoft`/Azure OpenAI — no separate package.
 openai = ["langchain-openai"]
+anthropic = ["langchain-anthropic"]
 
 # Human CLI, watch TUI, and the D6 daemon. Entrypoints reference modules filled
 # in later phases (cli/tui/worker are empty stubs today); `uv sync` does not

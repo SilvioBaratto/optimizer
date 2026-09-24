@@ -2452,6 +2452,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+anthropic = [
+    { name = "langchain-anthropic" },
+]
 openai = [
     { name = "langchain-openai" },
 ]
@@ -2465,6 +2468,7 @@ test = [
 requires-dist = [
     { name = "apscheduler" },
     { name = "deepagents", specifier = "==0.7.14" },
+    { name = "langchain-anthropic", marker = "extra == 'anthropic'" },
     { name = "langchain-ollama" },
     { name = "langchain-openai", marker = "extra == 'openai'" },
     { name = "langgraph" },
@@ -2481,7 +2485,7 @@ requires-dist = [
     { name = "textual" },
     { name = "typer" },
 ]
-provides-extras = ["test", "openai"]
+provides-extras = ["test", "openai", "anthropic"]
 
 [[package]]
 name = "pre-commit"

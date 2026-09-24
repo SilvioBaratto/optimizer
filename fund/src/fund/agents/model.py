@@ -132,6 +132,24 @@ def _build_openrouter(config: FundConfig, model_name: str) -> BaseChatModel:
     )
 
 
+def _build_anthropic(config: FundConfig, model_name: str) -> BaseChatModel:
+    """Build a ``ChatAnthropic`` (Anthropic's Claude models).
+
+    Requires ``ANTHROPIC_API_KEY``; ``temperature=0`` threads the D4 contract.
+    ``reasoning=`` is Ollama-only and is never passed here — Anthropic's extended
+    thinking is an operator model-id / separate-flag choice (SPEC Open Q2), not
+    this constructor flag.
+    """
+    from langchain_anthropic import ChatAnthropic
+
+    api_key = _require(config.anthropic_api_key, "ANTHROPIC_API_KEY")
+    return ChatAnthropic(
+        model=model_name,
+        api_key=api_key,
+        temperature=config.model_temperature,
+    )
+
+
 # Provider registry: slug → builder. Referencing a builder does NOT import its
 # SDK (the import is lazy inside the body); only the selected provider's package
 # is ever loaded. New providers land as one `_build_*` + one entry here.
@@ -139,6 +157,7 @@ _BUILDERS: dict[str, Callable[[FundConfig, str], BaseChatModel]] = {
     "ollama": _build_ollama,
     "openai": _build_openai,
     "openrouter": _build_openrouter,
+    "anthropic": _build_anthropic,
 }
 
 

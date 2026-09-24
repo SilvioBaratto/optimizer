@@ -234,3 +234,48 @@ def test_openrouter_without_key_raises_runtimeerror(monkeypatch):
 
     with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
         model.build_chat_model(cfg, model_name="m")
+
+
+# --- anthropic (Task 4; langchain-anthropic / ChatAnthropic) ----------------
+
+
+def test_anthropic_is_a_registered_provider():
+    assert "anthropic" in model._BUILDERS
+
+
+def test_anthropic_builds_chatanthropic_threading_model_key_and_temperature(
+    monkeypatch,
+):
+    fake_cls = _install_fake_chat_class(
+        monkeypatch, "langchain_anthropic", class_name="ChatAnthropic"
+    )
+    cfg = FundConfig(llm_provider="anthropic", anthropic_api_key="sk-ant-test")
+
+    llm = model.build_chat_model(cfg, model_name="claude-sonnet-4")
+
+    assert isinstance(llm, fake_cls)
+    assert llm.kwargs["model"] == "claude-sonnet-4"
+    assert llm.kwargs["api_key"] == "sk-ant-test"
+    assert llm.kwargs["temperature"] == cfg.model_temperature
+
+
+def test_anthropic_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
+    # `reasoning=` is Ollama-only; ChatAnthropic would reject it.
+    _install_fake_chat_class(
+        monkeypatch, "langchain_anthropic", class_name="ChatAnthropic"
+    )
+    cfg = FundConfig(llm_provider="anthropic", anthropic_api_key="sk-ant-test")
+
+    llm = model.build_chat_model(cfg, model_name="claude-sonnet-4")
+
+    assert "reasoning" not in llm.kwargs
+
+
+def test_anthropic_without_key_raises_runtimeerror(monkeypatch):
+    _install_fake_chat_class(
+        monkeypatch, "langchain_anthropic", class_name="ChatAnthropic"
+    )
+    cfg = FundConfig(llm_provider="anthropic", anthropic_api_key=None)
+
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+        model.build_chat_model(cfg, model_name="claude-sonnet-4")
