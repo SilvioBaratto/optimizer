@@ -23,7 +23,7 @@ boundaries:
 | Build and tune portfolio-optimization pipelines in your own code | the **`optimizer`** library (`portopt-core`) | **No** — pure Python (numpy/pandas/skfolio) |
 | Keep a PostgreSQL store of market / fundamental / macro data fresh on a schedule | the **`portopt`** ingestion daemon | Yes — PostgreSQL (via Docker) |
 | Share models, repositories and migrations across packages | the **`portopt-db`** layer | Yes — it *is* the DB layer |
-| Run an LLM-driven fund manager that decides and lets the optimizer compute | the **`fund`** bridge (`portopt-fund`) | Yes — PostgreSQL + an Ollama model endpoint |
+| Run an LLM-driven fund manager that decides and lets the optimizer compute | the **`fund`** bridge (`portopt-fund`) | Yes — PostgreSQL + a chat-model endpoint (DeepSeek on Ollama Cloud by default; any of ten providers via `LLM_PROVIDER`) |
 
 The **library installs and runs with zero Docker/DB dependency**. Docker +
 PostgreSQL are required only for the ingestion daemon and the fund bridge, which
@@ -238,9 +238,13 @@ commands `setup`, `start`, `stop`, `status`.
 
 ### The fund manager (`fund`)
 
-The `fund` bridge lets an LLM (DeepSeek via Ollama) make portfolio decisions
-and delegate the numeric work to `optimizer`, persisting runs to PostgreSQL via
-`portopt_db`. CLI (`fund <command>`):
+The `fund` bridge lets an LLM make portfolio decisions and delegate the numeric
+work to `optimizer`, persisting runs to PostgreSQL via `portopt_db`. The chat
+model is chosen by `LLM_PROVIDER` from a ten-provider registry (ollama, openai,
+openrouter, anthropic, google, groq, nvidia, huggingface, aws, microsoft); set
+nothing and it stays on the verified default — DeepSeek on Ollama Cloud. Install
+a provider's SDK with the matching extra (`uv sync --package portopt-fund
+--extra <provider>`, or `--extra all-llm`). CLI (`fund <command>`):
 
 | Command | What it does |
 |---|---|
