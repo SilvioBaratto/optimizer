@@ -60,6 +60,9 @@ class ScriptedProfilerModel(BaseChatModel):
     with_structured_output_calls: int = 0
     structured_invoke_calls: int = 0
     generate_calls: int = 0
+    # Records the ``method`` each ``with_structured_output`` was called with, so a
+    # test can assert the caller forwarded the configured structured-output method.
+    structured_output_methods: list[str] = Field(default_factory=list)
 
     @property
     def _llm_type(self) -> str:
@@ -72,6 +75,7 @@ class ScriptedProfilerModel(BaseChatModel):
         object.__setattr__(
             self, "with_structured_output_calls", self.with_structured_output_calls + 1
         )
+        self.structured_output_methods.append(method)
         return _ScriptedRunnable(self)
 
     def _next_structured(self, _messages: Any) -> Any:

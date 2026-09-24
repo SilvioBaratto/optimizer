@@ -13,6 +13,7 @@ The always-on HITL gate itself is covered in ``test_profiler_hitl.py``.
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
 
 import pytest
@@ -29,6 +30,7 @@ from portopt_db.models import AgentRun, MifidProfile
 
 from fund.agents.profiler import SuitabilityBreachError, run_profiler
 from fund.audit import MifidProfileRepository, resolve_constraint_set
+from fund.config import settings
 from fund.schemas import ConstraintSet, ConstraintSetRef
 from fund.schemas.enums import GicsSector, RiskToleranceBand
 
@@ -107,6 +109,37 @@ def test_falls_back_when_primary_normalisation_is_exhausted(db_session):
     assert run.answers == answers
     assert primary.structured_invoke_calls == 2  # retries=1 → two primary tries
     assert fallback.structured_invoke_calls == 1  # fallback tried exactly once
+
+
+# --- per-provider structured-output method (Task 11) ------------------------
+
+
+def test_profiler_defaults_to_function_calling_structured_output(db_session):
+    pid = uuid.uuid4()
+    model = make_model(make_answers(), portfolio_id=str(pid))
+
+    _run(model, db_session, portfolio_id=pid)
+
+    # Default config (D4 pin) → normalisation uses ``function_calling``.
+    assert model.structured_output_methods == ["function_calling"]
+
+
+def test_profiler_forwards_configured_structured_output_method(db_session):
+    pid = uuid.uuid4()
+    model = make_model(make_answers(), portfolio_id=str(pid))
+    config = dataclasses.replace(settings, structured_output_method="json_mode")
+
+    run_profiler(
+        model,
+        _MESSAGES,
+        portfolio_id=pid,
+        session=db_session,
+        checkpointer=MemorySaver(),
+        config=config,
+    )
+
+    # The profiler threads ``config.structured_output_method`` into structured_call.
+    assert model.structured_output_methods == ["json_mode"]
 
 
 # --- persistence on approval ------------------------------------------------

@@ -759,6 +759,7 @@ def run_profiler(
         model,
         MiFIDAnswers,
         _extraction_messages(questionnaire),
+        method=config.structured_output_method,
         retries=1,
         fallback=fallback,
     )
