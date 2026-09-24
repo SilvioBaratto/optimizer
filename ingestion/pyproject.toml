@@ -41,7 +41,7 @@ dependencies = [
     # Install wizard (portopt setup): interactive prompts, rich output, encrypted secret store
     "questionary==2.1.1",
     "rich==15.0.0",
-    "cryptography==45.0.7",
+    "cryptography==50.0.1",
     # Shared DB package (workspace). Owns SQLAlchemy/psycopg2/alembic + the schema;
     # ingestion inherits them transitively.
     "portopt-db",
