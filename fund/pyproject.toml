@@ -55,6 +55,7 @@ test = [
 # later, `microsoft`/Azure OpenAI — no separate package.
 openai = ["langchain-openai"]
 anthropic = ["langchain-anthropic"]
+groq = ["langchain-groq"]
 
 # Human CLI, watch TUI, and the D6 daemon. Entrypoints reference modules filled
 # in later phases (cli/tui/worker are empty stubs today); `uv sync` does not

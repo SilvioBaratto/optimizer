@@ -150,6 +150,23 @@ def _build_anthropic(config: FundConfig, model_name: str) -> BaseChatModel:
     )
 
 
+def _build_groq(config: FundConfig, model_name: str) -> BaseChatModel:
+    """Build a ``ChatGroq`` (Groq's hosted low-latency inference).
+
+    Requires ``GROQ_API_KEY``; ``temperature=0`` threads the D4 contract.
+    ``reasoning=`` is Ollama-only and is never passed here — Groq exposes its
+    reasoning models through the model id (SPEC Open Q2), not this constructor.
+    """
+    from langchain_groq import ChatGroq
+
+    api_key = _require(config.groq_api_key, "GROQ_API_KEY")
+    return ChatGroq(
+        model=model_name,
+        api_key=api_key,
+        temperature=config.model_temperature,
+    )
+
+
 # Provider registry: slug → builder. Referencing a builder does NOT import its
 # SDK (the import is lazy inside the body); only the selected provider's package
 # is ever loaded. New providers land as one `_build_*` + one entry here.
@@ -158,6 +175,7 @@ _BUILDERS: dict[str, Callable[[FundConfig, str], BaseChatModel]] = {
     "openai": _build_openai,
     "openrouter": _build_openrouter,
     "anthropic": _build_anthropic,
+    "groq": _build_groq,
 }
 
 
