@@ -2982,6 +2982,16 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all-llm = [
+    { name = "huggingface-hub" },
+    { name = "langchain-anthropic" },
+    { name = "langchain-aws" },
+    { name = "langchain-google-genai" },
+    { name = "langchain-groq" },
+    { name = "langchain-huggingface" },
+    { name = "langchain-nvidia-ai-endpoints" },
+    { name = "langchain-openai" },
+]
 anthropic = [
     { name = "langchain-anthropic" },
 ]
@@ -3027,6 +3037,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-postgres" },
     { name = "portopt-core", editable = "." },
     { name = "portopt-db", editable = "packages/portopt-db" },
+    { name = "portopt-fund", extras = ["openai", "anthropic", "groq", "google", "aws", "nvidia", "huggingface"], marker = "extra == 'all-llm'" },
     { name = "psycopg", extras = ["binary"] },
     { name = "psycopg-pool" },
     { name = "pydantic" },
@@ -3037,7 +3048,7 @@ requires-dist = [
     { name = "textual" },
     { name = "typer" },
 ]
-provides-extras = ["test", "openai", "anthropic", "groq", "google", "aws", "nvidia", "huggingface"]
+provides-extras = ["test", "openai", "anthropic", "groq", "google", "aws", "nvidia", "huggingface", "all-llm"]
 
 [[package]]
 name = "pre-commit"

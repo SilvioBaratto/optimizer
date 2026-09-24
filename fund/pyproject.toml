@@ -67,6 +67,14 @@ nvidia = ["langchain-nvidia-ai-endpoints"]
 # HUGGINGFACEHUB_API_TOKEN). Deliberately NO torch/transformers — local inference
 # (FUND_HF_MODE=local) is deferred and raises a clear RuntimeError in the builder.
 huggingface = ["langchain-huggingface", "huggingface-hub"]
+# Aggregate: install EVERY optional provider backend at once. Self-referential
+# (`portopt-fund[...]`) so each provider's package list stays defined in exactly
+# one place (its own extra above) — no duplication to drift. This is what CI's
+# `uv sync --all-extras` resolves; the guard in test_all_llm_extra.py fails the
+# build if a new provider extra is added without being wired in here.
+all-llm = [
+    "portopt-fund[openai,anthropic,groq,google,aws,nvidia,huggingface]",
+]
 
 # Human CLI, watch TUI, and the D6 daemon. Entrypoints reference modules filled
 # in later phases (cli/tui/worker are empty stubs today); `uv sync` does not
