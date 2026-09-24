@@ -318,3 +318,47 @@ def test_groq_without_key_raises_runtimeerror(monkeypatch):
 
     with pytest.raises(RuntimeError, match="GROQ_API_KEY"):
         model.build_chat_model(cfg, model_name="llama-3.3-70b-versatile")
+
+
+# --- google / Gemini (Task 6; langchain-google-genai / ChatGoogleGenerativeAI)
+
+
+def test_google_is_a_registered_provider():
+    assert "google" in model._BUILDERS
+
+
+def test_google_builds_chatgoogle_threading_model_key_and_temperature(monkeypatch):
+    fake_cls = _install_fake_chat_class(
+        monkeypatch, "langchain_google_genai", class_name="ChatGoogleGenerativeAI"
+    )
+    cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")
+
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+
+    assert isinstance(llm, fake_cls)
+    assert llm.kwargs["model"] == "gemini-2.5-flash"
+    # `api_key` is the accepted alias for ChatGoogleGenerativeAI.google_api_key.
+    assert llm.kwargs["api_key"] == "gk-google-test"
+    assert llm.kwargs["temperature"] == cfg.model_temperature
+
+
+def test_google_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
+    # `reasoning=` is Ollama-only; ChatGoogleGenerativeAI would reject it.
+    _install_fake_chat_class(
+        monkeypatch, "langchain_google_genai", class_name="ChatGoogleGenerativeAI"
+    )
+    cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")
+
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+
+    assert "reasoning" not in llm.kwargs
+
+
+def test_google_without_key_raises_runtimeerror(monkeypatch):
+    _install_fake_chat_class(
+        monkeypatch, "langchain_google_genai", class_name="ChatGoogleGenerativeAI"
+    )
+    cfg = FundConfig(llm_provider="google", google_api_key=None)
+
+    with pytest.raises(RuntimeError, match="GOOGLE_API_KEY"):
+        model.build_chat_model(cfg, model_name="gemini-2.5-flash")

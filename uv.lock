@@ -2485,6 +2485,9 @@ dependencies = [
 anthropic = [
     { name = "langchain-anthropic" },
 ]
+google = [
+    { name = "langchain-google-genai" },
+]
 groq = [
     { name = "langchain-groq" },
 ]
@@ -2502,6 +2505,7 @@ requires-dist = [
     { name = "apscheduler" },
     { name = "deepagents", specifier = "==0.7.14" },
     { name = "langchain-anthropic", marker = "extra == 'anthropic'" },
+    { name = "langchain-google-genai", marker = "extra == 'google'" },
     { name = "langchain-groq", marker = "extra == 'groq'" },
     { name = "langchain-ollama" },
     { name = "langchain-openai", marker = "extra == 'openai'" },
@@ -2519,7 +2523,7 @@ requires-dist = [
     { name = "textual" },
     { name = "typer" },
 ]
-provides-extras = ["test", "openai", "anthropic", "groq"]
+provides-extras = ["test", "openai", "anthropic", "groq", "google"]
 
 [[package]]
 name = "pre-commit"

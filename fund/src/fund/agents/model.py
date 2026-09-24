@@ -167,6 +167,25 @@ def _build_groq(config: FundConfig, model_name: str) -> BaseChatModel:
     )
 
 
+def _build_google(config: FundConfig, model_name: str) -> BaseChatModel:
+    """Build a ``ChatGoogleGenerativeAI`` (Google's Gemini models).
+
+    Requires ``GOOGLE_API_KEY``; ``temperature=0`` threads the D4 contract.
+    ``api_key`` is the accepted alias for the class's ``google_api_key`` field, so
+    this stays consistent with the other builders. ``reasoning=`` is Ollama-only
+    and is never passed here — Gemini's thinking budget is an operator model-id /
+    separate-parameter choice (SPEC Open Q2), not this constructor flag.
+    """
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    api_key = _require(config.google_api_key, "GOOGLE_API_KEY")
+    return ChatGoogleGenerativeAI(
+        model=model_name,
+        api_key=api_key,
+        temperature=config.model_temperature,
+    )
+
+
 # Provider registry: slug → builder. Referencing a builder does NOT import its
 # SDK (the import is lazy inside the body); only the selected provider's package
 # is ever loaded. New providers land as one `_build_*` + one entry here.
@@ -176,6 +195,7 @@ _BUILDERS: dict[str, Callable[[FundConfig, str], BaseChatModel]] = {
     "openrouter": _build_openrouter,
     "anthropic": _build_anthropic,
     "groq": _build_groq,
+    "google": _build_google,
 }
 
 
