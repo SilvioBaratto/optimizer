@@ -1,0 +1,46 @@
+# Dockerfile-specific ignore for the fund image (BuildKit picks
+# `<dockerfile>.dockerignore` over the repo-root .dockerignore for THIS build).
+#
+# Why fund needs its own: the root .dockerignore strips `*.md`, but the fund agent
+# reads markdown at runtime — the optimizerwiki/ monograph and the per-role skills
+# (SKILL.md / reference.md). This ignore keeps all of that and drops only the
+# heavy/irrelevant paths. Patterns are relative to the build context root (`.`).
+
+# VCS / editor / tooling
+.git/
+**/.git/
+.github/
+**/.github/
+.obsidian/
+**/.obsidian/
+.claude/
+.vscode/
+.idea/
+
+# Local virtualenvs & Python caches
+.venv/
+venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/*.egg-info/
+node_modules/
+
+# Secrets & machine-local — provided at runtime via env_file, never baked in.
+.env
+.env.*
+.certs/
+secrets/
+
+# Workspace members / trees not in the portopt-fund closure.
+ingestion/
+scheduler/
+
+# Test trees (not needed at runtime).
+tests/
+**/tests/
+
+# Regenerated, gitignored runtime workdir — never ship a stale staged copy.
+fund/.runtime/

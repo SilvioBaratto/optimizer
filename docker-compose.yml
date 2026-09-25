@@ -79,6 +79,53 @@ services:
     networks:
       - optimizer_network
 
+  # Fund bridge — deepagents/langgraph decision engine + drift-monitor daemon.
+  # The one member that imports both `optimizer` and `portopt_db`; deepagents/
+  # langgraph live only here. Long-lived command is the `fund-worker` daemon
+  # (mirrors how `scheduler` runs `app.worker`): the container stays up and the
+  # `optimizer` launcher execs a decision round + the cockpit into it.
+  #   docker compose exec -d fund fund run <PID> --asof <ISO date>   # driver
+  #   docker compose exec    fund fund-tui <PID>                      # cockpit
+  # No HTTP API, no metrics port (out of scope for the fund daemon).
+  fund:
+    image: optimizer-fund:latest
+    build:
+      context: .
+      dockerfile: fund/Dockerfile
+    container_name: optimizer_fund
+    command: ["python", "-m", "fund.worker"]
+    # Sized above fund_shutdown_drain_timeout_seconds (default 30s) so the daemon
+    # drains the in-flight step before Docker SIGKILLs it (compose default 10s).
+    stop_grace_period: 45s
+    env_file:
+      - .env
+    environment:
+      # Container-internal DB coordinates (override the localhost:54320 from .env).
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/optimizer_db
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: postgres
+      # LLM backend (SPEC D4, switchable provider registry). fund.config reads
+      # LLM_PROVIDER + FUND_PRIMARY_MODEL/FUND_FALLBACK_MODEL + OLLAMA_BASE_URL +
+      # each provider's auth var. The model pair, per-provider auth, and
+      # OLLAMA_BASE_URL flow in via `env_file: .env` above — forwarded only when
+      # set, so an unset var falls through to fund.config's own default (env-free
+      # run still = DeepSeek on Ollama Cloud). Only the selector is declared here
+      # so its default is visible in compose and overridable from the host shell;
+      # the model/auth vars get NO empty-default entries because `environment:`
+      # overrides `env_file:` and `${VAR:-}` would clobber the code default.
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    # Reach a host-side Ollama (or any self-hosted endpoint) via
+    # host.docker.internal when OLLAMA_BASE_URL / a provider *_BASE_URL points there.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - optimizer_network
+
 volumes:
   postgres_data:
 
