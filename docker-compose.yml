@@ -115,6 +115,34 @@ services:
       # the model/auth vars get NO empty-default entries because `environment:`
       # overrides `env_file:` and `${VAR:-}` would clobber the code default.
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      # Provider auth flows ONLY via file-based docker secrets: each <NAME>_FILE
+      # points at /run/secrets/<name>, which fund.config._read_secret reads
+      # (non-empty file wins; empty placeholder falls through to inline). No bare
+      # secret key here — a plaintext value must never live in compose. aws is
+      # absent (IAM/region, not a secret file).
+      OLLAMA_API_KEY_FILE: /run/secrets/ollama_api_key
+      OPENROUTER_API_KEY_FILE: /run/secrets/openrouter_api_key
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      ANTHROPIC_API_KEY_FILE: /run/secrets/anthropic_api_key
+      GOOGLE_API_KEY_FILE: /run/secrets/google_api_key
+      GROQ_API_KEY_FILE: /run/secrets/groq_api_key
+      NVIDIA_API_KEY_FILE: /run/secrets/nvidia_api_key
+      HUGGINGFACEHUB_API_TOKEN_FILE: /run/secrets/huggingfacehub_api_token
+      AZURE_OPENAI_API_KEY_FILE: /run/secrets/azure_openai_api_key
+      FRED_API_KEY_FILE: /run/secrets/fred_api_key
+    # Mounted read-only at /run/secrets/<name>; `portopt start` renders
+    # ./secrets/<name> from the encrypted store before `docker compose up`.
+    secrets:
+      - ollama_api_key
+      - openrouter_api_key
+      - openai_api_key
+      - anthropic_api_key
+      - google_api_key
+      - groq_api_key
+      - nvidia_api_key
+      - huggingfacehub_api_token
+      - azure_openai_api_key
+      - fred_api_key
     depends_on:
       db:
         condition: service_healthy
@@ -133,11 +161,33 @@ networks:
   optimizer_network:
 
 # File-based secrets rendered by `portopt start` from ~/.portopt/secrets.enc into
-# ./secrets/<name> (git-ignored). Docker mounts each at /run/secrets/<name>.
+# ./secrets/<name> (git-ignored). Docker mounts each at /run/secrets/<name>. Keys
+# must match compose_secrets.SECRET_NAMES (parity-tested), so `render()` always
+# writes every file (empty when unset) and `up` never fails on a missing `file:`.
 secrets:
+  # ingestion daemon secrets
   trading_212_api_key:
     file: ./secrets/trading_212_api_key
   trading_212_secret_key:
     file: ./secrets/trading_212_secret_key
   fred_api_key:
     file: ./secrets/fred_api_key
+  # fund LLM-provider auth keys (switchable-LLM backends, SPEC D4)
+  ollama_api_key:
+    file: ./secrets/ollama_api_key
+  openrouter_api_key:
+    file: ./secrets/openrouter_api_key
+  openai_api_key:
+    file: ./secrets/openai_api_key
+  anthropic_api_key:
+    file: ./secrets/anthropic_api_key
+  google_api_key:
+    file: ./secrets/google_api_key
+  groq_api_key:
+    file: ./secrets/groq_api_key
+  nvidia_api_key:
+    file: ./secrets/nvidia_api_key
+  huggingfacehub_api_token:
+    file: ./secrets/huggingfacehub_api_token
+  azure_openai_api_key:
+    file: ./secrets/azure_openai_api_key

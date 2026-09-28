@@ -14,10 +14,27 @@ from collections.abc import Mapping
 from pathlib import Path
 
 # Must match the top-level `secrets:` keys in docker-compose.yml.
+# The `portopt setup` wizard also configures the fund's switchable-LLM backend
+# (SPEC "Switchable LLM Backends"): each provider's auth key is a file-based
+# docker secret the `fund` service reads via `<NAME>_FILE`. These are config
+# identifiers, not an LLM-stack import — the boundary (ingestion ⊬ agent stack /
+# optimizer) is unchanged. `aws` is deliberately absent: it authenticates via
+# IAM/region, not a secret file.
 SECRET_NAMES = (
+    # ingestion daemon secrets (Trading212 universe + FRED macro)
     "trading_212_api_key",
     "trading_212_secret_key",
     "fred_api_key",
+    # fund LLM-provider auth keys (name-agree with fund.config._read_secret)
+    "ollama_api_key",
+    "openrouter_api_key",
+    "openai_api_key",
+    "anthropic_api_key",
+    "google_api_key",
+    "groq_api_key",
+    "nvidia_api_key",
+    "huggingfacehub_api_token",
+    "azure_openai_api_key",
 )
 
 DEFAULT_SECRETS_DIR = Path("secrets")

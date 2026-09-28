@@ -1,15 +1,29 @@
-"""Guard: no LLM stack anywhere under ``ingestion/``.
+"""Guard: no LLM *stack* (agent-stack import / provider SDK) under ``ingestion/``.
 
 The LLM steps (news summarisation, macro-regime calibration) were removed from
-the ingestion daemon — they will return as a separate ``packages/`` member. No
-BAML / LangChain / OpenAI / Anthropic / Ollama reference must survive in the
-ingestion tree, or a dead dependency (or a re-added one) would slip back in
-unnoticed.
+the ingestion daemon — they will return as a separate ``packages/`` member. The
+real, load-bearing boundary is that ingestion must never **import** the agent
+stack (``baml`` / ``langchain`` / a provider SDK) or ``optimizer``, so a dead
+(or re-added) dependency cannot slip back in unnoticed.
 
-Source-blind by construction: scans the raw text of files under ``ingestion/``
-for the forbidden markers. No implementation module is imported — this is a
-pure text-content guard, a sibling of ``test_no_http_surface.py`` and modelled
-on it.
+The one legitimate re-entry of LLM *configuration* (not the stack) is the
+``portopt setup`` wizard: it configures the ``fund`` service's switchable-LLM
+backend — provider selection, per-provider file-based secrets, and httpx-only
+validation. Those are config identifiers (``"openai"``, ``ollama_api_key``,
+``llm_provider``, ``validate_llm``), not a dependency. So the guard is scoped:
+
+* Everywhere in ``ingestion/``: forbid the LLM *libraries* (``baml`` /
+  ``langchain`` as substrings) and any provider-SDK **import** line
+  (``import openai`` / ``from anthropic import …`` / ``import ollama``) — an SDK
+  import is a re-added dependency even inside the wizard (validation is
+  httpx-only).
+* Only within the wizard LLM-config surface (``app/setup/`` + ``app/cli.py``):
+  allow provider *names* and the ``llm`` word as bare config text. Elsewhere they
+  stay forbidden.
+
+Source-blind by construction: scans the raw text of files under ``ingestion/``.
+No implementation module is imported — a pure text-content guard, sibling of
+``test_no_http_surface.py``.
 
 Anchored on ``Path(__file__).resolve().parents[3]`` — from
 ``ingestion/tests/unit/hygiene/``, that index lands on ``ingestion/`` itself.
@@ -40,18 +54,46 @@ _EXEMPT_DIRS = (_HYGIENE_DIR, _DEPLOYMENT_VERIFICATION_DIR)
 _SCAN_SUFFIXES = {".py", ".toml", ".ini", ".cfg", ".txt", ".yaml", ".yml"}
 _EXCLUDE_DIR_PARTS = {"__pycache__"}
 
+# LLM *libraries*: never a legitimate config string — forbidden anywhere.
 # Case-insensitive: regressions are as likely to be capitalised prose
-# ("OpenAI provider", "LangChain structured output") as lowercase imports.
-_CASE_INSENSITIVE_MARKERS = (
+# ("LangChain structured output") as lowercase imports.
+_ALWAYS_FORBIDDEN_MARKERS = (
     "baml",
     "langchain",
+)
+# Provider names: allowed as config identifiers (secret ids, ``"openai"``) ONLY
+# inside the wizard LLM-config surface; forbidden as bare text elsewhere. Their
+# SDK *imports* are caught everywhere by ``_PROVIDER_IMPORT_PATTERN`` below.
+_PROVIDER_NAME_MARKERS = (
     "openai",
     "anthropic",
     "ollama",
 )
-# ``llm`` matched on a word boundary so it catches ``llm_provider`` / ``LLM``
-# without false-positiving on unrelated substrings.
+# An actual provider-SDK dependency creeping back in (``import openai`` /
+# ``from anthropic import …`` / ``import ollama``) — forbidden EVERYWHERE,
+# including the wizard, which must validate over httpx only, never via an SDK.
+_PROVIDER_IMPORT_PATTERN = re.compile(
+    r"^\s*(?:from|import)\s+(?:openai|anthropic|ollama)\b", re.IGNORECASE
+)
+# ``llm`` matched on a word boundary so it catches ``LLM`` / ``--llm-provider``
+# (config, allowed in the wizard surface) without false-positiving on unrelated
+# substrings. ``llm_provider`` has no boundary before ``_`` and is never matched.
 _LLM_WORD_PATTERN = re.compile(r"\bllm\b", re.IGNORECASE)
+
+# The setup-wizard LLM-config surface: ``portopt setup`` configures the fund's
+# switchable-LLM backend without importing the agent stack. Provider *names* and
+# the ``llm`` word are legitimate config here; SDK imports + LLM libraries are
+# not (those stay forbidden everywhere). Paths are POSIX, relative to ingestion/.
+_WIZARD_LLM_CONFIG_PREFIX = "app/setup/"
+_WIZARD_LLM_CONFIG_FILES = ("app/cli.py",)
+
+
+def _is_wizard_llm_config(relative_path: str) -> bool:
+    return (
+        relative_path.startswith(_WIZARD_LLM_CONFIG_PREFIX)
+        or relative_path in _WIZARD_LLM_CONFIG_FILES
+    )
+
 
 # (path-suffix, line-substring, reason) — matched by path suffix + exact
 # substring-in-line, so an entry silences only the one documented occurrence.
@@ -78,15 +120,27 @@ def _is_allowlisted(relative_path: str, line: str) -> bool:
 
 def _scan_text_for_markers(relative_path: str, text: str) -> list[str]:
     offending: list[str] = []
+    in_wizard = _is_wizard_llm_config(relative_path)
     for line in text.splitlines():
         if _is_allowlisted(relative_path, line):
             continue
         lowered = line.lower()
-        for marker in _CASE_INSENSITIVE_MARKERS:
+        # LLM libraries: never legitimate, anywhere.
+        for marker in _ALWAYS_FORBIDDEN_MARKERS:
             if marker in lowered:
                 offending.append(f"{relative_path}: {marker!r}")
-        if _LLM_WORD_PATTERN.search(line):
-            offending.append(f"{relative_path}: 'llm'")
+        # A provider-SDK import is a re-added dependency — forbidden even in the
+        # wizard (its validation is httpx-only, never an SDK).
+        if _PROVIDER_IMPORT_PATTERN.search(line):
+            offending.append(f"{relative_path}: 'provider-sdk-import'")
+        # Provider names + the `llm` word as bare text are config: allowed only
+        # in the setup-wizard LLM-config surface, forbidden elsewhere.
+        if not in_wizard:
+            for marker in _PROVIDER_NAME_MARKERS:
+                if marker in lowered:
+                    offending.append(f"{relative_path}: {marker!r}")
+            if _LLM_WORD_PATTERN.search(line):
+                offending.append(f"{relative_path}: 'llm'")
     return offending
 
 
@@ -160,14 +214,17 @@ def test_when_ingestion_tree_is_scanned_then_no_llm_marker_is_found():
     assert find_llm_violations(_INGESTION_ROOT) == []
 
 
-@pytest.mark.parametrize("marker", sorted(_CASE_INSENSITIVE_MARKERS))
-def test_when_a_forbidden_marker_appears_then_it_is_detected(marker):
+@pytest.mark.parametrize(
+    "marker", sorted(_ALWAYS_FORBIDDEN_MARKERS + _PROVIDER_NAME_MARKERS)
+)
+def test_when_a_forbidden_marker_appears_in_a_normal_file_then_it_is_detected(marker):
+    # A non-wizard module: every LLM library + provider name is flagged.
     offending = _scan_text_for_markers("probe.py", f"# leftover {marker.upper()}\n")
     assert offending
 
 
-def test_when_llm_word_appears_then_it_is_detected():
-    offending = _scan_text_for_markers("probe.py", "llm_provider = 'openai'\n")
+def test_when_llm_word_appears_in_a_normal_file_then_it_is_detected():
+    offending = _scan_text_for_markers("app/services/foo.py", "# a stray LLM step\n")
     assert offending
 
 
@@ -183,6 +240,38 @@ def test_when_baml_token_appears_in_a_non_allowlisted_file_then_it_is_flagged():
     text = '    "BAMLH0A0HYM2": "ICE BofA US High Yield OAS",\n'
     offending = _scan_text_for_markers("app/some_other_module.py", text)
     assert offending
+
+
+# --- import-scoped guard: wizard LLM-config surface vs. the rest ---------------
+
+
+def test_provider_name_allowed_in_wizard_config_surface():
+    # `portopt setup` configures the fund's per-provider secrets; the names are
+    # config identifiers, not a dependency.
+    for path in ("app/setup/compose_secrets.py", "app/cli.py"):
+        assert _scan_text_for_markers(path, '    "ollama_api_key",\n') == []
+
+
+def test_llm_word_allowed_in_wizard_config_surface():
+    # `--llm-provider` / `llm_provider` are legitimate wizard config.
+    assert _scan_text_for_markers("app/cli.py", "'--llm-provider',\n") == []
+
+
+def test_provider_name_flagged_outside_wizard_surface():
+    # The same string in a non-wizard module is still a regression.
+    assert _scan_text_for_markers("app/services/foo.py", '    x = "ollama"\n')
+
+
+def test_provider_sdk_import_flagged_even_in_wizard_surface():
+    # An SDK import is a re-added dependency — forbidden even in the wizard, which
+    # must validate over httpx only.
+    for line in ("import openai\n", "from anthropic import Anthropic\n"):
+        assert _scan_text_for_markers("app/setup/wizard.py", line)
+
+
+def test_llm_library_flagged_even_in_wizard_surface():
+    # baml / langchain are the LLM libraries — never legitimate, even in setup.
+    assert _scan_text_for_markers("app/setup/wizard.py", "import langchain\n")
 
 
 def test_when_own_source_file_is_scanned_then_it_is_excluded():
