@@ -55,6 +55,30 @@ class TestSetupCommand:
         assert kwargs["t212_secret"] == "ts"  # noqa: S105 - test value, not a secret
         assert kwargs["fred_key"] == "fk"
 
+    def test_non_interactive_wires_llm_flags(self) -> None:
+        with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
+            result = runner.invoke(
+                app,
+                [
+                    "setup",
+                    "--non-interactive",
+                    "--llm-provider",
+                    "openai",
+                    "--llm-model",
+                    "gpt-4o",
+                    "--llm-base-url",
+                    "https://proxy.example/v1",
+                    "--llm-key",
+                    "sk-x",
+                ],
+            )
+        assert result.exit_code == 0
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs["llm_provider"] == "openai"
+        assert kwargs["llm_model"] == "gpt-4o"
+        assert kwargs["llm_base_url"] == "https://proxy.example/v1"
+        assert kwargs["llm_key"] == "sk-x"
+
     def test_non_interactive_failure_exits_nonzero(self) -> None:
         from app.setup.wizard import SetupError
 

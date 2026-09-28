@@ -202,6 +202,24 @@ def setup(
         None, "--t212-secret", help="Trading212 secret key."
     ),
     fred_key: str | None = typer.Option(None, "--fred-key", help="FRED API key."),
+    llm_provider: str | None = typer.Option(
+        None,
+        "--llm-provider",
+        help="Fund LLM provider (ollama, openai, anthropic, ...).",
+    ),
+    llm_model: str | None = typer.Option(
+        None, "--llm-model", help="Fund LLM model id."
+    ),
+    llm_base_url: str | None = typer.Option(
+        None,
+        "--llm-base-url",
+        help="Override the hosted default (local ollama, self-hosted NIM, proxy).",
+    ),
+    llm_key: str | None = typer.Option(
+        None,
+        "--llm-key",
+        help="LLM provider API key (or the provider's own env var, e.g. OPENAI_API_KEY).",
+    ),
 ) -> None:
     """Install wizard: verify Docker, validate keys live, encrypt secrets, migrate the DB."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
@@ -216,6 +234,10 @@ def setup(
                 t212_key=t212_key,
                 t212_secret=t212_secret,
                 fred_key=fred_key,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+                llm_base_url=llm_base_url,
+                llm_key=llm_key,
             )
         else:
             wizard.run_setup_interactive(make_prompter())

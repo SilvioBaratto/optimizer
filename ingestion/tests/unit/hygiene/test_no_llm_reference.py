@@ -83,13 +83,14 @@ _LLM_WORD_PATTERN = re.compile(r"\bllm\b", re.IGNORECASE)
 # The setup-wizard LLM-config surface: ``portopt setup`` configures the fund's
 # switchable-LLM backend without importing the agent stack. Provider *names* and
 # the ``llm`` word are legitimate config here; SDK imports + LLM libraries are
-# not (those stay forbidden everywhere). The surface includes the wizard code
-# (``app/setup/`` + ``app/cli.py``) AND its own tests (``tests/unit/setup/``),
-# which must name providers to exercise the config — the SDK-import + library
-# checks still run there, so a real ``import openai`` in a setup test is caught.
-# Paths are POSIX, relative to ingestion/.
+# not (those stay forbidden everywhere). The surface is the wizard/CLI config
+# code (``app/setup/`` + ``app/cli.py``) AND its tests (``tests/unit/setup/`` +
+# ``tests/unit/test_cli.py``), which must name providers / ``--llm-*`` flags to
+# exercise the config — the SDK-import + library checks still run there, so a
+# real ``import openai`` in any of them is still caught. Paths are POSIX,
+# relative to ingestion/.
 _WIZARD_LLM_CONFIG_PREFIXES = ("app/setup/", "tests/unit/setup/")
-_WIZARD_LLM_CONFIG_FILES = ("app/cli.py",)
+_WIZARD_LLM_CONFIG_FILES = ("app/cli.py", "tests/unit/test_cli.py")
 
 
 def _is_wizard_llm_config(relative_path: str) -> bool:
@@ -257,6 +258,7 @@ def test_provider_name_allowed_in_wizard_config_surface():
         "app/setup/validators.py",
         "app/cli.py",
         "tests/unit/setup/test_validators.py",
+        "tests/unit/test_cli.py",
     ):
         assert (
             _scan_text_for_markers(path, '    validate_llm("openai", key="k")\n') == []
