@@ -57,7 +57,16 @@ RUN test -d /app/optimizerwiki/docs \
 # resolve to /app/... , which the runtime stage reproduces at the same path.
 RUN uv venv /venv
 ENV VIRTUAL_ENV=/venv PATH=/venv/bin:$PATH
-RUN uv sync --frozen --no-dev --package portopt-fund --active
+# uv sync reaches PyPI over TLS; behind a TLS-inspecting proxy the slim image has
+# no corporate root. Honour an OPTIONAL BuildKit secret (absent by default —
+# required=false — so an off-network build still resolves on plain certifi) and
+# point Python's TLS at it only when the mount is non-empty.
+RUN --mount=type=secret,id=ca_bundle \
+    if [ -s /run/secrets/ca_bundle ]; then \
+        export SSL_CERT_FILE=/run/secrets/ca_bundle \
+               REQUESTS_CA_BUNDLE=/run/secrets/ca_bundle; \
+    fi; \
+    uv sync --frozen --no-dev --package portopt-fund --active
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.12-slim
@@ -83,6 +92,8 @@ RUN chmod +x /entrypoint.sh \
     && chown -R appuser:appuser /app /entrypoint.sh
 
 ENV VIRTUAL_ENV=/venv PATH=/venv/bin:$PATH
+# Textual (the fund-tui cockpit) needs a colour-capable TERM; the slim base sets none.
+ENV TERM=xterm-256color
 
 USER appuser
 WORKDIR /app

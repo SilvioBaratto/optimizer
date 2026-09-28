@@ -24,7 +24,16 @@ COPY ingestion/ ingestion/
 # build-tree source paths. --frozen: respect the committed lock. --no-dev: no test deps.
 RUN uv venv /venv
 ENV VIRTUAL_ENV=/venv PATH=/venv/bin:$PATH
-RUN uv sync --frozen --no-dev --no-editable --package portopt --active
+# uv sync reaches PyPI over TLS; behind a TLS-inspecting proxy the slim image has
+# no corporate root. Honour an OPTIONAL BuildKit secret (absent by default —
+# required=false — so an off-network build still resolves on plain certifi) and
+# point Python's TLS at it only when the mount is non-empty. Mirrors fund/Dockerfile.
+RUN --mount=type=secret,id=ca_bundle \
+    if [ -s /run/secrets/ca_bundle ]; then \
+        export SSL_CERT_FILE=/run/secrets/ca_bundle \
+               REQUESTS_CA_BUNDLE=/run/secrets/ca_bundle; \
+    fi; \
+    uv sync --frozen --no-dev --no-editable --package portopt --active
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.12-slim
