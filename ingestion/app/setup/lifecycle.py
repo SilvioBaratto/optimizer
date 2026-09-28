@@ -21,7 +21,7 @@ class LifecycleError(RuntimeError):
 
 
 def run_start(passphrase: str) -> None:
-    """Decrypt secrets, render compose secret files, and bring the stack up."""
+    """Decrypt secrets, render compose secret files, and bring the fund stack up."""
     if not passphrase:
         raise LifecycleError(
             "A master passphrase is required (set PORTOPT_PASSPHRASE)."
@@ -33,7 +33,10 @@ def run_start(passphrase: str) -> None:
     # reaches it only through the generated .env.fund env_file (the compose
     # `environment:` block omits these vars so nothing shadows the file).
     compose_env.render(config_file.load_config())
-    docker_bootstrap.compose_up()
+    # Every service is profile-gated (a bare `up` starts nothing), so target the
+    # fund profile (db + fund), building the image on first run and waiting for
+    # the alembic-at-head healthcheck.
+    docker_bootstrap.build_and_up(profile="fund")
 
 
 def run_stop() -> None:

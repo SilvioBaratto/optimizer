@@ -151,14 +151,17 @@ def running_scheduler_container(request: pytest.FixtureRequest):
         pytest.fail(f"docker compose build scheduler failed:\n{build.stderr}")
 
     up = subprocess.run(  # noqa: S603
-        [docker, "compose", "up", "-d"],
+        # Every service is profile-gated (T6); a bare `up` starts nothing. The
+        # ingestion profile is db + scheduler + adminer — exactly what this
+        # scheduler-deployment smoke test polls for below.
+        [docker, "compose", "--profile", "ingestion", "up", "-d"],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
         timeout=300,
     )
     if up.returncode != 0:
-        pytest.fail(f"docker compose up -d failed:\n{up.stderr}")
+        pytest.fail(f"docker compose --profile ingestion up -d failed:\n{up.stderr}")
 
     try:
         deadline = time.monotonic() + _HEALTH_POLL_TIMEOUT_SECONDS

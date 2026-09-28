@@ -63,13 +63,6 @@ def migrate() -> None:
         raise DockerError(f"`alembic upgrade head` failed:\n{result.stderr}")
 
 
-def compose_up() -> None:
-    """Bring up all services in the background (`portopt start`)."""
-    result = _run(["docker", "compose", "up", "-d"])
-    if result.returncode != 0:
-        raise DockerError(f"`docker compose up` failed:\n{result.stderr}")
-
-
 def compose_down() -> None:
     """Stop and remove all services (`portopt stop`)."""
     result = _run(["docker", "compose", "down"])
@@ -96,10 +89,13 @@ def docker_available() -> bool:
     return True
 
 
-# The stack's Dockerfiles use `--mount=type=secret` (BuildKit-only), and the
-# helpers below lean on `up --wait`; below these, tooling degrades but still works.
+# The stack's Dockerfiles use `--mount=type=secret` (BuildKit-only); below the
+# Engine floor BuildKit may be off. The Compose floor is a HARD parse floor, not a
+# soft `up --wait` degradation: docker-compose.yml uses the long-form `env_file`
+# `required:` mapping, which only parses on Compose >= 2.24 (Jan 2024) — older
+# Compose fails `docker compose config`/`up` outright.
 _ENGINE_MIN = (23, 0)
-_COMPOSE_MIN = (2, 1, 1)
+_COMPOSE_MIN = (2, 24, 0)
 
 # Images each profile builds (db/adminer are pulled, never built), so `build_and_up`
 # knows what "absent" means before deciding to run the slow build.
@@ -139,13 +135,17 @@ def _compose_version() -> tuple[int, ...] | None:
 
 def warn_stale_versions() -> list[str]:
     """Return advisory warnings for Docker/Compose below the versions this stack
-    prefers.
+    needs.
 
-    Never raises — old tooling still brings the stack up, just with caveats
-    (legacy builder can't read the secret mount; `up --wait` may be a no-op). An
-    undetectable version yields no warning (no false alarms). Setting
-    ``DOCKER_BUILDKIT=1`` is the escape hatch that suppresses the Engine warning:
-    it forces BuildKit on an older Engine so the secret-mount builds still work.
+    Never raises, but the two warnings differ in severity. The Engine one is
+    advisory: an old builder can't read the secret mount, and ``DOCKER_BUILDKIT=1``
+    is the escape hatch that suppresses it (it forces BuildKit on an older Engine
+    so the secret-mount builds still work). The Compose one is a HARD blocker:
+    docker-compose.yml uses the long-form ``env_file`` ``required:`` mapping, which
+    only parses on Compose >= 2.24 — below that ``docker compose config``/``up``
+    fails outright and nothing starts, so the warning is a heads-up before that
+    hard failure, not a soft ``up --wait`` degradation. An undetectable version
+    yields no warning (no false alarms).
     """
     warnings: list[str] = []
     engine = _server_version()
@@ -163,8 +163,9 @@ def warn_stale_versions() -> list[str]:
     if compose is not None and compose < _COMPOSE_MIN:
         warnings.append(
             f"Docker Compose {_fmt_version(compose)} < {_fmt_version(_COMPOSE_MIN)}: "
-            "`up --wait` may be unsupported; the stack still starts but readiness "
-            "isn't gated."
+            "docker-compose.yml uses the long-form `env_file` `required:` syntax "
+            "(Compose >= 2.24); older Compose can't parse it — upgrade Docker "
+            "Compose."
         )
     return warnings
 

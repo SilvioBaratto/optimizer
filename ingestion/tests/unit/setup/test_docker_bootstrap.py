@@ -84,20 +84,6 @@ def test_migrate_failure_raises(mock_run: MagicMock) -> None:
 
 
 @patch("app.setup.docker_bootstrap.subprocess.run")
-def test_compose_up_runs_all_services(mock_run: MagicMock) -> None:
-    mock_run.return_value = _cp(0)
-    db.compose_up()
-    assert mock_run.call_args[0][0] == ["docker", "compose", "up", "-d"]
-
-
-@patch("app.setup.docker_bootstrap.subprocess.run")
-def test_compose_up_failure_raises(mock_run: MagicMock) -> None:
-    mock_run.return_value = _cp(1, "boom")
-    with pytest.raises(db.DockerError):
-        db.compose_up()
-
-
-@patch("app.setup.docker_bootstrap.subprocess.run")
 def test_compose_down_runs(mock_run: MagicMock) -> None:
     mock_run.return_value = _cp(0)
     db.compose_down()
@@ -176,6 +162,25 @@ class TestVersionGates:
         monkeypatch.delenv("DOCKER_BUILDKIT", raising=False)
         mock_run.side_effect = [_cp_stdout("24.0.7"), _cp_stdout("1.29.2")]
         assert any("Compose" in w for w in db.warn_stale_versions())
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_compose_just_below_2_24_warns(
+        self, mock_run: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The floor is the compose-file parse floor: 2.23.x can't read the
+        long-form `env_file` `required:` syntax, so it must warn (not merely a
+        soft `up --wait` degradation)."""
+        monkeypatch.delenv("DOCKER_BUILDKIT", raising=False)
+        mock_run.side_effect = [_cp_stdout("24.0.7"), _cp_stdout("2.23.0")]
+        # Pin the HARD-failure wording, not just presence: a revert to the old
+        # soft `up --wait` degradation message must fail this test.
+        assert any("parse" in w for w in db.warn_stale_versions())
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_compose_at_floor_produces_no_warning(self, mock_run: MagicMock) -> None:
+        """2.24.0 is the inclusive floor — exactly at it, no warning fires."""
+        mock_run.side_effect = [_cp_stdout("24.0.7"), _cp_stdout("2.24.0")]
+        assert db.warn_stale_versions() == []
 
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_undetectable_versions_produce_no_warnings(

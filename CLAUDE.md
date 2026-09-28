@@ -35,7 +35,7 @@ uv workspace — `uv sync` resolves all four members into one venv. Run tools pe
 
 ```bash
 # Infrastructure
-docker compose up -d              # PostgreSQL (54320) + Adminer (18081) + scheduler (metrics 9000)
+docker compose --profile ingestion up -d   # PostgreSQL (54320) + Adminer (18081) + scheduler (metrics 9000); every service is profile-gated, a bare `up` starts nothing
 
 # Workspace setup (all four packages + every extra into one venv)
 uv sync --all-packages --all-extras

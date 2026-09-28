@@ -143,7 +143,7 @@ It seeds no data. Re-run any time with `portopt setup`.
 Lifecycle:
 
 ```bash
-portopt start     # decrypt secrets → render as compose secrets → docker compose up -d
+portopt start     # decrypt secrets → render as compose secrets → docker compose --profile fund up -d --wait
 portopt stop      # docker compose down + delete the rendered plaintext secret files
 portopt status    # report Docker + service health (non-zero exit if anything is down)
 ```
@@ -158,7 +158,7 @@ portopt status    # report Docker + service health (non-zero exit if anything is
 git clone https://github.com/SilvioBaratto/optimizer
 cd optimizer
 uv sync --all-packages --all-extras     # one venv with every member + every extra
-docker compose up -d                     # PostgreSQL (54320) + Adminer (18081) + scheduler (metrics 9000)
+docker compose --profile ingestion up -d # PostgreSQL (54320) + Adminer (18081) + scheduler (metrics 9000)
 cd packages/portopt-db && alembic upgrade head   # apply migrations (single owner)
 ```
 

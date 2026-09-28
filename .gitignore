@@ -182,3 +182,6 @@ graphify-out/
 
 # temp debug-repro cache (T212 universe)
 ingestion/scripts/.t212_universe_cache.json
+
+# Local scratch workspace (not shared)
+/thebull/

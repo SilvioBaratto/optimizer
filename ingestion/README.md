@@ -15,7 +15,7 @@ run from there.
 ## Run
 
 ```bash
-docker compose up -d          # db + adminer + scheduler
+docker compose --profile ingestion up -d   # db + adminer + scheduler
 docker compose logs -f scheduler
 ```
 

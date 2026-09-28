@@ -18,6 +18,7 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
         "compose": [],
         "cleaned": False,
         "env_fund_path": env_fund,
+        "build_profile": None,
     }
     monkeypatch.setattr(
         lifecycle.secret_store,
@@ -37,11 +38,13 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
     monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: {})
     monkeypatch.setattr(lifecycle.compose_env, "DEFAULT_ENV_FUND_PATH", env_fund)
     monkeypatch.setattr(lifecycle.docker_bootstrap, "check_docker", lambda: None)
-    monkeypatch.setattr(
-        lifecycle.docker_bootstrap,
-        "compose_up",
-        lambda: calls["compose"].append("up"),
-    )
+
+    def _fake_build_and_up(**kw: object) -> list[str]:
+        calls["build_profile"] = kw.get("profile")
+        calls["compose"].append("up")
+        return []
+
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "build_and_up", _fake_build_and_up)
     monkeypatch.setattr(
         lifecycle.docker_bootstrap,
         "compose_down",
@@ -115,11 +118,21 @@ def test_run_start_renders_secrets_and_env_before_bringing_up(
     monkeypatch.setattr(
         lifecycle.compose_env, "render", lambda config, **kw: order.append("env")
     )
-    monkeypatch.setattr(
-        lifecycle.docker_bootstrap, "compose_up", lambda: order.append("up")
-    )
+
+    def _fake_build_and_up(**kw: object) -> list[str]:
+        order.append("up")
+        return []
+
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "build_and_up", _fake_build_and_up)
     lifecycle.run_start("pw")
     assert order == ["secrets", "env", "up"]
+
+
+def test_run_start_brings_up_the_fund_profile(patched: dict) -> None:
+    """run_start must target the fund profile: every compose service is
+    profile-gated (T6), so a bare `up` would start nothing."""
+    lifecycle.run_start("pw")
+    assert patched["build_profile"] == "fund"
 
 
 def test_run_start_writes_empty_env_fund_when_unconfigured(patched: dict) -> None:
