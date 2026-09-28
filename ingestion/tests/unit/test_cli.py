@@ -12,6 +12,7 @@ database. What is asserted is the contract the shell drivers depend on:
 
 from __future__ import annotations
 
+import os
 from unittest.mock import patch
 
 import pytest
@@ -118,6 +119,39 @@ class TestSetupCommand:
         ):
             result = runner.invoke(app, ["setup"])
         assert result.exit_code == 1
+
+    def test_corp_ca_generates_bundle_and_sets_ssl_env(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+        monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+        bundle = tmp_path / "ca-bundle.pem"
+        with (
+            patch("app.setup.ca_bundle.generate", return_value=bundle) as mock_gen,
+            patch("app.setup.wizard.run_setup_interactive") as mock_run,
+            patch("app.setup.prompts.make_prompter"),
+        ):
+            result = runner.invoke(app, ["setup", "--corp-ca"])
+        assert result.exit_code == 0
+        mock_gen.assert_called_once()
+        mock_run.assert_called_once()
+        assert os.environ["SSL_CERT_FILE"] == str(bundle)
+        assert os.environ["REQUESTS_CA_BUNDLE"] == str(bundle)
+
+    def test_corp_ca_failure_exits_without_running_the_wizard(self) -> None:
+        from app.setup.ca_bundle import CABundleError
+
+        with (
+            patch(
+                "app.setup.ca_bundle.generate",
+                side_effect=CABundleError("no powershell"),
+            ),
+            patch("app.setup.wizard.run_setup_interactive") as mock_run,
+            patch("app.setup.prompts.make_prompter"),
+        ):
+            result = runner.invoke(app, ["setup", "--corp-ca"])
+        assert result.exit_code == 1
+        mock_run.assert_not_called()
 
 
 class TestLifecycleCommands:

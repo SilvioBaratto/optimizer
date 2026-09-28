@@ -220,14 +220,27 @@ def setup(
         "--llm-key",
         help="LLM provider API key (or the provider's own env var, e.g. OPENAI_API_KEY).",
     ),
+    corp_ca: bool = typer.Option(
+        False,
+        "--corp-ca",
+        help="Generate .certs/ca-bundle.pem (certifi + machine roots) for TLS-inspecting proxies.",
+    ),
 ) -> None:
     """Install wizard: verify Docker, validate keys live, encrypt secrets, migrate the DB."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
-    from app.setup import docker_bootstrap, wizard
+    from app.setup import ca_bundle, docker_bootstrap, wizard
+    from app.setup.ca_bundle import CABundleError
     from app.setup.prompts import PromptError, make_prompter
     from app.setup.validators import ValidationNetworkError
 
     try:
+        if corp_ca:
+            # Generate the merged bundle first and point this process's TLS stack at
+            # it, so the live key validation below trusts the corporate proxy's root.
+            bundle = ca_bundle.generate()
+            os.environ["SSL_CERT_FILE"] = str(bundle)
+            os.environ["REQUESTS_CA_BUNDLE"] = str(bundle)
+            typer.echo(f"Corporate CA bundle written to {bundle}.")
         if non_interactive:
             wizard.run_setup_noninteractive(
                 passphrase=os.getenv("PORTOPT_PASSPHRASE"),
@@ -246,6 +259,7 @@ def setup(
         docker_bootstrap.DockerError,
         ValidationNetworkError,
         PromptError,
+        CABundleError,
     ) as exc:
         typer.echo(f"Setup failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
