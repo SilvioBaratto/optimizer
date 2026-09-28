@@ -10,6 +10,7 @@ step leaves nothing persisted.
 
 from __future__ import annotations
 
+import logging
 import os
 
 from app.setup import (
@@ -79,7 +80,16 @@ def _persist_and_bootstrap(
     docker_bootstrap.bring_up_db()
     docker_bootstrap.migrate()
     if not skip_path_install:
-        path_install.install_launcher()
+        # Best-effort: secrets are already encrypted and the DB migrated, so a PATH
+        # failure must not fail the whole setup — warn and let the user add it manually.
+        try:
+            path_install.install_launcher()
+        except path_install.PathInstallError as exc:
+            logging.getLogger(__name__).warning(
+                "Could not install the `optimizer` launcher on PATH: %s. "
+                "Add scripts/optimizer to PATH manually.",
+                exc,
+            )
 
 
 def _llm_key_env(provider: str) -> str:

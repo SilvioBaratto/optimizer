@@ -95,20 +95,11 @@ def test_install_launcher_routes_by_os_name(
     expected_leaf: str,
 ) -> None:
     """install_launcher dispatches to the Windows/.cmd or POSIX/symlink branch."""
-    recorded: dict = {}
     monkeypatch.setattr(path_install, "_repo_root", lambda: tmp_path)
     monkeypatch.setattr(
-        path_install,
-        "_install_windows",
-        lambda b, r: (
-            recorded.setdefault("leaf", "optimizer.cmd") and b / "optimizer.cmd"
-        ),
+        path_install, "_install_windows", lambda b, r: b / "optimizer.cmd"
     )
-    monkeypatch.setattr(
-        path_install,
-        "_install_posix",
-        lambda b, r: recorded.setdefault("leaf", "optimizer") and b / "optimizer",
-    )
+    monkeypatch.setattr(path_install, "_install_posix", lambda b, r: b / "optimizer")
     monkeypatch.setattr(path_install.os, "name", os_name)
     installed = path_install.install_launcher(bin_dir=tmp_path)
     assert installed.name == expected_leaf
@@ -130,3 +121,31 @@ def test_ensure_on_path_skips_when_present(
     monkeypatch.setattr(path_install.userpath, "in_current_path", lambda loc: True)
     path_install._ensure_on_path(tmp_path)
     assert stub_userpath["appended"] == []
+
+
+def test_install_launcher_wraps_oserror_as_pathinstallerror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub_userpath: dict
+) -> None:
+    """A filesystem/PATH failure surfaces as PathInstallError, not a raw OSError."""
+
+    def boom(loc, app_name=None):
+        raise OSError("cannot write PATH")
+
+    monkeypatch.setattr(path_install.userpath, "append", boom)
+    with pytest.raises(path_install.PathInstallError):
+        path_install.install_launcher(bin_dir=tmp_path)
+
+
+def test_ensure_on_path_warns_when_append_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_userpath: dict,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A userpath.append that returns False warns instead of failing silently."""
+    monkeypatch.setattr(
+        path_install.userpath, "append", lambda loc, app_name=None: False
+    )
+    with caplog.at_level("WARNING"):
+        path_install._ensure_on_path(tmp_path)
+    assert "PATH" in caplog.text

@@ -10,12 +10,19 @@ resolves and repoints a stale symlink instead of erroring.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
 import userpath
 
+_logger = logging.getLogger(__name__)
+
 _BIN_DIR = Path.home() / ".local" / "bin"
+
+
+class PathInstallError(RuntimeError):
+    """Raised when the launcher cannot be installed onto the user's PATH."""
 
 
 def _repo_root() -> Path:
@@ -31,21 +38,29 @@ def install_launcher(*, bin_dir: Path | None = None) -> Path:
     PATH edit when ``bin_dir`` already resolves.
 
     Args:
-        bin_dir: Directory to install into; defaults to ``~/.local/bin`` (already on
-            PATH under uv). Created if absent.
+        bin_dir: Directory to install into; defaults to ``~/.local/bin`` (which uv
+            already exposes on PATH on POSIX). Created if absent.
 
     Returns:
         The created symlink (POSIX) or ``.cmd`` file (Windows).
+
+    Raises:
+        PathInstallError: If the symlink/``.cmd`` cannot be written or the PATH edit
+            fails. Callers treat this as non-fatal — the launcher install is the last,
+            least-critical setup step.
     """
-    target_dir = bin_dir or _BIN_DIR
-    target_dir.mkdir(parents=True, exist_ok=True)
-    repo = _repo_root()
-    installed = (
-        _install_windows(target_dir, repo)
-        if os.name == "nt"
-        else _install_posix(target_dir, repo)
-    )
-    _ensure_on_path(target_dir)
+    try:
+        target_dir = bin_dir or _BIN_DIR
+        target_dir.mkdir(parents=True, exist_ok=True)
+        repo = _repo_root()
+        installed = (
+            _install_windows(target_dir, repo)
+            if os.name == "nt"
+            else _install_posix(target_dir, repo)
+        )
+        _ensure_on_path(target_dir)
+    except OSError as exc:
+        raise PathInstallError(str(exc)) from exc
     return installed
 
 
@@ -67,8 +82,16 @@ def _install_windows(bin_dir: Path, repo: Path) -> Path:
 
 
 def _ensure_on_path(bin_dir: Path) -> None:
-    """Add ``bin_dir`` to the User PATH via userpath unless it already resolves."""
+    """Add ``bin_dir`` to the User PATH via userpath unless it already resolves.
+
+    A userpath.append that reports failure (returns falsey) is a warning, not an
+    error: the launcher file is still installed and the user can add the dir manually.
+    """
     location = str(bin_dir)
     if userpath.in_current_path(location) or userpath.in_new_path(location):
         return
-    userpath.append(location, "optimizer")
+    if not userpath.append(location, "optimizer"):
+        _logger.warning(
+            "Could not add %s to PATH automatically; add it to PATH manually.",
+            location,
+        )

@@ -43,13 +43,24 @@ def test_launcher_has_bash_shebang() -> None:
     assert _launcher_text().splitlines()[0] == "#!/usr/bin/env bash"
 
 
-def test_launcher_brings_up_fund_profile_gated_on_healthcheck() -> None:
-    """The launcher runs `--profile fund up -d --wait --wait-timeout 300`."""
+def test_launcher_starts_stack_via_portopt_start() -> None:
+    """The launcher renders secrets + brings the stack up by delegating to `portopt
+    start` (which decrypts→renders→`up --wait`), not a secret-less bare compose up."""
     text = _launcher_text()
-    assert "--profile fund" in text
-    assert "up -d" in text
-    assert "--wait" in text
-    assert "--wait-timeout 300" in text
+    assert "portopt start" in text
+    assert "app.cli start" in text  # uv-run fallback when portopt is not on PATH
+    # The launcher itself must NOT run a bare compose up — that would skip the
+    # secret rendering the fund service's `file:` secrets require.
+    assert "compose up" not in text
+    assert "up -d" not in text
+
+
+def test_launcher_requires_a_portfolio_id() -> None:
+    """A bare `optimizer` (no portfolio id) fails fast with a usage message, since
+    fund-tui requires the id and the launcher forwards it verbatim."""
+    text = _launcher_text()
+    assert "$# -eq 0" in text
+    assert "usage" in text.lower()
 
 
 def test_launcher_resolves_repo() -> None:

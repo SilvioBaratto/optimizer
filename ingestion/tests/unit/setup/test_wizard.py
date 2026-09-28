@@ -96,6 +96,21 @@ def test_setup_skip_path_install_leaves_path_untouched(patched: dict) -> None:
     assert patched["path_installed"] is False
 
 
+def test_setup_survives_path_install_failure(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PathInstallError is a warning, not a setup failure — secrets are persisted
+    and the DB migrated before the launcher install runs, so it must not roll back."""
+
+    def boom(**kw):
+        raise wizard.path_install.PathInstallError("no PATH")
+
+    monkeypatch.setattr(wizard.path_install, "install_launcher", boom)
+    wizard.run_setup_noninteractive(passphrase="pw")
+    assert patched["bootstrapped"] == ["db", "migrate"]
+    assert patched["saved_secrets"] == {}
+
+
 def test_interactive_installs_launcher_by_default(patched: dict) -> None:
     """The interactive path also installs the launcher by default."""
     prompter = NonInteractivePrompter(
