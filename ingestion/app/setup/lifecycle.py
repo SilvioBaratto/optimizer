@@ -54,4 +54,5 @@ def run_status() -> dict[str, bool]:
         "docker": docker_ok,
         "db": "db" in running,
         "scheduler": "scheduler" in running,
+        "fund": "fund" in running,
     }

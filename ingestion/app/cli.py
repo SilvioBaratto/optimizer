@@ -225,6 +225,11 @@ def setup(
         "--corp-ca",
         help="Generate .certs/ca-bundle.pem (certifi + machine roots) for TLS-inspecting proxies.",
     ),
+    skip_path_install: bool = typer.Option(
+        False,
+        "--skip-path-install",
+        help="Do not install the `optimizer` launcher onto PATH (CI / manual PATH setup).",
+    ),
 ) -> None:
     """Install wizard: verify Docker, validate keys live, encrypt secrets, migrate the DB."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
@@ -251,9 +256,12 @@ def setup(
                 llm_model=llm_model,
                 llm_base_url=llm_base_url,
                 llm_key=llm_key,
+                skip_path_install=skip_path_install,
             )
         else:
-            wizard.run_setup_interactive(make_prompter())
+            wizard.run_setup_interactive(
+                make_prompter(), skip_path_install=skip_path_install
+            )
     except (
         wizard.SetupError,
         docker_bootstrap.DockerError,

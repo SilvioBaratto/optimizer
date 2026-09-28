@@ -42,6 +42,9 @@ dependencies = [
     "questionary==2.1.1",
     "rich==15.0.0",
     "cryptography==50.0.1",
+    # PATH install for the `optimizer` launcher: userpath edits the User PATH via
+    # shell rc / registry (never `setx`, which truncates PATH at 1024 chars).
+    "userpath==1.9.2",
     # Shared DB package (workspace). Owns SQLAlchemy/psycopg2/alembic + the schema;
     # ingestion inherits them transitively.
     "portopt-db",

@@ -15,6 +15,7 @@ import os
 from app.setup import (
     config_file,
     docker_bootstrap,
+    path_install,
     secret_store,
     validators,
 )
@@ -67,12 +68,18 @@ class SetupError(RuntimeError):
 
 
 def _persist_and_bootstrap(
-    secrets: dict[str, str], config: dict[str, object], passphrase: str
+    secrets: dict[str, str],
+    config: dict[str, object],
+    passphrase: str,
+    *,
+    skip_path_install: bool = False,
 ) -> None:
     secret_store.save_secrets(secrets, passphrase)
     config_file.save_config(config)
     docker_bootstrap.bring_up_db()
     docker_bootstrap.migrate()
+    if not skip_path_install:
+        path_install.install_launcher()
 
 
 def _llm_key_env(provider: str) -> str:
@@ -266,6 +273,7 @@ def run_setup_noninteractive(
     llm_model: str | None = None,
     llm_base_url: str | None = None,
     llm_key: str | None = None,
+    skip_path_install: bool = False,
 ) -> None:
     """Non-interactive setup from flags/env — fails loud, persists nothing on error."""
     if not passphrase:
@@ -297,10 +305,17 @@ def run_setup_noninteractive(
         llm_key=llm_key,
     )
 
-    _persist_and_bootstrap(secrets, config, passphrase)
+    _persist_and_bootstrap(
+        secrets, config, passphrase, skip_path_install=skip_path_install
+    )
 
 
-def run_setup_interactive(prompter: Prompter, *, passphrase: str | None = None) -> None:
+def run_setup_interactive(
+    prompter: Prompter,
+    *,
+    passphrase: str | None = None,
+    skip_path_install: bool = False,
+) -> None:
     """Interactive setup via the prompt seam; each credential validates before persist."""
     docker_bootstrap.check_docker()
 
@@ -334,4 +349,4 @@ def run_setup_interactive(prompter: Prompter, *, passphrase: str | None = None) 
 
     _configure_llm_interactive(prompter, config, secrets)
 
-    _persist_and_bootstrap(secrets, config, pw)
+    _persist_and_bootstrap(secrets, config, pw, skip_path_install=skip_path_install)

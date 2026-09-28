@@ -80,6 +80,22 @@ class TestSetupCommand:
         assert kwargs["llm_base_url"] == "https://proxy.example/v1"
         assert kwargs["llm_key"] == "sk-x"
 
+    def test_skip_path_install_forwarded(self) -> None:
+        """`--skip-path-install` forwards skip_path_install=True to the wizard."""
+        with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
+            result = runner.invoke(
+                app, ["setup", "--non-interactive", "--skip-path-install"]
+            )
+        assert result.exit_code == 0
+        assert mock_run.call_args.kwargs["skip_path_install"] is True
+
+    def test_skip_path_install_defaults_false(self) -> None:
+        """Without the flag the wizard is told to install the launcher."""
+        with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
+            result = runner.invoke(app, ["setup", "--non-interactive"])
+        assert result.exit_code == 0
+        assert mock_run.call_args.kwargs["skip_path_install"] is False
+
     def test_non_interactive_failure_exits_nonzero(self) -> None:
         from app.setup.wizard import SetupError
 

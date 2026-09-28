@@ -16,8 +16,18 @@ from app.setup.prompts import NonInteractivePrompter
 @pytest.fixture
 def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     """Patch all wizard collaborators; record persistence + bootstrap calls."""
-    calls: dict = {"saved_secrets": None, "saved_config": None, "bootstrapped": []}
+    calls: dict = {
+        "saved_secrets": None,
+        "saved_config": None,
+        "bootstrapped": [],
+        "path_installed": False,
+    }
     monkeypatch.setattr(wizard.docker_bootstrap, "check_docker", lambda: None)
+    monkeypatch.setattr(
+        wizard.path_install,
+        "install_launcher",
+        lambda **kw: calls.update(path_installed=True),
+    )
     monkeypatch.setattr(
         wizard.docker_bootstrap,
         "bring_up_db",
@@ -71,6 +81,33 @@ def test_noninteractive_minimal_bootstraps(patched: dict) -> None:
     assert patched["saved_secrets"] == {}
     assert patched["saved_config"] == {}
     assert patched["bootstrapped"] == ["db", "migrate"]
+
+
+def test_setup_installs_launcher_by_default(patched: dict) -> None:
+    """Setup installs the `optimizer` launcher onto PATH unless told to skip."""
+    wizard.run_setup_noninteractive(passphrase="pw")
+    assert patched["path_installed"] is True
+
+
+def test_setup_skip_path_install_leaves_path_untouched(patched: dict) -> None:
+    """`skip_path_install=True` persists + bootstraps but does no PATH edit."""
+    wizard.run_setup_noninteractive(passphrase="pw", skip_path_install=True)
+    assert patched["bootstrapped"] == ["db", "migrate"]
+    assert patched["path_installed"] is False
+
+
+def test_interactive_installs_launcher_by_default(patched: dict) -> None:
+    """The interactive path also installs the launcher by default."""
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_CONNECT_T212: False,
+            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_CONFIGURE_LLM: False,
+        }
+    )
+    wizard.run_setup_interactive(prompter)
+    assert patched["path_installed"] is True
 
 
 def test_noninteractive_full_persists_all(patched: dict) -> None:

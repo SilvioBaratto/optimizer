@@ -169,12 +169,36 @@ def test_wizard_selection_surfaces_correct_fund_env(
 def test_run_status_all_up(patched: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: True)
     monkeypatch.setattr(
-        lifecycle.docker_bootstrap, "running_services", lambda: {"db", "scheduler"}
+        lifecycle.docker_bootstrap,
+        "running_services",
+        lambda: {"db", "scheduler", "fund"},
     )
-    assert lifecycle.run_status() == {"docker": True, "db": True, "scheduler": True}
+    assert lifecycle.run_status() == {
+        "docker": True,
+        "db": True,
+        "scheduler": True,
+        "fund": True,
+    }
+
+
+def test_run_status_reports_fund_independently(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: True)
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap, "running_services", lambda: {"db", "fund"}
+    )
+    status = lifecycle.run_status()
+    assert status["fund"] is True
+    assert status["scheduler"] is False
 
 
 def test_run_status_docker_down(patched: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: False)
     status = lifecycle.run_status()
-    assert status == {"docker": False, "db": False, "scheduler": False}
+    assert status == {
+        "docker": False,
+        "db": False,
+        "scheduler": False,
+        "fund": False,
+    }
