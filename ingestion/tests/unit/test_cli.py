@@ -76,7 +76,7 @@ class TestSetupCommand:
     def test_interactive_invokes_wizard(self) -> None:
         with (
             patch("app.setup.wizard.run_setup_interactive") as mock_run,
-            patch("app.setup.prompts.QuestionaryPrompter"),
+            patch("app.setup.prompts.make_prompter"),
         ):
             result = runner.invoke(app, ["setup"])
         assert result.exit_code == 0
@@ -90,7 +90,7 @@ class TestSetupCommand:
                 "app.setup.wizard.run_setup_interactive",
                 side_effect=DockerError("daemon down"),
             ),
-            patch("app.setup.prompts.QuestionaryPrompter"),
+            patch("app.setup.prompts.make_prompter"),
         ):
             result = runner.invoke(app, ["setup"])
         assert result.exit_code == 1

@@ -206,7 +206,7 @@ def setup(
     """Install wizard: verify Docker, validate keys live, encrypt secrets, migrate the DB."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
     from app.setup import docker_bootstrap, wizard
-    from app.setup.prompts import QuestionaryPrompter
+    from app.setup.prompts import PromptError, make_prompter
     from app.setup.validators import ValidationNetworkError
 
     try:
@@ -218,11 +218,12 @@ def setup(
                 fred_key=fred_key,
             )
         else:
-            wizard.run_setup_interactive(QuestionaryPrompter())
+            wizard.run_setup_interactive(make_prompter())
     except (
         wizard.SetupError,
         docker_bootstrap.DockerError,
         ValidationNetworkError,
+        PromptError,
     ) as exc:
         typer.echo(f"Setup failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -235,17 +236,20 @@ def start() -> None:
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
     from app.setup import lifecycle
     from app.setup.docker_bootstrap import DockerError
+    from app.setup.prompts import PromptError, make_prompter
     from app.setup.secret_store import SecretStoreError
 
     passphrase = os.getenv("PORTOPT_PASSPHRASE")
-    if not passphrase:
-        from app.setup.prompts import QuestionaryPrompter
-
-        passphrase = QuestionaryPrompter().password("Master passphrase:")
-
     try:
+        if not passphrase:
+            passphrase = make_prompter().password("Master passphrase:")
         lifecycle.run_start(passphrase)
-    except (lifecycle.LifecycleError, DockerError, SecretStoreError) as exc:
+    except (
+        lifecycle.LifecycleError,
+        DockerError,
+        SecretStoreError,
+        PromptError,
+    ) as exc:
         typer.echo(f"Start failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo("portopt is running.")
