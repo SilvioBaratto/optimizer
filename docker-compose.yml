@@ -160,6 +160,19 @@ services:
     # host.docker.internal when OLLAMA_BASE_URL / a provider *_BASE_URL points there.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Healthy only once the single portopt-db Alembic tree reaches head. The
+    # entrypoint runs `alembic upgrade head` before the worker starts; `alembic
+    # current` prints the revision annotated `(head)` only after that finished, so
+    # `up --wait` gates on migrations, not merely on the process being alive. The
+    # probe runs in the migration owner's dir (alembic.ini lives there), matching
+    # the entrypoint. start_period covers first-run migration time so the
+    # pre-migration window is not counted as a failure.
+    healthcheck:
+      test: ["CMD-SHELL", "cd /app/packages/portopt-db && alembic current 2>/dev/null | grep -q '(head)'"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
     networks:
       - optimizer_network
 
