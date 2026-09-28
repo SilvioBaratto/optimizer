@@ -3,3 +3,6 @@
 # ("exec /entrypoint.sh: no such file or directory").
 *.sh text eol=lf
 entrypoint.sh text eol=lf
+# Extensionless shell shims (e.g. the `optimizer` launcher) also need LF: they run
+# in Git Bash and a CRLF `#!/usr/bin/env bash\r` shebang fails the same way.
+scripts/optimizer text eol=lf
