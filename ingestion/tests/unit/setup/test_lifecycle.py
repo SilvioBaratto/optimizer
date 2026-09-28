@@ -11,8 +11,14 @@ from app.setup import lifecycle
 
 
 @pytest.fixture
-def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
-    calls: dict = {"rendered": None, "compose": [], "cleaned": False}
+def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
+    env_fund = tmp_path / ".env.fund"
+    calls: dict = {
+        "rendered": None,
+        "compose": [],
+        "cleaned": False,
+        "env_fund_path": env_fund,
+    }
     monkeypatch.setattr(
         lifecycle.secret_store,
         "load_secrets",
@@ -26,6 +32,10 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         lifecycle.compose_secrets, "cleanup", lambda **kw: calls.update(cleaned=True)
     )
+    # Default to no persisted LLM config; real compose_env.render/cleanup run, but
+    # against a tmp .env.fund so they never touch the repo root.
+    monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: {})
+    monkeypatch.setattr(lifecycle.compose_env, "DEFAULT_ENV_FUND_PATH", env_fund)
     monkeypatch.setattr(lifecycle.docker_bootstrap, "check_docker", lambda: None)
     monkeypatch.setattr(
         lifecycle.docker_bootstrap,
@@ -67,9 +77,80 @@ def test_run_start_propagates_bad_passphrase(
 
 
 def test_run_stop_tears_down_and_cleans(patched: dict) -> None:
+    patched["env_fund_path"].write_text("LLM_PROVIDER=openai\n", encoding="utf-8")
     lifecycle.run_stop()
     assert patched["compose"] == ["down"]
     assert patched["cleaned"] is True
+    assert not patched["env_fund_path"].exists()  # .env.fund wiped alongside secrets
+
+
+def test_run_start_writes_env_fund_from_config(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The wizard's persisted provider/model surface in .env.fund before up."""
+    monkeypatch.setattr(
+        lifecycle.config_file,
+        "load_config",
+        lambda **kw: {"llm_provider": "openai", "llm_model": "gpt-4o"},
+    )
+    lifecycle.run_start("pw")
+    text = patched["env_fund_path"].read_text(encoding="utf-8")
+    assert "LLM_PROVIDER=openai" in text
+    assert "FUND_PRIMARY_MODEL=gpt-4o" in text
+    assert "KEY" not in text  # secrets never land in the plaintext env file
+    assert patched["compose"] == ["up"]
+
+
+def test_run_start_renders_secrets_and_env_before_bringing_up(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Secrets and the .env.fund selection are rendered before `compose up` — a
+    reordering that started the stack before rendering would be a regression."""
+    order: list[str] = []
+    monkeypatch.setattr(
+        lifecycle.compose_secrets,
+        "render",
+        lambda secrets, **kw: order.append("secrets"),
+    )
+    monkeypatch.setattr(
+        lifecycle.compose_env, "render", lambda config, **kw: order.append("env")
+    )
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap, "compose_up", lambda: order.append("up")
+    )
+    lifecycle.run_start("pw")
+    assert order == ["secrets", "env", "up"]
+
+
+def test_run_start_writes_empty_env_fund_when_unconfigured(patched: dict) -> None:
+    """With no persisted LLM config, .env.fund is written empty (env_file resolves)."""
+    lifecycle.run_start("pw")
+    assert patched["env_fund_path"].read_text(encoding="utf-8") == ""
+    assert patched["compose"] == ["up"]
+
+
+@pytest.mark.parametrize(
+    ("provider", "model"),
+    [
+        ("openai", "gpt-4o"),
+        ("anthropic", "claude-opus-4-5"),
+        ("ollama", "deepseek-v4.1-flash:cloud"),
+    ],
+)
+def test_wizard_selection_surfaces_correct_fund_env(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, provider: str, model: str
+) -> None:
+    """End-to-end (real config_to_env): a selected provider surfaces under the exact
+    env-var names fund.config reads."""
+    monkeypatch.setattr(
+        lifecycle.config_file,
+        "load_config",
+        lambda **kw: {"llm_provider": provider, "llm_model": model},
+    )
+    lifecycle.run_start("pw")
+    text = patched["env_fund_path"].read_text(encoding="utf-8")
+    assert f"LLM_PROVIDER={provider}" in text
+    assert f"FUND_PRIMARY_MODEL={model}" in text
 
 
 def test_run_status_all_up(patched: dict, monkeypatch: pytest.MonkeyPatch) -> None:

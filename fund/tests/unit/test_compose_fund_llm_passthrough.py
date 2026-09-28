@@ -8,15 +8,18 @@ configuration into the container. Two mechanisms, deliberately split:
   shared model-id pair, each provider's auth var, ``OLLAMA_BASE_URL``) exactly as
   ``fund.config.load_config`` reads them — and *only when set*, so an unset var
   falls through to ``fund.config``'s own default.
-* the switchable selector ``LLM_PROVIDER`` is **additionally** declared as an
-  explicit ``environment`` entry so its default (``ollama``) is visible in compose
-  and overridable from the host shell.
+* ``env_file: .env.fund`` (rendered by ``portopt start`` from the wizard's
+  ``config.toml``, listed **last** so it overrides ``.env``) carries the switchable
+  selector ``LLM_PROVIDER`` and the rest of the non-secret LLM selection.
 
-We intentionally do **not** give the model pair / auth vars empty-default
-``environment`` entries: ``environment:`` overrides ``env_file:``, so
-``FUND_PRIMARY_MODEL: ${FUND_PRIMARY_MODEL:-}`` would clobber ``fund.config``'s
-code default with an empty string whenever the var is unset. ``env_file`` is the
-correct pass-through-if-present channel for those.
+``LLM_PROVIDER`` is delivered through ``.env.fund``, **not** an ``environment``
+entry: ``environment:`` overrides ``env_file:`` AND ``${...}`` interpolation never
+reads ``.env.fund`` (Compose auto-loads only ``.env``), so an
+``LLM_PROVIDER: ${LLM_PROVIDER:-ollama}`` entry would pin the container to
+``ollama`` and silently discard ``.env.fund``. The same reasoning bars empty-default
+``environment`` entries for the model pair / auth vars (``${FUND_PRIMARY_MODEL:-}``
+would clobber ``fund.config``'s code default with ``""``). ``env_file`` is the sole
+non-secret channel; secrets stay on the ``<NAME>_FILE`` docker-secret channel.
 
 ``Path(__file__).resolve().parents[3]`` resolves to the repo root
 (unit -> tests -> fund -> optimizer), never ``Path.cwd()``.
@@ -27,6 +30,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -65,21 +69,58 @@ def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else [value]
 
 
+def _env_file_paths() -> list[str]:
+    """env_file entries as paths (each is a bare string or a {path, required} map)."""
+    return [
+        entry if isinstance(entry, str) else entry.get("path")
+        for entry in _as_list(_fund_service().get("env_file"))
+    ]
+
+
 def test_fund_service_forwards_dotenv():
     """env_file includes .env, so D4 vars set there reach the container."""
-    assert ".env" in _as_list(_fund_service().get("env_file"))
+    assert ".env" in _env_file_paths()
 
 
-def test_fund_service_declares_llm_provider_selector():
-    """The switchable selector is an explicit environment entry, not left implicit."""
-    environment = _fund_service().get("environment", {})
-    assert "LLM_PROVIDER" in environment
+def test_fund_service_appends_generated_env_fund_last():
+    """The wizard's non-secret LLM selection reaches the container via .env.fund,
+    listed last so it overrides .env."""
+    assert _env_file_paths()[-1] == ".env.fund"
 
 
-def test_fund_llm_provider_default_matches_config():
-    """LLM_PROVIDER default is ollama (fund.config default) and host-overridable."""
-    environment = _fund_service().get("environment", {})
-    assert environment["LLM_PROVIDER"] == "${LLM_PROVIDER:-ollama}"
+def test_env_fund_is_optional():
+    """A pre-setup `docker compose up` (no rendered .env.fund) must still parse."""
+    env_fund = next(
+        e
+        for e in _as_list(_fund_service().get("env_file"))
+        if isinstance(e, dict) and e.get("path") == ".env.fund"
+    )
+    assert env_fund.get("required") is False
+
+
+# The non-secret D4 vars fund.config reads. NONE may sit under `environment:`: it
+# outranks env_file, and `${...}` interpolation never reads .env.fund, so an entry
+# there would shadow the wizard's file (or an empty `${VAR:-}` would clobber the
+# fund.config code default). They flow only via env_file (.env / .env.fund).
+_NON_SECRET_D4_VARS = (
+    "LLM_PROVIDER",
+    "FUND_PRIMARY_MODEL",
+    "FUND_FALLBACK_MODEL",
+    "OLLAMA_BASE_URL",
+    "OPENAI_BASE_URL",
+    "NVIDIA_BASE_URL",
+    "AWS_REGION",
+    "AZURE_OPENAI_ENDPOINT",
+    "OPENAI_API_VERSION",
+    "AZURE_OPENAI_DEPLOYMENT_NAME",
+)
+
+
+@pytest.mark.parametrize("var", _NON_SECRET_D4_VARS)
+def test_non_secret_llm_var_not_declared_under_environment(var: str):
+    """No non-secret LLM var is declared under `environment:` (would shadow
+    .env.fund or clobber the fund.config default)."""
+    assert var not in _fund_service().get("environment", {})
 
 
 # --- T3: per-provider file-based docker secrets reach the fund container -------

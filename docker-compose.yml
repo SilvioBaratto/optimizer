@@ -99,22 +99,25 @@ services:
     stop_grace_period: 45s
     env_file:
       - .env
+      # Non-secret LLM selection (LLM_PROVIDER, FUND_PRIMARY_MODEL, per-provider
+      # *_BASE_URL, AWS_REGION, AZURE_*) rendered by `portopt start` from
+      # ~/.portopt/config.toml. Listed LAST so it overrides .env, and delivered via
+      # env_file — never `environment:` — on purpose: `environment:` outranks
+      # env_file AND `${...}` interpolation never reads .env.fund, so any of these
+      # vars left under `environment:` would pin the container to the compose
+      # default and silently discard the wizard's choice. Only wizard-set keys are
+      # written, so an unset var is absent (never "") and falls through to
+      # fund.config's own default (env-free run still = DeepSeek on Ollama Cloud).
+      # `required: false` (Compose >= 2.24) lets a pre-setup `docker compose up`
+      # still parse; `portopt start` always renders the file before `up` anyway.
+      - path: .env.fund
+        required: false
     environment:
       # Container-internal DB coordinates (override the localhost:54320 from .env).
       DATABASE_URL: postgresql://postgres:postgres@db:5432/optimizer_db
       DB_HOST: db
       DB_PORT: "5432"
       DB_USER: postgres
-      # LLM backend (SPEC D4, switchable provider registry). fund.config reads
-      # LLM_PROVIDER + FUND_PRIMARY_MODEL/FUND_FALLBACK_MODEL + OLLAMA_BASE_URL +
-      # each provider's auth var. The model pair, per-provider auth, and
-      # OLLAMA_BASE_URL flow in via `env_file: .env` above — forwarded only when
-      # set, so an unset var falls through to fund.config's own default (env-free
-      # run still = DeepSeek on Ollama Cloud). Only the selector is declared here
-      # so its default is visible in compose and overridable from the host shell;
-      # the model/auth vars get NO empty-default entries because `environment:`
-      # overrides `env_file:` and `${VAR:-}` would clobber the code default.
-      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       # Provider auth flows ONLY via file-based docker secrets: each <NAME>_FILE
       # points at /run/secrets/<name>, which fund.config._read_secret reads
       # (non-empty file wins; empty placeholder falls through to inline). No bare

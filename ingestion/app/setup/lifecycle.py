@@ -7,7 +7,13 @@ secret files. `run_status` reports Docker + service health.
 
 from __future__ import annotations
 
-from app.setup import compose_secrets, docker_bootstrap, secret_store
+from app.setup import (
+    compose_env,
+    compose_secrets,
+    config_file,
+    docker_bootstrap,
+    secret_store,
+)
 
 
 class LifecycleError(RuntimeError):
@@ -23,6 +29,10 @@ def run_start(passphrase: str) -> None:
     docker_bootstrap.check_docker()
     secrets = secret_store.load_secrets(passphrase)
     compose_secrets.render(secrets)
+    # The fund container never reads config.toml — its non-secret LLM selection
+    # reaches it only through the generated .env.fund env_file (the compose
+    # `environment:` block omits these vars so nothing shadows the file).
+    compose_env.render(config_file.load_config())
     docker_bootstrap.compose_up()
 
 
@@ -30,6 +40,7 @@ def run_stop() -> None:
     """Stop the stack and remove the rendered plaintext secret files."""
     docker_bootstrap.compose_down()
     compose_secrets.cleanup()
+    compose_env.cleanup()
 
 
 def run_status() -> dict[str, bool]:
